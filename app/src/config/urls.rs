@@ -5,8 +5,10 @@
 // Workaround for kent8192/reinhardt-web#2362: UnifiedRouter is not re-exported via
 // prelude when client-router feature is disabled. Import explicitly.
 // Remove this workaround when the upstream issue is resolved.
-use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::routes;
+use reinhardt::urls::prelude::UnifiedRouter;
+
+use crate::config::middleware::JwtAuthMiddleware;
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
@@ -14,4 +16,5 @@ pub fn routes() -> UnifiedRouter {
 		.mount("/api/", crate::apps::auth::urls::url_patterns())
 		.mount("/api/", crate::apps::clusters::urls::url_patterns())
 		.mount("/api/", crate::apps::deployments::urls::url_patterns())
+		.with_middleware(JwtAuthMiddleware)
 }
