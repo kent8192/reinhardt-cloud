@@ -1,0 +1,169 @@
+# Nuages - cargo-make configuration
+
+[config]
+default_to_workspace = false
+
+# Environment variables
+[env]
+CARGO_TERM_COLOR = "always"
+RUST_BACKTRACE = "1"
+
+# ============================================================================
+# Core Development Tasks
+# ============================================================================
+
+[tasks.check]
+description = "Run cargo check on workspace"
+command = "cargo"
+args = [
+	"check",
+	"--workspace",
+	"--all-features",
+	"--all-targets",
+	"--quiet",
+]
+
+[tasks.build]
+description = "Build workspace"
+command = "cargo"
+args = [
+	"build",
+	"--workspace",
+	"--all-features",
+	"--all-targets",
+	"--quiet",
+]
+
+[tasks.build-release]
+description = "Build workspace in release mode"
+command = "cargo"
+args = ["build", "--workspace", "--all-features", "--release", "--quiet"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+# ============================================================================
+# Code Quality Tasks
+# ============================================================================
+
+[tasks.fmt-check]
+description = "Check code formatting"
+command = "cargo"
+args = ["fmt", "--all", "--check"]
+
+[tasks.fmt-fix]
+description = "Auto-fix code formatting"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.clippy-check]
+description = "Run clippy linter"
+command = "cargo"
+args = [
+	"clippy",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--",
+	"-D",
+	"warnings",
+]
+
+[tasks.clippy-fix]
+description = "Run clippy linter and automatically fix found errors"
+command = "cargo"
+args = [
+	"clippy",
+	"--fix",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--allow-dirty",
+	"--",
+	"-D",
+	"warnings",
+]
+
+[tasks.clippy-todo-check]
+description = "Check for development-only code (todo!, unimplemented!, dbg!)"
+command = "cargo"
+args = [
+	"clippy",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--",
+	"-D", "clippy::todo",
+	"-D", "clippy::unimplemented",
+	"-D", "clippy::dbg_macro",
+]
+
+# ============================================================================
+# Testing Tasks
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests with nextest"
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"--workspace",
+	"--all-features",
+	"--no-fail-fast",
+]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"--workspace",
+	"--lib",
+	"--all-features",
+	"--no-fail-fast",
+]
+
+[tasks.doc-test]
+description = "Run documentation tests"
+command = "cargo"
+args = ["test", "--workspace", "--all-features", "--doc"]
+
+# ============================================================================
+# Documentation Tasks
+# ============================================================================
+
+[tasks.doc]
+description = "Build documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps"]
+
+[tasks.doc-open]
+description = "Build and open documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps", "--open"]
+
+# ============================================================================
+# Security Tasks
+# ============================================================================
+
+[tasks.audit]
+description = "Check for known vulnerabilities in dependencies"
+command = "cargo"
+args = ["audit"]
+
+# ============================================================================
+# Combined Checks (run before PR)
+# ============================================================================
+
+[tasks.pre-pr]
+description = "Run all checks before creating a PR"
+dependencies = [
+	"fmt-check",
+	"clippy-check",
+	"test",
+	"doc",
+]
