@@ -1,0 +1,25 @@
+//! Response serializers for cluster endpoints.
+
+use serde::Serialize;
+
+use crate::apps::clusters::models::Cluster;
+
+/// Cluster API response.
+#[derive(Debug, Serialize)]
+pub struct ClusterResponse {
+	pub id: i64,
+	pub name: String,
+	pub api_url: String,
+	pub is_active: bool,
+}
+
+impl From<Cluster> for ClusterResponse {
+	fn from(c: Cluster) -> Self {
+		Self {
+			id: c.id.unwrap_or(0),
+			name: c.name,
+			api_url: c.api_url,
+			is_active: c.is_active,
+		}
+	}
+}
