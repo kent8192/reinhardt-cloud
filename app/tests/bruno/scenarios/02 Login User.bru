@@ -1,0 +1,37 @@
+meta {
+  name: 02 Login User
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login/
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "{{testUsername}}",
+    "password": "{{testPassword}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.token_type: eq Bearer
+  res.body.token: isString
+}
+
+tests {
+  test("should login and return JWT token", function() {
+    const body = res.getBody();
+    expect(body.token_type).to.equal("Bearer");
+    expect(body.token).to.be.a("string");
+    expect(body.token.length).to.be.greaterThan(0);
+  });
+}
+
+script:post-response {
+  bru.setEnvVar("jwtToken", res.body.token);
+}
