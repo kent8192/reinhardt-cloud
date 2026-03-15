@@ -1,0 +1,71 @@
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        if_ci_failed: success
+        flags:
+          - unit
+          - integration
+      unit:
+        flags:
+          - unit
+        target: auto
+        threshold: 1%
+      integration:
+        flags:
+          - integration
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        if_ci_failed: success
+
+  ignore:
+    # Build scripts
+    - "**/build.rs"
+    # Test infrastructure
+    - "tests/**"
+
+flags:
+  unit:
+    paths: ["crates/**", "src/**"]
+    carryforward: true
+  integration:
+    paths: ["crates/**", "src/**"]
+    carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+  individual_components:
+    - component_id: control-plane
+      name: Control Plane
+      paths:
+        - "crates/nuages-control-plane/src/**"
+    - component_id: operator
+      name: Kubernetes Operator
+      paths:
+        - "crates/nuages-operator/src/**"
+    - component_id: cli
+      name: CLI
+      paths:
+        - "crates/nuages-cli/src/**"
+
+comment:
+  layout: "condensed_header, condensed_files, condensed_footer"
+  require_changes: true
+  require_base: false
+  require_head: true
+  hide_comment_details: false
+
+github_checks:
+  annotations: true

@@ -1,0 +1,105 @@
+# release-plz configuration for Nuages project
+# Documentation: https://release-plz.ieni.dev/docs/config
+#
+# Crate structure:
+#   Library crates (publish = false): nuages-types, nuages-api, nuages-k8s
+#   Binary crates (GitHub Releases):  nuages-control, nuages-operator, nuages-cli
+
+[workspace]
+# Changelog settings
+changelog_update = true
+
+# PR settings
+# IMPORTANT: Branch prefix MUST start with "release-plz-" for native two-step release workflow.
+pr_branch_prefix = "release-plz-"
+pr_labels = ["release", "automated"]
+pr_name = "chore: release"
+
+# Git release settings
+git_release_enable = false
+git_tag_enable = true
+git_tag_name = "{{ package }}@v{{ version }}"
+git_release_type = "auto"
+
+# Publish settings
+# semver_check disabled at workspace level: library crates are internal (publish = false)
+# and binary crates are not published to crates.io.
+semver_check = false
+publish_timeout = "10m"
+dependencies_update = true
+release_always = true
+publish_no_verify = true
+
+# ── Internal library crates ──────────────────────────────────────────────────
+# These crates are workspace-internal and not published to crates.io.
+# release-plz still manages their changelogs and tags for internal tracking.
+
+[[package]]
+name = "nuages-types"
+publish = false
+version_group = "nuages"
+
+[[package]]
+name = "nuages-api"
+publish = false
+version_group = "nuages"
+
+[[package]]
+name = "nuages-k8s"
+publish = false
+version_group = "nuages"
+
+# ── Binary crates (GitHub Releases) ─────────────────────────────────────────
+# These crates are distributed as GitHub Releases (not crates.io).
+
+[[package]]
+name = "nuages-control"
+publish = false
+git_release_enable = true
+version_group = "nuages"
+
+[[package]]
+name = "nuages-operator"
+publish = false
+git_release_enable = true
+version_group = "nuages"
+
+[[package]]
+name = "nuages-cli"
+publish = false
+git_release_enable = true
+version_group = "nuages"
+
+[changelog]
+protect_breaking_commits = true
+sort_commits = "oldest"
+
+# Commit parsers: evaluated in order, first match wins.
+commit_parsers = [
+  # Skip: automated commits not relevant to release notes
+  { message = "^chore: release", skip = true },
+  { message = "^Merge", skip = true },
+  { message = "^Revert \"", skip = true },
+  { message = "^Initial plan", skip = true },
+  # Map: commit types to Keep a Changelog sections
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^revert", group = "Reverted" },
+  { message = "^deprecated", group = "Deprecated" },
+  { message = "^security", group = "Security" },
+  { message = "^chore", group = "Maintenance" },
+  { message = "^ci", group = "Maintenance" },
+  { message = "^build", group = "Maintenance" },
+  { message = "^test", group = "Testing" },
+  { message = "^style", group = "Styling" },
+  # Catch-all
+  { message = "^.*", group = "Other" },
+]
+
+# Convert GitHub issue/PR references to clickable links
+commit_preprocessors = [
+  { pattern = '#(\d+)', replace = "[#${1}](https://github.com/kent8192/nuages/issues/${1})" },
+]
