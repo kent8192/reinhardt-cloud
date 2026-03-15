@@ -1,0 +1,8 @@
+[build]
+target-dir = "target"
+rustflags = ["-Wunreachable_pub"]
+
+# rust-analyzer settings
+# Enable all features to improve type checking in the editor
+[env]
+RUST_ANALYZER_CARGO_FEATURES = "all"
