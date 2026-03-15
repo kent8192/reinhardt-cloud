@@ -12,7 +12,11 @@ pub struct NuagesMigrations;
 
 impl MigrationProvider for NuagesMigrations {
 	fn migrations() -> Vec<Migration> {
-		vec![auth_users_initial(), clusters_initial(), deployments_initial()]
+		vec![
+			auth_users_initial(),
+			clusters_initial(),
+			deployments_initial(),
+		]
 	}
 }
 

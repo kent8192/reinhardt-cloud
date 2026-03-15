@@ -27,10 +27,10 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
+use reinhardt::Settings;
 use reinhardt::conf::settings::builder::SettingsBuilder;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
-use reinhardt::Settings;
 use std::env;
 
 /// Get settings based on environment variable
