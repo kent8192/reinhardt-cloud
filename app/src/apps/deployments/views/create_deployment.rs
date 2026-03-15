@@ -9,13 +9,13 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
 
 /// Create a new deployment.
-#[post("/deployments/", name = "deployment_create")]
-pub async fn create_deployment(Json(body): Json<CreateDeploymentRequest>) -> ViewResult<Response> {
+#[post("/deployments/", name = "deployment_create", pre_validate = true)]
+pub async fn create_deployment(body: Json<CreateDeploymentRequest>) -> ViewResult<Response> {
 	let new_deployment = Deployment::new(
-		body.app_name,
+		body.app_name.clone(),
 		body.cluster_id,
 		"pending".to_string(),
-		body.image,
+		body.image.clone(),
 	);
 	let manager = Deployment::objects();
 	let created = manager

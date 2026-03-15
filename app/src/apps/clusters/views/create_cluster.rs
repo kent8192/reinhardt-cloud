@@ -9,9 +9,9 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, CreateClusterRequest};
 
 /// Create a new cluster.
-#[post("/clusters/", name = "cluster_create")]
-pub async fn create_cluster(Json(body): Json<CreateClusterRequest>) -> ViewResult<Response> {
-	let new_cluster = Cluster::new(body.name, body.api_url, true);
+#[post("/clusters/", name = "cluster_create", pre_validate = true)]
+pub async fn create_cluster(body: Json<CreateClusterRequest>) -> ViewResult<Response> {
+	let new_cluster = Cluster::new(body.name.clone(), body.api_url.clone(), true);
 	let manager = Cluster::objects();
 	let created = manager.create(&new_cluster).await.map_err(|e| format!("{e}"))?;
 	let resp = ClusterResponse::from(created);

@@ -8,13 +8,13 @@ use reinhardt::{JwtAuth, Json, Response, StatusCode};
 use crate::apps::auth::serializers::{LoginRequest, TokenResponse};
 
 /// Authenticate user and return JWT token.
-#[post("/auth/login/", name = "auth_login")]
-pub async fn login(Json(body): Json<LoginRequest>) -> ViewResult<Response> {
+#[post("/auth/login/", name = "auth_login", pre_validate = true)]
+pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	let secret = std::env::var("NUAGES_JWT_SECRET")
 		.unwrap_or_else(|_| "change-me-in-production-minimum-32-bytes!".to_string());
 	let auth = JwtAuth::new(secret.as_bytes());
 	let token = auth
-		.generate_token(body.username.clone(), body.username)
+		.generate_token(body.username.clone(), body.username.clone())
 		.map_err(|e| format!("Token generation failed: {e}"))?;
 	let resp = TokenResponse::bearer(token);
 	Ok(Response::new(StatusCode::OK)
