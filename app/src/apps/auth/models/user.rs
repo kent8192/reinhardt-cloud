@@ -17,7 +17,7 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize)]
 #[model(app_label = "auth", table_name = "auth_users")]
 pub struct User {
-	#[field(primary_key = true)]
+	#[field(primary_key = true, include_in_new = false)]
 	pub id: Uuid,
 
 	#[field(max_length = 150, unique = true)]

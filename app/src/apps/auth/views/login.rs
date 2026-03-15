@@ -1,5 +1,6 @@
 //! Login view for auth app.
 
+use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
@@ -23,19 +24,19 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 		.first()
 		.await
 		.map_err(|e| format!("Database error: {e}"))?
-		.ok_or_else(|| "Invalid credentials".to_string())?;
+		.ok_or_else(|| AppError::Authentication("Invalid credentials".to_string()))?;
 
 	// Verify password
 	let valid = user
 		.check_password(&body.password)
 		.map_err(|e| format!("Password verification failed: {e}"))?;
 	if !valid {
-		return Err("Invalid credentials".into());
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
-	// Check if user is active
+	// Check if user is active (use same generic message to prevent user enumeration)
 	if !user.is_active() {
-		return Err("User account is inactive".into());
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
 	// Generate JWT with UUID as sub claim

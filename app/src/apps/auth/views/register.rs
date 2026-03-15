@@ -1,5 +1,6 @@
 //! Register view for auth app.
 
+use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
@@ -25,7 +26,7 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		.map_err(|e| format!("Database error: {e}"))?;
 
 	if existing.is_some() {
-		return Err("Username already exists".into());
+		return Err(AppError::Conflict("Username already exists".to_string()));
 	}
 
 	// Create user with hashed password
