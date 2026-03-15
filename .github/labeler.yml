@@ -1,0 +1,50 @@
+# Configuration for actions/labeler
+# Maps file path patterns to repository labels
+
+api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-api/**
+
+k8s:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-k8s/**
+
+types:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-types/**
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-cli/**
+
+operator:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-operator/**
+
+control:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/nuages-control/**
+
+ci-cd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+
+infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - infra/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - instructions/**
+          - "*.md"
+          - "!**/CHANGELOG.md"
