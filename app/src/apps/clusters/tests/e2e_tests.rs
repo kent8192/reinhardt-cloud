@@ -109,7 +109,7 @@ mod tests {
 		// Debug: print response body if status is unexpected
 		let status = response.status_code();
 		if status != 401 {
-			let body = response.text().unwrap_or_default();
+			let body = response.text();
 			eprintln!("[DEBUG] Unexpected status {status}, response body: {body}");
 		}
 
