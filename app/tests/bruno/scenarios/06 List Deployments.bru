@@ -1,0 +1,33 @@
+meta {
+  name: 06 List Deployments
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/deployments/
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{jwtToken}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should return deployment list containing created deployment", function() {
+    const body = res.getBody();
+    expect(body).to.be.an("array");
+    expect(body.length).to.be.greaterThan(0);
+
+    const deployment = body.find(d => d.app_name === "my-web-app");
+    expect(deployment).to.not.be.undefined;
+    expect(deployment.status).to.equal("pending");
+    expect(deployment.image).to.equal("registry.example.com/my-web-app:v1.0.0");
+    expect(deployment.cluster_id).to.be.a("number");
+  });
+}
