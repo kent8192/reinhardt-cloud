@@ -14,7 +14,7 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
-jsonwebtoken = "9"
+jsonwebtoken = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

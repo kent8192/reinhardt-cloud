@@ -17,10 +17,10 @@ pub fn validate_status_transition(
 ) -> Result<(), ApiError> {
 	let allowed = matches!(
 		(current, target),
-		(DeploymentStatus::Pending, DeploymentStatus::Running)
-			| (DeploymentStatus::Pending, DeploymentStatus::Failed)
-			| (DeploymentStatus::Running, DeploymentStatus::Succeeded)
-			| (DeploymentStatus::Running, DeploymentStatus::Failed)
+		(&DeploymentStatus::Pending, &DeploymentStatus::Running)
+			| (&DeploymentStatus::Pending, &DeploymentStatus::Failed)
+			| (&DeploymentStatus::Running, &DeploymentStatus::Succeeded)
+			| (&DeploymentStatus::Running, &DeploymentStatus::Failed)
 	);
 	if allowed {
 		Ok(())
@@ -31,7 +31,8 @@ pub fn validate_status_transition(
 	}
 }
 
-/// Validates that a Docker image reference is well-formed.
+/// Validates that a Docker image reference passes basic sanity checks
+/// (non-empty and no whitespace). Does not perform full format validation.
 pub fn validate_image_ref(image: &str) -> Result<(), ApiError> {
 	if image.is_empty() {
 		return Err(ApiError::BadRequest(
