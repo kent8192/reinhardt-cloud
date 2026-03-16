@@ -5,6 +5,9 @@ use std::path::Path;
 use thiserror::Error;
 
 /// Errors from configuration loading.
+// allow(dead_code): Returned by from_file(); will be used when CLI loads
+// nuages.toml configuration on startup.
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
 	#[error("failed to read config file: {0}")]
@@ -15,7 +18,7 @@ pub(crate) enum ConfigError {
 }
 
 /// CLI-specific configuration (read from `nuages.toml` or environment).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
 	pub api_url: Option<String>,
@@ -25,6 +28,8 @@ pub(crate) struct CliConfig {
 
 impl CliConfig {
 	/// Loads configuration from a `nuages.toml` file.
+	// allow(dead_code): Will be called when CLI implements config file loading.
+	#[allow(dead_code)]
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
 		let content = std::fs::read_to_string(path)?;
 		let config: CliConfig = toml::from_str(&content)?;
@@ -40,14 +45,6 @@ impl CliConfig {
 	}
 }
 
-impl Default for CliConfig {
-	fn default() -> Self {
-		Self {
-			api_url: None,
-			app_name: None,
-		}
-	}
-}
 
 #[cfg(test)]
 mod tests {

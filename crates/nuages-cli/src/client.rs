@@ -4,6 +4,9 @@ use reqwest::{Client, Url};
 use thiserror::Error;
 
 /// Errors from API client operations.
+// allow(dead_code): Part of the CLI client API scaffold; will be used
+// when deploy/status/login commands call the REST API.
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub(crate) enum ClientError {
 	#[error("HTTP request failed: {0}")]
@@ -19,8 +22,13 @@ pub(crate) enum ClientError {
 /// REST API client for the nuages platform.
 #[derive(Debug, Clone)]
 pub(crate) struct NuagesClient {
+	// allow(dead_code): Fields are read by methods below; warnings appear
+	// because the methods themselves are not yet called from commands.
+	#[allow(dead_code)]
 	http: Client,
+	#[allow(dead_code)]
 	base_url: Url,
+	#[allow(dead_code)]
 	token: Option<String>,
 }
 
@@ -40,12 +48,16 @@ impl NuagesClient {
 	}
 
 	/// Sets the authentication token.
+	// allow(dead_code): Will be called once login command stores a JWT token.
+	#[allow(dead_code)]
 	pub(crate) fn with_token(mut self, token: String) -> Self {
 		self.token = Some(token);
 		self
 	}
 
 	/// Returns the base URL as a string (without trailing slash).
+	// allow(dead_code): Used in tests; will be used by commands for URL display.
+	#[allow(dead_code)]
 	pub(crate) fn base_url(&self) -> &str {
 		self.base_url.as_str().trim_end_matches('/')
 	}
@@ -54,6 +66,8 @@ impl NuagesClient {
 	///
 	/// The `path` is joined onto the base URL using [`Url::join`], which
 	/// handles leading slashes and relative segments correctly.
+	// allow(dead_code): Will be called by deploy/status/login command implementations.
+	#[allow(dead_code)]
 	pub(crate) fn request(
 		&self,
 		method: reqwest::Method,
