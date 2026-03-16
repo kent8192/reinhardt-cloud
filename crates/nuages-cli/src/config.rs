@@ -14,7 +14,7 @@ pub(crate) enum ConfigError {
 	ParseError(#[from] toml::de::Error),
 }
 
-/// CLI-specific configuration (read from reinhardt.toml or environment).
+/// CLI-specific configuration (read from `nuages.toml` or environment).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
@@ -24,7 +24,7 @@ pub(crate) struct CliConfig {
 }
 
 impl CliConfig {
-	/// Loads configuration from a reinhardt.toml file.
+	/// Loads configuration from a `nuages.toml` file.
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
 		let content = std::fs::read_to_string(path)?;
 		let config: CliConfig = toml::from_str(&content)?;
@@ -53,6 +53,7 @@ impl Default for CliConfig {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serial_test::serial;
 
 	#[rstest]
 	fn test_default_config_has_no_api_url() {
@@ -94,10 +95,12 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_api_url_falls_back_to_default() {
 		// Arrange
 		// Ensure env var is not set for this test
-		// SAFETY: This test runs serially and no other thread depends on this env var.
+		// SAFETY: This test runs serially via #[serial(env)] and no other
+		// thread depends on this env var during execution.
 		unsafe {
 			std::env::remove_var("NUAGES_API_URL");
 		}
@@ -113,10 +116,11 @@ mod tests {
 	#[rstest]
 	fn test_from_file_returns_error_for_missing_file() {
 		// Arrange
-		let path = Path::new("/tmp/nonexistent-nuages-config.toml");
+		let unique_name = format!("nonexistent-nuages-config-{}.toml", std::process::id());
+		let path = std::env::temp_dir().join(unique_name);
 
 		// Act
-		let result = CliConfig::from_file(path);
+		let result = CliConfig::from_file(&path);
 
 		// Assert
 		assert!(result.is_err());

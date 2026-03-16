@@ -19,6 +19,5 @@ pub(crate) async fn execute(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let app_name = args.name.as_deref().unwrap_or("default-app");
 	println!("Checking status of {app_name}...");
-	// Actual HTTP call implementation deferred
-	unimplemented!("status API call not yet implemented")
+	Err("status command is not yet implemented".into())
 }
