@@ -15,7 +15,7 @@ pub(crate) enum ConfigError {
 }
 
 /// CLI-specific configuration (read from reinhardt.toml or environment).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
 	pub api_url: Option<String>,
@@ -37,15 +37,6 @@ impl CliConfig {
 			.clone()
 			.or_else(|| std::env::var("NUAGES_API_URL").ok())
 			.unwrap_or_else(|| "http://localhost:8000".to_string())
-	}
-}
-
-impl Default for CliConfig {
-	fn default() -> Self {
-		Self {
-			api_url: None,
-			app_name: None,
-		}
 	}
 }
 

@@ -141,6 +141,7 @@ mod tests {
 				scale: None,
 				health: None,
 				services: None,
+				env: BTreeMap::new(),
 			},
 			status: None,
 		}
@@ -215,6 +216,7 @@ mod tests {
 		app.spec.services = Some(ServicesSpec {
 			port: Some(443),
 			target_port: Some(9090),
+			ingress_host: None,
 		});
 
 		// Act
