@@ -30,6 +30,14 @@ dependencies_update = true
 release_always = true
 publish_no_verify = true
 
+# ── Published library crates (crates.io) ──────────────────────────────────
+# Published via release-plz two-step workflow (release PR → merge → publish).
+
+[[package]]
+name = "reinhardt-nuages"
+semver_check = true
+version_group = "nuages"
+
 # ── Internal library crates ──────────────────────────────────────────────────
 # These crates are workspace-internal and not published to crates.io.
 # release-plz still manages their changelogs and tags for internal tracking.
