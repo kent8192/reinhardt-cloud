@@ -13,10 +13,6 @@ use crate::apps::clusters::serializers::ClusterResponse;
 /// List all clusters (authentication required).
 #[get("/clusters/", name = "cluster_list", use_inject = true)]
 pub async fn list_clusters(#[inject] user: CurrentUser<User>) -> ViewResult<Response> {
-	eprintln!(
-		"[DEBUG VIEW] CurrentUser: is_authenticated={}",
-		user.is_authenticated()
-	);
 	if !user.is_authenticated() {
 		return Err(AppError::Authentication(
 			"Authentication required".to_string(),

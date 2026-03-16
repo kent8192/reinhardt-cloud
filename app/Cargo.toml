@@ -15,6 +15,7 @@ path = "src/bin/manage.rs"
 
 [dependencies]
 reinhardt = { workspace = true }
+reinhardt-auth = { workspace = true }
 nuages-types = { workspace = true }
 nuages-core = { workspace = true }
 nuages-k8s = { workspace = true }

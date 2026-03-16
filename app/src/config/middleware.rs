@@ -32,26 +32,14 @@ impl Middleware for JwtAuthMiddleware {
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
 			let auth = JwtAuth::new(jwt_secret().as_bytes());
-			match auth.verify_token(token) {
-				Ok(claims) if !claims.is_expired() => {
-					eprintln!(
-						"[DEBUG MW] Token OK, sub={}, is_expired={}",
-						claims.sub,
-						claims.is_expired()
-					);
-					AuthState::authenticated(&claims.sub, false, true)
-				}
-				Ok(claims) => {
-					eprintln!("[DEBUG MW] Token expired, sub={}", claims.sub);
-					AuthState::anonymous()
-				}
-				Err(e) => {
-					eprintln!("[DEBUG MW] Token verification failed: {e}");
-					AuthState::anonymous()
-				}
+			if let Ok(claims) = auth.verify_token(token)
+				&& !claims.is_expired()
+			{
+				AuthState::authenticated(&claims.sub, false, true)
+			} else {
+				AuthState::anonymous()
 			}
 		} else {
-			eprintln!("[DEBUG MW] No Authorization header found");
 			AuthState::anonymous()
 		};
 
