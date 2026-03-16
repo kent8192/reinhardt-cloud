@@ -27,7 +27,7 @@ impl Middleware for JwtAuthMiddleware {
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
 		// Extract and validate Bearer token
-		if let Some(header_value) = request.headers.get("Authorization")
+		let auth_state = if let Some(header_value) = request.headers.get("Authorization")
 			&& let Ok(header_str) = header_value.to_str()
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
@@ -35,11 +35,21 @@ impl Middleware for JwtAuthMiddleware {
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
-				// Inject AuthState for CurrentUser extraction
-				let auth_state = AuthState::authenticated(&claims.sub, false, true);
-				request.extensions.insert(auth_state);
+				AuthState::authenticated(&claims.sub, false, true)
+			} else {
+				AuthState::anonymous()
 			}
-		}
+		} else {
+			AuthState::anonymous()
+		};
+
+		// Insert individual values for AuthState::from_extensions() compatibility.
+		// from_extensions() looks for separate String (user_id) and bool
+		// (is_authenticated) entries, not an AuthState object.
+		// Workaround: See https://github.com/kent8192/reinhardt-web/issues/2417
+		request.extensions.insert(auth_state.user_id().to_string());
+		request.extensions.insert(auth_state.is_authenticated());
+		request.extensions.insert(auth_state);
 
 		next.handle(request).await
 	}

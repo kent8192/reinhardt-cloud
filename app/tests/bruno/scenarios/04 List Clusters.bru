@@ -1,0 +1,32 @@
+meta {
+  name: 04 List Clusters
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/clusters/
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{jwtToken}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should return cluster list containing created cluster", function() {
+    const body = res.getBody();
+    expect(body).to.be.an("array");
+    expect(body.length).to.be.greaterThan(0);
+
+    const cluster = body.find(c => c.name === "production-cluster");
+    expect(cluster).to.not.be.undefined;
+    expect(cluster.api_url).to.equal("https://k8s.example.com:6443");
+    expect(cluster.is_active).to.equal(true);
+  });
+}

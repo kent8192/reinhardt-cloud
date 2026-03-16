@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::db::migrations::MigrationProvider;
 	use reinhardt::db::migrations::executor::DatabaseMigrationExecutor;
+	use reinhardt::db::migrations::{FilesystemSource, MigrationSource};
 	use reinhardt::db::orm::reinitialize_database;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
@@ -15,7 +15,7 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::{NuagesMigrations, routes};
+	use crate::routes;
 
 	#[fixture]
 	async fn test_app() -> (
@@ -28,7 +28,15 @@ mod tests {
 		let conn = DatabaseConnection::connect(&database_url)
 			.await
 			.expect("Failed to connect to PostgreSQL");
-		let migrations = NuagesMigrations::migrations();
+		// Workaround: Use FilesystemSource directly instead of postgres_with_all_migrations
+		// fixture, which relies on global_registry() requiring collect_migrations! registration.
+		// See: https://github.com/kent8192/reinhardt-web/issues/2415
+		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		let source = FilesystemSource::new(migrations_dir);
+		let migrations = source
+			.all_migrations()
+			.await
+			.expect("Failed to load migrations");
 		if !migrations.is_empty() {
 			let mut executor = DatabaseMigrationExecutor::new(conn.inner().clone());
 			executor

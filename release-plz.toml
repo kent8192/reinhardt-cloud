@@ -30,6 +30,15 @@ dependencies_update = true
 release_always = true
 publish_no_verify = true
 
+# ── Application crate ─────────────────────────────────────────────────────
+# Reinhardt startproject application. Distributed via Docker image / GitHub Releases.
+
+[[package]]
+name = "reinhardt-nuages"
+publish = false
+git_release_enable = true
+version_group = "nuages"
+
 # ── Internal library crates ──────────────────────────────────────────────────
 # These crates are workspace-internal and not published to crates.io.
 # release-plz still manages their changelogs and tags for internal tracking.
