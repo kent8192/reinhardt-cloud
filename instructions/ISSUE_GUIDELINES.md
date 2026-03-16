@@ -193,6 +193,22 @@ Issues created by LLM agent bug discovery MUST include the `agent-suspect` label
 - Independent verification requires a separate agent (with independent context) or human review
 - The verifying entity MUST NOT have participated in the initial detection
 
+### IL-4 (MUST): Upstream Tracking Issue Labels
+
+Tracking issues created for upstream dependency bugs MUST include the `upstream-tracking` label:
+
+| Label | Color | Description |
+|-------|-------|-------------|
+| `upstream-tracking` | #c5def5 | Tracking issue for upstream dependency bugs (reinhardt-web etc.) |
+
+**Rules:**
+- ALL Nuages tracking issues for upstream bugs MUST have `upstream-tracking` label at creation
+- The tracking issue title MUST follow the format: `Upstream: [brief description] (reinhardt-web#N)`
+- The tracking issue MUST reference the upstream issue URL
+- Close the tracking issue when the upstream issue is resolved AND any Nuages workaround is removed
+
+See instructions/UPSTREAM_ISSUE_REPORTING.md (UR-4) for the full cross-referencing workflow.
+
 ---
 
 ## Issue Lifecycle
