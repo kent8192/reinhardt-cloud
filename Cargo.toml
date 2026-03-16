@@ -24,7 +24,7 @@ tokio = { version = "1", features = ["full"] }
 
 # Kubernetes
 kube = { version = "3.0.1", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.27.1", features = ["v1_31"] }
+k8s-openapi = { version = "0.27.1", features = ["v1_31", "schemars"] }
 
 # Reinhardt — umbrella crate providing: HTTP server, auth (JWT + Argon2), database (SeaQuery),
 # configuration, DI container, middleware, OpenAPI, and management commands.
@@ -54,6 +54,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+schemars = "1"
 
 # Internal workspace crates
 nuages-types = { path = "crates/nuages-types" }
