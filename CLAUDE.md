@@ -232,7 +232,8 @@ This project manages releases manually using conventional commits and GitHub rel
 **Upstream Issue Reporting:**
 - When a reinhardt-web issue is discovered during Nuages development, **immediately** create an issue in `kent8192/reinhardt-web` (UR-1)
 - Use `gh issue create -R kent8192/reinhardt-web` for upstream issue creation (UR-2)
-- Cross-reference between Nuages and upstream issues (UR-4)
+- Create a tracking issue in Nuages with `upstream-tracking` label for every upstream issue (UR-4)
+- Cross-reference between Nuages tracking issue and upstream issue bidirectionally (UR-4)
 - **NEVER** implement workarounds without creating an upstream issue first (WP-2)
 
 See instructions/ISSUE_HANDLING.md for comprehensive issue handling principles including:
@@ -498,7 +499,8 @@ Before submitting code:
 - Implement reconcilers as pure functions returning `Action` (see @instructions/KUBERNETES_PATTERNS.md RP-1)
 - ALWAYS use finalizers for cleanup of external resources in operators
 - Create issues in reinhardt-web immediately upon discovering upstream bugs (`gh issue create -R kent8192/reinhardt-web`)
-- Cross-reference between Nuages and reinhardt-web issues when workarounds are applied
+- Create a tracking issue in Nuages with `upstream-tracking` label for every upstream issue (UR-4)
+- Cross-reference between Nuages tracking issue and reinhardt-web issue bidirectionally (UR-4)
 - Create upstream issue before implementing any workaround for reinhardt-web bugs
 
 ### ❌ NEVER DO
@@ -555,6 +557,7 @@ Before submitting code:
 - Panic in reconciler functions (return `Err` for transient failures)
 - Delay reporting reinhardt-web issues discovered during Nuages development
 - Implement workarounds for reinhardt-web issues without creating an upstream issue first
+- Create upstream issues without corresponding Nuages tracking issues (UR-4)
 - Report Nuages-specific issues to the reinhardt-web repository
 
 ### 📚 Detailed Standards

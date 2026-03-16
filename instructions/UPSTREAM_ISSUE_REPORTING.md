@@ -40,8 +40,10 @@ flowchart TD
     B -->|No| D{Is the issue in reinhardt-web?}
     D -->|Yes| E[Create issue in reinhardt-web repo immediately]
     D -->|No| F[Investigate further]
-    E --> G{Does Nuages need a workaround?}
-    G -->|Yes| H["Add workaround in Nuages with<br/>comment referencing upstream issue"]
+    E --> E2["Create tracking issue in nuages repo<br/>with upstream-tracking label"]
+    E2 --> E3["Cross-reference both issues"]
+    E3 --> G{Does Nuages need a workaround?}
+    G -->|Yes| H["Add workaround in Nuages with<br/>comment referencing both issues"]
     G -->|No| I[Continue Nuages development]
     H --> I
 ```
@@ -76,7 +78,7 @@ gh issue create -R kent8192/reinhardt-web \
 
 Discovered during Nuages development while [brief context].
 
-See also: https://github.com/kent8192/nuages/issues/N (if related Nuages issue exists)
+Nuages tracking issue: https://github.com/kent8192/nuages/issues/N
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -94,16 +96,70 @@ Upstream issues MUST:
 - Include Claude Code attribution footer
 - **NOT** include absolute local paths or user-specific information
 
-### UR-4 (MUST): Cross-Referencing
+### UR-4 (MUST): Cross-Referencing with Tracking Issues
 
-When an upstream issue is created:
+When an upstream issue is created, a corresponding **tracking issue** MUST also be created in the Nuages repository. Both issues MUST reference each other.
 
-1. **In the upstream issue**: Reference the Nuages issue/PR where the problem was discovered (if applicable)
-2. **In the Nuages codebase**: Add a comment referencing the upstream issue where a workaround is applied
+**Rationale:** Creating a tracking issue in Nuages ensures that:
+- Upstream dependencies are visible in the Nuages issue tracker
+- Workaround removal can be tracked alongside Nuages development milestones
+- Contributors can discover upstream blockers without checking external repositories
+
+**Procedure:**
+
+1. **Create the upstream issue** in reinhardt-web (UR-1, UR-2)
+2. **Create a tracking issue** in the Nuages repository referencing the upstream issue
+3. **Update the upstream issue** to reference the Nuages tracking issue
+4. **In the Nuages codebase**: Add a comment referencing both issues where a workaround is applied
+
+The following diagram shows the cross-referencing workflow:
+
+```mermaid
+sequenceDiagram
+    participant D as Developer
+    participant RW as reinhardt-web
+    participant N as Nuages
+
+    D->>RW: 1. Create upstream issue (reinhardt-web#42)
+    D->>N: 2. Create tracking issue (nuages#15)<br/>References reinhardt-web#42
+    D->>RW: 3. Update reinhardt-web#42<br/>Add link to nuages#15
+    D->>N: 4. Add workaround code comment<br/>referencing both issues
+```
+
+**Nuages tracking issue template:**
+
+```bash
+gh issue create \
+  --title "Upstream: [brief description] (reinhardt-web#N)" \
+  --label upstream-tracking \
+  --body "$(cat <<'EOF'
+## Upstream Issue
+
+Tracking upstream issue: https://github.com/kent8192/reinhardt-web/issues/N
+
+## Impact on Nuages
+
+[Describe how this upstream issue affects Nuages]
+
+## Workaround
+
+- [ ] Workaround applied in Nuages (if needed)
+- [ ] Code comment added referencing upstream issue
+
+## Resolution Criteria
+
+This issue should be closed when:
+- The upstream issue is resolved AND
+- The Nuages workaround (if any) is removed
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
 
 **Workaround comment format:**
 ```rust
-// Workaround for kent8192/reinhardt-web#42
+// Workaround for kent8192/reinhardt-web#42 (tracked in nuages#15)
 // Remove this workaround when the upstream issue is resolved.
 ```
 
@@ -153,9 +209,11 @@ Do **NOT** report to the upstream repository when:
 When an upstream issue blocks Nuages development:
 
 1. Create the upstream issue first (UR-1)
-2. Implement a minimal workaround in Nuages
-3. Mark the workaround with a comment referencing the upstream issue (UR-4)
-4. Track the upstream issue for resolution
+2. Create the Nuages tracking issue with `upstream-tracking` label (UR-4)
+3. Cross-reference both issues (UR-4)
+4. Implement a minimal workaround in Nuages
+5. Mark the workaround with a comment referencing both issues (UR-4)
+6. Track the upstream issue for resolution; close the Nuages tracking issue when resolved
 
 **Workaround rules:**
 - Keep workarounds minimal and isolated
@@ -177,13 +235,15 @@ When an upstream issue blocks Nuages development:
 - Use `gh issue create -R kent8192/reinhardt-web` for upstream issue creation (UR-2)
 - Write all upstream issues in English (UR-3)
 - Follow upstream repository's issue templates when available (UR-3)
-- Cross-reference between Nuages and upstream issues (UR-4)
-- Add workaround comments referencing upstream issues (UR-4)
+- Create a tracking issue in Nuages for every upstream issue with `upstream-tracking` label (UR-4)
+- Cross-reference between Nuages tracking issue and upstream issue bidirectionally (UR-4)
+- Add workaround comments referencing both upstream and Nuages tracking issues (UR-4)
 - Create upstream issue before implementing any workaround (WP-2)
 
 ### ❌ NEVER DO
 - Delay reporting upstream issues discovered during Nuages development
 - Implement workarounds without creating upstream issues first (WP-2)
+- Create upstream issues without corresponding Nuages tracking issues (UR-4)
 - Include absolute local paths in upstream issues (UR-3)
 - Report Nuages-specific issues to the reinhardt-web repository (IC-2)
 - Forget to cross-reference between Nuages and upstream issues (UR-4)
