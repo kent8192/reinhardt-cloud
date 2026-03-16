@@ -43,7 +43,10 @@ impl Middleware for JwtAuthMiddleware {
 			AuthState::anonymous()
 		};
 
-		// Always inject AuthState so CurrentUser<User> can resolve
+		// Workaround: Always inject AuthState so CurrentUser<User> can resolve.
+		// Without this, CurrentUser DI injection returns HTTP 500 when AuthState
+		// is missing from request extensions.
+		// See: https://github.com/kent8192/reinhardt-web/issues/2417
 		request.extensions.insert(auth_state);
 
 		next.handle(request).await

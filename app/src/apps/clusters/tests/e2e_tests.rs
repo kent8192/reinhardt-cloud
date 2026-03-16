@@ -37,7 +37,11 @@ mod tests {
 			.all_migrations()
 			.await
 			.expect("Failed to load migrations");
-		eprintln!("[DEBUG] Loaded {} migrations from {:?}", migrations.len(), std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations"));
+		eprintln!(
+			"[DEBUG] Loaded {} migrations from {:?}",
+			migrations.len(),
+			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")
+		);
 		for m in &migrations {
 			eprintln!("[DEBUG]   migration: {}/{}", m.app_label, m.name);
 		}
