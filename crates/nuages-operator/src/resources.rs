@@ -11,6 +11,8 @@ use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::{Resource, ResourceExt};
 use nuages_types::crd::ReinhardtApp;
 
+use crate::error::Error;
+
 /// Standard labels applied to all resources owned by the operator.
 pub(crate) fn standard_labels(app: &ReinhardtApp) -> BTreeMap<String, String> {
 	BTreeMap::from([
@@ -28,8 +30,12 @@ pub(crate) fn standard_labels(app: &ReinhardtApp) -> BTreeMap<String, String> {
 }
 
 /// Builds a `Deployment` for the given `ReinhardtApp`.
-pub(crate) fn build_deployment(app: &ReinhardtApp, namespace: &str) -> Deployment {
+///
+/// Uses the app's own namespace as the single source of truth.
+/// Returns an error if the owner reference cannot be computed.
+pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> {
 	let labels = standard_labels(app);
+	let namespace = app.namespace().unwrap_or_default();
 	let replicas = app.spec.replicas.unwrap_or(1);
 	let port = app
 		.spec
@@ -38,12 +44,16 @@ pub(crate) fn build_deployment(app: &ReinhardtApp, namespace: &str) -> Deploymen
 		.and_then(|s| s.target_port)
 		.unwrap_or(8000);
 
-	Deployment {
+	let owner_ref = app
+		.controller_owner_ref(&())
+		.ok_or_else(|| Error::OwnerReference(app.name_any()))?;
+
+	Ok(Deployment {
 		metadata: ObjectMeta {
 			name: Some(app.name_any()),
-			namespace: Some(namespace.to_string()),
+			namespace: Some(namespace),
 			labels: Some(labels.clone()),
-			owner_references: Some(vec![app.controller_owner_ref(&()).unwrap()]),
+			owner_references: Some(vec![owner_ref]),
 			..Default::default()
 		},
 		spec: Some(DeploymentSpec {
@@ -76,12 +86,16 @@ pub(crate) fn build_deployment(app: &ReinhardtApp, namespace: &str) -> Deploymen
 			..Default::default()
 		}),
 		..Default::default()
-	}
+	})
 }
 
 /// Builds a `Service` for the given `ReinhardtApp`.
-pub(crate) fn build_service(app: &ReinhardtApp, namespace: &str) -> Service {
+///
+/// Uses the app's own namespace as the single source of truth.
+/// Returns an error if the owner reference cannot be computed.
+pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app);
+	let namespace = app.namespace().unwrap_or_default();
 	let port = app
 		.spec
 		.services
@@ -95,12 +109,16 @@ pub(crate) fn build_service(app: &ReinhardtApp, namespace: &str) -> Service {
 		.and_then(|s| s.target_port)
 		.unwrap_or(8000);
 
-	Service {
+	let owner_ref = app
+		.controller_owner_ref(&())
+		.ok_or_else(|| Error::OwnerReference(app.name_any()))?;
+
+	Ok(Service {
 		metadata: ObjectMeta {
 			name: Some(app.name_any()),
-			namespace: Some(namespace.to_string()),
+			namespace: Some(namespace),
 			labels: Some(labels.clone()),
-			owner_references: Some(vec![app.controller_owner_ref(&()).unwrap()]),
+			owner_references: Some(vec![owner_ref]),
 			..Default::default()
 		},
 		spec: Some(ServiceSpec {
@@ -116,7 +134,7 @@ pub(crate) fn build_service(app: &ReinhardtApp, namespace: &str) -> Service {
 			..Default::default()
 		}),
 		..Default::default()
-	}
+	})
 }
 
 #[cfg(test)]
@@ -174,7 +192,7 @@ mod tests {
 		let app = make_test_app("web", "web:latest", Some(3));
 
 		// Act
-		let deploy = build_deployment(&app, "default");
+		let deploy = build_deployment(&app).expect("build should succeed");
 
 		// Assert
 		let spec = deploy.spec.unwrap();
@@ -189,7 +207,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, "default");
+		let deploy = build_deployment(&app).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.spec.unwrap().replicas, Some(1));
@@ -201,12 +219,38 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, "default");
+		let deploy = build_deployment(&app).expect("build should succeed");
 
 		// Assert
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 		let port = &container.ports.as_ref().unwrap()[0];
 		assert_eq!(port.container_port, 8000);
+	}
+
+	#[rstest]
+	fn test_build_deployment_uses_app_namespace() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.namespace = Some("staging".to_string());
+
+		// Act
+		let deploy = build_deployment(&app).expect("build should succeed");
+
+		// Assert
+		assert_eq!(deploy.metadata.namespace.as_deref(), Some("staging"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_returns_error_without_uid() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.uid = None;
+
+		// Act
+		let result = build_deployment(&app);
+
+		// Assert
+		assert!(result.is_err());
 	}
 
 	#[rstest]
@@ -220,7 +264,7 @@ mod tests {
 		});
 
 		// Act
-		let svc = build_service(&app, "staging");
+		let svc = build_service(&app).expect("build should succeed");
 
 		// Assert
 		let svc_spec = svc.spec.unwrap();
@@ -235,12 +279,38 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let svc = build_service(&app, "default");
+		let svc = build_service(&app).expect("build should succeed");
 
 		// Assert
 		let svc_spec = svc.spec.unwrap();
 		let svc_port = &svc_spec.ports.as_ref().unwrap()[0];
 		assert_eq!(svc_port.port, 80);
 		assert_eq!(svc_port.target_port, Some(IntOrString::Int(8000)));
+	}
+
+	#[rstest]
+	fn test_build_service_uses_app_namespace() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.namespace = Some("production".to_string());
+
+		// Act
+		let svc = build_service(&app).expect("build should succeed");
+
+		// Assert
+		assert_eq!(svc.metadata.namespace.as_deref(), Some("production"));
+	}
+
+	#[rstest]
+	fn test_build_service_returns_error_without_uid() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.uid = None;
+
+		// Act
+		let result = build_service(&app);
+
+		// Assert
+		assert!(result.is_err());
 	}
 }
