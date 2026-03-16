@@ -2,9 +2,6 @@
 //!
 //! The `routes` function defines all URL patterns for this project.
 
-// Workaround for kent8192/reinhardt-web#2362: UnifiedRouter is not re-exported via
-// prelude when client-router feature is disabled. Import explicitly.
-// Remove this workaround when the upstream issue is resolved.
 use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::routes;
 
