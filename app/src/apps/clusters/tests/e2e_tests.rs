@@ -28,6 +28,9 @@ mod tests {
 		let conn = DatabaseConnection::connect(&database_url)
 			.await
 			.expect("Failed to connect to PostgreSQL");
+		// Workaround: Use FilesystemSource directly instead of postgres_with_all_migrations
+		// fixture, which relies on global_registry() requiring collect_migrations! registration.
+		// See: https://github.com/kent8192/reinhardt-web/issues/2415
 		let source = FilesystemSource::new("migrations");
 		let migrations = source
 			.all_migrations()
