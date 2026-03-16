@@ -10,7 +10,7 @@ use reinhardt::async_trait::async_trait;
 use reinhardt::http::AuthState;
 use reinhardt::{Handler, JwtAuth, Middleware, Request, Response};
 
-use crate::apps::auth::views::jwt_secret;
+use crate::apps::auth::views::utils::jwt_secret;
 
 /// JWT authentication middleware.
 ///
