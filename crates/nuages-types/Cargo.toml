@@ -14,10 +14,10 @@ chrono = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 schemars = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true
