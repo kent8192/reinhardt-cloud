@@ -7,9 +7,9 @@ use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
 
+use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::{LoginRequest, TokenResponse};
-use crate::apps::auth::views::jwt_secret;
 
 /// Authenticate user against database and return JWT token.
 #[post("/auth/login/", name = "auth_login", pre_validate = true)]
