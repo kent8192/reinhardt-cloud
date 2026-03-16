@@ -1,6 +1,6 @@
 //! HTTP client for the nuages REST API.
 
-use reqwest::Client;
+use reqwest::{Client, Url};
 use thiserror::Error;
 
 /// Errors from API client operations.
@@ -11,22 +11,30 @@ pub(crate) enum ClientError {
 
 	#[error("API error ({status}): {message}")]
 	ApiError { status: u16, message: String },
+
+	#[error("invalid URL: {0}")]
+	InvalidUrl(#[from] url::ParseError),
 }
 
 /// REST API client for the nuages platform.
 #[derive(Debug, Clone)]
 pub(crate) struct NuagesClient {
 	http: Client,
-	base_url: String,
+	base_url: Url,
 	token: Option<String>,
 }
 
 impl NuagesClient {
 	/// Creates a new API client with the given base URL.
+	///
+	/// # Panics
+	///
+	/// Panics if `base_url` is not a valid URL.
 	pub(crate) fn new(base_url: &str) -> Self {
+		let parsed = Url::parse(base_url).expect("base_url must be a valid URL");
 		Self {
 			http: Client::new(),
-			base_url: base_url.trim_end_matches('/').to_string(),
+			base_url: parsed,
 			token: None,
 		}
 	}
@@ -37,19 +45,26 @@ impl NuagesClient {
 		self
 	}
 
-	/// Returns the base URL.
+	/// Returns the base URL as a string (without trailing slash).
 	pub(crate) fn base_url(&self) -> &str {
-		&self.base_url
+		self.base_url.as_str().trim_end_matches('/')
 	}
 
 	/// Builds an authenticated request to the given API path.
-	pub(crate) fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
-		let url = format!("{}{}", self.base_url, path);
-		let mut req = self.http.request(method, &url);
+	///
+	/// The `path` is joined onto the base URL using [`Url::join`], which
+	/// handles leading slashes and relative segments correctly.
+	pub(crate) fn request(
+		&self,
+		method: reqwest::Method,
+		path: &str,
+	) -> Result<reqwest::RequestBuilder, ClientError> {
+		let url = self.base_url.join(path)?;
+		let mut req = self.http.request(method, url);
 		if let Some(ref token) = self.token {
 			req = req.bearer_auth(token);
 		}
-		req
+		Ok(req)
 	}
 }
 
@@ -95,5 +110,17 @@ mod tests {
 
 		// Assert
 		assert!(client.token.is_none());
+	}
+
+	#[rstest]
+	fn test_request_joins_path_correctly() {
+		// Arrange
+		let client = NuagesClient::new("http://localhost:8000");
+
+		// Act
+		let result = client.request(reqwest::Method::GET, "/api/v1/apps");
+
+		// Assert
+		assert!(result.is_ok());
 	}
 }

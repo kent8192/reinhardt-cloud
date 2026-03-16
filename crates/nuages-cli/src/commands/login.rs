@@ -10,10 +10,6 @@ pub(crate) struct LoginArgs {
 	/// Username
 	#[arg(short, long)]
 	pub username: String,
-
-	/// API server URL (overrides config)
-	#[arg(long)]
-	pub server: Option<String>,
 }
 
 /// Executes the login command.
@@ -22,6 +18,5 @@ pub(crate) async fn execute(
 	_client: &NuagesClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	println!("Logging in as {}...", args.username);
-	// Actual HTTP call and token storage deferred
-	unimplemented!("login API call not yet implemented")
+	Err("login command is not yet implemented".into())
 }

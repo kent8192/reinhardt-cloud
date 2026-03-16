@@ -28,7 +28,10 @@ pub(crate) struct Context {
 /// Main reconciliation entry point.
 pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let name = obj.name_any();
-	let namespace = obj.namespace().unwrap_or_default();
+	let namespace = obj
+		.namespace()
+		.filter(|ns| !ns.is_empty())
+		.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
 	info!("Reconciling ReinhardtApp {namespace}/{name}");
 
 	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
@@ -49,7 +52,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_deployment = build_deployment(&app, namespace);
+	let desired_deployment = build_deployment(&app)?;
 	deployments
 		.patch(
 			&name,
@@ -62,7 +65,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_service = build_service(&app, namespace);
+	let desired_service = build_service(&app)?;
 	services
 		.patch(
 			&name,
@@ -73,8 +76,18 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.map_err(Error::Kube)?;
 	info!("Reconciled Service {namespace}/{name}");
 
+	// Derive readiness from the observed Deployment status
+	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
+	let desired_replicas = app.spec.replicas.unwrap_or(1);
+	let ready_replicas = live_deployment
+		.status
+		.as_ref()
+		.and_then(|s| s.ready_replicas)
+		.unwrap_or(0);
+	let ready = ready_replicas >= desired_replicas;
+
 	// Update status sub-resource
-	update_status(&app, &ctx.client, namespace, true).await?;
+	update_status(&app, &ctx.client, namespace, ready, ready_replicas).await?;
 
 	Ok(Action::await_change())
 }
@@ -93,36 +106,59 @@ async fn cleanup(
 }
 
 /// Updates the status sub-resource of a `ReinhardtApp`.
+///
+/// Only updates `lastTransitionTime` when the condition status actually
+/// changes, preventing unnecessary tight reconcile loops.
 async fn update_status(
 	app: &ReinhardtApp,
 	client: &Client,
 	namespace: &str,
 	ready: bool,
+	ready_replicas: i32,
 ) -> Result<(), Error> {
 	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
-	let phase = if ready { "Running" } else { "Failed" };
+	let phase = if ready { "Running" } else { "Deploying" };
 	let condition_status = if ready { "True" } else { "False" };
 	let reason = if ready {
 		"ReconcileSuccess"
 	} else {
-		"ReconcileError"
+		"ReconcileInProgress"
 	};
 	let message = if ready {
 		"Application is ready"
 	} else {
-		"Reconciliation failed"
+		"Waiting for deployment rollout to complete"
+	};
+
+	// Determine lastTransitionTime: preserve existing value if status unchanged
+	let existing_ready_condition = app
+		.status
+		.as_ref()
+		.and_then(|s| s.conditions.iter().find(|c| c.type_ == "Ready"));
+
+	let last_transition_time = match existing_ready_condition {
+		Some(existing) if existing.status == condition_status => {
+			// Status unchanged: preserve existing transition time
+			existing.last_transition_time.clone()
+		}
+		_ => {
+			// Status changed or no prior condition: set new transition time
+			Some(chrono::Utc::now().to_rfc3339())
+		}
 	};
 
 	let status = serde_json::json!({
 		"status": {
 			"phase": phase,
-			"observedGeneration": app.metadata.generation,
+			"observed_generation": app.metadata.generation,
+			"ready_replicas": ready_replicas,
 			"conditions": [{
 				"type": "Ready",
 				"status": condition_status,
 				"reason": reason,
 				"message": message,
-				"lastTransitionTime": chrono::Utc::now().to_rfc3339(),
+				"last_transition_time": last_transition_time,
+				"observed_generation": app.metadata.generation,
 			}]
 		}
 	});
