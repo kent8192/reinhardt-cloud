@@ -573,6 +573,7 @@ For comprehensive guidelines, see:
 - **GitHub Interactions**: instructions/GITHUB_INTERACTION.md
 - **Kubernetes Patterns**: instructions/KUBERNETES_PATTERNS.md
 - **Upstream Issue Reporting**: instructions/UPSTREAM_ISSUE_REPORTING.md
+- **App Crate Standards**: app/CLAUDE.md (reinhardt-web application conventions)
 - **GitHub Discussions**: https://github.com/kent8192/nuages/discussions
 - **Security Policy**: SECURITY.md
 - **Code of Conduct**: CODE_OF_CONDUCT.md
