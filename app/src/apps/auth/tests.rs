@@ -1,4 +1,8 @@
 //! Tests for auth app.
 
-pub mod e2e_tests;
-pub mod jwt_tests;
+pub mod e2e {
+	pub mod test_register_login;
+}
+pub mod unit {
+	pub mod test_jwt;
+}
