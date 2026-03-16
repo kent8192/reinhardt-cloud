@@ -36,7 +36,10 @@ impl Deployment {
 
 	/// Returns true if the deployment has reached a terminal state.
 	pub fn is_terminal(&self) -> bool {
-		matches!(self.status, DeploymentStatus::Failed | DeploymentStatus::Succeeded)
+		matches!(
+			self.status,
+			DeploymentStatus::Failed | DeploymentStatus::Succeeded
+		)
 	}
 }
 

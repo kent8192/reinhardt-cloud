@@ -12,7 +12,11 @@ pub struct NuagesMigrations;
 
 impl MigrationProvider for NuagesMigrations {
 	fn migrations() -> Vec<Migration> {
-		vec![auth_users_initial(), clusters_initial(), deployments_initial()]
+		vec![
+			auth_users_initial(),
+			clusters_initial(),
+			deployments_initial(),
+		]
 	}
 }
 
@@ -26,12 +30,12 @@ fn auth_users_initial() -> Migration {
 			columns: vec![
 				ColumnDefinition {
 					name: "id".to_string(),
-					type_definition: FieldType::BigInteger,
+					type_definition: FieldType::Uuid,
 					not_null: true,
 					unique: false,
 					primary_key: true,
-					auto_increment: true,
-					default: None,
+					auto_increment: false,
+					default: Some("gen_random_uuid()".to_string()),
 				},
 				ColumnDefinition {
 					name: "username".to_string(),

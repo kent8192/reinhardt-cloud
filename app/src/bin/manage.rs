@@ -14,7 +14,9 @@
 //! in the `CommandRegistry` before the CLI is executed.
 
 use nuages as _;
-use reinhardt::commands::{BaseCommand, CommandContext, CommandRegistry, CommandResult, execute_from_command_line};
+use reinhardt::commands::{
+	BaseCommand, CommandContext, CommandRegistry, CommandResult, execute_from_command_line,
+};
 use reinhardt::core::async_trait;
 use std::process;
 

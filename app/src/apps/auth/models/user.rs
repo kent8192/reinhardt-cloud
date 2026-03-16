@@ -4,19 +4,23 @@ use chrono::{DateTime, Utc};
 use reinhardt::prelude::*;
 use reinhardt::{Argon2Hasher, BaseUser};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Nuages platform user account.
 ///
 /// Minimal user model implementing `BaseUser` with Argon2id password hashing.
 /// Unlike `DefaultUser`, this model omits permissions, groups, and staff flags
 /// to keep the auth layer lightweight for a PaaS control plane.
+///
+/// Uses UUID v4 as the primary key for JWT `sub` claim compatibility
+/// and to avoid sequential ID enumeration.
 #[derive(Serialize, Deserialize)]
 #[model(app_label = "auth", table_name = "auth_users")]
 pub struct User {
-	#[field(primary_key = true)]
-	pub id: Option<i64>,
+	#[field(primary_key = true, include_in_new = false)]
+	pub id: Uuid,
 
-	#[field(max_length = 150)]
+	#[field(max_length = 150, unique = true)]
 	pub username: String,
 
 	#[field(max_length = 254)]
@@ -28,6 +32,7 @@ pub struct User {
 	#[field(default = true)]
 	pub is_active: bool,
 
+	#[field(include_in_new = false)]
 	pub last_login: Option<DateTime<Utc>>,
 
 	#[field(auto_now_add = true)]
@@ -38,7 +43,7 @@ pub struct User {
 }
 
 impl BaseUser for User {
-	type PrimaryKey = i64;
+	type PrimaryKey = Uuid;
 	type Hasher = Argon2Hasher;
 
 	fn get_username_field() -> &'static str {
