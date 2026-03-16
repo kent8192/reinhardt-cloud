@@ -7,7 +7,7 @@ use crate::client::NuagesClient;
 /// Deploy an application.
 #[derive(Debug, Args)]
 pub(crate) struct DeployArgs {
-	/// Application name (defaults to config value)
+	/// Application name (falls back to `"app:latest"` when not specified)
 	#[arg(short, long)]
 	pub name: Option<String>,
 
@@ -17,7 +17,7 @@ pub(crate) struct DeployArgs {
 
 	/// Number of replicas
 	#[arg(short, long, default_value = "1")]
-	pub replicas: i32,
+	pub replicas: u32,
 }
 
 /// Executes the deploy command.
@@ -31,6 +31,5 @@ pub(crate) async fn execute(
 		"Deploying {app_name} with image {image} ({} replicas)...",
 		args.replicas
 	);
-	// Actual HTTP call implementation deferred
-	unimplemented!("deploy API call not yet implemented")
+	Err("deploy command is not yet implemented".into())
 }
