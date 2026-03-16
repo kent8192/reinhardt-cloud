@@ -18,7 +18,7 @@ use crate::apps::clusters::serializers::ClusterResponse;
 #[get("/clusters/", name = "cluster_list")]
 pub async fn list_clusters(request: Request) -> ViewResult<Response> {
 	let auth_state = AuthState::from_extensions(&request.extensions);
-	if !auth_state.map_or(false, |s| s.is_authenticated()) {
+	if !auth_state.is_some_and(|s| s.is_authenticated()) {
 		return Err(AppError::Authentication(
 			"Authentication required".to_string(),
 		));
