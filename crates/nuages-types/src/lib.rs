@@ -1,7 +1,8 @@
-//! Shared domain types for the nuages PaaS platform.
+//! Shared domain types and Kubernetes CRDs for the nuages PaaS platform.
 //!
-//! This crate provides framework-agnostic domain types used across
-//! nuages library crates and the reinhardt application layer.
+//! This crate provides domain types and Kubernetes custom resource
+//! definitions (CRDs) used across nuages library crates, the operator,
+//! and the reinhardt application layer.
 
 pub mod cluster;
 pub mod config;

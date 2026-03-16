@@ -22,4 +22,12 @@ pub(crate) enum Error {
 	// Used by future reconciler validations for spec field checks
 	#[allow(dead_code)]
 	MissingField(&'static str),
+
+	/// The resource is missing a namespace.
+	#[error("resource {0} has no namespace")]
+	MissingNamespace(String),
+
+	/// Failed to compute owner reference for a resource.
+	#[error("failed to compute owner reference for {0}")]
+	OwnerReference(String),
 }
