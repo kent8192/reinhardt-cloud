@@ -1,0 +1,49 @@
+# cargo-audit advisory ignore list (reference documentation)
+#
+# NOTE: cargo-audit v0.22.x does not read this file automatically.
+# The --ignore flags are configured in:
+#   - Makefile.toml (tasks.audit)
+#   - .github/workflows/security-audit.yml
+#
+# This file serves as documentation for why each advisory is ignored.
+# All ignored advisories are upstream transitive dependencies from
+# reinhardt-web that we cannot control directly.
+
+[advisories]
+ignore = [
+	# rsa: Marvin Attack timing sidechannel (no fix available)
+	# Transitive: reinhardt-web -> sqlx -> sqlx-mysql -> rsa
+	"RUSTSEC-2023-0071",
+
+	# atomic-polyfill: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-db -> phonenumber -> postcard -> heapless
+	"RUSTSEC-2023-0089",
+
+	# bincode: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-views -> syntect -> bincode
+	"RUSTSEC-2025-0141",
+
+	# dotenv: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-conf -> dotenv
+	"RUSTSEC-2021-0141",
+
+	# instant: unmaintained
+	# Transitive: reinhardt-web -> sqlx dependency chain -> instant
+	"RUSTSEC-2024-0384",
+
+	# paste: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-db/reinhardt-testkit -> paste
+	"RUSTSEC-2024-0436",
+
+	# rustls-pemfile: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-commands -> rustls-pemfile, testcontainers -> bollard
+	"RUSTSEC-2025-0134",
+
+	# yaml-rust: unmaintained
+	# Transitive: reinhardt-web -> reinhardt-views -> syntect -> yaml-rust
+	"RUSTSEC-2024-0320",
+
+	# proc-macro-error: unmaintained
+	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
+	"RUSTSEC-2024-0370",
+]
