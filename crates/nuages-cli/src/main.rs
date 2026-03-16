@@ -1,10 +1,7 @@
 //! Nuages CLI tool for managing applications on the nuages PaaS platform.
 
-// Scaffold: full API client and config usage will follow when commands are implemented
-#[allow(dead_code)]
 mod client;
 mod commands;
-#[allow(dead_code)]
 mod config;
 
 use clap::{Parser, Subcommand};
