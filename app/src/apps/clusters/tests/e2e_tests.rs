@@ -37,14 +37,6 @@ mod tests {
 			.all_migrations()
 			.await
 			.expect("Failed to load migrations");
-		eprintln!(
-			"[DEBUG] Loaded {} migrations from {:?}",
-			migrations.len(),
-			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")
-		);
-		for m in &migrations {
-			eprintln!("[DEBUG]   migration: {}/{}", m.app_label, m.name);
-		}
 		if !migrations.is_empty() {
 			let mut executor = DatabaseMigrationExecutor::new(conn.inner().clone());
 			executor
@@ -106,15 +98,8 @@ mod tests {
 			.await
 			.expect("List clusters request failed");
 
-		// Debug: print response body if status is unexpected
-		let status = response.status_code();
-		if status != 401 {
-			let body = response.text();
-			eprintln!("[DEBUG] Unexpected status {status}, response body: {body}");
-		}
-
 		// Assert
-		assert_eq!(status, 401);
+		assert_eq!(response.status_code(), 401);
 	}
 
 	/// Verify GET /api/clusters/ returns empty list when authenticated.
