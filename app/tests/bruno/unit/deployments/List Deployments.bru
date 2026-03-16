@@ -1,0 +1,22 @@
+meta {
+  name: List Deployments
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/deployments/
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should return 200 with array", function() {
+    const body = res.getBody();
+    expect(body).to.be.an("array");
+  });
+}
