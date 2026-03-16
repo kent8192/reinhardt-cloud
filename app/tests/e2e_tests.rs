@@ -3,8 +3,8 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
-use reinhardt::db::migrations::MigrationProvider;
 use reinhardt::db::migrations::executor::DatabaseMigrationExecutor;
+use reinhardt::db::migrations::{FilesystemSource, MigrationSource};
 use reinhardt::db::orm::reinitialize_database;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -16,7 +16,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use nuages::{NuagesMigrations, routes};
+use nuages::routes;
 
 // ============================================================================
 // Test Fixtures
@@ -34,7 +34,11 @@ async fn test_app() -> (
 	let conn = DatabaseConnection::connect(&database_url)
 		.await
 		.expect("Failed to connect to PostgreSQL");
-	let migrations = NuagesMigrations::migrations();
+	let source = FilesystemSource::new("migrations");
+	let migrations = source
+		.all_migrations()
+		.await
+		.expect("Failed to load migrations");
 	if !migrations.is_empty() {
 		let mut executor = DatabaseMigrationExecutor::new(conn.inner().clone());
 		executor
