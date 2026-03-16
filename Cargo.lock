@@ -3926,28 +3926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuages"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "ctor",
- "nuages-core",
- "nuages-k8s",
- "nuages-types",
- "reinhardt-web",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "nuages-cli"
 version = "0.1.0"
 dependencies = [
@@ -4001,9 +3979,13 @@ name = "nuages-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "k8s-openapi",
+ "kube",
  "rstest",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
+ "toml 0.9.12+spec-1.1.0",
  "uuid",
 ]
 
@@ -5920,6 +5902,28 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "reinhardt-nuages"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ctor",
+ "nuages-core",
+ "nuages-k8s",
+ "nuages-types",
+ "reinhardt-web",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

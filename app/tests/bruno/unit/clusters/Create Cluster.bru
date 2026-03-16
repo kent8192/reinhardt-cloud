@@ -1,0 +1,35 @@
+meta {
+  name: Create Cluster
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/clusters/
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "production-cluster",
+    "api_url": "https://k8s.example.com:6443"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.name: eq production-cluster
+  res.body.api_url: eq https://k8s.example.com:6443
+  res.body.is_active: eq true
+}
+
+tests {
+  test("should return 201 with created cluster", function() {
+    const body = res.getBody();
+    expect(body.name).to.equal("production-cluster");
+    expect(body.api_url).to.equal("https://k8s.example.com:6443");
+    expect(body.is_active).to.equal(true);
+    expect(body.id).to.be.a("number");
+  });
+}

@@ -1,3 +1,11 @@
-pub fn add(left: u64, right: u64) -> u64 {
-	left + right
-}
+//! Core business logic for the nuages PaaS platform.
+//!
+//! This crate provides framework-agnostic domain services, error types,
+//! and authentication utilities. It has no dependency on reinhardt or
+//! any web framework.
+
+pub mod auth;
+pub mod error;
+pub mod services;
+
+pub use error::ApiError;

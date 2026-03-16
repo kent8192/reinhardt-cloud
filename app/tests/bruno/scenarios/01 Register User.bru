@@ -1,0 +1,38 @@
+meta {
+  name: 01 Register User
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/auth/register/
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "{{testUsername}}",
+    "email": "{{testEmail}}",
+    "password": "{{testPassword}}"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.token_type: eq Bearer
+  res.body.token: isString
+}
+
+tests {
+  test("should register user and return JWT token", function() {
+    const body = res.getBody();
+    expect(body.token_type).to.equal("Bearer");
+    expect(body.token).to.be.a("string");
+    expect(body.token.length).to.be.greaterThan(0);
+  });
+}
+
+script:post-response {
+  bru.setEnvVar("jwtToken", res.body.token);
+}
