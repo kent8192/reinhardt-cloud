@@ -3917,28 +3917,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuages"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "ctor",
- "nuages-core",
- "nuages-k8s",
- "nuages-types",
- "reinhardt-web",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "nuages-cli"
 version = "0.1.0"
 
@@ -5849,6 +5827,28 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "reinhardt-nuages"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ctor",
+ "nuages-core",
+ "nuages-k8s",
+ "nuages-types",
+ "reinhardt-web",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
