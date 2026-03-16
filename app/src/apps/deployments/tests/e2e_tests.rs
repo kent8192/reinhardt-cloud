@@ -31,7 +31,8 @@ mod tests {
 		// Workaround: Use FilesystemSource directly instead of postgres_with_all_migrations
 		// fixture, which relies on global_registry() requiring collect_migrations! registration.
 		// See: https://github.com/kent8192/reinhardt-web/issues/2415
-		let source = FilesystemSource::new("migrations");
+		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		let source = FilesystemSource::new(migrations_dir);
 		let migrations = source
 			.all_migrations()
 			.await
