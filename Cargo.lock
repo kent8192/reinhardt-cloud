@@ -3946,10 +3946,12 @@ name = "nuages-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "nuages-types",
  "reqwest",
  "rstest",
  "serde",
  "serial_test",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
@@ -3992,16 +3994,21 @@ name = "nuages-operator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "futures",
+ "http",
+ "http-body-util",
  "k8s-openapi",
  "kube",
  "nuages-types",
+ "rand 0.9.2",
  "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
