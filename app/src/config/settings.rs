@@ -57,8 +57,8 @@ pub fn get_settings() -> Settings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
 
-	// Get the project root directory (parent of src/)
-	let base_dir = env::current_dir().expect("Failed to get current directory");
+	// Use compile-time manifest directory for deterministic settings resolution
+	let base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 	let settings_dir = base_dir.join("settings");
 
 	// Build settings by merging sources in priority order
