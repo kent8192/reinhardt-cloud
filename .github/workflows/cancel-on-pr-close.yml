@@ -10,7 +10,7 @@ permissions:
 jobs:
   cancel-stale-runs:
     name: Cancel Stale Workflow Runs
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.SELF_HOSTED_ENABLED == 'true' && 'nuages-cancel' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - name: Cancel and force-cancel stale runs
