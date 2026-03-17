@@ -11,6 +11,9 @@ use k8s_openapi::api::core::v1::EnvVar;
 ///
 /// Generates both a composite `DATABASE_URL` (for frameworks that expect a
 /// single connection string) and individual `REINHARDT_DATABASE_*` variables.
+// Reserved for future reconciler integration that will inject database
+// credentials into application Deployments.
+#[allow(dead_code)]
 pub(crate) fn build_database_env_vars(
 	endpoint: &str,
 	port: i32,

@@ -15,10 +15,10 @@ pub struct MailSpec {
 impl MailSpec {
 	/// Validates the mail specification
 	pub fn validate(&self) -> Result<(), String> {
-		if let Some(port) = self.smtp_port {
-			if !(1..=65535).contains(&port) {
-				return Err("mail.smtp_port must be between 1 and 65535".to_string());
-			}
+		if let Some(port) = self.smtp_port
+			&& !(1..=65535).contains(&port)
+		{
+			return Err("mail.smtp_port must be between 1 and 65535".to_string());
 		}
 		Ok(())
 	}

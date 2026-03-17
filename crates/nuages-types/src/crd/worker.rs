@@ -19,10 +19,10 @@ pub struct WorkerStatus {
 impl WorkerSpec {
 	/// Validates the worker specification
 	pub fn validate(&self) -> Result<(), String> {
-		if let Some(c) = self.concurrency {
-			if c <= 0 {
-				return Err("worker.concurrency must be > 0".to_string());
-			}
+		if let Some(c) = self.concurrency
+			&& c <= 0
+		{
+			return Err("worker.concurrency must be > 0".to_string());
 		}
 		Ok(())
 	}

@@ -36,10 +36,14 @@ pub(crate) enum Error {
 	InvalidPort { field: &'static str, port: i32 },
 
 	/// Database provisioning failed.
+	/// Used by the inference engine when database resource creation fails.
+	#[allow(dead_code)]
 	#[error("database provisioning failed: {0}")]
 	DatabaseProvisioning(String),
 
 	/// Platform controller is not installed in the cluster.
+	/// Used by the inference engine when ACK/Config Connector CRDs are missing.
+	#[allow(dead_code)]
 	#[error("platform controller not installed: {group} API group not found")]
 	PlatformControllerMissing { group: String },
 

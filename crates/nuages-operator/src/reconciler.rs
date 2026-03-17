@@ -31,6 +31,9 @@ pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
 	/// Platform-specific configuration for resource inference.
+	// Reserved for future reconciler integration that will use platform
+	// defaults when inferring resource specifications.
+	#[allow(dead_code)]
 	pub platform: PlatformConfig,
 }
 

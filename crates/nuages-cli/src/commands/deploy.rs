@@ -51,7 +51,7 @@ pub(crate) async fn execute(
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Try to read nuages.toml for zero-config deployment
-	let toml_config = read_nuages_toml(&project_dir).map_err(|e| e)?;
+	let toml_config = read_nuages_toml(&project_dir)?;
 	let (app_name, image, replicas) = if let Some(config) = toml_config {
 		let name = args.name.clone().unwrap_or(config.app.name.clone());
 		let img = args.image.clone().unwrap_or(config.app.image.clone());

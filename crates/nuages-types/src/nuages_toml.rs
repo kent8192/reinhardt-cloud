@@ -218,10 +218,8 @@ impl NuagesToml {
 			}),
 			env: self.env.clone(),
 			cache: self.cache.as_ref().map(|c| CacheSpec {
-				backend: match c.backend.as_str() {
-					// Only Redis is currently supported
-					_ => CacheBackend::Redis,
-				},
+				// Only Redis is currently supported
+				backend: CacheBackend::Redis,
 				instance_type: c.instance_type.clone(),
 			}),
 			worker: self.worker.as_ref().map(|w| WorkerSpec {

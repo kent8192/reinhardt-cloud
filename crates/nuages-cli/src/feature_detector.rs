@@ -4,6 +4,9 @@ use std::path::Path;
 
 /// Infrastructure signals inferred from reinhardt-web feature flags
 #[derive(Debug, Clone, Default)]
+// Reserved for future feature management commands (zero-config CLI will
+// read these fields when generating deployment manifests).
+#[allow(dead_code)]
 pub(crate) struct InfraSignals {
 	pub(crate) database: Option<String>,
 	pub(crate) jwt: bool,
@@ -96,18 +99,19 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 /// Search for reinhardt-web dependency features across dependency sections
 fn find_reinhardt_features(cargo_toml: &toml::Value) -> Option<Vec<String>> {
 	// Check [dependencies] first
-	if let Some(deps) = cargo_toml.get("dependencies") {
-		if let Some(features) = extract_reinhardt_features(deps) {
-			return Some(features);
-		}
+	if let Some(features) = cargo_toml
+		.get("dependencies")
+		.and_then(extract_reinhardt_features)
+	{
+		return Some(features);
 	}
 	// Check [workspace.dependencies]
-	if let Some(workspace) = cargo_toml.get("workspace") {
-		if let Some(deps) = workspace.get("dependencies") {
-			if let Some(features) = extract_reinhardt_features(deps) {
-				return Some(features);
-			}
-		}
+	if let Some(features) = cargo_toml
+		.get("workspace")
+		.and_then(|w| w.get("dependencies"))
+		.and_then(extract_reinhardt_features)
+	{
+		return Some(features);
 	}
 	None
 }
@@ -121,10 +125,8 @@ fn extract_reinhardt_features(deps: &toml::Value) -> Option<Vec<String>> {
 	// Check all deps for package = "reinhardt-web" (rename pattern)
 	if let Some(table) = deps.as_table() {
 		for (_key, dep) in table {
-			if let Some(pkg) = dep.get("package").and_then(|p| p.as_str()) {
-				if pkg == "reinhardt-web" {
-					return extract_features_from_dep(dep);
-				}
+			if dep.get("package").and_then(|p| p.as_str()) == Some("reinhardt-web") {
+				return extract_features_from_dep(dep);
 			}
 		}
 	}

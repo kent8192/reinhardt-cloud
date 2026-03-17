@@ -49,10 +49,10 @@ pub enum ResourcePhase {
 impl DatabaseSpec {
 	/// Validates the database specification
 	pub fn validate(&self) -> Result<(), String> {
-		if let Some(gb) = self.storage_gb {
-			if gb <= 0 {
-				return Err("database.storage_gb must be > 0".to_string());
-			}
+		if let Some(gb) = self.storage_gb
+			&& gb <= 0
+		{
+			return Err("database.storage_gb must be > 0".to_string());
 		}
 		Ok(())
 	}

@@ -3,6 +3,10 @@
 //! Generates the appropriate Kubernetes resources for database provisioning
 //! based on the target platform: on-premise uses StatefulSets with PVCs,
 //! AWS uses ACK `DynamicObject`, and GCP uses Config Connector `DynamicObject`.
+//!
+//! This module is consumed by the reconciler when database provisioning is
+//! integrated into the reconciliation loop (future work).
+#![allow(dead_code)]
 
 use std::collections::BTreeMap;
 
