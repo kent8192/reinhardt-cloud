@@ -18,13 +18,11 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 /// Returns a paginated response with items, total count, and page metadata.
 #[get("/deployments/", name = "deployment_list")]
 pub async fn list_deployments(
-	query: Query<PaginationParams>,
+	Query(params): Query<PaginationParams>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let params = query.0;
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let total = Deployment::objects()
 		.filter(

@@ -18,13 +18,11 @@ use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentR
 /// Sets the deployment owner to the authenticated user.
 #[post("/deployments/", name = "deployment_create")]
 pub async fn create_deployment(
-	body: Json<CreateDeploymentRequest>,
+	Json(body): Json<CreateDeploymentRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let body = body.0;
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	// Validate cluster exists and is owned by the authenticated user
 	let cluster_exists = Cluster::objects()

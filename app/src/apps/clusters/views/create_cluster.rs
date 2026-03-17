@@ -15,13 +15,11 @@ use crate::apps::clusters::serializers::{ClusterResponse, CreateClusterRequest};
 /// Sets the cluster owner to the authenticated user.
 #[post("/clusters/", name = "cluster_create")]
 pub async fn create_cluster(
-	body: Json<CreateClusterRequest>,
+	Json(body): Json<CreateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let body = body.0;
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 	let new_cluster = Cluster::new(user_id, body.name.clone(), body.api_url.clone(), true);
 	let manager = Cluster::objects();
 	let created = manager

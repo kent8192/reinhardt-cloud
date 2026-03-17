@@ -18,13 +18,11 @@ use crate::apps::clusters::serializers::ClusterResponse;
 /// Returns a paginated response with items, total count, and page metadata.
 #[get("/clusters/", name = "cluster_list")]
 pub async fn list_clusters(
-	query: Query<PaginationParams>,
+	Query(params): Query<PaginationParams>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let params = query.0;
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let total = Cluster::objects()
 		.filter(
