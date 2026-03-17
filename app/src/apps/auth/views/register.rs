@@ -34,7 +34,14 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 			// so string matching is the only detection mechanism available.
 			let err_lower = e.to_string().to_lowercase();
 			if err_lower.contains("unique") || err_lower.contains("duplicate") {
-				return Err(AppError::Conflict("Username already exists".to_string()));
+				// Distinguish which field caused the conflict by checking
+				// the PostgreSQL constraint name embedded in the error message.
+				let message = if err_lower.contains("auth_user_email_uniq") {
+					"Email already exists"
+				} else {
+					"Username already exists"
+				};
+				return Err(AppError::Conflict(message.to_string()));
 			}
 			return Err(format!("Database error: {e}").into());
 		}

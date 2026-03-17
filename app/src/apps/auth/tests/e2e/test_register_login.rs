@@ -129,6 +129,49 @@ mod tests {
 		assert!(!body["token"].as_str().unwrap().is_empty());
 	}
 
+	/// Verify duplicate email registration returns 409 with email-specific message.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_register_duplicate_email_returns_conflict(
+		#[future] test_app: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			TestServerGuard,
+			APIClient,
+		),
+	) {
+		// Arrange — register first user
+		let (_container, _conn, _server, client) = test_app.await;
+		let first_user = json!({
+			"username": "emailuser1",
+			"email": "test@example.com",
+			"password": "securepassword"
+		});
+		let first_response = client
+			.post("/api/auth/register/", &first_user, "json")
+			.await
+			.expect("First register request failed");
+		assert_eq!(first_response.status_code(), 201);
+
+		// Act — register second user with same email but different username
+		let second_user = json!({
+			"username": "emailuser2",
+			"email": "test@example.com",
+			"password": "securepassword"
+		});
+		let response = client
+			.post("/api/auth/register/", &second_user, "json")
+			.await
+			.expect("Second register request failed");
+
+		// Assert
+		assert_eq!(response.status_code(), 409);
+		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
+		assert_eq!(body["error"], "Conflict");
+		assert_eq!(body["detail"], "Email already exists");
+	}
+
 	/// Verify login with wrong password returns error.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
