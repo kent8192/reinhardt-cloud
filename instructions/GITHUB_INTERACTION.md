@@ -197,6 +197,36 @@ When changes affect multiple crates or modules, provide impact analysis:
 
 ---
 
+## Copilot Review Handling
+
+### CR-1 (MUST): Automated Review Response Policy
+
+When GitHub Copilot posts review comments on a PR created by Claude Code:
+
+1. **Authorization**: Plan Mode approval or explicit user instruction to create a PR implicitly authorizes handling Copilot review comments
+2. **No additional user confirmation** is needed to resolve Copilot review conversations
+3. **Code fixes** resulting from valid Copilot suggestions follow normal commit policy
+
+### CR-2 (MUST): Evaluation Criteria for Copilot Suggestions
+
+Evaluate each Copilot suggestion against:
+
+| Criterion | Accept | Reject |
+|-----------|--------|--------|
+| Code correctness | Fixes a real bug or logic error | False positive or misunderstanding |
+| Project conventions | Aligns with CLAUDE.md and instructions/ | Contradicts project standards |
+| Security | Addresses a genuine vulnerability | Overly paranoid for internal code |
+| Performance | Measurable improvement | Premature optimization |
+| Readability | Genuinely improves clarity | Style preference with no clear benefit |
+
+### CR-3 (MUST): Resolution Protocol
+
+- **Accepted suggestions**: Fix the code → commit → resolve the conversation
+- **Rejected suggestions**: Resolve the conversation (reply with brief technical justification only if the suggestion represents a common misconception that future reviewers might also raise)
+- **All conversations MUST be resolved** before the PR is considered complete
+
+---
+
 ## Issue Discussion
 
 ### ID-1 (MUST): Issue Comment Guidelines
@@ -379,6 +409,9 @@ All GitHub comments posted by Claude Code MUST include the following footer:
 - Use markdown code blocks with language specifiers
 - Wrap long output in `<details>` tags
 - Stay on topic and be actionable
+- Wait for Copilot review after PR creation and handle all comments
+- Evaluate Copilot suggestions against project conventions before accepting
+- Resolve all Copilot review conversations before considering PR complete
 
 ### ❌ NEVER DO
 

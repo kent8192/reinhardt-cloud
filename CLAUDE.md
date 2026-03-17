@@ -166,6 +166,7 @@ See instructions/DOCUMENTATION_STANDARDS.md for comprehensive documentation stan
 See instructions/GITHUB_INTERACTION.md for comprehensive GitHub interaction guidelines including:
 - Posting authorization policy (PP-1 ~ PP-3)
 - PR review response format (RR-1 ~ RR-3)
+- Copilot review handling (CR-1 ~ CR-3)
 - Issue discussion guidelines (ID-1 ~ ID-2)
 - Agent context provision (AC-1 ~ AC-2)
 
@@ -487,6 +488,9 @@ Before submitting code:
 - Use repository-relative paths (not absolute) in GitHub comments
 - Provide structured agent context using AC-2 template format
 - Fall back to `gh` CLI when GitHub MCP tools return errors
+- Wait for Copilot review after PR creation and handle all comments (see @instructions/PR_GUIDELINE.md RP-6)
+- Evaluate Copilot suggestions against project conventions before accepting
+- Resolve all Copilot review conversations before considering PR complete
 - Verify branch name uniqueness before creation (`git worktree list` and `git branch -a`)
 - Check known CI failure patterns before deep investigation
 - Run `cargo doc --no-deps` locally before pushing doc-related fixes
@@ -548,6 +552,8 @@ Before submitting code:
 - Create PRs/Issues without following template structure
 - Enter Plan Mode for merge operations, branch deletion, or worktree cleanup
 - Retry GitHub MCP tools after errors instead of falling back to `gh` CLI
+- Leave Copilot review conversations unresolved on PRs
+- Accept Copilot suggestions that contradict project conventions without evaluation
 - Create branches without checking for name conflicts
 - Use rebase or force-push to resolve PR conflicts (use worktree merge instead)
 - Remove `agent-suspect` label without independent verification (separate agent or human)
