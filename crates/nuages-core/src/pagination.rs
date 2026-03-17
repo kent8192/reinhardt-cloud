@@ -40,7 +40,7 @@ impl PaginationParams {
 
 	/// Calculate the SQL OFFSET value for the current page.
 	pub fn offset(&self) -> u64 {
-		(self.page() - 1) * self.page_size()
+		(self.page() - 1).saturating_mul(self.page_size())
 	}
 }
 

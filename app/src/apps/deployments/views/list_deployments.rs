@@ -28,17 +28,22 @@ pub async fn list_deployments(request: Request) -> ViewResult<Response> {
 		));
 	}
 
-	let params: PaginationParams = request.query_as().unwrap_or_default();
+	let params: PaginationParams = request
+		.query_as()
+		.map_err(|e| AppError::Validation(format!("Invalid pagination parameters: {e}")))?;
 
 	let total = Deployment::objects()
 		.all()
 		.count()
 		.await
 		.map_err(|e| format!("{e}"))? as u64;
+	let offset: usize = params.offset().try_into().unwrap_or(usize::MAX);
+	let limit: usize = params.page_size().try_into().unwrap_or(usize::MAX);
 	let deployments = Deployment::objects()
 		.all()
-		.offset(params.offset() as usize)
-		.limit(params.page_size() as usize)
+		.order_by(&["id"])
+		.offset(offset)
+		.limit(limit)
 		.all()
 		.await
 		.map_err(|e| format!("{e}"))?;
