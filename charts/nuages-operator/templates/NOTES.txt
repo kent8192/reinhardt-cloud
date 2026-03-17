@@ -1,0 +1,33 @@
+Nuages Operator has been installed.
+
+Platform: {{ .Values.platform }}
+
+Enabled features:
+  - Database: {{ .Values.features.database }}
+  - Cache: {{ .Values.features.cache }}
+  - Ingress: {{ .Values.features.ingress }}
+  - Autoscaling: {{ .Values.features.autoscaling }}
+  - Storage: {{ .Values.features.storage }}
+  - Worker: {{ .Values.features.worker }}
+
+To verify the installation:
+
+  kubectl get pods -n {{ .Values.namespace }}
+  kubectl get deployment -n {{ .Values.namespace }}
+
+To deploy a sample application:
+
+  cat <<EOF | kubectl apply -f -
+  apiVersion: paas.nuages.dev/v1alpha1
+  kind: ReinhardtApp
+  metadata:
+    name: sample-app
+    namespace: default
+  spec:
+    image: nginx:latest
+    replicas: 1
+  EOF
+
+To check the operator logs:
+
+  kubectl logs -n {{ .Values.namespace }} deployment/{{ include "nuages-operator.fullname" . }}
