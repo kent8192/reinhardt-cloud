@@ -454,20 +454,36 @@ mod tests {
 
 	// ── error_policy tests ───────────────────────────────────────────
 
+	/// Creates a `kube::Client` backed by a dummy service for unit tests.
+	///
+	/// The returned client will never be used for real API calls; it only
+	/// satisfies the type signature of `error_policy`.
+	fn dummy_client() -> Client {
+		use http::Response;
+		use http_body_util::Empty;
+		use tower::service_fn;
+
+		let svc = service_fn(|_req: http::Request<kube::client::Body>| async {
+			Ok::<_, std::convert::Infallible>(Response::builder().body(Empty::new()).unwrap())
+		});
+		Client::new(svc, "default")
+	}
+
 	#[rstest]
-	fn test_error_policy_returns_requeue_action() {
+	#[tokio::test]
+	async fn test_error_policy_returns_requeue_action() {
 		// Arrange
-		// error_policy ignores both obj and ctx, but the type system requires
-		// them.  kube::Client cannot be constructed without a cluster, so we
-		// verify the expected Action structure via Debug output instead.
-		let _app = Arc::new(make_test_app("error-app"));
-		let _error = Error::MissingNamespace("error-app".to_string());
+		let app = Arc::new(make_test_app("error-app"));
+		let error = Error::MissingNamespace("error-app".to_string());
+		let ctx = Arc::new(Context {
+			client: dummy_client(),
+		});
 
 		// Act
-		let expected = Action::requeue(Duration::from_secs(30));
+		let action = error_policy(app, &error, ctx);
 
-		// Assert — confirm the requeue duration matches error_policy's constant
-		let debug_repr = format!("{expected:?}");
-		assert!(debug_repr.contains("30"));
+		// Assert — error_policy must return a 30-second requeue
+		let expected = Action::requeue(Duration::from_secs(30));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
 	}
 }
