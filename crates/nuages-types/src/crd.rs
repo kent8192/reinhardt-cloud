@@ -69,17 +69,34 @@ pub struct ServicesSpec {
 	pub ingress_host: Option<String>,
 }
 
+/// Type of a Kubernetes-style status condition.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub enum ConditionType {
+	Ready,
+	Progressing,
+	Degraded,
+}
+
+/// Status value for a Kubernetes-style status condition.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub enum ConditionStatus {
+	True,
+	False,
+	Unknown,
+}
+
 /// Standard Kubernetes-style condition for status reporting.
 ///
 /// Compatible with `k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition`
 /// but implements `JsonSchema` for CRD schema generation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AppCondition {
-	/// Type of the condition (e.g., "Ready", "Progressing", "Degraded")
+	/// Type of the condition
 	#[serde(rename = "type")]
-	pub type_: String,
-	/// Status of the condition: "True", "False", or "Unknown"
-	pub status: String,
+	pub type_: ConditionType,
+	/// Status of the condition
+	pub status: ConditionStatus,
 	/// Machine-readable reason for the condition
 	pub reason: String,
 	/// Human-readable message
@@ -123,6 +140,7 @@ pub struct ReinhardtAppSpec {
 
 /// Status of the `ReinhardtApp` custom resource.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ReinhardtAppStatus {
 	/// Current phase of the application
 	pub phase: Option<AppPhase>,
@@ -210,8 +228,8 @@ mod tests {
 		let status = ReinhardtAppStatus {
 			phase: Some(AppPhase::Running),
 			conditions: vec![AppCondition {
-				type_: "Ready".to_string(),
-				status: "True".to_string(),
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
 				reason: "ReconcileSuccess".to_string(),
 				message: "Application is ready".to_string(),
 				last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
@@ -229,9 +247,76 @@ mod tests {
 		// Assert
 		assert_eq!(deserialized.phase, Some(AppPhase::Running));
 		assert_eq!(deserialized.conditions.len(), 1);
-		assert_eq!(deserialized.conditions[0].type_, "Ready");
-		assert_eq!(deserialized.conditions[0].status, "True");
+		assert_eq!(deserialized.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(deserialized.conditions[0].status, ConditionStatus::True);
 		assert_eq!(deserialized.observed_generation, Some(1));
 		assert_eq!(deserialized.ready_replicas, Some(3));
+	}
+
+	#[rstest]
+	fn condition_type_serialization() {
+		// Arrange
+		let types = [
+			(ConditionType::Ready, "\"Ready\""),
+			(ConditionType::Progressing, "\"Progressing\""),
+			(ConditionType::Degraded, "\"Degraded\""),
+		];
+		let statuses = [
+			(ConditionStatus::True, "\"True\""),
+			(ConditionStatus::False, "\"False\""),
+			(ConditionStatus::Unknown, "\"Unknown\""),
+		];
+
+		for (variant, expected) in &types {
+			// Act
+			let json = serde_json::to_string(variant).expect("serialization should succeed");
+
+			// Assert
+			assert_eq!(json, *expected);
+		}
+
+		for (variant, expected) in &statuses {
+			// Act
+			let json = serde_json::to_string(variant).expect("serialization should succeed");
+
+			// Assert
+			assert_eq!(json, *expected);
+		}
+	}
+
+	#[rstest]
+	fn status_camelcase_serialization() {
+		// Arrange
+		let status = ReinhardtAppStatus {
+			phase: Some(AppPhase::Running),
+			conditions: vec![AppCondition {
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
+				reason: "ReconcileSuccess".to_string(),
+				message: "All good".to_string(),
+				last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			observed_generation: Some(2),
+			ready_replicas: Some(3),
+		};
+
+		// Act
+		let json = serde_json::to_string(&status).expect("serialization should succeed");
+		let value: serde_json::Value = serde_json::from_str(&json).expect("parsing should succeed");
+
+		// Assert
+		assert!(value.get("observedGeneration").is_some());
+		assert!(value.get("observed_generation").is_none());
+		assert!(value.get("readyReplicas").is_some());
+		assert!(value.get("ready_replicas").is_none());
+
+		let condition = &value["conditions"][0];
+		assert!(condition.get("lastTransitionTime").is_some());
+		assert!(condition.get("last_transition_time").is_none());
+		assert!(condition.get("observedGeneration").is_some());
+		assert!(condition.get("observed_generation").is_none());
+		// "type" field keeps explicit rename over rename_all
+		assert!(condition.get("type").is_some());
 	}
 }
