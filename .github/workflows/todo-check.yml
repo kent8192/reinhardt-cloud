@@ -36,7 +36,8 @@ jobs:
       - name: Run Semgrep TODO/FIXME scan
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: docker run --rm -v "${{ github.workspace }}:/src" -w /src semgrep/semgrep semgrep scan --config .semgrep/ --baseline-commit "$BASE_SHA" --error --metrics off
+        # Pin semgrep to v1.155.0 — update version and digest together when upgrading
+        run: docker run --rm -v "${{ github.workspace }}:/src" -w /src semgrep/semgrep:1.155.0@sha256:3dab091ee3247fce7e4ed3df9f92b3bd72692c083295f53cec3f135b86404db1 semgrep scan --config .semgrep/ --baseline-commit "$BASE_SHA" --error --metrics off
 
   clippy-todo-check:
     name: Clippy TODO/unimplemented/dbg lint
