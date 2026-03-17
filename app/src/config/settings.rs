@@ -19,6 +19,12 @@
 //! 3. Environment variables with `REINHARDT_` prefix
 //! 4. Default values
 //!
+//! ## Settings Directory Resolution
+//!
+//! The settings directory is resolved by:
+//! 1. `NUAGES_CONFIG_DIR` environment variable (for deployed environments)
+//! 2. `CARGO_MANIFEST_DIR/settings` at compile time (for local development)
+//!
 //! ## Environment Selection
 //!
 //! The environment is determined by the `REINHARDT_ENV` environment variable:
@@ -49,6 +55,12 @@ use std::env;
 /// println!("Debug mode: {}", settings.debug);
 /// ```
 ///
+/// # Configuration Directory
+///
+/// The settings directory is resolved in the following order:
+/// 1. `NUAGES_CONFIG_DIR` environment variable (for deployed environments)
+/// 2. `CARGO_MANIFEST_DIR/settings` at compile time (for local development)
+///
 /// # Panics
 ///
 /// Panics if:
@@ -59,9 +71,13 @@ pub fn get_settings() -> Settings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
 
-	// Get the project root directory (parent of src/)
-	let base_dir = env::current_dir().expect("Failed to get current directory");
-	let settings_dir = base_dir.join("settings");
+	// Resolve settings directory: NUAGES_CONFIG_DIR env var takes precedence for deployed
+	// environments (e.g., Docker, CI), falling back to compile-time CARGO_MANIFEST_DIR
+	// for local development.
+	let settings_dir = match env::var("NUAGES_CONFIG_DIR") {
+		Ok(dir) => std::path::PathBuf::from(dir),
+		Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("settings"),
+	};
 
 	// Build settings by merging sources in priority order
 	let merged = SettingsBuilder::new()
