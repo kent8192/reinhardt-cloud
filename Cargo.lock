@@ -5534,8 +5534,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "reinhardt-apps"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f9c9620032b7ef53dcf69d44a690423840b26c7c6743670742d296424ea625a"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5565,8 +5564,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b41cefad8dc7edd0feb222e007be675bcf897cedf4d3daaaae57a20997399600"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5605,8 +5603,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-commands"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32063f4a7913ecd3b4ae2aa79bb564c0ba92da6e6e646bf2f0ce160487659909"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5658,8 +5655,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-conf"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c97ab76f8679263992f645024cbde7edacd8f0a371a108ba0253159c4a7a533"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5686,8 +5682,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-core"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba560a34bc193bd04a0b07fedd3a2f811bf11f70b00ad9674c00ec8489f2e67"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "anyhow",
  "aquamarine",
@@ -5734,8 +5729,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-db"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89c41a3913cb7050fba42d12fc3da1d1aa652d858836a2c36d202ed6d1ee0c80"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
@@ -5790,8 +5784,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "531af01b1058939fe25dfe583595303e6be83ef596bab74d8b8cdd41640cf811"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -5813,8 +5806,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-forms"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffc8646690ec3d868b438a7f742248cb4d8be063bb8879d4008aa6203498f3c0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "anyhow",
  "aquamarine",
@@ -5831,8 +5823,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-http"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e53843ab4f80d6897d34f8c490131042e996b33373f5e750aae10a427e98950b"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5853,8 +5844,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-macros"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae897361eece8f1f4836ee3610b6352f6b9da03b5a0e09eea61aefd6e2d62fe"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "ctor",
  "inventory",
@@ -5868,8 +5858,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-mail"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aa4ea18b2c1aad7580f1bd42bf228f05683ee6625e52109b0e2df81afb4d137"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5890,8 +5879,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-manouche"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "371c7bd9ac3f0f76e080c1e93445504c3996b28aef4c5f40f1eb3038a356f07b"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "aquamarine",
  "convert_case",
@@ -5904,8 +5892,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-middleware"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23bc0467a1009078af83a60ba9163547a36050650b367f03b9f7cb16a6a24bee"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5962,8 +5949,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a049bc1bdcf4a66003d94bcdc3f36e64abc5051e2483236f0f5e7a3174995f6a"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "reinhardt-http",
@@ -5975,8 +5961,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi-macros"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28ab78a23a8641cbbe2fa1e01cf8f49b0e028f3489a7b3058e1c03fbff236406"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -5987,8 +5972,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7500f57bf802657173c9e4dd4331b76e3097482e76bdac72c2a9cbce5d5312e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "aquamarine",
  "async-trait",
@@ -6027,8 +6011,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-ast"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488e011c338aaefcf77f0bcc4d3716a5df4369ccb31a9ab36e30a8aa4e3d1a22"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "aquamarine",
  "convert_case",
@@ -6042,8 +6025,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-macros"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b357335c9a09c0932bfb926fdda20ede2609cbc26e2c600166acb8da9b813f"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "convert_case",
  "darling 0.20.11",
@@ -6058,8 +6040,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36cadc5c968016e0954812a2313426eee0abc26d20f801d1ac488d5d56552aeb"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6073,8 +6054,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query-macros"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e80b634d06f90f970f8e9d4cfa00d01e21b3e9c65d833c9c1a064d54f7a16e2c"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -6085,8 +6065,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-rest"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eea3eaa204786654e798c25a0e087becac5816ee5ccf3fae4d85ff6dd72987ce"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6135,8 +6114,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-routers-macros"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1be5ff7dd1199cfe5ba8ebfb68b42700e4fed0acb0fe09fd42ee8525c0d20f78"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6146,8 +6124,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-server"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c54bfa01cd89d42bf14af44436047371c6ba9c289438b6e030239e5545127ec0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6166,8 +6143,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-test"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50d1f323d21417945035ed8f9943ea56f6d599cd8683b71840a113107a8e4d50"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "reinhardt-auth",
  "reinhardt-conf",
@@ -6186,8 +6162,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a85b026860d9c49d4a8d37c3ebcfcc84dc0613d68971a058bdfa07a1c43a1729"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-dropper",
  "async-trait",
@@ -6241,8 +6216,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-throttling"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f14ca379e1ca98dad81e4fbffb273cb8200b8b0729e71850039e551f02a82af9"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -6253,8 +6227,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-urls"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a991acfa487a9a22edab4c0443dc28ac4c99c2fab00160223c542034e2d38f3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -6286,8 +6259,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-utils"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4776920194fc64d91814a649807d3c7e16e04bf7dc59fcaaea856b7398a2248"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6323,8 +6295,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-views"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "697f53e2677f81e432191c18d85aa0070b40ab2942e77600c70060f9a5f94442"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6360,8 +6331,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-web"
 version = "0.1.0-rc.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93edc0666e46e7a946bde3e19d74b1a9e00a8a187555aa63eea094414ce068c6"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#116eebb0fed605b0c4530e46173eb9fe27cdd92c"
 dependencies = [
  "async-trait",
  "bytes",
