@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::validation::ValidationError;
+
 /// Top-level `reinhardt.toml` configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReinhardtConfig {
@@ -66,6 +68,48 @@ pub struct ScaleConfig {
 	pub target_value: Option<i32>,
 }
 
+impl ScaleConfig {
+	/// Validates the autoscaling configuration.
+	///
+	/// Checks that replica counts are non-negative, max >= min when both
+	/// are present, and target_value is positive.
+	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if let Some(min) = self.min_replicas
+			&& min < 0
+		{
+			errors.push(ValidationError::new("scale.min_replicas must be >= 0"));
+		}
+
+		if let Some(max) = self.max_replicas
+			&& max < 0
+		{
+			errors.push(ValidationError::new("scale.max_replicas must be >= 0"));
+		}
+
+		if let (Some(min), Some(max)) = (self.min_replicas, self.max_replicas)
+			&& max < min
+		{
+			errors.push(ValidationError::new(
+				"scale.max_replicas must be >= scale.min_replicas",
+			));
+		}
+
+		if let Some(target) = self.target_value
+			&& target <= 0
+		{
+			errors.push(ValidationError::new("scale.target_value must be > 0"));
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
 /// Service exposure configuration section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServicesConfig {
@@ -77,6 +121,37 @@ pub struct ServicesConfig {
 	pub ingress_host: Option<String>,
 }
 
+impl ServicesConfig {
+	/// Validates the service exposure configuration.
+	///
+	/// Checks that port and target_port are within the valid range (1-65535).
+	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if let Some(port) = self.port
+			&& !(1..=65535).contains(&port)
+		{
+			errors.push(ValidationError::new(
+				"services.port must be between 1 and 65535",
+			));
+		}
+
+		if let Some(target_port) = self.target_port
+			&& !(1..=65535).contains(&target_port)
+		{
+			errors.push(ValidationError::new(
+				"services.target_port must be between 1 and 65535",
+			));
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
 /// Health check configuration section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthConfig {
@@ -86,6 +161,96 @@ pub struct HealthConfig {
 	pub port: Option<i32>,
 	/// Interval between health checks in seconds
 	pub interval_seconds: Option<i32>,
+}
+
+impl HealthConfig {
+	/// Validates the health check configuration.
+	///
+	/// Checks that port is within the valid range (1-65535) and
+	/// interval_seconds is positive.
+	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if let Some(port) = self.port
+			&& !(1..=65535).contains(&port)
+		{
+			errors.push(ValidationError::new(
+				"health.port must be between 1 and 65535",
+			));
+		}
+
+		if let Some(interval) = self.interval_seconds
+			&& interval <= 0
+		{
+			errors.push(ValidationError::new("health.interval_seconds must be > 0"));
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
+impl DeployConfig {
+	/// Validates the deployment configuration.
+	///
+	/// Checks that replicas is non-negative.
+	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if let Some(replicas) = self.replicas
+			&& replicas < 0
+		{
+			errors.push(ValidationError::new("deploy.replicas must be >= 0"));
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
+impl ReinhardtConfig {
+	/// Validates the full configuration.
+	///
+	/// Delegates to nested config validations and collects all errors.
+	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if let Some(ref deploy) = self.deploy
+			&& let Err(errs) = deploy.validate()
+		{
+			errors.extend(errs);
+		}
+
+		if let Some(ref scale) = self.scale
+			&& let Err(errs) = scale.validate()
+		{
+			errors.extend(errs);
+		}
+
+		if let Some(ref services) = self.services
+			&& let Err(errs) = services.validate()
+		{
+			errors.extend(errs);
+		}
+
+		if let Some(ref health) = self.health
+			&& let Err(errs) = health.validate()
+		{
+			errors.extend(errs);
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
 }
 
 #[cfg(test)]
@@ -166,6 +331,142 @@ name = "minimal-app"
 		assert!(config.scale.is_none());
 		assert!(config.services.is_none());
 		assert!(config.health.is_none());
+	}
+
+	#[rstest]
+	fn scale_config_validation_valid() {
+		// Arrange
+		let config = ScaleConfig {
+			min_replicas: Some(1),
+			max_replicas: Some(10),
+			metric: Some("Cpu".to_string()),
+			target_value: Some(80),
+		};
+
+		// Act
+		let result = config.validate();
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
+	fn scale_config_validation_invalid() {
+		// Arrange
+		let config = ScaleConfig {
+			min_replicas: Some(-1),
+			max_replicas: Some(-2),
+			metric: None,
+			target_value: Some(0),
+		};
+
+		// Act
+		let result = config.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		// min(-1) + max(-2) + max<min + target(0)
+		assert_eq!(errors.len(), 4);
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.max_replicas must be >= 0");
+		assert_eq!(
+			errors[2].message,
+			"scale.max_replicas must be >= scale.min_replicas"
+		);
+		assert_eq!(errors[3].message, "scale.target_value must be > 0");
+	}
+
+	#[rstest]
+	fn services_config_validation_invalid_port() {
+		// Arrange
+		let config = ServicesConfig {
+			port: Some(0),
+			target_port: Some(65536),
+			ingress_host: None,
+		};
+
+		// Act
+		let result = config.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 2);
+		assert_eq!(
+			errors[0].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(
+			errors[1].message,
+			"services.target_port must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn health_config_validation_invalid() {
+		// Arrange
+		let config = HealthConfig {
+			path: None,
+			port: Some(0),
+			interval_seconds: Some(0),
+		};
+
+		// Act
+		let result = config.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 2);
+		assert_eq!(errors[0].message, "health.port must be between 1 and 65535");
+		assert_eq!(errors[1].message, "health.interval_seconds must be > 0");
+	}
+
+	#[rstest]
+	fn reinhardt_config_validation_collects_errors() {
+		// Arrange
+		let config = ReinhardtConfig {
+			app: AppConfig {
+				name: "test-app".to_string(),
+				version: None,
+				description: None,
+			},
+			build: None,
+			deploy: Some(DeployConfig {
+				image: None,
+				replicas: Some(-1),
+				database: None,
+			}),
+			scale: Some(ScaleConfig {
+				min_replicas: Some(-1),
+				max_replicas: None,
+				metric: None,
+				target_value: None,
+			}),
+			services: Some(ServicesConfig {
+				port: Some(0),
+				target_port: None,
+				ingress_host: None,
+			}),
+			health: Some(HealthConfig {
+				path: None,
+				port: None,
+				interval_seconds: Some(0),
+			}),
+		};
+
+		// Act
+		let result = config.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		// deploy.replicas(-1) + scale.min(-1) + services.port(0) + health.interval(0)
+		assert_eq!(errors.len(), 4);
+		assert_eq!(errors[0].message, "deploy.replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
+		assert_eq!(
+			errors[2].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(errors[3].message, "health.interval_seconds must be > 0");
 	}
 
 	#[rstest]
