@@ -38,7 +38,7 @@ jobs:
     steps:
       - name: Check if PR has merge conflicts
         id: check
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const { data: pr } = await github.rest.pulls.get({
@@ -54,7 +54,7 @@ jobs:
 
       - name: Check if infra files changed
         id: check-infra
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -82,7 +82,7 @@ jobs:
       - name: Parse PR checkbox for self-hosted
         if: github.event_name == 'pull_request'
         id: parse-checkbox
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const body = context.payload.pull_request.body || '';
