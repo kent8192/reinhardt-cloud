@@ -3,6 +3,9 @@
 mod client;
 mod commands;
 mod config;
+mod feature_detector;
+mod settings_reader;
+mod toml_generator;
 
 use clap::{Parser, Subcommand};
 
@@ -33,6 +36,10 @@ enum Commands {
 	Status(commands::status::StatusArgs),
 	/// Authenticate with the platform
 	Login(commands::login::LoginArgs),
+	/// Initialize nuages configuration for a reinhardt-web project
+	Init(commands::init::InitArgs),
+	/// Re-synchronize nuages.toml with current project state
+	Sync(commands::sync::SyncArgs),
 }
 
 #[tokio::main]
@@ -48,6 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
 		Commands::Status(args) => commands::status::execute(args, &client).await,
 		Commands::Login(args) => commands::login::execute(args, &client).await,
+		Commands::Init(args) => commands::init::execute(args).await,
+		Commands::Sync(args) => commands::sync::execute(args).await,
 	}
 }
 
@@ -142,5 +151,53 @@ mod tests {
 
 		// Assert
 		assert!(cli.is_err());
+	}
+
+	#[rstest]
+	fn test_parse_init_command() {
+		// Arrange
+		let args = vec!["nuages", "init"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_init_command_with_dir() {
+		// Arrange
+		let args = vec!["nuages", "init", "--dir", "/some/path"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_sync_command() {
+		// Arrange
+		let args = vec!["nuages", "sync"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_sync_command_with_dir() {
+		// Arrange
+		let args = vec!["nuages", "sync", "--dir", "/some/path"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
 	}
 }

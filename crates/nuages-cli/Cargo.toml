@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+nuages-types = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -22,6 +23,7 @@ url = "2"
 [dev-dependencies]
 rstest = { workspace = true }
 serial_test = "3.2"
+tempfile = "3"
 
 [lints]
 workspace = true
