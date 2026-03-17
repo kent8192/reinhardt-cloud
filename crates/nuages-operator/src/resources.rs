@@ -4,14 +4,17 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	Container, ContainerPort, PodSpec, PodTemplateSpec, Service, ServicePort, ServiceSpec,
+	ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, ResourceRequirements,
+	Service, ServicePort, ServiceSpec, Volume, VolumeMount,
 };
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::{Resource, ResourceExt};
 use nuages_types::crd::ReinhardtApp;
 
 use crate::error::Error;
+use crate::inference::env_vars::{build_system_env_vars, merge_env_vars};
 
 /// Validates that a port number is within the valid TCP/UDP range (1-65535).
 fn validate_port(field: &'static str, port: i32) -> Result<i32, Error> {
@@ -59,6 +62,60 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 		.controller_owner_ref(&())
 		.ok_or_else(|| Error::OwnerReference(app.name_any()))?;
 
+	// Build merged environment variables (system + user overrides)
+	let system_vars = build_system_env_vars();
+	let merged_env = merge_env_vars(&system_vars, &app.spec.env);
+
+	// Settings ConfigMap volume and mount
+	let volumes = vec![Volume {
+		name: "settings".to_string(),
+		config_map: Some(ConfigMapVolumeSource {
+			name: format!("{}-settings", app.name_any()),
+			..Default::default()
+		}),
+		..Default::default()
+	}];
+
+	let volume_mounts = vec![VolumeMount {
+		name: "settings".to_string(),
+		mount_path: "/etc/nuages/settings".to_string(),
+		read_only: Some(true),
+		..Default::default()
+	}];
+
+	// Init container for database migrations when database is configured
+	let init_containers = if app.spec.database.is_some() {
+		Some(vec![Container {
+			name: "migrate".to_string(),
+			image: Some(app.spec.image.clone()),
+			command: Some(vec![
+				"cargo".to_string(),
+				"run".to_string(),
+				"--bin".to_string(),
+				"manage".to_string(),
+				"--".to_string(),
+				"migrate".to_string(),
+				"--run".to_string(),
+			]),
+			env: Some(merged_env.clone()),
+			volume_mounts: Some(volume_mounts.clone()),
+			resources: Some(ResourceRequirements {
+				requests: Some(BTreeMap::from([
+					("cpu".to_string(), Quantity("100m".to_string())),
+					("memory".to_string(), Quantity("128Mi".to_string())),
+				])),
+				limits: Some(BTreeMap::from([
+					("cpu".to_string(), Quantity("500m".to_string())),
+					("memory".to_string(), Quantity("256Mi".to_string())),
+				])),
+				..Default::default()
+			}),
+			..Default::default()
+		}])
+	} else {
+		None
+	};
+
 	Ok(Deployment {
 		metadata: ObjectMeta {
 			name: Some(app.name_any()),
@@ -82,6 +139,7 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 					..Default::default()
 				}),
 				spec: Some(PodSpec {
+					init_containers,
 					containers: vec![Container {
 						name: app.name_any(),
 						image: Some(app.spec.image.clone()),
@@ -89,8 +147,11 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 							container_port: port,
 							..Default::default()
 						}]),
+						env: Some(merged_env),
+						volume_mounts: Some(volume_mounts),
 						..Default::default()
 					}],
+					volumes: Some(volumes),
 					..Default::default()
 				}),
 			},
@@ -156,6 +217,7 @@ pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
+	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use nuages_types::crd::{ReinhardtAppSpec, ServicesSpec};
 	use rstest::rstest;
 
@@ -185,6 +247,17 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn make_test_app_with_database() -> ReinhardtApp {
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: Some("16".to_string()),
+		});
+		app
 	}
 
 	#[rstest]
@@ -473,5 +546,132 @@ mod tests {
 		// Arrange / Act / Assert
 		assert_eq!(validate_port("port", 1).unwrap(), 1);
 		assert_eq!(validate_port("port", 65535).unwrap(), 65535);
+	}
+
+	#[rstest]
+	fn test_build_deployment_includes_init_container_when_database() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let init_containers = pod_spec.init_containers.unwrap();
+		assert_eq!(init_containers.len(), 1);
+		assert_eq!(init_containers[0].name, "migrate");
+		assert_eq!(
+			init_containers[0].command.as_ref().unwrap().last().unwrap(),
+			"--run"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_no_init_container_without_database() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(
+			pod_spec.init_containers.is_none()
+				|| pod_spec.init_containers.unwrap().is_empty()
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_has_settings_volume() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let volumes = pod_spec.volumes.unwrap();
+		assert!(volumes.iter().any(|v| v.name == "settings"));
+		let settings_vol = volumes.iter().find(|v| v.name == "settings").unwrap();
+		assert_eq!(
+			settings_vol
+				.config_map
+				.as_ref()
+				.unwrap()
+				.name
+				.as_str(),
+			"web-settings"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_has_settings_volume_mount() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
+
+		// Assert
+		let mounts = container.volume_mounts.as_ref().unwrap();
+		assert!(mounts.iter().any(|m| m.name == "settings"
+			&& m.mount_path == "/etc/nuages/settings"
+			&& m.read_only == Some(true)));
+	}
+
+	#[rstest]
+	fn test_build_deployment_injects_system_env_vars() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		assert!(env
+			.iter()
+			.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production")));
+		assert!(env.iter().any(|e| e.name == "NUAGES_CONFIG_DIR"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_user_env_overrides_system() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.env = BTreeMap::from([(
+			"REINHARDT_ENV".to_string(),
+			"staging".to_string(),
+		)]);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		let reinhardt_env = env.iter().find(|e| e.name == "REINHARDT_ENV").unwrap();
+		assert_eq!(reinhardt_env.value.as_deref(), Some("staging"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_shares_env_with_main() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+		let main_env = pod_spec.containers[0].env.clone();
+		let init_containers = pod_spec.init_containers.unwrap();
+		let init_env = init_containers[0].env.clone();
+
+		// Assert
+		assert_eq!(main_env, init_env);
 	}
 }
