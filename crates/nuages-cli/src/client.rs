@@ -1,5 +1,7 @@
 //! HTTP client for the nuages REST API.
 
+use std::time::Duration;
+
 use reqwest::{Client, Url};
 use thiserror::Error;
 
@@ -35,16 +37,21 @@ pub(crate) struct NuagesClient {
 impl NuagesClient {
 	/// Creates a new API client with the given base URL.
 	///
-	/// # Panics
+	/// # Errors
 	///
-	/// Panics if `base_url` is not a valid URL.
-	pub(crate) fn new(base_url: &str) -> Self {
-		let parsed = Url::parse(base_url).expect("base_url must be a valid URL");
-		Self {
-			http: Client::new(),
+	/// Returns [`ClientError::InvalidUrl`] if `base_url` is not a valid URL.
+	/// Returns [`ClientError::RequestError`] if the HTTP client cannot be built.
+	pub(crate) fn new(base_url: &str) -> Result<Self, ClientError> {
+		let parsed = Url::parse(base_url)?;
+		let http = Client::builder()
+			.connect_timeout(Duration::from_secs(10))
+			.timeout(Duration::from_secs(30))
+			.build()?;
+		Ok(Self {
+			http,
 			base_url: parsed,
 			token: None,
-		}
+		})
 	}
 
 	/// Sets the authentication token.
@@ -90,7 +97,7 @@ mod tests {
 	#[rstest]
 	fn test_new_client_stores_base_url() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000");
+		let client = NuagesClient::new("http://localhost:8000").unwrap();
 
 		// Assert
 		assert_eq!(client.base_url(), "http://localhost:8000");
@@ -99,16 +106,31 @@ mod tests {
 	#[rstest]
 	fn test_new_client_trims_trailing_slash() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000/");
+		let client = NuagesClient::new("http://localhost:8000/").unwrap();
 
 		// Assert
 		assert_eq!(client.base_url(), "http://localhost:8000");
 	}
 
 	#[rstest]
+	fn test_new_client_invalid_url_returns_error() {
+		// Arrange
+		let invalid_url = "not a url";
+
+		// Act
+		let result = NuagesClient::new(invalid_url);
+
+		// Assert
+		assert!(
+			matches!(result, Err(ClientError::InvalidUrl(_))),
+			"expected ClientError::InvalidUrl, got {result:?}"
+		);
+	}
+
+	#[rstest]
 	fn test_with_token_sets_token() {
 		// Arrange
-		let client = NuagesClient::new("http://localhost:8000");
+		let client = NuagesClient::new("http://localhost:8000").unwrap();
 
 		// Act
 		let client = client.with_token("my-secret-token".to_string());
@@ -120,7 +142,7 @@ mod tests {
 	#[rstest]
 	fn test_new_client_has_no_token() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000");
+		let client = NuagesClient::new("http://localhost:8000").unwrap();
 
 		// Assert
 		assert!(client.token.is_none());
@@ -129,7 +151,7 @@ mod tests {
 	#[rstest]
 	fn test_request_joins_path_correctly() {
 		// Arrange
-		let client = NuagesClient::new("http://localhost:8000");
+		let client = NuagesClient::new("http://localhost:8000").unwrap();
 
 		// Act
 		let result = client.request(reqwest::Method::GET, "/api/v1/apps");
