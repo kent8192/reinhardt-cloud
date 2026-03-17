@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let default_url = config.api_url();
 	let base_url = cli.server.as_deref().unwrap_or(&default_url);
-	let client = NuagesClient::new(base_url);
+	let client = NuagesClient::new(base_url)?;
 
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
