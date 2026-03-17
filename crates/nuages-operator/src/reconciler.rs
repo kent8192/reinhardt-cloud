@@ -15,8 +15,8 @@ use tracing::{error, info};
 
 use crate::error::Error;
 use crate::resources::{build_deployment, build_service};
-use nuages_types::ConditionType;
-use nuages_types::crd::ReinhardtApp;
+use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
+use nuages_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
 
@@ -118,11 +118,15 @@ async fn update_status(
 	ready_replicas: i32,
 ) -> Result<(), Error> {
 	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
-	let phase = if ready { "Running" } else { "Deploying" };
-	let condition_status = if ready {
-		nuages_types::ConditionStatus::True
+	let phase = if ready {
+		AppPhase::Running
 	} else {
-		nuages_types::ConditionStatus::False
+		AppPhase::Deploying
+	};
+	let condition_status = if ready {
+		ConditionStatus::True
+	} else {
+		ConditionStatus::False
 	};
 	let reason = if ready {
 		"ReconcileSuccess"
@@ -139,7 +143,7 @@ async fn update_status(
 	let existing_ready_condition = app.status.as_ref().and_then(|s| {
 		s.conditions
 			.iter()
-			.find(|c| c.type_ == nuages_types::ConditionType::Ready)
+			.find(|c| c.type_ == ConditionType::Ready)
 	});
 
 	let last_transition_time = match existing_ready_condition {
@@ -153,21 +157,20 @@ async fn update_status(
 		}
 	};
 
-	let status = serde_json::json!({
-		"status": {
-			"phase": phase,
-			"observedGeneration": app.metadata.generation,
-			"readyReplicas": ready_replicas,
-			"conditions": [{
-				"type": ConditionType::Ready,
-				"status": condition_status,
-				"reason": reason,
-				"message": message,
-				"lastTransitionTime": last_transition_time,
-				"observedGeneration": app.metadata.generation,
-			}]
-		}
-	});
+	let typed_status = ReinhardtAppStatus {
+		phase: Some(phase),
+		conditions: vec![AppCondition {
+			type_: ConditionType::Ready,
+			status: condition_status,
+			reason: reason.to_string(),
+			message: message.to_string(),
+			last_transition_time,
+			observed_generation: app.metadata.generation,
+		}],
+		observed_generation: app.metadata.generation,
+		ready_replicas: Some(ready_replicas),
+	};
+	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
 		&app.name_any(),
