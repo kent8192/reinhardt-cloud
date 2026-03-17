@@ -18,7 +18,7 @@ runs:
   using: composite
   steps:
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
       with:
         components: ${{ inputs.components }}
 
@@ -43,7 +43,7 @@ runs:
 
     - name: Cache Rust dependencies
       if: inputs.cache == 'true'
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         # Disable workspace target caching: the computed path would be wrong for
         # absolute CARGO_TARGET_DIR values (due to Node.js path.join semantics).
