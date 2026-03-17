@@ -13,8 +13,11 @@ use kube::api::ObjectMeta;
 /// The ConfigMap contains a `production.toml` key with sensible
 /// production defaults (debug off, secure cookies, etc.).
 pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> ConfigMap {
+	// allowed_hosts defaults to empty (deny all) for security.
+	// Users should override via REINHARDT_ALLOWED_HOSTS env var
+	// or by customizing this ConfigMap after deployment.
 	let production_toml = r#"debug = false
-allowed_hosts = ["*"]
+allowed_hosts = []
 
 [security]
 session_cookie_secure = true

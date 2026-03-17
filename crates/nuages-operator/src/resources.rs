@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, ResourceRequirements,
-	Service, ServicePort, ServiceSpec, Volume, VolumeMount,
+	ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec,
+	ResourceRequirements, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -577,10 +577,7 @@ mod tests {
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
-		assert!(
-			pod_spec.init_containers.is_none()
-				|| pod_spec.init_containers.unwrap().is_empty()
-		);
+		assert!(pod_spec.init_containers.is_none() || pod_spec.init_containers.unwrap().is_empty());
 	}
 
 	#[rstest]
@@ -597,12 +594,7 @@ mod tests {
 		assert!(volumes.iter().any(|v| v.name == "settings"));
 		let settings_vol = volumes.iter().find(|v| v.name == "settings").unwrap();
 		assert_eq!(
-			settings_vol
-				.config_map
-				.as_ref()
-				.unwrap()
-				.name
-				.as_str(),
+			settings_vol.config_map.as_ref().unwrap().name.as_str(),
 			"web-settings"
 		);
 	}
@@ -634,9 +626,10 @@ mod tests {
 		let env = containers[0].env.as_ref().unwrap();
 
 		// Assert
-		assert!(env
-			.iter()
-			.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production")));
+		assert!(
+			env.iter()
+				.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production"))
+		);
 		assert!(env.iter().any(|e| e.name == "NUAGES_CONFIG_DIR"));
 	}
 
@@ -644,10 +637,7 @@ mod tests {
 	fn test_build_deployment_user_env_overrides_system() {
 		// Arrange
 		let mut app = make_test_app("web", "web:v1", None);
-		app.spec.env = BTreeMap::from([(
-			"REINHARDT_ENV".to_string(),
-			"staging".to_string(),
-		)]);
+		app.spec.env = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
 		let deployment = build_deployment(&app).expect("build should succeed");
@@ -657,6 +647,82 @@ mod tests {
 		// Assert
 		let reinhardt_env = env.iter().find(|e| e.name == "REINHARDT_ENV").unwrap();
 		assert_eq!(reinhardt_env.value.as_deref(), Some("staging"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_has_same_image_as_main() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let main_image = pod_spec.containers[0].image.as_deref();
+		let init_image = pod_spec.init_containers.as_ref().unwrap()[0]
+			.image
+			.as_deref();
+		assert_eq!(main_image, init_image);
+		assert_eq!(main_image, Some("web:latest"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_has_resource_limits() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
+
+		// Assert
+		let resources = init_container.resources.as_ref().unwrap();
+		assert!(resources.requests.is_some());
+		assert!(resources.limits.is_some());
+		let requests = resources.requests.as_ref().unwrap();
+		assert!(requests.contains_key("cpu"));
+		assert!(requests.contains_key("memory"));
+		let limits = resources.limits.as_ref().unwrap();
+		assert!(limits.contains_key("cpu"));
+		assert!(limits.contains_key("memory"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_volume_mount_path_is_settings() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
+		let mounts = container.volume_mounts.as_ref().unwrap();
+
+		// Assert
+		let settings_mount = mounts.iter().find(|m| m.name == "settings").unwrap();
+		assert_eq!(settings_mount.mount_path, "/etc/nuages/settings");
+	}
+
+	#[rstest]
+	fn test_build_deployment_user_env_var_overrides_reinhardt_env() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec
+			.env
+			.insert("REINHARDT_ENV".to_string(), "development".to_string());
+
+		// Act
+		let deployment = build_deployment(&app).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		let reinhardt_env = env.iter().find(|e| e.name == "REINHARDT_ENV").unwrap();
+		assert_eq!(reinhardt_env.value.as_deref(), Some("development"));
+		// Verify no duplicates
+		let count = env.iter().filter(|e| e.name == "REINHARDT_ENV").count();
+		assert_eq!(count, 1);
 	}
 
 	#[rstest]

@@ -53,6 +53,9 @@ mod tests {
 		let deserialized: CacheSpec = serde_json::from_str(&json).unwrap();
 		// Assert
 		assert_eq!(deserialized.backend, CacheBackend::Redis);
-		assert_eq!(deserialized.instance_type, Some("cache.t3.micro".to_string()));
+		assert_eq!(
+			deserialized.instance_type,
+			Some("cache.t3.micro".to_string())
+		);
 	}
 }

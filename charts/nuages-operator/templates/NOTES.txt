@@ -18,7 +18,7 @@ To verify the installation:
 To deploy a sample application:
 
   cat <<EOF | kubectl apply -f -
-  apiVersion: paas.nuages.dev/v1alpha1
+  apiVersion: paas.nuages.dev/v1alpha2
   kind: ReinhardtApp
   metadata:
     name: sample-app

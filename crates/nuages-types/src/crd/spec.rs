@@ -326,7 +326,10 @@ mod tests {
 		// Assert
 		assert_eq!(deserialized.image, "myapp:latest");
 		assert_eq!(deserialized.replicas, Some(3));
-		assert_eq!(deserialized.database.unwrap().engine, DatabaseEngine::Postgresql);
+		assert_eq!(
+			deserialized.database.unwrap().engine,
+			DatabaseEngine::Postgresql
+		);
 		assert_eq!(deserialized.env.len(), 2);
 		assert_eq!(deserialized.env.get("RUST_LOG").unwrap(), "info");
 	}
@@ -711,6 +714,131 @@ mod tests {
 
 		// Assert
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Retain);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_nested_mail_port_99999() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			replicas: None,
+			database: None,
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: Some(MailSpec {
+				smtp_host: None,
+				smtp_port: Some(99999),
+				credentials_secret: None,
+			}),
+			scale: None,
+			health: None,
+			services: None,
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
+			env: BTreeMap::new(),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_err());
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"mail.smtp_port must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_spec_with_all_optional_fields_set() {
+		// Arrange
+		use crate::crd::auth::AuthSpec;
+		use crate::crd::cache::{CacheBackend, CacheSpec};
+		use crate::crd::storage::{StorageBackend, StorageSpec};
+		let spec = ReinhardtAppSpec {
+			image: "full-app:v3".to_string(),
+			replicas: Some(5),
+			database: Some(DatabaseSpec {
+				engine: DatabaseEngine::Postgresql,
+				instance_class: Some("db.t3.large".to_string()),
+				storage_gb: Some(100),
+				version: Some("16".to_string()),
+			}),
+			cache: Some(CacheSpec {
+				backend: CacheBackend::Redis,
+				instance_type: Some("cache.t3.micro".to_string()),
+			}),
+			worker: Some(WorkerSpec {
+				concurrency: Some(8),
+				command: Some(vec!["worker".to_string(), "start".to_string()]),
+			}),
+			auth: Some(AuthSpec {
+				jwt: true,
+				oauth: Some(crate::crd::auth::OAuthSpec {
+					provider: "google".to_string(),
+					credentials_secret: Some("oauth-secret".to_string()),
+				}),
+			}),
+			storage: Some(StorageSpec {
+				backend: Some(StorageBackend::S3),
+				bucket: Some("my-bucket".to_string()),
+			}),
+			mail: Some(MailSpec {
+				smtp_host: Some("smtp.example.com".to_string()),
+				smtp_port: Some(587),
+				credentials_secret: Some("mail-secret".to_string()),
+			}),
+			scale: Some(ScaleSpec {
+				min_replicas: Some(2),
+				max_replicas: Some(20),
+				metric: Some(ScaleMetric::Rps),
+				target_value: Some(1000),
+			}),
+			health: Some(HealthSpec {
+				path: Some("/healthz".to_string()),
+				port: Some(8080),
+				interval_seconds: Some(10),
+			}),
+			services: Some(ServicesSpec {
+				port: Some(443),
+				target_port: Some(8080),
+				ingress_host: Some("app.example.com".to_string()),
+			}),
+			deletion_policy: DeletionPolicy::Delete,
+			features: vec!["db-postgres".to_string(), "auth-jwt".to_string()],
+			env: BTreeMap::from([("MY_VAR".to_string(), "my_val".to_string())]),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_ok());
+		assert_eq!(spec.features.len(), 2);
+		assert_eq!(spec.env.len(), 1);
+		assert_eq!(spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	#[rstest]
+	fn test_spec_with_features_list_populated() {
+		// Arrange
+		let json = r#"{
+			"image": "myapp:v1",
+			"features": ["db-postgres", "auth-jwt", "sessions"]
+		}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec = serde_json::from_str(json).unwrap();
+
+		// Assert
+		assert_eq!(spec.features.len(), 3);
+		assert_eq!(spec.features[0], "db-postgres");
+		assert_eq!(spec.features[1], "auth-jwt");
+		assert_eq!(spec.features[2], "sessions");
 	}
 
 	#[rstest]

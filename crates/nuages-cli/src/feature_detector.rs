@@ -161,11 +161,7 @@ mod tests {
 	#[rstest]
 	fn test_infer_signals_from_features() {
 		// Arrange
-		let features = vec![
-			"db-postgres".into(),
-			"auth-jwt".into(),
-			"websockets".into(),
-		];
+		let features = vec!["db-postgres".into(), "auth-jwt".into(), "websockets".into()];
 
 		// Act
 		let signals = InfraSignals::from_features(&features);
@@ -356,9 +352,7 @@ tokio = "1"
 
 		// Assert
 		assert!(result.is_err());
-		assert!(result
-			.unwrap_err()
-			.contains("Not a reinhardt-web project"));
+		assert!(result.unwrap_err().contains("Not a reinhardt-web project"));
 	}
 
 	#[rstest]
@@ -372,6 +366,154 @@ tokio = "1"
 		// Assert
 		assert!(result.is_err());
 		assert!(result.unwrap_err().contains("Failed to read Cargo.toml"));
+	}
+
+	#[rstest]
+	fn test_detect_project_workspace_dependency_features() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "workspace-app"
+version = "1.0.0"
+
+[workspace.dependencies]
+reinhardt-web = { version = "0.1", features = ["db-postgres", "redis-backend", "sessions"] }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let result = detect_project(dir.path());
+
+		// Assert
+		let metadata = result.unwrap();
+		assert_eq!(metadata.name, "workspace-app");
+		assert_eq!(metadata.signals.database, Some("postgresql".to_owned()));
+		assert_eq!(metadata.signals.cache, Some("redis".to_owned()));
+		assert!(metadata.signals.sessions);
+	}
+
+	#[rstest]
+	fn test_detect_project_no_dependencies_section() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "empty-deps"
+version = "0.1.0"
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let result = detect_project(dir.path());
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("Not a reinhardt-web project"));
+	}
+
+	#[rstest]
+	fn test_detect_project_reinhardt_web_table_dep_without_features() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "no-feat-app"
+version = "0.1.0"
+
+[dependencies]
+reinhardt-web = { version = "0.1" }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let result = detect_project(dir.path());
+
+		// Assert
+		let metadata = result.unwrap();
+		assert_eq!(metadata.name, "no-feat-app");
+		assert!(metadata.features.is_empty());
+		assert!(metadata.signals.database.is_none());
+	}
+
+	#[rstest]
+	fn test_detect_project_invalid_toml() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(dir.path().join("Cargo.toml"), "invalid {{{ toml").unwrap();
+
+		// Act
+		let result = detect_project(dir.path());
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("Failed to parse Cargo.toml"));
+	}
+
+	#[rstest]
+	fn test_infer_signals_full_bundle() {
+		// Arrange
+		let features = vec![
+			"db-postgres".into(),
+			"auth-jwt".into(),
+			"websockets".into(),
+			"tasks".into(),
+			"redis-backend".into(),
+			"storage".into(),
+			"sessions".into(),
+			"grpc".into(),
+		];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert_eq!(signals.database, Some("postgresql".to_owned()));
+		assert!(signals.jwt);
+		assert!(signals.websocket);
+		assert!(signals.background_worker);
+		assert_eq!(signals.cache, Some("redis".to_owned()));
+		assert!(signals.object_storage);
+		assert!(signals.sessions);
+		assert!(signals.grpc);
+	}
+
+	#[rstest]
+	fn test_infer_signals_mysql_database() {
+		// Arrange
+		let features = vec!["db-mysql".into()];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert_eq!(signals.database, Some("mysql".to_owned()));
+	}
+
+	#[rstest]
+	fn test_infer_signals_duplicate_features() {
+		// Arrange
+		let features = vec![
+			"db-postgres".into(),
+			"db-postgres".into(),
+			"auth-jwt".into(),
+		];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert_eq!(signals.database, Some("postgresql".to_owned()));
+		assert!(signals.jwt);
 	}
 
 	#[rstest]

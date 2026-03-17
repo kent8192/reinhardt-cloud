@@ -218,6 +218,80 @@ mod tests {
 	}
 
 	#[rstest]
+	fn merge_env_vars_empty_user_vars_preserves_all_auto() {
+		// Arrange
+		let auto_vars = vec![
+			env_var("REINHARDT_ENV", "production"),
+			env_var("NUAGES_CONFIG_DIR", "/etc/nuages/settings"),
+			env_var("DATABASE_URL", "postgres://localhost/db"),
+		];
+		let user_vars = BTreeMap::new();
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert
+		assert_eq!(merged.len(), 3);
+		assert!(
+			merged
+				.iter()
+				.any(|v| v.name == "REINHARDT_ENV" && v.value.as_deref() == Some("production"))
+		);
+		assert!(merged.iter().any(|v| v.name == "NUAGES_CONFIG_DIR"));
+		assert!(merged.iter().any(|v| v.name == "DATABASE_URL"));
+	}
+
+	#[rstest]
+	fn merge_env_vars_user_overrides_all_auto() {
+		// Arrange
+		let auto_vars = vec![
+			env_var("REINHARDT_ENV", "production"),
+			env_var("NUAGES_CONFIG_DIR", "/etc/nuages/settings"),
+		];
+		let user_vars = BTreeMap::from([
+			("REINHARDT_ENV".to_string(), "staging".to_string()),
+			("NUAGES_CONFIG_DIR".to_string(), "/custom/path".to_string()),
+		]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert
+		assert_eq!(merged.len(), 2);
+		let env = merged.iter().find(|v| v.name == "REINHARDT_ENV").unwrap();
+		assert_eq!(env.value.as_deref(), Some("staging"));
+		let config = merged
+			.iter()
+			.find(|v| v.name == "NUAGES_CONFIG_DIR")
+			.unwrap();
+		assert_eq!(config.value.as_deref(), Some("/custom/path"));
+	}
+
+	#[rstest]
+	fn build_system_env_vars_always_present() {
+		// Arrange & Act
+		let vars = build_system_env_vars();
+
+		// Assert
+		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
+		assert!(names.contains(&"REINHARDT_ENV"));
+		assert!(names.contains(&"NUAGES_CONFIG_DIR"));
+	}
+
+	#[rstest]
+	fn merge_env_vars_empty_btreemap_merges_correctly() {
+		// Arrange
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars: BTreeMap<String, String> = BTreeMap::new();
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert
+		assert!(merged.is_empty());
+	}
+
+	#[rstest]
 	fn merge_env_vars_empty_auto_vars_returns_user() {
 		// Arrange
 		let auto_vars: Vec<EnvVar> = vec![];

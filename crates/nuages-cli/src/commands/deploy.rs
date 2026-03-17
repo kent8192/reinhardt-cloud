@@ -27,10 +27,20 @@ pub(crate) struct DeployArgs {
 }
 
 /// Reads nuages.toml from the project directory if it exists.
-fn read_nuages_toml(dir: &std::path::Path) -> Option<NuagesToml> {
+///
+/// Returns `Ok(None)` when the file does not exist, `Ok(Some(...))` on
+/// successful parse, and `Err` when the file exists but cannot be read
+/// or contains malformed TOML.
+fn read_nuages_toml(dir: &std::path::Path) -> Result<Option<NuagesToml>, String> {
 	let path = dir.join("nuages.toml");
-	let content = std::fs::read_to_string(path).ok()?;
-	toml::from_str(&content).ok()
+	if !path.exists() {
+		return Ok(None);
+	}
+	let content =
+		std::fs::read_to_string(&path).map_err(|e| format!("Failed to read nuages.toml: {e}"))?;
+	let config: NuagesToml =
+		toml::from_str(&content).map_err(|e| format!("Failed to parse nuages.toml: {e}"))?;
+	Ok(Some(config))
 }
 
 /// Executes the deploy command.
@@ -41,12 +51,17 @@ pub(crate) async fn execute(
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Try to read nuages.toml for zero-config deployment
-	let (app_name, image, replicas) = if let Some(config) = read_nuages_toml(&project_dir) {
+	let toml_config = read_nuages_toml(&project_dir).map_err(|e| e)?;
+	let (app_name, image, replicas) = if let Some(config) = toml_config {
 		let name = args.name.clone().unwrap_or(config.app.name.clone());
 		let img = args.image.clone().unwrap_or(config.app.image.clone());
-		let reps = args
-			.replicas
-			.unwrap_or(config.replicas.as_ref().map(|r| r.count as u32).unwrap_or(1));
+		let reps = args.replicas.unwrap_or(
+			config
+				.replicas
+				.as_ref()
+				.map(|r| r.count as u32)
+				.unwrap_or(1),
+		);
 		println!("Using configuration from nuages.toml");
 		(name, img, reps)
 	} else {
@@ -91,10 +106,10 @@ image = "test-app:v1"
 		.unwrap();
 
 		// Act
-		let config = read_nuages_toml(dir.path());
+		let result = read_nuages_toml(dir.path());
 
 		// Assert
-		let config = config.unwrap();
+		let config = result.unwrap().unwrap();
 		assert_eq!(config.app.name, "test-app");
 		assert_eq!(config.app.image, "test-app:v1");
 	}
@@ -105,9 +120,24 @@ image = "test-app:v1"
 		let dir = tempfile::tempdir().unwrap();
 
 		// Act
-		let config = read_nuages_toml(dir.path());
+		let result = read_nuages_toml(dir.path());
 
 		// Assert
-		assert!(config.is_none());
+		assert_eq!(result.unwrap().is_none(), true);
+	}
+
+	#[rstest]
+	fn test_read_nuages_toml_malformed_returns_error() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(dir.path().join("nuages.toml"), "invalid {{{ toml").unwrap();
+
+		// Act
+		let result = read_nuages_toml(dir.path());
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(err.starts_with("Failed to parse nuages.toml:"));
 	}
 }

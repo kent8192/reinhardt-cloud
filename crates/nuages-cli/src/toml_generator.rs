@@ -187,6 +187,93 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_generate_config_with_cache_enabled() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "cache-app".into(),
+			version: "0.1.0".into(),
+			features: vec!["redis-backend".into()],
+			signals: InfraSignals {
+				cache: Some("redis".into()),
+				..Default::default()
+			},
+		};
+
+		// Act
+		let config = generate_config(&metadata, None);
+
+		// Assert
+		assert!(config.cache.is_some());
+		assert_eq!(config.cache.as_ref().unwrap().backend, "redis");
+	}
+
+	#[rstest]
+	fn test_generate_config_with_worker_enabled() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "worker-app".into(),
+			version: "0.1.0".into(),
+			features: vec!["tasks".into()],
+			signals: InfraSignals {
+				background_worker: true,
+				..Default::default()
+			},
+		};
+
+		// Act
+		let config = generate_config(&metadata, None);
+
+		// Assert
+		assert!(config.worker.is_some());
+	}
+
+	#[rstest]
+	fn test_generate_config_no_database_minimal_features() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "no-db".into(),
+			version: "0.1.0".into(),
+			features: vec!["core".into(), "server".into()],
+			signals: InfraSignals::default(),
+		};
+
+		// Act
+		let config = generate_config(&metadata, None);
+
+		// Assert
+		assert!(config.database.is_none());
+		assert!(config.cache.is_none());
+		assert!(config.worker.is_none());
+		assert!(config.storage.is_none());
+		assert!(config.auth.is_none());
+		assert_eq!(config.app.name, "no-db");
+	}
+
+	#[rstest]
+	fn test_generate_config_preserves_custom_env_vars() {
+		// Arrange: generate_config does not populate env, but the
+		// generated NuagesToml env field defaults to empty BTreeMap.
+		// Verify that manually setting env is preserved in serialization.
+		let metadata = ProjectMetadata {
+			name: "env-app".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: InfraSignals::default(),
+		};
+
+		// Act
+		let mut config = generate_config(&metadata, None);
+		config
+			.env
+			.insert("MY_VAR".to_string(), "my_val".to_string());
+		let output = generate_nuages_toml_string(&config);
+
+		// Assert
+		assert!(output.contains("MY_VAR"));
+		assert!(output.contains("my_val"));
+	}
+
+	#[rstest]
 	fn test_generate_nuages_toml_string_has_header() {
 		// Arrange
 		let config = NuagesToml {

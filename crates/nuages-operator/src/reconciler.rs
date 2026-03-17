@@ -77,7 +77,12 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	if app.spec.auth.as_ref().is_some_and(|a| a.jwt) {
 		let secret_name = format!("{name}-jwt-secret");
 		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
-		if secret_api.get_opt(&secret_name).await.map_err(Error::Kube)?.is_none() {
+		if secret_api
+			.get_opt(&secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
 			let jwt_secret = build_jwt_secret(&name, namespace);
 			secret_api
 				.create(&PostParams::default(), &jwt_secret)
@@ -100,8 +105,12 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			let password_bytes: [u8; 16] = rand::random();
 			let password_str =
 				base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(password_bytes);
-			let db_secret =
-				build_db_credentials_secret(&name, namespace, &format!("{name}_user"), &password_str);
+			let db_secret = build_db_credentials_secret(
+				&name,
+				namespace,
+				&format!("{name}_user"),
+				&password_str,
+			);
 			secret_api
 				.create(&PostParams::default(), &db_secret)
 				.await
@@ -159,11 +168,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 ///   are removed via ownerReferences GC. Database/cache Secrets and
 ///   ConfigMaps are retained for manual cleanup.
 /// - `Delete`: all resources including Secrets and ConfigMaps are deleted.
-async fn cleanup(
-	app: Arc<ReinhardtApp>,
-	ctx: &Context,
-	namespace: &str,
-) -> Result<Action, Error> {
+async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	info!("Cleaning up ReinhardtApp {name}");
 

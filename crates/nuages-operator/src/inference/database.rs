@@ -575,6 +575,39 @@ mod tests {
 	}
 
 	#[rstest]
+	fn onprem_custom_storage_gb_overrides_platform_default() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(100),
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Pvc(pvc) = &resources[1] {
+			let requests = pvc
+				.spec
+				.as_ref()
+				.unwrap()
+				.resources
+				.as_ref()
+				.unwrap()
+				.requests
+				.as_ref()
+				.unwrap();
+			assert_eq!(requests["storage"].0, "100Gi");
+		} else {
+			panic!("Expected PVC as second resource");
+		}
+	}
+
+	#[rstest]
 	fn onprem_default_pg_version_is_16() {
 		// Arrange
 		let db_spec = DatabaseSpec {

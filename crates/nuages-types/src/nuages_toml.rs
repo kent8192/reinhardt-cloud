@@ -372,6 +372,154 @@ CUSTOM_VAR = "custom_value"
 	}
 
 	#[rstest]
+	fn test_parse_empty_toml_only_app_section() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "minimal"
+image = "minimal:latest"
+"#;
+		// Act
+		let config: NuagesToml = toml::from_str(toml_str).unwrap();
+		// Assert
+		assert_eq!(config.app.name, "minimal");
+		assert!(config.database.is_none());
+		assert!(config.auth.is_none());
+		assert!(config.health.is_none());
+		assert!(config.services.is_none());
+		assert!(config.replicas.is_none());
+		assert!(config.scale.is_none());
+		assert!(config.cache.is_none());
+		assert!(config.worker.is_none());
+		assert!(config.storage.is_none());
+		assert!(config.mail.is_none());
+		assert!(config.env.is_empty());
+	}
+
+	#[rstest]
+	fn test_parse_toml_unknown_fields_are_ignored() {
+		// Arrange: serde's default behavior ignores unknown fields
+		let toml_str = r#"
+[app]
+name = "test"
+image = "test:v1"
+unknown_key = "should be ignored"
+
+[nonexistent_section]
+foo = "bar"
+"#;
+		// Act
+		let result: Result<NuagesToml, _> = toml::from_str(toml_str);
+		// Assert: unknown fields are silently ignored by serde default
+		assert!(result.is_ok());
+		assert_eq!(result.unwrap().app.name, "test");
+	}
+
+	#[rstest]
+	fn test_invalid_engine_defaults_to_postgresql() {
+		// Arrange
+		let config = NuagesToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			database: Some(DatabaseSection {
+				engine: "invalid_engine".into(),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		assert_eq!(spec.database.unwrap().engine, DatabaseEngine::Postgresql);
+	}
+
+	#[rstest]
+	fn test_scale_section_with_partial_fields() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "scale-test"
+image = "app:v1"
+
+[scale]
+min_replicas = 2
+"#;
+		// Act
+		let config: NuagesToml = toml::from_str(toml_str).unwrap();
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		let scale = spec.scale.unwrap();
+		assert_eq!(scale.min_replicas, Some(2));
+		assert!(scale.max_replicas.is_none());
+		assert!(scale.metric.is_none());
+		assert!(scale.target_value.is_none());
+	}
+
+	#[rstest]
+	fn test_storage_section_s3_backend() {
+		// Arrange
+		let config = NuagesToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			storage: Some(StorageSection {
+				backend: Some("s3".into()),
+				bucket: Some("my-bucket".into()),
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		let storage = spec.storage.unwrap();
+		assert_eq!(storage.backend, Some(StorageBackend::S3));
+		assert_eq!(storage.bucket.as_deref(), Some("my-bucket"));
+	}
+
+	#[rstest]
+	fn test_storage_section_gcs_backend() {
+		// Arrange
+		let config = NuagesToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			storage: Some(StorageSection {
+				backend: Some("gcs".into()),
+				bucket: None,
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		assert_eq!(spec.storage.unwrap().backend, Some(StorageBackend::Gcs));
+	}
+
+	#[rstest]
+	fn test_storage_section_pvc_backend() {
+		// Arrange
+		let config = NuagesToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			storage: Some(StorageSection {
+				backend: Some("pvc".into()),
+				bucket: None,
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		assert_eq!(spec.storage.unwrap().backend, Some(StorageBackend::Pvc));
+	}
+
+	#[rstest]
 	fn test_nuages_toml_mysql_engine() {
 		// Arrange
 		let config = NuagesToml {

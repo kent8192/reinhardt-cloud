@@ -32,10 +32,7 @@ pub(crate) fn parse_database_config(content: &str) -> Result<DatabaseConfig, Str
 			.and_then(|v| v.as_str())
 			.unwrap_or("localhost")
 			.to_owned(),
-		port: db
-			.get("port")
-			.and_then(|v| v.as_integer())
-			.unwrap_or(5432) as i32,
+		port: db.get("port").and_then(|v| v.as_integer()).unwrap_or(5432) as i32,
 		name: db
 			.get("name")
 			.and_then(|v| v.as_str())
@@ -167,6 +164,56 @@ name = "test_db"
 		let config = config.unwrap();
 		assert_eq!(config.engine, "postgresql");
 		assert_eq!(config.name, "test_db");
+	}
+
+	#[rstest]
+	fn test_parse_database_config_missing_databases_section_entirely() {
+		// Arrange
+		let content = r#"
+[app]
+name = "test"
+"#;
+
+		// Act
+		let result = parse_database_config(content);
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("No [databases.default]"));
+	}
+
+	#[rstest]
+	fn test_parse_database_config_invalid_toml_content() {
+		// Arrange
+		let content = "this is { not } valid toml [[";
+
+		// Act
+		let result = parse_database_config(content);
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("Failed to parse settings"));
+	}
+
+	#[rstest]
+	fn test_parse_database_config_mysql_engine_detection() {
+		// Arrange
+		let content = r#"
+[databases.default]
+engine = "mysql"
+host = "mysql.example.com"
+port = 3306
+name = "mysql_db"
+"#;
+
+		// Act
+		let config = parse_database_config(content).unwrap();
+
+		// Assert
+		assert_eq!(config.engine, "mysql");
+		assert_eq!(config.host, "mysql.example.com");
+		assert_eq!(config.port, 3306);
+		assert_eq!(config.name, "mysql_db");
 	}
 
 	#[rstest]

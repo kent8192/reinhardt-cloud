@@ -192,6 +192,48 @@ mod tests {
 	}
 
 	#[rstest]
+	fn db_credentials_secret_has_correct_metadata() {
+		// Arrange & Act
+		let secret = build_db_credentials_secret("myapp", "staging", "dbadmin", "s3cret");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("myapp-db-credentials")
+		);
+		assert_eq!(secret.metadata.namespace.as_deref(), Some("staging"));
+		assert_eq!(secret.type_.as_deref(), Some("Opaque"));
+	}
+
+	#[rstest]
+	fn jwt_secret_key_is_at_least_32_bytes() {
+		// Arrange & Act
+		let secret = build_jwt_secret("myapp", "default");
+
+		// Assert
+		let data = secret.data.as_ref().unwrap();
+		let jwt_raw = &data["jwt-secret"].0;
+		let decoded = base64::engine::general_purpose::STANDARD
+			.decode(jwt_raw)
+			.unwrap();
+		assert!(decoded.len() >= 32);
+	}
+
+	#[rstest]
+	fn db_credentials_secret_labels_are_correct() {
+		// Arrange & Act
+		let secret = build_db_credentials_secret("test-app", "ns1", "u", "p");
+
+		// Assert
+		let labels = secret.metadata.labels.as_ref().unwrap();
+		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "test-app");
+		assert_eq!(
+			labels.get("app.kubernetes.io/managed-by").unwrap(),
+			"nuages-operator"
+		);
+	}
+
+	#[rstest]
 	fn two_jwt_secrets_have_different_keys() {
 		// Arrange & Act
 		let secret1 = build_jwt_secret("app", "ns");
