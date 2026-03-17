@@ -6,6 +6,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::{AuthState, ViewResult};
 use reinhardt::{Request, Response, StatusCode, post};
+use tracing::error;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
@@ -29,17 +30,20 @@ pub async fn create_deployment(request: Request) -> ViewResult<Response> {
 	let body: CreateDeploymentRequest = request.json()?;
 
 	// Validate cluster exists before creating deployment
-	let cluster = Cluster::objects()
+	let cluster_exists = Cluster::objects()
 		.filter(
 			Cluster::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(body.cluster_id),
 		)
-		.first()
+		.exists()
 		.await
-		.map_err(|e| format!("Database error: {e}"))?;
+		.map_err(|e| {
+			error!("Failed to check cluster existence: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 
-	if cluster.is_none() {
+	if !cluster_exists {
 		return Err(AppError::NotFound(format!(
 			"Cluster with id {} not found",
 			body.cluster_id
@@ -53,10 +57,10 @@ pub async fn create_deployment(request: Request) -> ViewResult<Response> {
 		body.image.clone(),
 	);
 	let manager = Deployment::objects();
-	let created = manager
-		.create(&new_deployment)
-		.await
-		.map_err(|e| format!("{e}"))?;
+	let created = manager.create(&new_deployment).await.map_err(|e| {
+		error!("Failed to create deployment: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 	let resp = DeploymentResponse::from(created);
 	Ok(Response::new(StatusCode::CREATED)
 		.with_header("Content-Type", "application/json")
