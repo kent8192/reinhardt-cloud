@@ -2,6 +2,7 @@
 
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Kubernetes cluster registered with the nuages PaaS.
 #[derive(Serialize, Deserialize)]
@@ -10,6 +11,9 @@ pub struct Cluster {
 	/// Primary key (None for auto-increment on insert)
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
+
+	/// Owner user ID (foreign key to `auth_users.id`)
+	pub user_id: Uuid,
 
 	/// Cluster display name
 	#[field(max_length = 255)]
