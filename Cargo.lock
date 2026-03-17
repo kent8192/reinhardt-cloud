@@ -5931,6 +5931,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "ctor",
+ "inventory",
  "nuages-core",
  "nuages-k8s",
  "nuages-types",

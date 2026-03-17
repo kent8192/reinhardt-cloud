@@ -1,11 +1,12 @@
 //! Response serializers for cluster endpoints.
 
+use reinhardt::{Schema, ToSchema};
 use serde::Serialize;
 
 use crate::apps::clusters::models::Cluster;
 
 /// Cluster API response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Schema)]
 pub struct ClusterResponse {
 	pub id: i64,
 	pub name: String,
