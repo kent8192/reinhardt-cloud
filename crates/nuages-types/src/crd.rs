@@ -254,7 +254,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn condition_type_serialization() {
+	fn condition_enums_serialization_roundtrip() {
 		// Arrange
 		let types = [
 			(ConditionType::Ready, "\"Ready\""),

@@ -15,6 +15,7 @@ use tracing::{error, info};
 
 use crate::error::Error;
 use crate::resources::{build_deployment, build_service};
+use nuages_types::ConditionType;
 use nuages_types::crd::ReinhardtApp;
 
 const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
@@ -158,7 +159,7 @@ async fn update_status(
 			"observedGeneration": app.metadata.generation,
 			"readyReplicas": ready_replicas,
 			"conditions": [{
-				"type": "Ready",
+				"type": ConditionType::Ready,
 				"status": condition_status,
 				"reason": reason,
 				"message": message,
