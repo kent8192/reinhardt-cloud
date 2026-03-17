@@ -162,6 +162,7 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		}],
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
+		..Default::default()
 	}
 }
 
@@ -405,6 +406,7 @@ mod tests {
 			}],
 			observed_generation: Some(1),
 			ready_replicas: Some(1),
+			..Default::default()
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
@@ -434,6 +436,7 @@ mod tests {
 			}],
 			observed_generation: Some(1),
 			ready_replicas: Some(1),
+			..Default::default()
 		});
 
 		// Act — readiness changed from True to False

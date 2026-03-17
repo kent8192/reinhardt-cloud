@@ -3,7 +3,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::cache::CacheStatus;
+use super::database::DatabaseStatus;
 use super::enums::AppPhase;
+use super::worker::WorkerStatus;
 
 /// Type of a Kubernetes-style status condition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -56,6 +59,15 @@ pub struct ReinhardtAppStatus {
 	pub observed_generation: Option<i64>,
 	/// Number of ready replicas
 	pub ready_replicas: Option<i32>,
+	/// Status of the provisioned database sub-resource
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database: Option<DatabaseStatus>,
+	/// Status of the provisioned cache sub-resource
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<CacheStatus>,
+	/// Status of the worker deployment sub-resource
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub worker: Option<WorkerStatus>,
 }
 
 #[cfg(test)]
@@ -78,6 +90,7 @@ mod tests {
 			}],
 			observed_generation: Some(1),
 			ready_replicas: Some(3),
+			..Default::default()
 		};
 
 		// Act
@@ -126,6 +139,28 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_status_with_database_status() {
+		// Arrange
+		use super::super::database::ResourcePhase;
+		let status = ReinhardtAppStatus {
+			phase: Some(AppPhase::Running),
+			database: Some(DatabaseStatus {
+				phase: ResourcePhase::Ready,
+				endpoint: Some("mydb.rds.amazonaws.com:5432".to_string()),
+				credentials_secret: Some("myapp-db-credentials".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&status).unwrap();
+		let parsed: ReinhardtAppStatus = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed.database.unwrap().phase, ResourcePhase::Ready);
+	}
+
+	#[rstest]
 	fn status_camelcase_serialization() {
 		// Arrange
 		let status = ReinhardtAppStatus {
@@ -140,6 +175,7 @@ mod tests {
 			}],
 			observed_generation: Some(2),
 			ready_replicas: Some(3),
+			..Default::default()
 		};
 
 		// Act
