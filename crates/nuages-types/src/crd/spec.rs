@@ -167,7 +167,7 @@ impl ServicesSpec {
 #[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[kube(
 	group = "paas.nuages.dev",
-	version = "v1alpha1",
+	version = "v1alpha2",
 	kind = "ReinhardtApp",
 	namespaced,
 	status = "ReinhardtAppStatus",
