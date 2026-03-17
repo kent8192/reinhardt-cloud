@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
+	use uuid::Uuid;
 
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::clusters::serializers::{ClusterResponse, CreateClusterRequest};
@@ -24,6 +25,7 @@ mod tests {
 	fn test_cluster_response_from_orm_model() {
 		// Arrange
 		let cluster = Cluster::new(
+			Uuid::new_v4(),
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
