@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Database infrastructure specification
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct DatabaseSpec {
 	pub engine: DatabaseEngine,
 	/// Instance class (platform-specific, e.g., "db.t3.micro").

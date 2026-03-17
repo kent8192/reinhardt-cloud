@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Authentication specification
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct AuthSpec {
 	/// JWT authentication enabled
 	#[serde(default)]
@@ -12,7 +12,7 @@ pub struct AuthSpec {
 }
 
 /// OAuth2 provider configuration
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct OAuthSpec {
 	/// OAuth provider name
 	pub provider: String,

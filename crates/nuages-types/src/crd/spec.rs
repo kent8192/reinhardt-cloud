@@ -8,14 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::validation::ValidationError;
 
+use super::auth::AuthSpec;
+use super::cache::CacheSpec;
+use super::database::DatabaseSpec;
+use super::mail::MailSpec;
+use super::policy::DeletionPolicy;
 use super::status::ReinhardtAppStatus;
-
-/// Database backend type.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub enum DatabaseType {
-	PostgreSQL,
-	MySQL,
-}
+use super::storage::StorageSpec;
+use super::worker::WorkerSpec;
 
 /// Metric type for autoscaling.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -181,14 +181,30 @@ pub struct ReinhardtAppSpec {
 	pub image: String,
 	/// Number of desired replicas (defaults to 1)
 	pub replicas: Option<i32>,
-	/// Database backend type
-	pub database: Option<DatabaseType>,
+	/// Database infrastructure configuration
+	pub database: Option<DatabaseSpec>,
+	/// Cache configuration (Redis)
+	pub cache: Option<CacheSpec>,
+	/// Background worker configuration
+	pub worker: Option<WorkerSpec>,
+	/// Authentication configuration
+	pub auth: Option<AuthSpec>,
+	/// Object storage configuration
+	pub storage: Option<StorageSpec>,
+	/// Mail (SMTP) configuration
+	pub mail: Option<MailSpec>,
 	/// Autoscaling configuration
 	pub scale: Option<ScaleSpec>,
 	/// Health check configuration
 	pub health: Option<HealthSpec>,
 	/// Service exposure configuration
 	pub services: Option<ServicesSpec>,
+	/// Cloud resource deletion policy (defaults to Retain)
+	#[serde(default)]
+	pub deletion_policy: DeletionPolicy,
+	/// Resolved reinhardt-web feature flags
+	#[serde(default)]
+	pub features: Vec<String>,
 	/// Environment variables as key-value pairs
 	#[serde(default)]
 	pub env: BTreeMap<String, String>,
@@ -206,6 +222,24 @@ impl ReinhardtAppSpec {
 			&& replicas < 0
 		{
 			errors.push(ValidationError::new("spec.replicas must be >= 0"));
+		}
+
+		if let Some(ref db) = self.database
+			&& let Err(msg) = db.validate()
+		{
+			errors.push(ValidationError::new(msg));
+		}
+
+		if let Some(ref w) = self.worker
+			&& let Err(msg) = w.validate()
+		{
+			errors.push(ValidationError::new(msg));
+		}
+
+		if let Some(ref m) = self.mail
+			&& let Err(msg) = m.validate()
+		{
+			errors.push(ValidationError::new(msg));
 		}
 
 		if let Some(ref scale) = self.scale
@@ -237,6 +271,7 @@ impl ReinhardtAppSpec {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::crd::database::DatabaseEngine;
 	use rstest::rstest;
 
 	#[rstest]
@@ -245,7 +280,17 @@ mod tests {
 		let spec = ReinhardtAppSpec {
 			image: "myapp:latest".to_string(),
 			replicas: Some(3),
-			database: Some(DatabaseType::PostgreSQL),
+			database: Some(DatabaseSpec {
+				engine: DatabaseEngine::Postgresql,
+				instance_class: None,
+				storage_gb: Some(20),
+				version: Some("16".to_string()),
+			}),
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: None,
 			scale: Some(ScaleSpec {
 				min_replicas: Some(1),
 				max_replicas: Some(10),
@@ -262,6 +307,8 @@ mod tests {
 				target_port: Some(8080),
 				ingress_host: Some("myapp.example.com".to_string()),
 			}),
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
 			env: BTreeMap::from([
 				("RUST_LOG".to_string(), "info".to_string()),
 				(
@@ -279,7 +326,7 @@ mod tests {
 		// Assert
 		assert_eq!(deserialized.image, "myapp:latest");
 		assert_eq!(deserialized.replicas, Some(3));
-		assert_eq!(deserialized.database, Some(DatabaseType::PostgreSQL));
+		assert_eq!(deserialized.database.unwrap().engine, DatabaseEngine::Postgresql);
 		assert_eq!(deserialized.env.len(), 2);
 		assert_eq!(deserialized.env.get("RUST_LOG").unwrap(), "info");
 	}
@@ -297,9 +344,16 @@ mod tests {
 		assert_eq!(spec.image, "myapp:v1");
 		assert_eq!(spec.replicas, None);
 		assert_eq!(spec.database, None);
+		assert_eq!(spec.cache, None);
+		assert_eq!(spec.worker, None);
+		assert_eq!(spec.auth, None);
+		assert_eq!(spec.storage, None);
+		assert_eq!(spec.mail, None);
 		assert_eq!(spec.scale, None);
 		assert_eq!(spec.health, None);
 		assert_eq!(spec.services, None);
+		assert_eq!(spec.deletion_policy, DeletionPolicy::Retain);
+		assert!(spec.features.is_empty());
 		assert!(spec.env.is_empty());
 	}
 
@@ -456,6 +510,11 @@ mod tests {
 			image: "myapp:latest".to_string(),
 			replicas: Some(-1),
 			database: None,
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: None,
 			scale: Some(ScaleSpec {
 				min_replicas: Some(-1),
 				max_replicas: Some(-2),
@@ -472,6 +531,8 @@ mod tests {
 				target_port: Some(65536),
 				ingress_host: None,
 			}),
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
 			env: BTreeMap::new(),
 		};
 
@@ -500,5 +561,167 @@ mod tests {
 			errors[8].message,
 			"services.target_port must be between 1 and 65535"
 		);
+	}
+
+	#[rstest]
+	fn test_spec_with_database_spec_serializes() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			replicas: Some(2),
+			database: Some(DatabaseSpec {
+				engine: DatabaseEngine::Postgresql,
+				instance_class: None,
+				storage_gb: Some(20),
+				version: None,
+			}),
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: None,
+			scale: None,
+			health: None,
+			services: None,
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
+			env: BTreeMap::new(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let parsed: ReinhardtAppSpec = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed.database.unwrap().engine, DatabaseEngine::Postgresql);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_nested_database() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			replicas: None,
+			database: Some(DatabaseSpec {
+				engine: DatabaseEngine::Postgresql,
+				instance_class: None,
+				storage_gb: Some(-1),
+				version: None,
+			}),
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: None,
+			scale: None,
+			health: None,
+			services: None,
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
+			env: BTreeMap::new(),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_err());
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert_eq!(errors[0].message, "database.storage_gb must be > 0");
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_nested_worker() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			replicas: None,
+			database: None,
+			cache: None,
+			worker: Some(WorkerSpec {
+				concurrency: Some(0),
+				command: None,
+			}),
+			auth: None,
+			storage: None,
+			mail: None,
+			scale: None,
+			health: None,
+			services: None,
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
+			env: BTreeMap::new(),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_err());
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert_eq!(errors[0].message, "worker.concurrency must be > 0");
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_nested_mail() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			replicas: None,
+			database: None,
+			cache: None,
+			worker: None,
+			auth: None,
+			storage: None,
+			mail: Some(MailSpec {
+				smtp_host: None,
+				smtp_port: Some(0),
+				credentials_secret: None,
+			}),
+			scale: None,
+			health: None,
+			services: None,
+			deletion_policy: DeletionPolicy::default(),
+			features: vec![],
+			env: BTreeMap::new(),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_err());
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"mail.smtp_port must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_spec_deletion_policy_defaults_to_retain() {
+		// Arrange
+		let json = r#"{"image": "myapp:v1"}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec = serde_json::from_str(json).unwrap();
+
+		// Assert
+		assert_eq!(spec.deletion_policy, DeletionPolicy::Retain);
+	}
+
+	#[rstest]
+	fn test_spec_features_defaults_to_empty() {
+		// Arrange
+		let json = r#"{"image": "myapp:v1"}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec = serde_json::from_str(json).unwrap();
+
+		// Assert
+		assert!(spec.features.is_empty());
 	}
 }

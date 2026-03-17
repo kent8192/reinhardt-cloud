@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::database::ResourcePhase;
 
 /// Cache infrastructure specification
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct CacheSpec {
 	/// Cache backend type
 	#[serde(default)]

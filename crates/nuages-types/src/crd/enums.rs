@@ -7,8 +7,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum AppPhase {
 	Pending,
+	/// Database/cache being provisioned
+	Provisioning,
 	Deploying,
 	Running,
+	/// Partial failure (e.g., migration failed)
+	Degraded,
 	Failed,
 	Terminating,
 }
@@ -23,8 +27,10 @@ mod tests {
 		// Arrange
 		let phases = [
 			(AppPhase::Pending, "\"Pending\""),
+			(AppPhase::Provisioning, "\"Provisioning\""),
 			(AppPhase::Deploying, "\"Deploying\""),
 			(AppPhase::Running, "\"Running\""),
+			(AppPhase::Degraded, "\"Degraded\""),
 			(AppPhase::Failed, "\"Failed\""),
 			(AppPhase::Terminating, "\"Terminating\""),
 		];
