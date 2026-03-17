@@ -18,8 +18,6 @@ Three-plane architecture inspired by Vercel:
 - **Operator** (`nuages-operator`) — Kubernetes Operator that reconciles `ReinhardtApp` CRDs
 - **CLI** (`nuages-cli`) — `nuages` command for deployment and management
 
-See [docs/plans/2026-03-15-nuages-reinhardt-integration.md](docs/plans/2026-03-15-nuages-reinhardt-integration.md) for the full design.
-
 ## Quick Start
 
 ```bash
