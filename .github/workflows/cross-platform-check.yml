@@ -36,5 +36,10 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run cargo check (${{ matrix.os }})
         run: cargo check --workspace --all --all-features
