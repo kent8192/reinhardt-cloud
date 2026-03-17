@@ -28,6 +28,11 @@ cargo run --bin manage migrate
 
 ### Using reinhardt-admin
 
+Install [reinhardt-web](https://github.com/kent8192/reinhardt-web) CLI tools:
+```bash
+cargo install reinhardt-admin
+```
+
 ```bash
 # Create a new app
 reinhardt-admin startapp myapp

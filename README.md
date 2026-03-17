@@ -20,6 +20,8 @@ Three-plane architecture inspired by Vercel:
 
 ## Quick Start
 
+> **Note:** These CLI subcommands are currently scaffolded; full implementation is in progress.
+
 ```bash
 nuages login --username alice                    # Authenticate with the platform
 nuages deploy --name myapp --image myapp:v1      # Deploy to the platform
