@@ -2,7 +2,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
@@ -14,21 +14,6 @@ use crate::apps::auth::serializers::{RegisterRequest, TokenResponse};
 /// Register new user, persist to database, and return JWT token.
 #[post("/auth/register/", name = "auth_register", pre_validate = true)]
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
-	// Check if username already exists
-	let existing = User::objects()
-		.filter(
-			User::field_username(),
-			FilterOperator::Eq,
-			FilterValue::String(body.username.trim().to_string()),
-		)
-		.first()
-		.await
-		.map_err(|e| format!("Database error: {e}"))?;
-
-	if existing.is_some() {
-		return Err(AppError::Conflict("Username already exists".to_string()));
-	}
-
 	// Create user with hashed password
 	let mut user = User::new(
 		body.username.trim().to_string(),
@@ -39,11 +24,21 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	user.set_password(&body.password)
 		.map_err(|e| format!("Password hashing failed: {e}"))?;
 
-	// Persist to database
-	let created = User::objects()
-		.create(&user)
-		.await
-		.map_err(|e| format!("Database error: {e}"))?;
+	// Attempt to create — database unique constraint prevents duplicates
+	let created = match User::objects().create(&user).await {
+		Ok(user) => user,
+		Err(e) => {
+			// Normalize error message to lowercase for case-insensitive matching.
+			// The ORM (reinhardt-db) maps unique constraint violations to
+			// `DatabaseError::QueryError(String)` without a structured variant,
+			// so string matching is the only detection mechanism available.
+			let err_lower = e.to_string().to_lowercase();
+			if err_lower.contains("unique") || err_lower.contains("duplicate") {
+				return Err(AppError::Conflict("Username already exists".to_string()));
+			}
+			return Err(format!("Database error: {e}").into());
+		}
+	};
 
 	// Generate JWT with UUID as sub claim
 	let auth = JwtAuth::new(jwt_secret().as_bytes());
