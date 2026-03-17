@@ -7,11 +7,7 @@ meta {
 get {
   url: {{baseUrl}}/api/clusters/
   body: none
-  auth: none
-}
-
-headers {
-  Authorization: Bearer {{jwtToken}}
+  auth: inherit
 }
 
 assert {
