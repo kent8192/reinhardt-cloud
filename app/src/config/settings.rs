@@ -7,6 +7,7 @@
 //! Settings are loaded from TOML files in the `settings/` directory:
 //! - `base.toml` - Common settings across all environments
 //! - `local.toml` - Local development settings
+//! - `ci.toml` - CI (GitHub Actions) environment settings
 //! - `staging.toml` - Staging environment settings
 //! - `production.toml` - Production environment settings
 //!
@@ -22,6 +23,7 @@
 //!
 //! The environment is determined by the `REINHARDT_ENV` environment variable:
 //! - `local` or `development` → loads `local.toml`
+//! - `ci` → loads `ci.toml`
 //! - `staging` → loads `staging.toml`
 //! - `production` → loads `production.toml`
 //!
