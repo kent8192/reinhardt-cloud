@@ -30,4 +30,8 @@ pub(crate) enum Error {
 	/// Failed to compute owner reference for a resource.
 	#[error("failed to compute owner reference for {0}")]
 	OwnerReference(String),
+
+	/// A port number is outside the valid range (1-65535).
+	#[error("invalid port {port}: must be between 1 and 65535")]
+	InvalidPort { port: i32 },
 }

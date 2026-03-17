@@ -13,6 +13,15 @@ use nuages_types::crd::ReinhardtApp;
 
 use crate::error::Error;
 
+/// Validates that a port number is within the valid TCP/UDP range (1-65535).
+fn validate_port(port: i32) -> Result<i32, Error> {
+	if (1..=65535).contains(&port) {
+		Ok(port)
+	} else {
+		Err(Error::InvalidPort { port })
+	}
+}
+
 /// Standard labels applied to all resources owned by the operator.
 pub(crate) fn standard_labels(app: &ReinhardtApp) -> BTreeMap<String, String> {
 	BTreeMap::from([
@@ -37,12 +46,13 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 	let labels = standard_labels(app);
 	let namespace = app.namespace().unwrap_or_default();
 	let replicas = app.spec.replicas.unwrap_or(1);
-	let port = app
-		.spec
-		.services
-		.as_ref()
-		.and_then(|s| s.target_port)
-		.unwrap_or(8000);
+	let port = validate_port(
+		app.spec
+			.services
+			.as_ref()
+			.and_then(|s| s.target_port)
+			.unwrap_or(8000),
+	)?;
 
 	let owner_ref = app
 		.controller_owner_ref(&())
@@ -96,18 +106,20 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app);
 	let namespace = app.namespace().unwrap_or_default();
-	let port = app
-		.spec
-		.services
-		.as_ref()
-		.and_then(|s| s.port)
-		.unwrap_or(80);
-	let target_port = app
-		.spec
-		.services
-		.as_ref()
-		.and_then(|s| s.target_port)
-		.unwrap_or(8000);
+	let port = validate_port(
+		app.spec
+			.services
+			.as_ref()
+			.and_then(|s| s.port)
+			.unwrap_or(80),
+	)?;
+	let target_port = validate_port(
+		app.spec
+			.services
+			.as_ref()
+			.and_then(|s| s.target_port)
+			.unwrap_or(8000),
+	)?;
 
 	let owner_ref = app
 		.controller_owner_ref(&())
