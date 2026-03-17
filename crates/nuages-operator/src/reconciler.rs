@@ -7,7 +7,7 @@ use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service};
-use kube::api::{Api, Patch, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
@@ -20,6 +20,7 @@ use crate::inference::platform::PlatformConfig;
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{build_deployment, build_service};
 use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
+use nuages_types::crd::policy::DeletionPolicy;
 use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
 use nuages_types::{ConditionStatus, ConditionType};
 
@@ -152,15 +153,51 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 }
 
 /// Clean up external resources when a `ReinhardtApp` is deleted.
+///
+/// Respects `DeletionPolicy`:
+/// - `Retain` (default): only K8s-native resources (Deployment, Service)
+///   are removed via ownerReferences GC. Database/cache Secrets and
+///   ConfigMaps are retained for manual cleanup.
+/// - `Delete`: all resources including Secrets and ConfigMaps are deleted.
 async fn cleanup(
 	app: Arc<ReinhardtApp>,
-	_ctx: &Context,
-	_namespace: &str,
+	ctx: &Context,
+	namespace: &str,
 ) -> Result<Action, Error> {
 	let name = app.name_any();
 	info!("Cleaning up ReinhardtApp {name}");
-	// Owned Deployments and Services are garbage-collected via ownerReferences.
-	// Add cleanup for external resources (databases, DNS, etc.) here.
+
+	match app.spec.deletion_policy {
+		DeletionPolicy::Retain => {
+			// Deployment and Service are cleaned up via ownerReferences GC.
+			// Secrets and ConfigMaps are retained for manual cleanup.
+			info!(
+				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
+				 Manual cleanup may be required for: {name}-db-credentials, {name}-settings"
+			);
+		}
+		DeletionPolicy::Delete => {
+			info!("DeletionPolicy is Delete: removing all resources for {name}");
+
+			// Delete settings ConfigMap
+			let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+			let _ = cm_api
+				.delete(&format!("{name}-settings"), &DeleteParams::default())
+				.await;
+
+			// Delete JWT Secret
+			let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+			let _ = secret_api
+				.delete(&format!("{name}-jwt-secret"), &DeleteParams::default())
+				.await;
+
+			// Delete DB credentials Secret
+			let _ = secret_api
+				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
+				.await;
+		}
+	}
+
 	Ok(Action::await_change())
 }
 
@@ -312,6 +349,7 @@ pub(crate) async fn run(client: Client) {
 mod tests {
 	use super::*;
 	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
+	use nuages_types::crd::policy::DeletionPolicy;
 	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
 	use nuages_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
@@ -588,6 +626,31 @@ mod tests {
 		});
 		Client::new(svc, "default")
 	}
+
+	// ── deletion_policy tests ───────────────────────────────────────
+
+	#[rstest]
+	fn test_deletion_policy_defaults_to_retain() {
+		// Arrange
+		let app = make_test_app("retain-app");
+
+		// Assert
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Retain);
+	}
+
+	#[rstest]
+	fn test_deletion_policy_can_be_set_to_delete() {
+		// Arrange
+		let mut app = make_test_app("delete-app");
+
+		// Act
+		app.spec.deletion_policy = DeletionPolicy::Delete;
+
+		// Assert
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	// ── error_policy tests ───────────────────────────────────────────
 
 	#[rstest]
 	#[tokio::test]
