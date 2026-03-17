@@ -173,6 +173,16 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
+  bruno-tests:
+    name: Bruno API Tests
+    needs: [fmt, clippy, determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/bruno-tests.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
   coverage:
     name: Coverage
     needs: [test, determine-runner]
@@ -204,6 +214,7 @@ jobs:
       - fmt
       - clippy
       - test
+      - bruno-tests
       - security-audit
       - todo-check
       - coverage
@@ -216,6 +227,7 @@ jobs:
           FMT_RESULT: ${{ needs.fmt.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          BRUNO_TESTS_RESULT: ${{ needs.bruno-tests.result }}
           SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
           TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
@@ -234,6 +246,7 @@ jobs:
             "fmt:$FMT_RESULT"
             "clippy:$CLIPPY_RESULT"
             "test:$TEST_RESULT"
+            "bruno-tests:$BRUNO_TESTS_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
           )
