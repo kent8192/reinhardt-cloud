@@ -3,13 +3,15 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::{AuthState, ViewResult};
 use reinhardt::{Request, Response, StatusCode, get};
+use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
 
-/// List all deployments (authentication required).
+/// List deployments owned by the authenticated user.
 ///
 /// Workaround: Uses `AuthState::from_extensions` instead of `CurrentUser<User>`
 /// DI injection because `CurrentUser` DB lookup requires complex DI configuration
@@ -17,15 +19,22 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 /// See: <https://github.com/kent8192/reinhardt-web/issues/2419>
 #[get("/deployments/", name = "deployment_list")]
 pub async fn list_deployments(request: Request) -> ViewResult<Response> {
-	let auth_state = AuthState::from_extensions(&request.extensions);
-	if !auth_state.is_some_and(|s| s.is_authenticated()) {
-		return Err(AppError::Authentication(
-			"Authentication required".to_string(),
-		));
-	}
+	let auth_state = AuthState::from_extensions(&request.extensions)
+		.filter(|s| s.is_authenticated())
+		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
+	let user_id = Uuid::parse_str(auth_state.user_id()).map_err(|e| {
+		AppError::Internal(format!("Invalid user ID in token: {e}"))
+	})?;
 
-	let manager = Deployment::objects();
-	let deployments = manager.all().all().await.map_err(|e| format!("{e}"))?;
+	let deployments = Deployment::objects()
+		.filter(
+			Deployment::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user_id.to_string()),
+		)
+		.all()
+		.await
+		.map_err(|e| format!("{e}"))?;
 	let responses: Vec<DeploymentResponse> = deployments
 		.into_iter()
 		.map(DeploymentResponse::from)
