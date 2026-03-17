@@ -155,4 +155,8 @@ async fn test_create_deployment_with_cluster(
 	assert_eq!(deployments[0]["app_name"], "my-web-app");
 	assert_eq!(deployments[0]["cluster_id"], cluster_id);
 	assert_eq!(deployments[0]["status"], "pending");
+	assert!(
+		deployments[0]["id"].as_i64().is_some(),
+		"Deployment id should be present in list response"
+	);
 }
