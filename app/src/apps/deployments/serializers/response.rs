@@ -1,11 +1,12 @@
 //! Response serializers for deployment endpoints.
 
+use reinhardt::{Schema, ToSchema};
 use serde::Serialize;
 
 use crate::apps::deployments::models::Deployment;
 
 /// Deployment API response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Schema)]
 pub struct DeploymentResponse {
 	pub id: i64,
 	pub app_name: String,
