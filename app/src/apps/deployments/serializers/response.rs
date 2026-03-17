@@ -8,7 +8,7 @@ use crate::apps::deployments::models::Deployment;
 /// Deployment API response.
 #[derive(Debug, Serialize, Schema)]
 pub struct DeploymentResponse {
-	pub id: i64,
+	pub id: Option<i64>,
 	pub app_name: String,
 	pub cluster_id: i64,
 	pub status: String,
@@ -18,7 +18,7 @@ pub struct DeploymentResponse {
 impl From<Deployment> for DeploymentResponse {
 	fn from(d: Deployment) -> Self {
 		Self {
-			id: d.id.unwrap_or(0),
+			id: d.id,
 			app_name: d.app_name,
 			cluster_id: d.cluster_id,
 			status: d.status,
