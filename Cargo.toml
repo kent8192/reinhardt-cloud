@@ -67,6 +67,9 @@ nuages-types = { path = "crates/nuages-types" }
 nuages-core = { path = "crates/nuages-core" }
 nuages-k8s = { path = "crates/nuages-k8s" }
 
+# Cryptography / encoding
+rand = "0.9"
+
 # Testing
 rstest = "0.26"
 tokio-test = "0.4"

@@ -1,6 +1,7 @@
 //! Nuages Kubernetes operator for managing `ReinhardtApp` resources.
 
 mod error;
+mod inference;
 mod reconciler;
 mod resources;
 
