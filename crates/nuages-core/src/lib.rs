@@ -6,6 +6,8 @@
 
 pub mod auth;
 pub mod error;
+pub mod pagination;
 pub mod services;
 
 pub use error::ApiError;
+pub use pagination::{PaginatedResponse, PaginationParams};
