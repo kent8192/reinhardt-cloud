@@ -43,7 +43,10 @@ impl NuagesClient {
 	/// Returns [`ClientError::RequestError`] if the HTTP client cannot be built.
 	pub(crate) fn new(base_url: &str) -> Result<Self, ClientError> {
 		let parsed = Url::parse(base_url)?;
-		let http = Client::builder().timeout(Duration::from_secs(30)).build()?;
+		let http = Client::builder()
+			.connect_timeout(Duration::from_secs(10))
+			.timeout(Duration::from_secs(30))
+			.build()?;
 		Ok(Self {
 			http,
 			base_url: parsed,
@@ -118,7 +121,10 @@ mod tests {
 		let result = NuagesClient::new(invalid_url);
 
 		// Assert
-		assert!(result.is_err());
+		assert!(
+			matches!(result, Err(ClientError::InvalidUrl(_))),
+			"expected ClientError::InvalidUrl, got {result:?}"
+		);
 	}
 
 	#[rstest]
