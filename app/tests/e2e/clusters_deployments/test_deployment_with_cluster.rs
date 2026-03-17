@@ -155,8 +155,11 @@ async fn test_create_deployment_with_cluster(
 	assert_eq!(deployments[0]["app_name"], "my-web-app");
 	assert_eq!(deployments[0]["cluster_id"], cluster_id);
 	assert_eq!(deployments[0]["status"], "pending");
+	let list_id = deployments[0]["id"]
+		.as_i64()
+		.expect("Deployment id should be present in list response");
 	assert!(
-		deployments[0]["id"].as_i64().is_some(),
-		"Deployment id should be present in list response"
+		list_id > 0,
+		"Deployment id should be a positive database-generated value, got {list_id}"
 	);
 }
