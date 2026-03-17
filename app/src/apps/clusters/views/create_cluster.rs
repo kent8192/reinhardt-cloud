@@ -23,9 +23,8 @@ pub async fn create_cluster(request: Request) -> ViewResult<Response> {
 	let auth_state = AuthState::from_extensions(&request.extensions)
 		.filter(|s| s.is_authenticated())
 		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
-	let user_id = Uuid::parse_str(auth_state.user_id()).map_err(|e| {
-		AppError::Internal(format!("Invalid user ID in token: {e}"))
-	})?;
+	let user_id = Uuid::parse_str(auth_state.user_id())
+		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
 
 	let body: CreateClusterRequest = request.json()?;
 	let new_cluster = Cluster::new(user_id, body.name.clone(), body.api_url.clone(), true);
