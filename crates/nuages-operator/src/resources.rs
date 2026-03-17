@@ -325,4 +325,106 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_port_zero() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(0),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(err, "invalid port 0: must be between 1 and 65535");
+	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_port_above_65535() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(65536),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(err, "invalid port 65536: must be between 1 and 65535");
+	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_negative_port() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(-1),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(err, "invalid port -1: must be between 1 and 65535");
+	}
+
+	#[rstest]
+	fn test_build_service_rejects_port_zero() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: Some(0),
+			target_port: None,
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_service(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(err, "invalid port 0: must be between 1 and 65535");
+	}
+
+	#[rstest]
+	fn test_build_service_rejects_port_above_65535() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: Some(65536),
+			target_port: None,
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_service(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(err, "invalid port 65536: must be between 1 and 65535");
+	}
+
+	#[rstest]
+	fn test_validate_port_accepts_boundary_values() {
+		// Arrange / Act / Assert
+		assert_eq!(validate_port(1).unwrap(), 1);
+		assert_eq!(validate_port(65535).unwrap(), 65535);
+	}
 }
