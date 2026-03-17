@@ -14,19 +14,18 @@ rather than infrastructure configuration.
 
 Three-plane architecture inspired by Vercel:
 
-- **Control Plane** (`nuages-control-plane`) — REST API, authentication, project management
+- **Control Plane** (`app/`) — reinhardt-web REST API, authentication, project management
 - **Operator** (`nuages-operator`) — Kubernetes Operator that reconciles `ReinhardtApp` CRDs
-- **CLI** (`nuages-cli`) — `nuages-deploy` command for project analysis and deployment
-
-See [docs/2026-03-14-reinhardt-paas-design.md](docs/2026-03-14-reinhardt-paas-design.md) for the full design.
+- **CLI** (`nuages-cli`) — `nuages` command for deployment and management
 
 ## Quick Start
 
+> **Note:** These CLI subcommands are currently scaffolded; full implementation is in progress.
+
 ```bash
-# In your Reinhardt project
-nuages-deploy init    # Analyze project, generate reinhardt.toml
-nuages-deploy deploy  # Build and deploy to the platform
-nuages-deploy logs    # Stream application logs
+nuages login --username alice                    # Authenticate with the platform
+nuages deploy --name myapp --image myapp:v1      # Deploy to the platform
+nuages status --name myapp                       # Check deployment status
 ```
 
 ## License
