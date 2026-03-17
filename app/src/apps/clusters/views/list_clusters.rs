@@ -5,8 +5,8 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
-use reinhardt::http::{AuthState, ViewResult};
-use reinhardt::{Request, Response, StatusCode, get};
+use reinhardt::http::ViewResult;
+use reinhardt::{AuthInfo, Query, Response, StatusCode, get};
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
@@ -16,22 +16,13 @@ use crate::apps::clusters::serializers::ClusterResponse;
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
-///
-/// Workaround: Uses `AuthState::from_extensions` instead of `CurrentUser<User>`
-/// DI injection because `CurrentUser` DB lookup requires complex DI configuration
-/// that is not yet fully supported in the reinhardt-web test environment.
-/// See: <https://github.com/kent8192/reinhardt-web/issues/2419>
 #[get("/clusters/", name = "cluster_list")]
-pub async fn list_clusters(request: Request) -> ViewResult<Response> {
-	let auth_state = AuthState::from_extensions(&request.extensions)
-		.filter(|s| s.is_authenticated())
-		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
-	let user_id = Uuid::parse_str(auth_state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let params: PaginationParams = request
-		.query_as()
-		.map_err(|e| AppError::Validation(format!("Invalid pagination parameters: {e}")))?;
+pub async fn list_clusters(
+	Query(params): Query<PaginationParams>,
+	#[inject] AuthInfo(state): AuthInfo,
+) -> ViewResult<Response> {
+	let user_id = Uuid::parse_str(state.user_id())
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let total = Cluster::objects()
 		.filter(

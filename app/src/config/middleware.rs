@@ -1,7 +1,7 @@
 //! Custom JWT authentication middleware for nuages.
 //!
 //! Validates `Authorization: Bearer <token>` headers and injects
-//! `AuthState` into request extensions for downstream `CurrentUser`
+//! `AuthState` into request extensions for downstream `AuthInfo`
 //! extraction. Skips authentication for public endpoints (auth routes).
 
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use crate::apps::auth::views::utils::jwt_secret;
 /// JWT authentication middleware.
 ///
 /// Extracts and validates Bearer tokens from the `Authorization` header,
-/// then stores an `AuthState` in request extensions so that `CurrentUser<User>`
+/// then stores an `AuthState` in request extensions so that `AuthInfo`
 /// can resolve the authenticated user via dependency injection.
 pub struct JwtAuthMiddleware;
 
@@ -43,12 +43,6 @@ impl Middleware for JwtAuthMiddleware {
 			AuthState::anonymous()
 		};
 
-		// Insert individual values for AuthState::from_extensions() compatibility.
-		// from_extensions() looks for separate String (user_id) and bool
-		// (is_authenticated) entries, not an AuthState object.
-		// Workaround: See https://github.com/kent8192/reinhardt-web/issues/2417
-		request.extensions.insert(auth_state.user_id().to_string());
-		request.extensions.insert(auth_state.is_authenticated());
 		request.extensions.insert(auth_state);
 
 		next.handle(request).await
