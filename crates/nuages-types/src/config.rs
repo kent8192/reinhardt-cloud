@@ -367,6 +367,13 @@ name = "minimal-app"
 		let errors = result.unwrap_err();
 		// min(-1) + max(-2) + max<min + target(0)
 		assert_eq!(errors.len(), 4);
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.max_replicas must be >= 0");
+		assert_eq!(
+			errors[2].message,
+			"scale.max_replicas must be >= scale.min_replicas"
+		);
+		assert_eq!(errors[3].message, "scale.target_value must be > 0");
 	}
 
 	#[rstest]
@@ -384,6 +391,14 @@ name = "minimal-app"
 		// Assert
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 2);
+		assert_eq!(
+			errors[0].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(
+			errors[1].message,
+			"services.target_port must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -401,6 +416,8 @@ name = "minimal-app"
 		// Assert
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 2);
+		assert_eq!(errors[0].message, "health.port must be between 1 and 65535");
+		assert_eq!(errors[1].message, "health.interval_seconds must be > 0");
 	}
 
 	#[rstest]
@@ -443,6 +460,13 @@ name = "minimal-app"
 		let errors = result.unwrap_err();
 		// deploy.replicas(-1) + scale.min(-1) + services.port(0) + health.interval(0)
 		assert_eq!(errors.len(), 4);
+		assert_eq!(errors[0].message, "deploy.replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
+		assert_eq!(
+			errors[2].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(errors[3].message, "health.interval_seconds must be > 0");
 	}
 
 	#[rstest]

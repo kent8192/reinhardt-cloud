@@ -237,7 +237,7 @@ impl ReinhardtAppSpec {
 		if let Some(replicas) = self.replicas
 			&& replicas < 0
 		{
-			errors.push(ValidationError::new("replicas must be >= 0"));
+			errors.push(ValidationError::new("spec.replicas must be >= 0"));
 		}
 
 		if let Some(ref scale) = self.scale
@@ -432,9 +432,24 @@ mod tests {
 		let result_negative = spec_negative.validate();
 
 		// Assert
-		assert_eq!(result_zero.unwrap_err().len(), 1);
-		assert_eq!(result_over.unwrap_err().len(), 1);
-		assert_eq!(result_negative.unwrap_err().len(), 1);
+		let errors_zero = result_zero.unwrap_err();
+		assert_eq!(errors_zero.len(), 1);
+		assert_eq!(
+			errors_zero[0].message,
+			"health.port must be between 1 and 65535"
+		);
+		let errors_over = result_over.unwrap_err();
+		assert_eq!(errors_over.len(), 1);
+		assert_eq!(
+			errors_over[0].message,
+			"health.port must be between 1 and 65535"
+		);
+		let errors_negative = result_negative.unwrap_err();
+		assert_eq!(errors_negative.len(), 1);
+		assert_eq!(
+			errors_negative[0].message,
+			"health.port must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -470,6 +485,14 @@ mod tests {
 		// Assert
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 2);
+		assert_eq!(
+			errors[0].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(
+			errors[1].message,
+			"services.target_port must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -505,6 +528,24 @@ mod tests {
 		let errors = result.unwrap_err();
 		// replicas(-1) + min(-1) + max(-2) + max<min + target(0) + health.port(0) + interval(0) + services.port(0) + services.target_port(65536)
 		assert_eq!(errors.len(), 9);
+		assert_eq!(errors[0].message, "spec.replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[2].message, "scale.max_replicas must be >= 0");
+		assert_eq!(
+			errors[3].message,
+			"scale.max_replicas must be >= scale.min_replicas"
+		);
+		assert_eq!(errors[4].message, "scale.target_value must be > 0");
+		assert_eq!(errors[5].message, "health.port must be between 1 and 65535");
+		assert_eq!(errors[6].message, "health.interval_seconds must be > 0");
+		assert_eq!(
+			errors[7].message,
+			"services.port must be between 1 and 65535"
+		);
+		assert_eq!(
+			errors[8].message,
+			"services.target_port must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
