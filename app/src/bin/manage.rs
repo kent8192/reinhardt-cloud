@@ -7,37 +7,10 @@
 //! URL patterns are automatically registered by the framework.
 //! No manual registration is required - see `src/config/urls.rs` for the
 //! `#[routes]` attribute macro that enables this.
-//!
-//! ## Custom Commands
-//!
-//! Project-specific commands (e.g., `SyncClustersCommand`) are registered
-//! in the `CommandRegistry` before the CLI is executed.
 
 use nuages as _;
-use reinhardt::commands::{
-	BaseCommand, CommandContext, CommandRegistry, CommandResult, execute_from_command_line,
-};
-use reinhardt::core::async_trait;
+use reinhardt::commands::execute_from_command_line;
 use std::process;
-
-/// Custom management command to synchronize cluster status from the Kubernetes API.
-struct SyncClustersCommand;
-
-#[async_trait]
-impl BaseCommand for SyncClustersCommand {
-	fn name(&self) -> &str {
-		"sync_clusters"
-	}
-
-	fn description(&self) -> &str {
-		"Sync cluster status from Kubernetes API"
-	}
-
-	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
-		ctx.info("Syncing cluster status from Kubernetes...");
-		Ok(())
-	}
-}
 
 fn main() {
 	// SAFETY: Called before tokio runtime initialization, so no other
@@ -54,12 +27,10 @@ fn main() {
 }
 
 async fn async_main() {
-	// Register project-specific custom commands
-	let mut registry = CommandRegistry::new();
-	registry.register(Box::new(SyncClustersCommand));
-
-	// Router registration happens automatically inside execute_from_command_line()
-	// via the #[routes] attribute macro in src/config/urls.rs
+	// Workaround: reinhardt-web#2452
+	// Reason: execute_from_command_line() does not accept CommandRegistry
+	// Impact: custom commands (e.g., SyncClustersCommand) cannot be registered
+	// Remove-when: reinhardt-web supports CommandRegistry parameter
 	if let Err(e) = execute_from_command_line().await {
 		eprintln!("Error: {}", e);
 		process::exit(1);
