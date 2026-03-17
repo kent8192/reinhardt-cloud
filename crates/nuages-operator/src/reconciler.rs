@@ -142,15 +142,15 @@ async fn update_status(
 			.find(|c| c.type_ == nuages_types::ConditionType::Ready)
 	});
 
-	let last_transition_time = match existing_ready_condition {
-		Some(existing) if existing.status == condition_status => {
-			// Status unchanged: preserve existing transition time
-			existing.last_transition_time.clone()
-		}
-		_ => {
-			// Status changed or no prior condition: set new transition time
-			Some(chrono::Utc::now().to_rfc3339())
-		}
+	let last_transition_time = if should_update_transition_time(
+		existing_ready_condition.map(|c| &c.status),
+		&condition_status,
+	) {
+		// Status changed or no prior condition: set new transition time
+		Some(chrono::Utc::now().to_rfc3339())
+	} else {
+		// Status unchanged: preserve existing transition time
+		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
 	let status = serde_json::json!({
@@ -178,6 +178,17 @@ async fn update_status(
 	.map_err(Error::Kube)?;
 
 	Ok(())
+}
+
+/// Determines whether `lastTransitionTime` should be updated.
+///
+/// Returns `true` when the condition status has changed or there is no
+/// existing condition, indicating a new transition time is needed.
+pub(crate) fn should_update_transition_time(
+	existing_status: Option<&nuages_types::ConditionStatus>,
+	new_status: &nuages_types::ConditionStatus,
+) -> bool {
+	!matches!(existing_status, Some(existing) if existing == new_status)
 }
 
 /// Error policy: requeue after 30 seconds on transient failure.
@@ -212,4 +223,58 @@ pub(crate) async fn run(client: Client) {
 			}
 		})
 		.await;
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use nuages_types::ConditionStatus;
+	use rstest::rstest;
+
+	#[rstest]
+	#[case(ConditionStatus::True, ConditionStatus::False)]
+	#[case(ConditionStatus::False, ConditionStatus::True)]
+	#[case(ConditionStatus::Unknown, ConditionStatus::True)]
+	fn should_update_transition_time_returns_true_when_status_changes(
+		#[case] existing: ConditionStatus,
+		#[case] new: ConditionStatus,
+	) {
+		// Arrange
+		let existing_ref = Some(&existing);
+
+		// Act
+		let result = should_update_transition_time(existing_ref, &new);
+
+		// Assert
+		assert_eq!(result, true);
+	}
+
+	#[rstest]
+	#[case(ConditionStatus::True)]
+	#[case(ConditionStatus::False)]
+	#[case(ConditionStatus::Unknown)]
+	fn should_update_transition_time_returns_false_when_status_unchanged(
+		#[case] status: ConditionStatus,
+	) {
+		// Arrange
+		let existing_ref = Some(&status);
+
+		// Act
+		let result = should_update_transition_time(existing_ref, &status);
+
+		// Assert
+		assert_eq!(result, false);
+	}
+
+	#[rstest]
+	fn should_update_transition_time_returns_true_when_no_existing() {
+		// Arrange
+		let new_status = ConditionStatus::True;
+
+		// Act
+		let result = should_update_transition_time(None, &new_status);
+
+		// Assert
+		assert_eq!(result, true);
+	}
 }
