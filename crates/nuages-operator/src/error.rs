@@ -34,4 +34,16 @@ pub(crate) enum Error {
 	/// A port number is outside the valid range (1-65535).
 	#[error("invalid port {port} for field '{field}': must be between 1 and 65535")]
 	InvalidPort { field: &'static str, port: i32 },
+
+	/// Database provisioning failed.
+	#[error("database provisioning failed: {0}")]
+	DatabaseProvisioning(String),
+
+	/// Platform controller is not installed in the cluster.
+	#[error("platform controller not installed: {group} API group not found")]
+	PlatformControllerMissing { group: String },
+
+	/// Secret generation failed.
+	#[error("secret generation failed: {0}")]
+	SecretGeneration(String),
 }

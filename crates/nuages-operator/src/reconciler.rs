@@ -3,10 +3,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Service;
-use kube::api::{Api, Patch, PatchParams};
+use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service};
+use kube::api::{Api, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
@@ -14,7 +15,11 @@ use kube::{Client, ResourceExt};
 use tracing::{error, info};
 
 use crate::error::Error;
+use crate::inference::configmap::build_settings_configmap;
+use crate::inference::platform::PlatformConfig;
+use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{build_deployment, build_service};
+use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
 use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
 use nuages_types::{ConditionStatus, ConditionType};
 
@@ -24,6 +29,8 @@ const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
 pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
+	/// Platform-specific configuration for resource inference.
+	pub platform: PlatformConfig,
 }
 
 /// Main reconciliation entry point.
@@ -50,6 +57,57 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 /// Apply the desired state for a `ReinhardtApp`.
 async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	// Reconcile settings ConfigMap via server-side apply
+	let configmap = build_settings_configmap(&name, namespace);
+	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+	cm_api
+		.patch(
+			&format!("{name}-settings"),
+			&ssapply,
+			&Patch::Apply(&configmap),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled ConfigMap {namespace}/{name}-settings");
+
+	// Create JWT Secret if auth.jwt is enabled (preserve existing tokens)
+	if app.spec.auth.as_ref().is_some_and(|a| a.jwt) {
+		let secret_name = format!("{name}-jwt-secret");
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api.get_opt(&secret_name).await.map_err(Error::Kube)?.is_none() {
+			let jwt_secret = build_jwt_secret(&name, namespace);
+			secret_api
+				.create(&PostParams::default(), &jwt_secret)
+				.await
+				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+			info!("Created JWT Secret {namespace}/{secret_name}");
+		}
+	}
+
+	// Create DB credentials Secret if database is configured (preserve existing credentials)
+	if app.spec.database.is_some() {
+		let db_secret_name = format!("{name}-db-credentials");
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&db_secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			let password_bytes: [u8; 16] = rand::random();
+			let password_str =
+				base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(password_bytes);
+			let db_secret =
+				build_db_credentials_secret(&name, namespace, &format!("{name}_user"), &password_str);
+			secret_api
+				.create(&PostParams::default(), &db_secret)
+				.await
+				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+			info!("Created DB credentials Secret {namespace}/{db_secret_name}");
+		}
+	}
 
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
@@ -150,6 +208,17 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
+	// Track database sub-resource status if database is configured
+	let database = if app.spec.database.is_some() {
+		Some(DatabaseStatus {
+			phase: ResourcePhase::Ready,
+			endpoint: None,
+			credentials_secret: Some(format!("{}-db-credentials", app.name_any())),
+		})
+	} else {
+		None
+	};
+
 	ReinhardtAppStatus {
 		phase: Some(phase),
 		conditions: vec![AppCondition {
@@ -162,6 +231,7 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		}],
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
+		database,
 		..Default::default()
 	}
 }
@@ -215,7 +285,8 @@ pub(crate) async fn run(client: Client) {
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
 
-	let context = Arc::new(Context { client });
+	let platform = PlatformConfig::from_env();
+	let context = Arc::new(Context { client, platform });
 
 	Controller::new(apps, watcher::Config::default())
 		.owns(
@@ -240,6 +311,7 @@ pub(crate) async fn run(client: Client) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
 	use nuages_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
@@ -462,6 +534,44 @@ mod tests {
 		assert!(status.conditions[0].last_transition_time.is_some());
 	}
 
+	// ── build_status database sub-resource tests ────────────────────
+
+	#[rstest]
+	fn test_build_status_includes_database_status_when_database_configured() {
+		// Arrange
+		let mut app = make_test_app("db-app");
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: None,
+		});
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		let db_status = status.database.expect("database status should be present");
+		assert_eq!(db_status.phase, ResourcePhase::Ready);
+		assert_eq!(
+			db_status.credentials_secret,
+			Some("db-app-db-credentials".to_string())
+		);
+		assert!(db_status.endpoint.is_none());
+	}
+
+	#[rstest]
+	fn test_build_status_excludes_database_status_when_no_database() {
+		// Arrange
+		let app = make_test_app("no-db-app");
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		assert!(status.database.is_none());
+	}
+
 	// ── error_policy tests ───────────────────────────────────────────
 
 	/// Creates a `kube::Client` backed by a dummy service for unit tests.
@@ -487,6 +597,7 @@ mod tests {
 		let error = Error::MissingNamespace("error-app".to_string());
 		let ctx = Arc::new(Context {
 			client: dummy_client(),
+			platform: PlatformConfig::onprem_defaults(),
 		});
 
 		// Act
