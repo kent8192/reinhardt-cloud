@@ -33,7 +33,7 @@ pub async fn create_deployment(request: Request) -> ViewResult<Response> {
 		.filter(
 			Cluster::field_id(),
 			FilterOperator::Eq,
-			FilterValue::BigInt(body.cluster_id),
+			FilterValue::Integer(body.cluster_id),
 		)
 		.first()
 		.await
