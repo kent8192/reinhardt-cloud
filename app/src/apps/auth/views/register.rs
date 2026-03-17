@@ -6,6 +6,7 @@ use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
+use tracing::error;
 
 use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
@@ -22,7 +23,10 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		true,
 	);
 	user.set_password(&body.password)
-		.map_err(|e| format!("Password hashing failed: {e}"))?;
+		.map_err(|e| {
+			error!("Password hashing failed during registration: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 
 	// Attempt to create — database unique constraint prevents duplicates
 	let created = match User::objects().create(&user).await {
@@ -43,7 +47,8 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 				};
 				return Err(AppError::Conflict(message.to_string()));
 			}
-			return Err(format!("Database error: {e}").into());
+			error!("Failed to create user in database: {e}");
+			return Err(AppError::Internal("Internal server error".to_string()));
 		}
 	};
 
@@ -51,7 +56,10 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let auth = JwtAuth::new(jwt_secret().as_bytes());
 	let token = auth
 		.generate_token(created.id().to_string(), created.username().to_string())
-		.map_err(|e| format!("Token generation failed: {e}"))?;
+		.map_err(|e| {
+			error!("JWT token generation failed during registration: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 
 	let resp = TokenResponse::bearer(token);
 	Ok(Response::new(StatusCode::CREATED)
