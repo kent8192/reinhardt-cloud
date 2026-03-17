@@ -106,18 +106,11 @@ async fn cleanup(
 	Ok(Action::await_change())
 }
 
-/// Updates the status sub-resource of a `ReinhardtApp`.
+/// Builds the desired `ReinhardtAppStatus` for the given readiness state.
 ///
-/// Only updates `lastTransitionTime` when the condition status actually
-/// changes, preventing unnecessary tight reconcile loops.
-async fn update_status(
-	app: &ReinhardtApp,
-	client: &Client,
-	namespace: &str,
-	ready: bool,
-	ready_replicas: i32,
-) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+/// Pure function that computes the status without any Kubernetes API
+/// calls, making it independently testable.
+fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> ReinhardtAppStatus {
 	let phase = if ready {
 		AppPhase::Running
 	} else {
@@ -157,7 +150,7 @@ async fn update_status(
 		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
-	let typed_status = ReinhardtAppStatus {
+	ReinhardtAppStatus {
 		phase: Some(phase),
 		conditions: vec![AppCondition {
 			type_: ConditionType::Ready,
@@ -169,7 +162,22 @@ async fn update_status(
 		}],
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
-	};
+	}
+}
+
+/// Updates the status sub-resource of a `ReinhardtApp`.
+///
+/// Only updates `lastTransitionTime` when the condition status actually
+/// changes, preventing unnecessary tight reconcile loops.
+async fn update_status(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	ready: bool,
+	ready_replicas: i32,
+) -> Result<(), Error> {
+	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+	let typed_status = build_status(app, ready, ready_replicas);
 	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
@@ -231,8 +239,35 @@ pub(crate) async fn run(client: Client) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::ConditionStatus;
+	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
+	use nuages_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
+	use std::collections::BTreeMap;
+
+	/// Helper to create a minimal `ReinhardtApp` for reconciler tests.
+	fn make_test_app(name: &str) -> ReinhardtApp {
+		ReinhardtApp {
+			metadata: kube::api::ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some("default".to_string()),
+				uid: Some("test-uid-12345".to_string()),
+				generation: Some(1),
+				..Default::default()
+			},
+			spec: ReinhardtAppSpec {
+				image: "test:latest".to_string(),
+				replicas: None,
+				database: None,
+				scale: None,
+				health: None,
+				services: None,
+				env: BTreeMap::new(),
+			},
+			status: None,
+		}
+	}
+
+	// ── should_update_transition_time tests ──────────────────────────
 
 	#[rstest]
 	#[case(ConditionStatus::True, ConditionStatus::False)]
@@ -279,5 +314,176 @@ mod tests {
 
 		// Assert
 		assert!(result);
+	}
+
+	// ── build_status tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn test_build_status_sets_running_phase_when_ready() {
+		// Arrange
+		let app = make_test_app("ready-app");
+
+		// Act
+		let status = build_status(&app, true, 3);
+
+		// Assert
+		assert_eq!(status.phase, Some(AppPhase::Running));
+		assert_eq!(status.conditions.len(), 1);
+		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(status.conditions[0].status, ConditionStatus::True);
+		assert_eq!(status.conditions[0].reason, "ReconcileSuccess");
+		assert_eq!(status.conditions[0].message, "Application is ready");
+	}
+
+	#[rstest]
+	fn test_build_status_sets_deploying_phase_when_not_ready() {
+		// Arrange
+		let app = make_test_app("deploying-app");
+
+		// Act
+		let status = build_status(&app, false, 0);
+
+		// Assert
+		assert_eq!(status.phase, Some(AppPhase::Deploying));
+		assert_eq!(status.conditions.len(), 1);
+		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(status.conditions[0].status, ConditionStatus::False);
+		assert_eq!(status.conditions[0].reason, "ReconcileInProgress");
+		assert_eq!(
+			status.conditions[0].message,
+			"Waiting for deployment rollout to complete"
+		);
+	}
+
+	#[rstest]
+	fn test_build_status_sets_observed_generation() {
+		// Arrange
+		let mut app = make_test_app("gen-app");
+		app.metadata.generation = Some(5);
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		assert_eq!(status.observed_generation, Some(5));
+		assert_eq!(status.conditions[0].observed_generation, Some(5));
+	}
+
+	#[rstest]
+	fn test_build_status_sets_ready_replicas() {
+		// Arrange
+		let app = make_test_app("replicas-app");
+
+		// Act
+		let status = build_status(&app, true, 7);
+
+		// Assert
+		assert_eq!(status.ready_replicas, Some(7));
+	}
+
+	#[rstest]
+	fn test_build_status_preserves_transition_time_when_status_unchanged() {
+		// Arrange
+		let preserved_time = "2025-06-15T12:00:00Z";
+		let mut app = make_test_app("preserve-time-app");
+		app.status = Some(ReinhardtAppStatus {
+			phase: Some(AppPhase::Running),
+			conditions: vec![AppCondition {
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
+				reason: "ReconcileSuccess".to_string(),
+				message: "Application is ready".to_string(),
+				last_transition_time: Some(preserved_time.to_string()),
+				observed_generation: Some(1),
+			}],
+			observed_generation: Some(1),
+			ready_replicas: Some(1),
+		});
+
+		// Act — same readiness state (ready=true matching existing True)
+		let status = build_status(&app, true, 1);
+
+		// Assert — transition time should be preserved
+		assert_eq!(
+			status.conditions[0].last_transition_time,
+			Some(preserved_time.to_string())
+		);
+	}
+
+	#[rstest]
+	fn test_build_status_updates_transition_time_when_status_changes() {
+		// Arrange
+		let old_time = "2025-01-01T00:00:00Z";
+		let mut app = make_test_app("change-time-app");
+		app.status = Some(ReinhardtAppStatus {
+			phase: Some(AppPhase::Running),
+			conditions: vec![AppCondition {
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
+				reason: "ReconcileSuccess".to_string(),
+				message: "Application is ready".to_string(),
+				last_transition_time: Some(old_time.to_string()),
+				observed_generation: Some(1),
+			}],
+			observed_generation: Some(1),
+			ready_replicas: Some(1),
+		});
+
+		// Act — readiness changed from True to False
+		let status = build_status(&app, false, 0);
+
+		// Assert — transition time should be updated (not the old value)
+		assert_ne!(
+			status.conditions[0].last_transition_time,
+			Some(old_time.to_string())
+		);
+		assert!(status.conditions[0].last_transition_time.is_some());
+	}
+
+	#[rstest]
+	fn test_build_status_sets_new_transition_time_when_no_existing_status() {
+		// Arrange
+		let app = make_test_app("new-app");
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert — should have a transition time since there's no prior condition
+		assert!(status.conditions[0].last_transition_time.is_some());
+	}
+
+	// ── error_policy tests ───────────────────────────────────────────
+
+	/// Creates a `kube::Client` backed by a dummy service for unit tests.
+	///
+	/// The returned client will never be used for real API calls; it only
+	/// satisfies the type signature of `error_policy`.
+	fn dummy_client() -> Client {
+		use http::Response;
+		use http_body_util::Empty;
+		use tower::service_fn;
+
+		let svc = service_fn(|_req: http::Request<kube::client::Body>| async {
+			Ok::<_, std::convert::Infallible>(Response::builder().body(Empty::new()).unwrap())
+		});
+		Client::new(svc, "default")
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_returns_requeue_action() {
+		// Arrange
+		let app = Arc::new(make_test_app("error-app"));
+		let error = Error::MissingNamespace("error-app".to_string());
+		let ctx = Arc::new(Context {
+			client: dummy_client(),
+		});
+
+		// Act
+		let action = error_policy(app, &error, ctx);
+
+		// Assert — error_policy must return a 30-second requeue
+		let expected = Action::requeue(Duration::from_secs(30));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
 	}
 }
