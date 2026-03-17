@@ -45,7 +45,6 @@ impl CliConfig {
 	}
 }
 
-
 #[cfg(test)]
 mod tests {
 	use super::*;
