@@ -15,12 +15,17 @@ assert {
 }
 
 tests {
-  test("should return deployment list containing created deployment", function() {
+  test("should return paginated deployment list containing created deployment", function() {
     const body = res.getBody();
-    expect(body).to.be.an("array");
-    expect(body.length).to.be.greaterThan(0);
+    expect(body).to.be.an("object");
+    expect(body.items).to.be.an("array");
+    expect(body.items.length).to.be.greaterThan(0);
+    expect(body.total).to.be.a("number");
+    expect(body.page).to.equal(1);
+    expect(body.page_size).to.be.a("number");
+    expect(body.total_pages).to.be.a("number");
 
-    const deployment = body.find(d => d.app_name === "my-web-app");
+    const deployment = body.items.find(d => d.app_name === "my-web-app");
     expect(deployment).to.not.be.undefined;
     expect(deployment.status).to.equal("pending");
     expect(deployment.image).to.equal("registry.example.com/my-web-app:v1.0.0");

@@ -127,7 +127,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(response.status_code(), 200);
-		let body: Vec<serde_json::Value> = response.json().expect("Failed to parse JSON response");
-		assert_eq!(body.len(), 0);
+		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
+		assert_eq!(body["items"], json!([]));
+		assert_eq!(body["total"], 0);
+		assert!(body["page"].is_number());
+		assert!(body["page_size"].is_number());
 	}
 }

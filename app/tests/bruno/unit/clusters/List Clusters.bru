@@ -15,8 +15,13 @@ assert {
 }
 
 tests {
-  test("should return 200 with array", function() {
+  test("should return 200 with paginated response", function() {
     const body = res.getBody();
-    expect(body).to.be.an("array");
+    expect(body).to.be.an("object");
+    expect(body.items).to.be.an("array");
+    expect(body.total).to.be.a("number");
+    expect(body.page).to.equal(1);
+    expect(body.page_size).to.be.a("number");
+    expect(body.total_pages).to.be.a("number");
   });
 }

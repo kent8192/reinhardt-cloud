@@ -149,13 +149,16 @@ async fn test_create_deployment_with_cluster(
 
 	// Assert — deployment appears in list
 	assert_eq!(list_response.status_code(), 200);
-	let deployments: Vec<serde_json::Value> =
-		list_response.json().expect("Failed to parse list response");
-	assert_eq!(deployments.len(), 1);
-	assert_eq!(deployments[0]["app_name"], "my-web-app");
-	assert_eq!(deployments[0]["cluster_id"], cluster_id);
-	assert_eq!(deployments[0]["status"], "pending");
-	let list_id = deployments[0]["id"]
+	let body: serde_json::Value = list_response.json().expect("Failed to parse list response");
+	let items = body["items"].as_array().expect("items should be an array");
+	assert_eq!(items.len(), 1);
+	assert_eq!(items[0]["app_name"], "my-web-app");
+	assert_eq!(items[0]["cluster_id"], cluster_id);
+	assert_eq!(items[0]["status"], "pending");
+	assert_eq!(body["total"], 1);
+	assert!(body["page"].is_number());
+	assert!(body["page_size"].is_number());
+	let list_id = items[0]["id"]
 		.as_i64()
 		.expect("Deployment id should be present in list response");
 	assert!(
