@@ -28,11 +28,12 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let created = match User::objects().create(&user).await {
 		Ok(user) => user,
 		Err(e) => {
-			let err_msg = e.to_string();
-			if err_msg.contains("unique")
-				|| err_msg.contains("duplicate")
-				|| err_msg.contains("UNIQUE")
-			{
+			// Normalize error message to lowercase for case-insensitive matching.
+			// The ORM (reinhardt-db) maps unique constraint violations to
+			// `DatabaseError::QueryError(String)` without a structured variant,
+			// so string matching is the only detection mechanism available.
+			let err_lower = e.to_string().to_lowercase();
+			if err_lower.contains("unique") || err_lower.contains("duplicate") {
 				return Err(AppError::Conflict("Username already exists".to_string()));
 			}
 			return Err(format!("Database error: {e}").into());
