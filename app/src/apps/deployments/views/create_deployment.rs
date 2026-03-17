@@ -3,7 +3,7 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue};
+use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::{AuthState, ViewResult};
 use reinhardt::{Request, Response, StatusCode, post};
 use tracing::error;
@@ -26,19 +26,23 @@ pub async fn create_deployment(request: Request) -> ViewResult<Response> {
 	let auth_state = AuthState::from_extensions(&request.extensions)
 		.filter(|s| s.is_authenticated())
 		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
-	let user_id = Uuid::parse_str(auth_state.user_id()).map_err(|e| {
-		AppError::Internal(format!("Invalid user ID in token: {e}"))
-	})?;
+	let user_id = Uuid::parse_str(auth_state.user_id())
+		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
 
 	let body: CreateDeploymentRequest = request.json()?;
 
-	// Validate cluster exists before creating deployment
+	// Validate cluster exists and is owned by the authenticated user
 	let cluster_exists = Cluster::objects()
 		.filter(
 			Cluster::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(body.cluster_id),
 		)
+		.filter(Filter::new(
+			Cluster::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user_id.to_string()),
+		))
 		.exists()
 		.await
 		.map_err(|e| {
