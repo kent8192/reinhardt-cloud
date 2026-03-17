@@ -29,7 +29,7 @@ k8s-openapi = { version = "0.27.1", features = ["v1_31", "schemars"] }
 # Reinhardt — umbrella crate providing: HTTP server, auth (JWT + Argon2), database (SeaQuery),
 # configuration, DI container, middleware, OpenAPI, and management commands.
 # Direct hyper/jsonwebtoken/argon2/sea-query deps are NOT needed — reinhardt provides them.
-reinhardt = { package = "reinhardt-web", version = "0.1.0-rc.11", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "openapi", "openapi-router", "commands", "test", "testcontainers"] }
+reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "openapi", "openapi-router", "commands", "test", "testcontainers"] }
 
 # PostgreSQL driver (sea-query is available via reinhardt::prelude — no direct dep needed)
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
