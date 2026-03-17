@@ -15,6 +15,7 @@ use tracing::{error, info};
 
 use crate::error::Error;
 use crate::resources::{build_deployment, build_service};
+use nuages_types::ConditionType;
 use nuages_types::crd::ReinhardtApp;
 
 const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
@@ -118,7 +119,11 @@ async fn update_status(
 ) -> Result<(), Error> {
 	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
 	let phase = if ready { "Running" } else { "Deploying" };
-	let condition_status = if ready { "True" } else { "False" };
+	let condition_status = if ready {
+		nuages_types::ConditionStatus::True
+	} else {
+		nuages_types::ConditionStatus::False
+	};
 	let reason = if ready {
 		"ReconcileSuccess"
 	} else {
@@ -131,10 +136,11 @@ async fn update_status(
 	};
 
 	// Determine lastTransitionTime: preserve existing value if status unchanged
-	let existing_ready_condition = app
-		.status
-		.as_ref()
-		.and_then(|s| s.conditions.iter().find(|c| c.type_ == "Ready"));
+	let existing_ready_condition = app.status.as_ref().and_then(|s| {
+		s.conditions
+			.iter()
+			.find(|c| c.type_ == nuages_types::ConditionType::Ready)
+	});
 
 	let last_transition_time = match existing_ready_condition {
 		Some(existing) if existing.status == condition_status => {
@@ -150,15 +156,15 @@ async fn update_status(
 	let status = serde_json::json!({
 		"status": {
 			"phase": phase,
-			"observed_generation": app.metadata.generation,
-			"ready_replicas": ready_replicas,
+			"observedGeneration": app.metadata.generation,
+			"readyReplicas": ready_replicas,
 			"conditions": [{
-				"type": "Ready",
+				"type": ConditionType::Ready,
 				"status": condition_status,
 				"reason": reason,
 				"message": message,
-				"last_transition_time": last_transition_time,
-				"observed_generation": app.metadata.generation,
+				"lastTransitionTime": last_transition_time,
+				"observedGeneration": app.metadata.generation,
 			}]
 		}
 	});
