@@ -106,18 +106,11 @@ async fn cleanup(
 	Ok(Action::await_change())
 }
 
-/// Updates the status sub-resource of a `ReinhardtApp`.
+/// Builds the desired `ReinhardtAppStatus` for the given readiness state.
 ///
-/// Only updates `lastTransitionTime` when the condition status actually
-/// changes, preventing unnecessary tight reconcile loops.
-async fn update_status(
-	app: &ReinhardtApp,
-	client: &Client,
-	namespace: &str,
-	ready: bool,
-	ready_replicas: i32,
-) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+/// Pure function that computes the status without any Kubernetes API
+/// calls, making it independently testable.
+fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> ReinhardtAppStatus {
 	let phase = if ready {
 		AppPhase::Running
 	} else {
@@ -157,7 +150,7 @@ async fn update_status(
 		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
-	let typed_status = ReinhardtAppStatus {
+	ReinhardtAppStatus {
 		phase: Some(phase),
 		conditions: vec![AppCondition {
 			type_: ConditionType::Ready,
@@ -169,7 +162,22 @@ async fn update_status(
 		}],
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
-	};
+	}
+}
+
+/// Updates the status sub-resource of a `ReinhardtApp`.
+///
+/// Only updates `lastTransitionTime` when the condition status actually
+/// changes, preventing unnecessary tight reconcile loops.
+async fn update_status(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	ready: bool,
+	ready_replicas: i32,
+) -> Result<(), Error> {
+	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+	let typed_status = build_status(app, ready, ready_replicas);
 	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
