@@ -157,7 +157,7 @@ resource "aws_instance" "cancel_runner" {
 	ami           = data.aws_ami.ubuntu_arm64_latest.id
 	instance_type = var.cancel_runner_instance_type
 
-	subnet_id              = data.aws_subnets.default.ids[0]
+	subnet_id              = sort(data.aws_subnets.default.ids)[0]
 	vpc_security_group_ids = [aws_security_group.cancel_runner[0].id]
 	iam_instance_profile   = aws_iam_instance_profile.cancel_runner[0].name
 
