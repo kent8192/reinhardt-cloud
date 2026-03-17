@@ -2,6 +2,7 @@
 
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Application deployment targeting a specific cluster.
 #[derive(Serialize, Deserialize)]
@@ -10,6 +11,9 @@ pub struct Deployment {
 	/// Primary key (None for auto-increment on insert)
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
+
+	/// Owner user ID (foreign key to `auth_users.id`)
+	pub user_id: Uuid,
 
 	/// Application name
 	#[field(max_length = 255)]

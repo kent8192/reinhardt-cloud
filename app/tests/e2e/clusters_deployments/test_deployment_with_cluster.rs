@@ -158,4 +158,11 @@ async fn test_create_deployment_with_cluster(
 	assert_eq!(body["total"], 1);
 	assert!(body["page"].is_number());
 	assert!(body["page_size"].is_number());
+	let list_id = items[0]["id"]
+		.as_i64()
+		.expect("Deployment id should be present in list response");
+	assert!(
+		list_id > 0,
+		"Deployment id should be a positive database-generated value, got {list_id}"
+	);
 }

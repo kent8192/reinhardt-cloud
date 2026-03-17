@@ -4,13 +4,15 @@ use nuages_core::pagination::{PaginatedResponse, PaginationParams};
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::{AuthState, ViewResult};
 use reinhardt::{Request, Response, StatusCode, get};
+use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
 
-/// List deployments with pagination (authentication required).
+/// List deployments owned by the authenticated user with pagination.
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
@@ -21,26 +23,33 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 /// See: <https://github.com/kent8192/reinhardt-web/issues/2419>
 #[get("/deployments/", name = "deployment_list")]
 pub async fn list_deployments(request: Request) -> ViewResult<Response> {
-	let auth_state = AuthState::from_extensions(&request.extensions);
-	if !auth_state.is_some_and(|s| s.is_authenticated()) {
-		return Err(AppError::Authentication(
-			"Authentication required".to_string(),
-		));
-	}
+	let auth_state = AuthState::from_extensions(&request.extensions)
+		.filter(|s| s.is_authenticated())
+		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
+	let user_id = Uuid::parse_str(auth_state.user_id())
+		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
 
 	let params: PaginationParams = request
 		.query_as()
 		.map_err(|e| AppError::Validation(format!("Invalid pagination parameters: {e}")))?;
 
 	let total = Deployment::objects()
-		.all()
+		.filter(
+			Deployment::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user_id.to_string()),
+		)
 		.count()
 		.await
 		.map_err(|e| format!("{e}"))? as u64;
 	let offset: usize = params.offset().try_into().unwrap_or(usize::MAX);
 	let limit: usize = params.page_size().try_into().unwrap_or(usize::MAX);
 	let deployments = Deployment::objects()
-		.all()
+		.filter(
+			Deployment::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user_id.to_string()),
+		)
 		.order_by(&["id"])
 		.offset(offset)
 		.limit(limit)

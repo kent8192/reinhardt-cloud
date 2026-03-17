@@ -23,7 +23,7 @@ pub struct User {
 	#[field(max_length = 150, unique = true)]
 	pub username: String,
 
-	#[field(max_length = 254)]
+	#[field(max_length = 254, unique = true)]
 	pub email: String,
 
 	#[field(max_length = 512)]
