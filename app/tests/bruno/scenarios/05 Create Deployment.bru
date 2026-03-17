@@ -7,11 +7,7 @@ meta {
 post {
   url: {{baseUrl}}/api/deployments/
   body: json
-  auth: none
-}
-
-headers {
-  Authorization: Bearer {{jwtToken}}
+  auth: inherit
 }
 
 body:json {
