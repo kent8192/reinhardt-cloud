@@ -246,6 +246,7 @@ jobs:
             "fmt:$FMT_RESULT"
             "clippy:$CLIPPY_RESULT"
             "test:$TEST_RESULT"
+            "bruno-tests:$BRUNO_TESTS_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
           )
@@ -260,7 +261,6 @@ jobs:
 
           # Selectively-skippable checks (can be 'success' or 'skipped')
           selectively_skippable=(
-            "bruno-tests:$BRUNO_TESTS_RESULT"
             "coverage:$COVERAGE_RESULT"
             "terraform-check:$TERRAFORM_CHECK_RESULT"
             "cross-platform-check:$CROSS_PLATFORM_RESULT"
