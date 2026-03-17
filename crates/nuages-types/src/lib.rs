@@ -9,9 +9,11 @@ pub mod config;
 pub mod crd;
 pub mod deployment;
 pub mod user;
+pub mod validation;
 
 pub use cluster::Cluster;
 pub use config::ReinhardtConfig;
 pub use crd::{AppCondition, ReinhardtApp, ReinhardtAppSpec, ReinhardtAppStatus};
 pub use deployment::{Deployment, DeploymentStatus};
 pub use user::User;
+pub use validation::ValidationError;
