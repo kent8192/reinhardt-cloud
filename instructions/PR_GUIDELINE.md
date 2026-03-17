@@ -257,6 +257,70 @@ cargo make clippy-check
 - Request re-review after making changes
 - Be respectful and constructive in discussions
 
+### RP-6 (MUST): Copilot Review Workflow
+
+After creating a PR, Claude Code MUST wait for GitHub Copilot's automated review and handle it as part of the PR completion process.
+
+**Workflow:**
+
+1. **Wait for Copilot review** — After PR creation, poll for Copilot's review using `gh pr checks` and `gh api` to monitor review status
+2. **Retrieve review comments** — Once Copilot review arrives, fetch all review comments using `gh pr view <number> --comments` and `gh api repos/{owner}/{repo}/pulls/{number}/comments`
+3. **Evaluate each comment** — For each Copilot suggestion:
+   - Assess whether the suggestion is valid and improves code quality
+   - Check if the suggestion aligns with project conventions (CLAUDE.md, instructions/)
+   - Determine if the change is necessary or cosmetic
+4. **Act on evaluation:**
+   - **Valid suggestion** → Fix the code, commit the change, then resolve the conversation
+   - **Invalid or unnecessary suggestion** → Resolve the conversation without changes (reply with brief technical justification if needed)
+5. **Verify completion** — Ensure all Copilot review conversations are resolved before considering the PR ready
+
+The following diagram summarizes the Copilot review handling flow:
+
+```mermaid
+flowchart TD
+    A[PR created] --> B[Poll for Copilot review]
+    B --> C{Copilot review received?}
+    C -->|No| D[Wait and retry]
+    D --> C
+    C -->|Yes| E[Fetch all review comments]
+    E --> F[Evaluate each comment]
+    F --> G{Suggestion valid?}
+    G -->|Yes| H[Fix code and commit]
+    H --> I[Resolve conversation]
+    G -->|No| J[Resolve conversation<br/>with justification]
+    I --> K{More comments?}
+    J --> K
+    K -->|Yes| F
+    K -->|No| L[All conversations resolved]
+```
+
+**Polling Commands:**
+```bash
+# Check PR review status
+gh pr checks <number>
+
+# List reviews on a PR
+gh api repos/{owner}/{repo}/pulls/{number}/reviews
+
+# Get review comments
+gh api repos/{owner}/{repo}/pulls/{number}/comments
+
+# Resolve a review thread (GraphQL)
+gh api graphql -f query='
+  mutation {
+    resolveReviewThread(input: {threadId: "<thread_id>"}) {
+      thread { isResolved }
+    }
+  }
+'
+```
+
+**Important Notes:**
+- Copilot review is treated as automated feedback, NOT as a blocking human review
+- Plan Mode approval authorizes handling Copilot review comments (no additional user confirmation needed)
+- Fixes for Copilot suggestions follow the same commit policy as other changes
+- If Copilot review does not arrive within a reasonable time, proceed without it
+
 ### RP-4 (SHOULD): Keep PRs Small
 
 - Aim for PRs under 400 lines of changes
@@ -397,6 +461,8 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Include Labels to Apply section with appropriate type and scope labels
 - Run all checks before requesting review
 - Address all review comments
+- Wait for Copilot review after PR creation and handle all comments (RP-6)
+- Resolve all Copilot review conversations before considering PR complete
 - Ensure all CI checks pass before merge
 - Use three-dot diff (`main...branch`) for PR verification to exclude merge history noise
 
@@ -407,7 +473,7 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Skip required sections (Summary, Type of Change, Motivation and Context, How Was This Tested, Checklist)
 - Skip Labels to Apply section
 - Merge with failing CI checks
-- Leave unresolved review comments
+- Leave unresolved review comments (including Copilot review)
 - Force push after review has started (unless explicitly requested)
 - Use rebase or force-push to resolve PR conflicts (use worktree merge instead)
 - Use two-dot diff (`main..branch`) for PR verification (includes merge history noise)
