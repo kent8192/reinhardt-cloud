@@ -184,7 +184,7 @@ async fn update_status(
 ///
 /// Returns `true` when the condition status has changed or there is no
 /// existing condition, indicating a new transition time is needed.
-pub(crate) fn should_update_transition_time(
+fn should_update_transition_time(
 	existing_status: Option<&nuages_types::ConditionStatus>,
 	new_status: &nuages_types::ConditionStatus,
 ) -> bool {
@@ -235,7 +235,7 @@ mod tests {
 	#[case(ConditionStatus::True, ConditionStatus::False)]
 	#[case(ConditionStatus::False, ConditionStatus::True)]
 	#[case(ConditionStatus::Unknown, ConditionStatus::True)]
-	fn should_update_transition_time_returns_true_when_status_changes(
+	fn test_should_update_transition_time_returns_true_when_status_changes(
 		#[case] existing: ConditionStatus,
 		#[case] new: ConditionStatus,
 	) {
@@ -246,14 +246,14 @@ mod tests {
 		let result = should_update_transition_time(existing_ref, &new);
 
 		// Assert
-		assert_eq!(result, true);
+		assert!(result);
 	}
 
 	#[rstest]
 	#[case(ConditionStatus::True)]
 	#[case(ConditionStatus::False)]
 	#[case(ConditionStatus::Unknown)]
-	fn should_update_transition_time_returns_false_when_status_unchanged(
+	fn test_should_update_transition_time_returns_false_when_status_unchanged(
 		#[case] status: ConditionStatus,
 	) {
 		// Arrange
@@ -263,11 +263,11 @@ mod tests {
 		let result = should_update_transition_time(existing_ref, &status);
 
 		// Assert
-		assert_eq!(result, false);
+		assert!(!result);
 	}
 
 	#[rstest]
-	fn should_update_transition_time_returns_true_when_no_existing() {
+	fn test_should_update_transition_time_returns_true_when_no_existing() {
 		// Arrange
 		let new_status = ConditionStatus::True;
 
@@ -275,6 +275,6 @@ mod tests {
 		let result = should_update_transition_time(None, &new_status);
 
 		// Assert
-		assert_eq!(result, true);
+		assert!(result);
 	}
 }
