@@ -14,11 +14,11 @@ use nuages_types::crd::ReinhardtApp;
 use crate::error::Error;
 
 /// Validates that a port number is within the valid TCP/UDP range (1-65535).
-fn validate_port(port: i32) -> Result<i32, Error> {
+fn validate_port(field: &'static str, port: i32) -> Result<i32, Error> {
 	if (1..=65535).contains(&port) {
 		Ok(port)
 	} else {
-		Err(Error::InvalidPort { port })
+		Err(Error::InvalidPort { field, port })
 	}
 }
 
@@ -47,6 +47,7 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 	let namespace = app.namespace().unwrap_or_default();
 	let replicas = app.spec.replicas.unwrap_or(1);
 	let port = validate_port(
+		"target_port",
 		app.spec
 			.services
 			.as_ref()
@@ -107,6 +108,7 @@ pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app);
 	let namespace = app.namespace().unwrap_or_default();
 	let port = validate_port(
+		"port",
 		app.spec
 			.services
 			.as_ref()
@@ -114,6 +116,7 @@ pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 			.unwrap_or(80),
 	)?;
 	let target_port = validate_port(
+		"target_port",
 		app.spec
 			.services
 			.as_ref()
@@ -342,7 +345,10 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err().to_string();
-		assert_eq!(err, "invalid port 0: must be between 1 and 65535");
+		assert_eq!(
+			err,
+			"invalid port 0 for field 'target_port': must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -361,7 +367,10 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err().to_string();
-		assert_eq!(err, "invalid port 65536: must be between 1 and 65535");
+		assert_eq!(
+			err,
+			"invalid port 65536 for field 'target_port': must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -380,7 +389,10 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err().to_string();
-		assert_eq!(err, "invalid port -1: must be between 1 and 65535");
+		assert_eq!(
+			err,
+			"invalid port -1 for field 'target_port': must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -399,7 +411,10 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err().to_string();
-		assert_eq!(err, "invalid port 0: must be between 1 and 65535");
+		assert_eq!(
+			err,
+			"invalid port 0 for field 'port': must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
@@ -418,13 +433,38 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err().to_string();
-		assert_eq!(err, "invalid port 65536: must be between 1 and 65535");
+		assert_eq!(
+			err,
+			"invalid port 65536 for field 'port': must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_build_service_rejects_invalid_target_port() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(70000),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_service(&app);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(
+			err,
+			"invalid port 70000 for field 'target_port': must be between 1 and 65535"
+		);
 	}
 
 	#[rstest]
 	fn test_validate_port_accepts_boundary_values() {
 		// Arrange / Act / Assert
-		assert_eq!(validate_port(1).unwrap(), 1);
-		assert_eq!(validate_port(65535).unwrap(), 65535);
+		assert_eq!(validate_port("port", 1).unwrap(), 1);
+		assert_eq!(validate_port("port", 65535).unwrap(), 65535);
 	}
 }
