@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
+	use uuid::Uuid;
 
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
@@ -11,6 +12,7 @@ mod tests {
 	fn test_deployment_response_status_serializes_to_string() {
 		// Arrange
 		let deployment = Deployment::new(
+			Uuid::new_v4(),
 			"my-app".to_string(),
 			1,
 			"pending".to_string(),
