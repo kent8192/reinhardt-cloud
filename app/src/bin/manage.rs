@@ -39,14 +39,21 @@ impl BaseCommand for SyncClustersCommand {
 	}
 }
 
-#[tokio::main]
-async fn main() {
-	// Set settings module environment variable
-	// SAFETY: This is safe because we're setting it before any other code runs
+fn main() {
+	// SAFETY: Called before tokio runtime initialization, so no other
+	// threads exist. env::set_var is safe in single-threaded context.
 	unsafe {
 		std::env::set_var("REINHARDT_SETTINGS_MODULE", "nuages.config.settings");
 	}
 
+	tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.build()
+		.expect("Failed to build tokio runtime")
+		.block_on(async_main());
+}
+
+async fn async_main() {
 	// Register project-specific custom commands
 	let mut registry = CommandRegistry::new();
 	registry.register(Box::new(SyncClustersCommand));
