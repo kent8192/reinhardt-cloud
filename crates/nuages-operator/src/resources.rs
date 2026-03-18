@@ -4,6 +4,7 @@ pub(crate) mod cache;
 pub(crate) mod database;
 pub(crate) mod deployment;
 pub(crate) mod grpc;
+pub(crate) mod i18n;
 pub(crate) mod ingress;
 pub(crate) mod labels;
 pub(crate) mod mail;
