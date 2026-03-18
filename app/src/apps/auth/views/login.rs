@@ -31,12 +31,10 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 		.ok_or_else(|| AppError::Authentication("Invalid credentials".to_string()))?;
 
 	// Verify password
-	let valid = user
-		.check_password(&body.password)
-		.map_err(|e| {
-			error!("Password verification failed during login: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
+	let valid = user.check_password(&body.password).map_err(|e| {
+		error!("Password verification failed during login: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 	if !valid {
 		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}

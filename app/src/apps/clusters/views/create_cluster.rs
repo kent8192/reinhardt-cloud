@@ -23,13 +23,10 @@ pub async fn create_cluster(
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 	let new_cluster = Cluster::new(user_id, body.name.clone(), body.api_url.clone(), true);
 	let manager = Cluster::objects();
-	let created = manager
-		.create(&new_cluster)
-		.await
-		.map_err(|e| {
-			error!("Failed to create cluster: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
+	let created = manager.create(&new_cluster).await.map_err(|e| {
+		error!("Failed to create cluster: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 	let resp = ClusterResponse::from(created);
 	Ok(Response::new(StatusCode::CREATED)
 		.with_header("Content-Type", "application/json")

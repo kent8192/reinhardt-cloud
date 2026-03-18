@@ -22,11 +22,10 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		None,
 		true,
 	);
-	user.set_password(&body.password)
-		.map_err(|e| {
-			error!("Password hashing failed during registration: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
+	user.set_password(&body.password).map_err(|e| {
+		error!("Password hashing failed during registration: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 
 	// Attempt to create — database unique constraint prevents duplicates
 	let created = match User::objects().create(&user).await {
