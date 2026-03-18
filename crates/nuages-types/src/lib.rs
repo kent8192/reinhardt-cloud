@@ -8,6 +8,7 @@ pub mod cluster;
 pub mod config;
 pub mod crd;
 pub mod deployment;
+pub mod introspect;
 pub mod nuages_toml;
 pub mod user;
 pub mod validation;
