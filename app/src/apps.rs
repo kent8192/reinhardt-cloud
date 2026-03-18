@@ -5,3 +5,4 @@
 pub mod auth;
 pub mod clusters;
 pub mod deployments;
+pub mod validators;
