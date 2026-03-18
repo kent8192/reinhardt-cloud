@@ -31,7 +31,7 @@ pub fn migration() -> Migration {
 					not_null: true,
 					unique: false,
 					primary_key: true,
-					auto_increment: true,
+					auto_increment: false,
 					default: None,
 				},
 				ColumnDefinition {
