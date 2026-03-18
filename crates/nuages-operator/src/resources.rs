@@ -1,10 +1,12 @@
 //! Kubernetes resource builders for operator-managed resources.
 
+pub(crate) mod database;
 pub(crate) mod deployment;
 pub(crate) mod labels;
 pub(crate) mod service;
 
 // Re-exports for backward compatibility
+pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use service::build_service;
 
