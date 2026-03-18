@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use kube::{Resource, ResourceExt};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
+use kube::{Resource, ResourceExt};
 use nuages_types::crd::ReinhardtApp;
 
 use crate::error::Error;
@@ -42,7 +42,10 @@ impl Component {
 /// Standard labels applied to all resources owned by the operator.
 ///
 /// Includes `app.kubernetes.io/component` based on the given [`Component`].
-pub(crate) fn standard_labels(app: &ReinhardtApp, component: Component) -> BTreeMap<String, String> {
+pub(crate) fn standard_labels(
+	app: &ReinhardtApp,
+	component: Component,
+) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("app.kubernetes.io/name".to_string(), app.name_any()),
 		(
@@ -120,10 +123,7 @@ mod tests {
 		let labels = standard_labels(&app, Component::Web);
 
 		// Assert
-		assert_eq!(
-			labels.get("app.kubernetes.io/component").unwrap(),
-			"web"
-		);
+		assert_eq!(labels.get("app.kubernetes.io/component").unwrap(), "web");
 	}
 
 	#[rstest]

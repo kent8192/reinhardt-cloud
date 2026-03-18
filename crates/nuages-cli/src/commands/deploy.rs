@@ -80,11 +80,11 @@ fn run_manage_introspect() -> Result<String, String> {
 		.args(["introspect", "--format", "yaml"])
 		.output();
 
-	if let Ok(output) = result {
-		if output.status.success() {
-			return String::from_utf8(output.stdout)
-				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
-		}
+	if let Ok(output) = result
+		&& output.status.success()
+	{
+		return String::from_utf8(output.stdout)
+			.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
 	}
 
 	// Fall back to cargo run for development mode
@@ -94,8 +94,7 @@ fn run_manage_introspect() -> Result<String, String> {
 		.map_err(|e| format!("Failed to run cargo: {e}"))?;
 
 	if result.status.success() {
-		String::from_utf8(result.stdout)
-			.map_err(|e| format!("Invalid UTF-8 in cargo output: {e}"))
+		String::from_utf8(result.stdout).map_err(|e| format!("Invalid UTF-8 in cargo output: {e}"))
 	} else {
 		let stderr = String::from_utf8_lossy(&result.stderr);
 		Err(format!("manage introspect failed: {stderr}"))
@@ -122,8 +121,7 @@ fn build_reinhardt_app_crd(
 		);
 	}
 	if let Some(intro) = introspect {
-		let intro_value =
-			serde_yaml::to_value(&intro).unwrap_or(serde_yaml::Value::Null);
+		let intro_value = serde_yaml::to_value(&intro).unwrap_or(serde_yaml::Value::Null);
 		spec.insert(
 			serde_yaml::Value::String("introspect".to_string()),
 			intro_value,
@@ -236,7 +234,10 @@ pub(crate) async fn execute(
 
 	println!("Deploying {app_name} with image {image} ({replicas} replicas)...");
 	if args.direct {
-		println!("Direct mode: would apply CRD to Kubernetes (namespace: {})", args.namespace);
+		println!(
+			"Direct mode: would apply CRD to Kubernetes (namespace: {})",
+			args.namespace
+		);
 	}
 	if let Some(ref cluster) = args.cluster {
 		println!("Target cluster: {cluster}");
@@ -455,10 +456,7 @@ features:
 		let kind = mapping
 			.get(&serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
-		assert_eq!(
-			kind,
-			&serde_yaml::Value::String("ReinhardtApp".to_string())
-		);
+		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
 
 		let metadata = mapping
 			.get(&serde_yaml::Value::String("metadata".to_string()))
@@ -514,10 +512,7 @@ features:
 		let kind = mapping
 			.get(&serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
-		assert_eq!(
-			kind,
-			&serde_yaml::Value::String("ReinhardtApp".to_string())
-		);
+		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
 
 		let spec = mapping
 			.get(&serde_yaml::Value::String("spec".to_string()))
@@ -534,8 +529,9 @@ features:
 		);
 
 		// Verify introspect is absent
-		assert!(spec
-			.get(&serde_yaml::Value::String("introspect".to_string()))
-			.is_none());
+		assert!(
+			spec.get(&serde_yaml::Value::String("introspect".to_string()))
+				.is_none()
+		);
 	}
 }

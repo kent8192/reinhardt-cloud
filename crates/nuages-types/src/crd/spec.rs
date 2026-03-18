@@ -817,8 +817,7 @@ mod tests {
 
 		// Act
 		let json = serde_json::to_string(&spec).expect("serialization should succeed");
-		let value: serde_json::Value =
-			serde_json::from_str(&json).expect("parsing should succeed");
+		let value: serde_json::Value = serde_json::from_str(&json).expect("parsing should succeed");
 
 		// Assert
 		assert_eq!(value["image"], "myapp:latest");

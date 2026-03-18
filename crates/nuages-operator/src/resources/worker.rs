@@ -69,7 +69,6 @@ pub(crate) fn build_worker_deployment(
 							secret_ref: Some(SecretEnvSource {
 								name: secret_name,
 								optional: Some(true),
-								..Default::default()
 							}),
 							..Default::default()
 						}]),
@@ -155,16 +154,25 @@ mod tests {
 	fn test_build_worker_deployment_custom_command() {
 		// Arrange
 		let app = test_app("myapp", "myapp:v1");
-		let custom_cmd = vec!["celery".to_string(), "worker".to_string(), "--pool=solo".to_string()];
+		let custom_cmd = vec![
+			"celery".to_string(),
+			"worker".to_string(),
+			"--pool=solo".to_string(),
+		];
 
 		// Act
-		let deploy = build_worker_deployment(&app, Some(&custom_cmd)).expect("build should succeed");
+		let deploy =
+			build_worker_deployment(&app, Some(&custom_cmd)).expect("build should succeed");
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
 		assert_eq!(
 			container.command.as_ref().unwrap(),
-			&vec!["celery".to_string(), "worker".to_string(), "--pool=solo".to_string()]
+			&vec![
+				"celery".to_string(),
+				"worker".to_string(),
+				"--pool=solo".to_string()
+			]
 		);
 	}
 
@@ -194,9 +202,6 @@ mod tests {
 		let labels = deploy.metadata.labels.as_ref().unwrap();
 
 		// Assert
-		assert_eq!(
-			labels.get("app.kubernetes.io/component").unwrap(),
-			"worker"
-		);
+		assert_eq!(labels.get("app.kubernetes.io/component").unwrap(), "worker");
 	}
 }

@@ -295,7 +295,10 @@ mod tests {
 			Some("redis".to_string())
 		);
 		assert_eq!(deserialized.features.infrastructure_signals.websocket, true);
-		assert_eq!(deserialized.features.infrastructure_signals.admin_panel, true);
+		assert_eq!(
+			deserialized.features.infrastructure_signals.admin_panel,
+			true
+		);
 	}
 
 	#[rstest]
@@ -332,8 +335,7 @@ databases: []
 		let yaml = "{}";
 
 		// Act
-		let output: IntrospectOutput =
-			serde_yaml::from_str(yaml).expect("deserialize empty YAML");
+		let output: IntrospectOutput = serde_yaml::from_str(yaml).expect("deserialize empty YAML");
 
 		// Assert
 		assert_eq!(output.app.name, "");
@@ -352,7 +354,10 @@ databases: []
 		assert_eq!(output.features.infrastructure_signals.database, None);
 		assert_eq!(output.features.infrastructure_signals.cache, None);
 		assert_eq!(output.features.infrastructure_signals.websocket, false);
-		assert_eq!(output.features.infrastructure_signals.background_worker, false);
+		assert_eq!(
+			output.features.infrastructure_signals.background_worker,
+			false
+		);
 		assert_eq!(output.features.infrastructure_signals.grpc, false);
 		assert_eq!(output.features.infrastructure_signals.storage, None);
 		assert_eq!(output.features.infrastructure_signals.mail, None);

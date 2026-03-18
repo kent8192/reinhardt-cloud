@@ -219,7 +219,9 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+		.map(|i| {
+			nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
@@ -319,22 +321,17 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 
 			// Delete SMTP credentials Secret
 			let _ = secret_api
-				.delete(&format!("{name}-smtp-credentials"), &DeleteParams::default())
+				.delete(
+					&format!("{name}-smtp-credentials"),
+					&DeleteParams::default(),
+				)
 				.await;
 
 			// Delete introspect-managed database resources
-			delete_if_exists::<StatefulSet>(
-				&ctx.client,
-				namespace,
-				&format!("{name}-postgresql"),
-			)
-			.await?;
-			delete_if_exists::<Service>(
-				&ctx.client,
-				namespace,
-				&format!("{name}-postgresql"),
-			)
-			.await?;
+			delete_if_exists::<StatefulSet>(&ctx.client, namespace, &format!("{name}-postgresql"))
+				.await?;
+			delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-postgresql"))
+				.await?;
 		}
 	}
 
@@ -383,10 +380,10 @@ fn should_provision_cache(app: &ReinhardtApp) -> bool {
 /// introspect settings. Defaults to 8000 when neither is set.
 fn resolve_app_port(app: &ReinhardtApp) -> u16 {
 	// Explicit services.target_port takes precedence
-	if let Some(services) = &app.spec.services {
-		if let Some(port) = services.target_port {
-			return port as u16;
-		}
+	if let Some(services) = &app.spec.services
+		&& let Some(port) = services.target_port
+	{
+		return port as u16;
 	}
 
 	// Fall back to introspect settings
@@ -1255,9 +1252,7 @@ mod tests {
 	#[rstest]
 	fn test_introspect_with_postgresql_triggers_db_path() {
 		// Arrange
-		use nuages_types::introspect::{
-			FeaturesMetadata, InfraSignals, IntrospectOutput,
-		};
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("introspect-pg-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1319,9 +1314,7 @@ mod tests {
 	#[rstest]
 	fn test_introspect_without_db_skips_postgresql() {
 		// Arrange
-		use nuages_types::introspect::{
-			FeaturesMetadata, InfraSignals, IntrospectOutput,
-		};
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("no-db-introspect-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1886,7 +1879,9 @@ mod tests {
 			.spec
 			.introspect
 			.as_ref()
-			.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+			.map(|i| {
+				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+			})
 			.unwrap_or(false);
 
 		// Assert
@@ -1918,7 +1913,9 @@ mod tests {
 			.spec
 			.introspect
 			.as_ref()
-			.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+			.map(|i| {
+				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+			})
 			.unwrap_or(false);
 
 		// Assert — Redis sessions needed, but cache is already provisioned
@@ -2047,8 +2044,7 @@ mod tests {
 			.as_ref()
 			.map(|i| &i.features.infrastructure_signals);
 		let routes = &app.spec.introspect.as_ref().unwrap().routes;
-		let ingress =
-			resources::ingress::build_ingress(&app, routes, 8000, None, signals).unwrap();
+		let ingress = resources::ingress::build_ingress(&app, routes, 8000, None, signals).unwrap();
 
 		// Assert
 		let annotations = ingress.metadata.annotations.unwrap();

@@ -206,10 +206,7 @@ mod tests {
 		let labels = deploy.metadata.labels.as_ref().unwrap();
 
 		// Assert
-		assert_eq!(
-			labels.get("app.kubernetes.io/component").unwrap(),
-			"cache"
-		);
+		assert_eq!(labels.get("app.kubernetes.io/component").unwrap(), "cache");
 	}
 
 	#[rstest]

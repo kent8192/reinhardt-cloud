@@ -43,10 +43,7 @@ pub(crate) fn build_migration_job(app: &ReinhardtApp) -> Result<Job, Error> {
 					containers: vec![Container {
 						name: "migrate".to_string(),
 						image: Some(app.spec.image.clone()),
-						command: Some(vec![
-							"manage".to_string(),
-							"migrate".to_string(),
-						]),
+						command: Some(vec!["manage".to_string(), "migrate".to_string()]),
 						env_from: Some(vec![EnvFromSource {
 							secret_ref: Some(SecretEnvSource {
 								name: secret_name,

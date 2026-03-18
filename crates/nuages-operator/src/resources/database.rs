@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
-	Container, ContainerPort, EnvFromSource, PersistentVolumeClaim,
-	PersistentVolumeClaimSpec, PodSpec, PodTemplateSpec, Secret,
-	SecretEnvSource, Service, ServicePort, ServiceSpec, VolumeMount,
+	Container, ContainerPort, EnvFromSource, PersistentVolumeClaim, PersistentVolumeClaimSpec,
+	PodSpec, PodTemplateSpec, Secret, SecretEnvSource, Service, ServicePort, ServiceSpec,
+	VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -306,10 +306,7 @@ mod tests {
 		let containers = &sts.spec.unwrap().template.spec.unwrap().containers;
 
 		// Assert
-		assert_eq!(
-			containers[0].image.as_deref(),
-			Some("postgres:16-alpine")
-		);
+		assert_eq!(containers[0].image.as_deref(), Some("postgres:16-alpine"));
 	}
 
 	#[rstest]
@@ -325,12 +322,7 @@ mod tests {
 		assert_eq!(vcts.len(), 1);
 		assert_eq!(vcts[0].metadata.name.as_deref(), Some("data"));
 		let resources = vcts[0].spec.as_ref().unwrap().resources.as_ref().unwrap();
-		let storage = resources
-			.requests
-			.as_ref()
-			.unwrap()
-			.get("storage")
-			.unwrap();
+		let storage = resources.requests.as_ref().unwrap().get("storage").unwrap();
 		assert_eq!(storage.0, "1Gi");
 	}
 

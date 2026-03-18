@@ -52,7 +52,10 @@ pub fn requires_mail(signals: &InfraSignals) -> bool {
 
 /// Check if the application requires Redis for session storage.
 pub fn requires_redis_sessions(signals: &InfraSignals) -> bool {
-	signals.session_backend.as_deref().is_some_and(|s| s == "redis")
+	signals
+		.session_backend
+		.as_deref()
+		.is_some_and(|s| s == "redis")
 }
 
 /// Check if the application requires GraphQL support.

@@ -20,14 +20,8 @@ pub(crate) fn build_storage_service_account(
 	backend: &str,
 ) -> Result<Option<ServiceAccount>, Error> {
 	let annotations = match backend {
-		"s3" => BTreeMap::from([(
-			"eks.amazonaws.com/role-arn".to_string(),
-			String::new(),
-		)]),
-		"gcs" => BTreeMap::from([(
-			"iam.gke.io/gcp-service-account".to_string(),
-			String::new(),
-		)]),
+		"s3" => BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), String::new())]),
+		"gcs" => BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), String::new())]),
 		_ => return Ok(None),
 	};
 
@@ -100,8 +94,7 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let result = build_storage_service_account(&app, "pvc")
-			.expect("build should succeed");
+		let result = build_storage_service_account(&app, "pvc").expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());

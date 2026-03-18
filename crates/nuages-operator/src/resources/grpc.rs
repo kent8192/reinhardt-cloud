@@ -34,10 +34,7 @@ pub(crate) fn build_grpc_service(app: &ReinhardtApp) -> Result<Service, Error> {
 		},
 		spec: Some(ServiceSpec {
 			selector: Some(BTreeMap::from([
-				(
-					"app.kubernetes.io/name".to_string(),
-					app.name_any(),
-				),
+				("app.kubernetes.io/name".to_string(), app.name_any()),
 				(
 					"app.kubernetes.io/component".to_string(),
 					Component::Web.as_str().to_string(),
@@ -119,10 +116,7 @@ mod tests {
 		// Assert
 		let svc_spec = svc.spec.unwrap();
 		let svc_port = &svc_spec.ports.as_ref().unwrap()[0];
-		assert_eq!(
-			svc_port.app_protocol.as_deref(),
-			Some("kubernetes.io/h2c")
-		);
+		assert_eq!(svc_port.app_protocol.as_deref(), Some("kubernetes.io/h2c"));
 	}
 
 	#[rstest]
@@ -136,10 +130,7 @@ mod tests {
 		// Assert
 		let selector = svc.spec.unwrap().selector.unwrap();
 		assert_eq!(selector.get("app.kubernetes.io/name").unwrap(), "myapp");
-		assert_eq!(
-			selector.get("app.kubernetes.io/component").unwrap(),
-			"web"
-		);
+		assert_eq!(selector.get("app.kubernetes.io/component").unwrap(), "web");
 	}
 
 	#[rstest]

@@ -162,8 +162,7 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
 		assert_eq!(ingress.metadata.name.as_deref(), Some("my-app"));
@@ -176,8 +175,7 @@ mod tests {
 		let routes = vec![make_route("/api/users/"), make_route("/api/posts/")];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8080, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8080, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -215,8 +213,7 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 80, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 80, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -231,8 +228,7 @@ mod tests {
 		let routes: Vec<RouteMetadata> = vec![];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -252,11 +248,14 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
-			.expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
 
 		// Assert
-		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		let annotations = ingress
+			.metadata
+			.annotations
+			.expect("annotations should be set");
 		assert_eq!(annotations.len(), 3);
 		assert_eq!(
 			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
@@ -287,7 +286,10 @@ mod tests {
 			.expect("build should succeed");
 
 		// Assert
-		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		let annotations = ingress
+			.metadata
+			.annotations
+			.expect("annotations should be set");
 		assert_eq!(annotations.len(), 1);
 		assert_eq!(
 			annotations.get("nginx.ingress.kubernetes.io/backend-protocol"),
@@ -307,11 +309,14 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
-			.expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
 
 		// Assert
-		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		let annotations = ingress
+			.metadata
+			.annotations
+			.expect("annotations should be set");
 		assert_eq!(annotations.len(), 4);
 		assert!(annotations.contains_key("nginx.ingress.kubernetes.io/proxy-read-timeout"));
 		assert!(annotations.contains_key("nginx.ingress.kubernetes.io/proxy-send-timeout"));
@@ -329,8 +334,7 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
 		assert!(ingress.metadata.annotations.is_none());
@@ -347,16 +351,12 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
-			.expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
-		let paths = &spec.rules.as_ref().unwrap()[0]
-			.http
-			.as_ref()
-			.unwrap()
-			.paths;
+		let paths = &spec.rules.as_ref().unwrap()[0].http.as_ref().unwrap().paths;
 		assert_eq!(paths.len(), 2);
 		assert_eq!(paths[0].path.as_deref(), Some("/api/"));
 		assert_eq!(paths[1].path.as_deref(), Some("/graphql/"));
@@ -373,16 +373,12 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
-			.expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
-		let paths = &spec.rules.as_ref().unwrap()[0]
-			.http
-			.as_ref()
-			.unwrap()
-			.paths;
+		let paths = &spec.rules.as_ref().unwrap()[0].http.as_ref().unwrap().paths;
 		assert_eq!(paths.len(), 2);
 		assert_eq!(paths[0].path.as_deref(), Some("/api/"));
 		assert_eq!(paths[1].path.as_deref(), Some("/admin/"));
@@ -399,16 +395,12 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
-			.expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
-		let paths = &spec.rules.as_ref().unwrap()[0]
-			.http
-			.as_ref()
-			.unwrap()
-			.paths;
+		let paths = &spec.rules.as_ref().unwrap()[0].http.as_ref().unwrap().paths;
 		assert_eq!(paths.len(), 2);
 		let graphql_count = paths
 			.iter()
