@@ -8,7 +8,7 @@ use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
-use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service};
+use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
@@ -196,6 +196,37 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		reconcile_grpc_service(&app, &ctx.client, namespace).await?;
 	}
 
+	// Storage provisioning (Phase 4)
+	if should_provision_storage(&app) {
+		let backend = app
+			.spec
+			.introspect
+			.as_ref()
+			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
+			.unwrap_or("pvc");
+		if let Some(sa) = resources::storage::build_storage_service_account(&app, backend)? {
+			reconcile_storage_sa(&app, &ctx.client, namespace, &sa).await?;
+		}
+	}
+
+	// Mail provisioning (Phase 4)
+	if should_provision_mail(&app) {
+		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
+	}
+
+	// Session backend: ensure Redis when session_backend=redis (Phase 4)
+	let needs_redis_sessions = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+		.unwrap_or(false);
+	if needs_redis_sessions && !should_provision_cache(&app) {
+		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled Redis for session backend for {name}");
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -233,6 +264,9 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 	// gRPC Service (stateless — always clean up)
 	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
 
+	// Storage ServiceAccount (stateless — always clean up)
+	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+
 	// Always clean up introspect-managed resources that are safe to delete
 	// (Ingress, migration Job). These have ownerReferences but we delete
 	// explicitly for a cleaner teardown sequence.
@@ -267,6 +301,11 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 			// Delete DB credentials Secret
 			let _ = secret_api
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
+				.await;
+
+			// Delete SMTP credentials Secret
+			let _ = secret_api
+				.delete(&format!("{name}-smtp-credentials"), &DeleteParams::default())
 				.await;
 
 			// Delete introspect-managed database resources
@@ -356,6 +395,36 @@ fn should_provision_worker(app: &ReinhardtApp) -> bool {
 		.introspect
 		.as_ref()
 		.map(|i| nuages_core::inference::requires_worker(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether storage should be provisioned.
+///
+/// Explicit `spec.storage` field takes precedence over introspect signals.
+fn should_provision_storage(app: &ReinhardtApp) -> bool {
+	if app.spec.storage.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_storage(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether mail should be provisioned.
+///
+/// Explicit `spec.mail` field takes precedence over introspect signals.
+fn should_provision_mail(app: &ReinhardtApp) -> bool {
+	if app.spec.mail.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_mail(&i.features.infrastructure_signals))
 		.unwrap_or(false)
 }
 
@@ -611,6 +680,60 @@ async fn reconcile_grpc_service(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled gRPC Service {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the storage `ServiceAccount` via server-side apply.
+async fn reconcile_storage_sa(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	sa: &ServiceAccount,
+) -> Result<(), Error> {
+	let name = sa
+		.metadata
+		.name
+		.as_ref()
+		.cloned()
+		.unwrap_or_else(|| format!("{}-storage", app.name_any()));
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	sa_api
+		.patch(&name, &ssapply, &Patch::Apply(sa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled storage ServiceAccount {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the SMTP credentials `Secret` for a `ReinhardtApp`.
+///
+/// Only creates the secret if it does not already exist, preserving
+/// user-provided credentials across reconciliation cycles.
+async fn reconcile_mail_secret(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{}-smtp-credentials", app.name_any());
+	let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	// Create only if not exists (don't overwrite user-provided credentials)
+	if secrets
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		return Ok(());
+	}
+
+	let desired = resources::mail::build_mail_secret(app)?;
+	secrets
+		.create(&PostParams::default(), &desired)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created SMTP credentials Secret {namespace}/{secret_name}");
 	Ok(())
 }
 
@@ -1611,6 +1734,227 @@ mod tests {
 		assert!(needs_grpc);
 		let svc = resources::grpc::build_grpc_service(&app).unwrap();
 		assert_eq!(svc.metadata.name.unwrap(), "myapp-grpc");
+	}
+
+	// ── storage / mail / session integration tests ─────────────────
+
+	#[rstest]
+	fn test_should_provision_storage_from_introspect() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "storage": "s3" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act / Assert
+		assert!(should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_storage_from_explicit_spec() {
+		// Arrange
+		use nuages_types::crd::storage::{StorageBackend, StorageSpec};
+
+		let mut app = make_test_app("explicit-storage-app");
+		app.spec.storage = Some(StorageSpec {
+			backend: Some(StorageBackend::S3),
+			bucket: None,
+		});
+
+		// Act / Assert
+		assert!(should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_storage_false_when_neither_set() {
+		// Arrange
+		let app = make_test_app("no-storage-app");
+
+		// Act / Assert
+		assert!(!should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_from_introspect() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "mail": "smtp" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act / Assert
+		assert!(should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_from_explicit_spec() {
+		// Arrange
+		use nuages_types::crd::mail::MailSpec;
+
+		let mut app = make_test_app("explicit-mail-app");
+		app.spec.mail = Some(MailSpec {
+			smtp_host: Some("smtp.example.com".to_string()),
+			smtp_port: Some(587),
+			credentials_secret: None,
+		});
+
+		// Act / Assert
+		assert!(should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_false_when_neither_set() {
+		// Arrange
+		let app = make_test_app("no-mail-app");
+
+		// Act / Assert
+		assert!(!should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_redis_sessions_without_explicit_cache() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "session_backend": "redis" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs);
+		assert!(!should_provision_cache(&app)); // No explicit cache
+	}
+
+	#[rstest]
+	fn test_redis_sessions_skipped_when_cache_already_provisioned() {
+		// Arrange — both session_backend=redis and cache=redis
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"cache": { "backend": "redis" },
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "session_backend": "redis" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs_sessions = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert — Redis sessions needed, but cache is already provisioned
+		assert!(needs_sessions);
+		assert!(should_provision_cache(&app));
+		// The reconciler condition `needs_redis_sessions && !should_provision_cache`
+		// is false, so session-only Redis provisioning is skipped
+	}
+
+	#[rstest]
+	fn test_storage_sa_builder_triggered_for_s3() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "storage": "s3" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let backend = app
+			.spec
+			.introspect
+			.as_ref()
+			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
+			.unwrap_or("pvc");
+		let sa = resources::storage::build_storage_service_account(&app, backend)
+			.expect("build should succeed");
+
+		// Assert
+		assert!(sa.is_some());
+		assert_eq!(sa.unwrap().metadata.name.as_deref(), Some("myapp-storage"));
+	}
+
+	#[rstest]
+	fn test_mail_secret_builder_triggered() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "mail": "smtp" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let secret = resources::mail::build_mail_secret(&app).expect("build should succeed");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("myapp-smtp-credentials")
+		);
 	}
 
 	#[rstest]
