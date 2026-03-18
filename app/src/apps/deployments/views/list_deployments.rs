@@ -7,6 +7,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Query, Response, StatusCode, get};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
@@ -32,7 +33,10 @@ pub async fn list_deployments(
 		)
 		.count()
 		.await
-		.map_err(|e| format!("{e}"))? as u64;
+		.map_err(|e| {
+			error!("Failed to count deployments: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})? as u64;
 	let offset: usize = params.offset().try_into().unwrap_or(usize::MAX);
 	let limit: usize = params.page_size().try_into().unwrap_or(usize::MAX);
 	let deployments = Deployment::objects()
@@ -46,7 +50,10 @@ pub async fn list_deployments(
 		.limit(limit)
 		.all()
 		.await
-		.map_err(|e| format!("{e}"))?;
+		.map_err(|e| {
+			error!("Failed to list deployments: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 	let items: Vec<DeploymentResponse> = deployments
 		.into_iter()
 		.map(DeploymentResponse::from)
