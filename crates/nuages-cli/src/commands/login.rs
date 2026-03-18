@@ -14,9 +14,9 @@ pub(crate) struct LoginArgs {
 
 /// Executes the login command.
 pub(crate) async fn execute(
-	args: &LoginArgs,
+	_args: &LoginArgs,
 	_client: &NuagesClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	println!("Logging in as {}...", args.username);
+	tracing::info!("attempting login");
 	Err("login command is not yet implemented".into())
 }

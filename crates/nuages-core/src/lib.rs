@@ -6,6 +6,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod inference;
 pub mod pagination;
 pub mod services;
 

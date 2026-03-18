@@ -1,20 +1,32 @@
 //! Reconciler logic for the `ReinhardtApp` custom resource.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine;
 use futures::StreamExt;
-use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Service;
-use kube::api::{Api, Patch, PatchParams};
+use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::batch::v1::Job;
+use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
+use k8s_openapi::api::networking::v1::Ingress;
+use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::error::Error;
-use crate::resources::{build_deployment, build_service};
+use crate::inference::configmap::build_settings_configmap;
+use crate::inference::platform::PlatformConfig;
+use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::resources::{
+	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
+	build_migration_job, build_service,
+};
+use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
+use nuages_types::crd::policy::DeletionPolicy;
 use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
 use nuages_types::{ConditionStatus, ConditionType};
 
@@ -24,6 +36,11 @@ const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
 pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
+	/// Platform-specific configuration for resource inference.
+	// Reserved for future reconciler integration that will use platform
+	// defaults when inferring resource specifications.
+	#[allow(dead_code)]
+	pub platform: PlatformConfig,
 }
 
 /// Main reconciliation entry point.
@@ -50,6 +67,66 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 /// Apply the desired state for a `ReinhardtApp`.
 async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	// Reconcile settings ConfigMap via server-side apply
+	let configmap = build_settings_configmap(&name, namespace);
+	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+	cm_api
+		.patch(
+			&format!("{name}-settings"),
+			&ssapply,
+			&Patch::Apply(&configmap),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled ConfigMap {namespace}/{name}-settings");
+
+	// Create JWT Secret if auth.jwt is enabled (preserve existing tokens)
+	if app.spec.auth.as_ref().is_some_and(|a| a.jwt) {
+		let secret_name = format!("{name}-jwt-secret");
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			let jwt_secret = build_jwt_secret(&name, namespace);
+			secret_api
+				.create(&PostParams::default(), &jwt_secret)
+				.await
+				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+			info!("Created JWT Secret {namespace}/{secret_name}");
+		}
+	}
+
+	// Create DB credentials Secret if database is configured (preserve existing credentials)
+	if app.spec.database.is_some() {
+		let db_secret_name = format!("{name}-db-credentials");
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&db_secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			let password_bytes: [u8; 16] = rand::random();
+			let password_str =
+				base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(password_bytes);
+			let db_secret = build_db_credentials_secret(
+				&name,
+				namespace,
+				&format!("{name}_user"),
+				&password_str,
+			);
+			secret_api
+				.create(&PostParams::default(), &db_secret)
+				.await
+				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+			info!("Created DB credentials Secret {namespace}/{db_secret_name}");
+		}
+	}
 
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
@@ -77,6 +154,92 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.map_err(Error::Kube)?;
 	info!("Reconciled Service {namespace}/{name}");
 
+	// Database provisioning — explicit spec.database takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_postgresql(&app) && app.spec.database.is_none() {
+		// Introspect-derived database: provision StatefulSet + credentials
+		reconcile_db_secret(&app, &ctx.client, namespace).await?;
+		reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
+		reconcile_db_service_resource(&app, &ctx.client, namespace).await?;
+		reconcile_migration_job_resource(&app, &ctx.client, namespace).await?;
+	}
+
+	// Ingress — explicit services.ingress_host takes precedence,
+	// falling back to introspect routes.
+	if let Some((routes, port)) = resolve_ingress_config(&app) {
+		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port).await?;
+	}
+
+	// Cache provisioning — explicit spec.cache takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_cache(&app) {
+		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled cache resources for {name}");
+	}
+
+	// Worker provisioning — explicit spec.worker takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_worker(&app) {
+		reconcile_worker_deployment_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled worker deployment for {name}");
+	}
+
+	// gRPC Service provisioning (Phase 3)
+	let needs_grpc = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+		.unwrap_or(false);
+	if needs_grpc {
+		reconcile_grpc_service(&app, &ctx.client, namespace).await?;
+	}
+
+	// Storage provisioning (Phase 4)
+	if should_provision_storage(&app) {
+		let backend = app
+			.spec
+			.introspect
+			.as_ref()
+			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
+			.unwrap_or("pvc");
+		if let Some(sa) = resources::storage::build_storage_service_account(&app, backend)? {
+			reconcile_storage_sa(&app, &ctx.client, namespace, &sa).await?;
+		}
+	}
+
+	// Mail provisioning (Phase 4)
+	if should_provision_mail(&app) {
+		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
+	}
+
+	// Session backend: ensure Redis when session_backend=redis (Phase 4)
+	let needs_redis_sessions = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| {
+			nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+		})
+		.unwrap_or(false);
+	if needs_redis_sessions && !should_provision_cache(&app) {
+		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled Redis for session backend for {name}");
+	}
+
+	// i18n ConfigMap provisioning (Phase 5)
+	let needs_i18n = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+		.unwrap_or(false);
+	if needs_i18n {
+		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -94,16 +257,536 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 }
 
 /// Clean up external resources when a `ReinhardtApp` is deleted.
-async fn cleanup(
-	app: Arc<ReinhardtApp>,
-	_ctx: &Context,
-	_namespace: &str,
-) -> Result<Action, Error> {
+///
+/// Respects `DeletionPolicy`:
+/// - `Retain` (default): only K8s-native resources (Deployment, Service)
+///   are removed via ownerReferences GC. Database/cache Secrets and
+///   ConfigMaps are retained for manual cleanup.
+/// - `Delete`: all resources including Secrets and ConfigMaps are deleted.
+async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	info!("Cleaning up ReinhardtApp {name}");
-	// Owned Deployments and Services are garbage-collected via ownerReferences.
-	// Add cleanup for external resources (databases, DNS, etc.) here.
+
+	// Cache resources (stateless — always clean up)
+	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-redis")).await?;
+	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-redis")).await?;
+
+	// Worker resources (stateless — always clean up)
+	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-worker")).await?;
+
+	// gRPC Service (stateless — always clean up)
+	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
+
+	// Storage ServiceAccount (stateless — always clean up)
+	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+
+	// i18n ConfigMap (stateless — always clean up)
+	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
+
+	// Always clean up introspect-managed resources that are safe to delete
+	// (Ingress, migration Job). These have ownerReferences but we delete
+	// explicitly for a cleaner teardown sequence.
+	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
+	delete_if_exists::<Job>(&ctx.client, namespace, &format!("{name}-migrate")).await?;
+
+	match app.spec.deletion_policy {
+		DeletionPolicy::Retain => {
+			// Deployment and Service are cleaned up via ownerReferences GC.
+			// Secrets, ConfigMaps, and StatefulSets are retained for manual cleanup.
+			info!(
+				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
+				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-postgresql, {name}-settings"
+			);
+		}
+		DeletionPolicy::Delete => {
+			info!("DeletionPolicy is Delete: removing all resources for {name}");
+
+			// Delete settings ConfigMap
+			let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+			let _ = cm_api
+				.delete(&format!("{name}-settings"), &DeleteParams::default())
+				.await;
+
+			// Delete JWT Secret
+			let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+			let _ = secret_api
+				.delete(&format!("{name}-jwt-secret"), &DeleteParams::default())
+				.await;
+
+			// Delete DB credentials Secret
+			let _ = secret_api
+				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
+				.await;
+
+			// Delete SMTP credentials Secret
+			let _ = secret_api
+				.delete(
+					&format!("{name}-smtp-credentials"),
+					&DeleteParams::default(),
+				)
+				.await;
+
+			// Delete introspect-managed database resources
+			delete_if_exists::<StatefulSet>(&ctx.client, namespace, &format!("{name}-postgresql"))
+				.await?;
+			delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-postgresql"))
+				.await?;
+		}
+	}
+
 	Ok(Action::await_change())
+}
+
+// ── Conflict resolution: explicit CRD fields vs introspect signals ───
+
+/// Resolve whether PostgreSQL should be provisioned.
+///
+/// Explicit `spec.database` field takes precedence over introspect signals.
+/// Returns `true` if either the explicit database spec is set or the
+/// introspect infrastructure signals indicate PostgreSQL usage.
+fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
+	// Explicit database field takes precedence
+	if app.spec.database.is_some() {
+		return true;
+	}
+
+	// Fall back to introspect signals
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_postgresql(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether cache should be provisioned.
+///
+/// Explicit `spec.cache` field takes precedence over introspect signals.
+fn should_provision_cache(app: &ReinhardtApp) -> bool {
+	if app.spec.cache.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_cache(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve the effective application port.
+///
+/// Explicit `spec.services.target_port` takes precedence over
+/// introspect settings. Defaults to 8000 when neither is set.
+fn resolve_app_port(app: &ReinhardtApp) -> u16 {
+	// Explicit services.target_port takes precedence
+	if let Some(services) = &app.spec.services
+		&& let Some(port) = services.target_port
+	{
+		return port as u16;
+	}
+
+	// Fall back to introspect settings
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::app_port(&i.settings))
+		.unwrap_or(8000)
+}
+
+/// Resolve whether a background worker should be provisioned.
+///
+/// Explicit `spec.worker` field takes precedence over introspect signals.
+fn should_provision_worker(app: &ReinhardtApp) -> bool {
+	if app.spec.worker.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_worker(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether storage should be provisioned.
+///
+/// Explicit `spec.storage` field takes precedence over introspect signals.
+fn should_provision_storage(app: &ReinhardtApp) -> bool {
+	if app.spec.storage.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_storage(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether mail should be provisioned.
+///
+/// Explicit `spec.mail` field takes precedence over introspect signals.
+fn should_provision_mail(app: &ReinhardtApp) -> bool {
+	if app.spec.mail.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_mail(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether ingress routes should be provisioned.
+///
+/// Explicit `spec.services.ingress_host` takes precedence over
+/// introspect routes. Returns the route list and port if ingress
+/// should be created, or `None` otherwise.
+fn resolve_ingress_config(
+	app: &ReinhardtApp,
+) -> Option<(Vec<nuages_types::introspect::RouteMetadata>, u16)> {
+	// Explicit ingress_host in services spec is handled by the existing
+	// reconcile path (build_service/build_ingress from explicit fields).
+	// Here we only handle introspect-derived routes when no explicit
+	// services config provides an ingress host.
+	let has_explicit_ingress = app
+		.spec
+		.services
+		.as_ref()
+		.is_some_and(|s| s.ingress_host.is_some());
+
+	if has_explicit_ingress {
+		return None;
+	}
+
+	// Fall back to introspect routes
+	app.spec.introspect.as_ref().and_then(|i| {
+		if i.routes.is_empty() {
+			None
+		} else {
+			let port = resolve_app_port(app);
+			Some((i.routes.clone(), port))
+		}
+	})
+}
+
+// ── Introspect-aware reconcile helpers ────────────────────────────────
+
+/// Reconciles the database credentials `Secret` for a `ReinhardtApp`.
+///
+/// Only creates the secret if it does not already exist, preserving
+/// existing credentials across reconciliation cycles.
+async fn reconcile_db_secret(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let secret_name = format!("{name}-db-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	if secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		info!("DB credentials Secret {namespace}/{secret_name} already exists, skipping");
+		return Ok(());
+	}
+
+	let secret = build_db_secret(app)?;
+	secret_api
+		.create(&PostParams::default(), &secret)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created DB credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+/// Reconciles the PostgreSQL `StatefulSet` via server-side apply.
+async fn reconcile_db_statefulset(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let sts_name = format!("{name}-postgresql");
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let desired = build_db_statefulset(app)?;
+	let sts_api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
+	sts_api
+		.patch(&sts_name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled StatefulSet {namespace}/{sts_name}");
+	Ok(())
+}
+
+/// Reconciles the PostgreSQL headless `Service` via server-side apply.
+async fn reconcile_db_service_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let svc_name = format!("{name}-postgresql");
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let desired = build_db_service(app)?;
+	let svc_api: Api<Service> = Api::namespaced(client.clone(), namespace);
+	svc_api
+		.patch(&svc_name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled DB Service {namespace}/{svc_name}");
+	Ok(())
+}
+
+/// Reconciles the database migration `Job`.
+///
+/// - If the job completed successfully, skips re-creation.
+/// - If the job failed, deletes it and recreates.
+/// - If the job is still running, skips.
+/// - If no job exists, creates one.
+async fn reconcile_migration_job_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let job_name = format!("{name}-migrate");
+	let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
+
+	if let Some(existing) = job_api.get_opt(&job_name).await.map_err(Error::Kube)? {
+		let status = existing.status.as_ref();
+		let succeeded = status.and_then(|s| s.succeeded).unwrap_or(0);
+		let failed = status.and_then(|s| s.failed).unwrap_or(0);
+		let active = status.and_then(|s| s.active).unwrap_or(0);
+
+		if succeeded > 0 {
+			info!("Migration Job {namespace}/{job_name} already completed, skipping");
+			return Ok(());
+		}
+		if active > 0 {
+			info!("Migration Job {namespace}/{job_name} is still running, skipping");
+			return Ok(());
+		}
+		if failed > 0 {
+			warn!("Migration Job {namespace}/{job_name} failed, deleting for re-creation");
+			// Use propagation policy to clean up pods
+			let dp = DeleteParams {
+				propagation_policy: Some(kube::api::PropagationPolicy::Background),
+				..Default::default()
+			};
+			job_api.delete(&job_name, &dp).await.map_err(Error::Kube)?;
+		}
+	}
+
+	let desired = build_migration_job(app)?;
+	job_api
+		.create(&PostParams::default(), &desired)
+		.await
+		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
+	info!("Created migration Job {namespace}/{job_name}");
+	Ok(())
+}
+
+/// Reconciles the `Ingress` resource via server-side apply.
+async fn reconcile_ingress_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	routes: &[nuages_types::introspect::RouteMetadata],
+	port: u16,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let signals = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| &i.features.infrastructure_signals);
+	let Some(desired) = build_ingress(app, routes, port, None, signals)? else {
+		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
+		return Ok(());
+	};
+	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
+	ingress_api
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled Ingress {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis cache `Deployment` via server-side apply.
+async fn reconcile_cache_deployment(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-redis", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::cache::build_cache_deployment(app)?;
+	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+	deployments
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled cache Deployment {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis cache `Service` via server-side apply.
+async fn reconcile_cache_service_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-redis", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::cache::build_cache_service(app)?;
+	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+	services
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled cache Service {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Worker `Deployment` via server-side apply.
+async fn reconcile_worker_deployment_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let custom_cmd = app.spec.worker.as_ref().and_then(|w| w.command.as_deref());
+	let name = format!("{}-worker", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::worker::build_worker_deployment(app, custom_cmd)?;
+	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+	deployments
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled worker Deployment {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the gRPC `Service` via server-side apply.
+async fn reconcile_grpc_service(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-grpc", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::grpc::build_grpc_service(app)?;
+	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+	services
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled gRPC Service {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the storage `ServiceAccount` via server-side apply.
+async fn reconcile_storage_sa(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	sa: &ServiceAccount,
+) -> Result<(), Error> {
+	let name = sa
+		.metadata
+		.name
+		.as_ref()
+		.cloned()
+		.unwrap_or_else(|| format!("{}-storage", app.name_any()));
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	sa_api
+		.patch(&name, &ssapply, &Patch::Apply(sa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled storage ServiceAccount {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the SMTP credentials `Secret` for a `ReinhardtApp`.
+///
+/// Only creates the secret if it does not already exist, preserving
+/// user-provided credentials across reconciliation cycles.
+async fn reconcile_mail_secret(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{}-smtp-credentials", app.name_any());
+	let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	// Create only if not exists (don't overwrite user-provided credentials)
+	if secrets
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		return Ok(());
+	}
+
+	let desired = resources::mail::build_mail_secret(app)?;
+	secrets
+		.create(&PostParams::default(), &desired)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created SMTP credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+/// Reconciles the i18n locale `ConfigMap` via server-side apply.
+async fn reconcile_i18n_configmap(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-locales", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::i18n::build_i18n_configmap(app)?;
+	let configmaps: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
+	configmaps
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled i18n ConfigMap {namespace}/{name}");
+	Ok(())
+}
+
+/// Deletes a namespaced Kubernetes resource if it exists.
+///
+/// Silently succeeds if the resource is already absent.
+async fn delete_if_exists<K>(client: &Client, namespace: &str, name: &str) -> Result<(), Error>
+where
+	K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
+		+ Clone
+		+ serde::de::DeserializeOwned
+		+ fmt::Debug
+		+ k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
+{
+	let api: Api<K> = Api::namespaced(client.clone(), namespace);
+	if api.get_opt(name).await.map_err(Error::Kube)?.is_some() {
+		api.delete(name, &Default::default())
+			.await
+			.map_err(Error::Kube)?;
+	}
+	Ok(())
 }
 
 /// Builds the desired `ReinhardtAppStatus` for the given readiness state.
@@ -150,6 +833,17 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
+	// Track database sub-resource status if database is configured
+	let database = if app.spec.database.is_some() {
+		Some(DatabaseStatus {
+			phase: ResourcePhase::Ready,
+			endpoint: None,
+			credentials_secret: Some(format!("{}-db-credentials", app.name_any())),
+		})
+	} else {
+		None
+	};
+
 	ReinhardtAppStatus {
 		phase: Some(phase),
 		conditions: vec![AppCondition {
@@ -162,6 +856,8 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		}],
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
+		database,
+		..Default::default()
 	}
 }
 
@@ -213,8 +909,10 @@ pub(crate) async fn run(client: Client) {
 	let apps: Api<ReinhardtApp> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
+	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
 
-	let context = Arc::new(Context { client });
+	let platform = PlatformConfig::from_env();
+	let context = Arc::new(Context { client, platform });
 
 	Controller::new(apps, watcher::Config::default())
 		.owns(
@@ -223,6 +921,10 @@ pub(crate) async fn run(client: Client) {
 		)
 		.owns(
 			services,
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+		)
+		.owns(
+			statefulsets,
 			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
 		)
 		.shutdown_on_signal()
@@ -239,10 +941,10 @@ pub(crate) async fn run(client: Client) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
 	use nuages_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
-	use std::collections::BTreeMap;
 
 	/// Helper to create a minimal `ReinhardtApp` for reconciler tests.
 	fn make_test_app(name: &str) -> ReinhardtApp {
@@ -256,12 +958,7 @@ mod tests {
 			},
 			spec: ReinhardtAppSpec {
 				image: "test:latest".to_string(),
-				replicas: None,
-				database: None,
-				scale: None,
-				health: None,
-				services: None,
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}
@@ -398,6 +1095,7 @@ mod tests {
 			}],
 			observed_generation: Some(1),
 			ready_replicas: Some(1),
+			..Default::default()
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
@@ -427,6 +1125,7 @@ mod tests {
 			}],
 			observed_generation: Some(1),
 			ready_replicas: Some(1),
+			..Default::default()
 		});
 
 		// Act — readiness changed from True to False
@@ -452,6 +1151,44 @@ mod tests {
 		assert!(status.conditions[0].last_transition_time.is_some());
 	}
 
+	// ── build_status database sub-resource tests ────────────────────
+
+	#[rstest]
+	fn test_build_status_includes_database_status_when_database_configured() {
+		// Arrange
+		let mut app = make_test_app("db-app");
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: None,
+		});
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		let db_status = status.database.expect("database status should be present");
+		assert_eq!(db_status.phase, ResourcePhase::Ready);
+		assert_eq!(
+			db_status.credentials_secret,
+			Some("db-app-db-credentials".to_string())
+		);
+		assert!(db_status.endpoint.is_none());
+	}
+
+	#[rstest]
+	fn test_build_status_excludes_database_status_when_no_database() {
+		// Arrange
+		let app = make_test_app("no-db-app");
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		assert!(status.database.is_none());
+	}
+
 	// ── error_policy tests ───────────────────────────────────────────
 
 	/// Creates a `kube::Client` backed by a dummy service for unit tests.
@@ -469,6 +1206,31 @@ mod tests {
 		Client::new(svc, "default")
 	}
 
+	// ── deletion_policy tests ───────────────────────────────────────
+
+	#[rstest]
+	fn test_deletion_policy_defaults_to_retain() {
+		// Arrange
+		let app = make_test_app("retain-app");
+
+		// Assert
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Retain);
+	}
+
+	#[rstest]
+	fn test_deletion_policy_can_be_set_to_delete() {
+		// Arrange
+		let mut app = make_test_app("delete-app");
+
+		// Act
+		app.spec.deletion_policy = DeletionPolicy::Delete;
+
+		// Assert
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	// ── error_policy tests ───────────────────────────────────────────
+
 	#[rstest]
 	#[tokio::test]
 	async fn test_error_policy_returns_requeue_action() {
@@ -477,6 +1239,7 @@ mod tests {
 		let error = Error::MissingNamespace("error-app".to_string());
 		let ctx = Arc::new(Context {
 			client: dummy_client(),
+			platform: PlatformConfig::onprem_defaults(),
 		});
 
 		// Act
@@ -485,5 +1248,814 @@ mod tests {
 		// Assert — error_policy must return a 30-second requeue
 		let expected = Action::requeue(Duration::from_secs(30));
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	// ── introspect-aware decision logic tests ───────────────────────
+
+	#[rstest]
+	fn test_introspect_with_postgresql_triggers_db_path() {
+		// Arrange
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("introspect-pg-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let signals = &introspect.features.infrastructure_signals;
+		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+
+		// Assert
+		assert!(needs_pg);
+	}
+
+	#[rstest]
+	fn test_no_introspect_skips_db_path() {
+		// Arrange
+		let app = make_test_app("legacy-app");
+
+		// Act / Assert
+		assert!(app.spec.introspect.is_none());
+	}
+
+	#[rstest]
+	fn test_introspect_with_routes_triggers_ingress_path() {
+		// Arrange
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata, SettingsMetadata};
+
+		let mut app = make_test_app("route-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/users/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			settings: SettingsMetadata::default(),
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let has_routes = !introspect.routes.is_empty();
+		let port = nuages_core::inference::app_port(&introspect.settings);
+
+		// Assert
+		assert!(has_routes);
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_introspect_without_db_skips_postgresql() {
+		// Arrange
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("no-db-introspect-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: None,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let signals = &introspect.features.infrastructure_signals;
+		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+
+		// Assert
+		assert!(!needs_pg);
+	}
+
+	#[rstest]
+	fn test_cleanup_retain_policy_preserves_db_credentials() {
+		// Arrange
+		let app = make_test_app("retain-db-app");
+
+		// Act / Assert — DeletionPolicy::Retain means credentials are NOT deleted
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Retain);
+		// With Retain policy, the cleanup function logs but does not delete secrets
+	}
+
+	#[rstest]
+	fn test_cleanup_delete_policy_removes_all_resources() {
+		// Arrange
+		let mut app = make_test_app("delete-all-app");
+		app.spec.deletion_policy = DeletionPolicy::Delete;
+
+		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	// ── conflict resolution tests ───────────────────────────────────
+
+	#[rstest]
+	fn test_explicit_database_overrides_introspect() {
+		// Arrange — explicit database set, introspect also has postgresql
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-db-app");
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should use explicit database path (returns true because
+		// explicit spec.database is set)
+		assert!(result);
+		assert!(app.spec.database.is_some());
+	}
+
+	#[rstest]
+	fn test_introspect_used_when_no_explicit_database() {
+		// Arrange — no explicit database, introspect has postgresql
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("introspect-only-db-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should provision from introspect fallback
+		assert!(result);
+		assert!(app.spec.database.is_none());
+	}
+
+	#[rstest]
+	fn test_no_database_when_neither_set() {
+		// Arrange — no explicit database, no introspect
+		let app = make_test_app("no-db-no-introspect-app");
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should not provision database
+		assert!(!result);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_explicit_overrides() {
+		// Arrange — explicit services.target_port = 3000, introspect says 9000
+		use nuages_types::crd::spec::ServicesSpec;
+		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+
+		let mut app = make_test_app("explicit-port-app");
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(3000),
+			ingress_host: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			settings: SettingsMetadata {
+				server: ServerSettings {
+					default_port: 9000,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — explicit target_port takes precedence
+		assert_eq!(port, 3000);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_falls_back_to_introspect() {
+		// Arrange — no explicit port, introspect says 9000
+		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+
+		let mut app = make_test_app("introspect-port-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			settings: SettingsMetadata {
+				server: ServerSettings {
+					default_port: 9000,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — should return introspect-derived port
+		assert_eq!(port, 9000);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_defaults_when_neither_set() {
+		// Arrange — no explicit port, no introspect
+		let app = make_test_app("default-port-app");
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — should return default 8000
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_should_provision_cache_explicit_overrides() {
+		// Arrange — explicit cache set, introspect also has redis
+		use nuages_types::crd::cache::{CacheBackend, CacheSpec};
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-cache-app");
+		app.spec.cache = Some(CacheSpec {
+			backend: CacheBackend::Redis,
+			instance_type: Some("cache.t3.micro".to_string()),
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					cache: Some("redis".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_cache(&app);
+
+		// Assert — explicit cache spec takes precedence
+		assert!(result);
+		assert!(app.spec.cache.is_some());
+	}
+
+	#[rstest]
+	fn test_should_provision_cache_falls_back_to_introspect() {
+		// Arrange — no explicit cache, introspect has redis
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("introspect-cache-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					cache: Some("redis".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_cache(&app);
+
+		// Assert — introspect fallback used
+		assert!(result);
+		assert!(app.spec.cache.is_none());
+	}
+
+	#[rstest]
+	fn test_should_provision_worker_explicit_overrides() {
+		// Arrange — explicit worker set, introspect also has background_worker
+		use nuages_types::crd::worker::WorkerSpec;
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-worker-app");
+		app.spec.worker = Some(WorkerSpec {
+			concurrency: Some(4),
+			command: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					background_worker: true,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_worker(&app);
+
+		// Assert — explicit worker spec takes precedence
+		assert!(result);
+		assert!(app.spec.worker.is_some());
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_explicit_host_skips_introspect() {
+		// Arrange — explicit ingress_host set, introspect also has routes
+		use nuages_types::crd::spec::ServicesSpec;
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+
+		let mut app = make_test_app("explicit-ingress-app");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8080),
+			ingress_host: Some("myapp.example.com".to_string()),
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — explicit ingress_host takes precedence, introspect routes skipped
+		assert!(config.is_none());
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_falls_back_to_introspect_routes() {
+		// Arrange — no explicit ingress_host, introspect has routes
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+
+		let mut app = make_test_app("introspect-ingress-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/v1/".to_string(),
+				methods: vec!["GET".to_string(), "POST".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — introspect routes used with default port
+		let (routes, port) = config.expect("should return ingress config");
+		assert_eq!(routes.len(), 1);
+		assert_eq!(routes[0].path, "/api/v1/");
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_none_when_neither_set() {
+		// Arrange — no explicit ingress_host, no introspect
+		let app = make_test_app("no-ingress-app");
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — no ingress should be created
+		assert!(config.is_none());
+	}
+
+	// ── cache/worker integration tests ──────────────────────────────
+
+	#[rstest]
+	fn test_should_provision_cache_from_introspect_triggers_builders() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": {
+							"cache": "redis"
+						}
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_cache = should_provision_cache(&app);
+
+		// Assert
+		assert!(should_cache);
+		let deploy = resources::cache::build_cache_deployment(&app).unwrap();
+		assert_eq!(deploy.metadata.name.unwrap(), "myapp-redis");
+	}
+
+	#[rstest]
+	fn test_should_provision_worker_from_introspect_triggers_builders() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": {
+							"background_worker": true
+						}
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_worker = should_provision_worker(&app);
+
+		// Assert
+		assert!(should_worker);
+		let deploy = resources::worker::build_worker_deployment(&app, None).unwrap();
+		assert_eq!(deploy.metadata.name.unwrap(), "myapp-worker");
+	}
+
+	#[rstest]
+	fn test_explicit_cache_also_triggers_provisioning() {
+		// Arrange — explicit spec.cache set (should still trigger provisioning)
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"cache": { "backend": "redis" }
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_cache = should_provision_cache(&app);
+
+		// Assert — explicit cache should trigger provisioning
+		assert!(should_cache);
+	}
+
+	// ── gRPC / WebSocket integration tests ─────────────────────────
+
+	#[rstest]
+	fn test_grpc_signal_triggers_service_builder() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "grpc": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs_grpc = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs_grpc);
+		let svc = resources::grpc::build_grpc_service(&app).unwrap();
+		assert_eq!(svc.metadata.name.unwrap(), "myapp-grpc");
+	}
+
+	// ── storage / mail / session integration tests ─────────────────
+
+	#[rstest]
+	fn test_should_provision_storage_from_introspect() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "storage": "s3" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act / Assert
+		assert!(should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_storage_from_explicit_spec() {
+		// Arrange
+		use nuages_types::crd::storage::{StorageBackend, StorageSpec};
+
+		let mut app = make_test_app("explicit-storage-app");
+		app.spec.storage = Some(StorageSpec {
+			backend: Some(StorageBackend::S3),
+			bucket: None,
+		});
+
+		// Act / Assert
+		assert!(should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_storage_false_when_neither_set() {
+		// Arrange
+		let app = make_test_app("no-storage-app");
+
+		// Act / Assert
+		assert!(!should_provision_storage(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_from_introspect() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "mail": "smtp" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act / Assert
+		assert!(should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_from_explicit_spec() {
+		// Arrange
+		use nuages_types::crd::mail::MailSpec;
+
+		let mut app = make_test_app("explicit-mail-app");
+		app.spec.mail = Some(MailSpec {
+			smtp_host: Some("smtp.example.com".to_string()),
+			smtp_port: Some(587),
+			credentials_secret: None,
+		});
+
+		// Act / Assert
+		assert!(should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_should_provision_mail_false_when_neither_set() {
+		// Arrange
+		let app = make_test_app("no-mail-app");
+
+		// Act / Assert
+		assert!(!should_provision_mail(&app));
+	}
+
+	#[rstest]
+	fn test_redis_sessions_without_explicit_cache() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "session_backend": "redis" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| {
+				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+			})
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs);
+		assert!(!should_provision_cache(&app)); // No explicit cache
+	}
+
+	#[rstest]
+	fn test_redis_sessions_skipped_when_cache_already_provisioned() {
+		// Arrange — both session_backend=redis and cache=redis
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"cache": { "backend": "redis" },
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "session_backend": "redis" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs_sessions = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| {
+				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+			})
+			.unwrap_or(false);
+
+		// Assert — Redis sessions needed, but cache is already provisioned
+		assert!(needs_sessions);
+		assert!(should_provision_cache(&app));
+		// The reconciler condition `needs_redis_sessions && !should_provision_cache`
+		// is false, so session-only Redis provisioning is skipped
+	}
+
+	#[rstest]
+	fn test_storage_sa_builder_triggered_for_s3() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "storage": "s3" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let backend = app
+			.spec
+			.introspect
+			.as_ref()
+			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
+			.unwrap_or("pvc");
+		let sa = resources::storage::build_storage_service_account(&app, backend)
+			.expect("build should succeed");
+
+		// Assert
+		assert!(sa.is_some());
+		assert_eq!(sa.unwrap().metadata.name.as_deref(), Some("myapp-storage"));
+	}
+
+	#[rstest]
+	fn test_mail_secret_builder_triggered() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "mail": "smtp" }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let secret = resources::mail::build_mail_secret(&app).expect("build should succeed");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("myapp-smtp-credentials")
+		);
+	}
+
+	#[rstest]
+	fn test_i18n_signal_triggers_configmap_builder() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "i18n": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs);
+		let cm = resources::i18n::build_i18n_configmap(&app).unwrap();
+		assert_eq!(cm.metadata.name.unwrap(), "myapp-locales");
+	}
+
+	#[rstest]
+	fn test_websocket_signal_adds_ingress_annotations() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "wsapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "wsapp:latest",
+				"introspect": {
+					"routes": [{"path": "/ws/", "methods": []}],
+					"features": {
+						"infrastructure_signals": { "websocket": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let signals = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| &i.features.infrastructure_signals);
+		let routes = &app.spec.introspect.as_ref().unwrap().routes;
+		let ingress = resources::ingress::build_ingress(&app, routes, 8000, None, signals)
+			.unwrap()
+			.expect("ingress should be created for non-empty routes");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.unwrap();
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
+			Some(&"3600".to_string())
+		);
 	}
 }
