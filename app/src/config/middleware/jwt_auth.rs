@@ -43,6 +43,16 @@ impl Middleware for JwtAuthMiddleware {
 			AuthState::anonymous()
 		};
 
+		// Reject unauthenticated requests on protected endpoints early,
+		// before DI injection converts the missing AuthInfo into a generic 500.
+		// reinhardt-web maps DiError::NotFound → Error::Internal (HTTP 500),
+		// so we must guard here to return the correct 401 status.
+		if !auth_state.is_authenticated() {
+			return Err(reinhardt::core::exception::Error::Authentication(
+				"Authentication credentials were not provided".to_string(),
+			));
+		}
+
 		request.extensions.insert(auth_state);
 
 		next.handle(request).await
