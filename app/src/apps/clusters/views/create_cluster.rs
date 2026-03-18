@@ -5,6 +5,7 @@ use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Response, StatusCode, post};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
@@ -25,7 +26,10 @@ pub async fn create_cluster(
 	let created = manager
 		.create(&new_cluster)
 		.await
-		.map_err(|e| format!("{e}"))?;
+		.map_err(|e| {
+			error!("Failed to create cluster: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 	let resp = ClusterResponse::from(created);
 	Ok(Response::new(StatusCode::CREATED)
 		.with_header("Content-Type", "application/json")
