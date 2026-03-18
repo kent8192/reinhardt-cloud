@@ -78,6 +78,7 @@ jobs:
         run: cargo run --package reinhardt-nuages --bin manage migrate
         env:
           REINHARDT_ENV: ci
+          NUAGES_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
 
       - name: Start application server
         working-directory: app
@@ -98,6 +99,7 @@ jobs:
           exit 1
         env:
           REINHARDT_ENV: ci
+          NUAGES_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
 
       - name: Run Bruno scenario tests
         working-directory: app/tests/bruno

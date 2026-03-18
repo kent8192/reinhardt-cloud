@@ -4,8 +4,8 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
-use reinhardt::http::{AuthState, ViewResult};
-use reinhardt::{Request, Response, StatusCode, post};
+use reinhardt::http::ViewResult;
+use reinhardt::{AuthInfo, Json, Response, StatusCode, post};
 use tracing::error;
 use uuid::Uuid;
 
@@ -16,20 +16,13 @@ use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentR
 /// Create a new deployment (authentication required).
 ///
 /// Sets the deployment owner to the authenticated user.
-///
-/// Workaround: Uses `AuthState::from_extensions` instead of `CurrentUser<User>`
-/// DI injection because `CurrentUser` DB lookup requires complex DI configuration
-/// that is not yet fully supported in the reinhardt-web test environment.
-/// See: <https://github.com/kent8192/reinhardt-web/issues/2419>
 #[post("/deployments/", name = "deployment_create")]
-pub async fn create_deployment(request: Request) -> ViewResult<Response> {
-	let auth_state = AuthState::from_extensions(&request.extensions)
-		.filter(|s| s.is_authenticated())
-		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
-	let user_id = Uuid::parse_str(auth_state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let body: CreateDeploymentRequest = request.json()?;
+pub async fn create_deployment(
+	Json(body): Json<CreateDeploymentRequest>,
+	#[inject] AuthInfo(state): AuthInfo,
+) -> ViewResult<Response> {
+	let user_id = Uuid::parse_str(state.user_id())
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	// Validate cluster exists and is owned by the authenticated user
 	let cluster_exists = Cluster::objects()

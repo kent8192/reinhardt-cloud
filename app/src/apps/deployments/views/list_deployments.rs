@@ -5,8 +5,9 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
-use reinhardt::http::{AuthState, ViewResult};
-use reinhardt::{Request, Response, StatusCode, get};
+use reinhardt::http::ViewResult;
+use reinhardt::{AuthInfo, Query, Response, StatusCode, get};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
@@ -16,22 +17,13 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
-///
-/// Workaround: Uses `AuthState::from_extensions` instead of `CurrentUser<User>`
-/// DI injection because `CurrentUser` DB lookup requires complex DI configuration
-/// that is not yet fully supported in the reinhardt-web test environment.
-/// See: <https://github.com/kent8192/reinhardt-web/issues/2419>
 #[get("/deployments/", name = "deployment_list")]
-pub async fn list_deployments(request: Request) -> ViewResult<Response> {
-	let auth_state = AuthState::from_extensions(&request.extensions)
-		.filter(|s| s.is_authenticated())
-		.ok_or_else(|| AppError::Authentication("Authentication required".to_string()))?;
-	let user_id = Uuid::parse_str(auth_state.user_id())
-		.map_err(|e| AppError::Internal(format!("Invalid user ID in token: {e}")))?;
-
-	let params: PaginationParams = request
-		.query_as()
-		.map_err(|e| AppError::Validation(format!("Invalid pagination parameters: {e}")))?;
+pub async fn list_deployments(
+	Query(params): Query<PaginationParams>,
+	#[inject] AuthInfo(state): AuthInfo,
+) -> ViewResult<Response> {
+	let user_id = Uuid::parse_str(state.user_id())
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let total = Deployment::objects()
 		.filter(
@@ -41,7 +33,10 @@ pub async fn list_deployments(request: Request) -> ViewResult<Response> {
 		)
 		.count()
 		.await
-		.map_err(|e| format!("{e}"))? as u64;
+		.map_err(|e| {
+			error!("Failed to count deployments: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})? as u64;
 	let offset: usize = params.offset().try_into().unwrap_or(0);
 	let limit: usize = params.page_size().try_into().unwrap_or(20).min(100);
 	let deployments = Deployment::objects()
@@ -55,7 +50,10 @@ pub async fn list_deployments(request: Request) -> ViewResult<Response> {
 		.limit(limit)
 		.all()
 		.await
-		.map_err(|e| format!("{e}"))?;
+		.map_err(|e| {
+			error!("Failed to list deployments: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 	let items: Vec<DeploymentResponse> = deployments
 		.into_iter()
 		.map(DeploymentResponse::from)
