@@ -13,7 +13,6 @@ pub(crate) mod worker;
 // Re-exports for backward compatibility
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
-pub(crate) use grpc::build_grpc_service;
 pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;

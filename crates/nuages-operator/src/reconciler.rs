@@ -185,6 +185,17 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		info!("Reconciled worker deployment for {name}");
 	}
 
+	// gRPC Service provisioning (Phase 3)
+	let needs_grpc = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+		.unwrap_or(false);
+	if needs_grpc {
+		reconcile_grpc_service(&app, &ctx.client, namespace).await?;
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -218,6 +229,9 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 
 	// Worker resources (stateless — always clean up)
 	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-worker")).await?;
+
+	// gRPC Service (stateless — always clean up)
+	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
 
 	// Always clean up introspect-managed resources that are safe to delete
 	// (Ingress, migration Job). These have ownerReferences but we delete
@@ -579,6 +593,24 @@ async fn reconcile_worker_deployment_resource(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled worker Deployment {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the gRPC `Service` via server-side apply.
+async fn reconcile_grpc_service(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-grpc", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::grpc::build_grpc_service(app)?;
+	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+	services
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled gRPC Service {namespace}/{name}");
 	Ok(())
 }
 
@@ -1545,5 +1577,76 @@ mod tests {
 
 		// Assert — explicit cache should trigger provisioning
 		assert!(should_cache);
+	}
+
+	// ── gRPC / WebSocket integration tests ─────────────────────────
+
+	#[rstest]
+	fn test_grpc_signal_triggers_service_builder() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "grpc": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs_grpc = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs_grpc);
+		let svc = resources::grpc::build_grpc_service(&app).unwrap();
+		assert_eq!(svc.metadata.name.unwrap(), "myapp-grpc");
+	}
+
+	#[rstest]
+	fn test_websocket_signal_adds_ingress_annotations() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "wsapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "wsapp:latest",
+				"introspect": {
+					"routes": [{"path": "/ws/", "methods": []}],
+					"features": {
+						"infrastructure_signals": { "websocket": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let signals = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| &i.features.infrastructure_signals);
+		let routes = &app.spec.introspect.as_ref().unwrap().routes;
+		let ingress =
+			resources::ingress::build_ingress(&app, routes, 8000, None, signals).unwrap();
+
+		// Assert
+		let annotations = ingress.metadata.annotations.unwrap();
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
+			Some(&"3600".to_string())
+		);
 	}
 }
