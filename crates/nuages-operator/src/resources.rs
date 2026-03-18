@@ -2,12 +2,14 @@
 
 pub(crate) mod database;
 pub(crate) mod deployment;
+pub(crate) mod ingress;
 pub(crate) mod labels;
 pub(crate) mod service;
 
 // Re-exports for backward compatibility
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
+pub(crate) use ingress::build_ingress;
 pub(crate) use service::build_service;
 
 /// Validates that a port number is within the valid TCP/UDP range (1-65535).
