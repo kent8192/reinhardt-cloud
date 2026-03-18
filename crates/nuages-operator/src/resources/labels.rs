@@ -9,8 +9,6 @@ use nuages_types::crd::ReinhardtApp;
 use crate::error::Error;
 
 /// Identifies which logical component a Kubernetes resource belongs to.
-// Variants will be used as submodule resource builders are added (Task 4-6).
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Component {
 	/// Web-facing application container.

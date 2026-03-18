@@ -10,13 +10,11 @@ pub(crate) mod service;
 pub(crate) mod worker;
 
 // Re-exports for backward compatibility
-pub(crate) use cache::{build_cache_deployment, build_cache_service};
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
-pub(crate) use worker::build_worker_deployment;
 
 /// Validates that a port number is within the valid TCP/UDP range (1-65535).
 pub(crate) fn validate_port(field: &'static str, port: i32) -> Result<i32, crate::error::Error> {

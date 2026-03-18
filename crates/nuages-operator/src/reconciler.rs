@@ -22,7 +22,7 @@ use crate::inference::configmap::build_settings_configmap;
 use crate::inference::platform::PlatformConfig;
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{
-	build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
+	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
 };
 use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
@@ -170,6 +170,21 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port).await?;
 	}
 
+	// Cache provisioning — explicit spec.cache takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_cache(&app) {
+		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled cache resources for {name}");
+	}
+
+	// Worker provisioning — explicit spec.worker takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_worker(&app) {
+		reconcile_worker_deployment_resource(&app, &ctx.client, namespace).await?;
+		info!("Reconciled worker deployment for {name}");
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -196,6 +211,13 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	info!("Cleaning up ReinhardtApp {name}");
+
+	// Cache resources (stateless — always clean up)
+	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-redis")).await?;
+	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-redis")).await?;
+
+	// Worker resources (stateless — always clean up)
+	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-worker")).await?;
 
 	// Always clean up introspect-managed resources that are safe to delete
 	// (Ingress, migration Job). These have ownerReferences but we delete
@@ -276,8 +298,6 @@ fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
 /// Resolve whether cache should be provisioned.
 ///
 /// Explicit `spec.cache` field takes precedence over introspect signals.
-// Phase 2 will integrate cache provisioning into the reconcile loop
-#[allow(dead_code)]
 fn should_provision_cache(app: &ReinhardtApp) -> bool {
 	if app.spec.cache.is_some() {
 		return true;
@@ -313,8 +333,6 @@ fn resolve_app_port(app: &ReinhardtApp) -> u16 {
 /// Resolve whether a background worker should be provisioned.
 ///
 /// Explicit `spec.worker` field takes precedence over introspect signals.
-// Phase 2 will integrate worker provisioning into the reconcile loop
-#[allow(dead_code)]
 fn should_provision_worker(app: &ReinhardtApp) -> bool {
 	if app.spec.worker.is_some() {
 		return true;
@@ -501,6 +519,61 @@ async fn reconcile_ingress_resource(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled Ingress {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis cache `Deployment` via server-side apply.
+async fn reconcile_cache_deployment(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-redis", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::cache::build_cache_deployment(app)?;
+	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+	deployments
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled cache Deployment {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis cache `Service` via server-side apply.
+async fn reconcile_cache_service_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-redis", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::cache::build_cache_service(app)?;
+	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+	services
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled cache Service {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Worker `Deployment` via server-side apply.
+async fn reconcile_worker_deployment_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let custom_cmd = app.spec.worker.as_ref().and_then(|w| w.command.as_deref());
+	let name = format!("{}-worker", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::worker::build_worker_deployment(app, custom_cmd)?;
+	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+	deployments
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled worker Deployment {namespace}/{name}");
 	Ok(())
 }
 
@@ -1386,5 +1459,86 @@ mod tests {
 
 		// Assert — no ingress should be created
 		assert!(config.is_none());
+	}
+
+	// ── cache/worker integration tests ──────────────────────────────
+
+	#[rstest]
+	fn test_should_provision_cache_from_introspect_triggers_builders() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": {
+							"cache": "redis"
+						}
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_cache = should_provision_cache(&app);
+
+		// Assert
+		assert!(should_cache);
+		let deploy = resources::cache::build_cache_deployment(&app).unwrap();
+		assert_eq!(deploy.metadata.name.unwrap(), "myapp-redis");
+	}
+
+	#[rstest]
+	fn test_should_provision_worker_from_introspect_triggers_builders() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": {
+							"background_worker": true
+						}
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_worker = should_provision_worker(&app);
+
+		// Assert
+		assert!(should_worker);
+		let deploy = resources::worker::build_worker_deployment(&app, None).unwrap();
+		assert_eq!(deploy.metadata.name.unwrap(), "myapp-worker");
+	}
+
+	#[rstest]
+	fn test_explicit_cache_also_triggers_provisioning() {
+		// Arrange — explicit spec.cache set (should still trigger provisioning)
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"cache": { "backend": "redis" }
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let should_cache = should_provision_cache(&app);
+
+		// Assert — explicit cache should trigger provisioning
+		assert!(should_cache);
 	}
 }
