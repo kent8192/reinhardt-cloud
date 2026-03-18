@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 nuages-types = { workspace = true }
+nuages-core = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 tokio = { workspace = true }

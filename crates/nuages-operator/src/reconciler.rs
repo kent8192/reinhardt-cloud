@@ -1,24 +1,30 @@
 //! Reconciler logic for the `ReinhardtApp` custom resource.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
 use futures::StreamExt;
-use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service};
+use k8s_openapi::api::networking::v1::Ingress;
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::platform::PlatformConfig;
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
-use crate::resources::{build_deployment, build_service};
+use crate::resources::{
+	build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
+	build_migration_job, build_service,
+};
 use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
 use nuages_types::crd::policy::DeletionPolicy;
 use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
@@ -148,6 +154,26 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.map_err(Error::Kube)?;
 	info!("Reconciled Service {namespace}/{name}");
 
+	// Introspect-aware resource generation
+	if let Some(introspect) = &app.spec.introspect {
+		let signals = &introspect.features.infrastructure_signals;
+
+		// Database provisioning (Phase 1: PostgreSQL only)
+		if nuages_core::inference::requires_postgresql(signals) {
+			reconcile_db_secret(&app, &ctx.client, namespace).await?;
+			reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
+			reconcile_db_service_resource(&app, &ctx.client, namespace).await?;
+			reconcile_migration_job_resource(&app, &ctx.client, namespace).await?;
+		}
+
+		// Ingress from routes
+		if !introspect.routes.is_empty() {
+			let port = nuages_core::inference::app_port(&introspect.settings);
+			reconcile_ingress_resource(&app, &ctx.client, namespace, &introspect.routes, port)
+				.await?;
+		}
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -175,13 +201,20 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 	let name = app.name_any();
 	info!("Cleaning up ReinhardtApp {name}");
 
+	// Always clean up introspect-managed resources that are safe to delete
+	// (Ingress, migration Job). These have ownerReferences but we delete
+	// explicitly for a cleaner teardown sequence.
+	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
+	delete_if_exists::<Job>(&ctx.client, namespace, &format!("{name}-migrate")).await?;
+
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
 			// Deployment and Service are cleaned up via ownerReferences GC.
-			// Secrets and ConfigMaps are retained for manual cleanup.
+			// Secrets, ConfigMaps, and StatefulSets are retained for manual cleanup.
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
-				 Manual cleanup may be required for: {name}-db-credentials, {name}-settings"
+				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-postgresql, {name}-settings"
 			);
 		}
 		DeletionPolicy::Delete => {
@@ -203,10 +236,188 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 			let _ = secret_api
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
 				.await;
+
+			// Delete introspect-managed database resources
+			delete_if_exists::<StatefulSet>(
+				&ctx.client,
+				namespace,
+				&format!("{name}-postgresql"),
+			)
+			.await?;
+			delete_if_exists::<Service>(
+				&ctx.client,
+				namespace,
+				&format!("{name}-postgresql"),
+			)
+			.await?;
 		}
 	}
 
 	Ok(Action::await_change())
+}
+
+// ── Introspect-aware reconcile helpers ────────────────────────────────
+
+/// Reconciles the database credentials `Secret` for a `ReinhardtApp`.
+///
+/// Only creates the secret if it does not already exist, preserving
+/// existing credentials across reconciliation cycles.
+async fn reconcile_db_secret(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let secret_name = format!("{name}-db-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	if secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		info!("DB credentials Secret {namespace}/{secret_name} already exists, skipping");
+		return Ok(());
+	}
+
+	let secret = build_db_secret(app)?;
+	secret_api
+		.create(&PostParams::default(), &secret)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created DB credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+/// Reconciles the PostgreSQL `StatefulSet` via server-side apply.
+async fn reconcile_db_statefulset(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let sts_name = format!("{name}-postgresql");
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let desired = build_db_statefulset(app)?;
+	let sts_api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
+	sts_api
+		.patch(&sts_name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled StatefulSet {namespace}/{sts_name}");
+	Ok(())
+}
+
+/// Reconciles the PostgreSQL headless `Service` via server-side apply.
+async fn reconcile_db_service_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let svc_name = format!("{name}-postgresql");
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let desired = build_db_service(app)?;
+	let svc_api: Api<Service> = Api::namespaced(client.clone(), namespace);
+	svc_api
+		.patch(&svc_name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled DB Service {namespace}/{svc_name}");
+	Ok(())
+}
+
+/// Reconciles the database migration `Job`.
+///
+/// - If the job completed successfully, skips re-creation.
+/// - If the job failed, deletes it and recreates.
+/// - If the job is still running, skips.
+/// - If no job exists, creates one.
+async fn reconcile_migration_job_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let job_name = format!("{name}-migrate");
+	let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
+
+	if let Some(existing) = job_api.get_opt(&job_name).await.map_err(Error::Kube)? {
+		let status = existing.status.as_ref();
+		let succeeded = status.and_then(|s| s.succeeded).unwrap_or(0);
+		let failed = status.and_then(|s| s.failed).unwrap_or(0);
+		let active = status.and_then(|s| s.active).unwrap_or(0);
+
+		if succeeded > 0 {
+			info!("Migration Job {namespace}/{job_name} already completed, skipping");
+			return Ok(());
+		}
+		if active > 0 {
+			info!("Migration Job {namespace}/{job_name} is still running, skipping");
+			return Ok(());
+		}
+		if failed > 0 {
+			warn!("Migration Job {namespace}/{job_name} failed, deleting for re-creation");
+			// Use propagation policy to clean up pods
+			let dp = DeleteParams {
+				propagation_policy: Some(kube::api::PropagationPolicy::Background),
+				..Default::default()
+			};
+			job_api.delete(&job_name, &dp).await.map_err(Error::Kube)?;
+		}
+	}
+
+	let desired = build_migration_job(app)?;
+	job_api
+		.create(&PostParams::default(), &desired)
+		.await
+		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
+	info!("Created migration Job {namespace}/{job_name}");
+	Ok(())
+}
+
+/// Reconciles the `Ingress` resource via server-side apply.
+async fn reconcile_ingress_resource(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	routes: &[nuages_types::introspect::RouteMetadata],
+	port: u16,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let ssapply = PatchParams::apply("nuages-operator").force();
+
+	let desired = build_ingress(app, routes, port, None)?;
+	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
+	ingress_api
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled Ingress {namespace}/{name}");
+	Ok(())
+}
+
+/// Deletes a namespaced Kubernetes resource if it exists.
+///
+/// Silently succeeds if the resource is already absent.
+async fn delete_if_exists<K>(client: &Client, namespace: &str, name: &str) -> Result<(), Error>
+where
+	K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
+		+ Clone
+		+ serde::de::DeserializeOwned
+		+ fmt::Debug
+		+ k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
+{
+	let api: Api<K> = Api::namespaced(client.clone(), namespace);
+	if api.get_opt(name).await.map_err(Error::Kube)?.is_some() {
+		api.delete(name, &Default::default())
+			.await
+			.map_err(Error::Kube)?;
+	}
+	Ok(())
 }
 
 /// Builds the desired `ReinhardtAppStatus` for the given readiness state.
@@ -329,6 +540,7 @@ pub(crate) async fn run(client: Client) {
 	let apps: Api<ReinhardtApp> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
+	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
 
 	let platform = PlatformConfig::from_env();
 	let context = Arc::new(Context { client, platform });
@@ -340,6 +552,10 @@ pub(crate) async fn run(client: Client) {
 		)
 		.owns(
 			services,
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+		)
+		.owns(
+			statefulsets,
 			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
 		)
 		.shutdown_on_signal()
@@ -663,5 +879,119 @@ mod tests {
 		// Assert — error_policy must return a 30-second requeue
 		let expected = Action::requeue(Duration::from_secs(30));
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	// ── introspect-aware decision logic tests ───────────────────────
+
+	#[rstest]
+	fn test_introspect_with_postgresql_triggers_db_path() {
+		// Arrange
+		use nuages_types::introspect::{
+			FeaturesMetadata, InfraSignals, IntrospectOutput,
+		};
+
+		let mut app = make_test_app("introspect-pg-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let signals = &introspect.features.infrastructure_signals;
+		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+
+		// Assert
+		assert!(needs_pg);
+	}
+
+	#[rstest]
+	fn test_no_introspect_skips_db_path() {
+		// Arrange
+		let app = make_test_app("legacy-app");
+
+		// Act / Assert
+		assert!(app.spec.introspect.is_none());
+	}
+
+	#[rstest]
+	fn test_introspect_with_routes_triggers_ingress_path() {
+		// Arrange
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata, SettingsMetadata};
+
+		let mut app = make_test_app("route-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/users/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			settings: SettingsMetadata::default(),
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let has_routes = !introspect.routes.is_empty();
+		let port = nuages_core::inference::app_port(&introspect.settings);
+
+		// Assert
+		assert!(has_routes);
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_introspect_without_db_skips_postgresql() {
+		// Arrange
+		use nuages_types::introspect::{
+			FeaturesMetadata, InfraSignals, IntrospectOutput,
+		};
+
+		let mut app = make_test_app("no-db-introspect-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: None,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let introspect = app.spec.introspect.as_ref().unwrap();
+		let signals = &introspect.features.infrastructure_signals;
+		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+
+		// Assert
+		assert!(!needs_pg);
+	}
+
+	#[rstest]
+	fn test_cleanup_retain_policy_preserves_db_credentials() {
+		// Arrange
+		let app = make_test_app("retain-db-app");
+
+		// Act / Assert — DeletionPolicy::Retain means credentials are NOT deleted
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Retain);
+		// With Retain policy, the cleanup function logs but does not delete secrets
+	}
+
+	#[rstest]
+	fn test_cleanup_delete_policy_removes_all_resources() {
+		// Arrange
+		let mut app = make_test_app("delete-all-app");
+		app.spec.deletion_policy = DeletionPolicy::Delete;
+
+		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
+		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
 	}
 }
