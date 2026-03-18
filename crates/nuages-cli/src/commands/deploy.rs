@@ -89,7 +89,15 @@ fn run_manage_introspect() -> Result<String, String> {
 
 	// Fall back to cargo run for development mode
 	let result = Command::new("cargo")
-		.args(["run", "--", "introspect", "--format", "yaml"])
+		.args([
+			"run",
+			"--bin",
+			"manage",
+			"--",
+			"introspect",
+			"--format",
+			"yaml",
+		])
 		.output()
 		.map_err(|e| format!("Failed to run cargo: {e}"))?;
 
@@ -212,6 +220,9 @@ pub(crate) async fn execute(
 		})
 		.unwrap_or(1);
 
+	let replicas_i32 = i32::try_from(replicas)
+		.map_err(|_| format!("replicas value {replicas} exceeds i32::MAX"))?;
+
 	if toml_config.is_some() && introspect.is_none() {
 		println!("Using configuration from nuages.toml");
 	}
@@ -221,7 +232,7 @@ pub(crate) async fn execute(
 		&app_name,
 		&args.namespace,
 		&image,
-		Some(replicas as i32),
+		Some(replicas_i32),
 		introspect,
 	);
 
