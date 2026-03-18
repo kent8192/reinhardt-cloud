@@ -6,6 +6,7 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::introspect::IntrospectOutput;
 use crate::validation::ValidationError;
 
 use super::auth::AuthSpec;
@@ -164,7 +165,7 @@ impl ServicesSpec {
 }
 
 /// Spec for the `ReinhardtApp` custom resource.
-#[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[kube(
 	group = "paas.nuages.dev",
 	version = "v1alpha2",
@@ -208,6 +209,10 @@ pub struct ReinhardtAppSpec {
 	/// Environment variables as key-value pairs
 	#[serde(default)]
 	pub env: BTreeMap<String, String>,
+	/// Introspect metadata from `manage introspect` output.
+	/// When present, the operator uses this to infer infrastructure requirements.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub introspect: Option<IntrospectOutput>,
 }
 
 impl ReinhardtAppSpec {
@@ -316,6 +321,7 @@ mod tests {
 					"postgres://localhost/db".to_string(),
 				),
 			]),
+			introspect: None,
 		};
 
 		// Act
@@ -358,6 +364,7 @@ mod tests {
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Retain);
 		assert!(spec.features.is_empty());
 		assert!(spec.env.is_empty());
+		assert!(spec.introspect.is_none());
 	}
 
 	#[rstest]
@@ -512,12 +519,6 @@ mod tests {
 		let spec = ReinhardtAppSpec {
 			image: "myapp:latest".to_string(),
 			replicas: Some(-1),
-			database: None,
-			cache: None,
-			worker: None,
-			auth: None,
-			storage: None,
-			mail: None,
 			scale: Some(ScaleSpec {
 				min_replicas: Some(-1),
 				max_replicas: Some(-2),
@@ -534,9 +535,7 @@ mod tests {
 				target_port: Some(65536),
 				ingress_host: None,
 			}),
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -578,17 +577,7 @@ mod tests {
 				storage_gb: Some(20),
 				version: None,
 			}),
-			cache: None,
-			worker: None,
-			auth: None,
-			storage: None,
-			mail: None,
-			scale: None,
-			health: None,
-			services: None,
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -604,24 +593,13 @@ mod tests {
 		// Arrange
 		let spec = ReinhardtAppSpec {
 			image: "myapp:v1".to_string(),
-			replicas: None,
 			database: Some(DatabaseSpec {
 				engine: DatabaseEngine::Postgresql,
 				instance_class: None,
 				storage_gb: Some(-1),
 				version: None,
 			}),
-			cache: None,
-			worker: None,
-			auth: None,
-			storage: None,
-			mail: None,
-			scale: None,
-			health: None,
-			services: None,
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -639,22 +617,11 @@ mod tests {
 		// Arrange
 		let spec = ReinhardtAppSpec {
 			image: "myapp:v1".to_string(),
-			replicas: None,
-			database: None,
-			cache: None,
 			worker: Some(WorkerSpec {
 				concurrency: Some(0),
 				command: None,
 			}),
-			auth: None,
-			storage: None,
-			mail: None,
-			scale: None,
-			health: None,
-			services: None,
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -672,23 +639,12 @@ mod tests {
 		// Arrange
 		let spec = ReinhardtAppSpec {
 			image: "myapp:v1".to_string(),
-			replicas: None,
-			database: None,
-			cache: None,
-			worker: None,
-			auth: None,
-			storage: None,
 			mail: Some(MailSpec {
 				smtp_host: None,
 				smtp_port: Some(0),
 				credentials_secret: None,
 			}),
-			scale: None,
-			health: None,
-			services: None,
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -721,23 +677,12 @@ mod tests {
 		// Arrange
 		let spec = ReinhardtAppSpec {
 			image: "myapp:v1".to_string(),
-			replicas: None,
-			database: None,
-			cache: None,
-			worker: None,
-			auth: None,
-			storage: None,
 			mail: Some(MailSpec {
 				smtp_host: None,
 				smtp_port: Some(99999),
 				credentials_secret: None,
 			}),
-			scale: None,
-			health: None,
-			services: None,
-			deletion_policy: DeletionPolicy::default(),
-			features: vec![],
-			env: BTreeMap::new(),
+			..Default::default()
 		};
 
 		// Act
@@ -811,6 +756,7 @@ mod tests {
 			deletion_policy: DeletionPolicy::Delete,
 			features: vec!["db-postgres".to_string(), "auth-jwt".to_string()],
 			env: BTreeMap::from([("MY_VAR".to_string(), "my_val".to_string())]),
+			introspect: None,
 		};
 
 		// Act
@@ -851,5 +797,47 @@ mod tests {
 
 		// Assert
 		assert!(spec.features.is_empty());
+	}
+
+	#[rstest]
+	fn test_reinhardt_app_spec_with_introspect() {
+		// Arrange
+		use crate::introspect::{AppMetadata, IntrospectOutput};
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			introspect: Some(IntrospectOutput {
+				app: AppMetadata {
+					name: "my-app".to_string(),
+					version: "1.0.0".to_string(),
+				},
+				..Default::default()
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).expect("serialization should succeed");
+		let value: serde_json::Value =
+			serde_json::from_str(&json).expect("parsing should succeed");
+
+		// Assert
+		assert_eq!(value["image"], "myapp:latest");
+		assert_eq!(value["introspect"]["app"]["name"], "my-app");
+		assert_eq!(value["introspect"]["app"]["version"], "1.0.0");
+	}
+
+	#[rstest]
+	fn test_reinhardt_app_spec_backward_compatible() {
+		// Arrange: JSON without introspect field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert_eq!(spec.replicas, Some(3));
+		assert!(spec.introspect.is_none());
 	}
 }

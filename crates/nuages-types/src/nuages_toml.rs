@@ -245,6 +245,7 @@ impl NuagesToml {
 			}),
 			deletion_policy: DeletionPolicy::default(),
 			features: Vec::new(),
+			introspect: None,
 		}
 	}
 }

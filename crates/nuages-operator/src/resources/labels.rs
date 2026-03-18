@@ -75,7 +75,6 @@ mod tests {
 	use kube::api::ObjectMeta;
 	use nuages_types::crd::ReinhardtAppSpec;
 	use rstest::rstest;
-	use std::collections::BTreeMap;
 
 	fn make_test_app(name: &str) -> ReinhardtApp {
 		ReinhardtApp {
@@ -87,19 +86,7 @@ mod tests {
 			},
 			spec: ReinhardtAppSpec {
 				image: "img:v1".to_string(),
-				replicas: None,
-				database: None,
-				cache: None,
-				worker: None,
-				auth: None,
-				storage: None,
-				mail: None,
-				scale: None,
-				health: None,
-				services: None,
-				deletion_policy: Default::default(),
-				features: vec![],
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}

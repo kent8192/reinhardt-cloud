@@ -277,7 +277,6 @@ fn standard_db_labels(app_name: &str) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::crd::policy::DeletionPolicy;
 	use nuages_types::crd::{DatabaseEngine, ReinhardtAppSpec};
 	use rstest::rstest;
 
@@ -291,19 +290,8 @@ mod tests {
 			},
 			spec: ReinhardtAppSpec {
 				image: "myapp:latest".to_string(),
-				replicas: None,
 				database: Some(db_spec),
-				cache: None,
-				worker: None,
-				auth: None,
-				storage: None,
-				mail: None,
-				scale: None,
-				health: None,
-				services: None,
-				deletion_policy: DeletionPolicy::default(),
-				features: vec![],
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}
@@ -319,19 +307,7 @@ mod tests {
 			},
 			spec: ReinhardtAppSpec {
 				image: "myapp:latest".to_string(),
-				replicas: None,
-				database: None,
-				cache: None,
-				worker: None,
-				auth: None,
-				storage: None,
-				mail: None,
-				scale: None,
-				health: None,
-				services: None,
-				deletion_policy: DeletionPolicy::default(),
-				features: vec![],
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}

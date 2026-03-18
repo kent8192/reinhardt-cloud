@@ -357,11 +357,9 @@ pub(crate) async fn run(client: Client) {
 mod tests {
 	use super::*;
 	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use nuages_types::crd::policy::DeletionPolicy;
 	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
 	use nuages_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
-	use std::collections::BTreeMap;
 
 	/// Helper to create a minimal `ReinhardtApp` for reconciler tests.
 	fn make_test_app(name: &str) -> ReinhardtApp {
@@ -375,19 +373,7 @@ mod tests {
 			},
 			spec: ReinhardtAppSpec {
 				image: "test:latest".to_string(),
-				replicas: None,
-				database: None,
-				cache: None,
-				worker: None,
-				auth: None,
-				storage: None,
-				mail: None,
-				scale: None,
-				health: None,
-				services: None,
-				deletion_policy: Default::default(),
-				features: vec![],
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}

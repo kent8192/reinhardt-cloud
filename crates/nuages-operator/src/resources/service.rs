@@ -80,18 +80,7 @@ mod tests {
 			spec: ReinhardtAppSpec {
 				image: image.to_string(),
 				replicas,
-				database: None,
-				cache: None,
-				worker: None,
-				auth: None,
-				storage: None,
-				mail: None,
-				scale: None,
-				health: None,
-				services: None,
-				deletion_policy: Default::default(),
-				features: vec![],
-				env: BTreeMap::new(),
+				..Default::default()
 			},
 			status: None,
 		}

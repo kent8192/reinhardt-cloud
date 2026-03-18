@@ -14,6 +14,14 @@ pub enum ConditionType {
 	Ready,
 	Progressing,
 	Degraded,
+	/// Database sub-resource is provisioned and reachable
+	DatabaseReady,
+	/// Cache sub-resource is provisioned and reachable
+	CacheReady,
+	/// Worker deployment is running and healthy
+	WorkerReady,
+	/// Ingress resource is configured and healthy
+	IngressReady,
 }
 
 /// Status value for a Kubernetes-style status condition.
@@ -114,6 +122,10 @@ mod tests {
 			(ConditionType::Ready, "\"Ready\""),
 			(ConditionType::Progressing, "\"Progressing\""),
 			(ConditionType::Degraded, "\"Degraded\""),
+			(ConditionType::DatabaseReady, "\"DatabaseReady\""),
+			(ConditionType::CacheReady, "\"CacheReady\""),
+			(ConditionType::WorkerReady, "\"WorkerReady\""),
+			(ConditionType::IngressReady, "\"IngressReady\""),
 		];
 		let statuses = [
 			(ConditionStatus::True, "\"True\""),
