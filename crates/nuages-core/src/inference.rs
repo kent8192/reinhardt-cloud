@@ -40,6 +40,21 @@ pub fn requires_grpc(signals: &InfraSignals) -> bool {
 	signals.grpc
 }
 
+/// Check if the application requires object storage.
+pub fn requires_storage(signals: &InfraSignals) -> bool {
+	signals.storage.is_some()
+}
+
+/// Check if the application requires a mail backend.
+pub fn requires_mail(signals: &InfraSignals) -> bool {
+	signals.mail.is_some()
+}
+
+/// Check if the application requires Redis for session storage.
+pub fn requires_redis_sessions(signals: &InfraSignals) -> bool {
+	signals.session_backend.as_deref().is_some_and(|s| s == "redis")
+}
+
 /// Get the application port from settings.
 ///
 /// Returns the `default_port` from [`SettingsMetadata::server`],
@@ -190,5 +205,62 @@ mod tests {
 
 		// Assert
 		assert_eq!(result, 8000);
+	}
+
+	#[rstest]
+	#[case(Some("s3".to_string()), true)]
+	#[case(Some("gcs".to_string()), true)]
+	#[case(None, false)]
+	fn test_requires_storage(#[case] storage: Option<String>, #[case] expected: bool) {
+		// Arrange
+		let signals = InfraSignals {
+			storage,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_storage(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(Some("smtp".to_string()), true)]
+	#[case(Some("ses".to_string()), true)]
+	#[case(None, false)]
+	fn test_requires_mail(#[case] mail: Option<String>, #[case] expected: bool) {
+		// Arrange
+		let signals = InfraSignals {
+			mail,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_mail(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(Some("redis".to_string()), true)]
+	#[case(Some("db".to_string()), false)]
+	#[case(None, false)]
+	fn test_requires_redis_sessions(
+		#[case] session_backend: Option<String>,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let signals = InfraSignals {
+			session_backend,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_redis_sessions(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
 	}
 }
