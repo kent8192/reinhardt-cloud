@@ -165,6 +165,7 @@ impl PlatformConfig {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serial_test::serial;
 
 	#[rstest]
 	fn aws_defaults_returns_correct_platform() {
@@ -273,6 +274,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(platform_env)]
 	fn from_env_defaults_to_onpremise_when_unset() {
 		// Arrange
 		// SAFETY: test-only env manipulation; tests using env vars
@@ -289,6 +291,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(platform_env)]
 	fn from_env_selects_aws() {
 		// Arrange
 		// SAFETY: test-only env manipulation
@@ -309,6 +312,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(platform_env)]
 	fn from_env_selects_gcp() {
 		// Arrange
 		// SAFETY: test-only env manipulation
@@ -329,6 +333,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(platform_env)]
 	fn from_env_falls_back_to_onpremise_for_unknown() {
 		// Arrange
 		// SAFETY: test-only env manipulation

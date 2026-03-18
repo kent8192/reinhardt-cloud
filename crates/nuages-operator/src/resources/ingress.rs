@@ -79,10 +79,7 @@ pub(crate) fn build_ingress(
 	app_port: u16,
 	host: Option<&str>,
 	signals: Option<&InfraSignals>,
-) -> Result<Ingress, Error> {
-	let labels = standard_labels(app, Component::Ingress);
-	let namespace = app.namespace().unwrap_or_default();
-	let owner_ref = owner_reference(app)?;
+) -> Result<Option<Ingress>, Error> {
 	let app_name = app.name_any();
 
 	let mut paths: Vec<HTTPIngressPath> = routes
@@ -100,12 +97,21 @@ pub(crate) fn build_ingress(
 		}
 	}
 
+	// Skip Ingress creation when there are no paths to route
+	if paths.is_empty() {
+		return Ok(None);
+	}
+
+	let labels = standard_labels(app, Component::Ingress);
+	let namespace = app.namespace().unwrap_or_default();
+	let owner_ref = owner_reference(app)?;
+
 	let rule = IngressRule {
 		host: host.map(String::from),
 		http: Some(HTTPIngressRuleValue { paths }),
 	};
 
-	Ok(Ingress {
+	Ok(Some(Ingress {
 		metadata: ObjectMeta {
 			name: Some(app_name),
 			namespace: Some(namespace),
@@ -120,7 +126,7 @@ pub(crate) fn build_ingress(
 			..Default::default()
 		}),
 		..Default::default()
-	})
+	}))
 }
 
 #[cfg(test)]
@@ -162,7 +168,9 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		assert_eq!(ingress.metadata.name.as_deref(), Some("my-app"));
@@ -175,7 +183,9 @@ mod tests {
 		let routes = vec![make_route("/api/users/"), make_route("/api/posts/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8080, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8080, None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -198,7 +208,8 @@ mod tests {
 
 		// Act
 		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None)
-			.expect("build should succeed");
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -213,7 +224,9 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 80, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 80, None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -222,19 +235,16 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_ingress_empty_routes() {
+	fn test_build_ingress_empty_routes_returns_none() {
 		// Arrange
 		let app = make_test_app("web");
 		let routes: Vec<RouteMetadata> = vec![];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let result = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
-		let spec = ingress.spec.unwrap();
-		let rules = spec.rules.as_ref().unwrap();
-		let paths = &rules[0].http.as_ref().unwrap().paths;
-		assert!(paths.is_empty());
+		assert!(result.is_none());
 	}
 
 	#[rstest]
@@ -248,8 +258,9 @@ mod tests {
 		};
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let annotations = ingress
@@ -283,7 +294,8 @@ mod tests {
 
 		// Act
 		let ingress = build_ingress(&app, &routes, 50051, None, Some(&signals))
-			.expect("build should succeed");
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let annotations = ingress
@@ -309,8 +321,9 @@ mod tests {
 		};
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let annotations = ingress
@@ -334,7 +347,9 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		assert!(ingress.metadata.annotations.is_none());
@@ -351,8 +366,9 @@ mod tests {
 		};
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -373,8 +389,9 @@ mod tests {
 		};
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -395,8 +412,9 @@ mod tests {
 		};
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8000, None, Some(&signals)).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed")
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let spec = ingress.spec.unwrap();

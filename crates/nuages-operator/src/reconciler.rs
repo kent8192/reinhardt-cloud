@@ -611,7 +611,10 @@ async fn reconcile_ingress_resource(
 		.introspect
 		.as_ref()
 		.map(|i| &i.features.infrastructure_signals);
-	let desired = build_ingress(app, routes, port, None, signals)?;
+	let Some(desired) = build_ingress(app, routes, port, None, signals)? else {
+		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
+		return Ok(());
+	};
 	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
 	ingress_api
 		.patch(&name, &ssapply, &Patch::Apply(&desired))
@@ -2044,7 +2047,9 @@ mod tests {
 			.as_ref()
 			.map(|i| &i.features.infrastructure_signals);
 		let routes = &app.spec.introspect.as_ref().unwrap().routes;
-		let ingress = resources::ingress::build_ingress(&app, routes, 8000, None, signals).unwrap();
+		let ingress = resources::ingress::build_ingress(&app, routes, 8000, None, signals)
+			.unwrap()
+			.expect("ingress should be created for non-empty routes");
 
 		// Assert
 		let annotations = ingress.metadata.annotations.unwrap();

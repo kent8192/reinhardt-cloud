@@ -32,8 +32,23 @@ fn generate_password() -> String {
 /// Sanitizes an application name for use as a PostgreSQL database/user name.
 ///
 /// Replaces hyphens with underscores since PostgreSQL identifiers do not allow hyphens.
+/// Strips non-alphanumeric/underscore characters, prefixes with underscore if the name
+/// starts with a digit, and truncates to 63 characters (PostgreSQL identifier limit).
 fn sanitize_db_name(name: &str) -> String {
-	name.replace('-', "_")
+	let mut sanitized: String = name
+		.replace('-', "_")
+		.chars()
+		.filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+		.collect();
+
+	// PostgreSQL identifiers must not start with a digit
+	if sanitized.starts_with(|c: char| c.is_ascii_digit()) {
+		sanitized.insert(0, '_');
+	}
+
+	// PostgreSQL identifier length limit
+	sanitized.truncate(63);
+	sanitized
 }
 
 /// Builds a `Secret` containing PostgreSQL credentials for the given `ReinhardtApp`.

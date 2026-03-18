@@ -63,11 +63,7 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 			name: "migrate".to_string(),
 			image: Some(app.spec.image.clone()),
 			command: Some(vec![
-				"cargo".to_string(),
-				"run".to_string(),
-				"--bin".to_string(),
 				"manage".to_string(),
-				"--".to_string(),
 				"migrate".to_string(),
 				"--run".to_string(),
 			]),
