@@ -1,5 +1,6 @@
 //! Kubernetes resource builders for operator-managed resources.
 
+pub(crate) mod cache;
 pub(crate) mod database;
 pub(crate) mod deployment;
 pub(crate) mod ingress;
@@ -8,6 +9,7 @@ pub(crate) mod migration;
 pub(crate) mod service;
 
 // Re-exports for backward compatibility
+pub(crate) use cache::{build_cache_deployment, build_cache_service};
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
