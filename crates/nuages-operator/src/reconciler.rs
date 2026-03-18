@@ -227,6 +227,17 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		info!("Reconciled Redis for session backend for {name}");
 	}
 
+	// i18n ConfigMap provisioning (Phase 5)
+	let needs_i18n = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+		.unwrap_or(false);
+	if needs_i18n {
+		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -266,6 +277,9 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 
 	// Storage ServiceAccount (stateless — always clean up)
 	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+
+	// i18n ConfigMap (stateless — always clean up)
+	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
 
 	// Always clean up introspect-managed resources that are safe to delete
 	// (Ingress, migration Job). These have ownerReferences but we delete
@@ -734,6 +748,24 @@ async fn reconcile_mail_secret(
 		.await
 		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
 	info!("Created SMTP credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+/// Reconciles the i18n locale `ConfigMap` via server-side apply.
+async fn reconcile_i18n_configmap(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = format!("{}-locales", app.name_any());
+	let ssapply = PatchParams::apply("nuages-operator").force();
+	let desired = resources::i18n::build_i18n_configmap(app)?;
+	let configmaps: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
+	configmaps
+		.patch(&name, &ssapply, &Patch::Apply(&desired))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled i18n ConfigMap {namespace}/{name}");
 	Ok(())
 }
 
@@ -1955,6 +1987,38 @@ mod tests {
 			secret.metadata.name.as_deref(),
 			Some("myapp-smtp-credentials")
 		);
+	}
+
+	#[rstest]
+	fn test_i18n_signal_triggers_configmap_builder() {
+		// Arrange
+		let json = serde_json::json!({
+			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"kind": "ReinhardtApp",
+			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
+			"spec": {
+				"image": "myapp:latest",
+				"introspect": {
+					"features": {
+						"infrastructure_signals": { "i18n": true }
+					}
+				}
+			}
+		});
+		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+
+		// Act
+		let needs = app
+			.spec
+			.introspect
+			.as_ref()
+			.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+			.unwrap_or(false);
+
+		// Assert
+		assert!(needs);
+		let cm = resources::i18n::build_i18n_configmap(&app).unwrap();
+		assert_eq!(cm.metadata.name.unwrap(), "myapp-locales");
 	}
 
 	#[rstest]
