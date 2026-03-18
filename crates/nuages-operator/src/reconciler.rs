@@ -154,24 +154,20 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.map_err(Error::Kube)?;
 	info!("Reconciled Service {namespace}/{name}");
 
-	// Introspect-aware resource generation
-	if let Some(introspect) = &app.spec.introspect {
-		let signals = &introspect.features.infrastructure_signals;
+	// Database provisioning — explicit spec.database takes precedence,
+	// falling back to introspect infrastructure signals.
+	if should_provision_postgresql(&app) && app.spec.database.is_none() {
+		// Introspect-derived database: provision StatefulSet + credentials
+		reconcile_db_secret(&app, &ctx.client, namespace).await?;
+		reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
+		reconcile_db_service_resource(&app, &ctx.client, namespace).await?;
+		reconcile_migration_job_resource(&app, &ctx.client, namespace).await?;
+	}
 
-		// Database provisioning (Phase 1: PostgreSQL only)
-		if nuages_core::inference::requires_postgresql(signals) {
-			reconcile_db_secret(&app, &ctx.client, namespace).await?;
-			reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
-			reconcile_db_service_resource(&app, &ctx.client, namespace).await?;
-			reconcile_migration_job_resource(&app, &ctx.client, namespace).await?;
-		}
-
-		// Ingress from routes
-		if !introspect.routes.is_empty() {
-			let port = nuages_core::inference::app_port(&introspect.settings);
-			reconcile_ingress_resource(&app, &ctx.client, namespace, &introspect.routes, port)
-				.await?;
-		}
+	// Ingress — explicit services.ingress_host takes precedence,
+	// falling back to introspect routes.
+	if let Some((routes, port)) = resolve_ingress_config(&app) {
+		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port).await?;
 	}
 
 	// Derive readiness from the observed Deployment status
@@ -254,6 +250,110 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 	}
 
 	Ok(Action::await_change())
+}
+
+// ── Conflict resolution: explicit CRD fields vs introspect signals ───
+
+/// Resolve whether PostgreSQL should be provisioned.
+///
+/// Explicit `spec.database` field takes precedence over introspect signals.
+/// Returns `true` if either the explicit database spec is set or the
+/// introspect infrastructure signals indicate PostgreSQL usage.
+fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
+	// Explicit database field takes precedence
+	if app.spec.database.is_some() {
+		return true;
+	}
+
+	// Fall back to introspect signals
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_postgresql(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether cache should be provisioned.
+///
+/// Explicit `spec.cache` field takes precedence over introspect signals.
+fn should_provision_cache(app: &ReinhardtApp) -> bool {
+	if app.spec.cache.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_cache(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve the effective application port.
+///
+/// Explicit `spec.services.target_port` takes precedence over
+/// introspect settings. Defaults to 8000 when neither is set.
+fn resolve_app_port(app: &ReinhardtApp) -> u16 {
+	// Explicit services.target_port takes precedence
+	if let Some(services) = &app.spec.services {
+		if let Some(port) = services.target_port {
+			return port as u16;
+		}
+	}
+
+	// Fall back to introspect settings
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::app_port(&i.settings))
+		.unwrap_or(8000)
+}
+
+/// Resolve whether a background worker should be provisioned.
+///
+/// Explicit `spec.worker` field takes precedence over introspect signals.
+fn should_provision_worker(app: &ReinhardtApp) -> bool {
+	if app.spec.worker.is_some() {
+		return true;
+	}
+
+	app.spec
+		.introspect
+		.as_ref()
+		.map(|i| nuages_core::inference::requires_worker(&i.features.infrastructure_signals))
+		.unwrap_or(false)
+}
+
+/// Resolve whether ingress routes should be provisioned.
+///
+/// Explicit `spec.services.ingress_host` takes precedence over
+/// introspect routes. Returns the route list and port if ingress
+/// should be created, or `None` otherwise.
+fn resolve_ingress_config(
+	app: &ReinhardtApp,
+) -> Option<(Vec<nuages_types::introspect::RouteMetadata>, u16)> {
+	// Explicit ingress_host in services spec is handled by the existing
+	// reconcile path (build_service/build_ingress from explicit fields).
+	// Here we only handle introspect-derived routes when no explicit
+	// services config provides an ingress host.
+	let has_explicit_ingress = app
+		.spec
+		.services
+		.as_ref()
+		.is_some_and(|s| s.ingress_host.is_some());
+
+	if has_explicit_ingress {
+		return None;
+	}
+
+	// Fall back to introspect routes
+	app.spec.introspect.as_ref().and_then(|i| {
+		if i.routes.is_empty() {
+			None
+		} else {
+			let port = resolve_app_port(app);
+			Some((i.routes.clone(), port))
+		}
+	})
 }
 
 // ── Introspect-aware reconcile helpers ────────────────────────────────
@@ -993,5 +1093,294 @@ mod tests {
 
 		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
 		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	// ── conflict resolution tests ───────────────────────────────────
+
+	#[rstest]
+	fn test_explicit_database_overrides_introspect() {
+		// Arrange — explicit database set, introspect also has postgresql
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-db-app");
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should use explicit database path (returns true because
+		// explicit spec.database is set)
+		assert!(result);
+		assert!(app.spec.database.is_some());
+	}
+
+	#[rstest]
+	fn test_introspect_used_when_no_explicit_database() {
+		// Arrange — no explicit database, introspect has postgresql
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("introspect-only-db-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					database: Some("postgres".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should provision from introspect fallback
+		assert!(result);
+		assert!(app.spec.database.is_none());
+	}
+
+	#[rstest]
+	fn test_no_database_when_neither_set() {
+		// Arrange — no explicit database, no introspect
+		let app = make_test_app("no-db-no-introspect-app");
+
+		// Act
+		let result = should_provision_postgresql(&app);
+
+		// Assert — should not provision database
+		assert!(!result);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_explicit_overrides() {
+		// Arrange — explicit services.target_port = 3000, introspect says 9000
+		use nuages_types::crd::spec::ServicesSpec;
+		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+
+		let mut app = make_test_app("explicit-port-app");
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(3000),
+			ingress_host: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			settings: SettingsMetadata {
+				server: ServerSettings {
+					default_port: 9000,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — explicit target_port takes precedence
+		assert_eq!(port, 3000);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_falls_back_to_introspect() {
+		// Arrange — no explicit port, introspect says 9000
+		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+
+		let mut app = make_test_app("introspect-port-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			settings: SettingsMetadata {
+				server: ServerSettings {
+					default_port: 9000,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — should return introspect-derived port
+		assert_eq!(port, 9000);
+	}
+
+	#[rstest]
+	fn test_resolve_app_port_defaults_when_neither_set() {
+		// Arrange — no explicit port, no introspect
+		let app = make_test_app("default-port-app");
+
+		// Act
+		let port = resolve_app_port(&app);
+
+		// Assert — should return default 8000
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_should_provision_cache_explicit_overrides() {
+		// Arrange — explicit cache set, introspect also has redis
+		use nuages_types::crd::cache::{CacheBackend, CacheSpec};
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-cache-app");
+		app.spec.cache = Some(CacheSpec {
+			backend: CacheBackend::Redis,
+			instance_type: Some("cache.t3.micro".to_string()),
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					cache: Some("redis".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_cache(&app);
+
+		// Assert — explicit cache spec takes precedence
+		assert!(result);
+		assert!(app.spec.cache.is_some());
+	}
+
+	#[rstest]
+	fn test_should_provision_cache_falls_back_to_introspect() {
+		// Arrange — no explicit cache, introspect has redis
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("introspect-cache-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					cache: Some("redis".to_string()),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_cache(&app);
+
+		// Assert — introspect fallback used
+		assert!(result);
+		assert!(app.spec.cache.is_none());
+	}
+
+	#[rstest]
+	fn test_should_provision_worker_explicit_overrides() {
+		// Arrange — explicit worker set, introspect also has background_worker
+		use nuages_types::crd::worker::WorkerSpec;
+		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+
+		let mut app = make_test_app("explicit-worker-app");
+		app.spec.worker = Some(WorkerSpec {
+			concurrency: Some(4),
+			command: None,
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			features: FeaturesMetadata {
+				infrastructure_signals: InfraSignals {
+					background_worker: true,
+					..Default::default()
+				},
+				..Default::default()
+			},
+			..Default::default()
+		});
+
+		// Act
+		let result = should_provision_worker(&app);
+
+		// Assert — explicit worker spec takes precedence
+		assert!(result);
+		assert!(app.spec.worker.is_some());
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_explicit_host_skips_introspect() {
+		// Arrange — explicit ingress_host set, introspect also has routes
+		use nuages_types::crd::spec::ServicesSpec;
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+
+		let mut app = make_test_app("explicit-ingress-app");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8080),
+			ingress_host: Some("myapp.example.com".to_string()),
+		});
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — explicit ingress_host takes precedence, introspect routes skipped
+		assert!(config.is_none());
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_falls_back_to_introspect_routes() {
+		// Arrange — no explicit ingress_host, introspect has routes
+		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+
+		let mut app = make_test_app("introspect-ingress-app");
+		app.spec.introspect = Some(IntrospectOutput {
+			routes: vec![RouteMetadata {
+				path: "/api/v1/".to_string(),
+				methods: vec!["GET".to_string(), "POST".to_string()],
+				name: None,
+				namespace: None,
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — introspect routes used with default port
+		let (routes, port) = config.expect("should return ingress config");
+		assert_eq!(routes.len(), 1);
+		assert_eq!(routes[0].path, "/api/v1/");
+		assert_eq!(port, 8000);
+	}
+
+	#[rstest]
+	fn test_resolve_ingress_none_when_neither_set() {
+		// Arrange — no explicit ingress_host, no introspect
+		let app = make_test_app("no-ingress-app");
+
+		// Act
+		let config = resolve_ingress_config(&app);
+
+		// Assert — no ingress should be created
+		assert!(config.is_none());
 	}
 }
