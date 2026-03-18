@@ -57,6 +57,6 @@ variable "codecov_token" {
 
 variable "self_hosted_enabled" {
   description = "Circuit breaker for self-hosted runners. Set to 'true' to enable, 'false' to force GitHub-hosted."
-  type        = string
-  default     = "false"
+  type        = bool
+  default     = false
 }
