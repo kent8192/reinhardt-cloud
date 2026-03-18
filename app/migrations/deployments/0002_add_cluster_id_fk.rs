@@ -5,15 +5,7 @@ pub fn migration() -> Migration {
 		name: "0002_add_cluster_id_fk".to_string(),
 		operations: vec![Operation::AddConstraint {
 			table: "deployments".to_string(),
-			constraint: Constraint::ForeignKey {
-				name: "deployments_cluster_id_fk".to_string(),
-				columns: vec!["cluster_id".to_string()],
-				referenced_table: "clusters".to_string(),
-				referenced_columns: vec!["id".to_string()],
-				on_delete: ForeignKeyAction::Restrict,
-				on_update: ForeignKeyAction::Cascade,
-				deferrable: None,
-			},
+			constraint_sql: "CONSTRAINT deployments_cluster_id_fk FOREIGN KEY (cluster_id) REFERENCES clusters(id) ON DELETE RESTRICT ON UPDATE CASCADE".to_string(),
 		}],
 		dependencies: vec![
 			("deployments".to_string(), "0001_initial".to_string()),
