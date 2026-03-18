@@ -512,7 +512,12 @@ async fn reconcile_ingress_resource(
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("nuages-operator").force();
 
-	let desired = build_ingress(app, routes, port, None)?;
+	let signals = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| &i.features.infrastructure_signals);
+	let desired = build_ingress(app, routes, port, None, signals)?;
 	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
 	ingress_api
 		.patch(&name, &ssapply, &Patch::Apply(&desired))

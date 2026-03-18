@@ -1,5 +1,7 @@
 //! Ingress builder for operator-managed `ReinhardtApp` resources.
 
+use std::collections::BTreeMap;
+
 use k8s_openapi::api::networking::v1::{
 	HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
 	IngressServiceBackend, IngressSpec, ServiceBackendPort,
@@ -7,7 +9,7 @@ use k8s_openapi::api::networking::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
 use nuages_types::crd::ReinhardtApp;
-use nuages_types::introspect::RouteMetadata;
+use nuages_types::introspect::{InfraSignals, RouteMetadata};
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -16,11 +18,49 @@ use crate::error::Error;
 ///
 /// Each [`RouteMetadata`] entry becomes an `HTTPIngressPath` with `Prefix` path type,
 /// routing to the app's Service on the specified port.
+/// Builds nginx-ingress annotations from infrastructure signals.
+///
+/// WebSocket signals add long proxy timeouts and sticky upstream hashing.
+/// gRPC signals switch the backend protocol to `GRPC`.
+fn build_annotations(signals: Option<&InfraSignals>) -> Option<BTreeMap<String, String>> {
+	let mut annotations = BTreeMap::new();
+
+	if let Some(signals) = signals {
+		if signals.websocket {
+			annotations.insert(
+				"nginx.ingress.kubernetes.io/proxy-read-timeout".to_string(),
+				"3600".to_string(),
+			);
+			annotations.insert(
+				"nginx.ingress.kubernetes.io/proxy-send-timeout".to_string(),
+				"3600".to_string(),
+			);
+			annotations.insert(
+				"nginx.ingress.kubernetes.io/upstream-hash-by".to_string(),
+				"$remote_addr".to_string(),
+			);
+		}
+		if signals.grpc {
+			annotations.insert(
+				"nginx.ingress.kubernetes.io/backend-protocol".to_string(),
+				"GRPC".to_string(),
+			);
+		}
+	}
+
+	if annotations.is_empty() {
+		None
+	} else {
+		Some(annotations)
+	}
+}
+
 pub(crate) fn build_ingress(
 	app: &ReinhardtApp,
 	routes: &[RouteMetadata],
 	app_port: u16,
 	host: Option<&str>,
+	signals: Option<&InfraSignals>,
 ) -> Result<Ingress, Error> {
 	let labels = standard_labels(app, Component::Ingress);
 	let namespace = app.namespace().unwrap_or_default();
@@ -55,6 +95,7 @@ pub(crate) fn build_ingress(
 			name: Some(app_name),
 			namespace: Some(namespace),
 			labels: Some(labels),
+			annotations: build_annotations(signals),
 			owner_references: Some(vec![owner_ref]),
 			..Default::default()
 		},
@@ -106,7 +147,8 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None).expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
 		assert_eq!(ingress.metadata.name.as_deref(), Some("my-app"));
@@ -119,7 +161,8 @@ mod tests {
 		let routes = vec![make_route("/api/users/"), make_route("/api/posts/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8080, None).expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8080, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -141,8 +184,8 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 80, Some("example.com")).expect("build should succeed");
+		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None)
+			.expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -157,7 +200,8 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 80, None).expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 80, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
@@ -172,12 +216,108 @@ mod tests {
 		let routes: Vec<RouteMetadata> = vec![];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None).expect("build should succeed");
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
 
 		// Assert
 		let spec = ingress.spec.unwrap();
 		let rules = spec.rules.as_ref().unwrap();
 		let paths = &rules[0].http.as_ref().unwrap().paths;
 		assert!(paths.is_empty());
+	}
+
+	#[rstest]
+	fn test_build_ingress_websocket_annotations() {
+		// Arrange
+		let app = make_test_app("ws-app");
+		let routes = vec![make_route("/ws/")];
+		let signals = InfraSignals {
+			websocket: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		assert_eq!(annotations.len(), 3);
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
+			Some(&"3600".to_string()),
+		);
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/proxy-send-timeout"),
+			Some(&"3600".to_string()),
+		);
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/upstream-hash-by"),
+			Some(&"$remote_addr".to_string()),
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_grpc_annotations() {
+		// Arrange
+		let app = make_test_app("grpc-app");
+		let routes = vec![make_route("/grpc.Service/")];
+		let signals = InfraSignals {
+			grpc: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 50051, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		assert_eq!(annotations.len(), 1);
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/backend-protocol"),
+			Some(&"GRPC".to_string()),
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_combined_annotations() {
+		// Arrange
+		let app = make_test_app("combo-app");
+		let routes = vec![make_route("/")];
+		let signals = InfraSignals {
+			websocket: true,
+			grpc: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations should be set");
+		assert_eq!(annotations.len(), 4);
+		assert!(annotations.contains_key("nginx.ingress.kubernetes.io/proxy-read-timeout"));
+		assert!(annotations.contains_key("nginx.ingress.kubernetes.io/proxy-send-timeout"));
+		assert!(annotations.contains_key("nginx.ingress.kubernetes.io/upstream-hash-by"));
+		assert_eq!(
+			annotations.get("nginx.ingress.kubernetes.io/backend-protocol"),
+			Some(&"GRPC".to_string()),
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_no_annotations_without_signals() {
+		// Arrange
+		let app = make_test_app("plain-app");
+		let routes = vec![make_route("/api/")];
+
+		// Act
+		let ingress =
+			build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+
+		// Assert
+		assert!(ingress.metadata.annotations.is_none());
 	}
 }
