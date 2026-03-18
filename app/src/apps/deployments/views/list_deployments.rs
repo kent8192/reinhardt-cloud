@@ -17,7 +17,7 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
-#[get("/deployments/", name = "deployment_list")]
+#[get("/deployments/", name = "deployment_list", use_inject = true)]
 pub async fn list_deployments(
 	Query(params): Query<PaginationParams>,
 	#[inject] AuthInfo(state): AuthInfo,
