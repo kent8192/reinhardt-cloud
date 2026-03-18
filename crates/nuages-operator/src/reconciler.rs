@@ -276,6 +276,8 @@ fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
 /// Resolve whether cache should be provisioned.
 ///
 /// Explicit `spec.cache` field takes precedence over introspect signals.
+// Phase 2 will integrate cache provisioning into the reconcile loop
+#[allow(dead_code)]
 fn should_provision_cache(app: &ReinhardtApp) -> bool {
 	if app.spec.cache.is_some() {
 		return true;
@@ -311,6 +313,8 @@ fn resolve_app_port(app: &ReinhardtApp) -> u16 {
 /// Resolve whether a background worker should be provisioned.
 ///
 /// Explicit `spec.worker` field takes precedence over introspect signals.
+// Phase 2 will integrate worker provisioning into the reconcile loop
+#[allow(dead_code)]
 fn should_provision_worker(app: &ReinhardtApp) -> bool {
 	if app.spec.worker.is_some() {
 		return true;
