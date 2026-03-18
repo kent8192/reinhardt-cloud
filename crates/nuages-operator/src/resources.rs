@@ -6,8 +6,10 @@ pub(crate) mod deployment;
 pub(crate) mod grpc;
 pub(crate) mod ingress;
 pub(crate) mod labels;
+pub(crate) mod mail;
 pub(crate) mod migration;
 pub(crate) mod service;
+pub(crate) mod storage;
 pub(crate) mod worker;
 
 // Re-exports for backward compatibility
