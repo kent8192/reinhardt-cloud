@@ -6,6 +6,7 @@ use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
+use tracing::error;
 
 use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
@@ -23,13 +24,17 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 		)
 		.first()
 		.await
-		.map_err(|e| format!("Database error: {e}"))?
+		.map_err(|e| {
+			error!("Failed to query user during login: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?
 		.ok_or_else(|| AppError::Authentication("Invalid credentials".to_string()))?;
 
 	// Verify password
-	let valid = user
-		.check_password(&body.password)
-		.map_err(|e| format!("Password verification failed: {e}"))?;
+	let valid = user.check_password(&body.password).map_err(|e| {
+		error!("Password verification failed during login: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 	if !valid {
 		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
@@ -43,7 +48,10 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	let auth = JwtAuth::new(jwt_secret().as_bytes());
 	let token = auth
 		.generate_token(user.id().to_string(), user.username().to_string())
-		.map_err(|e| format!("Token generation failed: {e}"))?;
+		.map_err(|e| {
+			error!("JWT token generation failed during login: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 
 	let resp = TokenResponse::bearer(token);
 	Ok(Response::new(StatusCode::OK)

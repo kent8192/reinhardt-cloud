@@ -24,6 +24,10 @@ mod tests {
 		TestServerGuard,
 		APIClient,
 	) {
+		// Arrange — set required environment variable for JWT secret
+		unsafe {
+			std::env::set_var("NUAGES_JWT_SECRET", "test-secret-minimum-32-bytes-long!!");
+		}
 		let (container, _pool, _port, database_url) = postgres_container().await;
 		let conn = DatabaseConnection::connect(&database_url)
 			.await
