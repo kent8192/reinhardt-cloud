@@ -55,6 +55,21 @@ pub fn requires_redis_sessions(signals: &InfraSignals) -> bool {
 	signals.session_backend.as_deref().is_some_and(|s| s == "redis")
 }
 
+/// Check if the application requires GraphQL support.
+pub fn requires_graphql(signals: &InfraSignals) -> bool {
+	signals.graphql
+}
+
+/// Check if the application requires an admin panel.
+pub fn requires_admin(signals: &InfraSignals) -> bool {
+	signals.admin_panel
+}
+
+/// Check if the application requires internationalization (i18n).
+pub fn requires_i18n(signals: &InfraSignals) -> bool {
+	signals.i18n
+}
+
 /// Get the application port from settings.
 ///
 /// Returns the `default_port` from [`SettingsMetadata::server`],
@@ -259,6 +274,57 @@ mod tests {
 
 		// Act
 		let result = requires_redis_sessions(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(true, true)]
+	#[case(false, false)]
+	fn test_requires_graphql(#[case] graphql: bool, #[case] expected: bool) {
+		// Arrange
+		let signals = InfraSignals {
+			graphql,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_graphql(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(true, true)]
+	#[case(false, false)]
+	fn test_requires_admin(#[case] admin_panel: bool, #[case] expected: bool) {
+		// Arrange
+		let signals = InfraSignals {
+			admin_panel,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_admin(&signals);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(true, true)]
+	#[case(false, false)]
+	fn test_requires_i18n(#[case] i18n: bool, #[case] expected: bool) {
+		// Arrange
+		let signals = InfraSignals {
+			i18n,
+			..Default::default()
+		};
+
+		// Act
+		let result = requires_i18n(&signals);
 
 		// Assert
 		assert_eq!(result, expected);
