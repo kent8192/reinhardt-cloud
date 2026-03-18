@@ -55,6 +55,24 @@ fn build_annotations(signals: Option<&InfraSignals>) -> Option<BTreeMap<String, 
 	}
 }
 
+/// Build a single `HTTPIngressPath` entry for the given path, service name, and port.
+fn build_http_path(path: &str, service_name: &str, port: u16) -> HTTPIngressPath {
+	HTTPIngressPath {
+		path: Some(path.to_string()),
+		path_type: "Prefix".to_string(),
+		backend: IngressBackend {
+			service: Some(IngressServiceBackend {
+				name: service_name.to_string(),
+				port: Some(ServiceBackendPort {
+					number: Some(i32::from(port)),
+					..Default::default()
+				}),
+			}),
+			..Default::default()
+		},
+	}
+}
+
 pub(crate) fn build_ingress(
 	app: &ReinhardtApp,
 	routes: &[RouteMetadata],
@@ -67,23 +85,20 @@ pub(crate) fn build_ingress(
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 
-	let paths: Vec<HTTPIngressPath> = routes
+	let mut paths: Vec<HTTPIngressPath> = routes
 		.iter()
-		.map(|route| HTTPIngressPath {
-			path: Some(route.path.clone()),
-			path_type: "Prefix".to_string(),
-			backend: IngressBackend {
-				service: Some(IngressServiceBackend {
-					name: app_name.clone(),
-					port: Some(ServiceBackendPort {
-						number: Some(i32::from(app_port)),
-						..Default::default()
-					}),
-				}),
-				..Default::default()
-			},
-		})
+		.map(|route| build_http_path(&route.path, &app_name, app_port))
 		.collect();
+
+	// Append signal-driven paths if not already present in routes
+	if let Some(signals) = signals {
+		if signals.graphql && !paths.iter().any(|p| p.path.as_deref() == Some("/graphql/")) {
+			paths.push(build_http_path("/graphql/", &app_name, app_port));
+		}
+		if signals.admin_panel && !paths.iter().any(|p| p.path.as_deref() == Some("/admin/")) {
+			paths.push(build_http_path("/admin/", &app_name, app_port));
+		}
+	}
 
 	let rule = IngressRule {
 		host: host.map(String::from),
@@ -319,5 +334,86 @@ mod tests {
 
 		// Assert
 		assert!(ingress.metadata.annotations.is_none());
+	}
+
+	#[rstest]
+	fn test_build_ingress_graphql_path_added() {
+		// Arrange
+		let app = make_test_app("gql-app");
+		let routes = vec![make_route("/api/")];
+		let signals = InfraSignals {
+			graphql: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let spec = ingress.spec.unwrap();
+		let paths = &spec.rules.as_ref().unwrap()[0]
+			.http
+			.as_ref()
+			.unwrap()
+			.paths;
+		assert_eq!(paths.len(), 2);
+		assert_eq!(paths[0].path.as_deref(), Some("/api/"));
+		assert_eq!(paths[1].path.as_deref(), Some("/graphql/"));
+	}
+
+	#[rstest]
+	fn test_build_ingress_admin_path_added() {
+		// Arrange
+		let app = make_test_app("admin-app");
+		let routes = vec![make_route("/api/")];
+		let signals = InfraSignals {
+			admin_panel: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let spec = ingress.spec.unwrap();
+		let paths = &spec.rules.as_ref().unwrap()[0]
+			.http
+			.as_ref()
+			.unwrap()
+			.paths;
+		assert_eq!(paths.len(), 2);
+		assert_eq!(paths[0].path.as_deref(), Some("/api/"));
+		assert_eq!(paths[1].path.as_deref(), Some("/admin/"));
+	}
+
+	#[rstest]
+	fn test_build_ingress_no_duplicate_graphql_path() {
+		// Arrange
+		let app = make_test_app("gql-app");
+		let routes = vec![make_route("/api/"), make_route("/graphql/")];
+		let signals = InfraSignals {
+			graphql: true,
+			..Default::default()
+		};
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+			.expect("build should succeed");
+
+		// Assert
+		let spec = ingress.spec.unwrap();
+		let paths = &spec.rules.as_ref().unwrap()[0]
+			.http
+			.as_ref()
+			.unwrap()
+			.paths;
+		assert_eq!(paths.len(), 2);
+		let graphql_count = paths
+			.iter()
+			.filter(|p| p.path.as_deref() == Some("/graphql/"))
+			.count();
+		assert_eq!(graphql_count, 1);
 	}
 }
