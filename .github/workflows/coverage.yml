@@ -92,6 +92,8 @@ jobs:
             --workspace \
             --all-features \
             --no-fail-fast
+        env:
+          NUAGES_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
 
       - name: Generate coverage report
         run: |
