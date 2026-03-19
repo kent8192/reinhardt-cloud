@@ -181,12 +181,12 @@ pub(crate) fn build_deployment(
 				},
 				EnvVar {
 					name: "SERVER_COMPRESSION".to_string(),
-					value: Some("true".to_string()),
+					value: Some((config.brotli || config.gzip).to_string()),
 					..Default::default()
 				},
 				EnvVar {
 					name: "SERVER_COMPRESSION_STATIC".to_string(),
-					value: Some("true".to_string()),
+					value: Some((config.brotli || config.gzip).to_string()),
 					..Default::default()
 				},
 			]),

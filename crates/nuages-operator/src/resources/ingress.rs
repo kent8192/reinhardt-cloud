@@ -100,7 +100,11 @@ pub(crate) fn build_ingress(
 	}
 
 	// Insert static file path for pages sidecar before any catch-all `/` path
-	if let Some(config) = pages_config {
+	if let Some(config) = pages_config
+		&& !paths
+			.iter()
+			.any(|p| p.path.as_deref() == Some(config.static_url.as_str()))
+	{
 		let static_path = build_http_path(&config.static_url, &app_name, 8080);
 		if let Some(root_idx) = paths.iter().position(|p| p.path.as_deref() == Some("/")) {
 			paths.insert(root_idx, static_path);

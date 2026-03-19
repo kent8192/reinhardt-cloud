@@ -90,8 +90,8 @@ pub(crate) fn resolve_pages_config(app: &ReinhardtApp) -> Option<ResolvedPagesCo
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use nuages_types::crd::pages::PagesSpec;
 	use nuages_types::crd::ReinhardtAppSpec;
+	use nuages_types::crd::pages::PagesSpec;
 	use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 	use rstest::rstest;
 
