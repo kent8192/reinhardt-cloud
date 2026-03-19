@@ -127,8 +127,11 @@ mod tests {
 
 		// Assert
 		assert_eq!(response.status_code(), 200);
-		let body: Vec<serde_json::Value> = response.json().expect("Failed to parse JSON response");
-		assert_eq!(body.len(), 0);
+		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
+		assert_eq!(body["items"], json!([]));
+		assert_eq!(body["total"], 0);
+		assert!(body["page"].is_number());
+		assert!(body["page_size"].is_number());
 	}
 
 	/// Verify POST /api/clusters/ creates a cluster, then GET returns it.
@@ -177,10 +180,13 @@ mod tests {
 
 		// Assert — cluster appears in list
 		assert_eq!(list_response.status_code(), 200);
-		let clusters: Vec<serde_json::Value> =
-			list_response.json().expect("Failed to parse list response");
-		assert_eq!(clusters.len(), 1);
-		assert_eq!(clusters[0]["name"], "production-cluster");
-		assert_eq!(clusters[0]["api_url"], "https://k8s.example.com:6443");
+		let body: serde_json::Value = list_response.json().expect("Failed to parse list response");
+		let items = body["items"].as_array().expect("items should be an array");
+		assert_eq!(items.len(), 1);
+		assert_eq!(items[0]["name"], "production-cluster");
+		assert_eq!(items[0]["api_url"], "https://k8s.example.com:6443");
+		assert_eq!(body["total"], 1);
+		assert!(body["page"].is_number());
+		assert!(body["page_size"].is_number());
 	}
 }

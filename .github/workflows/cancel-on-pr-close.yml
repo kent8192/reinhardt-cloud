@@ -26,11 +26,17 @@ jobs:
             const cancelledRunIds = [];
 
             for (const wf of targetWorkflows) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner, repo,
-                workflow_id: wf,
-                branch,
-              });
+              let data;
+              try {
+                ({ data } = await github.rest.actions.listWorkflowRuns({
+                  owner, repo,
+                  workflow_id: wf,
+                  branch,
+                }));
+              } catch (e) {
+                console.log(`Skipping ${wf}: ${e.message}`);
+                continue;
+              }
 
               const staleRuns = data.workflow_runs.filter(r =>
                 r.status !== 'completed'

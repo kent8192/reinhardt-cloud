@@ -27,6 +27,7 @@ mod tests {
 	fn test_cluster_response_with_none_id_serializes_to_null() {
 		// Arrange
 		let cluster = Cluster::new(
+			Uuid::new_v4(),
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
@@ -45,6 +46,7 @@ mod tests {
 	fn test_cluster_response_with_some_id_serializes_to_number() {
 		// Arrange
 		let mut cluster = Cluster::new(
+			Uuid::new_v4(),
 			"production".to_string(),
 			"https://prod.k8s.io:6443".to_string(),
 			true,

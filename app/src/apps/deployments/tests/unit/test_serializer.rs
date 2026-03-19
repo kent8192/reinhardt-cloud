@@ -34,6 +34,7 @@ mod tests {
 	fn test_deployment_response_with_none_id_serializes_to_null() {
 		// Arrange
 		let deployment = Deployment::new(
+			Uuid::new_v4(),
 			"my-app".to_string(),
 			1,
 			"pending".to_string(),
@@ -53,6 +54,7 @@ mod tests {
 	fn test_deployment_response_with_some_id_serializes_to_number() {
 		// Arrange
 		let mut deployment = Deployment::new(
+			Uuid::new_v4(),
 			"my-app".to_string(),
 			1,
 			"running".to_string(),

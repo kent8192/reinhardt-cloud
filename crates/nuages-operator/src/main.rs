@@ -1,6 +1,7 @@
 //! Nuages Kubernetes operator for managing `ReinhardtApp` resources.
 
 mod error;
+mod inference;
 mod reconciler;
 mod resources;
 
@@ -18,6 +19,10 @@ async fn main() -> anyhow::Result<()> {
 
 	let client = kube::Client::try_default().await?;
 	reconciler::run(client).await;
+
+	// Controller loop exited (shutdown signal received or fatal error).
+	// Log completion so operators can distinguish clean shutdown from crash.
+	tracing::warn!("Controller loop terminated, shutting down");
 
 	Ok(())
 }
