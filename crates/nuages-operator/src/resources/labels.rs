@@ -23,6 +23,8 @@ pub(crate) enum Component {
 	Ingress,
 	/// Database migration job.
 	Migration,
+	/// Static file server sidecar (e.g. static-web-server for WASM assets).
+	StaticServer,
 }
 
 impl Component {
@@ -35,6 +37,7 @@ impl Component {
 			Self::Cache => "cache",
 			Self::Ingress => "ingress",
 			Self::Migration => "migration",
+			Self::StaticServer => "static-server",
 		}
 	}
 }
@@ -133,6 +136,7 @@ mod tests {
 	#[case(Component::Cache, "cache")]
 	#[case(Component::Ingress, "ingress")]
 	#[case(Component::Migration, "migration")]
+	#[case(Component::StaticServer, "static-server")]
 	fn test_component_as_str(#[case] component: Component, #[case] expected: &str) {
 		// Arrange / Act / Assert
 		assert_eq!(component.as_str(), expected);
