@@ -38,6 +38,7 @@ deadpool-postgres = "0.14"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 toml = "0.9"
 
 # Types
@@ -66,6 +67,9 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 nuages-types = { path = "crates/nuages-types" }
 nuages-core = { path = "crates/nuages-core" }
 nuages-k8s = { path = "crates/nuages-k8s" }
+
+# Cryptography / encoding
+rand = "0.9"
 
 # Testing
 rstest = "0.26"

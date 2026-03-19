@@ -37,8 +37,8 @@ pub async fn list_clusters(
 			error!("Failed to count clusters: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})? as u64;
-	let offset: usize = params.offset().try_into().unwrap_or(usize::MAX);
-	let limit: usize = params.page_size().try_into().unwrap_or(usize::MAX);
+	let offset: usize = params.offset().try_into().unwrap_or(0);
+	let limit: usize = params.page_size().try_into().unwrap_or(20).min(100);
 	let clusters = Cluster::objects()
 		.filter(
 			Cluster::field_user_id(),
