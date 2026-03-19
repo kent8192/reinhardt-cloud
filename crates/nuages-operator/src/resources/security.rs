@@ -1,0 +1,6 @@
+//! Security resource builders for workload isolation.
+//!
+//! Provides RuntimeClass resolution, SecurityContext construction,
+//! NetworkPolicy generation, and resource quota management.
+
+pub(crate) mod runtime_class;

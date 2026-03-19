@@ -11,6 +11,7 @@ pub(crate) mod mail;
 pub(crate) mod migration;
 pub(crate) mod service;
 pub(crate) mod storage;
+pub(crate) mod security;
 pub(crate) mod worker;
 
 // Re-exports for backward compatibility
