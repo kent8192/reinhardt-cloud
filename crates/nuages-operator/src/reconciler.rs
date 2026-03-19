@@ -19,6 +19,7 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
+use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::PlatformConfig;
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{
@@ -128,9 +129,12 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		}
 	}
 
+	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
+	let pages_config = resolve_pages_config(&app);
+
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_deployment = build_deployment(&app, None)?;
+	let desired_deployment = build_deployment(&app, pages_config.as_ref())?;
 	deployments
 		.patch(
 			&name,
@@ -143,7 +147,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_service = build_service(&app, false)?;
+	let desired_service = build_service(&app, pages_config.is_some())?;
 	services
 		.patch(
 			&name,
@@ -167,7 +171,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Ingress — explicit services.ingress_host takes precedence,
 	// falling back to introspect routes.
 	if let Some((routes, port)) = resolve_ingress_config(&app) {
-		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port).await?;
+		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port, pages_config.as_ref())
+			.await?;
 	}
 
 	// Cache provisioning — explicit spec.cache takes precedence,
@@ -602,6 +607,7 @@ async fn reconcile_ingress_resource(
 	namespace: &str,
 	routes: &[nuages_types::introspect::RouteMetadata],
 	port: u16,
+	pages_config: Option<&ResolvedPagesConfig>,
 ) -> Result<(), Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("nuages-operator").force();
@@ -611,7 +617,7 @@ async fn reconcile_ingress_resource(
 		.introspect
 		.as_ref()
 		.map(|i| &i.features.infrastructure_signals);
-	let Some(desired) = build_ingress(app, routes, port, None, signals, None)? else {
+	let Some(desired) = build_ingress(app, routes, port, None, signals, pages_config)? else {
 		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
 		return Ok(());
 	};
@@ -2019,6 +2025,41 @@ mod tests {
 		assert!(needs);
 		let cm = resources::i18n::build_i18n_configmap(&app).unwrap();
 		assert_eq!(cm.metadata.name.unwrap(), "myapp-locales");
+	}
+
+	// ── pages inference tests ───────────────────────────────────────
+
+	#[rstest]
+	fn test_resolve_pages_config_via_spec() {
+		// Arrange
+		let mut app = make_test_app("app");
+		app.spec.pages = Some(nuages_types::crd::pages::PagesSpec {
+			static_root: None,
+			static_url: None,
+			server_image: None,
+			server_resources: None,
+			cache_max_age: None,
+			brotli: None,
+			gzip: None,
+		});
+
+		// Act
+		let config = resolve_pages_config(&app);
+
+		// Assert
+		assert!(config.is_some());
+	}
+
+	#[rstest]
+	fn test_resolve_pages_config_none_without_spec_or_introspect() {
+		// Arrange
+		let app = make_test_app("app");
+
+		// Act
+		let config = resolve_pages_config(&app);
+
+		// Assert
+		assert!(config.is_none());
 	}
 
 	#[rstest]
