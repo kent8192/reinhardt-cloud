@@ -143,7 +143,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_service = build_service(&app)?;
+	let desired_service = build_service(&app, false)?;
 	services
 		.patch(
 			&name,
