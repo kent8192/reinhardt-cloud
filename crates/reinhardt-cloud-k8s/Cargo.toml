@@ -1,5 +1,5 @@
 [package]
-name = "nuages-k8s"
+name = "reinhardt-cloud-k8s"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

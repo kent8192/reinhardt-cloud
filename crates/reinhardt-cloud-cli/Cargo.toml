@@ -1,5 +1,5 @@
 [package]
-name = "nuages-cli"
+name = "reinhardt-cloud-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,12 +7,12 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "nuages"
+name = "reinhardt-cloud"
 path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
-nuages-types = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

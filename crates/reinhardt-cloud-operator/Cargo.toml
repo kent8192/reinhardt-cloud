@@ -1,5 +1,5 @@
 [package]
-name = "nuages-operator"
+name = "reinhardt-cloud-operator"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,8 +7,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-nuages-types = { workspace = true }
-nuages-core = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 tokio = { workspace = true }
