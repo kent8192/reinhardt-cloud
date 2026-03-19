@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the git commit policy for the Nuages project. These rules ensure clear commit history, proper granularity, and consistent commit message formatting across the development lifecycle.
+This file defines the git commit policy for the Reinhardt Cloud project. These rules ensure clear commit history, proper granularity, and consistent commit message formatting across the development lifecycle.
 
 ---
 
@@ -133,7 +133,7 @@ Commit messages consist of three parts:
 Examples:
 feat(crd): add ReinhardtApp custom resource definition
 fix(reconciler): resolve nil pointer dereference in status update
-feat(operator)!: change CRD group from nuages.dev to paas.nuages.dev
+feat(operator)!: change CRD group from reinhardt-cloud.dev to paas.reinhardt-cloud.dev
 ```
 
 **Requirements:**
@@ -200,7 +200,7 @@ Breaking changes introduce API incompatibility and correlate with SemVer MAJOR v
    ```
    refactor(crd)!: change CRD group name
 
-   BREAKING CHANGE: CRD group changed from nuages.dev to paas.nuages.dev.
+   BREAKING CHANGE: CRD group changed from reinhardt-cloud.dev to paas.reinhardt-cloud.dev.
    Existing CRD installations must be migrated before upgrading.
    ```
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the pull request (PR) policy for the Nuages project. These rules ensure clear communication, proper review process, and consistent PR formatting across the development lifecycle.
+This file defines the pull request (PR) policy for the Reinhardt Cloud project. These rules ensure clear communication, proper review process, and consistent PR formatting across the development lifecycle.
 
 ---
 
@@ -159,7 +159,7 @@ PR titles MUST follow the same format as commit messages:
 Examples:
 feat(crd): add ReinhardtApp custom resource definition
 fix(reconciler): resolve nil pointer dereference in status update
-feat(operator)!: change CRD group from nuages.dev to paas.nuages.dev
+feat(operator)!: change CRD group from reinhardt-cloud.dev to paas.reinhardt-cloud.dev
 ```
 
 **Requirements:**

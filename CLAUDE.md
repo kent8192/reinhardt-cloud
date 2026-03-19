@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file contains project-specific instructions for the Nuages project. These rules ensure code quality, maintainability, and consistent practices across the Rust codebase.
+This file contains project-specific instructions for the Reinhardt Cloud project. These rules ensure code quality, maintainability, and consistent practices across the Rust codebase.
 
 For detailed standards, see documentation in `instructions/` directory.
 
@@ -12,7 +12,7 @@ For detailed standards, see documentation in `instructions/` directory.
 
 See README.md for project details.
 
-**Repository URL**: https://github.com/kent8192/nuages
+**Repository URL**: https://github.com/kent8192/reinhardt-cloud
 
 ---
 
@@ -72,7 +72,7 @@ See instructions/ANTI_PATTERNS.md for comprehensive anti-patterns guide.
 
 **Core Principles:**
 - NO skeleton tests (all tests MUST have meaningful assertions)
-- EVERY test MUST use at least one Nuages component
+- EVERY test MUST use at least one Reinhardt Cloud component
 - Unit tests: Test single component behavior, place in functional crate
 - Integration tests: Test integration points between components
   - Cross-crate integration: Place in `tests/` crate
@@ -231,10 +231,10 @@ This project manages releases manually using conventional commits and GitHub rel
 - Cross-crate shared changes MUST be preceding PRs, merged before per-crate fix PRs (WU-3)
 
 **Upstream Issue Reporting:**
-- When a reinhardt-web issue is discovered during Nuages development, **immediately** create an issue in `kent8192/reinhardt-web` (UR-1)
+- When a reinhardt-web issue is discovered during Reinhardt Cloud development, **immediately** create an issue in `kent8192/reinhardt-web` (UR-1)
 - Use `gh issue create -R kent8192/reinhardt-web` for upstream issue creation (UR-2)
-- Create a tracking issue in Nuages with `upstream-tracking` label for every upstream issue (UR-4)
-- Cross-reference between Nuages tracking issue and upstream issue bidirectionally (UR-4)
+- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every upstream issue (UR-4)
+- Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally (UR-4)
 - **NEVER** implement workarounds without creating an upstream issue first (WP-2)
 
 See instructions/ISSUE_HANDLING.md for comprehensive issue handling principles including:
@@ -251,7 +251,7 @@ See instructions/UPSTREAM_ISSUE_REPORTING.md for upstream issue reporting policy
 
 ## Kubernetes Patterns
 
-Nuages uses kube-rs for Kubernetes operator patterns. All CRD design, reconciler patterns, and controller structure rules are documented in:
+Reinhardt Cloud uses kube-rs for Kubernetes operator patterns. All CRD design, reconciler patterns, and controller structure rules are documented in:
 
 **See instructions/KUBERNETES_PATTERNS.md** for comprehensive Kubernetes operator patterns including:
 - CRD design (CD-1)
@@ -308,7 +308,7 @@ cargo make audit  # Check for known vulnerabilities in dependencies
 kubectl apply -f manifests/
 
 # Check operator logs
-kubectl logs -n nuages-system deployment/nuages-operator
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator
 
 # Watch CRD resources
 kubectl get reinhardtapp -A -w
@@ -317,7 +317,7 @@ kubectl get reinhardtapp -A -w
 **Database Tests:**
 ```bash
 # Database tests use TestContainers automatically (no external database needed)
-cargo nextest run --package nuages-integration-tests
+cargo nextest run --package reinhardt-cloud-integration-tests
 ```
 
 **Container Runtime:**
@@ -503,8 +503,8 @@ Before submitting code:
 - Implement reconcilers as pure functions returning `Action` (see @instructions/KUBERNETES_PATTERNS.md RP-1)
 - ALWAYS use finalizers for cleanup of external resources in operators
 - Create issues in reinhardt-web immediately upon discovering upstream bugs (`gh issue create -R kent8192/reinhardt-web`)
-- Create a tracking issue in Nuages with `upstream-tracking` label for every upstream issue (UR-4)
-- Cross-reference between Nuages tracking issue and reinhardt-web issue bidirectionally (UR-4)
+- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every upstream issue (UR-4)
+- Cross-reference between Reinhardt Cloud tracking issue and reinhardt-web issue bidirectionally (UR-4)
 - Create upstream issue before implementing any workaround for reinhardt-web bugs
 
 ### ❌ NEVER DO
@@ -561,10 +561,10 @@ Before submitting code:
 - Use two-dot diff (`main..branch`) for PR verification (includes merge history noise)
 - Use raw `serde_json::Value` for CRD spec/status (use structured types)
 - Panic in reconciler functions (return `Err` for transient failures)
-- Delay reporting reinhardt-web issues discovered during Nuages development
+- Delay reporting reinhardt-web issues discovered during Reinhardt Cloud development
 - Implement workarounds for reinhardt-web issues without creating an upstream issue first
-- Create upstream issues without corresponding Nuages tracking issues (UR-4)
-- Report Nuages-specific issues to the reinhardt-web repository
+- Create upstream issues without corresponding Reinhardt Cloud tracking issues (UR-4)
+- Report Reinhardt Cloud-specific issues to the reinhardt-web repository
 
 ### 📚 Detailed Standards
 
@@ -580,7 +580,7 @@ For comprehensive guidelines, see:
 - **Kubernetes Patterns**: instructions/KUBERNETES_PATTERNS.md
 - **Upstream Issue Reporting**: instructions/UPSTREAM_ISSUE_REPORTING.md
 - **App Crate Standards**: app/CLAUDE.md (reinhardt-web application conventions)
-- **GitHub Discussions**: https://github.com/kent8192/nuages/discussions
+- **GitHub Discussions**: https://github.com/kent8192/reinhardt-cloud/discussions
 - **Security Policy**: SECURITY.md
 - **Code of Conduct**: CODE_OF_CONDUCT.md
 - **Label Definitions**: .github/labels.yml
