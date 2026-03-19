@@ -13,15 +13,18 @@ use kube::ResourceExt;
 use nuages_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
+use super::security::context::{build_container_security_context, build_pod_security_context};
+use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
 use crate::inference::env_vars::{build_system_env_vars, merge_env_vars};
+use crate::inference::platform::Platform;
 
 /// Builds a `Deployment` for the given `ReinhardtApp`.
 ///
 /// Uses the app's own namespace as the single source of truth.
 /// Returns an error if the owner reference cannot be computed.
-pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> {
+pub(crate) fn build_deployment(app: &ReinhardtApp, platform: &Platform) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Web);
 	let namespace = app.namespace().unwrap_or_default();
 	let replicas = app.spec.replicas.unwrap_or(1);
@@ -109,6 +112,12 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 					..Default::default()
 				}),
 				spec: Some(PodSpec {
+					runtime_class_name: resolve_runtime_class_name(app, platform),
+					security_context: if app.spec.isolation.is_some() {
+						Some(build_pod_security_context())
+					} else {
+						None
+					},
 					init_containers,
 					containers: vec![Container {
 						name: app.name_any(),
@@ -119,6 +128,11 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 						}]),
 						env: Some(merged_env),
 						volume_mounts: Some(volume_mounts),
+						security_context: if app.spec.isolation.is_some() {
+							Some(build_container_security_context())
+						} else {
+							None
+						},
 						..Default::default()
 					}],
 					volumes: Some(volumes),
@@ -134,8 +148,10 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::inference::platform::Platform;
 	use kube::api::ObjectMeta;
 	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
+	use nuages_types::crd::isolation::{IsolationLevel, IsolationSpec};
 	use nuages_types::crd::{ReinhardtAppSpec, ServicesSpec};
 	use rstest::rstest;
 
@@ -173,7 +189,7 @@ mod tests {
 		let app = make_test_app("web", "web:latest", Some(3));
 
 		// Act
-		let deploy = build_deployment(&app).expect("build should succeed");
+		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let spec = deploy.spec.unwrap();
@@ -188,7 +204,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app).expect("build should succeed");
+		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.spec.unwrap().replicas, Some(1));
@@ -200,7 +216,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app).expect("build should succeed");
+		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
@@ -215,7 +231,7 @@ mod tests {
 		app.metadata.namespace = Some("staging".to_string());
 
 		// Act
-		let deploy = build_deployment(&app).expect("build should succeed");
+		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.metadata.namespace.as_deref(), Some("staging"));
@@ -228,7 +244,7 @@ mod tests {
 		app.metadata.uid = None;
 
 		// Act
-		let result = build_deployment(&app);
+		let result = build_deployment(&app, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -245,7 +261,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app);
+		let result = build_deployment(&app, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -267,7 +283,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app);
+		let result = build_deployment(&app, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -289,7 +305,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app);
+		let result = build_deployment(&app, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -306,7 +322,7 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -325,7 +341,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -338,7 +354,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -357,7 +373,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -373,7 +389,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -392,7 +408,7 @@ mod tests {
 		app.spec.env = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -407,7 +423,7 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -425,7 +441,7 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
 
@@ -447,7 +463,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 		let mounts = container.volume_mounts.as_ref().unwrap();
 
@@ -465,7 +481,7 @@ mod tests {
 			.insert("REINHARDT_ENV".to_string(), "development".to_string());
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -483,7 +499,7 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app).expect("build should succeed");
+		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let main_env = pod_spec.containers[0].env.clone();
 		let init_containers = pod_spec.init_containers.unwrap();
@@ -491,5 +507,72 @@ mod tests {
 
 		// Assert
 		assert_eq!(main_env, init_env);
+	}
+
+	#[rstest]
+	fn test_build_deployment_no_runtime_class_without_isolation() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.runtime_class_name.is_none());
+	}
+
+	#[rstest]
+	fn test_build_deployment_sets_runtime_class_for_microvm() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::MicroVM,
+			..Default::default()
+		});
+
+		// Act
+		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.runtime_class_name.as_deref(), Some("kata-clh"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_sets_runtime_class_for_sandbox() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::Sandbox,
+			..Default::default()
+		});
+
+		// Act
+		let deploy = build_deployment(&app, &Platform::Gcp).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.runtime_class_name.as_deref(), Some("gvisor"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_has_security_context_when_isolated() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::Sandbox,
+			..Default::default()
+		});
+
+		// Act
+		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let psc = pod_spec.security_context.unwrap();
+		assert_eq!(psc.run_as_non_root, Some(true));
+		let container_sc = pod_spec.containers[0].security_context.as_ref().unwrap();
+		assert_eq!(container_sc.allow_privilege_escalation, Some(false));
 	}
 }

@@ -130,7 +130,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_deployment = build_deployment(&app)?;
+	let desired_deployment = build_deployment(&app, &ctx.platform.platform)?;
 	deployments
 		.patch(
 			&name,
