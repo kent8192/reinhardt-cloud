@@ -21,7 +21,7 @@ const GRPC_PORT: i32 = 50051;
 /// is `{app_name}-grpc`.
 pub(crate) fn build_grpc_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	Ok(Service {

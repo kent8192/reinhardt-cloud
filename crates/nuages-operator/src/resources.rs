@@ -20,6 +20,15 @@ pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
 
+/// Extracts the namespace from a `ReinhardtApp`, returning
+/// `Error::MissingNamespace` if absent.
+pub(crate) fn require_namespace(app: &nuages_types::crd::ReinhardtApp) -> Result<String, crate::error::Error> {
+	use kube::ResourceExt;
+	let name = app.name_any();
+	app.namespace()
+		.ok_or(crate::error::Error::MissingNamespace(name))
+}
+
 /// Validates that a port number is within the valid TCP/UDP range (1-65535).
 pub(crate) fn validate_port(field: &'static str, port: i32) -> Result<i32, crate::error::Error> {
 	if (1..=65535).contains(&port) {

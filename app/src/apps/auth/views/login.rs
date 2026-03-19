@@ -45,7 +45,8 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	}
 
 	// Generate JWT with UUID as sub claim
-	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	let secret = jwt_secret()?;
+	let auth = JwtAuth::new(secret.as_bytes());
 	let token = auth
 		.generate_token(user.id().to_string(), user.username().to_string())
 		.map_err(|e| {

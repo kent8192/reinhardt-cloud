@@ -16,7 +16,7 @@ use crate::error::Error;
 /// and `SMTP_USE_TLS` keys with sensible defaults.
 pub(crate) fn build_mail_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 

@@ -31,7 +31,8 @@ impl Middleware for JwtAuthMiddleware {
 			&& let Ok(header_str) = header_value.to_str()
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
-			let auth = JwtAuth::new(jwt_secret().as_bytes());
+			let secret = jwt_secret()?;
+			let auth = JwtAuth::new(secret.as_bytes());
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
@@ -54,9 +55,13 @@ impl Middleware for JwtAuthMiddleware {
 		next.handle(request).await
 	}
 
-	/// Skip middleware for auth endpoints (login/register).
+	/// Skip middleware for auth endpoints (login/register) and public API docs.
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
+		// Public endpoints that do not require authentication
 		!path.starts_with("/api/auth/")
+			&& path != "/api/openapi.json"
+			&& !path.starts_with("/api/docs")
+			&& !path.starts_with("/api/redoc")
 	}
 }

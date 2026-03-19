@@ -30,7 +30,7 @@ pub(crate) fn build_deployment(
 	pages_config: Option<&ResolvedPagesConfig>,
 ) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let replicas = app.spec.replicas.unwrap_or(1);
 	let port = validate_port(
 		"target_port",

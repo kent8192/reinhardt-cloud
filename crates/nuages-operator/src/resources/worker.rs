@@ -24,7 +24,7 @@ pub(crate) fn build_worker_deployment(
 	custom_command: Option<&[String]>,
 ) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Worker);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 	let deploy_name = format!("{}-worker", app_name);

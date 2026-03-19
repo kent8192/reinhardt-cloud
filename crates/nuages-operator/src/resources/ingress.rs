@@ -119,7 +119,7 @@ pub(crate) fn build_ingress(
 	}
 
 	let labels = standard_labels(app, Component::Ingress);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	let rule = IngressRule {

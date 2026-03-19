@@ -216,7 +216,9 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			.as_ref()
 			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
 			.unwrap_or("pvc");
-		if let Some(sa) = resources::storage::build_storage_service_account(&app, backend)? {
+		// IAM role binding for cloud storage is not yet configurable via CRD;
+		// ServiceAccount is created only when a role is explicitly provided.
+		if let Some(sa) = resources::storage::build_storage_service_account(&app, backend, None)? {
 			reconcile_storage_sa(&app, &ctx.client, namespace, &sa).await?;
 		}
 	}
@@ -1966,8 +1968,12 @@ mod tests {
 			.as_ref()
 			.and_then(|i| i.features.infrastructure_signals.storage.as_deref())
 			.unwrap_or("pvc");
-		let sa = resources::storage::build_storage_service_account(&app, backend)
-			.expect("build should succeed");
+		let sa = resources::storage::build_storage_service_account(
+			&app,
+			backend,
+			Some("arn:aws:iam::123456:role/test-role"),
+		)
+		.expect("build should succeed");
 
 		// Assert
 		assert!(sa.is_some());

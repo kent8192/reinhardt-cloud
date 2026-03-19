@@ -17,8 +17,8 @@ use crate::error::Error;
 /// `["manage", "migrate"]`. Database credentials are injected from the
 /// `{app_name}-db-credentials` secret via `envFrom`.
 pub(crate) fn build_migration_job(app: &ReinhardtApp) -> Result<Job, Error> {
+	let namespace = super::require_namespace(app)?;
 	let labels = standard_labels(app, Component::Migration);
-	let namespace = app.namespace().unwrap_or_default();
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 	let secret_name = format!("{}-db-credentials", app_name);

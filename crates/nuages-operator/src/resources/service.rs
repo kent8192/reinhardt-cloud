@@ -20,7 +20,7 @@ use crate::error::Error;
 /// pages sidecar). Returns an error if the owner reference cannot be computed.
 pub(crate) fn build_service(app: &ReinhardtApp, pages_enabled: bool) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let port = validate_port(
 		"port",
 		app.spec

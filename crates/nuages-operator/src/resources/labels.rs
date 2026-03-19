@@ -64,7 +64,11 @@ pub(crate) fn standard_labels(
 		),
 		(
 			"paas.nuages.dev/owner".to_string(),
-			format!("{}/{}", app.namespace().unwrap_or_default(), app.name_any()),
+			format!(
+				"{}/{}",
+				app.namespace().unwrap_or_default(),
+				app.name_any()
+			),
 		),
 	])
 }

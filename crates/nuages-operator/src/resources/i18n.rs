@@ -15,10 +15,8 @@ use crate::error::Error;
 /// Creates a ConfigMap with empty data that serves as a mount point
 /// for locale files. Users populate it with translation files via kubectl.
 pub(crate) fn build_i18n_configmap(app: &ReinhardtApp) -> Result<ConfigMap, Error> {
+	let namespace = super::require_namespace(app)?;
 	let name = app.name_any();
-	let namespace = app
-		.namespace()
-		.ok_or(Error::MissingNamespace(name.clone()))?;
 
 	Ok(ConfigMap {
 		metadata: ObjectMeta {

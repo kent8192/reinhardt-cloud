@@ -44,7 +44,7 @@ impl Middleware for DiRequestMiddleware {
 				})?;
 
 			if let Some(auth_state) = request.extensions.get::<AuthState>() {
-				di_request.extensions.insert(auth_state);
+				di_request.extensions.insert(auth_state.clone());
 			}
 
 			// Build a per-request context that shares the singleton scope
