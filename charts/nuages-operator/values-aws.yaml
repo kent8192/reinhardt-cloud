@@ -36,3 +36,15 @@ defaults:
     annotations:
       kubernetes.io/ingress.class: alb
       alb.ingress.kubernetes.io/scheme: internet-facing
+
+isolation:
+  defaultLevel: "Sandbox"
+  runtimeClasses:
+    kata:
+      enabled: true
+    gvisor:
+      enabled: true
+  networkPolicy:
+    enabled: true
+    provider: cilium
+    blockMetadataService: true
