@@ -65,7 +65,7 @@ fn standard_secret_labels(app_name: &str) -> BTreeMap<String, String> {
 		("app.kubernetes.io/name".to_string(), app_name.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
-			"nuages-operator".to_string(),
+			"reinhardt-cloud-operator".to_string(),
 		),
 	])
 }
@@ -141,7 +141,7 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "myapp");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
-			"nuages-operator"
+			"reinhardt-cloud-operator"
 		);
 	}
 
@@ -187,7 +187,7 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "webapp");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
-			"nuages-operator"
+			"reinhardt-cloud-operator"
 		);
 	}
 
@@ -229,7 +229,7 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "test-app");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
-			"nuages-operator"
+			"reinhardt-cloud-operator"
 		);
 	}
 

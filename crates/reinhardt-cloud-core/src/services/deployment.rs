@@ -1,6 +1,6 @@
 //! Deployment management business logic.
 
-use nuages_types::DeploymentStatus;
+use reinhardt_cloud_types::DeploymentStatus;
 
 use crate::error::ApiError;
 

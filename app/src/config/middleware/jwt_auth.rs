@@ -1,4 +1,4 @@
-//! Custom JWT authentication middleware for nuages.
+//! Custom JWT authentication middleware for Reinhardt Cloud.
 //!
 //! Validates `Authorization: Bearer <token>` headers and injects
 //! `AuthState` into request extensions for downstream `AuthInfo`

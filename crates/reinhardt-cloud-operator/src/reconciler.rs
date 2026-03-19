@@ -25,12 +25,12 @@ use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
 };
-use nuages_types::crd::database::{DatabaseStatus, ResourcePhase};
-use nuages_types::crd::policy::DeletionPolicy;
-use nuages_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
-use nuages_types::{ConditionStatus, ConditionType};
+use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
+use reinhardt_cloud_types::crd::policy::DeletionPolicy;
+use reinhardt_cloud_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
+use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
-const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
+const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
@@ -67,7 +67,7 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 /// Apply the desired state for a `ReinhardtApp`.
 async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	// Reconcile settings ConfigMap via server-side apply
 	let configmap = build_settings_configmap(&name, namespace);
@@ -134,7 +134,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	deployments
 		.patch(
 			&name,
-			&PatchParams::apply("nuages-operator").force(),
+			&PatchParams::apply("reinhardt-cloud-operator").force(),
 			&Patch::Apply(&desired_deployment),
 		)
 		.await
@@ -147,7 +147,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	services
 		.patch(
 			&name,
-			&PatchParams::apply("nuages-operator").force(),
+			&PatchParams::apply("reinhardt-cloud-operator").force(),
 			&Patch::Apply(&desired_service),
 		)
 		.await
@@ -190,7 +190,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+		.map(|i| reinhardt_cloud_core::inference::requires_grpc(&i.features.infrastructure_signals))
 		.unwrap_or(false);
 	if needs_grpc {
 		reconcile_grpc_service(&app, &ctx.client, namespace).await?;
@@ -220,7 +220,9 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.introspect
 		.as_ref()
 		.map(|i| {
-			nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+			reinhardt_cloud_core::inference::requires_redis_sessions(
+				&i.features.infrastructure_signals,
+			)
 		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
@@ -234,7 +236,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+		.map(|i| reinhardt_cloud_core::inference::requires_i18n(&i.features.infrastructure_signals))
 		.unwrap_or(false);
 	if needs_i18n {
 		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
@@ -355,7 +357,9 @@ fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_postgresql(&i.features.infrastructure_signals))
+		.map(|i| {
+			reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
+		})
 		.unwrap_or(false)
 }
 
@@ -370,7 +374,9 @@ fn should_provision_cache(app: &ReinhardtApp) -> bool {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_cache(&i.features.infrastructure_signals))
+		.map(|i| {
+			reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
+		})
 		.unwrap_or(false)
 }
 
@@ -390,7 +396,7 @@ fn resolve_app_port(app: &ReinhardtApp) -> u16 {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::app_port(&i.settings))
+		.map(|i| reinhardt_cloud_core::inference::app_port(&i.settings))
 		.unwrap_or(8000)
 }
 
@@ -405,7 +411,9 @@ fn should_provision_worker(app: &ReinhardtApp) -> bool {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_worker(&i.features.infrastructure_signals))
+		.map(|i| {
+			reinhardt_cloud_core::inference::requires_worker(&i.features.infrastructure_signals)
+		})
 		.unwrap_or(false)
 }
 
@@ -420,7 +428,9 @@ fn should_provision_storage(app: &ReinhardtApp) -> bool {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_storage(&i.features.infrastructure_signals))
+		.map(|i| {
+			reinhardt_cloud_core::inference::requires_storage(&i.features.infrastructure_signals)
+		})
 		.unwrap_or(false)
 }
 
@@ -435,7 +445,7 @@ fn should_provision_mail(app: &ReinhardtApp) -> bool {
 	app.spec
 		.introspect
 		.as_ref()
-		.map(|i| nuages_core::inference::requires_mail(&i.features.infrastructure_signals))
+		.map(|i| reinhardt_cloud_core::inference::requires_mail(&i.features.infrastructure_signals))
 		.unwrap_or(false)
 }
 
@@ -446,7 +456,7 @@ fn should_provision_mail(app: &ReinhardtApp) -> bool {
 /// should be created, or `None` otherwise.
 fn resolve_ingress_config(
 	app: &ReinhardtApp,
-) -> Option<(Vec<nuages_types::introspect::RouteMetadata>, u16)> {
+) -> Option<(Vec<reinhardt_cloud_types::introspect::RouteMetadata>, u16)> {
 	// Explicit ingress_host in services spec is handled by the existing
 	// reconcile path (build_service/build_ingress from explicit fields).
 	// Here we only handle introspect-derived routes when no explicit
@@ -514,7 +524,7 @@ async fn reconcile_db_statefulset(
 ) -> Result<(), Error> {
 	let name = app.name_any();
 	let sts_name = format!("{name}-postgresql");
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let desired = build_db_statefulset(app)?;
 	let sts_api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
@@ -534,7 +544,7 @@ async fn reconcile_db_service_resource(
 ) -> Result<(), Error> {
 	let name = app.name_any();
 	let svc_name = format!("{name}-postgresql");
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let desired = build_db_service(app)?;
 	let svc_api: Api<Service> = Api::namespaced(client.clone(), namespace);
@@ -600,11 +610,11 @@ async fn reconcile_ingress_resource(
 	app: &ReinhardtApp,
 	client: &Client,
 	namespace: &str,
-	routes: &[nuages_types::introspect::RouteMetadata],
+	routes: &[reinhardt_cloud_types::introspect::RouteMetadata],
 	port: u16,
 ) -> Result<(), Error> {
 	let name = app.name_any();
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let signals = app
 		.spec
@@ -631,7 +641,7 @@ async fn reconcile_cache_deployment(
 	namespace: &str,
 ) -> Result<(), Error> {
 	let name = format!("{}-redis", app.name_any());
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let desired = resources::cache::build_cache_deployment(app)?;
 	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 	deployments
@@ -649,7 +659,7 @@ async fn reconcile_cache_service_resource(
 	namespace: &str,
 ) -> Result<(), Error> {
 	let name = format!("{}-redis", app.name_any());
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let desired = resources::cache::build_cache_service(app)?;
 	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
 	services
@@ -668,7 +678,7 @@ async fn reconcile_worker_deployment_resource(
 ) -> Result<(), Error> {
 	let custom_cmd = app.spec.worker.as_ref().and_then(|w| w.command.as_deref());
 	let name = format!("{}-worker", app.name_any());
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let desired = resources::worker::build_worker_deployment(app, custom_cmd)?;
 	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 	deployments
@@ -686,7 +696,7 @@ async fn reconcile_grpc_service(
 	namespace: &str,
 ) -> Result<(), Error> {
 	let name = format!("{}-grpc", app.name_any());
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let desired = resources::grpc::build_grpc_service(app)?;
 	let services: Api<Service> = Api::namespaced(client.clone(), namespace);
 	services
@@ -710,7 +720,7 @@ async fn reconcile_storage_sa(
 		.as_ref()
 		.cloned()
 		.unwrap_or_else(|| format!("{}-storage", app.name_any()));
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
 	sa_api
 		.patch(&name, &ssapply, &Patch::Apply(sa))
@@ -758,7 +768,7 @@ async fn reconcile_i18n_configmap(
 	namespace: &str,
 ) -> Result<(), Error> {
 	let name = format!("{}-locales", app.name_any());
-	let ssapply = PatchParams::apply("nuages-operator").force();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let desired = resources::i18n::build_i18n_configmap(app)?;
 	let configmaps: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
 	configmaps
@@ -892,8 +902,8 @@ async fn update_status(
 /// Returns `true` when the condition status has changed or there is no
 /// existing condition, indicating a new transition time is needed.
 fn should_update_transition_time(
-	existing_status: Option<&nuages_types::ConditionStatus>,
-	new_status: &nuages_types::ConditionStatus,
+	existing_status: Option<&reinhardt_cloud_types::ConditionStatus>,
+	new_status: &reinhardt_cloud_types::ConditionStatus,
 ) -> bool {
 	!matches!(existing_status, Some(existing) if existing == new_status)
 }
@@ -917,15 +927,18 @@ pub(crate) async fn run(client: Client) {
 	Controller::new(apps, watcher::Config::default())
 		.owns(
 			deployments,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.owns(
 			services,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.owns(
 			statefulsets,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.shutdown_on_signal()
 		.run(reconcile, error_policy, context)
@@ -941,9 +954,11 @@ pub(crate) async fn run(client: Client) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use nuages_types::crd::{AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus};
-	use nuages_types::{ConditionStatus, ConditionType};
+	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
+	use reinhardt_cloud_types::crd::{
+		AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus,
+	};
+	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
 
 	/// Helper to create a minimal `ReinhardtApp` for reconciler tests.
@@ -1255,7 +1270,7 @@ mod tests {
 	#[rstest]
 	fn test_introspect_with_postgresql_triggers_db_path() {
 		// Arrange
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("introspect-pg-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1272,7 +1287,7 @@ mod tests {
 		// Act
 		let introspect = app.spec.introspect.as_ref().unwrap();
 		let signals = &introspect.features.infrastructure_signals;
-		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+		let needs_pg = reinhardt_cloud_core::inference::requires_postgresql(signals);
 
 		// Assert
 		assert!(needs_pg);
@@ -1290,7 +1305,9 @@ mod tests {
 	#[rstest]
 	fn test_introspect_with_routes_triggers_ingress_path() {
 		// Arrange
-		use nuages_types::introspect::{IntrospectOutput, RouteMetadata, SettingsMetadata};
+		use reinhardt_cloud_types::introspect::{
+			IntrospectOutput, RouteMetadata, SettingsMetadata,
+		};
 
 		let mut app = make_test_app("route-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1307,7 +1324,7 @@ mod tests {
 		// Act
 		let introspect = app.spec.introspect.as_ref().unwrap();
 		let has_routes = !introspect.routes.is_empty();
-		let port = nuages_core::inference::app_port(&introspect.settings);
+		let port = reinhardt_cloud_core::inference::app_port(&introspect.settings);
 
 		// Assert
 		assert!(has_routes);
@@ -1317,7 +1334,7 @@ mod tests {
 	#[rstest]
 	fn test_introspect_without_db_skips_postgresql() {
 		// Arrange
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("no-db-introspect-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1334,7 +1351,7 @@ mod tests {
 		// Act
 		let introspect = app.spec.introspect.as_ref().unwrap();
 		let signals = &introspect.features.infrastructure_signals;
-		let needs_pg = nuages_core::inference::requires_postgresql(signals);
+		let needs_pg = reinhardt_cloud_core::inference::requires_postgresql(signals);
 
 		// Assert
 		assert!(!needs_pg);
@@ -1365,7 +1382,7 @@ mod tests {
 	#[rstest]
 	fn test_explicit_database_overrides_introspect() {
 		// Arrange — explicit database set, introspect also has postgresql
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("explicit-db-app");
 		app.spec.database = Some(DatabaseSpec {
@@ -1397,7 +1414,7 @@ mod tests {
 	#[rstest]
 	fn test_introspect_used_when_no_explicit_database() {
 		// Arrange — no explicit database, introspect has postgresql
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("introspect-only-db-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1434,8 +1451,10 @@ mod tests {
 	#[rstest]
 	fn test_resolve_app_port_explicit_overrides() {
 		// Arrange — explicit services.target_port = 3000, introspect says 9000
-		use nuages_types::crd::spec::ServicesSpec;
-		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+		use reinhardt_cloud_types::crd::spec::ServicesSpec;
+		use reinhardt_cloud_types::introspect::{
+			IntrospectOutput, ServerSettings, SettingsMetadata,
+		};
 
 		let mut app = make_test_app("explicit-port-app");
 		app.spec.services = Some(ServicesSpec {
@@ -1464,7 +1483,9 @@ mod tests {
 	#[rstest]
 	fn test_resolve_app_port_falls_back_to_introspect() {
 		// Arrange — no explicit port, introspect says 9000
-		use nuages_types::introspect::{IntrospectOutput, ServerSettings, SettingsMetadata};
+		use reinhardt_cloud_types::introspect::{
+			IntrospectOutput, ServerSettings, SettingsMetadata,
+		};
 
 		let mut app = make_test_app("introspect-port-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1500,8 +1521,8 @@ mod tests {
 	#[rstest]
 	fn test_should_provision_cache_explicit_overrides() {
 		// Arrange — explicit cache set, introspect also has redis
-		use nuages_types::crd::cache::{CacheBackend, CacheSpec};
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::crd::cache::{CacheBackend, CacheSpec};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("explicit-cache-app");
 		app.spec.cache = Some(CacheSpec {
@@ -1530,7 +1551,7 @@ mod tests {
 	#[rstest]
 	fn test_should_provision_cache_falls_back_to_introspect() {
 		// Arrange — no explicit cache, introspect has redis
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("introspect-cache-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1555,8 +1576,8 @@ mod tests {
 	#[rstest]
 	fn test_should_provision_worker_explicit_overrides() {
 		// Arrange — explicit worker set, introspect also has background_worker
-		use nuages_types::crd::worker::WorkerSpec;
-		use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
+		use reinhardt_cloud_types::crd::worker::WorkerSpec;
+		use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 
 		let mut app = make_test_app("explicit-worker-app");
 		app.spec.worker = Some(WorkerSpec {
@@ -1585,8 +1606,8 @@ mod tests {
 	#[rstest]
 	fn test_resolve_ingress_explicit_host_skips_introspect() {
 		// Arrange — explicit ingress_host set, introspect also has routes
-		use nuages_types::crd::spec::ServicesSpec;
-		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+		use reinhardt_cloud_types::crd::spec::ServicesSpec;
+		use reinhardt_cloud_types::introspect::{IntrospectOutput, RouteMetadata};
 
 		let mut app = make_test_app("explicit-ingress-app");
 		app.spec.services = Some(ServicesSpec {
@@ -1614,7 +1635,7 @@ mod tests {
 	#[rstest]
 	fn test_resolve_ingress_falls_back_to_introspect_routes() {
 		// Arrange — no explicit ingress_host, introspect has routes
-		use nuages_types::introspect::{IntrospectOutput, RouteMetadata};
+		use reinhardt_cloud_types::introspect::{IntrospectOutput, RouteMetadata};
 
 		let mut app = make_test_app("introspect-ingress-app");
 		app.spec.introspect = Some(IntrospectOutput {
@@ -1655,7 +1676,7 @@ mod tests {
 	fn test_should_provision_cache_from_introspect_triggers_builders() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1684,7 +1705,7 @@ mod tests {
 	fn test_should_provision_worker_from_introspect_triggers_builders() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1713,7 +1734,7 @@ mod tests {
 	fn test_explicit_cache_also_triggers_provisioning() {
 		// Arrange — explicit spec.cache set (should still trigger provisioning)
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1736,7 +1757,7 @@ mod tests {
 	fn test_grpc_signal_triggers_service_builder() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1755,7 +1776,9 @@ mod tests {
 			.spec
 			.introspect
 			.as_ref()
-			.map(|i| nuages_core::inference::requires_grpc(&i.features.infrastructure_signals))
+			.map(|i| {
+				reinhardt_cloud_core::inference::requires_grpc(&i.features.infrastructure_signals)
+			})
 			.unwrap_or(false);
 
 		// Assert
@@ -1770,7 +1793,7 @@ mod tests {
 	fn test_should_provision_storage_from_introspect() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1791,7 +1814,7 @@ mod tests {
 	#[rstest]
 	fn test_should_provision_storage_from_explicit_spec() {
 		// Arrange
-		use nuages_types::crd::storage::{StorageBackend, StorageSpec};
+		use reinhardt_cloud_types::crd::storage::{StorageBackend, StorageSpec};
 
 		let mut app = make_test_app("explicit-storage-app");
 		app.spec.storage = Some(StorageSpec {
@@ -1816,7 +1839,7 @@ mod tests {
 	fn test_should_provision_mail_from_introspect() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1837,7 +1860,7 @@ mod tests {
 	#[rstest]
 	fn test_should_provision_mail_from_explicit_spec() {
 		// Arrange
-		use nuages_types::crd::mail::MailSpec;
+		use reinhardt_cloud_types::crd::mail::MailSpec;
 
 		let mut app = make_test_app("explicit-mail-app");
 		app.spec.mail = Some(MailSpec {
@@ -1863,7 +1886,7 @@ mod tests {
 	fn test_redis_sessions_without_explicit_cache() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1883,7 +1906,9 @@ mod tests {
 			.introspect
 			.as_ref()
 			.map(|i| {
-				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+				reinhardt_cloud_core::inference::requires_redis_sessions(
+					&i.features.infrastructure_signals,
+				)
 			})
 			.unwrap_or(false);
 
@@ -1896,7 +1921,7 @@ mod tests {
 	fn test_redis_sessions_skipped_when_cache_already_provisioned() {
 		// Arrange — both session_backend=redis and cache=redis
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1917,7 +1942,9 @@ mod tests {
 			.introspect
 			.as_ref()
 			.map(|i| {
-				nuages_core::inference::requires_redis_sessions(&i.features.infrastructure_signals)
+				reinhardt_cloud_core::inference::requires_redis_sessions(
+					&i.features.infrastructure_signals,
+				)
 			})
 			.unwrap_or(false);
 
@@ -1932,7 +1959,7 @@ mod tests {
 	fn test_storage_sa_builder_triggered_for_s3() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1965,7 +1992,7 @@ mod tests {
 	fn test_mail_secret_builder_triggered() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -1993,7 +2020,7 @@ mod tests {
 	fn test_i18n_signal_triggers_configmap_builder() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
@@ -2012,7 +2039,9 @@ mod tests {
 			.spec
 			.introspect
 			.as_ref()
-			.map(|i| nuages_core::inference::requires_i18n(&i.features.infrastructure_signals))
+			.map(|i| {
+				reinhardt_cloud_core::inference::requires_i18n(&i.features.infrastructure_signals)
+			})
 			.unwrap_or(false);
 
 		// Assert
@@ -2025,7 +2054,7 @@ mod tests {
 	fn test_websocket_signal_adds_ingress_annotations() {
 		// Arrange
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": "wsapp", "namespace": "default", "uid": "uid" },
 			"spec": {

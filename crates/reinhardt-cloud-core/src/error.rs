@@ -1,8 +1,8 @@
-//! Framework-agnostic API error types for the nuages platform.
+//! Framework-agnostic API error types for the Reinhardt Cloud platform.
 
 use thiserror::Error;
 
-/// Framework-agnostic API errors for the nuages platform.
+/// Framework-agnostic API errors for the Reinhardt Cloud platform.
 #[derive(Debug, Error)]
 pub enum ApiError {
 	#[error("unauthorized: {0}")]

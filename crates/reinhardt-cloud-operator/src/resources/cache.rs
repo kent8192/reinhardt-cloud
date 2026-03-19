@@ -10,7 +10,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
-use nuages_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -128,7 +128,7 @@ mod tests {
 
 	fn test_app(name: &str) -> ReinhardtApp {
 		let json = serde_json::json!({
-			"apiVersion": "paas.nuages.dev/v1alpha2",
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ReinhardtApp",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": { "image": "myapp:latest" }

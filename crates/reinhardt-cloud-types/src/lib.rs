@@ -1,7 +1,7 @@
-//! Shared domain types and Kubernetes CRDs for the nuages PaaS platform.
+//! Shared domain types and Kubernetes CRDs for the Reinhardt Cloud PaaS platform.
 //!
 //! This crate provides domain types and Kubernetes custom resource
-//! definitions (CRDs) used across nuages library crates, the operator,
+//! definitions (CRDs) used across Reinhardt Cloud library crates, the operator,
 //! and the reinhardt application layer.
 
 pub mod cluster;
@@ -9,7 +9,7 @@ pub mod config;
 pub mod crd;
 pub mod deployment;
 pub mod introspect;
-pub mod nuages_toml;
+pub mod reinhardt_cloud_toml;
 pub mod user;
 pub mod validation;
 

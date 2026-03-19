@@ -167,7 +167,7 @@ impl ServicesSpec {
 /// Spec for the `ReinhardtApp` custom resource.
 #[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[kube(
-	group = "paas.nuages.dev",
+	group = "paas.reinhardt-cloud.dev",
 	version = "v1alpha2",
 	kind = "ReinhardtApp",
 	namespaced,

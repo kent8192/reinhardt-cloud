@@ -1,4 +1,4 @@
-//! Configuration file handling for the nuages CLI.
+//! Configuration file handling for the reinhardt-cloud CLI.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// Errors from configuration loading.
 // allow(dead_code): Returned by from_file(); will be used when CLI loads
-// nuages.toml configuration on startup.
+// reinhardt-cloud.toml configuration on startup.
 #[allow(dead_code)]
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
@@ -17,7 +17,7 @@ pub(crate) enum ConfigError {
 	ParseError(#[from] toml::de::Error),
 }
 
-/// CLI-specific configuration (read from `nuages.toml` or environment).
+/// CLI-specific configuration (read from `reinhardt-cloud.toml` or environment).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
@@ -27,7 +27,7 @@ pub(crate) struct CliConfig {
 }
 
 impl CliConfig {
-	/// Loads configuration from a `nuages.toml` file.
+	/// Loads configuration from a `reinhardt-cloud.toml` file.
 	// allow(dead_code): Will be called when CLI implements config file loading.
 	#[allow(dead_code)]
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
@@ -36,11 +36,11 @@ impl CliConfig {
 		Ok(config)
 	}
 
-	/// Returns the API URL, falling back to the NUAGES_API_URL env var or default.
+	/// Returns the API URL, falling back to the REINHARDT_CLOUD_API_URL env var or default.
 	pub(crate) fn api_url(&self) -> String {
 		self.api_url
 			.clone()
-			.or_else(|| std::env::var("NUAGES_API_URL").ok())
+			.or_else(|| std::env::var("REINHARDT_CLOUD_API_URL").ok())
 			.unwrap_or_else(|| "http://localhost:8000".to_string())
 	}
 }
@@ -98,7 +98,7 @@ mod tests {
 		// SAFETY: This test runs serially via #[serial(env)] and no other
 		// thread depends on this env var during execution.
 		unsafe {
-			std::env::remove_var("NUAGES_API_URL");
+			std::env::remove_var("REINHARDT_CLOUD_API_URL");
 		}
 		let config = CliConfig::default();
 
@@ -112,7 +112,10 @@ mod tests {
 	#[rstest]
 	fn test_from_file_returns_error_for_missing_file() {
 		// Arrange
-		let unique_name = format!("nonexistent-nuages-config-{}.toml", std::process::id());
+		let unique_name = format!(
+			"nonexistent-reinhardt-cloud-config-{}.toml",
+			std::process::id()
+		);
 		let path = std::env::temp_dir().join(unique_name);
 
 		// Act

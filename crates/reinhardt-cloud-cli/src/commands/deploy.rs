@@ -1,21 +1,21 @@
-//! Deploy command: deploys an application to the nuages platform.
+//! Deploy command: deploys an application to the Reinhardt Cloud platform.
 
 use clap::Args;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::client::NuagesClient;
-use nuages_types::introspect::IntrospectOutput;
-use nuages_types::nuages_toml::NuagesToml;
+use crate::client::ReinhardtCloudClient;
+use reinhardt_cloud_types::introspect::IntrospectOutput;
+use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
 /// Deploy an application.
 #[derive(Debug, Args)]
 pub(crate) struct DeployArgs {
-	/// Application name (overrides nuages.toml if set)
+	/// Application name (overrides reinhardt-cloud.toml if set)
 	#[arg(short, long)]
 	pub name: Option<String>,
 
-	/// Docker image to deploy (overrides nuages.toml if set)
+	/// Docker image to deploy (overrides reinhardt-cloud.toml if set)
 	#[arg(short, long)]
 	pub image: Option<String>,
 
@@ -48,20 +48,20 @@ pub(crate) struct DeployArgs {
 	pub cluster: Option<String>,
 }
 
-/// Reads nuages.toml from the project directory if it exists.
+/// Reads reinhardt-cloud.toml from the project directory if it exists.
 ///
 /// Returns `Ok(None)` when the file does not exist, `Ok(Some(...))` on
 /// successful parse, and `Err` when the file exists but cannot be read
 /// or contains malformed TOML.
-fn read_nuages_toml(dir: &std::path::Path) -> Result<Option<NuagesToml>, String> {
-	let path = dir.join("nuages.toml");
+fn read_reinhardt_cloud_toml(dir: &std::path::Path) -> Result<Option<ReinhardtCloudToml>, String> {
+	let path = dir.join("reinhardt-cloud.toml");
 	if !path.exists() {
 		return Ok(None);
 	}
-	let content =
-		std::fs::read_to_string(&path).map_err(|e| format!("Failed to read nuages.toml: {e}"))?;
-	let config: NuagesToml =
-		toml::from_str(&content).map_err(|e| format!("Failed to parse nuages.toml: {e}"))?;
+	let content = std::fs::read_to_string(&path)
+		.map_err(|e| format!("Failed to read reinhardt-cloud.toml: {e}"))?;
+	let config: ReinhardtCloudToml = toml::from_str(&content)
+		.map_err(|e| format!("Failed to parse reinhardt-cloud.toml: {e}"))?;
 	Ok(Some(config))
 }
 
@@ -149,7 +149,7 @@ fn build_reinhardt_app_crd(
 	let mut root = serde_yaml::Mapping::new();
 	root.insert(
 		serde_yaml::Value::String("apiVersion".to_string()),
-		serde_yaml::Value::String("paas.nuages.dev/v1alpha2".to_string()),
+		serde_yaml::Value::String("paas.reinhardt-cloud.dev/v1alpha2".to_string()),
 	);
 	root.insert(
 		serde_yaml::Value::String("kind".to_string()),
@@ -170,7 +170,7 @@ fn build_reinhardt_app_crd(
 /// Executes the deploy command.
 pub(crate) async fn execute(
 	args: &DeployArgs,
-	_client: &NuagesClient,
+	_client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
@@ -193,11 +193,11 @@ pub(crate) async fn execute(
 		}
 	};
 
-	// Step 2: Try to read nuages.toml as a secondary source
-	let toml_config = read_nuages_toml(&project_dir)?;
+	// Step 2: Try to read reinhardt-cloud.toml as a secondary source
+	let toml_config = read_reinhardt_cloud_toml(&project_dir)?;
 
 	// Step 3: Determine app name, image, and replicas
-	// Priority: CLI args > introspect > nuages.toml > defaults
+	// Priority: CLI args > introspect > reinhardt-cloud.toml > defaults
 	let app_name = args
 		.name
 		.clone()
@@ -224,7 +224,7 @@ pub(crate) async fn execute(
 		.map_err(|_| format!("replicas value {replicas} exceeds i32::MAX"))?;
 
 	if toml_config.is_some() && introspect.is_none() {
-		println!("Using configuration from nuages.toml");
+		println!("Using configuration from reinhardt-cloud.toml");
 	}
 
 	// Step 4: Build CRD
@@ -260,18 +260,18 @@ pub(crate) async fn execute(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::introspect::{
+	use reinhardt_cloud_types::introspect::{
 		AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals, MiddlewareMetadata,
 		RouteMetadata, SecuritySettings, ServerSettings, SettingsMetadata, TableMetadata,
 	};
 	use rstest::rstest;
 
 	#[rstest]
-	fn test_read_nuages_toml_exists() {
+	fn test_read_reinhardt_cloud_toml_exists() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
 		std::fs::write(
-			dir.path().join("nuages.toml"),
+			dir.path().join("reinhardt-cloud.toml"),
 			r#"
 [app]
 name = "test-app"
@@ -281,7 +281,7 @@ image = "test-app:v1"
 		.unwrap();
 
 		// Act
-		let result = read_nuages_toml(dir.path());
+		let result = read_reinhardt_cloud_toml(dir.path());
 
 		// Assert
 		let config = result.unwrap().unwrap();
@@ -290,30 +290,30 @@ image = "test-app:v1"
 	}
 
 	#[rstest]
-	fn test_read_nuages_toml_missing() {
+	fn test_read_reinhardt_cloud_toml_missing() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
 
 		// Act
-		let result = read_nuages_toml(dir.path());
+		let result = read_reinhardt_cloud_toml(dir.path());
 
 		// Assert
 		assert_eq!(result.unwrap().is_none(), true);
 	}
 
 	#[rstest]
-	fn test_read_nuages_toml_malformed_returns_error() {
+	fn test_read_reinhardt_cloud_toml_malformed_returns_error() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
-		std::fs::write(dir.path().join("nuages.toml"), "invalid {{{ toml").unwrap();
+		std::fs::write(dir.path().join("reinhardt-cloud.toml"), "invalid {{{ toml").unwrap();
 
 		// Act
-		let result = read_nuages_toml(dir.path());
+		let result = read_reinhardt_cloud_toml(dir.path());
 
 		// Assert
 		assert!(result.is_err());
 		let err = result.unwrap_err();
-		assert!(err.starts_with("Failed to parse nuages.toml:"));
+		assert!(err.starts_with("Failed to parse reinhardt-cloud.toml:"));
 	}
 
 	#[rstest]
@@ -461,7 +461,7 @@ features:
 			.expect("apiVersion should exist");
 		assert_eq!(
 			api_version,
-			&serde_yaml::Value::String("paas.nuages.dev/v1alpha2".to_string())
+			&serde_yaml::Value::String("paas.reinhardt-cloud.dev/v1alpha2".to_string())
 		);
 
 		let kind = mapping
@@ -517,7 +517,7 @@ features:
 			.expect("apiVersion should exist");
 		assert_eq!(
 			api_version,
-			&serde_yaml::Value::String("paas.nuages.dev/v1alpha2".to_string())
+			&serde_yaml::Value::String("paas.reinhardt-cloud.dev/v1alpha2".to_string())
 		);
 
 		let kind = mapping

@@ -1,4 +1,4 @@
-//! Nuages Kubernetes operator for managing `ReinhardtApp` resources.
+//! Reinhardt Cloud Kubernetes operator for managing `ReinhardtApp` resources.
 
 mod error;
 mod inference;
@@ -11,11 +11,11 @@ use tracing_subscriber::{EnvFilter, fmt};
 async fn main() -> anyhow::Result<()> {
 	fmt()
 		.with_env_filter(
-			EnvFilter::from_default_env().add_directive("nuages_operator=info".parse()?),
+			EnvFilter::from_default_env().add_directive("reinhardt_cloud_operator=info".parse()?),
 		)
 		.init();
 
-	tracing::info!("Starting nuages operator");
+	tracing::info!("Starting reinhardt-cloud operator");
 
 	let client = kube::Client::try_default().await?;
 	reconciler::run(client).await;

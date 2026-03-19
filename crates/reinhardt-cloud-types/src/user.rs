@@ -1,9 +1,9 @@
-//! User domain type for nuages platform accounts.
+//! User domain type for Reinhardt Cloud platform accounts.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A nuages platform user account.
+/// A Reinhardt Cloud platform user account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
 	pub id: Uuid,

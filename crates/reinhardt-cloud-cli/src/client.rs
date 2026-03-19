@@ -1,4 +1,4 @@
-//! HTTP client for the nuages REST API.
+//! HTTP client for the reinhardt-cloud REST API.
 
 use std::time::Duration;
 
@@ -21,9 +21,9 @@ pub(crate) enum ClientError {
 	InvalidUrl(#[from] url::ParseError),
 }
 
-/// REST API client for the nuages platform.
+/// REST API client for the Reinhardt Cloud platform.
 #[derive(Debug, Clone)]
-pub(crate) struct NuagesClient {
+pub(crate) struct ReinhardtCloudClient {
 	// allow(dead_code): Fields are read by methods below; warnings appear
 	// because the methods themselves are not yet called from commands.
 	#[allow(dead_code)]
@@ -34,7 +34,7 @@ pub(crate) struct NuagesClient {
 	token: Option<String>,
 }
 
-impl NuagesClient {
+impl ReinhardtCloudClient {
 	/// Creates a new API client with the given base URL.
 	///
 	/// # Errors
@@ -97,7 +97,7 @@ mod tests {
 	#[rstest]
 	fn test_new_client_stores_base_url() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000").unwrap();
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
 		// Assert
 		assert_eq!(client.base_url(), "http://localhost:8000");
@@ -106,7 +106,7 @@ mod tests {
 	#[rstest]
 	fn test_new_client_trims_trailing_slash() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000/").unwrap();
+		let client = ReinhardtCloudClient::new("http://localhost:8000/").unwrap();
 
 		// Assert
 		assert_eq!(client.base_url(), "http://localhost:8000");
@@ -118,7 +118,7 @@ mod tests {
 		let invalid_url = "not a url";
 
 		// Act
-		let result = NuagesClient::new(invalid_url);
+		let result = ReinhardtCloudClient::new(invalid_url);
 
 		// Assert
 		assert!(
@@ -130,7 +130,7 @@ mod tests {
 	#[rstest]
 	fn test_with_token_sets_token() {
 		// Arrange
-		let client = NuagesClient::new("http://localhost:8000").unwrap();
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
 		// Act
 		let client = client.with_token("my-secret-token".to_string());
@@ -142,7 +142,7 @@ mod tests {
 	#[rstest]
 	fn test_new_client_has_no_token() {
 		// Arrange & Act
-		let client = NuagesClient::new("http://localhost:8000").unwrap();
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
 		// Assert
 		assert!(client.token.is_none());
@@ -151,7 +151,7 @@ mod tests {
 	#[rstest]
 	fn test_request_joins_path_correctly() {
 		// Arrange
-		let client = NuagesClient::new("http://localhost:8000").unwrap();
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
 		// Act
 		let result = client.request(reqwest::Method::GET, "/api/v1/apps");

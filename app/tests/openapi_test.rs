@@ -7,7 +7,7 @@
 use reinhardt::{Handler, OpenApiRouter, Request, StatusCode};
 use rstest::rstest;
 
-use nuages::routes;
+use reinhardt_cloud::routes;
 
 /// Create a request and handle it through the OpenAPI-wrapped router.
 async fn openapi_get(path: &str) -> reinhardt::Response {

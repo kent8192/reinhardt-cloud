@@ -33,7 +33,7 @@ secure_ssl_redirect = false
 				("app.kubernetes.io/name".to_string(), app_name.to_string()),
 				(
 					"app.kubernetes.io/managed-by".to_string(),
-					"nuages-operator".to_string(),
+					"reinhardt-cloud-operator".to_string(),
 				),
 			])),
 			..Default::default()
@@ -113,7 +113,7 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "myapp");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
-			"nuages-operator"
+			"reinhardt-cloud-operator"
 		);
 	}
 }

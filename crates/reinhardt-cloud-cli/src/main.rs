@@ -1,4 +1,4 @@
-//! Nuages CLI tool for managing applications on the nuages PaaS platform.
+//! Reinhardt Cloud CLI tool for managing applications on the Reinhardt Cloud PaaS platform.
 
 mod client;
 mod commands;
@@ -9,15 +9,15 @@ mod toml_generator;
 
 use clap::{Parser, Subcommand};
 
-use crate::client::NuagesClient;
+use crate::client::ReinhardtCloudClient;
 use crate::config::CliConfig;
 
-/// Nuages PaaS command-line interface.
+/// Reinhardt Cloud PaaS command-line interface.
 #[derive(Debug, Parser)]
 #[command(
-	name = "nuages",
+	name = "reinhardt-cloud",
 	version,
-	about = "Manage applications on the nuages PaaS platform"
+	about = "Manage applications on the Reinhardt Cloud PaaS platform"
 )]
 struct Cli {
 	/// API server URL
@@ -36,9 +36,9 @@ enum Commands {
 	Status(commands::status::StatusArgs),
 	/// Authenticate with the platform
 	Login(commands::login::LoginArgs),
-	/// Initialize nuages configuration for a reinhardt-web project
+	/// Initialize reinhardt-cloud configuration for a reinhardt-web project
 	Init(commands::init::InitArgs),
-	/// Re-synchronize nuages.toml with current project state
+	/// Re-synchronize reinhardt-cloud.toml with current project state
 	Sync(commands::sync::SyncArgs),
 }
 
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let default_url = config.api_url();
 	let base_url = cli.server.as_deref().unwrap_or(&default_url);
-	let client = NuagesClient::new(base_url)?;
+	let client = ReinhardtCloudClient::new(base_url)?;
 
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
@@ -68,7 +68,14 @@ mod tests {
 	#[rstest]
 	fn test_parse_deploy_command() {
 		// Arrange
-		let args = vec!["nuages", "deploy", "--name", "myapp", "--image", "myapp:v1"];
+		let args = vec![
+			"reinhardt-cloud",
+			"deploy",
+			"--name",
+			"myapp",
+			"--image",
+			"myapp:v1",
+		];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -81,7 +88,7 @@ mod tests {
 	fn test_parse_deploy_command_with_replicas() {
 		// Arrange
 		let args = vec![
-			"nuages",
+			"reinhardt-cloud",
 			"deploy",
 			"--name",
 			"myapp",
@@ -101,7 +108,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_status_command() {
 		// Arrange
-		let args = vec!["nuages", "status", "--name", "myapp"];
+		let args = vec!["reinhardt-cloud", "status", "--name", "myapp"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -113,7 +120,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_login_command() {
 		// Arrange
-		let args = vec!["nuages", "login", "--username", "alice"];
+		let args = vec!["reinhardt-cloud", "login", "--username", "alice"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -126,7 +133,7 @@ mod tests {
 	fn test_parse_with_global_server_flag() {
 		// Arrange
 		let args = vec![
-			"nuages",
+			"reinhardt-cloud",
 			"--server",
 			"http://custom:9000",
 			"status",
@@ -144,7 +151,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_missing_subcommand_fails() {
 		// Arrange
-		let args = vec!["nuages"];
+		let args = vec!["reinhardt-cloud"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -156,7 +163,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_init_command() {
 		// Arrange
-		let args = vec!["nuages", "init"];
+		let args = vec!["reinhardt-cloud", "init"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -168,7 +175,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_init_command_with_dir() {
 		// Arrange
-		let args = vec!["nuages", "init", "--dir", "/some/path"];
+		let args = vec!["reinhardt-cloud", "init", "--dir", "/some/path"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -180,7 +187,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_sync_command() {
 		// Arrange
-		let args = vec!["nuages", "sync"];
+		let args = vec!["reinhardt-cloud", "sync"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
@@ -192,7 +199,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_sync_command_with_dir() {
 		// Arrange
-		let args = vec!["nuages", "sync", "--dir", "/some/path"];
+		let args = vec!["reinhardt-cloud", "sync", "--dir", "/some/path"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);

@@ -1,4 +1,4 @@
-//! CRD type definitions for the Nuages PaaS platform.
+//! CRD type definitions for the Reinhardt Cloud PaaS platform.
 //!
 //! Defines the `ReinhardtApp` custom resource following the Kubernetes
 //! operator pattern with strongly typed spec and status fields.

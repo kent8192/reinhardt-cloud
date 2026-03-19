@@ -1,4 +1,4 @@
-//! Configuration module for nuages
+//! Configuration module for Reinhardt Cloud
 
 pub mod apps;
 pub mod middleware;
