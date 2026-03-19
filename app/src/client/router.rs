@@ -9,6 +9,8 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 use reinhardt::pages::router::Router;
 
+use crate::apps::auth::client::pages::{login_page, register_page};
+
 use super::layout::dashboard_shell;
 use super::pages::not_found_page;
 
@@ -43,57 +45,7 @@ where
 fn init_router() -> Router {
 	Router::new()
 		.route("/", || dashboard_shell())
-		.route("/login", || login_placeholder())
-		.route("/register", || register_placeholder())
+		.route("/login", || login_page())
+		.route("/register", || register_page())
 		.not_found(|| not_found_page())
-}
-
-/// Placeholder login page (replaced in Task 6).
-fn login_placeholder() -> Page {
-	page!(|| {
-		div {
-			class: "min-h-screen flex items-center justify-center bg-gray-50",
-			div {
-				class: "text-center",
-				h2 {
-					class: "text-2xl font-bold text-gray-800 mb-4",
-					"Login"
-				}
-				p {
-					class: "text-gray-600 mb-4",
-					"Login page coming soon."
-				}
-				a {
-					href: "/",
-					class: "text-blue-600 hover:underline",
-					"Back to Dashboard"
-				}
-			}
-		}
-	})()
-}
-
-/// Placeholder register page (replaced in Task 6).
-fn register_placeholder() -> Page {
-	page!(|| {
-		div {
-			class: "min-h-screen flex items-center justify-center bg-gray-50",
-			div {
-				class: "text-center",
-				h2 {
-					class: "text-2xl font-bold text-gray-800 mb-4",
-					"Register"
-				}
-				p {
-					class: "text-gray-600 mb-4",
-					"Registration page coming soon."
-				}
-				a {
-					href: "/",
-					class: "text-blue-600 hover:underline",
-					"Back to Dashboard"
-				}
-			}
-		}
-	})()
 }

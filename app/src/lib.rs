@@ -15,11 +15,11 @@ pub use nuages_types;
 // Application modules
 #[cfg(native)]
 pub mod apps;
+#[cfg(wasm)]
+pub mod client;
 #[cfg(native)]
 pub mod config;
 pub mod shared;
-#[cfg(wasm)]
-pub mod client;
 
 // Re-export commonly used items (native only).
 #[cfg(native)]

@@ -71,8 +71,7 @@ pub fn main() -> Result<(), JsValue> {
 		}
 	}) as Box<dyn FnMut(_)>);
 
-	document
-		.add_event_listener_with_callback("click", link_handler.as_ref().unchecked_ref())?;
+	document.add_event_listener_with_callback("click", link_handler.as_ref().unchecked_ref())?;
 	link_handler.forget();
 
 	// Handle browser back/forward navigation.

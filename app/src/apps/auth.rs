@@ -5,6 +5,8 @@
 use reinhardt::app_config;
 
 pub mod admin;
+#[cfg(wasm)]
+pub mod client;
 pub mod models;
 pub mod serializers;
 pub mod server;
