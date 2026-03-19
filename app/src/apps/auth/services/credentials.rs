@@ -1,8 +1,8 @@
 //! Credential verification service.
 
+use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
-use reinhardt::BaseUser;
 use tracing::error;
 
 use crate::apps::auth::models::User;
@@ -31,16 +31,12 @@ pub async fn verify_credentials(username: &str, password: &str) -> Result<User, 
 		AppError::Internal("Internal server error".to_string())
 	})?;
 	if !valid {
-		return Err(AppError::Authentication(
-			"Invalid credentials".to_string(),
-		));
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
 	// Use same generic message to prevent user enumeration
 	if !user.is_active() {
-		return Err(AppError::Authentication(
-			"Invalid credentials".to_string(),
-		));
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
 	Ok(user)

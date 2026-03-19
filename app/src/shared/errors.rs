@@ -13,6 +13,8 @@ pub enum AppError {
 	SessionExpired,
 	/// Requested resource was not found.
 	NotFound,
+	/// Resource conflict (e.g., duplicate username or email).
+	Conflict(String),
 	/// Internal server error.
 	Internal(String),
 }
@@ -40,6 +42,7 @@ impl std::fmt::Display for AppError {
 				}
 				Ok(())
 			}
+			Self::Conflict(msg) => write!(f, "Conflict: {msg}"),
 			Self::SessionExpired => write!(f, "Session expired"),
 			Self::NotFound => write!(f, "Not found"),
 			Self::Internal(msg) => write!(f, "Internal error: {msg}"),

@@ -9,12 +9,19 @@ use crate::shared::UserInfo;
 /// Cookie name for frontend session.
 const SESSION_COOKIE_NAME: &str = "nuages_session";
 
+/// Generate a raw JWT session token for the given user.
+///
+/// Returns the token string without cookie formatting. Used by server
+/// functions that return the token in the response body.
+pub fn create_session_token(user: &User) -> Result<String, String> {
+	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	auth.generate_token(user.id().to_string(), user.username().to_string())
+		.map_err(|e| format!("Failed to generate session token: {e}"))
+}
+
 /// Create a session cookie header value for the given user.
 pub fn create_session_cookie(user: &User) -> Result<String, String> {
-	let auth = JwtAuth::new(jwt_secret().as_bytes());
-	let token = auth
-		.generate_token(user.id().to_string(), user.username().to_string())
-		.map_err(|e| format!("Failed to generate session token: {e}"))?;
+	let token = create_session_token(user)?;
 
 	Ok(format!(
 		"{SESSION_COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/"
@@ -24,6 +31,19 @@ pub fn create_session_cookie(user: &User) -> Result<String, String> {
 /// Create a cookie header that clears the session.
 pub fn clear_session_cookie() -> String {
 	format!("{SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
+}
+
+/// Validate a raw JWT token and return the claims (sub, username).
+///
+/// Used by server functions that receive the token directly from the
+/// WASM client rather than from a cookie header.
+pub fn validate_raw_token(token: &str) -> Option<(String, String)> {
+	if token.is_empty() {
+		return None;
+	}
+	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	let claims = auth.verify_token(token).ok()?;
+	Some((claims.sub, claims.username))
 }
 
 /// Extract and validate session token from cookie header string.
