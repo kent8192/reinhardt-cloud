@@ -12,6 +12,7 @@ pub use nuages_types;
 // Application modules
 pub mod apps;
 pub mod config;
+pub mod shared;
 
 // Re-export commonly used items
 pub use config::settings::get_settings;
