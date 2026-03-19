@@ -197,7 +197,7 @@ Do **NOT** report to the upstream repository when:
 
 - The issue is in Reinhardt Cloud-specific code (report in Reinhardt Cloud repo)
 - The issue is a Reinhardt Cloud design decision that differs from reinhardt-web conventions
-- The issue is a feature request specific to Reinhardt Cloud'ss PaaS use case with no general applicability
+- The issue is a feature request specific to Reinhardt Cloud's PaaS use case with no general applicability
 - The issue is a misunderstanding of reinhardt-web's intended behavior (use Discussions instead)
 
 ---
