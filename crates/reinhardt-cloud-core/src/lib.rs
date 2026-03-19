@@ -1,4 +1,4 @@
-//! Core business logic for the nuages PaaS platform.
+//! Core business logic for the Reinhardt Cloud PaaS platform.
 //!
 //! This crate provides framework-agnostic domain services, error types,
 //! and authentication utilities. It has no dependency on reinhardt or

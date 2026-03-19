@@ -1,9 +1,9 @@
-//! Cluster domain type representing a Kubernetes cluster managed by nuages.
+//! Cluster domain type representing a Kubernetes cluster managed by Reinhardt Cloud.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A Kubernetes cluster registered with the nuages PaaS.
+/// A Kubernetes cluster registered with the Reinhardt Cloud PaaS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cluster {
 	pub id: Uuid,

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::{Resource, ResourceExt};
-use nuages_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use crate::error::Error;
 
@@ -50,7 +50,7 @@ pub(crate) fn standard_labels(
 		("app.kubernetes.io/name".to_string(), app.name_any()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
-			"nuages-operator".to_string(),
+			"reinhardt-cloud-operator".to_string(),
 		),
 		("app.kubernetes.io/instance".to_string(), app.name_any()),
 		(
@@ -58,7 +58,7 @@ pub(crate) fn standard_labels(
 			component.as_str().to_string(),
 		),
 		(
-			"paas.nuages.dev/owner".to_string(),
+			"paas.reinhardt-cloud.dev/owner".to_string(),
 			format!("{}/{}", app.namespace().unwrap_or_default(), app.name_any()),
 		),
 	])
@@ -74,7 +74,7 @@ pub(crate) fn owner_reference(app: &ReinhardtApp) -> Result<OwnerReference, Erro
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use nuages_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
 	use rstest::rstest;
 
 	fn make_test_app(name: &str) -> ReinhardtApp {
@@ -105,11 +105,11 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "my-app");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
-			"nuages-operator"
+			"reinhardt-cloud-operator"
 		);
 		assert_eq!(labels.get("app.kubernetes.io/instance").unwrap(), "my-app");
 		assert_eq!(
-			labels.get("paas.nuages.dev/owner").unwrap(),
+			labels.get("paas.reinhardt-cloud.dev/owner").unwrap(),
 			"default/my-app"
 		);
 	}

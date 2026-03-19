@@ -1,4 +1,4 @@
-//! Kubernetes client wrapper for nuages.
+//! Kubernetes client wrapper for Reinhardt Cloud.
 
 use kube::config::InClusterError;
 use kube::{Client, Config};

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::ConfigMap;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use nuages_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -37,7 +37,7 @@ pub(crate) fn build_i18n_configmap(app: &ReinhardtApp) -> Result<ConfigMap, Erro
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use nuages_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
 	use rstest::rstest;
 
 	fn make_test_app(name: &str) -> ReinhardtApp {

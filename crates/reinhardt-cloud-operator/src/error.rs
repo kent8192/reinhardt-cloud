@@ -1,4 +1,4 @@
-//! Error types for the nuages operator reconciliation loop.
+//! Error types for the reinhardt-cloud operator reconciliation loop.
 
 use thiserror::Error;
 

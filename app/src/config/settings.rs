@@ -1,4 +1,4 @@
-//! Settings module for nuages
+//! Settings module for Reinhardt Cloud
 //!
 //! This module provides environment-specific settings configuration using TOML files.
 //!
@@ -22,7 +22,7 @@
 //! ## Settings Directory Resolution
 //!
 //! The settings directory is resolved by:
-//! 1. `NUAGES_CONFIG_DIR` environment variable (for deployed environments)
+//! 1. `REINHARDT_CLOUD_CONFIG_DIR` environment variable (for deployed environments)
 //! 2. `CARGO_MANIFEST_DIR/settings` at compile time (for local development)
 //!
 //! ## Environment Selection
@@ -49,7 +49,7 @@ use std::env;
 /// # Examples
 ///
 /// ```no_run
-/// use nuages::config::settings::get_settings;
+/// use reinhardt_cloud::config::settings::get_settings;
 ///
 /// let settings = get_settings();
 /// println!("Debug mode: {}", settings.debug);
@@ -58,7 +58,7 @@ use std::env;
 /// # Configuration Directory
 ///
 /// The settings directory is resolved in the following order:
-/// 1. `NUAGES_CONFIG_DIR` environment variable (for deployed environments)
+/// 1. `REINHARDT_CLOUD_CONFIG_DIR` environment variable (for deployed environments)
 /// 2. `CARGO_MANIFEST_DIR/settings` at compile time (for local development)
 ///
 /// # Panics
@@ -71,10 +71,10 @@ pub fn get_settings() -> Settings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
 
-	// Resolve settings directory: NUAGES_CONFIG_DIR env var takes precedence for deployed
+	// Resolve settings directory: REINHARDT_CLOUD_CONFIG_DIR env var takes precedence for deployed
 	// environments (e.g., Docker, CI), falling back to compile-time CARGO_MANIFEST_DIR
 	// for local development.
-	let settings_dir = match env::var("NUAGES_CONFIG_DIR") {
+	let settings_dir = match env::var("REINHARDT_CLOUD_CONFIG_DIR") {
 		Ok(dir) => std::path::PathBuf::from(dir),
 		Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("settings"),
 	};

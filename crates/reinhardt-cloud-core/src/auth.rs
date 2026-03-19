@@ -1,11 +1,11 @@
-//! JWT authentication utilities for the nuages platform.
+//! JWT authentication utilities for the Reinhardt Cloud platform.
 
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// JWT claims for nuages platform authentication.
+/// JWT claims for Reinhardt Cloud platform authentication.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
 	/// Subject (user ID)

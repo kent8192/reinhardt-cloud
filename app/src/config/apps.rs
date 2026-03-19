@@ -1,10 +1,10 @@
-//! Application configuration for nuages
+//! Application configuration for Reinhardt Cloud
 //!
 //! This module defines the installed applications using compile-time validation.
 
 use reinhardt::installed_apps;
 
-// Register nuages Django-style apps for discovery and configuration.
+// Register reinhardt-cloud Django-style apps for discovery and configuration.
 // Framework features (auth, sessions, etc.) are enabled via Cargo feature flags.
 installed_apps! {
 	auth: "auth",

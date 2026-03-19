@@ -1,6 +1,6 @@
 //! Cluster management business logic.
 
-use nuages_types::Cluster;
+use reinhardt_cloud_types::Cluster;
 
 use crate::error::ApiError;
 

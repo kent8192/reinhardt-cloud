@@ -1,4 +1,4 @@
-//! Application registry for nuages
+//! Application registry for Reinhardt Cloud
 //!
 //! Django-style apps providing auth, cluster management, and deployment APIs.
 //! On WASM, only the auth module is available (for server function stubs and

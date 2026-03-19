@@ -10,7 +10,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
-use nuages_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use super::validate_port;
@@ -52,7 +52,7 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 
 	let volume_mounts = vec![VolumeMount {
 		name: "settings".to_string(),
-		mount_path: "/etc/nuages/settings".to_string(),
+		mount_path: "/etc/reinhardt-cloud/settings".to_string(),
 		read_only: Some(true),
 		..Default::default()
 	}];
@@ -135,8 +135,8 @@ pub(crate) fn build_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> 
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use nuages_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use nuages_types::crd::{ReinhardtAppSpec, ServicesSpec};
+	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
+	use reinhardt_cloud_types::crd::{ReinhardtAppSpec, ServicesSpec};
 	use rstest::rstest;
 
 	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> ReinhardtApp {
@@ -363,7 +363,7 @@ mod tests {
 		// Assert
 		let mounts = container.volume_mounts.as_ref().unwrap();
 		assert!(mounts.iter().any(|m| m.name == "settings"
-			&& m.mount_path == "/etc/nuages/settings"
+			&& m.mount_path == "/etc/reinhardt-cloud/settings"
 			&& m.read_only == Some(true)));
 	}
 
@@ -382,7 +382,7 @@ mod tests {
 			env.iter()
 				.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production"))
 		);
-		assert!(env.iter().any(|e| e.name == "NUAGES_CONFIG_DIR"));
+		assert!(env.iter().any(|e| e.name == "REINHARDT_CLOUD_CONFIG_DIR"));
 	}
 
 	#[rstest]
@@ -453,7 +453,7 @@ mod tests {
 
 		// Assert
 		let settings_mount = mounts.iter().find(|m| m.name == "settings").unwrap();
-		assert_eq!(settings_mount.mount_path, "/etc/nuages/settings");
+		assert_eq!(settings_mount.mount_path, "/etc/reinhardt-cloud/settings");
 	}
 
 	#[rstest]

@@ -19,7 +19,7 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
 use kube::api::{DynamicObject, TypeMeta};
-use nuages_types::crd::{DatabaseSpec, ReinhardtApp};
+use reinhardt_cloud_types::crd::{DatabaseSpec, ReinhardtApp};
 
 use super::platform::{Platform, PlatformConfig};
 use super::secrets::build_db_credentials_secret;
@@ -265,7 +265,7 @@ fn standard_db_labels(app_name: &str) -> BTreeMap<String, String> {
 		("app.kubernetes.io/name".to_string(), app_name.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
-			"nuages-operator".to_string(),
+			"reinhardt-cloud-operator".to_string(),
 		),
 		(
 			"app.kubernetes.io/component".to_string(),
@@ -277,7 +277,7 @@ fn standard_db_labels(app_name: &str) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::crd::{DatabaseEngine, ReinhardtAppSpec};
+	use reinhardt_cloud_types::crd::{DatabaseEngine, ReinhardtAppSpec};
 	use rstest::rstest;
 
 	fn make_app_with_db(name: &str, db_spec: DatabaseSpec) -> ReinhardtApp {

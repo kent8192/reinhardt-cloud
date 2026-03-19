@@ -3,7 +3,7 @@
 //! Pure functions that interpret [`InfraSignals`] to determine
 //! which Kubernetes resources need to be created.
 
-use nuages_types::introspect::{InfraSignals, SettingsMetadata};
+use reinhardt_cloud_types::introspect::{InfraSignals, SettingsMetadata};
 
 /// Check if the application requires a PostgreSQL database.
 ///
@@ -84,7 +84,7 @@ pub fn app_port(settings: &SettingsMetadata) -> u16 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use nuages_types::introspect::ServerSettings;
+	use reinhardt_cloud_types::introspect::ServerSettings;
 	use rstest::rstest;
 
 	#[rstest]

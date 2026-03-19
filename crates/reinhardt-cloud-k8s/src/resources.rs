@@ -1,4 +1,4 @@
-//! Kubernetes resource operations for nuages.
+//! Kubernetes resource operations for Reinhardt Cloud.
 
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{Api, ResourceExt};

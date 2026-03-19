@@ -1,4 +1,4 @@
-//! Init command: initializes `nuages.toml` for a reinhardt-web project.
+//! Init command: initializes `reinhardt-cloud.toml` for a reinhardt-web project.
 
 use std::path::PathBuf;
 
@@ -6,9 +6,9 @@ use clap::Args;
 
 use crate::feature_detector::detect_project;
 use crate::settings_reader::read_database_config;
-use crate::toml_generator::{generate_config, generate_nuages_toml_string};
+use crate::toml_generator::{generate_config, generate_reinhardt_cloud_toml_string};
 
-/// Initialize nuages configuration for the current project.
+/// Initialize reinhardt-cloud configuration for the current project.
 #[derive(Debug, Args)]
 pub(crate) struct InitArgs {
 	/// Project directory (defaults to current directory)
@@ -20,10 +20,12 @@ pub(crate) struct InitArgs {
 pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
-	// Check if nuages.toml already exists
-	let nuages_toml_path = project_dir.join("nuages.toml");
-	if nuages_toml_path.exists() {
-		return Err("nuages.toml already exists. Use `nuages sync` to update.".into());
+	// Check if reinhardt-cloud.toml already exists
+	let reinhardt_cloud_toml_path = project_dir.join("reinhardt-cloud.toml");
+	if reinhardt_cloud_toml_path.exists() {
+		return Err(
+			"reinhardt-cloud.toml already exists. Use `reinhardt-cloud sync` to update.".into(),
+		);
 	}
 
 	// Detect project
@@ -44,11 +46,11 @@ pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 
 	// Generate config
 	let config = generate_config(&metadata, db_config.as_ref());
-	let toml_string = generate_nuages_toml_string(&config);
+	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
-	// Write nuages.toml
-	std::fs::write(&nuages_toml_path, &toml_string)?;
-	println!("\nGenerated nuages.toml");
+	// Write reinhardt-cloud.toml
+	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
+	println!("\nGenerated reinhardt-cloud.toml");
 
 	Ok(())
 }

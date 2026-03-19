@@ -67,14 +67,14 @@ pub(crate) struct ResourceDefaults {
 }
 
 impl PlatformConfig {
-	/// Detect the platform from the `NUAGES_PLATFORM` environment variable
+	/// Detect the platform from the `REINHARDT_CLOUD_PLATFORM` environment variable
 	/// and return the corresponding default configuration.
 	///
 	/// Falls back to on-premise defaults when the variable is unset or
 	/// contains an unrecognised value.
 	pub(crate) fn from_env() -> Self {
 		let platform_str =
-			std::env::var("NUAGES_PLATFORM").unwrap_or_else(|_| "onpremise".to_string());
+			std::env::var("REINHARDT_CLOUD_PLATFORM").unwrap_or_else(|_| "onpremise".to_string());
 		match platform_str.as_str() {
 			"aws" => Self::aws_defaults(),
 			"gcp" => Self::gcp_defaults(),
@@ -280,7 +280,7 @@ mod tests {
 		// SAFETY: test-only env manipulation; tests using env vars
 		// must run with `#[serial]` if parallelism is a concern.
 		unsafe {
-			std::env::remove_var("NUAGES_PLATFORM");
+			std::env::remove_var("REINHARDT_CLOUD_PLATFORM");
 		}
 
 		// Act
@@ -296,7 +296,7 @@ mod tests {
 		// Arrange
 		// SAFETY: test-only env manipulation
 		unsafe {
-			std::env::set_var("NUAGES_PLATFORM", "aws");
+			std::env::set_var("REINHARDT_CLOUD_PLATFORM", "aws");
 		}
 
 		// Act
@@ -307,7 +307,7 @@ mod tests {
 
 		// Cleanup
 		unsafe {
-			std::env::remove_var("NUAGES_PLATFORM");
+			std::env::remove_var("REINHARDT_CLOUD_PLATFORM");
 		}
 	}
 
@@ -317,7 +317,7 @@ mod tests {
 		// Arrange
 		// SAFETY: test-only env manipulation
 		unsafe {
-			std::env::set_var("NUAGES_PLATFORM", "gcp");
+			std::env::set_var("REINHARDT_CLOUD_PLATFORM", "gcp");
 		}
 
 		// Act
@@ -328,7 +328,7 @@ mod tests {
 
 		// Cleanup
 		unsafe {
-			std::env::remove_var("NUAGES_PLATFORM");
+			std::env::remove_var("REINHARDT_CLOUD_PLATFORM");
 		}
 	}
 
@@ -338,7 +338,7 @@ mod tests {
 		// Arrange
 		// SAFETY: test-only env manipulation
 		unsafe {
-			std::env::set_var("NUAGES_PLATFORM", "azure");
+			std::env::set_var("REINHARDT_CLOUD_PLATFORM", "azure");
 		}
 
 		// Act
@@ -349,7 +349,7 @@ mod tests {
 
 		// Cleanup
 		unsafe {
-			std::env::remove_var("NUAGES_PLATFORM");
+			std::env::remove_var("REINHARDT_CLOUD_PLATFORM");
 		}
 	}
 

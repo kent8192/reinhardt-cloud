@@ -36,7 +36,10 @@ pub(crate) fn build_database_env_vars(
 pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
 	vec![
 		env_var("REINHARDT_ENV", "production"),
-		env_var("NUAGES_CONFIG_DIR", "/etc/nuages/settings"),
+		env_var(
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"/etc/reinhardt-cloud/settings",
+		),
 	]
 }
 
@@ -149,8 +152,14 @@ mod tests {
 		let env_var = vars.iter().find(|v| v.name == "REINHARDT_ENV").unwrap();
 		assert_eq!(env_var.value.as_deref(), Some("production"));
 
-		let config_var = vars.iter().find(|v| v.name == "NUAGES_CONFIG_DIR").unwrap();
-		assert_eq!(config_var.value.as_deref(), Some("/etc/nuages/settings"));
+		let config_var = vars
+			.iter()
+			.find(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
+			.unwrap();
+		assert_eq!(
+			config_var.value.as_deref(),
+			Some("/etc/reinhardt-cloud/settings")
+		);
 	}
 
 	#[rstest]
@@ -225,7 +234,10 @@ mod tests {
 		// Arrange
 		let auto_vars = vec![
 			env_var("REINHARDT_ENV", "production"),
-			env_var("NUAGES_CONFIG_DIR", "/etc/nuages/settings"),
+			env_var(
+				"REINHARDT_CLOUD_CONFIG_DIR",
+				"/etc/reinhardt-cloud/settings",
+			),
 			env_var("DATABASE_URL", "postgres://localhost/db"),
 		];
 		let user_vars = BTreeMap::new();
@@ -240,7 +252,11 @@ mod tests {
 				.iter()
 				.any(|v| v.name == "REINHARDT_ENV" && v.value.as_deref() == Some("production"))
 		);
-		assert!(merged.iter().any(|v| v.name == "NUAGES_CONFIG_DIR"));
+		assert!(
+			merged
+				.iter()
+				.any(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
+		);
 		assert!(merged.iter().any(|v| v.name == "DATABASE_URL"));
 	}
 
@@ -249,11 +265,17 @@ mod tests {
 		// Arrange
 		let auto_vars = vec![
 			env_var("REINHARDT_ENV", "production"),
-			env_var("NUAGES_CONFIG_DIR", "/etc/nuages/settings"),
+			env_var(
+				"REINHARDT_CLOUD_CONFIG_DIR",
+				"/etc/reinhardt-cloud/settings",
+			),
 		];
 		let user_vars = BTreeMap::from([
 			("REINHARDT_ENV".to_string(), "staging".to_string()),
-			("NUAGES_CONFIG_DIR".to_string(), "/custom/path".to_string()),
+			(
+				"REINHARDT_CLOUD_CONFIG_DIR".to_string(),
+				"/custom/path".to_string(),
+			),
 		]);
 
 		// Act
@@ -265,7 +287,7 @@ mod tests {
 		assert_eq!(env.value.as_deref(), Some("staging"));
 		let config = merged
 			.iter()
-			.find(|v| v.name == "NUAGES_CONFIG_DIR")
+			.find(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
 			.unwrap();
 		assert_eq!(config.value.as_deref(), Some("/custom/path"));
 	}
@@ -278,7 +300,7 @@ mod tests {
 		// Assert
 		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
 		assert!(names.contains(&"REINHARDT_ENV"));
-		assert!(names.contains(&"NUAGES_CONFIG_DIR"));
+		assert!(names.contains(&"REINHARDT_CLOUD_CONFIG_DIR"));
 	}
 
 	#[rstest]

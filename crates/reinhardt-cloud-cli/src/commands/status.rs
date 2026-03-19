@@ -2,7 +2,7 @@
 
 use clap::Args;
 
-use crate::client::NuagesClient;
+use crate::client::ReinhardtCloudClient;
 
 /// Check deployment status.
 #[derive(Debug, Args)]
@@ -15,7 +15,7 @@ pub(crate) struct StatusArgs {
 /// Executes the status command.
 pub(crate) async fn execute(
 	args: &StatusArgs,
-	_client: &NuagesClient,
+	_client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let app_name = args.name.as_deref().unwrap_or("default-app");
 	println!("Checking status of {app_name}...");
