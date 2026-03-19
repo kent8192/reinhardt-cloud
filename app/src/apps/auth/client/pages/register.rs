@@ -1,15 +1,14 @@
 //! Register page with username, email, and password form.
 //!
 //! Uses the `form!` macro for type-safe form handling with reactive
-//! loading and error states. On successful registration, stores the
-//! auth token in global state and navigates to the dashboard.
+//! loading and error states. On successful registration, redirects
+//! to the dashboard.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::{form, page};
 
 use crate::apps::auth::client::components::auth_layout;
 use crate::apps::auth::server::register::register;
-use crate::client::state::with_app_state_mut;
 
 /// Render the register page inside the shared auth layout.
 pub fn register_page() -> Page {
@@ -18,6 +17,7 @@ pub fn register_page() -> Page {
 		server_fn: register,
 		method: Post,
 		class: "space-y-4",
+		redirect_on_success: "/",
 
 		state: { loading, error },
 
@@ -89,25 +89,6 @@ pub fn register_page() -> Page {
 					}
 				})(is_loading)
 			},
-			// Navigate to dashboard on successful registration
-			success_navigation: |form| {
-				let is_loading = form.loading().get();
-				let err = form.error().get();
-				page!(|is_loading: bool, err: Option<String>| {
-					watch {
-						if !is_loading && err.is_none() {
-							// Store token in global state on success
-							with_app_state_mut(|state| {
-								state.token = Some("authenticated".to_string());
-							});
-							// Navigate to dashboard
-							if let Some(window) = web_sys::window() {
-								let _ = window.location().set_href("/");
-							}
-						}
-					}
-				})(is_loading, err)
-			},
 		},
 	};
 
@@ -125,7 +106,7 @@ pub fn register_page() -> Page {
 				}
 			}
 		}
-	})(register_form.into_view());
+	})(register_form.into_page());
 
 	auth_layout("Create your account", form_content)
 }

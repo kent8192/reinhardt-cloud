@@ -239,22 +239,24 @@ echo "WASM tools ready"
 '''
 
 [tasks.wasm-compile-dev]
-description = "Compile WASM binary (debug)"
+description = "Compile WASM library (debug)"
 command = "cargo"
-args = ["build", "--target", "wasm32-unknown-unknown"]
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown"]
 dependencies = ["install-wasm-tools"]
 
 [tasks.wasm-compile-release]
-description = "Compile WASM binary (release)"
+description = "Compile WASM library (release)"
 command = "cargo"
-args = ["build", "--target", "wasm32-unknown-unknown", "--release"]
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown", "--release"]
 dependencies = ["install-wasm-tools"]
 
 [tasks.wasm-bindgen-dev]
 description = "Generate JS bindings for WASM (debug)"
 script = '''
 mkdir -p dist
-WASM_FILE="target/wasm32-unknown-unknown/debug/nuages.wasm"
+# Workspace root target directory (cargo outputs here even when running from app/)
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/nuages.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1
@@ -267,7 +269,9 @@ dependencies = ["wasm-compile-dev"]
 description = "Generate JS bindings for WASM (release)"
 script = '''
 mkdir -p dist
-WASM_FILE="target/wasm32-unknown-unknown/release/nuages.wasm"
+# Workspace root target directory (cargo outputs here even when running from app/)
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/nuages.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1

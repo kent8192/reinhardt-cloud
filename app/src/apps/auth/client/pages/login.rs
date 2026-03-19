@@ -1,15 +1,14 @@
 //! Login page with username and password form.
 //!
 //! Uses the `form!` macro for type-safe form handling with reactive
-//! loading and error states. On successful login, stores the auth
-//! token in global state and navigates to the dashboard.
+//! loading and error states. On successful login, redirects to the
+//! dashboard.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::{form, page};
 
 use crate::apps::auth::client::components::auth_layout;
 use crate::apps::auth::server::login::login;
-use crate::client::state::with_app_state_mut;
 
 /// Render the login page inside the shared auth layout.
 pub fn login_page() -> Page {
@@ -18,6 +17,7 @@ pub fn login_page() -> Page {
 		server_fn: login,
 		method: Post,
 		class: "space-y-4",
+		redirect_on_success: "/",
 
 		state: { loading, error },
 
@@ -73,25 +73,6 @@ pub fn login_page() -> Page {
 					}
 				})(is_loading)
 			},
-			// Navigate to dashboard on successful login
-			success_navigation: |form| {
-				let is_loading = form.loading().get();
-				let err = form.error().get();
-				page!(|is_loading: bool, err: Option<String>| {
-					watch {
-						if !is_loading && err.is_none() {
-							// Store token in global state on success
-							with_app_state_mut(|state| {
-								state.token = Some("authenticated".to_string());
-							});
-							// Navigate to dashboard
-							if let Some(window) = web_sys::window() {
-								let _ = window.location().set_href("/");
-							}
-						}
-					}
-				})(is_loading, err)
-			},
 		},
 	};
 
@@ -109,7 +90,7 @@ pub fn login_page() -> Page {
 				}
 			}
 		}
-	})(login_form.into_view());
+	})(login_form.into_page());
 
 	auth_layout("Sign in to your account", form_content)
 }

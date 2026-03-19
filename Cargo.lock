@@ -5955,6 +5955,7 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "ctor",
+ "gloo-net",
  "inventory",
  "js-sys",
  "nuages-core",

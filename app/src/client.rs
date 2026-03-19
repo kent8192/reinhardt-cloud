@@ -12,6 +12,7 @@ pub mod state;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlElement;
 
+use reinhardt::pages::PageExt;
 use reinhardt::pages::dom::Element;
 
 /// WASM entry point — called automatically when the module loads.

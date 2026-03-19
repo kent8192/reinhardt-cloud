@@ -5,8 +5,6 @@
 
 use std::cell::RefCell;
 
-use reinhardt::pages::component::Page;
-use reinhardt::pages::page;
 use reinhardt::pages::router::Router;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
