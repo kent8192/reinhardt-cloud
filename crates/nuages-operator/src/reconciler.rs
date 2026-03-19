@@ -8,8 +8,8 @@ use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
-use k8s_openapi::api::core::v1::{ConfigMap, Secret, Service, ServiceAccount};
-use k8s_openapi::api::networking::v1::Ingress;
+use k8s_openapi::api::core::v1::{ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount};
+use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
@@ -19,7 +19,11 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
-use crate::inference::platform::{Platform, PlatformConfig};
+use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
+use crate::resources::security::network_policy::{
+	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
+};
+use crate::resources::security::resource_quota::build_limit_range;
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
@@ -241,6 +245,14 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
 	}
 
+	// Security: reconciliation for isolated workloads
+	if app.spec.isolation.is_some() {
+		reconcile_network_policies(&app, &ctx.client, namespace).await?;
+		reconcile_resource_limits(&app, &ctx.client, namespace, &ctx.platform.defaults.resources)
+			.await?;
+		reconcile_pss_labels(&ctx.client, namespace).await?;
+	}
+
 	// Derive readiness from the observed Deployment status
 	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
@@ -274,6 +286,14 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 
 	// Worker resources (stateless — always clean up)
 	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-worker")).await?;
+
+	// Security resources (always clean up)
+	delete_if_exists::<NetworkPolicy>(&ctx.client, namespace, &format!("{name}-deny-all")).await?;
+	delete_if_exists::<NetworkPolicy>(&ctx.client, namespace, &format!("{name}-allow-ingress"))
+		.await?;
+	delete_if_exists::<NetworkPolicy>(&ctx.client, namespace, &format!("{name}-allow-egress"))
+		.await?;
+	delete_if_exists::<LimitRange>(&ctx.client, namespace, &format!("{name}-limits")).await?;
 
 	// gRPC Service (stateless — always clean up)
 	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
@@ -771,6 +791,93 @@ async fn reconcile_i18n_configmap(
 	Ok(())
 }
 
+/// Reconcile NetworkPolicy resources for an isolated `ReinhardtApp`.
+async fn reconcile_network_policies(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let network_policies: Api<NetworkPolicy> = Api::namespaced(client.clone(), namespace);
+	let pp = PatchParams::apply("nuages-operator").force();
+
+	let deny = build_default_deny_policy(app)?;
+	let deny_name = format!("{}-deny-all", app.name_any());
+	network_policies
+		.patch(&deny_name, &pp, &Patch::Apply(&deny))
+		.await
+		.map_err(Error::Kube)?;
+
+	let ingress_policy = build_app_ingress_policy(app)?;
+	let ingress_name = format!("{}-allow-ingress", app.name_any());
+	network_policies
+		.patch(&ingress_name, &pp, &Patch::Apply(&ingress_policy))
+		.await
+		.map_err(Error::Kube)?;
+
+	let network_spec = app
+		.spec
+		.isolation
+		.as_ref()
+		.and_then(|i| i.network.as_ref())
+		.cloned()
+		.unwrap_or_default();
+	let egress = build_managed_service_egress_policy(app, &network_spec)?;
+	let egress_name = format!("{}-allow-egress", app.name_any());
+	network_policies
+		.patch(&egress_name, &pp, &Patch::Apply(&egress))
+		.await
+		.map_err(Error::Kube)?;
+
+	info!("Reconciled NetworkPolicies for {}", app.name_any());
+	Ok(())
+}
+
+/// Reconcile LimitRange for noisy neighbor protection.
+async fn reconcile_resource_limits(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	defaults: &ResourceDefaults,
+) -> Result<(), Error> {
+	let limit_ranges: Api<LimitRange> = Api::namespaced(client.clone(), namespace);
+	let pp = PatchParams::apply("nuages-operator").force();
+
+	let lr = build_limit_range(app, defaults)?;
+	let lr_name = format!("{}-limits", app.name_any());
+	limit_ranges
+		.patch(&lr_name, &pp, &Patch::Apply(&lr))
+		.await
+		.map_err(Error::Kube)?;
+
+	info!("Reconciled LimitRange for {}", app.name_any());
+	Ok(())
+}
+
+/// Apply Pod Security Standards labels to the app's namespace.
+async fn reconcile_pss_labels(
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let namespaces: Api<Namespace> = Api::all(client.clone());
+	let patch = serde_json::json!({
+		"metadata": {
+			"labels": {
+				"pod-security.kubernetes.io/enforce": "restricted",
+				"pod-security.kubernetes.io/enforce-version": "latest",
+				"pod-security.kubernetes.io/audit": "restricted",
+				"pod-security.kubernetes.io/warn": "restricted"
+			}
+		}
+	});
+	namespaces
+		.patch(namespace, &PatchParams::apply("nuages-operator"), &Patch::Merge(patch))
+		.await
+		.map_err(Error::Kube)?;
+
+	info!("Applied PSS Restricted labels to namespace {namespace}");
+	Ok(())
+}
+
 /// Deletes a namespaced Kubernetes resource if it exists.
 ///
 /// Silently succeeds if the resource is already absent.
@@ -912,6 +1019,8 @@ pub(crate) async fn run(client: Client) {
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
 	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
+	let network_policies: Api<NetworkPolicy> = Api::all(client.clone());
+	let limit_ranges: Api<LimitRange> = Api::all(client.clone());
 
 	let platform = PlatformConfig::from_env();
 	let context = Arc::new(Context { client, platform });
@@ -927,6 +1036,14 @@ pub(crate) async fn run(client: Client) {
 		)
 		.owns(
 			statefulsets,
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+		)
+		.owns(
+			network_policies,
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+		)
+		.owns(
+			limit_ranges,
 			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
 		)
 		.shutdown_on_signal()
