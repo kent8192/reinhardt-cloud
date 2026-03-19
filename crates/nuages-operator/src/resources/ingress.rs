@@ -125,12 +125,10 @@ pub(crate) fn build_ingress(
 
 	let mut annotations = build_annotations(signals);
 	if pages_config.is_some() {
-		annotations
-			.get_or_insert_with(BTreeMap::new)
-			.insert(
-				"nginx.ingress.kubernetes.io/proxy-buffering".to_string(),
-				"on".to_string(),
-			);
+		annotations.get_or_insert_with(BTreeMap::new).insert(
+			"nginx.ingress.kubernetes.io/proxy-buffering".to_string(),
+			"on".to_string(),
+		);
 	}
 
 	Ok(Some(Ingress {
@@ -263,7 +261,8 @@ mod tests {
 		let routes: Vec<RouteMetadata> = vec![];
 
 		// Act
-		let result = build_ingress(&app, &routes, 8000, None, None, None).expect("build should succeed");
+		let result =
+			build_ingress(&app, &routes, 8000, None, None, None).expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());
@@ -481,8 +480,18 @@ mod tests {
 		// Arrange
 		let app = make_test_app("app");
 		let routes = vec![
-			RouteMetadata { path: "/api/".to_string(), methods: vec!["GET".to_string()], name: None, namespace: None },
-			RouteMetadata { path: "/".to_string(), methods: vec!["GET".to_string()], name: None, namespace: None },
+			RouteMetadata {
+				path: "/api/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			},
+			RouteMetadata {
+				path: "/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			},
 		];
 		let pages = crate::inference::pages::ResolvedPagesConfig::default();
 

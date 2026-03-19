@@ -24,6 +24,8 @@ pub(crate) enum Component {
 	/// Database migration job.
 	Migration,
 	/// Static file server sidecar (e.g. static-web-server for WASM assets).
+	/// Currently used for label generation in future per-resource labeling.
+	#[allow(dead_code)]
 	StaticServer,
 }
 

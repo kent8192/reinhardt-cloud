@@ -13,10 +13,10 @@ use super::auth::AuthSpec;
 use super::cache::CacheSpec;
 use super::database::DatabaseSpec;
 use super::mail::MailSpec;
+use super::pages::PagesSpec;
 use super::policy::DeletionPolicy;
 use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
-use super::pages::PagesSpec;
 use super::worker::WorkerSpec;
 
 /// Metric type for autoscaling.

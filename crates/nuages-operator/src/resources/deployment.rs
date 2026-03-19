@@ -4,9 +4,8 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource, EnvVar,
-	HTTPGetAction, PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Volume,
-	VolumeMount,
+	ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+	PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};

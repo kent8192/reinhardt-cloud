@@ -57,24 +57,22 @@ impl PagesSpec {
 	/// that `static_url` starts and ends with `/`.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
-		if let Some(ref root) = self.static_root {
-			if root.is_empty() {
-				errors.push(ValidationError::new("pages.static_root must not be empty"));
-			}
+		if let Some(ref root) = self.static_root
+			&& root.is_empty()
+		{
+			errors.push(ValidationError::new("pages.static_root must not be empty"));
 		}
-		if let Some(ref url) = self.static_url {
-			if !url.starts_with('/') || !url.ends_with('/') {
-				errors.push(ValidationError::new(
-					"pages.static_url must start and end with '/'",
-				));
-			}
+		if let Some(ref url) = self.static_url
+			&& (!url.starts_with('/') || !url.ends_with('/'))
+		{
+			errors.push(ValidationError::new(
+				"pages.static_url must start and end with '/'",
+			));
 		}
-		if let Some(ref img) = self.server_image {
-			if img.is_empty() {
-				errors.push(ValidationError::new(
-					"pages.server_image must not be empty",
-				));
-			}
+		if let Some(ref img) = self.server_image
+			&& img.is_empty()
+		{
+			errors.push(ValidationError::new("pages.server_image must not be empty"));
 		}
 		if errors.is_empty() {
 			Ok(())

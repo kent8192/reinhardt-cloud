@@ -171,8 +171,15 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Ingress — explicit services.ingress_host takes precedence,
 	// falling back to introspect routes.
 	if let Some((routes, port)) = resolve_ingress_config(&app) {
-		reconcile_ingress_resource(&app, &ctx.client, namespace, &routes, port, pages_config.as_ref())
-			.await?;
+		reconcile_ingress_resource(
+			&app,
+			&ctx.client,
+			namespace,
+			&routes,
+			port,
+			pages_config.as_ref(),
+		)
+		.await?;
 	}
 
 	// Cache provisioning — explicit spec.cache takes precedence,

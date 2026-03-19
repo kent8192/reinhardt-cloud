@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use nuages_types::crd::pages::{PagesResourceRequirements, PagesSpec};
 use nuages_types::crd::ReinhardtApp;
+use nuages_types::crd::pages::PagesResourceRequirements;
 
 /// Resolved pages configuration with all defaults applied.
 ///
@@ -69,18 +69,9 @@ pub(crate) fn resolve_pages_config(app: &ReinhardtApp) -> Option<ResolvedPagesCo
 
 	let config = match &app.spec.pages {
 		Some(pages) => ResolvedPagesConfig {
-			static_root: pages
-				.static_root
-				.clone()
-				.unwrap_or(defaults.static_root),
-			static_url: pages
-				.static_url
-				.clone()
-				.unwrap_or(defaults.static_url),
-			server_image: pages
-				.server_image
-				.clone()
-				.unwrap_or(defaults.server_image),
+			static_root: pages.static_root.clone().unwrap_or(defaults.static_root),
+			static_url: pages.static_url.clone().unwrap_or(defaults.static_url),
+			server_image: pages.server_image.clone().unwrap_or(defaults.server_image),
 			server_resources: pages
 				.server_resources
 				.clone()
@@ -99,10 +90,9 @@ pub(crate) fn resolve_pages_config(app: &ReinhardtApp) -> Option<ResolvedPagesCo
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
+	use nuages_types::crd::pages::PagesSpec;
 	use nuages_types::crd::ReinhardtAppSpec;
-	use nuages_types::introspect::{
-		FeaturesMetadata, InfraSignals, IntrospectOutput,
-	};
+	use nuages_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 	use rstest::rstest;
 
 	fn make_test_app(name: &str) -> ReinhardtApp {
