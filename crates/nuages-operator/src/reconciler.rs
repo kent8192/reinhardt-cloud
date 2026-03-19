@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
-use crate::inference::platform::PlatformConfig;
+use crate::inference::platform::{Platform, PlatformConfig};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
@@ -181,7 +181,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Worker provisioning — explicit spec.worker takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_worker(&app) {
-		reconcile_worker_deployment_resource(&app, &ctx.client, namespace).await?;
+		reconcile_worker_deployment_resource(&app, &ctx.client, namespace, &ctx.platform.platform)
+			.await?;
 		info!("Reconciled worker deployment for {name}");
 	}
 
@@ -665,11 +666,12 @@ async fn reconcile_worker_deployment_resource(
 	app: &ReinhardtApp,
 	client: &Client,
 	namespace: &str,
+	platform: &Platform,
 ) -> Result<(), Error> {
 	let custom_cmd = app.spec.worker.as_ref().and_then(|w| w.command.as_deref());
 	let name = format!("{}-worker", app.name_any());
 	let ssapply = PatchParams::apply("nuages-operator").force();
-	let desired = resources::worker::build_worker_deployment(app, custom_cmd)?;
+	let desired = resources::worker::build_worker_deployment(app, custom_cmd, platform)?;
 	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 	deployments
 		.patch(&name, &ssapply, &Patch::Apply(&desired))
@@ -1705,7 +1707,12 @@ mod tests {
 
 		// Assert
 		assert!(should_worker);
-		let deploy = resources::worker::build_worker_deployment(&app, None).unwrap();
+		let deploy = resources::worker::build_worker_deployment(
+			&app,
+			None,
+			&crate::inference::platform::Platform::Onpremise,
+		)
+		.unwrap();
 		assert_eq!(deploy.metadata.name.unwrap(), "myapp-worker");
 	}
 
