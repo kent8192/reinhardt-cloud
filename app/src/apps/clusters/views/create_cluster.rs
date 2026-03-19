@@ -14,7 +14,7 @@ use crate::apps::clusters::serializers::{ClusterResponse, CreateClusterRequest};
 /// Create a new cluster (authentication required).
 ///
 /// Sets the cluster owner to the authenticated user.
-#[post("/clusters/", name = "cluster_create")]
+#[post("/clusters/", name = "cluster_create", use_inject = true)]
 pub async fn create_cluster(
 	Json(body): Json<CreateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,

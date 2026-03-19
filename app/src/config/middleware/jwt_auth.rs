@@ -37,10 +37,16 @@ impl Middleware for JwtAuthMiddleware {
 			{
 				AuthState::authenticated(&claims.sub, false, true)
 			} else {
-				AuthState::anonymous()
+				// Token present but invalid or expired
+				return Err(reinhardt::core::exception::Error::Authentication(
+					"Invalid or expired authentication token".to_string(),
+				));
 			}
 		} else {
-			AuthState::anonymous()
+			// No Authorization header at all
+			return Err(reinhardt::core::exception::Error::Authentication(
+				"Authentication credentials were not provided".to_string(),
+			));
 		};
 
 		request.extensions.insert(auth_state);
