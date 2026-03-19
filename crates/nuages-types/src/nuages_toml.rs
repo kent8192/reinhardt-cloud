@@ -243,6 +243,7 @@ impl NuagesToml {
 				smtp_port: m.smtp_port,
 				credentials_secret: None,
 			}),
+			pages: None,
 			deletion_policy: DeletionPolicy::default(),
 			features: Vec::new(),
 			introspect: None,
