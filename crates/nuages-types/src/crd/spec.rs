@@ -12,11 +12,11 @@ use crate::validation::ValidationError;
 use super::auth::AuthSpec;
 use super::cache::CacheSpec;
 use super::database::DatabaseSpec;
+use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::policy::DeletionPolicy;
 use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
-use super::isolation::IsolationSpec;
 use super::worker::WorkerSpec;
 
 /// Metric type for autoscaling.

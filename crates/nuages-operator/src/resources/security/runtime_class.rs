@@ -4,8 +4,8 @@
 //! based on the target platform.
 
 use crate::inference::platform::Platform;
-use nuages_types::crd::isolation::IsolationLevel;
 use nuages_types::crd::ReinhardtApp;
+use nuages_types::crd::isolation::IsolationLevel;
 
 /// Resolves the RuntimeClass name based on isolation level and platform.
 ///
@@ -24,9 +24,7 @@ pub(crate) fn resolve_runtime_class_name(
 	match isolation.level {
 		IsolationLevel::None => None,
 		IsolationLevel::Sandbox => match platform {
-			Platform::Aws | Platform::Gcp | Platform::Onpremise => {
-				Some("gvisor".to_string())
-			}
+			Platform::Aws | Platform::Gcp | Platform::Onpremise => Some("gvisor".to_string()),
 		},
 		IsolationLevel::MicroVM => Some("kata-clh".to_string()),
 	}

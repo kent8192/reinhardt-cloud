@@ -8,7 +8,9 @@ use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
-use k8s_openapi::api::core::v1::{ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount};
+use k8s_openapi::api::core::v1::{
+	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
+};
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
@@ -20,11 +22,11 @@ use tracing::{error, info, warn};
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
+use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
 use crate::resources::security::resource_quota::build_limit_range;
-use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
@@ -248,8 +250,13 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Security: reconciliation for isolated workloads
 	if app.spec.isolation.is_some() {
 		reconcile_network_policies(&app, &ctx.client, namespace).await?;
-		reconcile_resource_limits(&app, &ctx.client, namespace, &ctx.platform.defaults.resources)
-			.await?;
+		reconcile_resource_limits(
+			&app,
+			&ctx.client,
+			namespace,
+			&ctx.platform.defaults.resources,
+		)
+		.await?;
 		reconcile_pss_labels(&ctx.client, namespace).await?;
 	}
 
@@ -854,10 +861,7 @@ async fn reconcile_resource_limits(
 }
 
 /// Apply Pod Security Standards labels to the app's namespace.
-async fn reconcile_pss_labels(
-	client: &Client,
-	namespace: &str,
-) -> Result<(), Error> {
+async fn reconcile_pss_labels(client: &Client, namespace: &str) -> Result<(), Error> {
 	let namespaces: Api<Namespace> = Api::all(client.clone());
 	let patch = serde_json::json!({
 		"metadata": {
@@ -870,7 +874,11 @@ async fn reconcile_pss_labels(
 		}
 	});
 	namespaces
-		.patch(namespace, &PatchParams::apply("nuages-operator"), &Patch::Merge(patch))
+		.patch(
+			namespace,
+			&PatchParams::apply("nuages-operator"),
+			&Patch::Merge(patch),
+		)
 		.await
 		.map_err(Error::Kube)?;
 

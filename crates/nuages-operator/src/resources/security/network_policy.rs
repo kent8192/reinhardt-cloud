@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::networking::v1::{
-	IPBlock, NetworkPolicy, NetworkPolicyEgressRule, NetworkPolicyIngressRule,
-	NetworkPolicyPeer, NetworkPolicyPort, NetworkPolicySpec,
+	IPBlock, NetworkPolicy, NetworkPolicyEgressRule, NetworkPolicyIngressRule, NetworkPolicyPeer,
+	NetworkPolicyPort, NetworkPolicySpec,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -21,9 +21,7 @@ use crate::error::Error;
 use crate::resources::labels::owner_reference;
 
 /// Builds a default-deny NetworkPolicy for all traffic to/from the app's pods.
-pub(crate) fn build_default_deny_policy(
-	app: &ReinhardtApp,
-) -> Result<NetworkPolicy, Error> {
+pub(crate) fn build_default_deny_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-deny-all", app.name_any());
 	let namespace = app.namespace().unwrap_or_default();
 	let owner_ref = owner_reference(app)?;
@@ -33,9 +31,10 @@ pub(crate) fn build_default_deny_policy(
 			name: Some(name),
 			namespace: Some(namespace),
 			owner_references: Some(vec![owner_ref]),
-			labels: Some(BTreeMap::from([
-				("app.kubernetes.io/managed-by".to_string(), "nuages-operator".to_string()),
-			])),
+			labels: Some(BTreeMap::from([(
+				"app.kubernetes.io/managed-by".to_string(),
+				"nuages-operator".to_string(),
+			)])),
 			..Default::default()
 		},
 		spec: Some(NetworkPolicySpec {
@@ -55,9 +54,7 @@ pub(crate) fn build_default_deny_policy(
 
 /// Builds an ingress policy allowing traffic from ingress controllers
 /// and same-app pods.
-pub(crate) fn build_app_ingress_policy(
-	app: &ReinhardtApp,
-) -> Result<NetworkPolicy, Error> {
+pub(crate) fn build_app_ingress_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-allow-ingress", app.name_any());
 	let namespace = app.namespace().unwrap_or_default();
 	let owner_ref = owner_reference(app)?;
@@ -67,9 +64,10 @@ pub(crate) fn build_app_ingress_policy(
 			name: Some(name),
 			namespace: Some(namespace),
 			owner_references: Some(vec![owner_ref]),
-			labels: Some(BTreeMap::from([
-				("app.kubernetes.io/managed-by".to_string(), "nuages-operator".to_string()),
-			])),
+			labels: Some(BTreeMap::from([(
+				"app.kubernetes.io/managed-by".to_string(),
+				"nuages-operator".to_string(),
+			)])),
 			..Default::default()
 		},
 		spec: Some(NetworkPolicySpec {
@@ -124,23 +122,21 @@ pub(crate) fn build_managed_service_egress_policy(
 	let namespace = app.namespace().unwrap_or_default();
 	let owner_ref = owner_reference(app)?;
 
-	let mut egress_rules = vec![
-		NetworkPolicyEgressRule {
-			ports: Some(vec![
-				NetworkPolicyPort {
-					port: Some(IntOrString::Int(53)),
-					protocol: Some("UDP".to_string()),
-					..Default::default()
-				},
-				NetworkPolicyPort {
-					port: Some(IntOrString::Int(53)),
-					protocol: Some("TCP".to_string()),
-					..Default::default()
-				},
-			]),
-			..Default::default()
-		},
-	];
+	let mut egress_rules = vec![NetworkPolicyEgressRule {
+		ports: Some(vec![
+			NetworkPolicyPort {
+				port: Some(IntOrString::Int(53)),
+				protocol: Some("UDP".to_string()),
+				..Default::default()
+			},
+			NetworkPolicyPort {
+				port: Some(IntOrString::Int(53)),
+				protocol: Some("TCP".to_string()),
+				..Default::default()
+			},
+		]),
+		..Default::default()
+	}];
 
 	if network.allow_egress {
 		let except = if network.block_metadata_service {
@@ -166,9 +162,10 @@ pub(crate) fn build_managed_service_egress_policy(
 			name: Some(name),
 			namespace: Some(namespace),
 			owner_references: Some(vec![owner_ref]),
-			labels: Some(BTreeMap::from([
-				("app.kubernetes.io/managed-by".to_string(), "nuages-operator".to_string()),
-			])),
+			labels: Some(BTreeMap::from([(
+				"app.kubernetes.io/managed-by".to_string(),
+				"nuages-operator".to_string(),
+			)])),
 			..Default::default()
 		},
 		spec: Some(NetworkPolicySpec {

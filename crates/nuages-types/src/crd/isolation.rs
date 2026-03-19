@@ -185,10 +185,7 @@ mod tests {
 	fn network_isolation_spec_validates_valid_cidrs() {
 		// Arrange
 		let spec = NetworkIsolationSpec {
-			egress_allow_cidrs: vec![
-				"10.0.0.0/8".to_string(),
-				"172.16.0.0/12".to_string(),
-			],
+			egress_allow_cidrs: vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()],
 			..Default::default()
 		};
 
@@ -203,10 +200,7 @@ mod tests {
 	fn network_isolation_spec_rejects_invalid_cidrs() {
 		// Arrange
 		let spec = NetworkIsolationSpec {
-			egress_allow_cidrs: vec![
-				"10.0.0.0/8".to_string(),
-				"not-a-cidr".to_string(),
-			],
+			egress_allow_cidrs: vec!["10.0.0.0/8".to_string(), "not-a-cidr".to_string()],
 			..Default::default()
 		};
 

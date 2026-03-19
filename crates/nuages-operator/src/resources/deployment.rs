@@ -24,7 +24,10 @@ use crate::inference::platform::Platform;
 ///
 /// Uses the app's own namespace as the single source of truth.
 /// Returns an error if the owner reference cannot be computed.
-pub(crate) fn build_deployment(app: &ReinhardtApp, platform: &Platform) -> Result<Deployment, Error> {
+pub(crate) fn build_deployment(
+	app: &ReinhardtApp,
+	platform: &Platform,
+) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Web);
 	let namespace = app.namespace().unwrap_or_default();
 	let replicas = app.spec.replicas.unwrap_or(1);
@@ -322,7 +325,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -341,7 +345,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -354,7 +359,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -373,7 +379,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -389,7 +396,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -408,7 +416,8 @@ mod tests {
 		app.spec.env = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -423,7 +432,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -441,7 +451,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
 
@@ -463,7 +474,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 		let mounts = container.volume_mounts.as_ref().unwrap();
 
@@ -481,7 +493,8 @@ mod tests {
 			.insert("REINHARDT_ENV".to_string(), "development".to_string());
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -499,7 +512,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let main_env = pod_spec.containers[0].env.clone();
 		let init_containers = pod_spec.init_containers.unwrap();
