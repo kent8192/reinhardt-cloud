@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines Kubernetes operator patterns for the Nuages project using kube-rs. These rules ensure consistent, production-ready operator implementations across all Nuages crates.
+This file defines Kubernetes operator patterns for the Reinhardt Cloud project using kube-rs. These rules ensure consistent, production-ready operator implementations across all Reinhardt Cloud crates.
 
 ---
 
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[kube(
-	group = "paas.nuages.dev",
+	group = "paas.reinhardt-cloud.dev",
 	version = "v1alpha1",
 	kind = "ReinhardtApp",
 	namespaced,
@@ -68,7 +68,7 @@ pub struct ReinhardtAppStatus {
 ### CD-2 (MUST): CRD Versioning
 
 - ALWAYS use a versioned API group (e.g., `v1alpha1`, `v1beta1`, `v1`)
-- CRD group MUST follow the format: `<subdomain>.<domain>` (e.g., `paas.nuages.dev`)
+- CRD group MUST follow the format: `<subdomain>.<domain>` (e.g., `paas.reinhardt-cloud.dev`)
 - Progress through versions: `v1alpha1` → `v1beta1` → `v1` as stability increases
 - Breaking schema changes MUST bump the version
 
@@ -155,7 +155,7 @@ ALWAYS use finalizers when the reconciler creates resources outside of Kubernete
 ```rust
 use kube::runtime::finalizer::{finalizer, Event as FinalizerEvent};
 
-const FINALIZER_NAME: &str = "paas.nuages.dev/cleanup";
+const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
 async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let api: Api<ReinhardtApp> = Api::namespaced(
@@ -191,7 +191,7 @@ async fn reconcile_deployment(
 	deployments
 		.patch(
 			&app.name_any(),
-			&PatchParams::apply("nuages-operator").force(),
+			&PatchParams::apply("reinhardt-cloud-operator").force(),
 			&Patch::Apply(&desired),
 		)
 		.await
@@ -228,12 +228,12 @@ pub async fn run_controller(client: Client) {
 		// Watch owned Deployments to trigger reconciliation on status changes
 		.owns(
 			deployments,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		// Watch owned Services
 		.owns(
 			services,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=nuages-operator"),
+			watcher::Config::default().labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.shutdown_on_signal()
 		.run(reconcile, error_policy, context)
@@ -255,10 +255,10 @@ All resources created by the operator MUST carry standard labels:
 fn standard_labels(app: &ReinhardtApp) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("app.kubernetes.io/name".to_string(), app.name_any()),
-		("app.kubernetes.io/managed-by".to_string(), "nuages-operator".to_string()),
+		("app.kubernetes.io/managed-by".to_string(), "reinhardt-cloud-operator".to_string()),
 		("app.kubernetes.io/instance".to_string(), app.name_any()),
 		(
-			"paas.nuages.dev/owner".to_string(),
+			"paas.reinhardt-cloud.dev/owner".to_string(),
 			format!("{}/{}", app.namespace().unwrap_or_default(), app.name_any()),
 		),
 	])
@@ -453,16 +453,16 @@ The operator's service account MUST follow the principle of least privilege:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nuages-operator
+  name: reinhardt-cloud-operator
 rules:
   # Full control over owned CRDs
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps/status"]
     verbs: ["get", "update", "patch"]
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps/finalizers"]
     verbs: ["update"]
   # Read and manage owned Deployments

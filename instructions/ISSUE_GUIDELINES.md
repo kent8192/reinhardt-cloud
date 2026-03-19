@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the issue policy for the Nuages project. These rules ensure clear issue tracking, proper labeling, and consistent issue management.
+This file defines the issue policy for the Reinhardt Cloud project. These rules ensure clear issue tracking, proper labeling, and consistent issue management.
 
 ---
 
@@ -202,10 +202,10 @@ Tracking issues created for upstream dependency bugs MUST include the `upstream-
 | `upstream-tracking` | #c5def5 | Tracking issue for upstream dependency bugs (reinhardt-web etc.) |
 
 **Rules:**
-- ALL Nuages tracking issues for upstream bugs MUST have `upstream-tracking` label at creation
+- ALL Reinhardt Cloud tracking issues for upstream bugs MUST have `upstream-tracking` label at creation
 - The tracking issue title MUST follow the format: `Upstream: [brief description] (reinhardt-web#N)`
 - The tracking issue MUST reference the upstream issue URL
-- Close the tracking issue when the upstream issue is resolved AND any Nuages workaround is removed
+- Close the tracking issue when the upstream issue is resolved AND any Reinhardt Cloud workaround is removed
 
 See instructions/UPSTREAM_ISSUE_REPORTING.md (UR-4) for the full cross-referencing workflow.
 
@@ -260,7 +260,7 @@ stateDiagram-v2
 
 Via GitHub Security Advisories (Recommended):
 ```
-https://github.com/kent8192/nuages/security/advisories
+https://github.com/kent8192/reinhardt-cloud/security/advisories
 ```
 
 ---

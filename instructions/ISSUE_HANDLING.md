@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines strategic principles for handling multiple issues efficiently. While instructions/ISSUE_GUIDELINES.md covers individual issue creation and management, this document provides workflow-level guidance for planning, batching, and parallelizing issue resolution across the Nuages project's multi-crate workspace.
+This file defines strategic principles for handling multiple issues efficiently. While instructions/ISSUE_GUIDELINES.md covers individual issue creation and management, this document provides workflow-level guidance for planning, batching, and parallelizing issue resolution across the Reinhardt Cloud project's multi-crate workspace.
 
 ---
 
@@ -68,9 +68,9 @@ Use Agent Teams to parallelize work across independent crates within the same ph
 **Example:**
 ```
 Phase 1 (parallel work):
-  Agent A → nuages-operator (fix #101)
-  Agent B → nuages-crd (fix #103)
-  Agent C → nuages-webhook (fix #107)
+  Agent A → reinhardt-cloud-operator (fix #101)
+  Agent B → reinhardt-cloud-crd (fix #103)
+  Agent C → reinhardt-cloud-webhook (fix #107)
 ```
 
 ### HA-4 (MUST): Branch Organization
@@ -107,9 +107,9 @@ security/operator-permission-hardening
 
 | PR | Crate | Fix Pattern | Issues Addressed |
 |----|-------|-------------|------------------|
-| PR #1 | nuages-operator | Error handling | #101 |
-| PR #2 | nuages-crd | Error handling | #103 |
-| PR #3 | nuages-webhook | Error handling | #107 |
+| PR #1 | reinhardt-cloud-operator | Error handling | #101 |
+| PR #2 | reinhardt-cloud-crd | Error handling | #103 |
+| PR #3 | reinhardt-cloud-webhook | Error handling | #107 |
 
 ### WU-2 (SHOULD): Same-Crate Combination
 
@@ -201,11 +201,11 @@ Commits 2-4 (parallel via Agent Team, HA-3):
 
 ## Upstream Issue Reporting
 
-When issues in upstream dependencies (e.g., reinhardt-web) are discovered during Nuages development, they MUST be reported immediately to the upstream repository. See **instructions/UPSTREAM_ISSUE_REPORTING.md** for the full policy, including:
+When issues in upstream dependencies (e.g., reinhardt-web) are discovered during Reinhardt Cloud development, they MUST be reported immediately to the upstream repository. See **instructions/UPSTREAM_ISSUE_REPORTING.md** for the full policy, including:
 
 - Immediate reporting requirement (UR-1)
 - GitHub CLI usage with `-R` flag (UR-2)
-- Cross-referencing between Nuages and upstream issues (UR-4)
+- Cross-referencing between Reinhardt Cloud and upstream issues (UR-4)
 - Workaround policy (WP-1, WP-2)
 
 ---
@@ -224,7 +224,7 @@ When issues in upstream dependencies (e.g., reinhardt-web) are discovered during
 - Mix unrelated fix patterns in a single PR
 - Skip preceding PRs for cross-crate shared utilities
 - Duplicate shared logic across crate-specific PRs instead of extracting to a preceding PR
-- Delay reporting upstream issues discovered during Nuages development
+- Delay reporting upstream issues discovered during Reinhardt Cloud development
 - Implement workarounds without creating an upstream issue first
 
 ---
