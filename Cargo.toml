@@ -2,12 +2,12 @@
 resolver = "2"
 members = [
 	# Library crates
-	"crates/nuages-types",
-	"crates/nuages-core",
-	"crates/nuages-k8s",
+	"crates/reinhardt-cloud-types",
+	"crates/reinhardt-cloud-core",
+	"crates/reinhardt-cloud-k8s",
 	# Binary crates
-	"crates/nuages-operator",
-	"crates/nuages-cli",
+	"crates/reinhardt-cloud-operator",
+	"crates/reinhardt-cloud-cli",
 	# Reinhardt startproject application
 	"app",
 ]
@@ -16,7 +16,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "BSL-1.1"
-repository = "https://github.com/kent8192/nuages"
+repository = "https://github.com/kent8192/reinhardt-cloud"
 
 [workspace.dependencies]
 # Async runtime
@@ -64,9 +64,9 @@ schemars = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 # Internal workspace crates
-nuages-types = { path = "crates/nuages-types" }
-nuages-core = { path = "crates/nuages-core" }
-nuages-k8s = { path = "crates/nuages-k8s" }
+reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
+reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
+reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
 
 # Cryptography / encoding
 rand = "0.9"

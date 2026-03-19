@@ -1,5 +1,5 @@
 [package]
-name = "reinhardt-nuages"
+name = "reinhardt-cloud"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "nuages"
+name = "reinhardt_cloud"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
