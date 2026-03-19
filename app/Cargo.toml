@@ -9,6 +9,7 @@ publish = false
 [lib]
 name = "nuages"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "manage"
@@ -29,6 +30,16 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 ctor = "0.6"
 inventory = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Event", "History", "Location"] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[build-dependencies]
+cfg_aliases = "0.2"
 
 [dev-dependencies]
 rstest = { workspace = true }
