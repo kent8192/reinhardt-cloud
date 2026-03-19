@@ -1,7 +1,7 @@
 platform: onpremise
 
 image:
-  repository: registry.internal/nuages/nuages-operator
+  repository: registry.internal/reinhardt-cloud/reinhardt-cloud-operator
   pullPolicy: Always
 
 imagePullSecrets:

@@ -1,4 +1,4 @@
-Nuages Operator has been installed.
+Reinhardt Cloud Operator has been installed.
 
 Platform: {{ .Values.platform }}
 
@@ -18,7 +18,7 @@ To verify the installation:
 To deploy a sample application:
 
   cat <<EOF | kubectl apply -f -
-  apiVersion: paas.nuages.dev/v1alpha2
+  apiVersion: paas.reinhardt-cloud.dev/v1alpha2
   kind: ReinhardtApp
   metadata:
     name: sample-app
@@ -30,4 +30,4 @@ To deploy a sample application:
 
 To check the operator logs:
 
-  kubectl logs -n {{ .Values.namespace }} deployment/{{ include "nuages-operator.fullname" . }}
+  kubectl logs -n {{ .Values.namespace }} deployment/{{ include "reinhardt-cloud-operator.fullname" . }}

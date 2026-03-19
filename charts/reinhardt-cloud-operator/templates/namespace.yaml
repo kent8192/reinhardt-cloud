@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
   labels:
-    {{- include "nuages-operator.labels" . | nindent 4 }}
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}

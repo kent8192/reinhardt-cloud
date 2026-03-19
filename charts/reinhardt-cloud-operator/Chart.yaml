@@ -1,6 +1,6 @@
 apiVersion: v2
-name: nuages-operator
-description: Kubernetes operator for Nuages PaaS platform
+name: reinhardt-cloud-operator
+description: Kubernetes operator for Reinhardt Cloud PaaS platform
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
