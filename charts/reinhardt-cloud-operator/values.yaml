@@ -1,13 +1,13 @@
 replicaCount: 1
 
 image:
-  repository: nuages-operator
+  repository: reinhardt-cloud-operator
   pullPolicy: IfNotPresent
   tag: ""
 
 imagePullSecrets: []
 
-namespace: nuages-system
+namespace: reinhardt-cloud-system
 
 platform: onpremise
 

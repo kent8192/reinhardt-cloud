@@ -1,11 +1,11 @@
 platform: gcp
 
 image:
-  repository: <region>-docker.pkg.dev/<project-id>/nuages/nuages-operator
+  repository: <region>-docker.pkg.dev/<project-id>/reinhardt-cloud/reinhardt-cloud-operator
 
 serviceAccount:
   annotations:
-    iam.gke.io/gcp-service-account: "nuages-operator@<project-id>.iam.gserviceaccount.com"
+    iam.gke.io/gcp-service-account: "reinhardt-cloud-operator@<project-id>.iam.gserviceaccount.com"
 
 nodeSelector:
   kubernetes.io/os: linux

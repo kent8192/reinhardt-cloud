@@ -1,35 +1,35 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "nuages-operator.fullname" . }}
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}
   namespace: {{ .Values.namespace }}
   labels:
-    {{- include "nuages-operator.labels" . | nindent 4 }}
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "nuages-operator.selectorLabels" . | nindent 6 }}
+      {{- include "reinhardt-cloud-operator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "nuages-operator.selectorLabels" . | nindent 8 }}
+        {{- include "reinhardt-cloud-operator.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "nuages-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "reinhardt-cloud-operator.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: operator
-          image: {{ include "nuages-operator.image" . }}
+          image: {{ include "reinhardt-cloud-operator.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             {{- toYaml .Values.operator.args | nindent 12 }}
           env:
-            - name: NUAGES_PLATFORM
+            - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
             {{- range $key, $value := .Values.operator.env }}
             - name: {{ $key }}

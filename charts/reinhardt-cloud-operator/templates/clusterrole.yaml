@@ -1,18 +1,18 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nuages-operator.fullname" . }}
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}
   labels:
-    {{- include "nuages-operator.labels" . | nindent 4 }}
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
 rules:
   # Base: CRD management (always required)
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps/status"]
     verbs: ["get", "update", "patch"]
-  - apiGroups: ["paas.nuages.dev"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
     resources: ["reinhardtapps/finalizers"]
     verbs: ["update"]
   # Base: Deployment management (always required)

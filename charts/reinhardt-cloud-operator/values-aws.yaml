@@ -1,11 +1,11 @@
 platform: aws
 
 image:
-  repository: <account-id>.dkr.ecr.<region>.amazonaws.com/nuages-operator
+  repository: <account-id>.dkr.ecr.<region>.amazonaws.com/reinhardt-cloud-operator
 
 serviceAccount:
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/nuages-operator"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/reinhardt-cloud-operator"
 
 nodeSelector:
   kubernetes.io/os: linux

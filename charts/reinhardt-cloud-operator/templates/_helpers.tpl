@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "nuages-operator.name" -}}
+{{- define "reinhardt-cloud-operator.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "nuages-operator.fullname" -}}
+{{- define "reinhardt-cloud-operator.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "nuages-operator.chart" -}}
+{{- define "reinhardt-cloud-operator.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels.
 */}}
-{{- define "nuages-operator.labels" -}}
-helm.sh/chart: {{ include "nuages-operator.chart" . }}
-{{ include "nuages-operator.selectorLabels" . }}
+{{- define "reinhardt-cloud-operator.labels" -}}
+helm.sh/chart: {{ include "reinhardt-cloud-operator.chart" . }}
+{{ include "reinhardt-cloud-operator.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels.
 */}}
-{{- define "nuages-operator.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "nuages-operator.name" . }}
+{{- define "reinhardt-cloud-operator.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "reinhardt-cloud-operator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use.
 */}}
-{{- define "nuages-operator.serviceAccountName" -}}
+{{- define "reinhardt-cloud-operator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "nuages-operator.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "reinhardt-cloud-operator.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
@@ -62,7 +62,7 @@ Create the name of the service account to use.
 {{/*
 Create the image reference.
 */}}
-{{- define "nuages-operator.image" -}}
+{{- define "reinhardt-cloud-operator.image" -}}
 {{- if .Values.image.tag }}
 {{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
 {{- else }}
