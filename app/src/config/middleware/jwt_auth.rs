@@ -37,21 +37,17 @@ impl Middleware for JwtAuthMiddleware {
 			{
 				AuthState::authenticated(&claims.sub, false, true)
 			} else {
-				AuthState::anonymous()
+				// Token present but invalid or expired
+				return Err(reinhardt::core::exception::Error::Authentication(
+					"Invalid or expired authentication token".to_string(),
+				));
 			}
 		} else {
-			AuthState::anonymous()
-		};
-
-		// Reject unauthenticated requests on protected endpoints early,
-		// before DI injection converts the missing AuthInfo into a generic 500.
-		// reinhardt-web maps DiError::NotFound → Error::Internal (HTTP 500),
-		// so we must guard here to return the correct 401 status.
-		if !auth_state.is_authenticated() {
+			// No Authorization header at all
 			return Err(reinhardt::core::exception::Error::Authentication(
 				"Authentication credentials were not provided".to_string(),
 			));
-		}
+		};
 
 		request.extensions.insert(auth_state);
 

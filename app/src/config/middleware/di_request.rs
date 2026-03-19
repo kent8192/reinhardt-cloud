@@ -12,7 +12,7 @@ use reinhardt::http::AuthState;
 use reinhardt::{Handler, Middleware, Request, Response};
 
 // Workaround: rebuilds DI context per-request with a minimal request carrying AuthState
-// This is workaround of reinhardt-web
+// This is a workaround for reinhardt-web
 // Without this, AuthInfo::inject() fails with "No HTTP request available in InjectionContext"
 // See: https://github.com/kent8192/reinhardt-web/issues/2483
 
@@ -37,7 +37,11 @@ impl Middleware for DiRequestMiddleware {
 				.method(request.method.clone())
 				.uri(request.uri.clone())
 				.build()
-				.expect("Failed to build DI request");
+				.map_err(|e| {
+					reinhardt::core::exception::Error::Internal(format!(
+						"Failed to build DI request: {e}"
+					))
+				})?;
 
 			if let Some(auth_state) = request.extensions.get::<AuthState>() {
 				di_request.extensions.insert(auth_state);
