@@ -29,7 +29,7 @@ body:
 			description: Clearly describe the CI/CD issue
 			placeholder: |
 				Example: The test workflow fails consistently on the main branch
-				with a build error when compiling the nuages-controller crate.
+				with a build error when compiling the reinhardt-cloud-controller crate.
 		validations:
 			required: true
 
@@ -50,10 +50,10 @@ body:
 			label: Error Logs
 			description: Paste the relevant error logs
 			placeholder: |
-				error[E0432]: unresolved import `nuages_controller::reconciler`
+				error[E0432]: unresolved import `reinhardt_cloud_controller::reconciler`
 				  --> src/main.rs:3:5
 				  |
-				3 | use nuages_controller::reconciler;
+				3 | use reinhardt_cloud_controller::reconciler;
 				  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `reconciler` in the root
 			render: shell
 		validations:
@@ -76,7 +76,7 @@ body:
 		attributes:
 			label: Workflow Run URL
 			description: Link to the failed workflow run
-			placeholder: https://github.com/kent8192/nuages/actions/runs/1234567890
+			placeholder: https://github.com/kent8192/reinhardt-cloud/actions/runs/1234567890
 		validations:
 			required: false
 
