@@ -179,7 +179,7 @@ fi
 
 [tasks.install-tools]
 description = "Install all required development tools"
-dependencies = ["install-nextest", "install-bacon"]
+dependencies = ["install-nextest", "install-bacon", "install-wasm-tools"]
 
 # ============================================================================
 # Development Workflow
@@ -219,6 +219,103 @@ args = ["run", "--bin", "manage", "runserver", "-vv"]
 description = "Start the development server with maximum verbosity"
 command = "cargo"
 args = ["run", "--bin", "manage", "runserver", "-vvv"]
+
+# ============================================================================
+# WASM Build (reinhardt-pages frontend)
+# ============================================================================
+
+[tasks.install-wasm-tools]
+description = "Install WASM build tools if not already installed"
+script = '''
+if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
+	echo "Installing wasm32-unknown-unknown target..."
+	rustup target add wasm32-unknown-unknown
+fi
+if ! command -v wasm-bindgen &> /dev/null; then
+	echo "Installing wasm-bindgen-cli..."
+	cargo install wasm-bindgen-cli --locked
+fi
+echo "WASM tools ready"
+'''
+
+[tasks.wasm-compile-dev]
+description = "Compile WASM binary (debug)"
+command = "cargo"
+args = ["build", "--target", "wasm32-unknown-unknown"]
+dependencies = ["install-wasm-tools"]
+
+[tasks.wasm-compile-release]
+description = "Compile WASM binary (release)"
+command = "cargo"
+args = ["build", "--target", "wasm32-unknown-unknown", "--release"]
+dependencies = ["install-wasm-tools"]
+
+[tasks.wasm-bindgen-dev]
+description = "Generate JS bindings for WASM (debug)"
+script = '''
+mkdir -p dist
+WASM_FILE="target/wasm32-unknown-unknown/debug/nuages.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist --debug
+'''
+dependencies = ["wasm-compile-dev"]
+
+[tasks.wasm-bindgen-release]
+description = "Generate JS bindings for WASM (release)"
+script = '''
+mkdir -p dist
+WASM_FILE="target/wasm32-unknown-unknown/release/nuages.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist
+if command -v wasm-opt &> /dev/null; then
+	echo "Optimizing WASM with wasm-opt..."
+	wasm-opt -O3 dist/nuages_bg.wasm -o dist/nuages_bg.wasm
+fi
+'''
+dependencies = ["wasm-compile-release"]
+
+[tasks.wasm-finalize-dev]
+description = "Copy index.html to dist/ (debug)"
+script = '''
+cp index.html dist/index.html
+echo "WASM build artifacts ready in dist/"
+'''
+dependencies = ["wasm-bindgen-dev"]
+
+[tasks.wasm-finalize-release]
+description = "Copy index.html to dist/ (release)"
+script = '''
+cp index.html dist/index.html
+echo "WASM release build artifacts ready in dist/"
+'''
+dependencies = ["wasm-bindgen-release"]
+
+[tasks.wasm-build-dev]
+description = "Full WASM debug build pipeline"
+dependencies = ["wasm-finalize-dev"]
+
+[tasks.wasm-build-release]
+description = "Full WASM release build pipeline"
+dependencies = ["wasm-finalize-release"]
+
+[tasks.wasm-clean]
+description = "Clean WASM build artifacts"
+script = '''
+rm -rf dist/
+echo "Cleaned dist/"
+'''
+
+[tasks.runserver-pages]
+description = "Build WASM and start server with pages"
+dependencies = ["wasm-build-dev"]
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "--with-pages"]
 
 # ============================================================================
 # Help
@@ -268,6 +365,12 @@ echo "    clean              - Clean artifacts"
 echo ""
 echo "  CI/CD:"
 echo "    ci                 - Run CI pipeline"
+echo ""
+echo "  WASM Build:"
+echo "    wasm-build-dev     - Full WASM debug build"
+echo "    wasm-build-release - Full WASM release build"
+echo "    wasm-clean         - Clean WASM artifacts"
+echo "    runserver-pages    - Build WASM + start server"
 echo ""
 echo "  Tools:"
 echo "    install-tools      - Install dev tools"
