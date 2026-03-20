@@ -12,7 +12,8 @@ pub use nuages_k8s;
 #[cfg(native)]
 pub use nuages_types;
 
-// Application modules — available on both platforms with conditional submodules.
+// Application modules.
+#[cfg(native)]
 pub mod apps;
 #[cfg(wasm)]
 pub mod client;

@@ -1,10 +1,10 @@
 //! Register page with username, email, and password form.
 //!
 //! Uses plain `page!` macro for static HTML form rendering.
-// Workaround: form! macro causes RefCell already borrowed panic
-// when used with render_to_string() due to reactive Effect creation.
-// See: https://github.com/kent8192/reinhardt-web/issues/TBD
-// Scope: apps/auth/client/pages/register.rs, login.rs
+// Workaround: reinhardt-pages reactive Effect system panics with
+// "RefCell already borrowed" on non-/ routes during WASM initialization.
+// See: https://github.com/kent8192/reinhardt-web/issues/2667
+// Scope: client.rs, auth/client/pages/login.rs, auth/client/pages/register.rs
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;

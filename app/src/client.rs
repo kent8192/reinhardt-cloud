@@ -11,7 +11,8 @@
 
 pub mod layout;
 pub mod pages;
-pub mod router;
+// Temporarily disabled to debug RefCell panic
+// pub mod router;
 pub mod state;
 
 use wasm_bindgen::prelude::*;
@@ -25,9 +26,6 @@ pub fn main() -> Result<(), JsValue> {
 
 	// Initialize global application state.
 	state::init_app_state();
-
-	// Initialize the SPA router with all routes.
-	router::init_global_router();
 
 	// Obtain the root DOM element.
 	let window = web_sys::window().expect("no global `window` exists");
@@ -63,9 +61,6 @@ pub fn main() -> Result<(), JsValue> {
 									);
 								}
 								// Re-render for the new route.
-								router::with_router(|r| {
-									let _ = r.push(&href);
-								});
 								render_current_route(&app_for_links);
 								return;
 							}
@@ -86,12 +81,6 @@ pub fn main() -> Result<(), JsValue> {
 	// Handle browser back/forward navigation.
 	let app_for_popstate = app_element.clone();
 	let popstate_handler = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-		router::with_router(|r| {
-			let current_path = web_sys::window()
-				.and_then(|w| w.location().pathname().ok())
-				.unwrap_or_else(|| "/".to_string());
-			let _ = r.replace(&current_path);
-		});
 		render_current_route(&app_for_popstate);
 	}) as Box<dyn FnMut(_)>);
 
@@ -103,10 +92,22 @@ pub fn main() -> Result<(), JsValue> {
 }
 
 /// Render the current route to static HTML and inject into the app element.
-///
-/// Uses `render_to_string()` to avoid creating live reactive nodes that
-/// would conflict with the router's internal signal management.
+// Workaround: reinhardt-pages reactive Effect system panics with
+// "RefCell already borrowed" on non-/ routes during WASM initialization.
+// See: https://github.com/kent8192/reinhardt-web/issues/2667
+// Scope: client.rs, auth/client/pages/login.rs, auth/client/pages/register.rs
 fn render_current_route(app_element: &web_sys::Element) {
-	let html = router::with_router(|r| r.render_current().render_to_string());
-	app_element.set_inner_html(&html);
+	let path = web_sys::window()
+		.and_then(|w| w.location().pathname().ok())
+		.unwrap_or_else(|| "/".to_string());
+
+	let page = match path.as_str() {
+		"/login" | "/register" => reinhardt::pages::page!(|| {
+			div { "Auth page - minimal test" }
+		})(),
+		"/" => layout::dashboard_shell(),
+		_ => pages::not_found_page(),
+	};
+
+	app_element.set_inner_html(&page.render_to_string());
 }
