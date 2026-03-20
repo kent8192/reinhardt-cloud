@@ -1,4 +1,4 @@
-# GitHub Actions secrets and variables for the nuages repository.
+# GitHub Actions secrets and variables for the reinhardt-cloud repository.
 # Secrets are encrypted at rest and masked in logs.
 # Variables are plaintext and visible in workflow logs.
 

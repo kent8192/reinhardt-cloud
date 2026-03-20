@@ -50,15 +50,15 @@ component_management:
     - component_id: control-plane
       name: Control Plane
       paths:
-        - "crates/nuages-control-plane/src/**"
+        - "crates/reinhardt-cloud-control-plane/src/**"
     - component_id: operator
       name: Kubernetes Operator
       paths:
-        - "crates/nuages-operator/src/**"
+        - "crates/reinhardt-cloud-operator/src/**"
     - component_id: cli
       name: CLI
       paths:
-        - "crates/nuages-cli/src/**"
+        - "crates/reinhardt-cloud-cli/src/**"
 
 comment:
   layout: "condensed_header, condensed_files, condensed_footer"

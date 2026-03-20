@@ -1,4 +1,4 @@
-# Nuages - cargo-make configuration
+# Reinhardt Cloud - cargo-make configuration
 
 [config]
 default_to_workspace = false

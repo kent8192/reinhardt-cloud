@@ -63,7 +63,7 @@ body:
         - Rust version: [e.g., 1.85.0]
         - OS: [e.g., macOS 15.0, Ubuntu 24.04]
         - Kubernetes version: [e.g., 1.32.0]
-        - nuages version: [e.g., 0.1.0]
+        - reinhardt-cloud version: [e.g., 0.1.0]
       render: markdown
 
   - type: textarea

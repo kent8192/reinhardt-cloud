@@ -11,7 +11,7 @@
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via [GitHub Security Advisories](https://github.com/kent8192/nuages/security/advisories/new).
+Instead, please report them via [GitHub Security Advisories](https://github.com/kent8192/reinhardt-cloud/security/advisories/new).
 
 ### What to Include
 
@@ -41,7 +41,7 @@ When reporting a vulnerability, please include:
 
 The following are in scope for security reports:
 
-- The Nuages application and its dependencies
+- The Reinhardt Cloud application and its dependencies
 - Authentication and authorization mechanisms
 - API endpoint security
 - Kubernetes operator security (CRD handling, RBAC)
@@ -66,4 +66,4 @@ We will not pursue legal action against researchers who follow these guidelines.
 
 ## Contact
 
-For security-related inquiries, use [GitHub Security Advisories](https://github.com/kent8192/nuages/security/advisories/new).
+For security-related inquiries, use [GitHub Security Advisories](https://github.com/kent8192/reinhardt-cloud/security/advisories/new).

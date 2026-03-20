@@ -1,5 +1,5 @@
 [package]
-name = "reinhardt-nuages"
+name = "reinhardt-cloud"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "nuages"
+name = "reinhardt_cloud"
 path = "src/lib.rs"
 
 [[bin]]
@@ -16,9 +16,9 @@ path = "src/bin/manage.rs"
 
 [dependencies]
 reinhardt = { workspace = true }
-nuages-types = { workspace = true }
-nuages-core = { workspace = true }
-nuages-k8s = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-k8s = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

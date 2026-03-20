@@ -1,9 +1,9 @@
-# release-plz configuration for Nuages project
+# release-plz configuration for Reinhardt Cloud project
 # Documentation: https://release-plz.ieni.dev/docs/config
 #
 # Crate structure:
-#   Library crates (publish = false): nuages-types, nuages-api, nuages-k8s
-#   Binary crates (GitHub Releases):  nuages-control, nuages-operator, nuages-cli
+#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-api, reinhardt-cloud-k8s
+#   Binary crates (GitHub Releases):  reinhardt-cloud-control, reinhardt-cloud-operator, reinhardt-cloud-cli
 
 [workspace]
 # Changelog settings
@@ -34,50 +34,50 @@ publish_no_verify = true
 # Reinhardt startproject application. Distributed via Docker image / GitHub Releases.
 
 [[package]]
-name = "reinhardt-nuages"
+name = "reinhardt-cloud"
 publish = false
 git_release_enable = true
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 # ── Internal library crates ──────────────────────────────────────────────────
 # These crates are workspace-internal and not published to crates.io.
 # release-plz still manages their changelogs and tags for internal tracking.
 
 [[package]]
-name = "nuages-types"
+name = "reinhardt-cloud-types"
 publish = false
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 [[package]]
-name = "nuages-api"
+name = "reinhardt-cloud-api"
 publish = false
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 [[package]]
-name = "nuages-k8s"
+name = "reinhardt-cloud-k8s"
 publish = false
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 # ── Binary crates (GitHub Releases) ─────────────────────────────────────────
 # These crates are distributed as GitHub Releases (not crates.io).
 
 [[package]]
-name = "nuages-control"
+name = "reinhardt-cloud-control"
 publish = false
 git_release_enable = true
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 [[package]]
-name = "nuages-operator"
+name = "reinhardt-cloud-operator"
 publish = false
 git_release_enable = true
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 [[package]]
-name = "nuages-cli"
+name = "reinhardt-cloud-cli"
 publish = false
 git_release_enable = true
-version_group = "nuages"
+version_group = "reinhardt-cloud"
 
 [changelog]
 protect_breaking_commits = true
@@ -110,5 +110,5 @@ commit_parsers = [
 
 # Convert GitHub issue/PR references to clickable links
 commit_preprocessors = [
-  { pattern = '#(\d+)', replace = "[#${1}](https://github.com/kent8192/nuages/issues/${1})" },
+  { pattern = '#(\d+)', replace = "[#${1}](https://github.com/kent8192/reinhardt-cloud/issues/${1})" },
 ]
