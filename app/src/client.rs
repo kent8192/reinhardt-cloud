@@ -1,8 +1,13 @@
 //! WASM client entry point for the Nuages dashboard.
 //!
 //! Initializes global state, the SPA router, and mounts the application
-//! to the `#app` DOM element. Sets up link click interception and
-//! popstate handling for client-side navigation.
+//! to the `#app` DOM element. Sets up a reactive Effect for re-rendering
+//! on route changes, and installs link click interception and popstate
+//! handling for client-side navigation.
+//!
+//! Uses `render_to_string()` + `set_inner_html()` instead of `mount()`
+//! to avoid re-entrant RefCell borrows in the reactive system when
+//! route handlers use the `form!` macro.
 
 pub mod layout;
 pub mod pages;
@@ -12,8 +17,7 @@ pub mod state;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlElement;
 
-use reinhardt::pages::PageExt;
-use reinhardt::pages::dom::Element;
+use reinhardt::pages::Effect;
 
 /// WASM entry point — called automatically when the module loads.
 #[wasm_bindgen(start)]
@@ -30,19 +34,31 @@ pub fn main() -> Result<(), JsValue> {
 	// Obtain the root DOM element.
 	let window = web_sys::window().expect("no global `window` exists");
 	let document = window.document().expect("should have a document on window");
-	let root = document
+	let app_element = document
 		.get_element_by_id("app")
 		.expect("should have #app element");
 
-	// Clear the loading placeholder.
-	root.set_inner_html("");
+	// Initial render: produce static HTML and set it on the root element.
+	// Using render_to_string() avoids creating reactive nodes that would
+	// conflict with the router's signal updates during navigation.
+	let view = router::with_router(|r| r.render_current());
+	app_element.set_inner_html(&view.render_to_string());
 
-	// Render the current route and mount it.
-	router::with_router(|r| {
-		let view = r.render_current();
-		let root_element = Element::new(root.clone());
-		let _ = view.mount(&root_element);
+	// Set up a reactive Effect that re-renders when the route changes.
+	// The Effect subscribes to `current_params()` so it fires on any
+	// navigation (push, replace, or popstate). The Effect is intentionally
+	// leaked because WASM entry points run for the entire application
+	// lifetime and never terminate.
+	let app_clone = app_element.clone();
+	let effect = Effect::new(move || {
+		let view = router::with_router(|r| {
+			// Subscribe to current_params to trigger re-render on route change.
+			let _ = r.current_params().get();
+			r.render_current()
+		});
+		app_clone.set_inner_html(&view.render_to_string());
 	});
+	std::mem::forget(effect);
 
 	// Set up SPA link click interception (event delegation on document).
 	let link_handler = Closure::wrap(Box::new(move |event: web_sys::Event| {
