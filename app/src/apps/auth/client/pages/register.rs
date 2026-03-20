@@ -1,100 +1,83 @@
 //! Register page with username, email, and password form.
 //!
-//! Uses the `form!` macro for type-safe form handling with reactive
-//! loading and error states. On successful registration, redirects
-//! to the dashboard.
+//! Uses plain `page!` macro for static HTML form rendering.
+// Workaround: form! macro causes RefCell already borrowed panic
+// when used with render_to_string() due to reactive Effect creation.
+// See: https://github.com/kent8192/reinhardt-web/issues/TBD
+// Scope: apps/auth/client/pages/register.rs, login.rs
 
 use reinhardt::pages::component::Page;
-use reinhardt::pages::{form, page};
+use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::auth_layout;
-use crate::apps::auth::server::register::register;
 
-/// Render the register page inside the shared auth layout.
+/// Render the registration page inside the shared auth layout.
 pub fn register_page() -> Page {
-	let register_form = form! {
-		name: RegisterForm,
-		server_fn: register,
-		method: Post,
-		class: "space-y-4",
-		redirect_on_success: "/",
-
-		state: { loading, error },
-
-		fields: {
-			username: CharField {
-				required,
-				max_length: 150,
-				label: "Username",
-				placeholder: "Choose a username",
-				class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-			},
-			email: CharField {
-				required,
-				max_length: 254,
-				label: "Email",
-				placeholder: "you@example.com",
-				class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-			},
-			password: CharField {
-				required,
-				min_length: 8,
-				widget: PasswordInput,
-				label: "Password",
-				placeholder: "At least 8 characters",
-				class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-			},
-		},
-
-		client_validators: {
-			email: [
-				"value.includes('@')" => "Please enter a valid email address",
-			],
-			password: [
-				"value.length >= 8" => "Password must be at least 8 characters",
-			],
-		},
-
-		watch: {
-			// Error banner displayed when registration fails
-			error_banner: |form| {
-				let err = form.error().get();
-				page!(|err: Option<String>| {
-					watch {
-						if let Some(e) = err.clone() {
-							div {
-								class: "p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700",
-								{ e }
-							}
-						}
-					}
-				})(err)
-			},
-			// Submit button with loading state
-			submit_button: |form| {
-				let is_loading = form.loading().get();
-				page!(|is_loading: bool| {
-					div {
-						class: "pt-2",
-						button {
-							type: "submit",
-							class: if is_loading {
-								"w-full py-2 px-4 bg-blue-400 text-white text-sm font-medium rounded-md cursor-not-allowed"
-							} else {
-								"w-full py-2 px-4 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
-							},
-							disabled: is_loading,
-							{ if is_loading { "Creating account..." } else { "Create account" } }
-						}
-					}
-				})(is_loading)
-			},
-		},
-	};
-
-	let form_content = page!(|register_form: Page| {
+	let is_required = true;
+	let form_content = page!(|is_required: bool| {
 		div {
-			{ register_form }
+			form {
+				method: "post",
+				action: "/api/server_fn/register",
+				class: "space-y-4",
+				// Username field
+				div {
+					label {
+						r#for: "username",
+						class: "block text-sm font-medium text-gray-700 mb-1",
+						"Username"
+					}
+					input {
+						r#type: "text",
+						name: "username",
+						id: "username",
+						placeholder: "Choose a username",
+						class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+					}
+				}
+				// Email field
+				div {
+					label {
+						r#for: "email",
+						class: "block text-sm font-medium text-gray-700 mb-1",
+						"Email"
+					}
+					input {
+						r#type: "email",
+						name: "email",
+						id: "email",
+						placeholder: "Enter your email",
+						class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+					}
+				}
+				// Password field
+				div {
+					label {
+						r#for: "password",
+						class: "block text-sm font-medium text-gray-700 mb-1",
+						"Password"
+					}
+					input {
+						r#type: "password",
+						name: "password",
+						id: "password",
+						// Boolean attribute requires a dynamic expression (page! macro rule)
+						required: is_required,
+						minlength: 8,
+						placeholder: "Create a password (min 8 characters)",
+						class: "w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+					}
+				}
+				// Submit button
+				div {
+					class: "pt-2",
+					button {
+						r#type: "submit",
+						class: "w-full py-2 px-4 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors",
+						"Create Account"
+					}
+				}
+			}
 			// Link to login page
 			div {
 				class: "mt-6 text-center text-sm text-gray-600",
@@ -106,7 +89,7 @@ pub fn register_page() -> Page {
 				}
 			}
 		}
-	})(register_form.into_page());
+	})(is_required);
 
 	auth_layout("Create your account", form_content)
 }

@@ -17,8 +17,6 @@ pub mod state;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlElement;
 
-use reinhardt::pages::Effect;
-
 /// WASM entry point — called automatically when the module loads.
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
@@ -38,29 +36,13 @@ pub fn main() -> Result<(), JsValue> {
 		.get_element_by_id("app")
 		.expect("should have #app element");
 
-	// Initial render: produce static HTML and set it on the root element.
-	// Using render_to_string() avoids creating reactive nodes that would
-	// conflict with the router's signal updates during navigation.
-	let view = router::with_router(|r| r.render_current());
-	app_element.set_inner_html(&view.render_to_string());
-
-	// Set up a reactive Effect that re-renders when the route changes.
-	// The Effect subscribes to `current_params()` so it fires on any
-	// navigation (push, replace, or popstate). The Effect is intentionally
-	// leaked because WASM entry points run for the entire application
-	// lifetime and never terminate.
-	let app_clone = app_element.clone();
-	let effect = Effect::new(move || {
-		let view = router::with_router(|r| {
-			// Subscribe to current_params to trigger re-render on route change.
-			let _ = r.current_params().get();
-			r.render_current()
-		});
-		app_clone.set_inner_html(&view.render_to_string());
-	});
-	std::mem::forget(effect);
+	// Initial render: produce static HTML string and inject it.
+	// This avoids creating reactive nodes (Effects) that would cause
+	// re-entrant RefCell borrows when form! macro pages are rendered.
+	render_current_route(&app_element);
 
 	// Set up SPA link click interception (event delegation on document).
+	let app_for_links = app_element.clone();
 	let link_handler = Closure::wrap(Box::new(move |event: web_sys::Event| {
 		if let Some(target) = event.target() {
 			if let Ok(element) = target.dyn_into::<HtmlElement>() {
@@ -72,9 +54,19 @@ pub fn main() -> Result<(), JsValue> {
 							// Only intercept internal links.
 							if href.starts_with('/') {
 								event.prevent_default();
+								// Update browser history.
+								if let Some(w) = web_sys::window() {
+									let _ = w.history().unwrap().push_state_with_url(
+										&JsValue::NULL,
+										"",
+										Some(&href),
+									);
+								}
+								// Re-render for the new route.
 								router::with_router(|r| {
 									let _ = r.push(&href);
 								});
+								render_current_route(&app_for_links);
 								return;
 							}
 						}
@@ -92,6 +84,7 @@ pub fn main() -> Result<(), JsValue> {
 	link_handler.forget();
 
 	// Handle browser back/forward navigation.
+	let app_for_popstate = app_element.clone();
 	let popstate_handler = Closure::wrap(Box::new(move |_event: web_sys::Event| {
 		router::with_router(|r| {
 			let current_path = web_sys::window()
@@ -99,6 +92,7 @@ pub fn main() -> Result<(), JsValue> {
 				.unwrap_or_else(|| "/".to_string());
 			let _ = r.replace(&current_path);
 		});
+		render_current_route(&app_for_popstate);
 	}) as Box<dyn FnMut(_)>);
 
 	window
@@ -106,4 +100,13 @@ pub fn main() -> Result<(), JsValue> {
 	popstate_handler.forget();
 
 	Ok(())
+}
+
+/// Render the current route to static HTML and inject into the app element.
+///
+/// Uses `render_to_string()` to avoid creating live reactive nodes that
+/// would conflict with the router's internal signal management.
+fn render_current_route(app_element: &web_sys::Element) {
+	let html = router::with_router(|r| r.render_current().render_to_string());
+	app_element.set_inner_html(&html);
 }
