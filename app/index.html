@@ -17,8 +17,25 @@
 		</div>
 	</div>
 	<script type="module">
-		import init from './nuages.js';
-		init();
+		import init, { navigate } from './nuages.js';
+		await init();
+
+		// SPA link interception — intercept clicks on internal <a> tags
+		document.addEventListener('click', (e) => {
+			let el = e.target;
+			while (el && el.tagName !== 'A') el = el.parentElement;
+			if (el && el.getAttribute('href')?.startsWith('/')) {
+				e.preventDefault();
+				history.pushState(null, '', el.getAttribute('href'));
+				navigate();
+			}
+		});
+
+		// Browser back/forward
+		window.addEventListener('popstate', () => navigate());
+
+		// Expose for debugging
+		window.__navigate = navigate;
 	</script>
 </body>
 </html>
