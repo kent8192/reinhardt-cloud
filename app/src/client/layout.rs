@@ -15,7 +15,7 @@ pub fn dashboard_shell() -> Page {
 					class: "flex items-center gap-2",
 					span {
 						class: "text-lg font-bold text-blue-600",
-						"Nuages"
+						"Reinhardt Cloud"
 					}
 				}
 				div {
@@ -31,76 +31,80 @@ pub fn dashboard_shell() -> Page {
 					}
 				}
 			}
-			// Body: sidebar + main
+			// Main content area
 			div {
-				class: "flex flex-1 overflow-hidden",
+				class: "flex flex-1",
 				// Sidebar
 				nav {
-					class: "w-56 bg-white border-r border-gray-200 py-4 shrink-0",
-					div {
-						class: "px-4 mb-2",
-						span {
-							class: "text-xs font-semibold text-gray-400 uppercase tracking-wider",
-							"Navigation"
+					class: "w-56 bg-white border-r border-gray-200 p-4 shrink-0",
+					ul {
+						class: "space-y-1",
+						li {
+							a {
+								href: "/",
+								class: "block px-3 py-2 text-sm rounded-md bg-blue-50 text-blue-700 font-medium",
+								"Overview"
+							}
+						}
+						li {
+							a {
+								href: "/clusters",
+								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+								"Clusters"
+							}
+						}
+						li {
+							a {
+								href: "/deployments",
+								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+								"Deployments"
+							}
 						}
 					}
-					a {
-						href: "/",
-						class: "block px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border-r-2 border-blue-600",
-						"Dashboard"
-					}
-					div {
-						class: "block px-4 py-2 text-sm text-gray-400 cursor-not-allowed",
-						"Clusters (coming soon)"
-					}
-					div {
-						class: "block px-4 py-2 text-sm text-gray-400 cursor-not-allowed",
-						"Deployments (coming soon)"
-					}
 				}
-				// Main content
+				// Content
 				main {
-					class: "flex-1 p-8 overflow-y-auto",
+					class: "flex-1 p-6",
 					h1 {
-						class: "text-2xl font-bold text-gray-800 mb-6",
-						"Overview"
+						class: "text-2xl font-bold text-gray-900 mb-6",
+						"Dashboard"
 					}
 					div {
 						class: "grid grid-cols-1 md:grid-cols-3 gap-6",
 						// Clusters card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
-							p {
+							h3 {
 								class: "text-sm font-medium text-gray-500 mb-1",
 								"Clusters"
 							}
 							p {
-								class: "text-3xl font-bold text-gray-800",
-								"\u{2014}"
+								class: "text-3xl font-bold text-gray-900",
+								"0"
 							}
 						}
 						// Deployments card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
-							p {
+							h3 {
 								class: "text-sm font-medium text-gray-500 mb-1",
 								"Deployments"
 							}
 							p {
-								class: "text-3xl font-bold text-gray-800",
-								"\u{2014}"
+								class: "text-3xl font-bold text-gray-900",
+								"0"
 							}
 						}
-						// Users card
+						// Status card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
-							p {
+							h3 {
 								class: "text-sm font-medium text-gray-500 mb-1",
-								"Users"
+								"System Status"
 							}
 							p {
-								class: "text-3xl font-bold text-gray-800",
-								"\u{2014}"
+								class: "text-lg font-semibold text-green-600",
+								"Healthy"
 							}
 						}
 					}
