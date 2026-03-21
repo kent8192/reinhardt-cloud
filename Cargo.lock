@@ -5539,7 +5539,9 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "ctor",
+ "dashmap",
  "gloo-net",
+ "gloo-timers",
  "inventory",
  "js-sys",
  "reinhardt-cloud-core",
@@ -6388,9 +6390,30 @@ dependencies = [
  "reinhardt-urls",
  "reinhardt-utils",
  "reinhardt-views",
+ "reinhardt-websockets",
  "thiserror 2.0.18",
  "toml 0.9.12+spec-1.1.0",
  "tonic-prost-build",
+]
+
+[[package]]
+name = "reinhardt-websockets"
+version = "0.1.0-rc.13"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#55c21dc8174da0c0e0355ab376abed92d9f3a169"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures-util",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tungstenite",
 ]
 
 [[package]]
