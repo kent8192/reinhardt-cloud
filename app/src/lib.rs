@@ -16,7 +16,7 @@ pub use reinhardt_cloud_types;
 
 // Application modules — available on both platforms with conditional submodules.
 pub mod apps;
-#[cfg(wasm)]
+#[cfg(any(wasm, test))]
 pub mod client;
 #[cfg(native)]
 pub mod config;
