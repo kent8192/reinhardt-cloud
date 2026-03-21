@@ -10,9 +10,9 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 
 #[cfg(wasm)]
-use wasm_bindgen::prelude::*;
-#[cfg(wasm)]
 use wasm_bindgen::JsCast;
+#[cfg(wasm)]
+use wasm_bindgen::prelude::*;
 #[cfg(wasm)]
 use web_sys::{MessageEvent, WebSocket};
 
@@ -158,7 +158,10 @@ fn handle_ws_message(msg: WsMessage) {
 				show_toast(
 					&NotificationLevel::Critical,
 					"Authentication",
-					payload.message.as_deref().unwrap_or("WebSocket auth failed"),
+					payload
+						.message
+						.as_deref()
+						.unwrap_or("WebSocket auth failed"),
 				);
 			}
 		}
@@ -183,7 +186,9 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 	badge
 		.set_attribute(
 			"class",
-			&format!("status-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {color}"),
+			&format!(
+				"status-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {color}"
+			),
 		)
 		.unwrap();
 	badge.set_text_content(Some(label));

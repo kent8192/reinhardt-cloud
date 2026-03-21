@@ -44,24 +44,22 @@ impl NotificationConsumer {
 		msg: WsClientMessage,
 	) -> Option<(WsMessage, Option<String>)> {
 		match msg {
-			WsClientMessage::Authenticate { token } => {
-				match validate_raw_token(&token) {
-					Some((uid, _username)) => {
-						let response = WsMessage::AuthResult(AuthResultPayload {
-							success: true,
-							message: None,
-						});
-						Some((response, Some(uid)))
-					}
-					None => {
-						let response = WsMessage::AuthResult(AuthResultPayload {
-							success: false,
-							message: Some("Invalid or expired token".to_string()),
-						});
-						Some((response, None))
-					}
+			WsClientMessage::Authenticate { token } => match validate_raw_token(&token) {
+				Some((uid, _username)) => {
+					let response = WsMessage::AuthResult(AuthResultPayload {
+						success: true,
+						message: None,
+					});
+					Some((response, Some(uid)))
 				}
-			}
+				None => {
+					let response = WsMessage::AuthResult(AuthResultPayload {
+						success: false,
+						message: Some("Invalid or expired token".to_string()),
+					});
+					Some((response, None))
+				}
+			},
 			WsClientMessage::Subscribe { deployment_ids } => {
 				let Some(uid) = user_id else {
 					let response = WsMessage::AuthResult(AuthResultPayload {
@@ -126,8 +124,7 @@ impl WebSocketConsumer for NotificationConsumer {
 			.get_metadata(META_CONNECTION_ID)
 			.map_or(String::new(), |v| v.to_string());
 
-		let result =
-			self.handle_client_message(user_id.as_deref(), &connection_id, client_msg);
+		let result = self.handle_client_message(user_id.as_deref(), &connection_id, client_msg);
 
 		if let Some((response, maybe_new_uid)) = result {
 			// Send the response message to the client.
@@ -226,7 +223,10 @@ mod tests {
 			}
 			_ => panic!("expected AuthResult"),
 		}
-		assert!(new_uid.is_none(), "invalid token should not yield a user id");
+		assert!(
+			new_uid.is_none(),
+			"invalid token should not yield a user id"
+		);
 	}
 
 	#[rstest]
@@ -247,10 +247,7 @@ mod tests {
 		match &response {
 			WsMessage::AuthResult(payload) => {
 				assert!(!payload.success);
-				assert_eq!(
-					payload.message.as_deref(),
-					Some("Authentication required")
-				);
+				assert_eq!(payload.message.as_deref(), Some("Authentication required"));
 			}
 			_ => panic!("expected AuthResult rejection"),
 		}

@@ -52,7 +52,11 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	};
 
 	// Generate JWT with UUID as sub claim
-	let auth = JwtAuth::new(jwt_secret().expect("REINHARDT_CLOUD_JWT_SECRET must be set").as_bytes());
+	let auth = JwtAuth::new(
+		jwt_secret()
+			.expect("REINHARDT_CLOUD_JWT_SECRET must be set")
+			.as_bytes(),
+	);
 	let token = auth
 		.generate_token(created.id().to_string(), created.username().to_string())
 		.map_err(|e| {
