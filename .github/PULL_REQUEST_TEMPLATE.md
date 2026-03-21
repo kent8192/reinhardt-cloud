@@ -1,4 +1,4 @@
-<!-- Thank you for contributing to Nuages! Please fill out the information below. -->
+<!-- Thank you for contributing to Reinhardt Cloud! Please fill out the information below. -->
 
 ## Summary
 

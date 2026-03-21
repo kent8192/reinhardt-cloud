@@ -1,4 +1,4 @@
-//! Security headers middleware for nuages.
+//! Security headers middleware for Reinhardt Cloud.
 //!
 //! Adds recommended security headers to all HTTP responses to mitigate
 //! common web vulnerabilities (clickjacking, MIME sniffing, XSS, etc.).

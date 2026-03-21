@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the module system standards for the Nuages project using Rust 2024 Edition conventions.
+This document defines the module system standards for the Reinhardt Cloud project using Rust 2024 Edition conventions.
 
 ## Core Principle
 
@@ -193,9 +193,9 @@ src/
 
 **Usage from external code:**
 ```rust
-use nuages::controller::{AppController, AppContext};  // ✅ Works - explicitly re-exported
-use nuages::crd::ReinhardtApp;                        // ✅ Works
-use nuages::controller::app::InternalState;           // ❌ Error - not re-exported
+use reinhardt_cloud::controller::{AppController, AppContext};  // ✅ Works - explicitly re-exported
+use reinhardt_cloud::crd::ReinhardtApp;                        // ✅ Works
+use reinhardt_cloud::controller::app::InternalState;           // ❌ Error - not re-exported
 ```
 
 ---

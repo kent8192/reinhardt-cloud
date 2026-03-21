@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "name": "Nuages API",
+  "name": "Reinhardt Cloud API",
   "type": "collection",
   "ignore": ["node_modules", ".git"]
 }

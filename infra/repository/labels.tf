@@ -67,30 +67,30 @@ locals {
       description = "Minor fix or enhancement"
     }
 
-    # --- Scope labels (nuages-specific) ---
+    # --- Scope labels (reinhardt-cloud-specific) ---
     "api" = {
       color       = "ededed"
-      description = "nuages-api crate changes"
+      description = "reinhardt-cloud-api crate changes"
     }
     "k8s" = {
       color       = "ededed"
-      description = "nuages-k8s crate / Kubernetes resources"
+      description = "reinhardt-cloud-k8s crate / Kubernetes resources"
     }
     "types" = {
       color       = "ededed"
-      description = "nuages-types crate changes"
+      description = "reinhardt-cloud-types crate changes"
     }
     "cli" = {
       color       = "ededed"
-      description = "nuages-cli crate changes"
+      description = "reinhardt-cloud-cli crate changes"
     }
     "operator" = {
       color       = "ededed"
-      description = "nuages-operator crate / Kubernetes operator"
+      description = "reinhardt-cloud-operator crate / Kubernetes operator"
     }
     "control" = {
       color       = "ededed"
-      description = "nuages-control crate changes"
+      description = "reinhardt-cloud-control crate changes"
     }
     "infra" = {
       color       = "ededed"

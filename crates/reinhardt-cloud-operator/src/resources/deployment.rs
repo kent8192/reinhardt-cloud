@@ -1,0 +1,756 @@
+//! Deployment builder for operator-managed `ReinhardtApp` resources.
+
+use std::collections::BTreeMap;
+
+use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
+use k8s_openapi::api::core::v1::{
+	ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+	PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Volume, VolumeMount,
+};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+use kube::ResourceExt;
+use reinhardt_cloud_types::crd::ReinhardtApp;
+
+use super::labels::{Component, owner_reference, standard_labels};
+use super::validate_port;
+use crate::error::Error;
+use crate::inference::env_vars::{build_system_env_vars, merge_env_vars};
+use crate::inference::pages::ResolvedPagesConfig;
+
+/// Builds a `Deployment` for the given `ReinhardtApp`.
+///
+/// Uses the app's own namespace as the single source of truth.
+/// When `pages_config` is provided, adds a collectstatic initContainer,
+/// a static-server sidecar container, and a shared emptyDir volume.
+/// Returns an error if the owner reference cannot be computed.
+pub(crate) fn build_deployment(
+	app: &ReinhardtApp,
+	pages_config: Option<&ResolvedPagesConfig>,
+) -> Result<Deployment, Error> {
+	let labels = standard_labels(app, Component::Web);
+	let namespace = super::require_namespace(app)?;
+	let replicas = app.spec.replicas.unwrap_or(1);
+	let port = validate_port(
+		"target_port",
+		app.spec
+			.services
+			.as_ref()
+			.and_then(|s| s.target_port)
+			.unwrap_or(8000),
+	)?;
+
+	let owner_ref = owner_reference(app)?;
+
+	// Build merged environment variables (system + user overrides)
+	let system_vars = build_system_env_vars();
+	let merged_env = merge_env_vars(&system_vars, &app.spec.env);
+
+	// Settings ConfigMap volume and mount
+	let mut volumes = vec![Volume {
+		name: "settings".to_string(),
+		config_map: Some(ConfigMapVolumeSource {
+			name: format!("{}-settings", app.name_any()),
+			..Default::default()
+		}),
+		..Default::default()
+	}];
+
+	let volume_mounts = vec![VolumeMount {
+		name: "settings".to_string(),
+		mount_path: "/etc/reinhardt-cloud/settings".to_string(),
+		read_only: Some(true),
+		..Default::default()
+	}];
+
+	// Init container for database migrations when database is configured
+	let mut init_containers: Vec<Container> = if app.spec.database.is_some() {
+		vec![Container {
+			name: "migrate".to_string(),
+			image: Some(app.spec.image.clone()),
+			command: Some(vec![
+				"manage".to_string(),
+				"migrate".to_string(),
+				"--run".to_string(),
+			]),
+			env: Some(merged_env.clone()),
+			volume_mounts: Some(volume_mounts.clone()),
+			resources: Some(ResourceRequirements {
+				requests: Some(BTreeMap::from([
+					("cpu".to_string(), Quantity("100m".to_string())),
+					("memory".to_string(), Quantity("128Mi".to_string())),
+				])),
+				limits: Some(BTreeMap::from([
+					("cpu".to_string(), Quantity("500m".to_string())),
+					("memory".to_string(), Quantity("256Mi".to_string())),
+				])),
+				..Default::default()
+			}),
+			..Default::default()
+		}]
+	} else {
+		Vec::new()
+	};
+
+	// Additional containers (sidecars)
+	let mut extra_containers: Vec<Container> = Vec::new();
+
+	// Pages: collectstatic initContainer, static-server sidecar, emptyDir volume
+	if let Some(config) = pages_config {
+		// Add shared emptyDir volume for static files
+		volumes.push(Volume {
+			name: "static-files".to_string(),
+			empty_dir: Some(EmptyDirVolumeSource::default()),
+			..Default::default()
+		});
+
+		// collectstatic initContainer (after migrate)
+		let mut collectstatic_mounts = volume_mounts.clone();
+		collectstatic_mounts.push(VolumeMount {
+			name: "static-files".to_string(),
+			mount_path: config.static_root.clone(),
+			..Default::default()
+		});
+
+		let mut collectstatic_env = merged_env.clone();
+		collectstatic_env.push(EnvVar {
+			name: "REINHARDT_STATIC_ROOT".to_string(),
+			value: Some(config.static_root.clone()),
+			..Default::default()
+		});
+
+		init_containers.push(Container {
+			name: "collectstatic".to_string(),
+			image: Some(app.spec.image.clone()),
+			command: Some(vec![
+				"manage".to_string(),
+				"collectstatic".to_string(),
+				"--noinput".to_string(),
+			]),
+			env: Some(collectstatic_env),
+			volume_mounts: Some(collectstatic_mounts),
+			..Default::default()
+		});
+
+		// Convert server_resources to k8s ResourceRequirements
+		let server_resources = ResourceRequirements {
+			requests: Some(
+				config
+					.server_resources
+					.requests
+					.iter()
+					.map(|(k, v)| (k.clone(), Quantity(v.clone())))
+					.collect(),
+			),
+			limits: Some(
+				config
+					.server_resources
+					.limits
+					.iter()
+					.map(|(k, v)| (k.clone(), Quantity(v.clone())))
+					.collect(),
+			),
+			..Default::default()
+		};
+
+		// static-server sidecar container
+		extra_containers.push(Container {
+			name: "static-server".to_string(),
+			image: Some(config.server_image.clone()),
+			ports: Some(vec![ContainerPort {
+				container_port: 8080,
+				name: Some("http-static".to_string()),
+				..Default::default()
+			}]),
+			env: Some(vec![
+				EnvVar {
+					name: "SERVER_ROOT".to_string(),
+					value: Some(config.static_root.clone()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_PORT".to_string(),
+					value: Some("8080".to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_LOG_LEVEL".to_string(),
+					value: Some("info".to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_COMPRESSION".to_string(),
+					value: Some((config.brotli || config.gzip).to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_COMPRESSION_STATIC".to_string(),
+					value: Some((config.brotli || config.gzip).to_string()),
+					..Default::default()
+				},
+			]),
+			volume_mounts: Some(vec![VolumeMount {
+				name: "static-files".to_string(),
+				mount_path: config.static_root.clone(),
+				read_only: Some(true),
+				..Default::default()
+			}]),
+			readiness_probe: Some(Probe {
+				http_get: Some(HTTPGetAction {
+					path: Some("/health".to_string()),
+					port: IntOrString::Int(8080),
+					..Default::default()
+				}),
+				initial_delay_seconds: Some(2),
+				period_seconds: Some(5),
+				..Default::default()
+			}),
+			resources: Some(server_resources),
+			..Default::default()
+		});
+	}
+
+	let init_containers_opt = if init_containers.is_empty() {
+		None
+	} else {
+		Some(init_containers)
+	};
+
+	let mut containers = vec![Container {
+		name: app.name_any(),
+		image: Some(app.spec.image.clone()),
+		ports: Some(vec![ContainerPort {
+			container_port: port,
+			..Default::default()
+		}]),
+		env: Some(merged_env),
+		volume_mounts: Some(volume_mounts),
+		..Default::default()
+	}];
+	containers.extend(extra_containers);
+
+	Ok(Deployment {
+		metadata: ObjectMeta {
+			name: Some(app.name_any()),
+			namespace: Some(namespace),
+			labels: Some(labels.clone()),
+			owner_references: Some(vec![owner_ref]),
+			..Default::default()
+		},
+		spec: Some(DeploymentSpec {
+			replicas: Some(replicas),
+			selector: LabelSelector {
+				match_labels: Some(BTreeMap::from([(
+					"app.kubernetes.io/name".to_string(),
+					app.name_any(),
+				)])),
+				..Default::default()
+			},
+			template: PodTemplateSpec {
+				metadata: Some(ObjectMeta {
+					labels: Some(labels),
+					..Default::default()
+				}),
+				spec: Some(PodSpec {
+					init_containers: init_containers_opt,
+					containers,
+					volumes: Some(volumes),
+					..Default::default()
+				}),
+			},
+			..Default::default()
+		}),
+		..Default::default()
+	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use kube::api::ObjectMeta;
+	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
+	use reinhardt_cloud_types::crd::{ReinhardtAppSpec, ServicesSpec};
+	use rstest::rstest;
+
+	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> ReinhardtApp {
+		ReinhardtApp {
+			metadata: ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some("default".to_string()),
+				uid: Some("test-uid-12345".to_string()),
+				..Default::default()
+			},
+			spec: ReinhardtAppSpec {
+				image: image.to_string(),
+				replicas,
+				..Default::default()
+			},
+			status: None,
+		}
+	}
+
+	fn make_test_app_with_database() -> ReinhardtApp {
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(20),
+			version: Some("16".to_string()),
+		});
+		app
+	}
+
+	#[rstest]
+	fn test_build_deployment_sets_image_and_replicas() {
+		// Arrange
+		let app = make_test_app("web", "web:latest", Some(3));
+
+		// Act
+		let deploy = build_deployment(&app, None).expect("build should succeed");
+
+		// Assert
+		let spec = deploy.spec.unwrap();
+		assert_eq!(spec.replicas, Some(3));
+		let container = &spec.template.spec.unwrap().containers[0];
+		assert_eq!(container.image.as_deref(), Some("web:latest"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_defaults_replicas_to_one() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy = build_deployment(&app, None).expect("build should succeed");
+
+		// Assert
+		assert_eq!(deploy.spec.unwrap().replicas, Some(1));
+	}
+
+	#[rstest]
+	fn test_build_deployment_defaults_port_to_8000() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy = build_deployment(&app, None).expect("build should succeed");
+
+		// Assert
+		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+		let port = &container.ports.as_ref().unwrap()[0];
+		assert_eq!(port.container_port, 8000);
+	}
+
+	#[rstest]
+	fn test_build_deployment_uses_app_namespace() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.namespace = Some("staging".to_string());
+
+		// Act
+		let deploy = build_deployment(&app, None).expect("build should succeed");
+
+		// Assert
+		assert_eq!(deploy.metadata.namespace.as_deref(), Some("staging"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_returns_error_without_uid() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.metadata.uid = None;
+
+		// Act
+		let result = build_deployment(&app, None);
+
+		// Assert
+		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_port_zero() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(0),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app, None);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(
+			err,
+			"invalid port 0 for field 'target_port': must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_port_above_65535() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(65536),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app, None);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(
+			err,
+			"invalid port 65536 for field 'target_port': must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_rejects_negative_port() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.services = Some(ServicesSpec {
+			port: None,
+			target_port: Some(-1),
+			ingress_host: None,
+		});
+
+		// Act
+		let result = build_deployment(&app, None);
+
+		// Assert
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert_eq!(
+			err,
+			"invalid port -1 for field 'target_port': must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_includes_init_container_when_database() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let init_containers = pod_spec.init_containers.unwrap();
+		assert_eq!(init_containers.len(), 1);
+		assert_eq!(init_containers[0].name, "migrate");
+		assert_eq!(
+			init_containers[0].command.as_ref().unwrap().last().unwrap(),
+			"--run"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_no_init_container_without_database() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.init_containers.is_none() || pod_spec.init_containers.unwrap().is_empty());
+	}
+
+	#[rstest]
+	fn test_build_deployment_has_settings_volume() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let volumes = pod_spec.volumes.unwrap();
+		assert!(volumes.iter().any(|v| v.name == "settings"));
+		let settings_vol = volumes.iter().find(|v| v.name == "settings").unwrap();
+		assert_eq!(
+			settings_vol.config_map.as_ref().unwrap().name.as_str(),
+			"web-settings"
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_has_settings_volume_mount() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
+
+		// Assert
+		let mounts = container.volume_mounts.as_ref().unwrap();
+		assert!(mounts.iter().any(|m| m.name == "settings"
+			&& m.mount_path == "/etc/reinhardt-cloud/settings"
+			&& m.read_only == Some(true)));
+	}
+
+	#[rstest]
+	fn test_build_deployment_injects_system_env_vars() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		assert!(
+			env.iter()
+				.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production"))
+		);
+		assert!(env.iter().any(|e| e.name == "REINHARDT_CLOUD_CONFIG_DIR"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_user_env_overrides_system() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.env = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		let reinhardt_env = env.iter().find(|e| e.name == "REINHARDT_ENV").unwrap();
+		assert_eq!(reinhardt_env.value.as_deref(), Some("staging"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_has_same_image_as_main() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let main_image = pod_spec.containers[0].image.as_deref();
+		let init_image = pod_spec.init_containers.as_ref().unwrap()[0]
+			.image
+			.as_deref();
+		assert_eq!(main_image, init_image);
+		assert_eq!(main_image, Some("web:latest"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_has_resource_limits() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
+
+		// Assert
+		let resources = init_container.resources.as_ref().unwrap();
+		assert!(resources.requests.is_some());
+		assert!(resources.limits.is_some());
+		let requests = resources.requests.as_ref().unwrap();
+		assert!(requests.contains_key("cpu"));
+		assert!(requests.contains_key("memory"));
+		let limits = resources.limits.as_ref().unwrap();
+		assert!(limits.contains_key("cpu"));
+		assert!(limits.contains_key("memory"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_volume_mount_path_is_settings() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
+		let mounts = container.volume_mounts.as_ref().unwrap();
+
+		// Assert
+		let settings_mount = mounts.iter().find(|m| m.name == "settings").unwrap();
+		assert_eq!(settings_mount.mount_path, "/etc/reinhardt-cloud/settings");
+	}
+
+	#[rstest]
+	fn test_build_deployment_user_env_var_overrides_reinhardt_env() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec
+			.env
+			.insert("REINHARDT_ENV".to_string(), "development".to_string());
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		let reinhardt_env = env.iter().find(|e| e.name == "REINHARDT_ENV").unwrap();
+		assert_eq!(reinhardt_env.value.as_deref(), Some("development"));
+		// Verify no duplicates
+		let count = env.iter().filter(|e| e.name == "REINHARDT_ENV").count();
+		assert_eq!(count, 1);
+	}
+
+	#[rstest]
+	fn test_build_deployment_init_container_shares_env_with_main() {
+		// Arrange
+		let app = make_test_app_with_database();
+
+		// Act
+		let deployment = build_deployment(&app, None).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+		let main_env = pod_spec.containers[0].env.clone();
+		let init_containers = pod_spec.init_containers.unwrap();
+		let init_env = init_containers[0].env.clone();
+
+		// Assert
+		assert_eq!(main_env, init_env);
+	}
+
+	// ── Pages sidecar tests ───────────────────────────────────────────
+
+	fn make_default_pages_config() -> crate::inference::pages::ResolvedPagesConfig {
+		crate::inference::pages::ResolvedPagesConfig::default()
+	}
+
+	#[rstest]
+	fn test_build_deployment_without_pages_unchanged() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+
+		// Act
+		let dep = build_deployment(&app, None).unwrap();
+		let spec = dep.spec.unwrap();
+		let pod_spec = spec.template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.containers.len(), 1);
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_sidecar() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.containers.len(), 2);
+		let sidecar = &pod_spec.containers[1];
+		assert_eq!(sidecar.name, "static-server");
+		assert_eq!(
+			sidecar.image.as_deref(),
+			Some("joseluisq/static-web-server:2-alpine")
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_collectstatic_init_container() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let inits = pod_spec.init_containers.unwrap();
+
+		// Assert
+		let collectstatic = inits.iter().find(|c| c.name == "collectstatic");
+		assert!(collectstatic.is_some());
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_emptydir_volume() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let volumes = pod_spec.volumes.unwrap();
+
+		// Assert
+		assert!(volumes.iter().any(|v| v.name == "static-files"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_custom_static_root() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/opt/static".to_string();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+		let server_root = sidecar
+			.env
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|e| e.name == "SERVER_ROOT")
+			.unwrap();
+
+		// Assert
+		assert_eq!(server_root.value.as_deref(), Some("/opt/static"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_custom_server_image() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.server_image = "custom:v2".to_string();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+
+		// Assert
+		assert_eq!(sidecar.image.as_deref(), Some("custom:v2"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_sidecar_readiness_probe() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages)).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+
+		// Assert
+		let probe = sidecar.readiness_probe.as_ref().unwrap();
+		let http = probe.http_get.as_ref().unwrap();
+		assert_eq!(http.path.as_deref(), Some("/health"));
+	}
+}

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the policy for Claude Code to participate in GitHub discussions on existing pull requests and issues in the Nuages project. These rules ensure appropriate authorization, consistent formatting, and useful technical context when commenting on PRs and Issues.
+This file defines the policy for Claude Code to participate in GitHub discussions on existing pull requests and issues in the Reinhardt Cloud project. These rules ensure appropriate authorization, consistent formatting, and useful technical context when commenting on PRs and Issues.
 
 ---
 
@@ -68,7 +68,7 @@ Before posting any self-initiated comment:
 **Example Preview Format:**
 ```
 Target: PR #42 - Review comment reply
-Thread: crates/nuages-operator/src/reconciler.rs line 15
+Thread: crates/reinhardt-cloud-operator/src/reconciler.rs line 15
 
 ---
 [Comment content here]
@@ -132,16 +132,16 @@ Use this template for PR review responses:
 
 When referencing code in GitHub comments:
 
-- **MUST** use repository-relative paths: `crates/nuages-operator/src/reconciler.rs`
-- **MUST** include line numbers when referring to specific code: `crates/nuages-operator/src/reconciler.rs:L42`
+- **MUST** use repository-relative paths: `crates/reinhardt-cloud-operator/src/reconciler.rs`
+- **MUST** include line numbers when referring to specific code: `crates/reinhardt-cloud-operator/src/reconciler.rs:L42`
 - **MUST** use markdown code blocks with language specifiers for code snippets
 - **NEVER** use absolute local paths (`/Users/...`, `/home/...`)
 
 **Examples:**
 ```markdown
-✅ Good: See `crates/nuages-operator/src/reconciler.rs:L150`
-✅ Good: The implementation in `crates/nuages-operator/src/crd.rs:L42-L58`
-❌ Bad: See `/Users/kent8192/Projects/nuages/crates/nuages-operator/src/reconciler.rs`
+✅ Good: See `crates/reinhardt-cloud-operator/src/reconciler.rs:L150`
+✅ Good: The implementation in `crates/reinhardt-cloud-operator/src/crd.rs:L42-L58`
+❌ Bad: See `/Users/kent8192/Projects/reinhardt-cloud/crates/reinhardt-cloud-operator/src/reconciler.rs`
 ❌ Bad: Check line 150 (no file reference)
 ```
 
@@ -183,11 +183,11 @@ When changes affect multiple crates or modules, provide impact analysis:
 **Changed Crates:**
 | Crate | Change Type | Impact |
 |-------|------------|--------|
-| `nuages-operator` | API addition | Non-breaking |
-| `nuages-crd` | Behavior change | Breaking (see migration) |
+| `reinhardt-cloud-operator` | API addition | Non-breaking |
+| `reinhardt-cloud-crd` | Behavior change | Breaking (see migration) |
 
 **Cross-Crate Dependencies:**
-- `nuages-operator` depends on `nuages-crd` — changes are forward-compatible
+- `reinhardt-cloud-operator` depends on `reinhardt-cloud-crd` — changes are forward-compatible
 
 **Migration Required:** [Yes/No]
 - [Migration steps if applicable]
@@ -283,7 +283,7 @@ Use Issues for:
 - Documentation errors
 - Performance issues with benchmarks
 
-**Discussion URL:** https://github.com/kent8192/nuages/discussions
+**Discussion URL:** https://github.com/kent8192/reinhardt-cloud/discussions
 
 ### GD-2 (SHOULD): Redirecting Questions
 
@@ -313,12 +313,12 @@ When providing context for external coding agents on Issues or PRs, use structur
 ### Entry Points
 | File | Symbol | Description |
 |------|--------|-------------|
-| `crates/nuages-operator/src/reconciler.rs` | `reconcile` | Primary reconciliation entry point |
-| `crates/nuages-operator/src/crd.rs` | `ReinhardtAppSpec` | CRD spec type |
+| `crates/reinhardt-cloud-operator/src/reconciler.rs` | `reconcile` | Primary reconciliation entry point |
+| `crates/reinhardt-cloud-operator/src/crd.rs` | `ReinhardtAppSpec` | CRD spec type |
 
 ### Reference Implementations
-- Pattern to follow: `crates/nuages-operator/src/existing_controller.rs`
-- Test pattern: `crates/nuages-operator/tests/existing_test.rs`
+- Pattern to follow: `crates/reinhardt-cloud-operator/src/existing_controller.rs`
+- Test pattern: `crates/reinhardt-cloud-operator/tests/existing_test.rs`
 
 ### Project Constraints
 - **Module system:** Rust 2024 edition (`module.rs` + `module/` directory, NO `mod.rs`)

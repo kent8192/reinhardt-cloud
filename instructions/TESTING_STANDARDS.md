@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines comprehensive testing standards for the Nuages project, ensuring high-quality, maintainable test coverage.
+This document defines comprehensive testing standards for the Reinhardt Cloud project, ensuring high-quality, maintainable test coverage.
 
 ---
 
@@ -53,17 +53,17 @@ fn test_crd_validation() {
 }
 ```
 
-### TP-2 (MUST): Nuages Component Usage
+### TP-2 (MUST): Reinhardt Cloud Component Usage
 
-**EVERY** test case MUST use at least one component from the Nuages crate.
+**EVERY** test case MUST use at least one component from the Reinhardt Cloud crate.
 
-**Nuages Components Include:**
+**Reinhardt Cloud Components Include:**
 - Functions, variables, methods
 - Structs, traits, enums
 - Commands, macros
-- All components present within the Nuages crate
+- All components present within the Reinhardt Cloud crate
 
-**Why?** This ensures tests actually verify Nuages functionality rather than testing third-party libraries or standard library behavior.
+**Why?** This ensures tests actually verify Reinhardt Cloud functionality rather than testing third-party libraries or standard library behavior.
 
 ---
 
@@ -87,7 +87,7 @@ Clear separation based on the nature of what is being tested:
 
 **Structure:**
 ```
-crates/nuages-operator/
+crates/reinhardt-cloud-operator/
 ├── src/
 │   ├── lib.rs
 │   ├── reconciler.rs
@@ -124,7 +124,7 @@ tests/                    // Cross-crate integration tests
     └── tests/
         └── operator_integration.rs
 
-crates/nuages-operator/
+crates/reinhardt-cloud-operator/
 └── tests/
     └── integration_tests.rs  // Within-crate integration (if needed)
 ```
@@ -134,7 +134,7 @@ crates/nuages-operator/
 Organize test files to mirror the source structure:
 
 ```
-crates/nuages-operator/
+crates/reinhardt-cloud-operator/
 ├── src/
 │   ├── lib.rs
 │   ├── controller.rs
@@ -515,7 +515,7 @@ async fn test_database_operations(
 ### ✅ MUST DO
 - Use `rstest` for ALL test cases (no plain `#[test]`)
 - Every test MUST have at least one meaningful assertion
-- Every test MUST use at least one Nuages component
+- Every test MUST use at least one Reinhardt Cloud component
 - Follow Arrange-Act-Assert (AAA) pattern with `// Arrange`, `// Act`, `// Assert` comments
 - Use strict assertions (`assert_eq!`) instead of loose matching
 - Use `#[serial(group_name)]` for global state tests
