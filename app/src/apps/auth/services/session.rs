@@ -1,4 +1,4 @@
-//! Session cookie management for frontend authentication.
+//! Session management for frontend authentication.
 
 use reinhardt::JwtAuth;
 
@@ -7,14 +7,14 @@ use crate::apps::auth::views::utils::jwt_secret;
 use crate::shared::UserInfo;
 
 /// Cookie name for frontend session.
-const SESSION_COOKIE_NAME: &str = "nuages_session";
+const SESSION_COOKIE_NAME: &str = "reinhardt_cloud_session";
 
 /// Generate a raw JWT session token for the given user.
 ///
 /// Returns the token string without cookie formatting. Used by server
 /// functions that return the token in the response body.
 pub fn create_session_token(user: &User) -> Result<String, String> {
-	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	let auth = JwtAuth::new(jwt_secret().map_err(|e| e.to_string())?.as_bytes());
 	auth.generate_token(user.id().to_string(), user.username().to_string())
 		.map_err(|e| format!("Failed to generate session token: {e}"))
 }
@@ -41,7 +41,8 @@ pub fn validate_raw_token(token: &str) -> Option<(String, String)> {
 	if token.is_empty() {
 		return None;
 	}
-	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	let secret = jwt_secret().ok()?;
+	let auth = JwtAuth::new(secret.as_bytes());
 	let claims = auth.verify_token(token).ok()?;
 	Some((claims.sub, claims.username))
 }
@@ -60,16 +61,17 @@ pub fn validate_session_token(cookie_header: &str) -> Option<(String, String)> {
 		return None;
 	}
 
-	let auth = JwtAuth::new(jwt_secret().as_bytes());
+	let secret = jwt_secret().ok()?;
+	let auth = JwtAuth::new(secret.as_bytes());
 	let claims = auth.verify_token(token).ok()?;
 	Some((claims.sub, claims.username))
 }
 
-/// Build `UserInfo` from a `User` model instance.
+/// Convert a `User` model into a `UserInfo` DTO for frontend consumption.
 pub fn user_to_info(user: &User) -> UserInfo {
 	UserInfo {
 		id: user.id().to_string(),
 		username: user.username().to_string(),
-		email: user.email.clone(),
+		email: user.email().to_string(),
 	}
 }
