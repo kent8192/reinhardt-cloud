@@ -18,6 +18,7 @@ pub mod serializers;
 pub mod server;
 #[cfg(native)]
 pub mod services;
+#[cfg(native)]
 pub mod tests;
 #[cfg(native)]
 pub mod urls;
