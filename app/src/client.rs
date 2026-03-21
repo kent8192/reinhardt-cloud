@@ -26,9 +26,7 @@ pub fn main() -> Result<(), JsValue> {
 pub fn navigate() {
 	let window = web_sys::window().expect("no global window");
 	let document = window.document().expect("no document");
-	let app = document
-		.get_element_by_id("app")
-		.expect("no #app element");
+	let app = document.get_element_by_id("app").expect("no #app element");
 
 	let path = window
 		.location()
