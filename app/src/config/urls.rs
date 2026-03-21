@@ -12,9 +12,7 @@ use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
 use crate::apps::auth::server;
-use crate::config::middleware::{
-	DiRequestMiddleware, JwtAuthMiddleware, SecurityHeadersMiddleware,
-};
+use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
@@ -26,7 +24,6 @@ pub fn routes() -> UnifiedRouter {
 		.mount("/api/", crate::apps::auth::urls::url_patterns())
 		.mount("/api/", crate::apps::clusters::urls::url_patterns())
 		.mount("/api/", crate::apps::deployments::urls::url_patterns())
-		// Server function endpoints for WASM frontend
 		.server(|s| {
 			s.server_fn(server::login::login::marker)
 				.server_fn(server::register::register::marker)
@@ -35,6 +32,5 @@ pub fn routes() -> UnifiedRouter {
 		})
 		.with_di_context(di_ctx)
 		.with_middleware(JwtAuthMiddleware)
-		.with_middleware(DiRequestMiddleware)
 		.with_middleware(SecurityHeadersMiddleware)
 }

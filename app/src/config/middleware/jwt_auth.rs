@@ -54,9 +54,14 @@ impl Middleware for JwtAuthMiddleware {
 		next.handle(request).await
 	}
 
-	/// Skip middleware for auth endpoints (login/register).
+	/// Skip middleware for auth endpoints (login/register), public API docs,
+	/// and server functions that handle authentication (login, register, logout).
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
 		!path.starts_with("/api/auth/")
+			&& path != "/api/openapi.json"
+			&& !path.starts_with("/api/docs")
+			&& !path.starts_with("/api/redoc")
+			&& !path.starts_with("/api/server_fn/")
 	}
 }
