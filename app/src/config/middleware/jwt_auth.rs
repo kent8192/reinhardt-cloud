@@ -31,7 +31,7 @@ impl Middleware for JwtAuthMiddleware {
 			&& let Ok(header_str) = header_value.to_str()
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
-			let auth = JwtAuth::new(jwt_secret().as_bytes());
+			let auth = JwtAuth::new(jwt_secret().expect("REINHARDT_CLOUD_JWT_SECRET must be set").as_bytes());
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
