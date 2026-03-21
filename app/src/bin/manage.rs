@@ -27,10 +27,6 @@ fn main() {
 }
 
 async fn async_main() {
-	// Workaround: reinhardt-web#2452
-	// Reason: execute_from_command_line() does not accept CommandRegistry
-	// Impact: custom commands (e.g., SyncClustersCommand) cannot be registered
-	// Remove-when: reinhardt-web supports CommandRegistry parameter
 	if let Err(e) = execute_from_command_line().await {
 		eprintln!("Error: {}", e);
 		process::exit(1);

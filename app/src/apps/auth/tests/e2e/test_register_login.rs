@@ -32,9 +32,6 @@ mod tests {
 		let conn = DatabaseConnection::connect(&database_url)
 			.await
 			.expect("Failed to connect to PostgreSQL");
-		// Workaround: Use FilesystemSource directly instead of postgres_with_all_migrations
-		// fixture, which relies on global_registry() requiring collect_migrations! registration.
-		// See: https://github.com/kent8192/reinhardt-web/issues/2415
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let source = FilesystemSource::new(migrations_dir);
 		let migrations = source
@@ -173,13 +170,7 @@ mod tests {
 		assert_eq!(response.status_code(), 409);
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
 		assert_eq!(body["error"], "Conflict");
-		// Reinhardt-web's SafeErrorResponse only includes "detail" for
-		// error variants handled in safe_client_error_detail(). Conflict is
-		// not yet covered upstream, so the detail field is absent.
-		assert!(
-			body.get("detail").is_none(),
-			"detail field should be absent for Conflict errors"
-		);
+		assert_eq!(body["detail"], "Email already exists");
 	}
 
 	/// Verify login with wrong password returns error.
