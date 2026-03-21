@@ -177,6 +177,20 @@ else
 fi
 '''
 
+[tasks.install-wasm-tools]
+description = "Install WASM build tools if not already installed"
+script = '''
+if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
+	echo "Installing wasm32-unknown-unknown target..."
+	rustup target add wasm32-unknown-unknown
+fi
+if ! command -v wasm-bindgen &> /dev/null; then
+	echo "Installing wasm-bindgen-cli..."
+	cargo install wasm-bindgen-cli --locked
+fi
+echo "WASM tools ready"
+'''
+
 [tasks.install-tools]
 description = "Install all required development tools"
 dependencies = ["install-nextest", "install-bacon", "install-wasm-tools"]
@@ -224,20 +238,6 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 # WASM Build (reinhardt-pages frontend)
 # ============================================================================
 
-[tasks.install-wasm-tools]
-description = "Install WASM build tools if not already installed"
-script = '''
-if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
-	echo "Installing wasm32-unknown-unknown target..."
-	rustup target add wasm32-unknown-unknown
-fi
-if ! command -v wasm-bindgen &> /dev/null; then
-	echo "Installing wasm-bindgen-cli..."
-	cargo install wasm-bindgen-cli --locked
-fi
-echo "WASM tools ready"
-'''
-
 [tasks.wasm-compile-dev]
 description = "Compile WASM library (debug)"
 command = "cargo"
@@ -254,9 +254,8 @@ dependencies = ["install-wasm-tools"]
 description = "Generate JS bindings for WASM (debug)"
 script = '''
 mkdir -p dist
-# Workspace root target directory (cargo outputs here even when running from app/)
 WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
-WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/nuages.wasm"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/reinhardt_cloud.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1
@@ -269,9 +268,8 @@ dependencies = ["wasm-compile-dev"]
 description = "Generate JS bindings for WASM (release)"
 script = '''
 mkdir -p dist
-# Workspace root target directory (cargo outputs here even when running from app/)
 WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
-WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/nuages.wasm"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/reinhardt_cloud.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1
@@ -279,7 +277,7 @@ fi
 wasm-bindgen --target web "$WASM_FILE" --out-dir dist
 if command -v wasm-opt &> /dev/null; then
 	echo "Optimizing WASM with wasm-opt..."
-	wasm-opt -O3 dist/nuages_bg.wasm -o dist/nuages_bg.wasm
+	wasm-opt -O3 dist/reinhardt_cloud_bg.wasm -o dist/reinhardt_cloud_bg.wasm
 fi
 '''
 dependencies = ["wasm-compile-release"]
