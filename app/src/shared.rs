@@ -2,6 +2,11 @@
 
 pub mod errors;
 pub mod types;
+pub mod ws_messages;
 
 pub use errors::{AppError, FieldError};
 pub use types::{AuthResponse, UserInfo};
+pub use ws_messages::{
+	AuthResultPayload, DeploymentState, DeploymentStatusPayload, NotificationLevel,
+	SystemNotificationPayload, WsClientMessage, WsMessage,
+};
