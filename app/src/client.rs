@@ -8,6 +8,7 @@ pub mod components;
 pub mod layout;
 pub mod pages;
 pub mod state;
+pub mod ws;
 
 #[cfg(wasm)]
 mod wasm_entry {
