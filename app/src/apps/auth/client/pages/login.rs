@@ -3,10 +3,6 @@
 //! Uses plain `page!` macro for static HTML form rendering.
 //! Form submission is handled via standard HTML form POST to
 //! the server function endpoint.
-// Workaround: reinhardt-pages reactive Effect system panics with
-// "RefCell already borrowed" on non-/ routes during WASM initialization.
-// See: https://github.com/kent8192/reinhardt-web/issues/2667
-// Scope: client.rs, auth/client/pages/login.rs, auth/client/pages/register.rs
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;

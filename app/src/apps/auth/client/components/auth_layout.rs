@@ -1,6 +1,6 @@
 //! Centered authentication layout wrapper.
 //!
-//! Provides a full-height centered card layout with Nuages branding,
+//! Provides a full-height centered card layout with Reinhardt Cloud branding,
 //! used as a shared shell for login and register pages.
 
 use reinhardt::pages::component::Page;
@@ -8,7 +8,7 @@ use reinhardt::pages::page;
 
 /// Render a centered authentication layout with a branded card.
 ///
-/// The `title` is shown below the Nuages header and `form_content`
+/// The `title` is shown below the Reinhardt Cloud header and `form_content`
 /// is the page-specific form view rendered inside the card body.
 pub fn auth_layout(title: &str, form_content: Page) -> Page {
 	let title = title.to_string();
@@ -22,7 +22,7 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 					class: "text-center mb-8",
 					h1 {
 						class: "text-3xl font-bold text-blue-600",
-						"Nuages"
+						"Reinhardt Cloud"
 					}
 					p {
 						class: "text-sm text-gray-500 mt-1",
