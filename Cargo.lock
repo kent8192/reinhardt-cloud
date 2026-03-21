@@ -1313,6 +1313,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5525,9 +5535,13 @@ name = "reinhardt-cloud"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cfg_aliases",
  "chrono",
+ "console_error_panic_hook",
  "ctor",
+ "gloo-net",
  "inventory",
+ "js-sys",
  "reinhardt-cloud-core",
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-types",
@@ -5541,6 +5555,9 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
