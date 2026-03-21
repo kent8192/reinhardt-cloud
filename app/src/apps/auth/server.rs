@@ -4,12 +4,6 @@
 //! handlers and client-side WASM stubs from a single definition. The macro
 //! handles conditional compilation: on the server the original async function
 //! runs, while on WASM a POST stub is generated automatically.
-//!
-//! Access individual functions via their submodules:
-//! - `server::login::login`
-//! - `server::register::register`
-//! - `server::logout::logout`
-//! - `server::me::me`
 
 pub mod login;
 pub mod logout;
