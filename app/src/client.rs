@@ -47,5 +47,16 @@ mod wasm_entry {
 		};
 
 		app.set_inner_html(&page.render_to_string());
+
+		// Initialize toast container and WebSocket on authenticated pages
+		if path == "/" {
+			let toast_html = components::toast::toast_container().render_to_string();
+			let toast_div = document.create_element("div").unwrap();
+			toast_div.set_inner_html(&toast_html);
+			if let Some(child) = toast_div.first_element_child() {
+				document.body().unwrap().append_child(&child).unwrap();
+			}
+			ws::connect_notifications();
+		}
 	}
 }
