@@ -161,6 +161,9 @@ EOF
 ```rust
 // Workaround for kent8192/reinhardt-web#42 (tracked in reinhardt-cloud#15)
 // Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   [code showing the intended implementation without the workaround]
 ```
 
 ### UR-5 (SHOULD): Label Application
@@ -226,6 +229,41 @@ When an upstream issue blocks Reinhardt Cloud development:
 1. Creating an upstream issue first
 2. Adding a reference comment in the workaround code
 
+### WP-3 (MUST): Include Ideal Implementation in Workaround Comments
+
+Every workaround comment MUST include the **ideal implementation** — the code that should replace the workaround once the upstream issue is resolved. This enables future developers to remove the workaround without re-investigating the intended design.
+
+**Rationale:**
+- Issue references explain *why* a workaround exists, but not *what the code should look like* without it
+- The ideal implementation reduces the cost and risk of workaround removal
+- Without it, developers must reverse-engineer the intended behavior from issue discussions
+
+**Extended workaround comment template:**
+```rust
+// Workaround for kent8192/reinhardt-web#42 (tracked in reinhardt-cloud#15)
+// Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   let ctx = request.get_di_context::<Arc<InjectionContext>>();
+//   // AuthInfo resolves directly from the request's InjectionContext
+//   // without needing per-request DI context rebuilding.
+```
+
+**Rules:**
+- The ideal implementation MUST be syntactically plausible (not necessarily compilable against the current upstream API)
+- Keep the ideal implementation concise — show only the key difference, not the entire function
+- If the ideal implementation depends on an upstream API that does not yet exist, describe it in pseudocode with a brief note
+
+**Example with pseudocode:**
+```rust
+// Workaround for kent8192/reinhardt-web#99 (tracked in reinhardt-cloud#30)
+// Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   // Requires reinhardt-web to expose `ConnectionPool::health_check()`
+//   pool.health_check().await?;
+```
+
 ---
 
 ## Quick Reference
@@ -238,11 +276,13 @@ When an upstream issue blocks Reinhardt Cloud development:
 - Create a tracking issue in Reinhardt Cloud for every upstream issue with `upstream-tracking` label (UR-4)
 - Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally (UR-4)
 - Add workaround comments referencing both upstream and Reinhardt Cloud tracking issues (UR-4)
+- Include ideal implementation in all workaround comments (WP-3)
 - Create upstream issue before implementing any workaround (WP-2)
 
 ### ❌ NEVER DO
 - Delay reporting upstream issues discovered during Reinhardt Cloud development
 - Implement workarounds without creating upstream issues first (WP-2)
+- Introduce workaround code without an ideal implementation comment (WP-3)
 - Create upstream issues without corresponding Reinhardt Cloud tracking issues (UR-4)
 - Include absolute local paths in upstream issues (UR-3)
 - Report Reinhardt Cloud-specific issues to the reinhardt-web repository (IC-2)

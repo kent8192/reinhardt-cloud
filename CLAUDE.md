@@ -66,6 +66,21 @@ See instructions/MODULE_SYSTEM.md for comprehensive module system standards incl
 - `cargo make clippy-todo-check` enforces `clippy::todo`, `clippy::unimplemented`, and `clippy::dbg_macro` as deny lints
 - Local pre-check: `semgrep scan --config .semgrep/ --error --metrics off`
 
+**Workaround Comments:**
+- When introducing workaround code, MUST include the ideal implementation (the correct code without the workaround) as a comment
+- This is in addition to the existing UR-4 format (issue reference + removal condition)
+- The ideal implementation comment enables future developers to remove the workaround without re-investigating the intended design
+
+**Comment template:**
+```rust
+// Workaround for kent8192/reinhardt-web#42 (tracked in reinhardt-cloud#15)
+// Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   let ctx = request.get_di_context::<Arc<InjectionContext>>();
+//   // AuthInfo resolves directly from the request's InjectionContext
+```
+
 See instructions/ANTI_PATTERNS.md for comprehensive anti-patterns guide.
 
 ### Testing
@@ -245,7 +260,7 @@ See instructions/ISSUE_HANDLING.md for comprehensive issue handling principles i
 See instructions/UPSTREAM_ISSUE_REPORTING.md for upstream issue reporting policy including:
 - Reporting policy (UR-1 ~ UR-5)
 - Issue categories (IC-1, IC-2)
-- Workaround policy (WP-1, WP-2)
+- Workaround policy (WP-1 ~ WP-3)
 
 ---
 
@@ -506,6 +521,7 @@ Before submitting code:
 - Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every upstream issue (UR-4)
 - Cross-reference between Reinhardt Cloud tracking issue and reinhardt-web issue bidirectionally (UR-4)
 - Create upstream issue before implementing any workaround for reinhardt-web bugs
+- Include the ideal implementation as a comment when introducing workaround code (WP-3)
 
 ### ❌ NEVER DO
 - Use `mod.rs` files (deprecated pattern)
@@ -563,6 +579,7 @@ Before submitting code:
 - Panic in reconciler functions (return `Err` for transient failures)
 - Delay reporting reinhardt-web issues discovered during Reinhardt Cloud development
 - Implement workarounds for reinhardt-web issues without creating an upstream issue first
+- Introduce workaround code without an ideal implementation comment (WP-3)
 - Create upstream issues without corresponding Reinhardt Cloud tracking issues (UR-4)
 - Report Reinhardt Cloud-specific issues to the reinhardt-web repository
 
