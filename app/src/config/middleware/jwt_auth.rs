@@ -67,5 +67,6 @@ impl Middleware for JwtAuthMiddleware {
 			&& !path.starts_with("/api/docs")
 			&& !path.starts_with("/api/redoc")
 			&& !path.starts_with("/api/server_fn/")
+			&& !path.starts_with("/admin/")
 	}
 }

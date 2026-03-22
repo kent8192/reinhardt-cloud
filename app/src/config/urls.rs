@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use reinhardt::admin::admin_routes;
 use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
@@ -17,6 +18,7 @@ use reinhardt::urls::prelude::UnifiedRouter;
 
 use crate::apps::auth::server;
 use crate::apps::realtime::WsBroadcaster;
+use crate::config::admin::configure_admin;
 use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
 
 #[routes]
@@ -30,7 +32,13 @@ pub fn routes() -> UnifiedRouter {
 	let broadcaster = Arc::new(WsBroadcaster::new());
 	di_ctx.set_singleton(broadcaster);
 
+	// Register admin site as a singleton for the admin panel server functions.
+	let admin_site = Arc::new(configure_admin());
+	di_ctx.set_singleton(admin_site);
+
 	UnifiedRouter::new()
+		// Admin panel
+		.mount("/admin/", admin_routes())
 		// REST API endpoints
 		.mount("/api/", crate::apps::auth::urls::url_patterns())
 		.mount("/api/", crate::apps::clusters::urls::url_patterns())
