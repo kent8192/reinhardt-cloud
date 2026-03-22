@@ -4,9 +4,9 @@
 //! including REST API endpoints and server function registrations
 //! for the WASM frontend.
 //!
-//! WebSocket route registration requires the `WebSocketRouter` from
+//! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt-websockets, which is async and independent of `UnifiedRouter`.
-//! See the inline comment at the end of this file for the planned approach.
+//! See `init_websocket_routes()` below.
 
 use std::sync::Arc;
 
@@ -16,9 +16,11 @@ use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(not(target_arch = "wasm32"))]
+use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
+
 use crate::apps::auth::server;
 use crate::apps::realtime::WsBroadcaster;
-use crate::config::admin::configure_admin;
 use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
 
 #[routes]
@@ -29,12 +31,9 @@ pub fn routes() -> UnifiedRouter {
 	// Register the WebSocket broadcaster as a singleton so that other
 	// services (e.g. deployment status updaters) can obtain it via DI
 	// and push events to connected clients.
-	let broadcaster = Arc::new(WsBroadcaster::new());
-	di_ctx.set_singleton(broadcaster);
-
-	// Register admin site as a singleton for the admin panel server functions.
-	let admin_site = Arc::new(configure_admin());
-	di_ctx.set_singleton(admin_site);
+	// NOTE: Do not wrap in Arc — set_singleton() wraps internally,
+	// and double-wrapping causes TypeId mismatch during DI resolution.
+	di_ctx.set_singleton(WsBroadcaster::new());
 
 	UnifiedRouter::new()
 		// Admin panel
@@ -54,27 +53,21 @@ pub fn routes() -> UnifiedRouter {
 		.with_middleware(SecurityHeadersMiddleware)
 }
 
-// Workaround for kent8192/reinhardt-web#2790 (tracked in reinhardt-cloud#108)
-// Remove this workaround when the upstream issue is resolved.
-//
-// WebSocket route registration is skipped because the `WebSocketRouter`,
-// `WebSocketRoute`, and `register_websocket_router` types are not
-// re-exported from the `reinhardt` facade crate.
-// The `WsBroadcaster` is registered as a DI singleton above, but the
-// `/ws/notifications` endpoint is non-functional until this is resolved.
-//
-// Ideal implementation (without workaround):
-//   use reinhardt::websockets::routing::{
-//       WebSocketRoute, WebSocketRouter, register_websocket_router,
-//   };
-//
-//   pub async fn init_websocket_routes() {
-//       let mut ws_router = WebSocketRouter::new();
-//       let route = WebSocketRoute::new(
-//           "/ws/notifications".to_string(),
-//           Some("websocket:notifications".to_string()),
-//       );
-//       ws_router.register_route(route).await
-//           .expect("failed to register /ws/notifications route");
-//       register_websocket_router(ws_router).await;
-//   }
+/// Initialize WebSocket routes.
+///
+/// Registers the `/ws/notifications` endpoint for real-time event delivery
+/// to connected dashboard clients. This function must be called during
+/// server startup, independently of the URL router configuration.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn init_websocket_routes() {
+	let mut ws_router = WebSocketRouter::new();
+	let route = WebSocketRoute::new(
+		"/ws/notifications".to_string(),
+		Some("websocket:notifications".to_string()),
+	);
+	ws_router
+		.register_route(route)
+		.await
+		.expect("failed to register /ws/notifications route");
+	register_websocket_router(ws_router).await;
+}
