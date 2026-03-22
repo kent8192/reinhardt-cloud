@@ -1,0 +1,17 @@
+# Local Development Settings for Reinhardt Cloud
+#
+# Loaded when REINHARDT_ENV=local (default).
+#
+# Getting started:
+#   cp local.example.toml local.toml
+#   # Edit local.toml and fill in sensitive values.
+
+[core]
+debug = true
+secret_key = "CHANGE-ME-to-a-random-string"
+allowed_hosts = ["*"]
+
+[core.security]
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false

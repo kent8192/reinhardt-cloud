@@ -1,0 +1,4 @@
+[core]
+installed_apps = []
+middleware = []
+root_urlconf = ""

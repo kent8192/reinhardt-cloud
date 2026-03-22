@@ -24,6 +24,6 @@ pub mod shared;
 
 // Re-export commonly used items
 #[cfg(native)]
-pub use config::settings::get_settings;
+pub use config::settings::{ProjectSettings, get_settings};
 #[cfg(native)]
 pub use config::urls::routes;
