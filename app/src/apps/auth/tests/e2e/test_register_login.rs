@@ -2,14 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::db::migrations::executor::DatabaseMigrationExecutor;
-	use reinhardt::db::migrations::{FilesystemSource, MigrationSource};
-	use reinhardt::db::orm::reinitialize_database;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::TestServerGuard;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-	use reinhardt::test::fixtures::{postgres_container, test_server_guard};
+	use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
@@ -31,38 +28,14 @@ mod tests {
 				"test-secret-minimum-32-bytes-long!!",
 			);
 		}
-		// Workaround for kent8192/reinhardt-web#2845 (tracked in reinhardt-cloud#114)
-		// Remove this workaround when the upstream issue is resolved.
-		//
-		// Ideal implementation (without workaround):
-		//   let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-		//   let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
-		//       .await
-		//       .expect("Failed to start PostgreSQL with migrations");
-		let (container, _pool, _port, database_url) = postgres_container().await;
-		let conn = DatabaseConnection::connect(&database_url)
-			.await
-			.expect("Failed to connect to PostgreSQL");
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-		let source = FilesystemSource::new(migrations_dir);
-		let migrations = source
-			.all_migrations()
+		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
-			.expect("Failed to load migrations");
-		if !migrations.is_empty() {
-			let mut executor = DatabaseMigrationExecutor::new(conn.inner().clone());
-			executor
-				.apply_migrations(&migrations)
-				.await
-				.expect("Failed to apply migrations");
-		}
-		reinitialize_database(&database_url)
-			.await
-			.expect("Failed to initialize global database state");
+			.expect("Failed to start PostgreSQL with migrations");
 		let router = routes().into_server();
 		let server = test_server_guard(router).await;
 		let client = api_client_from_url(&server.url);
-		(container, Arc::new(conn), server, client)
+		(container, conn, server, client)
 	}
 
 	/// Verify POST /api/auth/register/ creates a user and returns JWT.
