@@ -46,14 +46,17 @@ pub fn routes() -> UnifiedRouter {
 		.with_middleware(SecurityHeadersMiddleware)
 }
 
-// WebSocket route registration:
+// Workaround for kent8192/reinhardt-web#2790 (tracked in reinhardt-cloud#108)
+// Remove this workaround when the upstream issue is resolved.
 //
-// The reinhardt-websockets `WebSocketRouter` / `WebSocketRoute` types are
-// not re-exported from the `reinhardt` facade crate. Once they are
-// available (or reinhardt-websockets is added as a direct dependency),
-// register the `/ws/notifications` endpoint as follows:
+// WebSocket route registration is skipped because the `WebSocketRouter`,
+// `WebSocketRoute`, and `register_websocket_router` types are not
+// re-exported from the `reinhardt` facade crate.
+// The `WsBroadcaster` is registered as a DI singleton above, but the
+// `/ws/notifications` endpoint is non-functional until this is resolved.
 //
-//   use reinhardt_websockets::routing::{
+// Ideal implementation (without workaround):
+//   use reinhardt::websockets::routing::{
 //       WebSocketRoute, WebSocketRouter, register_websocket_router,
 //   };
 //
@@ -67,7 +70,3 @@ pub fn routes() -> UnifiedRouter {
 //           .expect("failed to register /ws/notifications route");
 //       register_websocket_router(ws_router).await;
 //   }
-//
-// The `WsBroadcaster` is already registered as a DI singleton above, so
-// it can be resolved by any service that needs to push events to
-// connected WebSocket clients.

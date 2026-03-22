@@ -16,18 +16,24 @@ use reinhardt::pages::page;
 //
 // Ideal implementation (without workaround):
 //   use reinhardt::pages::form;
+//   use crate::apps::auth::server::login::login;
 //
 //   let login_form = form! {
 //       name: LoginForm,
-//       server_fn: server::login::login,
+//       server_fn: login,
 //       class: "space-y-4",
+//       redirect_on_success: "/",
 //       fields: {
 //           username: CharField {
-//               required, label: "Username",
+//               required,
+//               max_length: 150,
+//               label: "Username",
 //               placeholder: "Enter your username",
 //           },
 //           password: PasswordField {
-//               required, label: "Password",
+//               required,
+//               min_length: 8,
+//               label: "Password",
 //               placeholder: "Enter your password",
 //           },
 //       },

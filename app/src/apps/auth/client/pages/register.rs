@@ -16,22 +16,29 @@ use crate::apps::auth::client::components::auth_layout;
 //
 // Ideal implementation (without workaround):
 //   use reinhardt::pages::form;
+//   use crate::apps::auth::server::register::register;
 //
 //   let register_form = form! {
 //       name: RegisterForm,
-//       server_fn: server::register::register,
+//       server_fn: register,
 //       class: "space-y-4",
+//       redirect_on_success: "/login",
 //       fields: {
 //           username: CharField {
-//               required, label: "Username",
+//               required,
+//               max_length: 150,
+//               label: "Username",
 //               placeholder: "Choose a username",
 //           },
 //           email: EmailField {
-//               required, label: "Email",
+//               required,
+//               label: "Email",
 //               placeholder: "Enter your email",
 //           },
 //           password: PasswordField {
-//               required, label: "Password",
+//               required,
+//               min_length: 8,
+//               label: "Password",
 //               placeholder: "Create a password (min 8 characters)",
 //           },
 //       },
