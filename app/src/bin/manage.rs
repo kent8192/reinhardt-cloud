@@ -8,7 +8,8 @@
 //! No manual registration is required - see `src/config/urls.rs` for the
 //! `#[routes]` attribute macro that enables this.
 
-use reinhardt::commands::execute_from_command_line;
+use reinhardt::commands::CommandRegistry;
+use reinhardt::commands::execute_from_command_line_with_registry;
 use reinhardt_cloud as _;
 use std::process;
 
@@ -30,7 +31,8 @@ fn main() {
 }
 
 async fn async_main() {
-	if let Err(e) = execute_from_command_line().await {
+	let registry = CommandRegistry::new();
+	if let Err(e) = execute_from_command_line_with_registry(registry).await {
 		eprintln!("Error: {}", e);
 		process::exit(1);
 	}
