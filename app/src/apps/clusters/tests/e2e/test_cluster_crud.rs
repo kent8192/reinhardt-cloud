@@ -30,6 +30,14 @@ mod tests {
 				"test-secret-minimum-32-bytes-long!!",
 			);
 		}
+		// Workaround for kent8192/reinhardt-web#2845 (tracked in reinhardt-cloud#114)
+		// Remove this workaround when the upstream issue is resolved.
+		//
+		// Ideal implementation (without workaround):
+		//   let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		//   let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
+		//       .await
+		//       .expect("Failed to start PostgreSQL with migrations");
 		let (container, _pool, _port, database_url) = postgres_container().await;
 		let conn = DatabaseConnection::connect(&database_url)
 			.await
