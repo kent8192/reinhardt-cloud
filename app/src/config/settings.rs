@@ -40,12 +40,7 @@ use reinhardt::conf::settings::core_settings::{CoreSettings, HasCoreSettings};
 use reinhardt::conf::settings::fragment::SettingsFragment;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
-// Workaround for kent8192/reinhardt-web#2846
-// Remove this workaround when the upstream issue is resolved.
-//
-// Ideal implementation (without workaround):
-//   use reinhardt::settings;
-use reinhardt::macros::settings;
+use reinhardt::settings;
 use std::env;
 use std::path::PathBuf;
 
