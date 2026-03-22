@@ -5462,6 +5462,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "reinhardt-admin"
+version = "0.1.0-rc.13"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=main#55c21dc8174da0c0e0355ab376abed92d9f3a169"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "csv",
+ "dashmap",
+ "futures",
+ "getrandom 0.3.4",
+ "inventory",
+ "js-sys",
+ "parking_lot",
+ "rayon",
+ "reinhardt-apps",
+ "reinhardt-auth",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-pages",
+ "reinhardt-query",
+ "reinhardt-urls",
+ "reinhardt-utils",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_bytes",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "reinhardt-apps"
 version = "0.1.0-rc.13"
 source = "git+https://github.com/kent8192/reinhardt-web?branch=main#55c21dc8174da0c0e0355ab376abed92d9f3a169"
@@ -6372,6 +6414,7 @@ dependencies = [
  "hyper",
  "inventory",
  "linkme",
+ "reinhardt-admin",
  "reinhardt-apps",
  "reinhardt-auth",
  "reinhardt-commands",
@@ -6379,6 +6422,7 @@ dependencies = [
  "reinhardt-core",
  "reinhardt-db",
  "reinhardt-di",
+ "reinhardt-forms",
  "reinhardt-http",
  "reinhardt-macros",
  "reinhardt-middleware",
@@ -6968,6 +7012,27 @@ checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
  "ordered-float",
  "serde",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
