@@ -4,7 +4,7 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Reinhardt Cloud — Dashboard</title>
-	<script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@unocss/runtime" integrity="sha384-TKS6hgIe4ZXMc6lVKEdgeIhmGzmiMJi72GKEh6GnQudXV2n+x6zUtb2e1RZvvaPF" crossorigin="anonymous"></script>
 	<style>
 		[un-cloak] { display: none; }
 		body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
@@ -17,69 +17,8 @@
 		</div>
 	</div>
 	<script type="module">
-		import init, { navigate } from './reinhardt_cloud.js';
+		import init from './reinhardt_cloud.js';
 		await init();
-
-		// SPA link interception — intercept clicks on internal <a> tags
-		document.addEventListener('click', (e) => {
-			let el = e.target;
-			while (el && el.tagName !== 'A') el = el.parentElement;
-			if (el && el.getAttribute('href')?.startsWith('/')) {
-				e.preventDefault();
-				history.pushState(null, '', el.getAttribute('href'));
-				navigate();
-			}
-		});
-
-		// Browser back/forward
-		window.addEventListener('popstate', () => navigate());
-
-		// SPA form submission — intercept server_fn form posts to stay in-app
-		document.addEventListener('submit', async (e) => {
-			const form = e.target;
-			if (!form.action?.includes('/api/server_fn/')) return;
-			e.preventDefault();
-
-			const btn = form.querySelector('button[type="submit"]');
-			const origText = btn?.textContent;
-			if (btn) btn.textContent = 'Processing...';
-
-			try {
-				const resp = await fetch(form.action, {
-					method: 'POST',
-					body: new URLSearchParams(new FormData(form)),
-				});
-				const result = await resp.json();
-
-				if (resp.ok && result.token) {
-					localStorage.setItem('auth_token', result.token);
-					localStorage.setItem('auth_user', JSON.stringify(result.user));
-					history.pushState(null, '', '/');
-					navigate();
-				} else {
-					const msg = result.message || result.error || 'Request failed';
-					showFormError(form, msg);
-				}
-			} catch (err) {
-				showFormError(form, 'Network error: ' + err.message);
-			} finally {
-				if (btn) btn.textContent = origText;
-			}
-		});
-
-		function showFormError(form, message) {
-			let errEl = form.parentElement.querySelector('.form-error');
-			if (!errEl) {
-				errEl = document.createElement('div');
-				errEl.className = 'form-error';
-				errEl.style.cssText = 'color:#dc2626;font-size:0.875rem;margin-top:0.5rem;padding:0.5rem;background:#fef2f2;border:1px solid #fecaca;border-radius:0.375rem;';
-				form.parentElement.insertBefore(errEl, form.nextSibling);
-			}
-			errEl.textContent = message;
-		}
-
-		// Expose for debugging
-		window.__navigate = navigate;
 	</script>
 </body>
 </html>
