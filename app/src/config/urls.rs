@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use reinhardt::admin::admin_routes;
+use reinhardt::admin::{admin_routes, core::admin_static_routes};
 use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
@@ -38,6 +38,7 @@ pub fn routes() -> UnifiedRouter {
 	UnifiedRouter::new()
 		// Admin panel
 		.mount("/admin/", admin_routes())
+		.mount("/static/admin/", admin_static_routes())
 		// REST API endpoints
 		.mount("/api/", crate::apps::auth::urls::url_patterns())
 		.mount("/api/", crate::apps::clusters::urls::url_patterns())

@@ -59,7 +59,7 @@ impl Middleware for JwtAuthMiddleware {
 	}
 
 	/// Skip middleware for auth endpoints (login/register), public API docs,
-	/// and server functions that handle authentication (login, register, logout).
+	/// server functions that handle authentication, and admin panel routes.
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
 		!path.starts_with("/api/auth/")
@@ -68,5 +68,6 @@ impl Middleware for JwtAuthMiddleware {
 			&& !path.starts_with("/api/redoc")
 			&& !path.starts_with("/api/server_fn/")
 			&& !path.starts_with("/admin/")
+			&& !path.starts_with("/static/admin/")
 	}
 }
