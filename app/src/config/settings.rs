@@ -36,8 +36,6 @@
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
 use reinhardt::conf::settings::builder::SettingsBuilder;
-use reinhardt::conf::settings::core_settings::{CoreSettings, HasCoreSettings};
-use reinhardt::conf::settings::fragment::SettingsFragment;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
@@ -46,10 +44,10 @@ use std::path::PathBuf;
 
 /// Composable project settings using the `#[settings]` macro.
 ///
-/// Implicitly includes `CoreSettings` under the `core` field.
+/// Includes `CoreSettings` under the `core` field.
 /// Additional fragments can be added as the project grows
 /// (e.g., `cache: CacheSettings | session: SessionSettings`).
-#[settings]
+#[settings(core: CoreSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
