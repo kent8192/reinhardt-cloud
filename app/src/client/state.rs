@@ -1,26 +1,20 @@
 //! Global application state for the WASM client.
+//!
+//! Authentication state (user info, token) is managed by
+//! `reinhardt::pages::auth::AuthState` and `localStorage`.
+//! This module only tracks non-auth application state.
 
 use std::cell::RefCell;
 
-use crate::shared::UserInfo;
-
 /// Global application state.
 pub struct AppState {
-	/// Currently authenticated user, if any.
-	pub user: Option<UserInfo>,
 	/// Whether the initial auth check is still in progress.
 	pub is_loading: bool,
-	/// Auth token stored after login.
-	pub token: Option<String>,
 }
 
 impl Default for AppState {
 	fn default() -> Self {
-		Self {
-			user: None,
-			is_loading: true,
-			token: None,
-		}
+		Self { is_loading: true }
 	}
 }
 
