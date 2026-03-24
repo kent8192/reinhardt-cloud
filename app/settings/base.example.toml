@@ -1,0 +1,6 @@
+[core]
+# secret_key is required — must be overridden in environment-specific TOML
+secret_key = ""
+installed_apps = []
+middleware = []
+root_urlconf = ""

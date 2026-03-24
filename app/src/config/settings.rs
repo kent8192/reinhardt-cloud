@@ -37,16 +37,16 @@
 
 use reinhardt::conf::settings::builder::SettingsBuilder;
 use reinhardt::conf::settings::profile::Profile;
-use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::settings::sources::{LowPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
 use std::env;
 use std::path::PathBuf;
 
 /// Composable project settings using the `#[settings]` macro.
 ///
-/// Includes `CoreSettings` under the `core` field.
-/// Additional fragments can be added as the project grows
-/// (e.g., `cache: CacheSettings | session: SessionSettings`).
+/// `#[serde(flatten)]` merges `CoreSettings` fields at the root level,
+/// so TOML files use flat keys (e.g., `secret_key = "..."`) rather than
+/// `[core]` sections.
 #[settings(core: CoreSettings)]
 pub struct ProjectSettings;
 
@@ -76,15 +76,12 @@ fn profile_name() -> String {
 /// 2. Environment variables with `REINHARDT_` prefix
 /// 3. Base TOML file (`base.toml`)
 /// 4. Environment-specific TOML file (e.g., `local.toml`)
-fn build_merged() -> reinhardt::conf::settings::builder::MergedSettings {
+fn build_settings() -> ProjectSettings {
 	let profile_str = profile_name();
-	let profile = Profile::parse(&profile_str);
 	let settings_dir = resolve_settings_dir();
 
 	SettingsBuilder::new()
-		.profile(profile)
-		// Lowest priority: Default values (CoreSettings provides its own defaults via serde)
-		.add_source(DefaultSource::new())
+		.profile(Profile::parse(&profile_str))
 		// Low priority: Environment variables (for container/CI overrides)
 		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		// Medium priority: Base TOML file
@@ -93,7 +90,7 @@ fn build_merged() -> reinhardt::conf::settings::builder::MergedSettings {
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
-		.build()
+		.build_composed()
 		.expect("Failed to build settings")
 }
 
@@ -124,9 +121,7 @@ fn build_merged() -> reinhardt::conf::settings::builder::MergedSettings {
 /// - Settings cannot be deserialized
 /// - Required settings are missing
 pub fn get_settings() -> ProjectSettings {
-	build_merged()
-		.into_typed()
-		.expect("Failed to convert settings to ProjectSettings struct")
+	build_settings()
 }
 
 /// Get JWT secret from settings or environment.
@@ -142,8 +137,17 @@ pub fn get_jwt_secret() -> Option<String> {
 		return Some(secret);
 	}
 
-	// Fall back to settings TOML
-	build_merged()
+	// Fall back to settings TOML via a lightweight builder read
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
+	let merged = SettingsBuilder::new()
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
+		.add_source(TomlFileSource::new(
+			settings_dir.join(format!("{}.toml", profile_str)),
+		))
+		.build()
+		.ok()?;
+	merged
 		.get_raw("jwt_secret")
 		.and_then(|v| v.as_str())
 		.map(String::from)

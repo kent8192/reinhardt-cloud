@@ -11,6 +11,14 @@ debug = true
 secret_key = "CHANGE-ME-to-a-random-string"
 allowed_hosts = ["*"]
 
+[core.databases.default]
+engine = "reinhardt.db.backends.postgresql"
+name = "reinhardt_cloud_dev"
+user = "postgres"
+password = "CHANGE-ME"
+host = "127.0.0.1"
+port = 5433
+
 [core.security]
 session_cookie_secure = false
 csrf_cookie_secure = false

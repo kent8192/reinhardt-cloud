@@ -17,7 +17,7 @@ pub fn login_page() -> Page {
 		server_fn: login,
 		class: "space-y-4",
 		redirect_on_success: "/",
-		on_success: |result| {
+		on_success: |result: crate::shared::AuthResponse| {
 			use reinhardt::pages::auth::{AuthData, auth_state};
 
 			// Update reactive auth state for UI components

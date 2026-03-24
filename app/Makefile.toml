@@ -21,7 +21,6 @@ args = ["run", "--bin", "manage", "runserver"]
 description = "Start the development server with auto-reload (requires bacon)"
 command = "bacon"
 args = ["runserver"]
-dependencies = ["install-bacon"]
 
 # ============================================================================
 # Database Migrations
@@ -78,25 +77,21 @@ args = ["run", "--bin", "manage", "shell"]
 description = "Run all tests"
 command = "cargo"
 args = ["nextest", "run", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-unit]
 description = "Run unit tests only"
 command = "cargo"
 args = ["nextest", "run", "--lib", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-integration]
 description = "Run integration tests only"
 command = "cargo"
 args = ["nextest", "run", "--test", "*", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-watch]
 description = "Run tests with auto-reload (requires bacon)"
 command = "bacon"
 args = ["test"]
-dependencies = ["install-bacon", "install-nextest"]
 
 # ============================================================================
 # Code Quality
@@ -150,52 +145,6 @@ command = "cargo"
 args = ["clean"]
 
 # ============================================================================
-# Dependencies Installation
-# ============================================================================
-
-[tasks.install-nextest]
-description = "Install cargo-nextest if not already installed"
-script = '''
-if ! command -v cargo-nextest &> /dev/null
-then
-	echo "Installing cargo-nextest..."
-	cargo install cargo-nextest --locked
-else
-	echo "cargo-nextest is already installed"
-fi
-'''
-
-[tasks.install-bacon]
-description = "Install bacon if not already installed"
-script = '''
-if ! command -v bacon &> /dev/null
-then
-	echo "Installing bacon..."
-	cargo install --locked bacon
-else
-	echo "bacon is already installed"
-fi
-'''
-
-[tasks.install-wasm-tools]
-description = "Install WASM build tools if not already installed"
-script = '''
-if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
-	echo "Installing wasm32-unknown-unknown target..."
-	rustup target add wasm32-unknown-unknown
-fi
-if ! command -v wasm-bindgen &> /dev/null; then
-	echo "Installing wasm-bindgen-cli..."
-	cargo install wasm-bindgen-cli --locked
-fi
-echo "WASM tools ready"
-'''
-
-[tasks.install-tools]
-description = "Install all required development tools"
-dependencies = ["install-nextest", "install-bacon", "install-wasm-tools"]
-
-# ============================================================================
 # Development Workflow
 # ============================================================================
 
@@ -242,13 +191,11 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 description = "Compile WASM library (debug)"
 command = "cargo"
 args = ["build", "--lib", "--target", "wasm32-unknown-unknown"]
-dependencies = ["install-wasm-tools"]
 
 [tasks.wasm-compile-release]
 description = "Compile WASM library (release)"
 command = "cargo"
 args = ["build", "--lib", "--target", "wasm32-unknown-unknown", "--release"]
-dependencies = ["install-wasm-tools"]
 
 [tasks.wasm-bindgen-dev]
 description = "Generate JS bindings for WASM (debug)"
@@ -282,29 +229,13 @@ fi
 '''
 dependencies = ["wasm-compile-release"]
 
-[tasks.wasm-finalize-dev]
-description = "Copy index.html to dist/ (debug)"
-script = '''
-cp index.html dist/index.html
-echo "WASM build artifacts ready in dist/"
-'''
-dependencies = ["wasm-bindgen-dev"]
-
-[tasks.wasm-finalize-release]
-description = "Copy index.html to dist/ (release)"
-script = '''
-cp index.html dist/index.html
-echo "WASM release build artifacts ready in dist/"
-'''
-dependencies = ["wasm-bindgen-release"]
-
 [tasks.wasm-build-dev]
 description = "Full WASM debug build pipeline"
-dependencies = ["wasm-finalize-dev"]
+dependencies = ["wasm-bindgen-dev"]
 
 [tasks.wasm-build-release]
 description = "Full WASM release build pipeline"
-dependencies = ["wasm-finalize-release"]
+dependencies = ["wasm-bindgen-release"]
 
 [tasks.wasm-clean]
 description = "Clean WASM build artifacts"
@@ -373,9 +304,6 @@ echo "    wasm-build-dev     - Full WASM debug build"
 echo "    wasm-build-release - Full WASM release build"
 echo "    wasm-clean         - Clean WASM artifacts"
 echo "    runserver-pages    - Build WASM + start server"
-echo ""
-echo "  Tools:"
-echo "    install-tools      - Install dev tools"
 echo ""
 echo "Usage: cargo make <task>"
 '''

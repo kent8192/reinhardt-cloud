@@ -1,7 +1,5 @@
-# Ignore all TOML files in settings directory
+# Ignore all TOML files (contain environment-specific secrets)
 *.toml
 
-# Except for shared settings files
+# Except for example templates
 !*.example.toml
-!base.toml
-!ci.toml
