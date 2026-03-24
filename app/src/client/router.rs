@@ -1,4 +1,4 @@
-//! SPA router configuration for the Nuages WASM client.
+//! SPA router configuration for the Reinhardt Cloud WASM client.
 //!
 //! Defines client-side routes and provides global router access via
 //! `thread_local!` storage following the reinhardt-pages pattern.

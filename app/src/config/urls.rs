@@ -1,4 +1,4 @@
-//! URL configuration for nuages project.
+//! URL configuration for Reinhardt Cloud.
 //!
 //! The `routes` function defines all URL patterns for this project,
 //! including REST API endpoints and server function registrations
