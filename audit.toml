@@ -46,4 +46,20 @@ ignore = [
 	# proc-macro-error: unmaintained
 	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
 	"RUSTSEC-2024-0370",
+
+	# astral-tokio-tar: vulnerability (severity: low 1.7)
+	# Transitive: testcontainers -> astral-tokio-tar
+	"RUSTSEC-2026-0066",
+
+	# aws-lc-sys: vulnerability (severity: high 7.4)
+	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0048",
+
+	# aws-lc-sys: vulnerability
+	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0044",
+
+	# rustls-webpki: vulnerability (solution: upgrade to >=0.103.10)
+	# Transitive: rustls -> rustls-webpki
+	"RUSTSEC-2026-0049",
 ]
