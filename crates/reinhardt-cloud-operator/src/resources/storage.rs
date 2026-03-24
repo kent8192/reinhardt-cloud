@@ -70,9 +70,10 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
-			.expect("build should succeed")
-			.expect("S3 with role should produce a ServiceAccount");
+		let sa =
+			build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
+				.expect("build should succeed")
+				.expect("S3 with role should produce a ServiceAccount");
 
 		// Assert
 		let annotations = sa.metadata.annotations.as_ref().unwrap();
@@ -88,9 +89,13 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "gcs", Some("my-sa@project.iam.gserviceaccount.com"))
-			.expect("build should succeed")
-			.expect("GCS with SA should produce a ServiceAccount");
+		let sa = build_storage_service_account(
+			&app,
+			"gcs",
+			Some("my-sa@project.iam.gserviceaccount.com"),
+		)
+		.expect("build should succeed")
+		.expect("GCS with SA should produce a ServiceAccount");
 
 		// Assert
 		let annotations = sa.metadata.annotations.as_ref().unwrap();
@@ -106,7 +111,8 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let result = build_storage_service_account(&app, "pvc", None).expect("build should succeed");
+		let result =
+			build_storage_service_account(&app, "pvc", None).expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());
@@ -130,7 +136,8 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let result = build_storage_service_account(&app, "s3", Some("")).expect("build should succeed");
+		let result =
+			build_storage_service_account(&app, "s3", Some("")).expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());
@@ -142,9 +149,10 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
-			.expect("build should succeed")
-			.expect("S3 with role should produce a ServiceAccount");
+		let sa =
+			build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
+				.expect("build should succeed")
+				.expect("S3 with role should produce a ServiceAccount");
 
 		// Assert
 		assert_eq!(sa.metadata.name.as_deref(), Some("myapp-storage"));

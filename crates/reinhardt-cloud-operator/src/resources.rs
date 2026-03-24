@@ -22,7 +22,9 @@ pub(crate) use service::build_service;
 
 /// Extracts the namespace from a `ReinhardtApp`, returning
 /// `Error::MissingNamespace` if absent.
-pub(crate) fn require_namespace(app: &reinhardt_cloud_types::crd::ReinhardtApp) -> Result<String, crate::error::Error> {
+pub(crate) fn require_namespace(
+	app: &reinhardt_cloud_types::crd::ReinhardtApp,
+) -> Result<String, crate::error::Error> {
 	use kube::ResourceExt;
 	let name = app.name_any();
 	app.namespace()
