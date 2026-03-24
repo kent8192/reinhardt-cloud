@@ -70,6 +70,19 @@ fn standard_secret_labels(app_name: &str) -> BTreeMap<String, String> {
 	])
 }
 
+/// Generate a random alphanumeric password of the given length.
+pub(crate) fn generate_random_password(len: usize) -> String {
+	use rand::Rng;
+	const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	let mut rng = rand::rng();
+	(0..len)
+		.map(|_| {
+			let idx = rng.random_range(0..CHARSET.len());
+			CHARSET[idx] as char
+		})
+		.collect()
+}
+
 fn base64_encode(bytes: &[u8]) -> String {
 	base64::engine::general_purpose::STANDARD.encode(bytes)
 }

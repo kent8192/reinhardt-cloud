@@ -22,7 +22,7 @@ use kube::api::{DynamicObject, TypeMeta};
 use reinhardt_cloud_types::crd::{DatabaseSpec, ReinhardtApp};
 
 use super::platform::{Platform, PlatformConfig};
-use super::secrets::build_db_credentials_secret;
+use super::secrets::{build_db_credentials_secret, generate_random_password};
 
 /// Represents a database-related Kubernetes resource produced by the
 /// inference engine.
@@ -73,7 +73,7 @@ fn build_onprem_postgres(
 ) -> Vec<DatabaseResource> {
 	let db_name = format!("{app_name}_db");
 	let db_user = app_name.replace('-', "_");
-	let db_password = "changeme";
+	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(app_name);
 
@@ -166,7 +166,7 @@ fn build_onprem_postgres(
 	};
 
 	// Credentials secret
-	let secret = build_db_credentials_secret(app_name, namespace, &db_user, db_password);
+	let secret = build_db_credentials_secret(app_name, namespace, &db_user, &db_password);
 
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
@@ -192,7 +192,8 @@ fn build_aws_rds(app_name: &str, namespace: &str, _db: &DatabaseSpec) -> Vec<Dat
 		data: serde_json::json!({}),
 	};
 
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, "changeme");
+	let password = generate_random_password(24);
+	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
 
 	vec![
 		DatabaseResource::Dynamic(db_instance),
@@ -250,7 +251,8 @@ fn build_gcp_cloud_sql(
 		data: serde_json::json!({}),
 	};
 
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, "changeme");
+	let password = generate_random_password(24);
+	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
 
 	vec![
 		DatabaseResource::Dynamic(sql_instance),
