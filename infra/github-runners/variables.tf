@@ -34,7 +34,7 @@ variable "github_owner" {
 variable "github_repository" {
 	description = "GitHub repository name (without owner prefix)"
 	type        = string
-	default     = "reinhardt-nuages"
+	default     = "nuages"
 }
 
 variable "prefix" {

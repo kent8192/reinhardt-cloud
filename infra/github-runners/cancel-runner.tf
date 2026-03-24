@@ -17,9 +17,6 @@ resource "aws_ssm_parameter" "cancel_runner_github_app_id" {
 		Description = "GitHub App ID for cancel runner registration"
 	}
 
-	lifecycle {
-		ignore_changes = [value]
-	}
 }
 
 resource "aws_ssm_parameter" "cancel_runner_github_app_key" {
@@ -32,9 +29,6 @@ resource "aws_ssm_parameter" "cancel_runner_github_app_key" {
 		Description = "GitHub App private key for cancel runner registration"
 	}
 
-	lifecycle {
-		ignore_changes = [value]
-	}
 }
 
 resource "aws_ssm_parameter" "cancel_runner_github_app_installation_id" {
@@ -47,9 +41,6 @@ resource "aws_ssm_parameter" "cancel_runner_github_app_installation_id" {
 		Description = "GitHub App installation ID for cancel runner registration"
 	}
 
-	lifecycle {
-		ignore_changes = [value]
-	}
 }
 
 # --- Security Group: egress only ---
@@ -177,7 +168,6 @@ resource "aws_instance" "cancel_runner" {
 	# user_data is NOT ignored: changes to the bootstrap script should
 	# trigger instance replacement to maintain IaC correctness.
 	lifecycle {
-		ignore_changes        = [ami]
-		create_before_destroy = true
+		ignore_changes = [ami]
 	}
 }

@@ -20,7 +20,7 @@ apt-get update -y
 apt-get install -y jq curl openssl unzip unattended-upgrades
 
 # Install AWS CLI v2 (arm64) - not included in base Ubuntu AMI
-curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
+curl -sfL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
 unzip -q /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install
 rm -rf /tmp/awscliv2.zip /tmp/aws
@@ -46,7 +46,7 @@ INSTALLATION_ID=$(aws ssm get-parameter \
   --name "/${prefix}/cancel-runner/github-app-installation-id" \
   --query 'Parameter.Value' --output text)
 
-# Generate JWT from GitHub App private key (valid for 10 minutes)
+# Generate JWT from GitHub App private key (valid for 5 minutes)
 NOW=$(date +%s)
 IAT=$((NOW - 60))
 EXP=$((NOW + 300))
@@ -63,20 +63,26 @@ JWT="$HEADER.$PAYLOAD.$SIGNATURE"
 INSTALLATION_TOKEN=$(curl -sf -X POST \
   -H "Authorization: Bearer $JWT" \
   -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" | jq -r '.token')
+  "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" | jq -e -r '.token')
 
 # Get runner registration token
 REG_TOKEN=$(curl -sf -X POST \
   -H "Authorization: token $INSTALLATION_TOKEN" \
   -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/${github_owner}/${github_repository}/actions/runners/registration-token" | jq -r '.token')
+  "https://api.github.com/repos/${github_owner}/${github_repository}/actions/runners/registration-token" | jq -e -r '.token')
 
-# Download latest GitHub Actions Runner (arm64)
+# Download GitHub Actions Runner (arm64) - pinned version for reproducibility
+RUNNER_VERSION="2.333.0"
+RUNNER_SHA256="b5697062a13f63b44f869de9369638a7039677b9e0f87e47a6001a758c0d09bf"
+RUNNER_TARBALL="actions-runner-linux-arm64-$RUNNER_VERSION.tar.gz"
+
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 
-RUNNER_VERSION=$(curl -sf https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-curl -sL "https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-arm64-$RUNNER_VERSION.tar.gz" | tar xz
+curl -sfL "https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/$RUNNER_TARBALL" -o "$RUNNER_TARBALL"
+echo "$RUNNER_SHA256  $RUNNER_TARBALL" | sha256sum -c -
+tar xz -f "$RUNNER_TARBALL"
+rm -f "$RUNNER_TARBALL"
 chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
 
 # Configure runner (non-interactive, replace if name already registered)
@@ -84,7 +90,7 @@ sudo -u "$RUNNER_USER" ./config.sh \
   --url "https://github.com/${github_owner}/${github_repository}" \
   --token "$REG_TOKEN" \
   --name "cancel-runner" \
-  --labels "self-hosted,linux,arm64,${runner_labels}" \
+  --labels "${runner_labels}" \
   --unattended \
   --replace
 
