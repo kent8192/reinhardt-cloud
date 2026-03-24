@@ -187,6 +187,13 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 # WASM Build (reinhardt-pages frontend)
 # ============================================================================
 
+[tasks.wasm-install-tools]
+description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
+script = '''
+# Keep this version in sync with the wasm-bindgen crate in Cargo.lock
+cargo install wasm-bindgen-cli --version "0.2.114" --locked 2>/dev/null || true
+'''
+
 [tasks.wasm-compile-dev]
 description = "Compile WASM library (debug)"
 command = "cargo"
@@ -231,11 +238,11 @@ dependencies = ["wasm-compile-release"]
 
 [tasks.wasm-build-dev]
 description = "Full WASM debug build pipeline"
-dependencies = ["wasm-bindgen-dev"]
+dependencies = ["wasm-install-tools", "wasm-bindgen-dev"]
 
 [tasks.wasm-build-release]
 description = "Full WASM release build pipeline"
-dependencies = ["wasm-bindgen-release"]
+dependencies = ["wasm-install-tools", "wasm-bindgen-release"]
 
 [tasks.wasm-clean]
 description = "Clean WASM build artifacts"

@@ -31,11 +31,13 @@ impl Middleware for JwtAuthMiddleware {
 			&& let Ok(header_str) = header_value.to_str()
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
-			let auth = JwtAuth::new(
-				jwt_secret()
-					.expect("REINHARDT_CLOUD_JWT_SECRET must be set")
-					.as_bytes(),
-			);
+			let secret = jwt_secret().map_err(|e| {
+				tracing::error!("JWT secret not configured: {e}");
+				reinhardt::core::exception::Error::Authentication(
+					"Authentication service unavailable".to_string(),
+				)
+			})?;
+			let auth = JwtAuth::new(secret.as_bytes());
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
@@ -59,14 +61,26 @@ impl Middleware for JwtAuthMiddleware {
 	}
 
 	/// Skip middleware for auth endpoints (login/register), public API docs,
-	/// server functions that handle authentication, and admin panel routes.
+	/// public server functions, and admin panel routes.
+	///
+	/// Only specific server functions are exempted — authenticated server
+	/// functions are protected by default to prevent accidental exposure.
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
+
+		// Public server functions that do not require authentication
+		const PUBLIC_SERVER_FNS: &[&str] = &[
+			"/api/server_fn/login",
+			"/api/server_fn/register",
+			"/api/server_fn/logout",
+			"/api/server_fn/me",
+		];
+
 		!path.starts_with("/api/auth/")
 			&& path != "/api/openapi.json"
 			&& !path.starts_with("/api/docs")
 			&& !path.starts_with("/api/redoc")
-			&& !path.starts_with("/api/server_fn/")
+			&& !PUBLIC_SERVER_FNS.iter().any(|p| path.starts_with(p))
 			&& !path.starts_with("/admin/")
 			&& !path.starts_with("/static/admin/")
 	}

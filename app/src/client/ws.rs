@@ -30,6 +30,9 @@ use super::components::toast::show_toast;
 thread_local! {
 	static SUBSCRIBED_IDS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 	static RECONNECT_ATTEMPTS: RefCell<u32> = RefCell::new(0);
+	/// Holds the current WebSocket so it can be explicitly closed on reconnect,
+	/// preventing leaked Closures from accumulating across connection cycles.
+	static CURRENT_WS: RefCell<Option<WebSocket>> = RefCell::new(None);
 }
 
 #[cfg(wasm)]
@@ -38,7 +41,7 @@ const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 /// Open a WebSocket to `/ws/notifications` and wire up event handlers.
 ///
 /// On open the connection authenticates with the JWT stored in
-/// `localStorage("auth_token")` and re-subscribes to any deployment
+/// `sessionStorage("auth_token")` and re-subscribes to any deployment
 /// IDs previously registered via [`track_subscriptions`].
 ///
 /// Automatically reconnects on close up to [`MAX_RECONNECT_ATTEMPTS`]
@@ -48,6 +51,16 @@ pub fn connect_notifications() {
 	let Some(token) = get_auth_token() else {
 		return;
 	};
+
+	// Close the previous WebSocket (if any) to prevent handler accumulation
+	CURRENT_WS.with(|prev| {
+		if let Some(old_ws) = prev.borrow_mut().take() {
+			old_ws.set_onopen(None);
+			old_ws.set_onmessage(None);
+			old_ws.set_onclose(None);
+			let _ = old_ws.close();
+		}
+	});
 
 	let window = web_sys::window().unwrap();
 	let location = window.location();
@@ -61,6 +74,11 @@ pub fn connect_notifications() {
 	let Ok(ws) = WebSocket::new(&url) else {
 		return;
 	};
+
+	// Store the new WebSocket for future cleanup
+	CURRENT_WS.with(|prev| {
+		*prev.borrow_mut() = Some(ws.clone());
+	});
 
 	// On open: reset reconnect counter, send JWT, re-subscribe
 	let token_for_open = token.clone();
@@ -194,11 +212,11 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 	badge.set_text_content(Some(label));
 }
 
-/// Retrieve the JWT from `localStorage`.
+/// Retrieve the JWT from `sessionStorage`.
 #[cfg(wasm)]
 fn get_auth_token() -> Option<String> {
 	web_sys::window()?
-		.local_storage()
+		.session_storage()
 		.ok()??
 		.get_item("auth_token")
 		.ok()?

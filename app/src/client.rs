@@ -48,13 +48,16 @@ mod wasm_entry {
 			let page = router::with_router(|r| r.render_current());
 			app.set_inner_html(&page.render_to_string());
 
-			// Initialize toast container and WebSocket on authenticated pages
+			// Initialize toast container and WebSocket on authenticated pages.
+			// Guard against duplicates across re-renders by checking for existing elements.
 			if path == "/" {
-				let toast_html = components::toast::toast_container().render_to_string();
-				let toast_div = doc.create_element("div").unwrap();
-				toast_div.set_inner_html(&toast_html);
-				if let Some(child) = toast_div.first_element_child() {
-					doc.body().unwrap().append_child(&child).unwrap();
+				if doc.get_element_by_id("toast-container").is_none() {
+					let toast_html = components::toast::toast_container().render_to_string();
+					let toast_div = doc.create_element("div").unwrap();
+					toast_div.set_inner_html(&toast_html);
+					if let Some(child) = toast_div.first_element_child() {
+						doc.body().unwrap().append_child(&child).unwrap();
+					}
 				}
 				ws::connect_notifications();
 			}

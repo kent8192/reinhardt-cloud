@@ -28,10 +28,19 @@ impl Middleware for SecurityHeadersMiddleware {
 		request: Request,
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
+		let is_api = request.uri.path().starts_with("/api/");
 		let response = next.handle(request).await?;
 
 		// Use with_header_if_absent for CSP so that handler-set CSP headers
 		// (e.g. from admin_routes()) are preserved instead of overwritten.
+		// API routes get a restrictive CSP; page routes allow WASM, scripts,
+		// and the UnoCSS CDN runtime needed by the frontend.
+		let csp = if is_api {
+			"default-src 'none'"
+		} else {
+			"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:; img-src 'self' data:"
+		};
+
 		Ok(response
 			.with_header("X-Content-Type-Options", "nosniff")
 			.with_header("X-Frame-Options", "DENY")
@@ -40,7 +49,7 @@ impl Middleware for SecurityHeadersMiddleware {
 				"Strict-Transport-Security",
 				"max-age=63072000; includeSubDomains",
 			)
-			.with_header_if_absent("Content-Security-Policy", "default-src 'none'")
+			.with_header_if_absent("Content-Security-Policy", csp)
 			.with_header("Cache-Control", "no-store")
 			.with_header("Referrer-Policy", "no-referrer"))
 	}
