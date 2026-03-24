@@ -46,4 +46,16 @@ ignore = [
 	# proc-macro-error: unmaintained
 	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
 	"RUSTSEC-2024-0370",
+
+	# aws-lc-sys: vulnerability (RUSTSEC-2026-0044)
+	# Transitive: rustls -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0044",
+
+	# aws-lc-sys: vulnerability (RUSTSEC-2026-0048)
+	# Transitive: rustls -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0048",
+
+	# rustls-webpki: vulnerability (RUSTSEC-2026-0049)
+	# Transitive: rustls -> rustls-webpki
+	"RUSTSEC-2026-0049",
 ]
