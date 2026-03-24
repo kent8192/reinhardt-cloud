@@ -53,7 +53,10 @@ pub async fn register(
 		}
 	};
 
-	let token = services::create_session_token(&created).map_err(ServerFnError::application)?;
+	let token = services::create_session_token(&created).map_err(|err| {
+		error!("Failed to create session token during registration: {err}");
+		ServerFnError::application("Internal server error")
+	})?;
 
 	let user_info = services::user_to_info(&created);
 	Ok(AuthResponse {

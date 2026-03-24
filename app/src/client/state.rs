@@ -1,7 +1,7 @@
 //! Global application state for the WASM client.
 //!
 //! Authentication state (user info, token) is managed by
-//! `reinhardt::pages::auth::AuthState` and `localStorage`.
+//! `reinhardt::pages::auth::AuthState` and `sessionStorage`.
 //! This module only tracks non-auth application state.
 
 use std::cell::RefCell;
