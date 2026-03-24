@@ -14,7 +14,7 @@ rather than infrastructure configuration.
 
 Three-plane architecture inspired by Vercel:
 
-- **Control Plane** (`app/`) — reinhardt-web REST API, authentication, project management
+- **Control Plane** (`dashboard/`) — reinhardt-web REST API, authentication, project management
 - **Operator** (`reinhardt-cloud-operator`) — Kubernetes Operator that reconciles `ReinhardtApp` CRDs
 - **CLI** (`reinhardt-cloud-cli`) — `reinhardt-cloud` command for deployment and management
 

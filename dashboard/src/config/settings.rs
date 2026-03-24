@@ -49,7 +49,7 @@ use std::env;
 /// # Examples
 ///
 /// ```no_run
-/// use reinhardt_cloud::config::settings::get_settings;
+/// use reinhardt_cloud_dashboard::config::settings::get_settings;
 ///
 /// let settings = get_settings();
 /// println!("Debug mode: {}", settings.debug);
