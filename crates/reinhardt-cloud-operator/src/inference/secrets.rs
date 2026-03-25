@@ -9,6 +9,7 @@ use base64::Engine;
 use k8s_openapi::ByteString;
 use k8s_openapi::api::core::v1::Secret;
 use kube::api::ObjectMeta;
+use rand::Rng;
 
 /// Build a Kubernetes Secret containing a JWT signing key.
 ///
@@ -70,6 +71,18 @@ fn standard_secret_labels(app_name: &str) -> BTreeMap<String, String> {
 	])
 }
 
+/// Generates a random 32-character alphanumeric password for database credentials.
+pub(crate) fn generate_password() -> String {
+	let mut rng = rand::rng();
+	const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+	(0..32)
+		.map(|_| {
+			let idx = rng.random_range(0..CHARSET.len());
+			CHARSET[idx] as char
+		})
+		.collect()
+}
+
 fn base64_encode(bytes: &[u8]) -> String {
 	base64::engine::general_purpose::STANDARD.encode(bytes)
 }
@@ -78,6 +91,12 @@ fn base64_encode(bytes: &[u8]) -> String {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+
+	/// Returns a test-only credential value.
+	/// This is NOT a real credential — used exclusively in unit tests.
+	fn test_credential() -> String {
+		String::from("test-fixture-value")
+	}
 
 	#[rstest]
 	fn jwt_secret_has_correct_name() {
@@ -148,7 +167,7 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_correct_name() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "prod", "admin", "pw123");
+		let secret = build_db_credentials_secret("webapp", "prod", "admin", &test_credential());
 
 		// Assert
 		assert_eq!(
@@ -160,18 +179,19 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_stores_username_and_password() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "default", "dbuser", "dbpass");
+		let cred = test_credential();
+		let secret = build_db_credentials_secret("webapp", "default", "dbuser", &cred);
 
 		// Assert
 		let data = secret.data.as_ref().unwrap();
 		assert_eq!(data["username"].0, b"dbuser");
-		assert_eq!(data["password"].0, b"dbpass");
+		assert_eq!(data["password"].0, cred.as_bytes());
 	}
 
 	#[rstest]
 	fn db_credentials_secret_has_correct_namespace() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "production", "u", "p");
+		let secret = build_db_credentials_secret("webapp", "production", "u", &test_credential());
 
 		// Assert
 		assert_eq!(secret.metadata.namespace.as_deref(), Some("production"));
@@ -180,7 +200,7 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_standard_labels() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "default", "u", "p");
+		let secret = build_db_credentials_secret("webapp", "default", "u", &test_credential());
 
 		// Assert
 		let labels = secret.metadata.labels.as_ref().unwrap();
@@ -194,7 +214,7 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_correct_metadata() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("myapp", "staging", "dbadmin", "s3cret");
+		let secret = build_db_credentials_secret("myapp", "staging", "dbadmin", &test_credential());
 
 		// Assert
 		assert_eq!(
@@ -222,7 +242,7 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_labels_are_correct() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("test-app", "ns1", "u", "p");
+		let secret = build_db_credentials_secret("test-app", "ns1", "u", &test_credential());
 
 		// Assert
 		let labels = secret.metadata.labels.as_ref().unwrap();
