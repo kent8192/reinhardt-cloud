@@ -47,22 +47,10 @@ pub fn validate_raw_token(token: &str) -> Option<(String, String)> {
 	let secret = jwt_secret().ok()?;
 	let auth = JwtAuth::new(secret.as_bytes());
 	let claims = auth.verify_token(token).ok()?;
-	// Workaround for kent8192/reinhardt-web#2912 (tracked in nuages#123)
-	// Remove this workaround when the upstream issue is resolved.
-	//
-	// Ideal implementation (without workaround):
-	//   let claims = auth.verify_token(token).ok()?;
-	//   // verify_token already rejects expired tokens
-	//   Some((claims.sub, claims.username))
-	if claims.is_expired() {
-		return None;
-	}
 	Some((claims.sub, claims.username))
 }
 
 /// Extract and validate session token from cookie header string.
-///
-/// Rejects expired tokens to stay consistent with [`JwtAuthMiddleware`].
 pub fn validate_session_token(cookie_header: &str) -> Option<(String, String)> {
 	let token = cookie_header
 		.split(';')
@@ -79,16 +67,6 @@ pub fn validate_session_token(cookie_header: &str) -> Option<(String, String)> {
 	let secret = jwt_secret().ok()?;
 	let auth = JwtAuth::new(secret.as_bytes());
 	let claims = auth.verify_token(token).ok()?;
-	// Workaround for kent8192/reinhardt-web#2912 (tracked in nuages#123)
-	// Remove this workaround when the upstream issue is resolved.
-	//
-	// Ideal implementation (without workaround):
-	//   let claims = auth.verify_token(token).ok()?;
-	//   // verify_token already rejects expired tokens
-	//   Some((claims.sub, claims.username))
-	if claims.is_expired() {
-		return None;
-	}
 	Some((claims.sub, claims.username))
 }
 
