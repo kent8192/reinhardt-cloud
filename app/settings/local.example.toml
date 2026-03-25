@@ -6,6 +6,9 @@
 #   cp local.example.toml local.toml
 #   # Edit local.toml and fill in sensitive values.
 
+# JWT secret for session token signing (required for auth endpoints)
+jwt_secret = "CHANGE-ME-to-a-random-string"
+
 [core]
 debug = true
 secret_key = "CHANGE-ME-to-a-random-string"
