@@ -35,6 +35,18 @@ pub fn routes() -> UnifiedRouter {
 	// and double-wrapping causes TypeId mismatch during DI resolution.
 	di_ctx.set_singleton(WsBroadcaster::new());
 
+	// Trigger inventory-based model registration via #[admin(model)] macro.
+	// Workaround for reinhardt-web#2918 (tracked in nuages#126):
+	// admin_routes_with_di() auto-registers AdminSite in DI, but requires
+	// reinhardt-web >= 7c9c798a which currently has a build issue (#2991).
+	// Once #2991 is fixed, replace admin_routes() with admin_routes_with_di().
+	//
+	// Ideal implementation (without workaround):
+	//   let admin_site = Arc::new(crate::config::admin::configure_admin());
+	//   let admin_router = admin_routes_with_di(admin_site, &singleton_scope);
+	//   .mount("/admin/", admin_router)
+	let _admin = crate::config::admin::configure_admin();
+
 	UnifiedRouter::new()
 		// Admin panel
 		.mount("/admin/", admin_routes())
