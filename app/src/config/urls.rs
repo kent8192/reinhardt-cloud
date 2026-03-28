@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use reinhardt::admin::{admin_routes_with_di, core::admin_static_routes};
+use reinhardt::admin::{admin_routes_with_di_deferred, core::admin_static_routes};
 use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
@@ -25,14 +25,15 @@ use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
-	let singleton_scope = SingletonScope::new();
+	let singleton_scope = Arc::new(SingletonScope::new());
+	let di_ctx = Arc::new(InjectionContext::builder(singleton_scope).build());
 
-	// Configure admin site and auto-register AdminSite in DI.
-	// AdminDatabase is lazily constructed from DatabaseConnection at first request.
+	// Configure admin site with deferred DI registration.
+	// AdminSite is captured in DiRegistrationList and applied to the server's
+	// singleton scope during startup. AdminDatabase is lazily constructed from
+	// DatabaseConnection at first request.
 	let admin_site = Arc::new(crate::config::admin::configure_admin());
-	let admin_router = admin_routes_with_di(admin_site, &singleton_scope);
-
-	let di_ctx = Arc::new(InjectionContext::builder(Arc::new(singleton_scope)).build());
+	let (admin_router, admin_di) = admin_routes_with_di_deferred(admin_site);
 
 	// Register the WebSocket broadcaster as a singleton so that other
 	// services (e.g. deployment status updaters) can obtain it via DI
@@ -45,6 +46,7 @@ pub fn routes() -> UnifiedRouter {
 		// Admin panel
 		.mount("/admin/", admin_router)
 		.mount("/static/admin/", admin_static_routes())
+		.with_di_registrations(admin_di)
 		// REST API endpoints
 		.mount("/api/", crate::apps::auth::urls::url_patterns())
 		.mount("/api/", crate::apps::clusters::urls::url_patterns())
