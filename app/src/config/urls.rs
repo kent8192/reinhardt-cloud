@@ -16,7 +16,10 @@ use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
 
 /// Configure the admin site with all model registrations.
 fn configure_admin() -> AdminSite {
-	let site = AdminSite::new("Reinhardt Cloud Admin");
+	let mut site = AdminSite::new("Reinhardt Cloud Admin");
+
+	// Register the custom User type for admin authentication
+	site.set_user_type::<crate::apps::auth::models::User>();
 
 	site.register("User", UserAdmin)
 		.expect("Failed to register UserAdmin");
