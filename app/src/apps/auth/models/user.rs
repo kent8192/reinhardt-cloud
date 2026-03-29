@@ -10,12 +10,8 @@ use uuid::Uuid;
 /// Reinhardt Cloud platform user account.
 ///
 /// Uses `#[user]` macro with `full = true` to implement `BaseUser`,
-/// `FullUser`, and `AuthIdentity` traits automatically.
+/// `FullUser`, `PermissionsMixin`, and `AuthIdentity` traits automatically.
 /// This enables admin panel access via the `AdminUser` blanket impl.
-///
-/// `PermissionsMixin` is implemented manually because `#[model]` macro
-/// does not support `Vec<String>` fields required by the `#[user]` macro's
-/// automatic `PermissionsMixin` generation.
 ///
 /// Uses UUID v4 as the primary key for JWT `sub` claim compatibility
 /// and to avoid sequential ID enumeration.
@@ -58,24 +54,10 @@ pub struct User {
 
 	#[field(auto_now = true)]
 	pub updated_at: DateTime<Utc>,
-}
 
-// Workaround for kent8192/reinhardt-web#3060 (tracked in reinhardt-cloud#147)
-// Remove this workaround when #[user] macro supports Vec<String> fields with #[model].
-//
-// Ideal implementation (without workaround):
-//   Add `user_permissions: Vec<String>` and `groups: Vec<String>` fields to User struct.
-//   The #[user] macro will automatically generate PermissionsMixin impl.
-impl reinhardt_auth::PermissionsMixin for User {
-	fn is_superuser(&self) -> bool {
-		self.is_superuser
-	}
+	#[serde(default)]
+	pub user_permissions: Vec<String>,
 
-	fn user_permissions(&self) -> &[String] {
-		&[]
-	}
-
-	fn groups(&self) -> &[String] {
-		&[]
-	}
+	#[serde(default)]
+	pub groups: Vec<String>,
 }

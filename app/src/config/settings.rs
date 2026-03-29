@@ -35,7 +35,7 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
-// Allow deprecated Settings until migration to CoreSettings + ProjectSettings
+// Allow deprecated Settings until migration to CoreSettings + ProjectSettings (#146)
 #[allow(deprecated)]
 use reinhardt::Settings;
 use reinhardt::conf::settings::builder::SettingsBuilder;
