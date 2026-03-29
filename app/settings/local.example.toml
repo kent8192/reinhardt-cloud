@@ -14,7 +14,7 @@ debug = true
 secret_key = "CHANGE-ME-to-a-random-string"
 allowed_hosts = ["*"]
 
-[core.databases.default]
+[database]
 engine = "reinhardt.db.backends.postgresql"
 name = "reinhardt_cloud_dev"
 user = "postgres"
