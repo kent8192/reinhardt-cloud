@@ -16,7 +16,6 @@ path = "src/bin/manage.rs"
 
 [dependencies]
 reinhardt = { workspace = true }
-reinhardt-auth = { workspace = true }
 linkme = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }

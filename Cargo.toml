@@ -30,14 +30,9 @@ k8s-openapi = { version = "0.27.1", features = ["v1_31", "schemars"] }
 # configuration, DI container, middleware, OpenAPI, and management commands.
 # Direct hyper/jsonwebtoken/argon2/sea-query deps are NOT needed — reinhardt provides them.
 reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "rest", "openapi", "openapi-router", "commands", "admin", "test", "testcontainers"] }
-# Workaround for kent8192/reinhardt-web#3071 (tracked in reinhardt-cloud#150)
-# Remove when facade database feature enables reinhardt-auth/database
-# and linkme proc macro resolution through the facade works.
-#
-# Ideal implementation (without workaround):
-#   Remove these direct dependencies; facade should propagate database feature
-#   to reinhardt-auth and re-export linkme at crate root for proc macro resolution.
-reinhardt-auth = { git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["database", "argon2-hasher"] }
+# Required for #[user]+#[model] macro: linkme::distributed_slice proc macro
+# generates code referencing ::linkme crate directly. Facade re-export via
+# pub mod is insufficient for proc macro resolution.
 linkme = "0.3"
 
 # PostgreSQL driver (sea-query is available via reinhardt::prelude — no direct dep needed)
