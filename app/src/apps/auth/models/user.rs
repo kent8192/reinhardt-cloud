@@ -1,19 +1,25 @@
 //! User model for auth app.
 
 use chrono::{DateTime, Utc};
+use reinhardt::Argon2Hasher;
+use reinhardt::macros::user;
 use reinhardt::prelude::*;
-use reinhardt::{Argon2Hasher, BaseUser};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Reinhardt Cloud platform user account.
 ///
-/// Minimal user model implementing `BaseUser` with Argon2id password hashing.
-/// Unlike `DefaultUser`, this model omits permissions, groups, and staff flags
-/// to keep the auth layer lightweight for a PaaS control plane.
+/// Uses `#[user]` macro with `full = true` to implement `BaseUser`,
+/// `FullUser`, and `AuthIdentity` traits automatically.
+/// This enables admin panel access via the `AdminUser` blanket impl.
+///
+/// `PermissionsMixin` is implemented manually because `#[model]` macro
+/// does not support `Vec<String>` fields required by the `#[user]` macro's
+/// automatic `PermissionsMixin` generation.
 ///
 /// Uses UUID v4 as the primary key for JWT `sub` claim compatibility
 /// and to avoid sequential ID enumeration.
+#[user(hasher = Argon2Hasher, username_field = "username", full = true)]
 #[derive(Serialize, Deserialize)]
 #[model(app_label = "auth", table_name = "auth_users")]
 pub struct User {
@@ -26,51 +32,50 @@ pub struct User {
 	#[field(max_length = 254, unique = true)]
 	pub email: String,
 
+	#[field(max_length = 128, default = "")]
+	pub first_name: String,
+
+	#[field(max_length = 128, default = "")]
+	pub last_name: String,
+
 	#[field(max_length = 512)]
 	pub password_hash: Option<String>,
 
 	#[field(default = true)]
 	pub is_active: bool,
 
+	#[field(default = false)]
+	pub is_staff: bool,
+
+	#[field(default = false)]
+	pub is_superuser: bool,
+
 	#[field(include_in_new = false)]
 	pub last_login: Option<DateTime<Utc>>,
 
 	#[field(auto_now_add = true)]
-	pub created_at: DateTime<Utc>,
+	pub date_joined: DateTime<Utc>,
 
 	#[field(auto_now = true)]
 	pub updated_at: DateTime<Utc>,
 }
 
-impl BaseUser for User {
-	type PrimaryKey = Uuid;
-	type Hasher = Argon2Hasher;
-
-	fn get_username_field() -> &'static str {
-		"username"
+// Workaround for kent8192/reinhardt-web#3060 (tracked in reinhardt-cloud#147)
+// Remove this workaround when #[user] macro supports Vec<String> fields with #[model].
+//
+// Ideal implementation (without workaround):
+//   Add `user_permissions: Vec<String>` and `groups: Vec<String>` fields to User struct.
+//   The #[user] macro will automatically generate PermissionsMixin impl.
+impl reinhardt_auth::PermissionsMixin for User {
+	fn is_superuser(&self) -> bool {
+		self.is_superuser
 	}
 
-	fn get_username(&self) -> &str {
-		&self.username
+	fn user_permissions(&self) -> &[String] {
+		&[]
 	}
 
-	fn password_hash(&self) -> Option<&str> {
-		self.password_hash.as_deref()
-	}
-
-	fn set_password_hash(&mut self, hash: String) {
-		self.password_hash = Some(hash);
-	}
-
-	fn last_login(&self) -> Option<DateTime<Utc>> {
-		self.last_login
-	}
-
-	fn set_last_login(&mut self, time: DateTime<Utc>) {
-		self.last_login = Some(time);
-	}
-
-	fn is_active(&self) -> bool {
-		self.is_active
+	fn groups(&self) -> &[String] {
+		&[]
 	}
 }
