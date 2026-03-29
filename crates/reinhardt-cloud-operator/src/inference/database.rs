@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use rand::Rng;
+
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
 	ConfigMap, Container, ContainerPort, PersistentVolumeClaim, PersistentVolumeClaimSpec, PodSpec,
@@ -37,6 +39,18 @@ pub(crate) enum DatabaseResource {
 	Secret(Secret),
 	/// A dynamic object for cloud provider CRDs (ACK, Config Connector).
 	Dynamic(DynamicObject),
+}
+
+/// Generates a random 32-character alphanumeric password.
+fn generate_password() -> String {
+	const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+	let mut rng = rand::rng();
+	(0..32)
+		.map(|_| {
+			let idx = rng.random_range(0..CHARSET.len());
+			CHARSET[idx] as char
+		})
+		.collect()
 }
 
 /// Infer database resources based on the app spec and the target platform.
@@ -73,7 +87,7 @@ fn build_onprem_postgres(
 ) -> Vec<DatabaseResource> {
 	let db_name = format!("{app_name}_db");
 	let db_user = app_name.replace('-', "_");
-	let db_password = "changeme";
+	let db_password = generate_password();
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(app_name);
 
@@ -166,7 +180,7 @@ fn build_onprem_postgres(
 	};
 
 	// Credentials secret
-	let secret = build_db_credentials_secret(app_name, namespace, &db_user, db_password);
+	let secret = build_db_credentials_secret(app_name, namespace, &db_user, &db_password);
 
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
@@ -192,7 +206,7 @@ fn build_aws_rds(app_name: &str, namespace: &str, _db: &DatabaseSpec) -> Vec<Dat
 		data: serde_json::json!({}),
 	};
 
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, "changeme");
+	let secret = build_db_credentials_secret(app_name, namespace, app_name, &generate_password());
 
 	vec![
 		DatabaseResource::Dynamic(db_instance),
@@ -250,7 +264,7 @@ fn build_gcp_cloud_sql(
 		data: serde_json::json!({}),
 	};
 
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, "changeme");
+	let secret = build_db_credentials_secret(app_name, namespace, app_name, &generate_password());
 
 	vec![
 		DatabaseResource::Dynamic(sql_instance),
