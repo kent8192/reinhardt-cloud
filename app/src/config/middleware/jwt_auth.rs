@@ -54,9 +54,12 @@ impl Middleware for JwtAuthMiddleware {
 		next.handle(request).await
 	}
 
-	/// Skip middleware for auth endpoints (login/register).
+	/// Skip middleware for auth endpoints and admin SPA/static assets.
+	/// Admin server functions handle their own authentication via DI.
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
 		!path.starts_with("/api/auth/")
+			&& !path.starts_with("/admin/")
+			&& !path.starts_with("/static/admin/")
 	}
 }

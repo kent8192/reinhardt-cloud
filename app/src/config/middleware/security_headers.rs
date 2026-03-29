@@ -27,7 +27,17 @@ impl Middleware for SecurityHeadersMiddleware {
 		request: Request,
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
+		let is_admin = request.uri.path().starts_with("/admin/")
+			|| request.uri.path().starts_with("/static/admin/");
 		let response = next.handle(request).await?;
+
+		// Admin SPA needs script/style/connect-src permissions.
+		// API endpoints use restrictive default-src 'none'.
+		let csp = if is_admin {
+			"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'"
+		} else {
+			"default-src 'none'"
+		};
 
 		let response = response
 			.with_header("X-Content-Type-Options", "nosniff")
@@ -37,9 +47,13 @@ impl Middleware for SecurityHeadersMiddleware {
 				"Strict-Transport-Security",
 				"max-age=63072000; includeSubDomains",
 			)
-			.with_header("Content-Security-Policy", "default-src 'none'")
+			.with_header("Content-Security-Policy", csp)
 			.with_header("Cache-Control", "no-store")
-			.with_header("Referrer-Policy", "no-referrer");
+			.with_header("Referrer-Policy", "no-referrer")
+			.with_header(
+				"Permissions-Policy",
+				"camera=(), microphone=(), geolocation=(), payment=()",
+			);
 
 		Ok(response)
 	}
