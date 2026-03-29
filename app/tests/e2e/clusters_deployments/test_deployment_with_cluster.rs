@@ -3,14 +3,11 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
-use reinhardt::db::migrations::executor::DatabaseMigrationExecutor;
-use reinhardt::db::migrations::{FilesystemSource, MigrationSource};
-use reinhardt::db::orm::reinitialize_database;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::TestServerGuard;
 use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-use reinhardt::test::fixtures::{postgres_container, test_server_guard};
+use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
@@ -30,33 +27,21 @@ async fn test_app() -> (
 	TestServerGuard,
 	APIClient,
 ) {
-	let (container, _pool, _port, database_url) = postgres_container().await;
-	let conn = DatabaseConnection::connect(&database_url)
-		.await
-		.expect("Failed to connect to PostgreSQL");
-	// Workaround: Use FilesystemSource directly instead of postgres_with_all_migrations
-	// fixture, which relies on global_registry() requiring collect_migrations! registration.
-	// See: https://github.com/kent8192/reinhardt-web/issues/2415
-	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-	let source = FilesystemSource::new(migrations_dir);
-	let migrations = source
-		.all_migrations()
-		.await
-		.expect("Failed to load migrations");
-	if !migrations.is_empty() {
-		let mut executor = DatabaseMigrationExecutor::new(conn.inner().clone());
-		executor
-			.apply_migrations(&migrations)
-			.await
-			.expect("Failed to apply migrations");
+	// SAFETY: Called before server startup in single-threaded fixture context.
+	unsafe {
+		std::env::set_var(
+			"REINHARDT_CLOUD_JWT_SECRET",
+			"test-secret-minimum-32-bytes-long!!",
+		);
 	}
-	reinitialize_database(&database_url)
+	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
-		.expect("Failed to initialize global database state");
+		.expect("Failed to start PostgreSQL with migrations");
 	let router = routes().into_server();
 	let server = test_server_guard(router).await;
 	let client = api_client_from_url(&server.url);
-	(container, Arc::new(conn), server, client)
+	(container, conn, server, client)
 }
 
 /// Helper: register a test user and return the JWT token.
