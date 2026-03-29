@@ -35,13 +35,19 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
-// Allow deprecated Settings until migration to CoreSettings + ProjectSettings (#146)
-#[allow(deprecated)]
-use reinhardt::Settings;
 use reinhardt::conf::settings::builder::SettingsBuilder;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
+use reinhardt::settings;
 use std::env;
+
+/// Composed project settings using the `SettingsFragment` system.
+///
+/// The `#[settings]` macro generates a `ProjectSettings` struct
+/// that composes `CoreSettings` under the `core` field, with
+/// automatic `HasCoreSettings` trait implementation.
+#[settings(CoreSettings)]
+pub struct ProjectSettings;
 
 /// Get settings based on environment variable
 ///
@@ -54,7 +60,7 @@ use std::env;
 /// use reinhardt_cloud::config::settings::get_settings;
 ///
 /// let settings = get_settings();
-/// println!("Debug mode: {}", settings.debug);
+/// println!("Debug mode: {}", settings.core.debug);
 /// ```
 ///
 /// # Configuration Directory
@@ -69,8 +75,7 @@ use std::env;
 /// - Settings files cannot be read
 /// - Settings cannot be deserialized
 /// - Required settings are missing
-#[allow(deprecated)]
-pub fn get_settings() -> Settings {
+pub fn get_settings() -> ProjectSettings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
 
@@ -85,53 +90,16 @@ pub fn get_settings() -> Settings {
 	// Build settings by merging sources in priority order
 	let merged = SettingsBuilder::new()
 		.profile(profile)
-		// Lowest priority: Default values
+		// Lowest priority: Default values (CoreSettings defaults handle most fields)
 		.add_source(
-			DefaultSource::new()
-				.with_value(
-					"base_dir",
-					serde_json::Value::String(
-						env::var("CARGO_MANIFEST_DIR")
-							.unwrap_or_else(|_| ".".to_string()),
-					),
-				)
-				.with_value(
-					"secret_key",
-					serde_json::Value::String("insecure-change-this-in-production".to_string()),
-				)
-				.with_value("debug", serde_json::Value::Bool(false))
-				.with_value("allowed_hosts", serde_json::Value::Array(vec![]))
-				.with_value("installed_apps", serde_json::Value::Array(vec![]))
-				.with_value("middleware", serde_json::Value::Array(vec![]))
-				.with_value("root_urlconf", serde_json::Value::String("".to_string()))
-				.with_value("databases", serde_json::Value::Object(serde_json::Map::new()))
-				.with_value("templates", serde_json::Value::Array(vec![]))
-				.with_value("static_url", serde_json::Value::String("/static/".to_string()))
-				.with_value("static_root", serde_json::Value::Null)
-				.with_value("staticfiles_dirs", serde_json::Value::Array(vec![]))
-				.with_value("media_url", serde_json::Value::String("/media/".to_string()))
-				.with_value("media_root", serde_json::Value::Null)
-				.with_value(
-					"language_code",
-					serde_json::Value::String("en-us".to_string()),
-				)
-				.with_value("time_zone", serde_json::Value::String("UTC".to_string()))
-				.with_value("use_i18n", serde_json::Value::Bool(true))
-				.with_value("use_tz", serde_json::Value::Bool(true))
-				.with_value("append_slash", serde_json::Value::Bool(true))
-				.with_value(
-					"default_auto_field",
-					serde_json::Value::String("BigAutoField".to_string()),
-				)
-				.with_value("secure_proxy_ssl_header", serde_json::Value::Null)
-				.with_value("secure_ssl_redirect", serde_json::Value::Bool(false))
-				.with_value("secure_hsts_seconds", serde_json::Value::Null)
-				.with_value("secure_hsts_include_subdomains", serde_json::Value::Bool(false))
-				.with_value("secure_hsts_preload", serde_json::Value::Bool(false))
-				.with_value("session_cookie_secure", serde_json::Value::Bool(false))
-				.with_value("csrf_cookie_secure", serde_json::Value::Bool(false))
-				.with_value("admins", serde_json::Value::Array(vec![]))
-				.with_value("managers", serde_json::Value::Array(vec![])),
+			DefaultSource::new().with_value(
+				"core",
+				serde_json::json!({
+					"base_dir": env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string()),
+					"secret_key": "insecure-change-this-in-production",
+					"debug": false,
+				}),
+			),
 		)
 		// Low priority: Environment variables (for container overrides)
 		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
@@ -144,10 +112,9 @@ pub fn get_settings() -> Settings {
 		.build()
 		.expect("Failed to build settings");
 
-	// Convert MergedSettings to reinhardt_core::Settings
 	merged
 		.into_typed()
-		.expect("Failed to convert settings to Settings struct")
+		.expect("Failed to convert settings to ProjectSettings")
 }
 
 #[cfg(test)]

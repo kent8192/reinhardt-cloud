@@ -3,6 +3,7 @@
 # This file contains settings specific to the CI (GitHub Actions) environment.
 # Used by Bruno API tests and other CI workflows that require a running application.
 
+[core]
 # Enable debug mode for verbose error output in CI logs
 debug = true
 
@@ -12,17 +13,16 @@ secret_key = "ci-only-secret-key-not-for-production"
 # Allow all hosts in CI
 allowed_hosts = ["*"]
 
+# Security settings (relaxed for CI)
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false
+
 # Database configuration for CI (matches GitHub Actions PostgreSQL service container)
-[database]
+[core.databases.default]
 engine = "postgresql"
 host = "localhost"
 port = 5432
 name = "reinhardt_cloud_ci"
 user = "postgres"
 password = "postgres"
-
-# Security settings (relaxed for CI)
-[security]
-session_cookie_secure = false
-csrf_cookie_secure = false
-secure_ssl_redirect = false
