@@ -35,6 +35,8 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
+// Allow deprecated Settings until migration to CoreSettings + ProjectSettings
+#[allow(deprecated)]
 use reinhardt::Settings;
 use reinhardt::conf::settings::builder::SettingsBuilder;
 use reinhardt::conf::settings::profile::Profile;
@@ -67,6 +69,7 @@ use std::env;
 /// - Settings files cannot be read
 /// - Settings cannot be deserialized
 /// - Required settings are missing
+#[allow(deprecated)]
 pub fn get_settings() -> Settings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
@@ -158,6 +161,6 @@ mod tests {
 		let settings = get_settings();
 
 		// Assert
-		assert!(!settings.secret_key.is_empty());
+		assert!(!settings.core.secret_key.is_empty());
 	}
 }
