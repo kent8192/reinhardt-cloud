@@ -35,7 +35,7 @@ impl Middleware for JwtAuthMiddleware {
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
-				AuthState::authenticated(&claims.sub, false, true)
+				AuthState::authenticated(&claims.sub, true, true)
 			} else {
 				// Token present but invalid or expired
 				return Err(reinhardt::core::exception::Error::Authentication(
