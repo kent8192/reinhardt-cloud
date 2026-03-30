@@ -65,7 +65,7 @@ impl NetworkIsolationSpec {
 		let mut errors = Vec::new();
 
 		for (i, cidr) in self.egress_allow_cidrs.iter().enumerate() {
-			if !cidr.contains('/') {
+			if !Self::is_valid_cidr(cidr) {
 				errors.push(ValidationError::new(format!(
 					"isolation.network.egress_allow_cidrs[{i}] is not valid CIDR: {cidr}"
 				)));
@@ -77,6 +77,21 @@ impl NetworkIsolationSpec {
 		} else {
 			Err(errors)
 		}
+	}
+
+	/// Validates CIDR notation: `<ip>/<prefix>` with valid IP and prefix length.
+	fn is_valid_cidr(cidr: &str) -> bool {
+		let Some((ip_str, prefix_str)) = cidr.split_once('/') else {
+			return false;
+		};
+		let Ok(ip) = ip_str.parse::<std::net::IpAddr>() else {
+			return false;
+		};
+		let Ok(prefix) = prefix_str.parse::<u8>() else {
+			return false;
+		};
+		let max_prefix = if ip.is_ipv4() { 32 } else { 128 };
+		prefix <= max_prefix
 	}
 }
 
@@ -274,6 +289,55 @@ mod tests {
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 1);
 		assert!(errors[0].message.contains("bad-cidr"));
+	}
+
+	#[rstest]
+	fn network_isolation_spec_rejects_invalid_ip_in_cidr() {
+		// Arrange
+		let spec = NetworkIsolationSpec {
+			egress_allow_cidrs: vec!["foo/8".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert!(errors[0].message.contains("foo/8"));
+	}
+
+	#[rstest]
+	fn network_isolation_spec_rejects_invalid_prefix_length() {
+		// Arrange
+		let spec = NetworkIsolationSpec {
+			egress_allow_cidrs: vec!["10.0.0.0/99".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 1);
+		assert!(errors[0].message.contains("10.0.0.0/99"));
+	}
+
+	#[rstest]
+	fn network_isolation_spec_accepts_ipv6_cidr() {
+		// Arrange
+		let spec = NetworkIsolationSpec {
+			egress_allow_cidrs: vec!["fd00::/8".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_ok());
 	}
 
 	#[rstest]

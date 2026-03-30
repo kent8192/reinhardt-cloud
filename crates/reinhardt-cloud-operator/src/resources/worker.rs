@@ -64,33 +64,36 @@ pub(crate) fn build_worker_deployment(
 					labels: Some(labels),
 					..Default::default()
 				}),
-				spec: Some(PodSpec {
-					runtime_class_name: resolve_runtime_class_name(app, platform),
-					security_context: if app.spec.isolation.is_some() {
-						Some(build_pod_security_context())
-					} else {
-						None
-					},
-					containers: vec![Container {
-						name: "worker".to_string(),
-						image: Some(app.spec.image.clone()),
-						command: Some(command),
-						env_from: Some(vec![EnvFromSource {
-							secret_ref: Some(SecretEnvSource {
-								name: secret_name,
-								optional: Some(true),
-							}),
-							..Default::default()
-						}]),
-						security_context: if app.spec.isolation.is_some() {
-							Some(build_container_security_context())
+				spec: {
+					let isolated = app.spec.isolation.is_some();
+					Some(PodSpec {
+						runtime_class_name: resolve_runtime_class_name(app, platform),
+						security_context: if isolated {
+							Some(build_pod_security_context())
 						} else {
 							None
 						},
+						containers: vec![Container {
+							name: "worker".to_string(),
+							image: Some(app.spec.image.clone()),
+							command: Some(command),
+							env_from: Some(vec![EnvFromSource {
+								secret_ref: Some(SecretEnvSource {
+									name: secret_name,
+									optional: Some(true),
+								}),
+								..Default::default()
+							}]),
+							security_context: if isolated {
+								Some(build_container_security_context())
+							} else {
+								None
+							},
+							..Default::default()
+						}],
 						..Default::default()
-					}],
-					..Default::default()
-				}),
+					})
+				},
 			},
 			..Default::default()
 		}),

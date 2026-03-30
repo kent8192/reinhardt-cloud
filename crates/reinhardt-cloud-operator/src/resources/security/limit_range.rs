@@ -1,4 +1,4 @@
-//! Resource quota and limit range builders for noisy neighbor protection.
+//! LimitRange builders for noisy neighbor protection.
 
 use std::collections::BTreeMap;
 

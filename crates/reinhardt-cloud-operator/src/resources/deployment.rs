@@ -92,6 +92,8 @@ pub(crate) fn build_deployment(
 		None
 	};
 
+	let isolated = app.spec.isolation.is_some();
+
 	Ok(Deployment {
 		metadata: ObjectMeta {
 			name: Some(app.name_any()),
@@ -116,7 +118,7 @@ pub(crate) fn build_deployment(
 				}),
 				spec: Some(PodSpec {
 					runtime_class_name: resolve_runtime_class_name(app, platform),
-					security_context: if app.spec.isolation.is_some() {
+					security_context: if isolated {
 						Some(build_pod_security_context())
 					} else {
 						None
@@ -131,7 +133,7 @@ pub(crate) fn build_deployment(
 						}]),
 						env: Some(merged_env),
 						volume_mounts: Some(volume_mounts),
-						security_context: if app.spec.isolation.is_some() {
+						security_context: if isolated {
 							Some(build_container_security_context())
 						} else {
 							None

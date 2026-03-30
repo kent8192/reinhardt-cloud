@@ -139,22 +139,42 @@ pub(crate) fn build_managed_service_egress_policy(
 	}];
 
 	if network.allow_egress {
-		let except = if network.block_metadata_service {
+		let metadata_except = if network.block_metadata_service {
 			Some(vec!["169.254.169.254/32".to_string()])
 		} else {
 			None
 		};
 
-		egress_rules.push(NetworkPolicyEgressRule {
-			to: Some(vec![NetworkPolicyPeer {
-				ip_block: Some(IPBlock {
-					cidr: "0.0.0.0/0".to_string(),
-					except,
-				}),
+		if network.egress_allow_cidrs.is_empty() {
+			// No specific CIDRs: allow all external traffic
+			egress_rules.push(NetworkPolicyEgressRule {
+				to: Some(vec![NetworkPolicyPeer {
+					ip_block: Some(IPBlock {
+						cidr: "0.0.0.0/0".to_string(),
+						except: metadata_except,
+					}),
+					..Default::default()
+				}]),
 				..Default::default()
-			}]),
-			..Default::default()
-		});
+			});
+		} else {
+			// Specific CIDRs: generate per-CIDR rules with IMDS blocking
+			let peers = network
+				.egress_allow_cidrs
+				.iter()
+				.map(|cidr| NetworkPolicyPeer {
+					ip_block: Some(IPBlock {
+						cidr: cidr.clone(),
+						except: metadata_except.clone(),
+					}),
+					..Default::default()
+				})
+				.collect();
+			egress_rules.push(NetworkPolicyEgressRule {
+				to: Some(peers),
+				..Default::default()
+			});
+		}
 	}
 
 	Ok(NetworkPolicy {
@@ -323,5 +343,54 @@ mod tests {
 				.unwrap_or(false)
 		});
 		assert!(dns_rule.is_some());
+	}
+
+	#[rstest]
+	fn egress_policy_uses_specific_cidrs_when_provided() {
+		// Arrange
+		let app = test_app();
+		let network = NetworkIsolationSpec {
+			egress_allow_cidrs: vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let policy = build_managed_service_egress_policy(&app, &network).unwrap();
+
+		// Assert
+		let spec = policy.spec.unwrap();
+		let egress_rules = spec.egress.unwrap();
+		// DNS rule + CIDR rule
+		assert_eq!(egress_rules.len(), 2);
+		let cidr_rule = &egress_rules[1];
+		let peers = cidr_rule.to.as_ref().unwrap();
+		assert_eq!(peers.len(), 2);
+		assert_eq!(peers[0].ip_block.as_ref().unwrap().cidr, "10.0.0.0/8");
+		assert_eq!(peers[1].ip_block.as_ref().unwrap().cidr, "172.16.0.0/12");
+	}
+
+	#[rstest]
+	fn egress_policy_cidrs_also_block_imds() {
+		// Arrange
+		let app = test_app();
+		let network = NetworkIsolationSpec {
+			block_metadata_service: true,
+			egress_allow_cidrs: vec!["10.0.0.0/8".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let policy = build_managed_service_egress_policy(&app, &network).unwrap();
+
+		// Assert
+		let spec = policy.spec.unwrap();
+		let egress_rules = spec.egress.unwrap();
+		let cidr_rule = &egress_rules[1];
+		let peer = &cidr_rule.to.as_ref().unwrap()[0];
+		let ip_block = peer.ip_block.as_ref().unwrap();
+		assert_eq!(
+			ip_block.except.as_ref().unwrap(),
+			&vec!["169.254.169.254/32".to_string()]
+		);
 	}
 }

@@ -1,4 +1,8 @@
 {{- if .Values.isolation.seccomp.enabled }}
+# Reference seccomp profile for documentation and future Localhost profile integration.
+# This ConfigMap is NOT directly consumed by kubelet's RuntimeDefault seccomp;
+# it serves as a baseline profile that can be provisioned to nodes as a
+# Localhost seccomp profile or integrated with a SecurityProfile Operator.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -23,10 +23,10 @@ use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
-use crate::resources::security::resource_quota::build_limit_range;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
@@ -1061,11 +1061,13 @@ pub(crate) async fn run(client: Client) {
 		)
 		.owns(
 			network_policies,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.owns(
 			limit_ranges,
-			watcher::Config::default().labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
 		.shutdown_on_signal()
 		.run(reconcile, error_policy, context)
