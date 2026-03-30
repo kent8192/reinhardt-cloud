@@ -121,7 +121,7 @@ jobs:
 
           if [[ "$USE_SELF_HOSTED" == "true" ]]; then
             # Self-hosted: faster CI with AWS Spot instances (Graviton arm64)
-            echo 'runner=["self-hosted","linux","arm64","nuages-ci"]' >> "$GITHUB_OUTPUT"
+            echo 'runner=["self-hosted","linux","arm64","reinhardt-cloud-ci"]' >> "$GITHUB_OUTPUT"
             echo 'cargo-build-jobs=8' >> "$GITHUB_OUTPUT"
           else
             # GitHub-hosted: free, slower; CARGO_BUILD_JOBS=1 prevents OOM on 7GB RAM

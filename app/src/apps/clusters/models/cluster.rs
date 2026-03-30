@@ -4,7 +4,7 @@ use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Kubernetes cluster registered with the nuages PaaS.
+/// Kubernetes cluster registered with the Reinhardt Cloud PaaS.
 #[derive(Serialize, Deserialize)]
 #[model(app_label = "clusters", table_name = "clusters")]
 pub struct Cluster {

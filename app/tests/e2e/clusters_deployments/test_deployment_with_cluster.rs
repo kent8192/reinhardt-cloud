@@ -1,4 +1,4 @@
-//! Cross-application end-to-end tests for nuages REST API.
+//! Cross-application end-to-end tests for Reinhardt Cloud REST API.
 //!
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
@@ -16,7 +16,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use nuages::routes;
+use reinhardt_cloud::routes;
 
 // ============================================================================
 // Test Fixtures

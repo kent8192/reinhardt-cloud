@@ -6,7 +6,7 @@ use reinhardt::{Argon2Hasher, BaseUser};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Nuages platform user account.
+/// Reinhardt Cloud platform user account.
 ///
 /// Minimal user model implementing `BaseUser` with Argon2id password hashing.
 /// Unlike `DefaultUser`, this model omits permissions, groups, and staff flags

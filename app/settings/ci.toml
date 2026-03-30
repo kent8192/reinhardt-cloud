@@ -1,4 +1,4 @@
-# CI Environment Settings for nuages
+# CI Environment Settings for Reinhardt Cloud
 #
 # This file contains settings specific to the CI (GitHub Actions) environment.
 # Used by Bruno API tests and other CI workflows that require a running application.
@@ -17,7 +17,7 @@ allowed_hosts = ["*"]
 engine = "postgresql"
 host = "localhost"
 port = 5432
-name = "nuages_ci"
+name = "reinhardt_cloud_ci"
 user = "postgres"
 password = "postgres"
 

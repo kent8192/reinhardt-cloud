@@ -1,0 +1,13 @@
+platform: onpremise
+
+image:
+  repository: registry.internal/reinhardt-cloud/reinhardt-cloud-operator
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: internal-registry-secret
+
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"

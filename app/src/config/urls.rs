@@ -1,4 +1,4 @@
-//! URL configuration for nuages project (RESTful)
+//! URL configuration for Reinhardt Cloud project (RESTful)
 //!
 //! The `routes` function defines all URL patterns for this project.
 

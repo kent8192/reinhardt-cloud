@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines documentation maintenance standards for the Nuages project, ensuring documentation stays synchronized with code changes.
+This document defines documentation maintenance standards for the Reinhardt Cloud project, ensuring documentation stays synchronized with code changes.
 
 ---
 
@@ -147,7 +147,7 @@ All code examples in documentation must be tested and working.
 /// # Examples
 ///
 /// ```rust,no_run
-/// use nuages_operator::reconcile;
+/// use reinhardt_cloud_operator::reconcile;
 ///
 /// // reconcile is called automatically by the controller
 /// ```
@@ -173,7 +173,7 @@ cargo test --doc  # Runs all doc tests
 
 **Format in `lib.rs`:**
 ```rust
-//! # nuages-operator
+//! # reinhardt-cloud-operator
 //!
 //! Kubernetes operator for deploying Reinhardt web applications.
 //!
@@ -245,10 +245,10 @@ Attributes like `#[derive]` are interpreted as markdown links by rustdoc. Always
 
 ```rust
 // ✅ CORRECT
-/// See <https://github.com/kent8192/nuages> for source
+/// See <https://github.com/kent8192/reinhardt-cloud> for source
 
 // ❌ INCORRECT (causes "bare URL" warnings)
-/// See https://github.com/kent8192/nuages for source
+/// See https://github.com/kent8192/reinhardt-cloud for source
 ```
 
 #### RD-4: Code Blocks Must Specify Language
@@ -260,7 +260,7 @@ Attributes like `#[derive]` are interpreted as markdown links by rustdoc. Always
 /// ```
 ///
 /// ```yaml
-/// apiVersion: paas.nuages.dev/v1alpha1
+/// apiVersion: paas.reinhardt-cloud.dev/v1alpha1
 /// ```
 
 // ❌ INCORRECT (may cause warnings)

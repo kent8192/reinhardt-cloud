@@ -18,7 +18,7 @@ jobs:
   # IMPORTANT: pr_branch_prefix must remain "release-plz-" in release-plz.toml
   # to ensure this two-step detection works correctly.
   #
-  # Note: nuages is not published to crates.io, so CARGO_REGISTRY_TOKEN is not needed.
+  # Note: reinhardt-cloud is not published to crates.io, so CARGO_REGISTRY_TOKEN is not needed.
 
   release-plz-pr:
     name: Release PR

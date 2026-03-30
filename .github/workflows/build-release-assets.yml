@@ -3,8 +3,8 @@ name: Build Release Assets
 on:
   push:
     tags:
-      # release-plz tag format: nuages-*@v*
-      - 'nuages-*@v*'
+      # release-plz tag format: reinhardt-cloud-*@v*
+      - 'reinhardt-cloud-*@v*'
 
 permissions:
   contents: write
@@ -20,21 +20,21 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: nuages-operator
+            binary: reinhardt-cloud-operator
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary: nuages-operator
+            binary: reinhardt-cloud-operator
             cross: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: nuages
+            binary: reinhardt-cloud
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary: nuages
+            binary: reinhardt-cloud
             cross: true
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: nuages
+            binary: reinhardt-cloud
 
     steps:
       - name: Checkout repository
