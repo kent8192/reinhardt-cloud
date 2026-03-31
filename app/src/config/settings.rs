@@ -177,7 +177,6 @@ mod tests {
 		// Assert
 		assert!(settings.core.debug);
 		assert!(!settings.core.allowed_hosts.is_empty());
-		assert!(!settings.core.installed_apps.is_empty());
 		assert!(settings.core.databases.contains_key("default"));
 	}
 

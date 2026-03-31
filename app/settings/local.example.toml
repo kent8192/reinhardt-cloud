@@ -25,15 +25,6 @@ secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
 
-# Installed applications
-installed_apps = [
-    "reinhardt.contrib.contenttypes",
-    "reinhardt.contrib.auth",
-    "reinhardt.contrib.sessions",
-    "reinhardt.contrib.messages",
-    "reinhardt.contrib.static",
-]
-
 middleware = []
 
 # Database configuration for local development

@@ -22,15 +22,6 @@ secure_hsts_preload = false
 session_cookie_secure = false
 csrf_cookie_secure = false
 
-# Installed applications
-installed_apps = [
-    "reinhardt.contrib.contenttypes",
-    "reinhardt.contrib.auth",
-    "reinhardt.contrib.sessions",
-    "reinhardt.contrib.messages",
-    "reinhardt.contrib.static",
-]
-
 # Middleware classes
 middleware = []
 
