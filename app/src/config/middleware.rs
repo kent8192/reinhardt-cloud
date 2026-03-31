@@ -1,4 +1,4 @@
-//! Middleware components for nuages.
+//! Middleware components for Reinhardt Cloud.
 
 pub mod di_request;
 pub mod jwt_auth;

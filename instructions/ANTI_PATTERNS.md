@@ -3,7 +3,7 @@
 ## Purpose
 
 This document explicitly lists common mistakes, anti-patterns, and practices to
-avoid in the Nuages project. Use this as a quick reference for code review
+avoid in the Reinhardt Cloud project. Use this as a quick reference for code review
 and development.
 
 The following diagram provides a high-level overview of anti-pattern categories:
@@ -23,7 +23,7 @@ mindmap
       Undocumented allow attrs
     Testing
       Skeleton tests
-      No Nuages components
+      No Reinhardt Cloud components
       Missing cleanup
       Loose assertions
     File Management
@@ -397,11 +397,11 @@ Tests without meaningful assertions that always pass.
 **Why?** Tests must be capable of failing. See @instructions/TESTING_STANDARDS.md TP-1
 for detailed examples.
 
-### ❌ Tests Without Nuages Components
+### ❌ Tests Without Reinhardt Cloud Components
 
 Tests that only verify standard library or third-party behavior.
 
-**Why?** Every test must verify at least one Nuages component. See
+**Why?** Every test must verify at least one Reinhardt Cloud component. See
 @instructions/TESTING_STANDARDS.md TP-2.
 
 ### ❌ Tests Without Cleanup
@@ -518,10 +518,10 @@ git commit -m "feat(operator): Implement full operator"
 
 ```bash
 # ✅ Split into specific intents
-git add crates/nuages-operator/src/crd.rs
+git add crates/reinhardt-cloud-operator/src/crd.rs
 git commit -m "feat(operator): add ReinhardtApp CRD type definition"
 
-git add crates/nuages-operator/src/reconciler.rs
+git add crates/reinhardt-cloud-operator/src/reconciler.rs
 git commit -m "feat(operator): implement Deployment reconciler for ReinhardtApp"
 
 git add manifests/rbac.yaml
@@ -556,7 +556,7 @@ Always update documentation in the same workflow as code changes.
 **DO:**
 
 ```rust
-//! crates/nuages-operator/src/lib.rs
+//! crates/reinhardt-cloud-operator/src/lib.rs
 //!
 //! ## Planned Features
 //!

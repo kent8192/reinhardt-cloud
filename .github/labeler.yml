@@ -4,32 +4,32 @@
 api:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-api/**
+          - crates/reinhardt-cloud-api/**
 
 k8s:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-k8s/**
+          - crates/reinhardt-cloud-k8s/**
 
 types:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-types/**
+          - crates/reinhardt-cloud-types/**
 
 cli:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-cli/**
+          - crates/reinhardt-cloud-cli/**
 
 operator:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-operator/**
+          - crates/reinhardt-cloud-operator/**
 
 control:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/nuages-control/**
+          - crates/reinhardt-cloud-control/**
 
 ci-cd:
   - changed-files:

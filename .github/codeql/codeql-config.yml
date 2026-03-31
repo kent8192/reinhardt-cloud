@@ -1,4 +1,4 @@
-name: "Nuages CodeQL Configuration"
+name: "Reinhardt Cloud CodeQL Configuration"
 
 # Exclude test code from analysis to reduce false positives
 # Test files contain intentional hard-coded values (passwords, tokens, keys)

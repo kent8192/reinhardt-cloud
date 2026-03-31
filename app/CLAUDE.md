@@ -57,7 +57,7 @@ pub use register::register;
 
 // Helper function placed directly in the aggregator file
 pub(crate) fn jwt_secret() -> String {
-	std::env::var("NUAGES_JWT_SECRET").unwrap_or_else(|_| "default".to_string())
+	std::env::var("REINHARDT_CLOUD_JWT_SECRET").unwrap_or_else(|_| "default".to_string())
 }
 ```
 
@@ -246,7 +246,7 @@ pub fn routes() -> ServerRouter {
 
 ### SEC-1 (MUST): JWT Secret Management
 
-- JWT secrets MUST be loaded from `NUAGES_JWT_SECRET` environment variable
+- JWT secrets MUST be loaded from `REINHARDT_CLOUD_JWT_SECRET` environment variable
 - Production secrets MUST be at least 32 bytes of cryptographically random data
 - Development fallback values MUST include a warning comment
 

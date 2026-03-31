@@ -1,12 +1,12 @@
 //! List deployments view.
 
-use nuages_core::pagination::{PaginatedResponse, PaginationParams};
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Query, Response, StatusCode, get};
+use reinhardt_cloud_core::pagination::{PaginatedResponse, PaginationParams};
 use tracing::error;
 use uuid::Uuid;
 

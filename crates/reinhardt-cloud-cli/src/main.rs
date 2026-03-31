@@ -1,0 +1,210 @@
+//! Reinhardt Cloud CLI tool for managing applications on the Reinhardt Cloud PaaS platform.
+
+mod client;
+mod commands;
+mod config;
+mod feature_detector;
+mod settings_reader;
+mod toml_generator;
+
+use clap::{Parser, Subcommand};
+
+use crate::client::ReinhardtCloudClient;
+use crate::config::CliConfig;
+
+/// Reinhardt Cloud PaaS command-line interface.
+#[derive(Debug, Parser)]
+#[command(
+	name = "reinhardt-cloud",
+	version,
+	about = "Manage applications on the Reinhardt Cloud PaaS platform"
+)]
+struct Cli {
+	/// API server URL
+	#[arg(long, global = true)]
+	server: Option<String>,
+
+	#[command(subcommand)]
+	command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+	/// Deploy an application
+	Deploy(commands::deploy::DeployArgs),
+	/// Check deployment status
+	Status(commands::status::StatusArgs),
+	/// Authenticate with the platform
+	Login(commands::login::LoginArgs),
+	/// Initialize reinhardt-cloud configuration for a reinhardt-web project
+	Init(commands::init::InitArgs),
+	/// Re-synchronize reinhardt-cloud.toml with current project state
+	Sync(commands::sync::SyncArgs),
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let cli = Cli::parse();
+	let config = CliConfig::default();
+
+	let default_url = config.api_url();
+	let base_url = cli.server.as_deref().unwrap_or(&default_url);
+	let client = ReinhardtCloudClient::new(base_url)?;
+
+	match &cli.command {
+		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
+		Commands::Status(args) => commands::status::execute(args, &client).await,
+		Commands::Login(args) => commands::login::execute(args, &client).await,
+		Commands::Init(args) => commands::init::execute(args).await,
+		Commands::Sync(args) => commands::sync::execute(args).await,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn test_parse_deploy_command() {
+		// Arrange
+		let args = vec![
+			"reinhardt-cloud",
+			"deploy",
+			"--name",
+			"myapp",
+			"--image",
+			"myapp:v1",
+		];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_deploy_command_with_replicas() {
+		// Arrange
+		let args = vec![
+			"reinhardt-cloud",
+			"deploy",
+			"--name",
+			"myapp",
+			"--image",
+			"myapp:v1",
+			"--replicas",
+			"3",
+		];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_status_command() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "status", "--name", "myapp"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_login_command() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "login", "--username", "alice"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_with_global_server_flag() {
+		// Arrange
+		let args = vec![
+			"reinhardt-cloud",
+			"--server",
+			"http://custom:9000",
+			"status",
+			"--name",
+			"myapp",
+		];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_missing_subcommand_fails() {
+		// Arrange
+		let args = vec!["reinhardt-cloud"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_err());
+	}
+
+	#[rstest]
+	fn test_parse_init_command() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "init"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_init_command_with_dir() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "init", "--dir", "/some/path"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_sync_command() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "sync"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_sync_command_with_dir() {
+		// Arrange
+		let args = vec!["reinhardt-cloud", "sync", "--dir", "/some/path"];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+}

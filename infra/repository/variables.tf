@@ -13,7 +13,7 @@ variable "github_token" {
 variable "repository_name" {
   description = "Name of the GitHub repository to manage."
   type        = string
-  default     = "nuages"
+  default     = "reinhardt-cloud"
 }
 
 variable "environment_reviewer" {

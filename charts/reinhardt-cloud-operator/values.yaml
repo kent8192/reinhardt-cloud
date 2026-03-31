@@ -1,0 +1,76 @@
+replicaCount: 1
+
+image:
+  repository: reinhardt-cloud-operator
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+
+namespace: reinhardt-cloud-system
+
+platform: onpremise
+
+features:
+  database: true
+  cache: false
+  ingress: false
+  autoscaling: false
+  storage: false
+  worker: false
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+operator:
+  args:
+    - run
+  env:
+    RUST_LOG: info
+  extraEnv: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+defaults:
+  database:
+    storage_gb: 20
+    storage_class: local-path
+    engine_version:
+      postgresql: "16"
+      mysql: "8.0"
+  cache:
+    storage_gb: 1
+    storage_class: local-path
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    class: local-path
+  ingress:
+    class: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
