@@ -19,13 +19,14 @@ secret_key = "ci-only-secret-key-not-for-production"
 # Allow all hosts in CI
 allowed_hosts = ["*"]
 root_urlconf = ""
-append_slash = true
+
+middleware = []
 
 # Security settings (relaxed for CI)
+[core.security]
+append_slash = true
 session_cookie_secure = false
 csrf_cookie_secure = false
 secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
-
-middleware = []

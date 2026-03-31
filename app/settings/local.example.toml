@@ -16,16 +16,17 @@ debug = true
 secret_key = "CHANGE-ME-to-a-random-string"
 allowed_hosts = ["*"]
 root_urlconf = ""
-append_slash = true
+
+middleware = []
 
 # Security settings (relaxed for development)
+[core.security]
+append_slash = true
 session_cookie_secure = false
 csrf_cookie_secure = false
 secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
-
-middleware = []
 
 # Database configuration for local development
 [core.databases.default]

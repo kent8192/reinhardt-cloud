@@ -15,15 +15,18 @@ debug = false
 secret_key = "CHANGE-ME-to-a-random-string"
 allowed_hosts = []
 root_urlconf = ""
+
+# Middleware classes
+middleware = []
+
+# Security settings
+[core.security]
 append_slash = true
 secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
 session_cookie_secure = false
 csrf_cookie_secure = false
-
-# Middleware classes
-middleware = []
 
 # Database configurations (keyed by alias)
 [core.databases.default]
