@@ -13,7 +13,6 @@ secret_key = "ci-only-secret-key-not-for-production"
 # Allow all hosts in CI
 allowed_hosts = ["*"]
 
-[core.security]
 session_cookie_secure = false
 csrf_cookie_secure = false
 secure_ssl_redirect = false

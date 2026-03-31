@@ -44,10 +44,12 @@ use std::path::PathBuf;
 
 /// Composable project settings using the `#[settings]` macro.
 ///
-/// `#[serde(flatten)]` merges `CoreSettings` fields at the root level,
-/// so TOML files use flat keys (e.g., `secret_key = "..."`) rather than
-/// `[core]` sections.
-#[settings(core: CoreSettings)]
+/// Each fragment maps to a TOML section:
+/// - `[core]` → `CoreSettings` (includes `SecuritySettings` via `#[serde(flatten)]`)
+/// - `[i18n]` → `I18nSettings`
+/// - `[static_files]` → `StaticSettings`
+/// - `[media]` → `MediaSettings`
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
@@ -165,5 +167,74 @@ mod tests {
 
 		// Assert
 		assert!(!settings.core.secret_key.is_empty());
+	}
+
+	#[rstest]
+	fn test_core_settings_fields() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert!(settings.core.debug);
+		assert!(!settings.core.allowed_hosts.is_empty());
+		assert!(!settings.core.installed_apps.is_empty());
+		assert!(settings.core.databases.contains_key("default"));
+	}
+
+	#[rstest]
+	fn test_core_database_config() {
+		// Arrange / Act
+		let settings = get_settings();
+		let db = &settings.core.databases["default"];
+
+		// Assert
+		assert!(!db.engine.is_empty());
+		assert!(!db.name.is_empty());
+		assert!(db.host.is_some());
+		assert!(db.port.is_some());
+	}
+
+	#[rstest]
+	fn test_core_security_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert — local profile has relaxed security
+		assert!(!settings.core.security.secure_ssl_redirect);
+		assert!(!settings.core.security.session_cookie_secure);
+		assert!(!settings.core.security.csrf_cookie_secure);
+		assert!(settings.core.security.append_slash);
+	}
+
+	#[rstest]
+	fn test_i18n_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.i18n.language_code, "en-us");
+		assert_eq!(settings.i18n.time_zone, "UTC");
+		assert!(settings.i18n.use_i18n);
+		assert!(settings.i18n.use_tz);
+	}
+
+	#[rstest]
+	fn test_static_files_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.static_files.url, "/static/");
+		assert!(!settings.static_files.root.as_os_str().is_empty());
+	}
+
+	#[rstest]
+	fn test_media_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.media.url, "/media/");
+		assert!(!settings.media.root.as_os_str().is_empty());
 	}
 }
