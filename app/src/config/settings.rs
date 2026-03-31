@@ -45,7 +45,7 @@ use std::path::PathBuf;
 /// Composable project settings using the `#[settings]` macro.
 ///
 /// Each fragment maps to a TOML section:
-/// - `[core]` → `CoreSettings` (includes `SecuritySettings` via `#[serde(flatten)]`)
+/// - `[core]` → `CoreSettings` (security fields nested under `[core.security]`)
 /// - `[i18n]` → `I18nSettings`
 /// - `[static_files]` → `StaticSettings`
 /// - `[media]` → `MediaSettings`

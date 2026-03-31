@@ -27,8 +27,12 @@ pub async fn register(
 	let mut user = User::new(
 		username.trim().to_string(),
 		email.trim().to_string(),
+		String::new(),
+		String::new(),
 		None,
 		true,
+		false,
+		false,
 	);
 	user.set_password(&password).map_err(|e| {
 		error!("Password hashing failed during registration: {e}");

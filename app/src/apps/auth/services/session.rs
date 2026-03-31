@@ -1,6 +1,6 @@
 //! Session management for frontend authentication.
 
-use reinhardt::JwtAuth;
+use reinhardt::{BaseUser, FullUser, JwtAuth};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::views::utils::jwt_secret;
@@ -15,7 +15,7 @@ const SESSION_COOKIE_NAME: &str = "reinhardt_cloud_session";
 /// functions that return the token in the response body.
 pub fn create_session_token(user: &User) -> Result<String, String> {
 	let auth = JwtAuth::new(jwt_secret().map_err(|e| e.to_string())?.as_bytes());
-	auth.generate_token(user.id().to_string(), user.username().to_string())
+	auth.generate_token(user.id().to_string(), user.get_username().to_string())
 		.map_err(|e| format!("Failed to generate session token: {e}"))
 }
 
@@ -74,7 +74,7 @@ pub fn validate_session_token(cookie_header: &str) -> Option<(String, String)> {
 pub fn user_to_info(user: &User) -> UserInfo {
 	UserInfo {
 		id: user.id().to_string(),
-		username: user.username().to_string(),
+		username: user.get_username().to_string(),
 		email: user.email().to_string(),
 	}
 }

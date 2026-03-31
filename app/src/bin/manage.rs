@@ -10,7 +10,8 @@
 
 use reinhardt::commands::CommandRegistry;
 use reinhardt::commands::execute_from_command_line_with_registry;
-use reinhardt_cloud as _;
+use reinhardt::reinhardt_auth::{register_superuser_creator, superuser_creator_for};
+use reinhardt_cloud::apps::auth::models::user::User;
 use std::process;
 
 fn main() {
@@ -31,6 +32,8 @@ fn main() {
 }
 
 async fn async_main() {
+	register_superuser_creator(superuser_creator_for::<User>());
+
 	let registry = CommandRegistry::new();
 	if let Err(e) = execute_from_command_line_with_registry(registry).await {
 		eprintln!("Error: {}", e);

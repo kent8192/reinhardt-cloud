@@ -46,4 +46,16 @@ ignore = [
 	# proc-macro-error: unmaintained
 	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
 	"RUSTSEC-2024-0370",
+
+	# aws-lc-sys: X.509 Name Constraints Bypass via Wildcard/Unicode CN
+	# Transitive: reinhardt-web -> rustls -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0044",
+
+	# rsa: CRL Distribution Point Scope Check Logic Error in AWS-LC
+	# Transitive: reinhardt-web -> sqlx -> sqlx-mysql -> rsa
+	"RUSTSEC-2026-0048",
+
+	# rustls-webpki: CRL Distribution Point faulty matching logic
+	# Transitive: reinhardt-web -> rustls -> rustls-webpki
+	"RUSTSEC-2026-0049",
 ]
