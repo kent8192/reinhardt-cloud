@@ -12,6 +12,7 @@ use crate::apps::auth::models::User;
 	search_fields = [username, email],
 	ordering = [(date_joined, desc)],
 	readonly_fields = [id, password_hash, last_login, date_joined, updated_at],
-	list_per_page = 25
+	list_per_page = 25,
+	permissions = allow_all
 )]
 pub struct UserAdmin;

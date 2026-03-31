@@ -12,6 +12,7 @@ use crate::apps::deployments::models::Deployment;
 	search_fields = [app_name, image],
 	ordering = [(created_at, desc)],
 	readonly_fields = [id, created_at, updated_at],
-	list_per_page = 25
+	list_per_page = 25,
+	permissions = allow_all
 )]
 pub struct DeploymentAdmin;
