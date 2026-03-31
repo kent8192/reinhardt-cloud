@@ -10,7 +10,7 @@
 
 github_owner         = "kent8192"
 github_token         = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-repository_name      = "nuages"
+repository_name      = "reinhardt-cloud"
 environment_reviewer = "kent8192"
 
 # GitHub App credentials for release-plz
@@ -28,7 +28,7 @@ dockerhub_username = "your-dockerhub-username"
 dockerhub_token    = "dckr_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # Codecov upload token
-# Find at: https://app.codecov.io/gh/kent8192/nuages/settings
+# Find at: https://app.codecov.io/gh/kent8192/reinhardt-cloud/settings
 codecov_token = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # Self-hosted runner circuit breaker
