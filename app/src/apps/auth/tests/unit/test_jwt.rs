@@ -48,8 +48,12 @@ mod tests {
 		let mut user = User::new(
 			"hashtest".to_string(),
 			"hash@test.com".to_string(),
+			String::new(),
+			String::new(),
 			None,
 			true,
+			false,
+			false,
 		);
 
 		// Act
