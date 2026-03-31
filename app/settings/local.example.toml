@@ -1,6 +1,8 @@
 # Local Development Settings for Reinhardt Cloud
 #
 # Loaded when REINHARDT_ENV=local (default).
+# Note: env-specific TOML replaces the entire [core] section from base.toml,
+# so all required core fields must be specified here.
 #
 # Getting started:
 #   cp local.example.toml local.toml
@@ -13,14 +15,33 @@ jwt_secret = "CHANGE-ME-to-a-random-string"
 debug = true
 secret_key = "CHANGE-ME-to-a-random-string"
 allowed_hosts = ["*"]
+root_urlconf = ""
+append_slash = true
+
+# Security settings (relaxed for development)
 session_cookie_secure = false
 csrf_cookie_secure = false
 secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
 
+# Installed applications
+installed_apps = [
+    "reinhardt.contrib.contenttypes",
+    "reinhardt.contrib.auth",
+    "reinhardt.contrib.sessions",
+    "reinhardt.contrib.messages",
+    "reinhardt.contrib.static",
+]
+
+middleware = []
+
+# Database configuration for local development
 [core.databases.default]
-engine = "reinhardt.db.backends.postgresql"
+engine = "postgresql"
+host = "localhost"
+port = 5432
 name = "reinhardt_cloud_dev"
 user = "postgres"
 password = { secret = "CHANGE-ME" }
-host = "127.0.0.1"
-port = 5433
+options = {}
