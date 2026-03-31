@@ -35,3 +35,15 @@ defaults:
     class: gce
     annotations:
       kubernetes.io/ingress.class: gce
+
+isolation:
+  defaultLevel: "Sandbox"
+  runtimeClasses:
+    kata:
+      enabled: true
+    gvisor:
+      enabled: false  # GKE manages gVisor RuntimeClass natively
+  networkPolicy:
+    enabled: true
+    provider: cilium
+    blockMetadataService: true

@@ -82,3 +82,16 @@ rules:
     resources: ["horizontalpodautoscalers"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   {{- end }}
+  # --- Workload Isolation (security resources) ---
+  # NetworkPolicy management for tenant isolation
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # LimitRange and ResourceQuota management for noisy neighbor protection
+  - apiGroups: [""]
+    resources: ["limitranges", "resourcequotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Namespace labeling for Pod Security Standards enforcement
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "patch"]
