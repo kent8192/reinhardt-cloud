@@ -47,7 +47,11 @@ impl Middleware for JwtAuthMiddleware {
 				// admin_login already verified staff status before issuing the
 				// JWT. API routes cannot infer staff status from the JWT sub
 				// claim alone.
-				let (staff, superuser) = if is_admin { (true, true) } else { (false, true) };
+				let (staff, superuser) = if is_admin {
+					(true, true)
+				} else {
+					(false, true)
+				};
 				let auth_state = AuthState::authenticated(&claims.sub, staff, superuser);
 				request.extensions.insert(auth_state);
 			} else if !is_admin {
