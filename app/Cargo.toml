@@ -17,6 +17,10 @@ path = "src/bin/manage.rs"
 
 [dependencies]
 reinhardt = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-k8s = { workspace = true }
+tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

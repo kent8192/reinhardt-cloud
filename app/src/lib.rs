@@ -1,4 +1,4 @@
-//! nuages — Kubernetes-native PaaS control plane
+//! Reinhardt Cloud — Kubernetes-native PaaS control plane
 //!
 //! This is the reinhardt startproject application crate. It re-exports
 //! library crates from `crates/` for centralized access and contains

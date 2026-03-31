@@ -36,6 +36,7 @@
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
 use reinhardt::conf::settings::builder::SettingsBuilder;
+use reinhardt::conf::settings::core_settings::CoreSettings;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{LowPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
