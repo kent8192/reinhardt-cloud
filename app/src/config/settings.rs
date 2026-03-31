@@ -35,8 +35,8 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
-use reinhardt::Settings;
 use reinhardt::conf::settings::builder::SettingsBuilder;
+use reinhardt::conf::settings::core_settings::CoreSettings;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
 use std::env;
@@ -53,6 +53,7 @@ use std::env;
 ///
 /// let settings = get_settings();
 /// println!("Debug mode: {}", settings.debug);
+/// println!("Secret key set: {}", !settings.secret_key.is_empty());
 /// ```
 ///
 /// # Configuration Directory
@@ -67,7 +68,7 @@ use std::env;
 /// - Settings files cannot be read
 /// - Settings cannot be deserialized
 /// - Required settings are missing
-pub fn get_settings() -> Settings {
+pub fn get_settings() -> CoreSettings {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
 

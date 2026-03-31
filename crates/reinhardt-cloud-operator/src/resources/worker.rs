@@ -11,7 +11,10 @@ use kube::ResourceExt;
 use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
+use super::security::context::{build_container_security_context, build_pod_security_context};
+use super::security::runtime_class::resolve_runtime_class_name;
 use crate::error::Error;
+use crate::inference::platform::Platform;
 
 /// Builds a `Deployment` running a background worker for the given `ReinhardtApp`.
 ///
@@ -22,6 +25,7 @@ use crate::error::Error;
 pub(crate) fn build_worker_deployment(
 	app: &ReinhardtApp,
 	custom_command: Option<&[String]>,
+	platform: &Platform,
 ) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Worker);
 	let namespace = super::require_namespace(app)?;
@@ -60,22 +64,36 @@ pub(crate) fn build_worker_deployment(
 					labels: Some(labels),
 					..Default::default()
 				}),
-				spec: Some(PodSpec {
-					containers: vec![Container {
-						name: "worker".to_string(),
-						image: Some(app.spec.image.clone()),
-						command: Some(command),
-						env_from: Some(vec![EnvFromSource {
-							secret_ref: Some(SecretEnvSource {
-								name: secret_name,
-								optional: Some(true),
-							}),
+				spec: {
+					let isolated = app.spec.isolation.is_some();
+					Some(PodSpec {
+						runtime_class_name: resolve_runtime_class_name(app, platform),
+						security_context: if isolated {
+							Some(build_pod_security_context())
+						} else {
+							None
+						},
+						containers: vec![Container {
+							name: "worker".to_string(),
+							image: Some(app.spec.image.clone()),
+							command: Some(command),
+							env_from: Some(vec![EnvFromSource {
+								secret_ref: Some(SecretEnvSource {
+									name: secret_name,
+									optional: Some(true),
+								}),
+								..Default::default()
+							}]),
+							security_context: if isolated {
+								Some(build_container_security_context())
+							} else {
+								None
+							},
 							..Default::default()
-						}]),
+						}],
 						..Default::default()
-					}],
-					..Default::default()
-				}),
+					})
+				},
 			},
 			..Default::default()
 		}),
@@ -86,6 +104,7 @@ pub(crate) fn build_worker_deployment(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::inference::platform::Platform;
 	use kube::api::ObjectMeta;
 	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
 	use rstest::rstest;
@@ -112,7 +131,8 @@ mod tests {
 		let app = test_app("myapp", "myapp:v1");
 
 		// Act
-		let deploy = build_worker_deployment(&app, None).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.metadata.name.as_deref(), Some("myapp-worker"));
@@ -124,7 +144,8 @@ mod tests {
 		let app = test_app("myapp", "registry.example.com/myapp:v2");
 
 		// Act
-		let deploy = build_worker_deployment(&app, None).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
 		let containers = &deploy.spec.unwrap().template.spec.unwrap().containers;
 
 		// Assert
@@ -140,7 +161,8 @@ mod tests {
 		let app = test_app("myapp", "myapp:v1");
 
 		// Act
-		let deploy = build_worker_deployment(&app, None).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -161,8 +183,8 @@ mod tests {
 		];
 
 		// Act
-		let deploy =
-			build_worker_deployment(&app, Some(&custom_cmd)).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, Some(&custom_cmd), &Platform::Onpremise)
+			.expect("build should succeed");
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -182,7 +204,8 @@ mod tests {
 		let app = test_app("myapp", "myapp:v1");
 
 		// Act
-		let deploy = build_worker_deployment(&app, None).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 		let env_from = container.env_from.as_ref().unwrap();
 
@@ -198,10 +221,68 @@ mod tests {
 		let app = test_app("myapp", "myapp:v1");
 
 		// Act
-		let deploy = build_worker_deployment(&app, None).expect("build should succeed");
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
 		let labels = deploy.metadata.labels.as_ref().unwrap();
 
 		// Assert
 		assert_eq!(labels.get("app.kubernetes.io/component").unwrap(), "worker");
+	}
+
+	#[rstest]
+	fn test_worker_no_runtime_class_without_isolation() {
+		// Arrange
+		let app = test_app("web", "web:v1");
+
+		// Act
+		let deploy =
+			build_worker_deployment(&app, None, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.runtime_class_name.is_none());
+	}
+
+	#[rstest]
+	fn test_worker_sets_runtime_class_for_microvm() {
+		use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
+
+		// Arrange
+		let mut app = test_app("web", "web:v1");
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::MicroVM,
+			..Default::default()
+		});
+
+		// Act
+		let deploy =
+			build_worker_deployment(&app, None, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.runtime_class_name.as_deref(), Some("kata-clh"));
+	}
+
+	#[rstest]
+	fn test_worker_has_security_context_when_isolated() {
+		use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
+
+		// Arrange
+		let mut app = test_app("web", "web:v1");
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::Sandbox,
+			..Default::default()
+		});
+
+		// Act
+		let deploy =
+			build_worker_deployment(&app, None, &Platform::Aws).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let psc = pod_spec.security_context.unwrap();
+		assert_eq!(psc.run_as_non_root, Some(true));
+		let container_sc = pod_spec.containers[0].security_context.as_ref().unwrap();
+		assert_eq!(container_sc.allow_privilege_escalation, Some(false));
 	}
 }

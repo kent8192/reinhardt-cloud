@@ -12,6 +12,7 @@ use crate::validation::ValidationError;
 use super::auth::AuthSpec;
 use super::cache::CacheSpec;
 use super::database::DatabaseSpec;
+use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::pages::PagesSpec;
 use super::policy::DeletionPolicy;
@@ -218,6 +219,9 @@ pub struct ReinhardtAppSpec {
 	/// When present, the operator uses this to infer infrastructure requirements.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub introspect: Option<IntrospectOutput>,
+	/// Workload isolation and security configuration.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<IsolationSpec>,
 }
 
 impl ReinhardtAppSpec {
@@ -276,6 +280,12 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref isolation) = self.isolation
+			&& let Err(errs) = isolation.validate()
+		{
+			errors.extend(errs);
+		}
+
 		if errors.is_empty() {
 			Ok(())
 		} else {
@@ -326,6 +336,7 @@ mod tests {
 			pages: None,
 			deletion_policy: DeletionPolicy::default(),
 			features: vec![],
+			isolation: None,
 			env: BTreeMap::from([
 				("RUST_LOG".to_string(), "info".to_string()),
 				(
@@ -779,6 +790,7 @@ mod tests {
 			features: vec!["db-postgres".to_string(), "auth-jwt".to_string()],
 			env: BTreeMap::from([("MY_VAR".to_string(), "my_val".to_string())]),
 			introspect: None,
+			isolation: None,
 		};
 
 		// Act
@@ -914,5 +926,80 @@ mod tests {
 		assert_eq!(spec.image, "legacy-app:v2");
 		assert_eq!(spec.replicas, Some(3));
 		assert!(spec.introspect.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_isolation_field_backward_compatible() {
+		// Arrange: JSON without isolation field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.isolation.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_with_isolation_microvm() {
+		// Arrange
+		use crate::crd::isolation::IsolationLevel;
+		let json = r#"{
+			"image": "myapp:v1",
+			"isolation": {
+				"level": "MicroVM",
+				"network": {
+					"block_metadata_service": true,
+					"egress_allow_cidrs": ["10.0.0.0/8"]
+				}
+			}
+		}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		let isolation = spec.isolation.unwrap();
+		assert_eq!(isolation.level, IsolationLevel::MicroVM);
+		assert!(isolation.network.unwrap().block_metadata_service);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_isolation() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			isolation: Some(IsolationSpec {
+				runtime_class_override: Some(String::new()),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("non-empty")));
+	}
+
+	#[rstest]
+	fn test_spec_isolation_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("isolation").is_none());
 	}
 }
