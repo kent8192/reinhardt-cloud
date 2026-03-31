@@ -176,12 +176,11 @@ mod tests {
 		assert_eq!(response.status_code(), 409);
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
 		assert_eq!(body["error"], "Conflict");
-		// Reinhardt-web's SafeErrorResponse only includes "detail" for
-		// error variants handled in safe_client_error_detail(). Conflict is
-		// not yet covered upstream, so the detail field is absent.
+		// Reinhardt-web's SafeErrorResponse includes "detail" for Conflict
+		// errors via safe_client_error_detail() since reinhardt-web 0.1.0-rc.13.
 		assert!(
-			body.get("detail").is_none(),
-			"detail field should be absent for Conflict errors"
+			body.get("detail").is_some(),
+			"detail field should be present for Conflict errors"
 		);
 	}
 
