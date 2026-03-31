@@ -58,7 +58,13 @@ jobs:
         with:
           tool: cargo-make
 
+      - name: Setup application settings
+        run: |
+          cp app/settings/base.example.toml app/settings/base.toml
+          cp app/settings/ci.example.toml app/settings/ci.toml
+
       - name: Run tests
         run: cargo nextest run --workspace --all-features --no-fail-fast
         env:
+          REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"

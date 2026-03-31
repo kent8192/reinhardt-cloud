@@ -30,3 +30,13 @@ csrf_cookie_secure = false
 secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
+
+# Database configuration for CI (TestContainers overrides at runtime)
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "reinhardt_cloud_ci"
+user = "postgres"
+password = { secret = "postgres" }
+options = {}
