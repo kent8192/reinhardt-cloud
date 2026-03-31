@@ -9,6 +9,7 @@ pub(crate) mod ingress;
 pub(crate) mod labels;
 pub(crate) mod mail;
 pub(crate) mod migration;
+pub(crate) mod security;
 pub(crate) mod service;
 pub(crate) mod storage;
 pub(crate) mod worker;
