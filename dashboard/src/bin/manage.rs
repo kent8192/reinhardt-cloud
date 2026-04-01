@@ -9,7 +9,7 @@
 //! `#[routes]` attribute macro that enables this.
 
 use reinhardt::commands::execute_from_command_line;
-use reinhardt_cloud as _;
+use reinhardt_cloud_dashboard as _;
 use std::process;
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
 	unsafe {
 		std::env::set_var(
 			"REINHARDT_SETTINGS_MODULE",
-			"reinhardt_cloud.config.settings",
+			"reinhardt_cloud_dashboard.config.settings",
 		);
 	}
 

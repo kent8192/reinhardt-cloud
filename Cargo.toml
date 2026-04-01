@@ -8,8 +8,8 @@ members = [
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
-	# Reinhardt startproject application
-	"app",
+	# Reinhardt startproject application (Control Plane)
+	"dashboard",
 ]
 
 [workspace.package]

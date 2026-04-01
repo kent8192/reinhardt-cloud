@@ -1,8 +1,8 @@
-# app/CLAUDE.md
+# dashboard/CLAUDE.md
 
 ## Purpose
 
-This file defines development conventions specific to the `app/` crate, which contains the reinhardt-web application layer (auth, clusters, deployments). These rules supplement the root `CLAUDE.md` and `instructions/` standards.
+This file defines development conventions specific to the `dashboard/` crate, which contains the reinhardt-web application layer (auth, clusters, deployments). These rules supplement the root `CLAUDE.md` and `instructions/` standards.
 
 ---
 
@@ -10,7 +10,7 @@ This file defines development conventions specific to the `app/` crate, which co
 
 ### MG-1 (MUST): Generate Migrations via Command
 
-- Migrations MUST be generated using `cargo make makemigrations` from the `app/` directory
+- Migrations MUST be generated using `cargo make makemigrations` from the `dashboard/` directory
 - Files under `migrations/` MUST NOT be manually edited
 - Apply migrations with `cargo make migrate`
 
@@ -82,7 +82,7 @@ Helper functions MUST be placed in a dedicated file (e.g., `views/utils.rs`).
 Each application's tests MUST follow this structure:
 
 ```
-app/src/apps/<app_name>/tests/
+dashboard/src/apps/<app_name>/tests/
 ├── tests.rs               (module declarations only)
 ├── e2e/
 │   └── test_<specific_feature>.rs
@@ -97,10 +97,10 @@ app/src/apps/<app_name>/tests/
 
 ### TD-2 (MUST): Cross-Application Tests
 
-Tests spanning multiple applications belong in `app/tests/`:
+Tests spanning multiple applications belong in `dashboard/tests/`:
 
 ```
-app/tests/
+dashboard/tests/
 ├── tests.rs                        (module declarations only)
 ├── smoke_test.rs                   (standalone smoke tests)
 ├── e2e/
