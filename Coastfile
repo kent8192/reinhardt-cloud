@@ -1,0 +1,18 @@
+[coast]
+name = "reinhardt-cloud"
+compose = "./docker-compose.yml"
+worktree_dir = [".worktrees", ".claude/worktrees"]
+
+[ports]
+postgres = 5432
+redis = 6379
+
+[volumes.postgres_data]
+strategy = "isolated"
+service = "postgres"
+mount = "/var/lib/postgresql/data"
+
+[volumes.redis_data]
+strategy = "isolated"
+service = "redis"
+mount = "/var/lib/redis/data"
