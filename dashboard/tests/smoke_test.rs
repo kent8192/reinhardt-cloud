@@ -1,11 +1,11 @@
-//! End-to-end smoke tests for the reinhardt-cloud application.
+//! End-to-end smoke tests for the reinhardt-cloud-dashboard application.
 
 use rstest::rstest;
 
 #[rstest]
 fn test_installed_apps_not_empty() {
 	// Arrange & Act
-	let apps = reinhardt_cloud::config::apps::get_installed_apps();
+	let apps = reinhardt_cloud_dashboard::config::apps::get_installed_apps();
 
 	// Assert
 	assert!(!apps.is_empty());

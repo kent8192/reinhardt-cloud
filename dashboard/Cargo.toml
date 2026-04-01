@@ -1,5 +1,5 @@
 [package]
-name = "reinhardt-cloud"
+name = "reinhardt-cloud-dashboard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "reinhardt_cloud"
+name = "reinhardt_cloud_dashboard"
 path = "src/lib.rs"
 
 [[bin]]

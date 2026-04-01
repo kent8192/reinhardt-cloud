@@ -17,7 +17,7 @@ allowed_hosts = ["*"]
 engine = "postgresql"
 host = "localhost"
 port = 5432
-name = "reinhardt_cloud_ci"
+name = "reinhardt_cloud_dashboard_ci"
 user = "postgres"
 password = "postgres"
 

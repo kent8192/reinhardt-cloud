@@ -16,7 +16,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud::routes;
+use reinhardt_cloud_dashboard::routes;
 
 // ============================================================================
 // Test Fixtures
