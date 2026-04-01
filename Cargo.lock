@@ -5562,39 +5562,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reinhardt-cloud"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "cfg_aliases",
- "chrono",
- "console_error_panic_hook",
- "ctor",
- "dashmap",
- "gloo-net",
- "gloo-timers",
- "inventory",
- "js-sys",
- "reinhardt-cloud-core",
- "reinhardt-cloud-k8s",
- "reinhardt-cloud-types",
- "reinhardt-web",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "reinhardt-cloud-cli"
 version = "0.1.0"
 dependencies = [
@@ -5627,6 +5594,39 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "reinhardt-cloud-dashboard"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cfg_aliases",
+ "chrono",
+ "console_error_panic_hook",
+ "ctor",
+ "dashmap",
+ "gloo-net",
+ "gloo-timers",
+ "inventory",
+ "js-sys",
+ "reinhardt-cloud-core",
+ "reinhardt-cloud-k8s",
+ "reinhardt-cloud-types",
+ "reinhardt-web",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

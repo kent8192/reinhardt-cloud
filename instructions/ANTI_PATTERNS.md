@@ -129,7 +129,7 @@ src/
 ```
 src/
 ├── app.rs                 // ✅ Grouped by
-├── app/                   // feature/domain
+├── dashboard/             // feature/domain
 │   ├── reconciler.rs
 │   └── controller.rs
 ├── ingress.rs
