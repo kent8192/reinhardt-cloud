@@ -326,7 +326,8 @@ mod tests {
 		let app = make_test_app("web", "web:latest", Some(3));
 
 		// Act
-		let deploy = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let spec = deploy.spec.unwrap();
@@ -341,7 +342,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.spec.unwrap().replicas, Some(1));
@@ -353,7 +355,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
@@ -368,7 +371,8 @@ mod tests {
 		app.metadata.namespace = Some("staging".to_string());
 
 		// Act
-		let deploy = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.metadata.namespace.as_deref(), Some("staging"));
@@ -459,7 +463,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -478,7 +483,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -491,7 +497,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -510,7 +517,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -526,7 +534,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -545,7 +554,8 @@ mod tests {
 		app.spec.env = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -560,7 +570,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -578,7 +589,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
 
@@ -600,7 +612,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 		let mounts = container.volume_mounts.as_ref().unwrap();
 
@@ -618,7 +631,8 @@ mod tests {
 			.insert("REINHARDT_ENV".to_string(), "development".to_string());
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -636,7 +650,8 @@ mod tests {
 		let app = make_test_app_with_database();
 
 		// Act
-		let deployment = build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let main_env = pod_spec.containers[0].env.clone();
 		let init_containers = pod_spec.init_containers.unwrap();
