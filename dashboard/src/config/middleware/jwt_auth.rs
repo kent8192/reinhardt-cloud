@@ -26,37 +26,74 @@ impl Middleware for JwtAuthMiddleware {
 		request: Request,
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
+		let is_admin = request.uri.path().starts_with("/admin/");
+
 		// Extract and validate Bearer token
-		let auth_state = if let Some(header_value) = request.headers.get("Authorization")
+		if let Some(header_value) = request.headers.get("Authorization")
 			&& let Ok(header_str) = header_value.to_str()
 			&& let Some(token) = header_str.strip_prefix("Bearer ")
 		{
-			let auth = JwtAuth::new(jwt_secret().as_bytes());
+			let secret = jwt_secret().map_err(|e| {
+				tracing::error!("JWT secret not configured: {e}");
+				reinhardt::core::exception::Error::Authentication(
+					"Authentication service unavailable".to_string(),
+				)
+			})?;
+			let auth = JwtAuth::new(secret.as_bytes());
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
-				AuthState::authenticated(&claims.sub, false, true)
-			} else {
-				// Token present but invalid or expired
+				// Admin routes set is_staff=true and is_superuser=true because
+				// admin_login already verified staff status before issuing the
+				// JWT. API routes cannot infer staff status from the JWT sub
+				// claim alone.
+				let (staff, superuser) = if is_admin {
+					(true, true)
+				} else {
+					(false, true)
+				};
+				let auth_state = AuthState::authenticated(&claims.sub, staff, superuser);
+				request.extensions.insert(auth_state);
+			} else if !is_admin {
+				// Token present but invalid — reject for API routes only.
+				// Admin routes handle their own auth errors via server functions.
 				return Err(reinhardt::core::exception::Error::Authentication(
 					"Invalid or expired authentication token".to_string(),
 				));
 			}
-		} else {
-			// No Authorization header at all
+		} else if !is_admin {
+			// No Authorization header — reject for API routes only.
+			// Admin routes allow unauthenticated access (login page, static assets).
 			return Err(reinhardt::core::exception::Error::Authentication(
 				"Authentication credentials were not provided".to_string(),
 			));
-		};
-
-		request.extensions.insert(auth_state);
+		}
 
 		next.handle(request).await
 	}
 
-	/// Skip middleware for auth endpoints (login/register).
+	/// Skip middleware for auth endpoints (login/register), public API docs,
+	/// public server functions, and admin static assets.
+	///
+	/// Admin panel routes are NOT skipped — the middleware parses JWT if
+	/// present but does not reject unauthenticated requests (admin handles
+	/// its own auth via server functions).
 	fn should_continue(&self, request: &Request) -> bool {
 		let path = request.uri.path();
+
+		// Public server functions that do not require authentication
+		const PUBLIC_SERVER_FNS: &[&str] = &[
+			"/api/server_fn/login",
+			"/api/server_fn/register",
+			"/api/server_fn/logout",
+			"/api/server_fn/me",
+		];
+
 		!path.starts_with("/api/auth/")
+			&& path != "/api/openapi.json"
+			&& !path.starts_with("/api/docs")
+			&& !path.starts_with("/api/redoc")
+			&& !PUBLIC_SERVER_FNS.iter().any(|p| path.starts_with(p))
+			&& !path.starts_with("/static/admin/")
 	}
 }

@@ -173,6 +173,34 @@ args = [
 ]
 
 # ============================================================================
+# Development Server Tasks
+# ============================================================================
+
+[tasks.runserver]
+description = "Start local development server (requires PostgreSQL)"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "runserver"]
+
+[tasks.runserver.env]
+REINHARDT_ENV = "local"
+
+[tasks.showurls]
+description = "Display all registered URL patterns"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "showurls"]
+
+[tasks.showurls.env]
+REINHARDT_ENV = "local"
+
+[tasks.migrate]
+description = "Apply database migrations"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "migrate"]
+
+[tasks.migrate.env]
+REINHARDT_ENV = "local"
+
+# ============================================================================
 # Combined Checks (run before PR)
 # ============================================================================
 

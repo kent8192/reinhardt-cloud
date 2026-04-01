@@ -1,0 +1,53 @@
+# Base Settings for reinhardt-cloud
+#
+# This file contains the base configuration that is common across all environments.
+# Environment-specific settings should be placed in their respective files:
+# - local.toml (development)
+# - staging.toml (staging environment)
+# - production.toml (production environment)
+#
+# Getting started:
+#   cp base.example.toml base.toml
+#   # Edit base.toml and fill in sensitive values.
+
+[core]
+debug = false
+secret_key = "CHANGE-ME-to-a-random-string"
+allowed_hosts = []
+root_urlconf = ""
+
+# Middleware classes
+middleware = []
+
+# Security settings
+[core.security]
+append_slash = true
+secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+session_cookie_secure = false
+csrf_cookie_secure = false
+
+# Database configurations (keyed by alias)
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "reinhardt_cloud_db"
+user = "postgres"
+password = { secret = "CHANGE-ME" }
+options = {}
+
+[i18n]
+language_code = "en-us"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+
+[static_files]
+url = "/static/"
+root = "static"
+
+[media]
+url = "/media/"
+root = "media"
