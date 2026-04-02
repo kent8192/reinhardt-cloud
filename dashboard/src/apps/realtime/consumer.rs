@@ -10,7 +10,7 @@ use reinhardt::{ConsumerContext, Message, WebSocketConsumer, WebSocketResult};
 use uuid::Uuid;
 
 use crate::apps::auth::services::session::validate_raw_token;
-use crate::apps::realtime::broadcaster::{ConnectionHandle, WsBroadcaster};
+use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::shared::ws_messages::{AuthResultPayload, WsClientMessage, WsMessage};
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
@@ -19,8 +19,33 @@ const META_CONNECTION_ID: &str = "connection_id";
 /// Metadata key for the authenticated user ID (set after successful auth).
 const META_USER_ID: &str = "user_id";
 
+/// Parsed result from a client message before async execution.
+///
+/// Separates the synchronous parsing/validation phase from the async
+/// broadcaster interaction to keep unit tests simple.
+pub(crate) enum ParsedAction {
+	/// Authentication succeeded — register and send success response.
+	AuthSuccess {
+		user_id: String,
+		response: WsMessage,
+	},
+	/// Authentication failed — send error response.
+	AuthFailure { response: WsMessage },
+	/// Subscribe to deployments (requires auth).
+	Subscribe { deployment_ids: Vec<String> },
+	/// Unsubscribe from deployments.
+	Unsubscribe { deployment_ids: Vec<String> },
+	/// Unauthenticated subscribe attempt — send error response.
+	Rejected { response: WsMessage },
+}
+
 /// WebSocket consumer that authenticates users, manages deployment
 /// subscriptions, and forwards broadcaster events to individual connections.
+///
+/// Unlike the previous `ConnectionHandle`-based approach, connections are
+/// registered directly with the [`WsBroadcaster`] rooms. This eliminates
+/// the per-connection mpsc channel and forwarding task — the Room broadcasts
+/// to `Arc<WebSocketConnection>` instances directly.
 pub struct NotificationConsumer {
 	broadcaster: Arc<WsBroadcaster>,
 }
@@ -31,65 +56,45 @@ impl NotificationConsumer {
 		Self { broadcaster }
 	}
 
-	/// Pure, synchronous message handler that is easy to unit-test.
+	/// Parse a client message and validate authentication, returning a
+	/// [`ParsedAction`] that describes what async work to perform.
 	///
-	/// Returns an optional `(response, new_user_id)` tuple:
-	/// - `response` is always sent back to the client.
-	/// - `new_user_id` is `Some` only when authentication succeeds,
-	///   signalling the caller to register the connection.
-	pub fn handle_client_message(
-		&self,
+	/// This is a synchronous function for easy unit testing.
+	pub(crate) fn parse_client_message(
 		user_id: Option<&str>,
-		_connection_id: &str,
 		msg: WsClientMessage,
-	) -> Option<(WsMessage, Option<String>)> {
+	) -> ParsedAction {
 		match msg {
 			WsClientMessage::Authenticate { token } => match validate_raw_token(&token) {
-				Some((uid, _username)) => {
-					let response = WsMessage::AuthResult(AuthResultPayload {
+				Some((uid, _username)) => ParsedAction::AuthSuccess {
+					user_id: uid,
+					response: WsMessage::AuthResult(AuthResultPayload {
 						success: true,
 						message: None,
-					});
-					Some((response, Some(uid)))
-				}
-				None => {
-					let response = WsMessage::AuthResult(AuthResultPayload {
+					}),
+				},
+				None => ParsedAction::AuthFailure {
+					response: WsMessage::AuthResult(AuthResultPayload {
 						success: false,
 						message: Some("Invalid or expired token".to_string()),
-					});
-					Some((response, None))
-				}
+					}),
+				},
 			},
 			WsClientMessage::Subscribe { deployment_ids } => {
-				let Some(uid) = user_id else {
-					let response = WsMessage::AuthResult(AuthResultPayload {
-						success: false,
-						message: Some("Authentication required".to_string()),
-					});
-					return Some((response, None));
-				};
-
-				for dep_id in &deployment_ids {
-					self.broadcaster.try_subscribe(uid, dep_id);
+				if user_id.is_none() {
+					return ParsedAction::Rejected {
+						response: WsMessage::AuthResult(AuthResultPayload {
+							success: false,
+							message: Some("Authentication required".to_string()),
+						}),
+					};
 				}
-				// No explicit response for subscribe — updates arrive via
-				// the broadcaster forwarding task.
-				None
+				ParsedAction::Subscribe { deployment_ids }
 			}
 			WsClientMessage::Unsubscribe { deployment_ids } => {
-				if let Some(uid) = user_id {
-					for dep_id in &deployment_ids {
-						self.broadcaster.unsubscribe(uid, dep_id);
-					}
-				}
-				None
+				ParsedAction::Unsubscribe { deployment_ids }
 			}
 		}
-	}
-
-	/// Clean up broadcaster state when a user disconnects.
-	pub fn on_user_disconnect(&self, user_id: &str, connection_id: &str) {
-		self.broadcaster.remove_connection(user_id, connection_id);
 	}
 }
 
@@ -124,38 +129,41 @@ impl WebSocketConsumer for NotificationConsumer {
 			.get_metadata(META_CONNECTION_ID)
 			.map_or(String::new(), |v| v.to_string());
 
-		let result = self.handle_client_message(user_id.as_deref(), &connection_id, client_msg);
+		let action = Self::parse_client_message(user_id.as_deref(), client_msg);
 
-		if let Some((response, maybe_new_uid)) = result {
-			// Send the response message to the client.
-			let _ = context.connection.send_json(&response).await;
-
-			// On successful authentication, register the connection with the
-			// broadcaster and spawn a forwarding task that relays broadcaster
-			// events to this specific WebSocket connection.
-			if let Some(ref uid) = maybe_new_uid {
+		match action {
+			ParsedAction::AuthSuccess {
+				user_id: uid,
+				response,
+			} => {
+				let _ = context.connection.send_json(&response).await;
 				context
 					.metadata
 					.insert(META_USER_ID.to_string(), uid.clone());
 
-				let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-				let handle = ConnectionHandle {
-					connection_id: connection_id.clone(),
-					user_id: uid.clone(),
-					sender: tx,
-				};
-				self.broadcaster.register_connection(handle);
-
-				// Forward messages from the broadcaster channel to the
-				// WebSocket connection.
-				let conn = Arc::clone(&context.connection);
-				tokio::spawn(async move {
-					while let Some(json) = rx.recv().await {
-						if conn.send_text(json).await.is_err() {
-							break;
-						}
+				// Register the connection directly with the broadcaster.
+				// The Room will hold an Arc<WebSocketConnection> and broadcast
+				// to it without an intermediate forwarding task.
+				self.broadcaster
+					.register_connection(&connection_id, &uid, Arc::clone(&context.connection))
+					.await;
+			}
+			ParsedAction::AuthFailure { response } | ParsedAction::Rejected { response } => {
+				let _ = context.connection.send_json(&response).await;
+			}
+			ParsedAction::Subscribe { deployment_ids } => {
+				if let Some(uid) = user_id {
+					for dep_id in &deployment_ids {
+						self.broadcaster
+							.try_subscribe(&connection_id, &uid, dep_id)
+							.await;
 					}
-				});
+				}
+			}
+			ParsedAction::Unsubscribe { deployment_ids } => {
+				for dep_id in &deployment_ids {
+					self.broadcaster.unsubscribe(&connection_id, dep_id).await;
+				}
 			}
 		}
 
@@ -163,14 +171,11 @@ impl WebSocketConsumer for NotificationConsumer {
 	}
 
 	async fn on_disconnect(&self, context: &mut ConsumerContext) -> WebSocketResult<()> {
-		let user_id = context.get_metadata(META_USER_ID).map(|s| s.to_string());
 		let connection_id = context
 			.get_metadata(META_CONNECTION_ID)
 			.map_or(String::new(), |v| v.to_string());
 
-		if let Some(uid) = user_id {
-			self.on_user_disconnect(&uid, &connection_id);
-		}
+		self.broadcaster.remove_connection(&connection_id).await;
 
 		Ok(())
 	}
@@ -182,13 +187,11 @@ mod tests {
 	use crate::shared::ws_messages::WsClientMessage;
 	use rstest::rstest;
 	use serial_test::serial;
-	use std::sync::Arc;
 
-	fn test_broadcaster() -> Arc<WsBroadcaster> {
-		Arc::new(WsBroadcaster::new())
-	}
-
-	fn setup_jwt_env() {
+	#[rstest]
+	#[serial(jwt)]
+	fn test_parse_authenticate_with_invalid_token_returns_failure() {
+		// Arrange
 		// SAFETY: Tests using this helper are serialized with #[serial(jwt)]
 		// to prevent concurrent environment variable mutation.
 		unsafe {
@@ -197,126 +200,115 @@ mod tests {
 				"test-secret-key-for-unit-tests-minimum-length-32",
 			);
 		}
-	}
-
-	#[rstest]
-	#[serial(jwt)]
-	fn test_handle_authenticate_with_invalid_token_returns_failure() {
-		// Arrange
-		setup_jwt_env();
-		let broadcaster = test_broadcaster();
-		let consumer = NotificationConsumer::new(broadcaster);
 
 		let msg = WsClientMessage::Authenticate {
 			token: "totally-invalid-jwt-token".to_string(),
 		};
 
 		// Act
-		let result = consumer.handle_client_message(None, "conn-1", msg);
+		let action = NotificationConsumer::parse_client_message(None, msg);
 
 		// Assert
-		let (response, new_uid) = result.expect("should return a response");
-		match &response {
-			WsMessage::AuthResult(payload) => {
-				assert!(!payload.success);
-				assert!(payload.message.is_some());
-			}
-			_ => panic!("expected AuthResult"),
+		match action {
+			ParsedAction::AuthFailure { response } => match &response {
+				WsMessage::AuthResult(payload) => {
+					assert!(!payload.success);
+					assert!(payload.message.is_some());
+				}
+				_ => panic!("expected AuthResult"),
+			},
+			_ => panic!("expected AuthFailure action"),
 		}
-		assert!(
-			new_uid.is_none(),
-			"invalid token should not yield a user id"
-		);
 	}
 
 	#[rstest]
-	fn test_handle_subscribe_without_auth_rejected() {
+	fn test_parse_subscribe_without_auth_rejected() {
 		// Arrange
-		let broadcaster = test_broadcaster();
-		let consumer = NotificationConsumer::new(broadcaster);
-
 		let msg = WsClientMessage::Subscribe {
 			deployment_ids: vec!["dep-1".to_string()],
 		};
 
 		// Act — no user_id (unauthenticated)
-		let result = consumer.handle_client_message(None, "conn-1", msg);
+		let action = NotificationConsumer::parse_client_message(None, msg);
 
 		// Assert
-		let (response, new_uid) = result.expect("should return error response");
-		match &response {
-			WsMessage::AuthResult(payload) => {
-				assert!(!payload.success);
-				assert_eq!(payload.message.as_deref(), Some("Authentication required"));
-			}
-			_ => panic!("expected AuthResult rejection"),
+		match action {
+			ParsedAction::Rejected { response } => match &response {
+				WsMessage::AuthResult(payload) => {
+					assert!(!payload.success);
+					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				}
+				_ => panic!("expected AuthResult rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
-		assert!(new_uid.is_none());
 	}
 
 	#[rstest]
-	fn test_handle_subscribe_with_auth_succeeds() {
+	fn test_parse_subscribe_with_auth_returns_subscribe_action() {
 		// Arrange
-		let broadcaster = test_broadcaster();
-		let consumer = NotificationConsumer::new(Arc::clone(&broadcaster));
-
-		// Act — authenticated user subscribes
 		let msg = WsClientMessage::Subscribe {
 			deployment_ids: vec!["dep-1".to_string(), "dep-2".to_string()],
 		};
-		let result = consumer.handle_client_message(Some("user-1"), "conn-1", msg);
 
-		// Assert — no response message (subscriptions are silent)
-		assert!(result.is_none(), "subscribe should not return a response");
-		assert!(broadcaster.is_subscribed("user-1", "dep-1"));
-		assert!(broadcaster.is_subscribed("user-1", "dep-2"));
+		// Act — authenticated user subscribes
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
+
+		// Assert — returns Subscribe action
+		match action {
+			ParsedAction::Subscribe { deployment_ids } => {
+				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
+			}
+			_ => panic!("expected Subscribe action"),
+		}
 	}
 
 	#[rstest]
-	fn test_handle_unsubscribe_removes_subscription() {
+	fn test_parse_unsubscribe_returns_unsubscribe_action() {
 		// Arrange
-		let broadcaster = test_broadcaster();
-		let consumer = NotificationConsumer::new(Arc::clone(&broadcaster));
-
-		// Pre-subscribe
-		broadcaster.subscribe("user-1", "dep-a");
-		broadcaster.subscribe("user-1", "dep-b");
-		assert!(broadcaster.is_subscribed("user-1", "dep-a"));
-
-		// Act
 		let msg = WsClientMessage::Unsubscribe {
 			deployment_ids: vec!["dep-a".to_string()],
 		};
-		let result = consumer.handle_client_message(Some("user-1"), "conn-1", msg);
+
+		// Act
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
 
 		// Assert
-		assert!(result.is_none(), "unsubscribe should not return a response");
-		assert!(!broadcaster.is_subscribed("user-1", "dep-a"));
-		assert!(broadcaster.is_subscribed("user-1", "dep-b"));
+		match action {
+			ParsedAction::Unsubscribe { deployment_ids } => {
+				assert_eq!(deployment_ids, vec!["dep-a"]);
+			}
+			_ => panic!("expected Unsubscribe action"),
+		}
 	}
 
 	#[rstest]
-	fn test_on_user_disconnect_cleans_up() {
+	#[tokio::test]
+	async fn test_on_disconnect_cleans_up_broadcaster() {
 		// Arrange
-		let broadcaster = test_broadcaster();
-		let consumer = NotificationConsumer::new(Arc::clone(&broadcaster));
+		let broadcaster = Arc::new(WsBroadcaster::new());
 
-		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-		let handle = ConnectionHandle {
-			connection_id: "conn-1".to_string(),
-			user_id: "user-1".to_string(),
-			sender: tx,
+		let (conn, _rx) = {
+			let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+			let conn = Arc::new(reinhardt::WebSocketConnection::new(
+				"conn-1".to_string(),
+				tx,
+			));
+			(conn, rx)
 		};
-		broadcaster.register_connection(handle);
-		broadcaster.subscribe("user-1", "dep-x");
-		assert_eq!(broadcaster.connection_count(), 1);
 
-		// Act
-		consumer.on_user_disconnect("user-1", "conn-1");
+		broadcaster
+			.register_connection("conn-1", "user-1", conn.clone())
+			.await;
+		broadcaster.subscribe("conn-1", "user-1", "dep-x").await;
+		assert_eq!(broadcaster.connection_count().await, 1);
+
+		// Act — simulate disconnect via broadcaster directly
+		broadcaster.remove_connection("conn-1").await;
 
 		// Assert — connection removed; since it was the last connection,
 		// subscriptions are also cleaned up.
-		assert_eq!(broadcaster.connection_count(), 0);
-		assert!(!broadcaster.is_subscribed("user-1", "dep-x"));
+		assert_eq!(broadcaster.connection_count().await, 0);
+		assert!(!broadcaster.is_subscribed("user-1", "dep-x").await);
 	}
 }
