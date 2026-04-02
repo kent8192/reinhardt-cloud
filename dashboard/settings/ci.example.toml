@@ -9,6 +9,9 @@
 # Getting started:
 #   cp ci.example.toml ci.toml
 
+# JWT secret for session token signing (required for auth endpoints)
+jwt_secret = "ci-only-jwt-secret-not-for-production"
+
 [core]
 # Enable debug mode for verbose error output in CI logs
 debug = true
