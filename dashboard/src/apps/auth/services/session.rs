@@ -15,8 +15,13 @@ const SESSION_COOKIE_NAME: &str = "reinhardt_cloud_session";
 /// functions that return the token in the response body.
 pub fn create_session_token(user: &User) -> Result<String, String> {
 	let auth = JwtAuth::new(jwt_secret().map_err(|e| e.to_string())?.as_bytes());
-	auth.generate_token(user.id().to_string(), user.get_username().to_string())
-		.map_err(|e| format!("Failed to generate session token: {e}"))
+	auth.generate_token(
+		user.id().to_string(),
+		user.get_username().to_string(),
+		user.is_staff,
+		user.is_superuser,
+	)
+	.map_err(|e| format!("Failed to generate session token: {e}"))
 }
 
 /// Session cookie max-age in seconds (24 hours, matches JWT expiry).

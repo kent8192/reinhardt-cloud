@@ -43,16 +43,8 @@ impl Middleware for JwtAuthMiddleware {
 			if let Ok(claims) = auth.verify_token(token)
 				&& !claims.is_expired()
 			{
-				// Admin routes set is_staff=true and is_superuser=true because
-				// admin_login already verified staff status before issuing the
-				// JWT. API routes cannot infer staff status from the JWT sub
-				// claim alone.
-				let (staff, superuser) = if is_admin {
-					(true, true)
-				} else {
-					(false, true)
-				};
-				let auth_state = AuthState::authenticated(&claims.sub, staff, superuser);
+				let auth_state =
+					AuthState::authenticated(&claims.sub, claims.is_staff, claims.is_superuser);
 				request.extensions.insert(auth_state);
 			} else if !is_admin {
 				// Token present but invalid — reject for API routes only.
