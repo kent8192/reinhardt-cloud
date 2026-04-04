@@ -22,15 +22,6 @@ root_urlconf = ""
 
 middleware = []
 
-# Database configuration for CI (matches GitHub Actions PostgreSQL service container)
-[database]
-engine = "postgresql"
-host = "localhost"
-port = 5432
-name = "reinhardt_cloud_dashboard_ci"
-user = "postgres"
-password = "postgres"
-
 # Security settings (relaxed for CI)
 [core.security]
 append_slash = true
