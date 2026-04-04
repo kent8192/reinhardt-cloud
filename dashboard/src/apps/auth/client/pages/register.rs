@@ -61,6 +61,7 @@ pub fn register_page() -> Page {
 				label: "Password",
 				placeholder: "Create a password (min 8 characters)",
 			},
+			submit: SubmitButton { label: "Create account", class: "btn-primary w-full py-2.5 text-base" },
 		},
 	};
 	let form_view = register_form.into_page();
