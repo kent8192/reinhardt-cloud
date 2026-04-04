@@ -60,8 +60,8 @@ jobs:
 
       - name: Setup application settings
         run: |
-          cp app/settings/base.example.toml app/settings/base.toml
-          cp app/settings/ci.example.toml app/settings/ci.toml
+          cp dashboard/settings/base.example.toml dashboard/settings/base.toml
+          cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
 
       - name: Run tests
         run: cargo nextest run --workspace --all-features --no-fail-fast

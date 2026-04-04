@@ -1,8 +1,15 @@
 # CI Environment Settings for Reinhardt Cloud
 #
+# Loaded when REINHARDT_ENV=ci.
 # This file contains settings specific to the CI (GitHub Actions) environment.
 # Used by Bruno API tests and other CI workflows that require a running application.
+# Note: env-specific TOML replaces the entire [core] section from base.toml,
+# so all required core fields must be specified here.
+#
+# Getting started:
+#   cp ci.example.toml ci.toml
 
+[core]
 # Enable debug mode for verbose error output in CI logs
 debug = true
 
@@ -11,18 +18,35 @@ secret_key = "ci-only-secret-key-not-for-production"
 
 # Allow all hosts in CI
 allowed_hosts = ["*"]
+root_urlconf = ""
+
+middleware = []
 
 # Database configuration for CI (matches GitHub Actions PostgreSQL service container)
+# Used by reinhardt-web's migrate command which reads from [database] section.
 [database]
 engine = "postgresql"
 host = "localhost"
 port = 5432
-name = "reinhardt_cloud_dashboard_ci"
+name = "reinhardt_cloud_ci"
 user = "postgres"
 password = "postgres"
 
 # Security settings (relaxed for CI)
-[security]
+[core.security]
+append_slash = true
 session_cookie_secure = false
 csrf_cookie_secure = false
 secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+
+# Database configuration for CI (TestContainers overrides at runtime)
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "reinhardt_cloud_ci"
+user = "postgres"
+password = { secret = "postgres" }
+options = {}
