@@ -55,6 +55,10 @@ pub fn login_page() -> Page {
 				label: "Password",
 				placeholder: "Enter your password",
 			},
+			submit: SubmitButton {
+				label: "Sign in",
+				class: "w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors",
+			},
 		},
 	};
 	let form_view = login_form.into_page();

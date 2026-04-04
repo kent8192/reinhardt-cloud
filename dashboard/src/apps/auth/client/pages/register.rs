@@ -61,6 +61,10 @@ pub fn register_page() -> Page {
 				label: "Password",
 				placeholder: "Create a password (min 8 characters)",
 			},
+			submit: SubmitButton {
+				label: "Create account",
+				class: "w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors",
+			},
 		},
 	};
 	let form_view = register_form.into_page();
