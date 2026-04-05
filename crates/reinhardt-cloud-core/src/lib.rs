@@ -9,6 +9,8 @@ pub mod error;
 pub mod inference;
 pub mod pagination;
 pub mod services;
+pub mod traits;
 
 pub use error::ApiError;
 pub use pagination::{PaginatedResponse, PaginationParams};
+pub use traits::{AuthService, BuildService, ClusterAgentService, LogService};
