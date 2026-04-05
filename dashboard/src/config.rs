@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod apps;
+pub mod grpc;
 pub mod middleware;
 pub mod settings;
 pub mod urls;
