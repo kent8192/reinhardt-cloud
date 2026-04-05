@@ -11,8 +11,13 @@ use crate::apps::auth::views::utils::jwt_secret;
 /// functions that return the token in the response body.
 pub fn create_session_token(user: &User) -> Result<String, String> {
 	let auth = JwtAuth::new(jwt_secret().map_err(|e| e.to_string())?.as_bytes());
-	auth.generate_token(user.id().to_string(), user.get_username().to_string())
-		.map_err(|e| format!("Failed to generate session token: {e}"))
+	auth.generate_token(
+		user.id().to_string(),
+		user.get_username().to_string(),
+		user.is_staff,
+		user.is_superuser,
+	)
+	.map_err(|e| format!("Failed to generate session token: {e}"))
 }
 
 /// Validate a raw JWT token and return the claims (sub, username).

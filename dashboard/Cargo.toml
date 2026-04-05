@@ -16,12 +16,13 @@ name = "manage"
 path = "src/bin/manage.rs"
 
 [dependencies]
-reinhardt = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+# Server-side: full reinhardt with server, database, auth, admin, etc.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reinhardt = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }
@@ -34,12 +35,13 @@ ctor = "0.6"
 inventory = "0.3"
 async-trait = "0.1"
 
+# WASM client: reinhardt with pages features only
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["pages", "admin"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Event", "History", "Location", "Storage", "WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent"] }
 js-sys = "0.3"
-gloo-net = "0.6"
 gloo-timers = "0.3"
 console_error_panic_hook = "0.1"
 
