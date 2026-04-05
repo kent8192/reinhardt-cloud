@@ -88,7 +88,7 @@ jobs:
           echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
 
           for i in $(seq 1 30); do
-            if curl -s -o /dev/null http://localhost:8000/; then
+            if curl -sf -o /dev/null http://localhost:8000/api/openapi.json; then
               echo "Server is ready!"
               exit 0
             fi
