@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// Framework-agnostic API errors for the Reinhardt Cloud platform.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ApiError {
 	#[error("unauthorized: {0}")]
 	Unauthorized(String),

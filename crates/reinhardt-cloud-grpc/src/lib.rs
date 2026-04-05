@@ -7,3 +7,4 @@ pub mod config;
 pub mod health;
 pub mod interceptor;
 pub mod settings;
+pub mod test_utils;
