@@ -19,7 +19,7 @@ pub(crate) fn build_limit_range(
 	defaults: &ResourceDefaults,
 ) -> Result<LimitRange, Error> {
 	let name = format!("{}-limits", app.name_any());
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	Ok(LimitRange {

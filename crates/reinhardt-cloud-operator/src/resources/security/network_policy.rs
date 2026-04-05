@@ -23,7 +23,7 @@ use crate::resources::labels::owner_reference;
 /// Builds a default-deny NetworkPolicy for all traffic to/from the app's pods.
 pub(crate) fn build_default_deny_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-deny-all", app.name_any());
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	Ok(NetworkPolicy {
@@ -56,7 +56,7 @@ pub(crate) fn build_default_deny_policy(app: &ReinhardtApp) -> Result<NetworkPol
 /// and same-app pods.
 pub(crate) fn build_app_ingress_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-allow-ingress", app.name_any());
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	Ok(NetworkPolicy {
@@ -119,7 +119,7 @@ pub(crate) fn build_managed_service_egress_policy(
 	network: &NetworkIsolationSpec,
 ) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-allow-egress", app.name_any());
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	let mut egress_rules = vec![NetworkPolicyEgressRule {

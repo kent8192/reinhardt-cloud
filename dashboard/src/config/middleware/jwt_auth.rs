@@ -17,7 +17,23 @@ use crate::apps::auth::views::utils::jwt_secret;
 /// Extracts and validates Bearer tokens from the `Authorization` header,
 /// then stores an `AuthState` in request extensions so that `AuthInfo`
 /// can resolve the authenticated user via dependency injection.
+///
+/// Call [`JwtAuthMiddleware::validate_config()`] at startup to fail fast
+/// if the JWT secret is not configured.
 pub struct JwtAuthMiddleware;
+
+impl JwtAuthMiddleware {
+	/// Validate that JWT configuration is present at startup.
+	///
+	/// Panics with a clear message if `REINHARDT_CLOUD_JWT_SECRET` is not set,
+	/// preventing cryptic per-request errors later.
+	pub fn validate_config() {
+		jwt_secret().expect(
+			"REINHARDT_CLOUD_JWT_SECRET must be set. \
+			 Generate one with: openssl rand -base64 32",
+		);
+	}
+}
 
 #[async_trait]
 impl Middleware for JwtAuthMiddleware {

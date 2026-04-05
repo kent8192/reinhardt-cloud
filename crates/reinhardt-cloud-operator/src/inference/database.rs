@@ -51,7 +51,10 @@ pub(crate) fn infer_database_resources(
 		None => return vec![],
 	};
 
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = match app.namespace() {
+		Some(ns) => ns,
+		None => return vec![], // namespace required for database resources
+	};
 	let app_name = app.name_any();
 	let storage_gb = db
 		.storage_gb

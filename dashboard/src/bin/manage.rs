@@ -30,6 +30,13 @@ fn main() {
 }
 
 async fn async_main() {
+	// Fail fast if JWT secret is missing (better than per-request errors).
+	// Only validate when running the server, not for management commands
+	// like migrate or collectstatic.
+	if std::env::args().nth(1).as_deref() == Some("runserver") {
+		reinhardt_cloud_dashboard::config::middleware::jwt_auth::JwtAuthMiddleware::validate_config();
+	}
+
 	// Workaround: reinhardt-web#2452
 	// Reason: execute_from_command_line() does not accept CommandRegistry
 	// Impact: custom commands (e.g., SyncClustersCommand) cannot be registered
