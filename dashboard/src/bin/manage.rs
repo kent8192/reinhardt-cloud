@@ -36,7 +36,8 @@ async fn async_main() {
 	// Only validate when running the server, not for management commands
 	// like migrate or collectstatic.
 	if std::env::args().nth(1).as_deref() == Some("runserver") {
-		reinhardt_cloud_dashboard::config::middleware::jwt_auth::JwtAuthMiddleware::validate_config();
+		reinhardt_cloud_dashboard::config::middleware::jwt_auth::JwtAuthMiddleware::validate_config(
+		);
 	}
 
 	register_superuser_creator(superuser_creator_for::<User>());
