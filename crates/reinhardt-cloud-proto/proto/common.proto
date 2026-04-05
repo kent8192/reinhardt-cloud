@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package reinhardt.cloud.common;
+
+// Pagination request parameters.
+message PaginationRequest {
+  uint64 page = 1;
+  uint64 page_size = 2;
+}
+
+// Pagination response metadata.
+message PaginationResponse {
+  uint64 total = 1;
+  uint64 page = 2;
+  uint64 page_size = 3;
+  uint64 total_pages = 4;
+}
+
+// Generic status response.
+message StatusResponse {
+  bool success = 1;
+  string message = 2;
+}

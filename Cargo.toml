@@ -5,6 +5,7 @@ members = [
 	"crates/reinhardt-cloud-types",
 	"crates/reinhardt-cloud-core",
 	"crates/reinhardt-cloud-k8s",
+	"crates/reinhardt-cloud-proto",
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
@@ -67,6 +68,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
 reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
+reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
 
 # Cryptography / encoding
 rand = "0.9"

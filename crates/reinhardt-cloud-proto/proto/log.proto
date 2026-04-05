@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package reinhardt.cloud.log;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// Severity level for log entries.
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// A single log entry.
+message LogEntry {
+  google.protobuf.Timestamp timestamp = 1;
+  LogLevel level = 2;
+  string source = 3;
+  string message = 4;
+  // Optional JSON metadata as a string.
+  optional string metadata_json = 5;
+}
+
+// Filter criteria for querying logs.
+message LogFilter {
+  optional string source = 1;
+  optional LogLevel min_level = 2;
+  optional google.protobuf.Timestamp since = 3;
+  optional google.protobuf.Timestamp until = 4;
+  optional string search = 5;
+}
+
+// Request to push a batch of log entries.
+message PushLogsRequest {
+  repeated LogEntry entries = 1;
+}
+
+// Request to tail logs with a filter.
+message TailLogsRequest {
+  LogFilter filter = 1;
+}
+
+// Request to list logs with pagination.
+message ListLogsRequest {
+  LogFilter filter = 1;
+  reinhardt.cloud.common.PaginationRequest pagination = 2;
+}
+
+// Response containing paginated log entries.
+message ListLogsResponse {
+  repeated LogEntry entries = 1;
+  reinhardt.cloud.common.PaginationResponse pagination = 2;
+}
+
+// Log service for log ingestion and querying.
+service LogService {
+  // Push a batch of log entries (client streaming).
+  rpc PushLogs(stream PushLogsRequest) returns (reinhardt.cloud.common.StatusResponse);
+  // Tail logs in real-time (server streaming).
+  rpc TailLogs(TailLogsRequest) returns (stream LogEntry);
+  // List stored logs with filters and pagination.
+  rpc ListLogs(ListLogsRequest) returns (ListLogsResponse);
+}

@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package reinhardt.cloud.cluster_agent;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// Events reported by a cluster agent.
+message AgentEvent {
+  oneof event {
+    AgentConnected connected = 1;
+    AgentDeployStatus deploy_status = 2;
+    AgentHeartbeat heartbeat = 3;
+    AgentError error = 4;
+  }
+}
+
+message AgentConnected {
+  string agent_id = 1;
+  string cluster_name = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message AgentDeployStatus {
+  string app_name = 1;
+  bool success = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message AgentHeartbeat {
+  string agent_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message AgentError {
+  string message = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Commands sent to a cluster agent.
+message AgentCommand {
+  oneof command {
+    DeployCommand deploy = 1;
+    RollbackCommand rollback = 2;
+    ScaleCommand scale = 3;
+    RestartCommand restart = 4;
+  }
+}
+
+message DeployCommand {
+  string app_name = 1;
+  string image = 2;
+  uint32 replicas = 3;
+}
+
+message RollbackCommand {
+  string app_name = 1;
+  uint32 revision = 2;
+}
+
+message ScaleCommand {
+  string app_name = 1;
+  uint32 replicas = 2;
+}
+
+message RestartCommand {
+  string app_name = 1;
+}
+
+// Health report from an agent.
+message AgentHealthReport {
+  string agent_id = 1;
+  bool healthy = 2;
+  double cpu_usage_percent = 3;
+  double memory_usage_percent = 4;
+  uint32 pod_count = 5;
+  google.protobuf.Timestamp reported_at = 6;
+}
+
+// Agent service for bidirectional communication with cluster agents.
+service AgentService {
+  // Bidirectional streaming between agent and control plane.
+  rpc AgentStream(stream AgentEvent) returns (stream AgentCommand);
+  // Report agent health status.
+  rpc ReportHealth(AgentHealthReport) returns (reinhardt.cloud.common.StatusResponse);
+  // Report deployment status.
+  rpc ReportDeployStatus(AgentDeployStatus) returns (reinhardt.cloud.common.StatusResponse);
+}

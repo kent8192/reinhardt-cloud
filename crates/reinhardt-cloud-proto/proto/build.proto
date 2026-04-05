@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package reinhardt.cloud.build;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// Request to start a new build.
+message StartBuildRequest {
+  string app_name = 1;
+  string image = 2;
+  repeated EnvVar env_vars = 3;
+  optional string dockerfile = 4;
+  optional string context_path = 5;
+}
+
+// Environment variable key-value pair.
+message EnvVar {
+  string key = 1;
+  string value = 2;
+}
+
+// An event emitted during the build process.
+message BuildEvent {
+  oneof event {
+    BuildLog log = 1;
+    BuildPhaseChange phase_change = 2;
+    BuildArtifactReady artifact_ready = 3;
+    BuildError error = 4;
+    BuildComplete complete = 5;
+  }
+}
+
+message BuildLog {
+  string message = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message BuildPhaseChange {
+  BuildPhase phase = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message BuildArtifactReady {
+  string artifact_url = 1;
+  string digest = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message BuildError {
+  string message = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message BuildComplete {
+  bool success = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Build phases.
+enum BuildPhase {
+  BUILD_PHASE_UNSPECIFIED = 0;
+  BUILD_PHASE_QUEUED = 1;
+  BUILD_PHASE_PULLING = 2;
+  BUILD_PHASE_BUILDING = 3;
+  BUILD_PHASE_PUSHING = 4;
+  BUILD_PHASE_FINALIZING = 5;
+}
+
+// Request to cancel a running build.
+message CancelBuildRequest {
+  string build_id = 1;
+}
+
+// Request to get the status of a build.
+message GetBuildStatusRequest {
+  string build_id = 1;
+}
+
+// Current status of a build.
+message BuildStatusResponse {
+  string build_id = 1;
+  string app_name = 2;
+  BuildPhase phase = 3;
+  bool completed = 4;
+  optional bool success = 5;
+  google.protobuf.Timestamp started_at = 6;
+  optional google.protobuf.Timestamp completed_at = 7;
+}
+
+// Request to stream build logs.
+message StreamBuildLogsRequest {
+  string build_id = 1;
+  // If true, follow logs in real-time.
+  bool follow = 2;
+}
+
+// Build service for managing application builds.
+service BuildService {
+  // Start a new build and stream events as they occur.
+  rpc StartBuild(StartBuildRequest) returns (stream BuildEvent);
+  // Cancel a running build.
+  rpc CancelBuild(CancelBuildRequest) returns (reinhardt.cloud.common.StatusResponse);
+  // Get the current status of a build.
+  rpc GetBuildStatus(GetBuildStatusRequest) returns (BuildStatusResponse);
+  // Stream build logs for a specific build.
+  rpc StreamBuildLogs(StreamBuildLogsRequest) returns (stream BuildLog);
+}
