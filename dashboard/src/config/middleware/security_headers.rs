@@ -27,12 +27,18 @@ impl Middleware for CspPathMiddleware {
 		let is_api = path.starts_with("/api/");
 		let is_admin = path.starts_with("/admin/");
 
-		// Detect HTTPS via X-Forwarded-Proto (set by reverse proxy / LB)
-		let is_https = request
-			.headers
-			.get("X-Forwarded-Proto")
-			.and_then(|v| v.to_str().ok())
-			.is_some_and(|proto| proto == "https");
+		// Detect HTTPS via X-Forwarded-Proto (set by trusted reverse proxy / LB).
+		// Only trust this header when SECURE_SSL_REDIRECT is enabled in settings,
+		// which implies the app runs behind a properly configured proxy.
+		let is_https = crate::config::settings::get_settings()
+			.core
+			.security
+			.secure_ssl_redirect
+			&& request
+				.headers
+				.get("X-Forwarded-Proto")
+				.and_then(|v| v.to_str().ok())
+				.is_some_and(|proto| proto == "https");
 
 		let response = next.handle(request).await?;
 

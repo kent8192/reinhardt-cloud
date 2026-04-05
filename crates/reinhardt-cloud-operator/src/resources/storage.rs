@@ -18,16 +18,16 @@ use crate::error::Error;
 pub(crate) fn build_storage_service_account(
 	app: &ReinhardtApp,
 	backend: &str,
-	iam_role: Option<&str>,
+	iam_identity: Option<&str>,
 ) -> Result<Option<ServiceAccount>, Error> {
-	let annotations = match (backend, iam_role) {
+	let annotations = match (backend, iam_identity) {
 		("s3", Some(role)) if !role.is_empty() => {
 			BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), role.to_string())])
 		}
 		("gcs", Some(sa)) if !sa.is_empty() => {
 			BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), sa.to_string())])
 		}
-		// No IAM role configured or non-cloud backend — skip ServiceAccount
+		// No IAM identity configured or non-cloud backend — skip ServiceAccount
 		_ => return Ok(None),
 	};
 
