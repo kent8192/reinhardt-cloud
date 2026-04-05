@@ -14,7 +14,7 @@ pub(crate) mod service;
 pub(crate) mod storage;
 pub(crate) mod worker;
 
-// Re-exports for backward compatibility
+// Re-exports for convenient access from parent modules
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;

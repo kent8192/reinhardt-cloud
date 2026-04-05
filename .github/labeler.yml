@@ -1,10 +1,10 @@
 # Configuration for actions/labeler
 # Maps file path patterns to repository labels
 
-api:
+core:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/reinhardt-cloud-api/**
+          - crates/reinhardt-cloud-core/**
 
 k8s:
   - changed-files:
@@ -26,10 +26,10 @@ operator:
       - any-glob-to-any-file:
           - crates/reinhardt-cloud-operator/**
 
-control:
+dashboard:
   - changed-files:
       - any-glob-to-any-file:
-          - crates/reinhardt-cloud-control/**
+          - dashboard/**
 
 ci-cd:
   - changed-files:

@@ -12,16 +12,30 @@ use crate::error::Error;
 
 /// Builds a `ServiceAccount` with cloud IAM annotations for the given storage backend.
 ///
-/// - S3 backend: annotated with `eks.amazonaws.com/role-arn` (placeholder)
-/// - GCS backend: annotated with `iam.gke.io/gcp-service-account` (placeholder)
+/// - S3 backend: annotated with `eks.amazonaws.com/role-arn` (from app annotation or error)
+/// - GCS backend: annotated with `iam.gke.io/gcp-service-account` (from app annotation or error)
 /// - Other backends (e.g., `pvc`): returns `Ok(None)` (no ServiceAccount needed)
 pub(crate) fn build_storage_service_account(
 	app: &ReinhardtApp,
 	backend: &str,
 ) -> Result<Option<ServiceAccount>, Error> {
+	let app_annotations = app.metadata.annotations.as_ref();
+
 	let annotations = match backend {
-		"s3" => BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), String::new())]),
-		"gcs" => BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), String::new())]),
+		"s3" => {
+			let arn = app_annotations
+				.and_then(|a| a.get("reinhardt-cloud.dev/s3-role-arn"))
+				.cloned()
+				.unwrap_or_default();
+			BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), arn)])
+		}
+		"gcs" => {
+			let sa = app_annotations
+				.and_then(|a| a.get("reinhardt-cloud.dev/gcs-service-account"))
+				.cloned()
+				.unwrap_or_default();
+			BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), sa)])
+		}
 		_ => return Ok(None),
 	};
 

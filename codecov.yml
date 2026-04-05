@@ -47,10 +47,10 @@ component_management:
       - type: project
         target: auto
   individual_components:
-    - component_id: control-plane
-      name: Control Plane
+    - component_id: dashboard
+      name: Dashboard
       paths:
-        - "crates/reinhardt-cloud-control-plane/src/**"
+        - "dashboard/src/**"
     - component_id: operator
       name: Kubernetes Operator
       paths:

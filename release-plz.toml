@@ -2,8 +2,8 @@
 # Documentation: https://release-plz.ieni.dev/docs/config
 #
 # Crate structure:
-#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-api, reinhardt-cloud-k8s
-#   Binary crates (GitHub Releases):  reinhardt-cloud-control, reinhardt-cloud-operator, reinhardt-cloud-cli
+#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-core, reinhardt-cloud-k8s
+#   Binary crates (GitHub Releases):  reinhardt-cloud-dashboard, reinhardt-cloud-operator, reinhardt-cloud-cli
 
 [workspace]
 # Changelog settings
@@ -49,7 +49,7 @@ publish = false
 version_group = "reinhardt-cloud"
 
 [[package]]
-name = "reinhardt-cloud-api"
+name = "reinhardt-cloud-core"
 publish = false
 version_group = "reinhardt-cloud"
 
@@ -62,7 +62,7 @@ version_group = "reinhardt-cloud"
 # These crates are distributed as GitHub Releases (not crates.io).
 
 [[package]]
-name = "reinhardt-cloud-control"
+name = "reinhardt-cloud-dashboard"
 publish = false
 git_release_enable = true
 version_group = "reinhardt-cloud"

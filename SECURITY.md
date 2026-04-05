@@ -4,7 +4,7 @@
 
 | Version | Supported |
 | --- | --- |
-| Latest on `feature/platform-basis` | :white_check_mark: |
+| Latest on `main` | :white_check_mark: |
 | Older releases | :x: |
 
 ## Reporting a Vulnerability
