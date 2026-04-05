@@ -16,13 +16,15 @@ mod tests {
 
 		// Act
 		let token = auth
-			.generate_token(user_id.clone(), "testuser".to_string())
+			.generate_token(user_id.clone(), "testuser".to_string(), true, false)
 			.unwrap();
 		let claims = auth.verify_token(&token).unwrap();
 
 		// Assert
 		assert_eq!(claims.sub, user_id);
 		assert_eq!(claims.username, "testuser");
+		assert!(claims.is_staff);
+		assert!(!claims.is_superuser);
 		assert!(!claims.is_expired());
 	}
 
@@ -48,8 +50,12 @@ mod tests {
 		let mut user = User::new(
 			"hashtest".to_string(),
 			"hash@test.com".to_string(),
+			String::new(),
+			String::new(),
 			None,
 			true,
+			false,
+			false,
 		);
 
 		// Act

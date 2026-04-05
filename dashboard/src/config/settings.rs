@@ -36,10 +36,65 @@
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
 use reinhardt::conf::settings::builder::SettingsBuilder;
-use reinhardt::conf::settings::core_settings::CoreSettings;
 use reinhardt::conf::settings::profile::Profile;
-use reinhardt::conf::settings::sources::{DefaultSource, LowPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::settings::sources::{LowPriorityEnvSource, TomlFileSource};
+use reinhardt::settings;
 use std::env;
+use std::path::PathBuf;
+
+/// Composable project settings using the `#[settings]` macro.
+///
+/// Each fragment maps to a TOML section:
+/// - `[core]` → `CoreSettings` (security fields nested under `[core.security]`)
+/// - `[i18n]` → `I18nSettings`
+/// - `[static_files]` → `StaticSettings`
+/// - `[media]` → `MediaSettings`
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings)]
+pub struct ProjectSettings;
+
+/// Resolve the settings directory path.
+///
+/// `REINHARDT_CLOUD_CONFIG_DIR` env var takes precedence for deployed
+/// environments (e.g., Docker, CI), falling back to compile-time
+/// `CARGO_MANIFEST_DIR/settings` for local development.
+fn resolve_settings_dir() -> PathBuf {
+	match env::var("REINHARDT_CLOUD_CONFIG_DIR") {
+		Ok(dir) => PathBuf::from(dir),
+		Err(_) => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("settings"),
+	}
+}
+
+/// Get the active environment profile name.
+///
+/// Reads `REINHARDT_ENV` and defaults to `"local"`.
+fn profile_name() -> String {
+	env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string())
+}
+
+/// Build merged settings from all configuration sources.
+///
+/// Sources are merged in priority order (lowest to highest):
+/// 1. Default values (CoreSettings provides its own defaults via serde)
+/// 2. Environment variables with `REINHARDT_` prefix
+/// 3. Base TOML file (`base.toml`)
+/// 4. Environment-specific TOML file (e.g., `local.toml`)
+fn build_settings() -> ProjectSettings {
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
+
+	SettingsBuilder::new()
+		.profile(Profile::parse(&profile_str))
+		// Low priority: Environment variables (for container/CI overrides)
+		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
+		// Medium priority: Base TOML file
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
+		// Highest priority: Environment-specific TOML file
+		.add_source(TomlFileSource::new(
+			settings_dir.join(format!("{}.toml", profile_str)),
+		))
+		.build_composed()
+		.expect("Failed to build settings")
+}
 
 /// Get settings based on environment variable
 ///
@@ -52,8 +107,7 @@ use std::env;
 /// use reinhardt_cloud_dashboard::config::settings::get_settings;
 ///
 /// let settings = get_settings();
-/// println!("Debug mode: {}", settings.debug);
-/// println!("Secret key set: {}", !settings.secret_key.is_empty());
+/// println!("Debug mode: {}", settings.core.debug);
 /// ```
 ///
 /// # Configuration Directory
@@ -68,84 +122,37 @@ use std::env;
 /// - Settings files cannot be read
 /// - Settings cannot be deserialized
 /// - Required settings are missing
-pub fn get_settings() -> CoreSettings {
-	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
-	let profile = Profile::parse(&profile_str);
+pub fn get_settings() -> ProjectSettings {
+	build_settings()
+}
 
-	// Resolve settings directory: REINHARDT_CLOUD_CONFIG_DIR env var takes precedence for deployed
-	// environments (e.g., Docker, CI), falling back to compile-time CARGO_MANIFEST_DIR
-	// for local development.
-	let settings_dir = match env::var("REINHARDT_CLOUD_CONFIG_DIR") {
-		Ok(dir) => std::path::PathBuf::from(dir),
-		Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("settings"),
-	};
+/// Get JWT secret from settings or environment.
+///
+/// Priority (highest to lowest):
+/// 1. `REINHARDT_CLOUD_JWT_SECRET` environment variable
+/// 2. `jwt_secret` key in the active TOML settings file
+///
+/// Returns `None` if the JWT secret is not configured in either source.
+pub fn get_jwt_secret() -> Option<String> {
+	// Env var takes highest priority (for container/CI overrides)
+	if let Ok(secret) = env::var("REINHARDT_CLOUD_JWT_SECRET") {
+		return Some(secret);
+	}
 
-	// Build settings by merging sources in priority order
+	// Fall back to settings TOML via a lightweight builder read
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
 	let merged = SettingsBuilder::new()
-		.profile(profile)
-		// Lowest priority: Default values
-		.add_source(
-			DefaultSource::new()
-				.with_value(
-					"base_dir",
-					serde_json::Value::String(
-						env::var("CARGO_MANIFEST_DIR")
-							.unwrap_or_else(|_| ".".to_string()),
-					),
-				)
-				.with_value(
-					"secret_key",
-					serde_json::Value::String("insecure-change-this-in-production".to_string()),
-				)
-				.with_value("debug", serde_json::Value::Bool(false))
-				.with_value("allowed_hosts", serde_json::Value::Array(vec![]))
-				.with_value("installed_apps", serde_json::Value::Array(vec![]))
-				.with_value("middleware", serde_json::Value::Array(vec![]))
-				.with_value("root_urlconf", serde_json::Value::String("".to_string()))
-				.with_value("databases", serde_json::Value::Object(serde_json::Map::new()))
-				.with_value("templates", serde_json::Value::Array(vec![]))
-				.with_value("static_url", serde_json::Value::String("/static/".to_string()))
-				.with_value("static_root", serde_json::Value::Null)
-				.with_value("staticfiles_dirs", serde_json::Value::Array(vec![]))
-				.with_value("media_url", serde_json::Value::String("/media/".to_string()))
-				.with_value("media_root", serde_json::Value::Null)
-				.with_value(
-					"language_code",
-					serde_json::Value::String("en-us".to_string()),
-				)
-				.with_value("time_zone", serde_json::Value::String("UTC".to_string()))
-				.with_value("use_i18n", serde_json::Value::Bool(true))
-				.with_value("use_tz", serde_json::Value::Bool(true))
-				.with_value("append_slash", serde_json::Value::Bool(true))
-				.with_value(
-					"default_auto_field",
-					serde_json::Value::String("BigAutoField".to_string()),
-				)
-				.with_value("secure_proxy_ssl_header", serde_json::Value::Null)
-				.with_value("secure_ssl_redirect", serde_json::Value::Bool(false))
-				.with_value("secure_hsts_seconds", serde_json::Value::Null)
-				.with_value("secure_hsts_include_subdomains", serde_json::Value::Bool(false))
-				.with_value("secure_hsts_preload", serde_json::Value::Bool(false))
-				.with_value("session_cookie_secure", serde_json::Value::Bool(false))
-				.with_value("csrf_cookie_secure", serde_json::Value::Bool(false))
-				.with_value("admins", serde_json::Value::Array(vec![]))
-				.with_value("managers", serde_json::Value::Array(vec![])),
-		)
-		// Low priority: Environment variables (for container overrides)
-		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
-		// Medium priority: Base TOML file
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		// Highest priority: Environment-specific TOML file
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
 		.build()
-		.expect("Failed to build settings");
-
-	// Convert MergedSettings to reinhardt_core::Settings
+		.ok()?;
 	merged
-		.into_typed()
-		.expect("Failed to convert settings to Settings struct")
+		.get_raw("jwt_secret")
+		.and_then(|v| v.as_str())
+		.map(String::from)
 }
 
 #[cfg(test)]
@@ -159,6 +166,74 @@ mod tests {
 		let settings = get_settings();
 
 		// Assert
-		assert!(!settings.secret_key.is_empty());
+		assert!(!settings.core.secret_key.is_empty());
+	}
+
+	#[rstest]
+	fn test_core_settings_fields() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert!(settings.core.debug);
+		assert!(!settings.core.allowed_hosts.is_empty());
+		assert!(settings.core.databases.contains_key("default"));
+	}
+
+	#[rstest]
+	fn test_core_database_config() {
+		// Arrange / Act
+		let settings = get_settings();
+		let db = &settings.core.databases["default"];
+
+		// Assert
+		assert!(!db.engine.is_empty());
+		assert!(!db.name.is_empty());
+		assert!(db.host.is_some());
+		assert!(db.port.is_some());
+	}
+
+	#[rstest]
+	fn test_core_security_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert — local profile has relaxed security
+		assert!(!settings.core.security.secure_ssl_redirect);
+		assert!(!settings.core.security.session_cookie_secure);
+		assert!(!settings.core.security.csrf_cookie_secure);
+		assert!(settings.core.security.append_slash);
+	}
+
+	#[rstest]
+	fn test_i18n_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.i18n.language_code, "en-us");
+		assert_eq!(settings.i18n.time_zone, "UTC");
+		assert!(settings.i18n.use_i18n);
+		assert!(settings.i18n.use_tz);
+	}
+
+	#[rstest]
+	fn test_static_files_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.static_files.url, "/static/");
+		assert!(!settings.static_files.root.as_os_str().is_empty());
+	}
+
+	#[rstest]
+	fn test_media_settings() {
+		// Arrange / Act
+		let settings = get_settings();
+
+		// Assert
+		assert_eq!(settings.media.url, "/media/");
+		assert!(!settings.media.root.as_os_str().is_empty());
 	}
 }

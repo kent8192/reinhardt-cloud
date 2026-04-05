@@ -1,13 +1,17 @@
 //! Utility functions for auth views.
 
-/// Get JWT secret from environment.
+/// Get JWT secret from settings or environment.
 ///
-/// # Panics
+/// Reads the JWT secret with the following priority:
+/// 1. `REINHARDT_CLOUD_JWT_SECRET` environment variable
+/// 2. `jwt_secret` key in the active TOML settings file (e.g., `local.toml`)
 ///
-/// Panics if `REINHARDT_CLOUD_JWT_SECRET` environment variable is not set.
-/// In production, this MUST be set to a cryptographically random
-/// string of at least 32 bytes.
-pub(crate) fn jwt_secret() -> String {
-	std::env::var("REINHARDT_CLOUD_JWT_SECRET")
-		.expect("REINHARDT_CLOUD_JWT_SECRET environment variable must be set")
+/// In production, this MUST be set to a cryptographically
+/// random string of at least 32 bytes.
+pub(crate) fn jwt_secret() -> Result<String, String> {
+	crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var \
+		 or jwt_secret in settings TOML"
+			.to_string()
+	})
 }
