@@ -129,30 +129,34 @@ pub fn get_settings() -> ProjectSettings {
 /// Get JWT secret from settings or environment.
 ///
 /// Priority (highest to lowest):
-/// 1. `REINHARDT_CLOUD_JWT_SECRET` environment variable
-/// 2. `jwt_secret` key in the active TOML settings file
+/// 1. `jwt_secret` key in the active TOML settings file
+/// 2. `REINHARDT_CLOUD_JWT_SECRET` environment variable (fallback for CI/container overrides)
 ///
 /// Returns `None` if the JWT secret is not configured in either source.
 pub fn get_jwt_secret() -> Option<String> {
-	// Env var takes highest priority (for container/CI overrides)
-	if let Ok(secret) = env::var("REINHARDT_CLOUD_JWT_SECRET") {
-		return Some(secret);
-	}
-
-	// Fall back to settings TOML via a lightweight builder read
+	// TOML settings take highest priority
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
-	let merged = SettingsBuilder::new()
+	let from_toml = SettingsBuilder::new()
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
 		.build()
-		.ok()?;
-	merged
-		.get_raw("jwt_secret")
-		.and_then(|v| v.as_str())
-		.map(String::from)
+		.ok()
+		.and_then(|merged| {
+			merged
+				.get_raw("jwt_secret")
+				.and_then(|v| v.as_str())
+				.map(String::from)
+		});
+
+	if from_toml.is_some() {
+		return from_toml;
+	}
+
+	// Fall back to env var for container/CI overrides
+	env::var("REINHARDT_CLOUD_JWT_SECRET").ok()
 }
 
 #[cfg(test)]

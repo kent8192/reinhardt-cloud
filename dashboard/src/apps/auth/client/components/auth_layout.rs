@@ -17,7 +17,6 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 			class: "min-h-screen flex items-center justify-center bg-gray-50",
 			div {
 				class: "w-full max-w-md",
-				// Branding header
 				div {
 					class: "text-center mb-8",
 					h1 {
@@ -29,7 +28,6 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 						"Cloud Platform"
 					}
 				}
-				// Card container
 				div {
 					class: "bg-white rounded-lg border border-gray-200 shadow-sm p-8",
 					h2 {

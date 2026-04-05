@@ -5,7 +5,7 @@
 //! for the WASM frontend.
 //!
 //! WebSocket route registration uses `WebSocketRouter` from
-//! reinhardt-websockets, which is async and independent of `UnifiedRouter`.
+//! reinhardt, which is async and independent of `UnifiedRouter`.
 //! See `init_websocket_routes()` below.
 
 use std::sync::Arc;
@@ -21,7 +21,8 @@ use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
 use crate::apps::realtime::WsBroadcaster;
-use crate::config::middleware::{JwtAuthMiddleware, SecurityHeadersMiddleware};
+use crate::config::middleware::CspPathMiddleware;
+use reinhardt::{JwtAuthMiddleware, SecurityMiddleware};
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
@@ -42,6 +43,9 @@ pub fn routes() -> UnifiedRouter {
 	// and double-wrapping causes TypeId mismatch during DI resolution.
 	di_ctx.set_singleton(WsBroadcaster::new());
 
+	let jwt_secret = crate::config::settings::get_jwt_secret()
+		.expect("JWT secret must be configured: set REINHARDT_CLOUD_JWT_SECRET env var or jwt_secret in settings TOML");
+
 	UnifiedRouter::new()
 		// Admin panel
 		.mount("/admin/", admin_router)
@@ -58,8 +62,9 @@ pub fn routes() -> UnifiedRouter {
 				.server_fn(server::me::me::marker)
 		})
 		.with_di_context(di_ctx)
-		.with_middleware(JwtAuthMiddleware)
-		.with_middleware(SecurityHeadersMiddleware)
+		.with_middleware(SecurityMiddleware::new())
+		.with_middleware(CspPathMiddleware)
+		.with_middleware(JwtAuthMiddleware::from_secret(jwt_secret.as_bytes()))
 }
 
 /// Initialize WebSocket routes.

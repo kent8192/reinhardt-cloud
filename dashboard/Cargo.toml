@@ -33,7 +33,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 ctor = "0.6"
 inventory = "0.3"
-dashmap = "6"
 async-trait = "0.1"
 
 # WASM client: reinhardt with pages features only

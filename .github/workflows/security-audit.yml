@@ -41,7 +41,6 @@ jobs:
           --ignore RUSTSEC-2023-0089
           --ignore RUSTSEC-2025-0141
           --ignore RUSTSEC-2021-0141
-          --ignore RUSTSEC-2024-0384
           --ignore RUSTSEC-2024-0436
           --ignore RUSTSEC-2025-0134
           --ignore RUSTSEC-2024-0320
@@ -49,4 +48,3 @@ jobs:
           --ignore RUSTSEC-2026-0044
           --ignore RUSTSEC-2026-0048
           --ignore RUSTSEC-2026-0049
-          --ignore RUSTSEC-2026-0066

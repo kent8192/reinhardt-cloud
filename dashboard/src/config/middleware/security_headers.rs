@@ -1,43 +1,45 @@
-//! Security headers middleware for Reinhardt Cloud.
+//! Path-based CSP middleware for Reinhardt Cloud.
 //!
-//! Adds recommended security headers to all HTTP responses to mitigate
-//! common web vulnerabilities (clickjacking, MIME sniffing, XSS, etc.).
+//! Adds a `Content-Security-Policy` header with different policies for
+//! API routes (restrictive) and page routes (WASM-aware).
+//! Admin routes manage their own CSP via `AdminSettings`, so this
+//! middleware defers with `with_header_if_absent`.
+//!
+//! General security headers are handled by the built-in
+//! `SecurityMiddleware` (reinhardt-web).
 
 use std::sync::Arc;
 
 use reinhardt::async_trait::async_trait;
 use reinhardt::{Handler, Middleware, Request, Response};
 
-/// Middleware that adds security headers to all responses.
-///
-/// Applied headers:
-/// - `X-Content-Type-Options: nosniff` — prevents MIME-type sniffing
-/// - `X-Frame-Options: DENY` — prevents clickjacking via iframes
-/// - `X-XSS-Protection: 0` — disables legacy XSS filter (modern CSP preferred)
-/// - `Strict-Transport-Security` — enforces HTTPS connections
-/// - `Content-Security-Policy` — restrictive for API (`default-src 'none'`),
-///   moderate for page routes. Admin routes manage their own CSP via
-///   `AdminSettings` (reinhardt-web), so this middleware defers with
-///   `with_header_if_absent`.
-/// - `Cache-Control: no-store` — prevents caching of sensitive responses
-/// - `Referrer-Policy: no-referrer` — prevents referrer leakage
-pub struct SecurityHeadersMiddleware;
+/// Middleware that adds a path-based Content-Security-Policy header.
+pub struct CspPathMiddleware;
 
 #[async_trait]
-impl Middleware for SecurityHeadersMiddleware {
+impl Middleware for CspPathMiddleware {
 	async fn process(
 		&self,
 		request: Request,
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
-		let path = request.uri.path().to_string();
+		let path = request.uri.path();
 		let is_api = path.starts_with("/api/");
+		let is_admin = path.starts_with("/admin/");
 		let response = next.handle(request).await?;
 
-		// API routes get a restrictive CSP; page routes allow WASM and
-		// inline styles. Admin routes manage their own CSP via AdminSettings
-		// (reinhardt-web), so with_header_if_absent defers to the built-in
-		// admin CSP when present.
+		if is_admin {
+			// Admin SPA uses an inline <script type="module"> to boot WASM.
+			// Override SecurityMiddleware's CSP to allow 'unsafe-inline'.
+			let csp = "default-src 'self'; \
+				 script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; \
+				 style-src 'self' 'unsafe-inline'; \
+				 connect-src 'self'; \
+				 img-src 'self' data:; \
+				 font-src 'self'";
+			return Ok(response.with_header("Content-Security-Policy", csp));
+		}
+
 		let csp = if is_api {
 			"default-src 'none'"
 		} else {
@@ -48,17 +50,6 @@ impl Middleware for SecurityHeadersMiddleware {
 			 img-src 'self' data:"
 		};
 
-		let response = response.with_header_if_absent("Content-Security-Policy", csp);
-
-		Ok(response
-			.with_header("X-Content-Type-Options", "nosniff")
-			.with_header("X-Frame-Options", "DENY")
-			.with_header("X-XSS-Protection", "0")
-			.with_header(
-				"Strict-Transport-Security",
-				"max-age=63072000; includeSubDomains",
-			)
-			.with_header("Cache-Control", "no-store")
-			.with_header("Referrer-Policy", "no-referrer"))
+		Ok(response.with_header_if_absent("Content-Security-Policy", csp))
 	}
 }
