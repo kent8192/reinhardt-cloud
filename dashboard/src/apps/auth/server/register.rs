@@ -2,7 +2,7 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
-use crate::shared::AuthResponse;
+use crate::shared::{AuthResponse, UserInfo};
 
 /// Create a new user account and return session token.
 ///
@@ -62,7 +62,7 @@ pub async fn register(
 		ServerFnError::application("Internal server error")
 	})?;
 
-	let user_info = services::user_to_info(&created);
+	let user_info = UserInfo::from(&created);
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),

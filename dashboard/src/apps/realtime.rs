@@ -3,5 +3,5 @@
 pub mod broadcaster;
 pub mod consumer;
 
-pub use broadcaster::{ConnectionHandle, WsBroadcaster};
+pub use broadcaster::WsBroadcaster;
 pub use consumer::NotificationConsumer;

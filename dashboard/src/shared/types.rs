@@ -13,6 +13,19 @@ pub struct UserInfo {
 	pub email: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl From<&crate::apps::auth::models::User> for UserInfo {
+	fn from(user: &crate::apps::auth::models::User) -> Self {
+		use reinhardt::{BaseUser, FullUser};
+
+		Self {
+			id: user.id().to_string(),
+			username: user.get_username().to_string(),
+			email: user.email().to_string(),
+		}
+	}
+}
+
 /// Response from login/register server functions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthResponse {

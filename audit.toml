@@ -27,10 +27,6 @@ ignore = [
 	# Transitive: reinhardt-web -> reinhardt-conf -> dotenv
 	"RUSTSEC-2021-0141",
 
-	# instant: unmaintained
-	# Transitive: reinhardt-web -> sqlx dependency chain -> instant
-	"RUSTSEC-2024-0384",
-
 	# paste: unmaintained
 	# Transitive: reinhardt-web -> reinhardt-db/reinhardt-testkit -> paste
 	"RUSTSEC-2024-0436",
@@ -46,10 +42,6 @@ ignore = [
 	# proc-macro-error: unmaintained
 	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
 	"RUSTSEC-2024-0370",
-
-	# astral-tokio-tar: vulnerability (severity: low 1.7)
-	# Transitive: testcontainers -> astral-tokio-tar
-	"RUSTSEC-2026-0066",
 
 	# aws-lc-sys: vulnerability (severity: high 7.4)
 	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys

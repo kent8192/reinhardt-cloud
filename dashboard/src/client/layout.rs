@@ -8,7 +8,6 @@ pub fn dashboard_shell() -> Page {
 	page!(|| {
 		div {
 			class: "min-h-screen flex flex-col bg-gray-50",
-			// Header
 			header {
 				class: "h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0",
 				div {
@@ -31,10 +30,8 @@ pub fn dashboard_shell() -> Page {
 					}
 				}
 			}
-			// Main content area
 			div {
 				class: "flex flex-1",
-				// Sidebar
 				nav {
 					class: "w-56 bg-white border-r border-gray-200 p-4 shrink-0",
 					ul {
@@ -62,7 +59,6 @@ pub fn dashboard_shell() -> Page {
 						}
 					}
 				}
-				// Content
 				main {
 					class: "flex-1 p-6",
 					h1 {
@@ -71,7 +67,6 @@ pub fn dashboard_shell() -> Page {
 					}
 					div {
 						class: "grid grid-cols-1 md:grid-cols-3 gap-6",
-						// Clusters card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
 							h3 {
@@ -83,7 +78,6 @@ pub fn dashboard_shell() -> Page {
 								"0"
 							}
 						}
-						// Deployments card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
 							h3 {
@@ -95,7 +89,6 @@ pub fn dashboard_shell() -> Page {
 								"0"
 							}
 						}
-						// Status card
 						div {
 							class: "bg-white rounded-lg border border-gray-200 p-6",
 							h3 {

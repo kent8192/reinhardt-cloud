@@ -2,7 +2,7 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
-use crate::shared::AuthResponse;
+use crate::shared::{AuthResponse, UserInfo};
 
 /// Authenticate user with credentials and return session token.
 ///
@@ -34,7 +34,7 @@ pub async fn login(username: String, password: String) -> Result<AuthResponse, S
 		ServerFnError::application("Internal server error")
 	})?;
 
-	let user_info = services::user_to_info(&user);
+	let user_info = UserInfo::from(&user);
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),
