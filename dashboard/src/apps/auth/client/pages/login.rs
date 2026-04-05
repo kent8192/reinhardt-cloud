@@ -51,6 +51,7 @@ pub fn login_page() -> Page {
 				label: "Password",
 				placeholder: "Enter your password",
 			},
+			submit: SubmitButton { label: "Sign in", class: "btn-primary w-full py-2.5 text-base" },
 		},
 	};
 	let form_view = login_form.into_page();

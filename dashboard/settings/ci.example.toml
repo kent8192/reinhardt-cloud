@@ -26,11 +26,12 @@ root_urlconf = ""
 middleware = []
 
 # Database configuration for CI (matches GitHub Actions PostgreSQL service container)
+# Used by reinhardt-web's migrate command which reads from [database] section.
 [database]
 engine = "postgresql"
 host = "localhost"
 port = 5432
-name = "reinhardt_cloud_dashboard_ci"
+name = "reinhardt_cloud_ci"
 user = "postgres"
 password = "postgres"
 
