@@ -9,14 +9,12 @@
 # Getting started:
 #   cp ci.example.toml ci.toml
 
+jwt_secret = "ci-only-jwt-secret-not-for-production"
+
 [core]
 # Enable debug mode for verbose error output in CI logs
 debug = true
-
-# Secret key for CI (not used in production)
 secret_key = "ci-only-secret-key-not-for-production"
-
-# Allow all hosts in CI
 allowed_hosts = ["*"]
 root_urlconf = ""
 
@@ -50,3 +48,17 @@ name = "reinhardt_cloud_ci"
 user = "postgres"
 password = { secret = "postgres" }
 options = {}
+
+[i18n]
+language_code = "en-us"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+
+[static_files]
+url = "/static/"
+root = "static"
+
+[media]
+url = "/media/"
+root = "media"

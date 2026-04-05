@@ -36,11 +36,7 @@ pub fn register_page() -> Page {
 
 			// Persist token to sessionStorage for subsequent server function calls
 			if let Some(ref token) = result.token {
-				if let Some(window) = web_sys::window() {
-					if let Ok(Some(storage)) = window.session_storage() {
-						let _ = storage.set_item("auth_token", token);
-					}
-				}
+				reinhardt::pages::auth::set_jwt_token(token);
 			}
 		},
 		fields: {

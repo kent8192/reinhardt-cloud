@@ -215,9 +215,5 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 /// Retrieve the JWT from `sessionStorage`.
 #[cfg(wasm)]
 fn get_auth_token() -> Option<String> {
-	web_sys::window()?
-		.session_storage()
-		.ok()??
-		.get_item("auth_token")
-		.ok()?
+	reinhardt::pages::auth::get_jwt_token()
 }
