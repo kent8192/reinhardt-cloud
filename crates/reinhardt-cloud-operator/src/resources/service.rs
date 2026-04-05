@@ -15,10 +15,12 @@ use crate::error::Error;
 /// Builds a `Service` for the given `ReinhardtApp`.
 ///
 /// Uses the app's own namespace as the single source of truth.
-/// Returns an error if the owner reference cannot be computed.
-pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
+/// When `pages_enabled` is true, the service exposes two ports:
+/// `http-app` (the application port) and `http-static` (port 8080 for the
+/// pages sidecar). Returns an error if the owner reference cannot be computed.
+pub(crate) fn build_service(app: &ReinhardtApp, pages_enabled: bool) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let port = validate_port(
 		"port",
 		app.spec
@@ -38,6 +40,26 @@ pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 
 	let owner_ref = owner_reference(app)?;
 
+	let mut ports = vec![ServicePort {
+		name: if pages_enabled {
+			Some("http-app".to_string())
+		} else {
+			None
+		},
+		port,
+		target_port: Some(IntOrString::Int(target_port)),
+		..Default::default()
+	}];
+
+	if pages_enabled {
+		ports.push(ServicePort {
+			name: Some("http-static".to_string()),
+			port: 8080,
+			target_port: Some(IntOrString::Int(8080)),
+			..Default::default()
+		});
+	}
+
 	Ok(Service {
 		metadata: ObjectMeta {
 			name: Some(app.name_any()),
@@ -51,11 +73,7 @@ pub(crate) fn build_service(app: &ReinhardtApp) -> Result<Service, Error> {
 				"app.kubernetes.io/name".to_string(),
 				app.name_any(),
 			)])),
-			ports: Some(vec![ServicePort {
-				port,
-				target_port: Some(IntOrString::Int(target_port)),
-				..Default::default()
-			}]),
+			ports: Some(ports),
 			..Default::default()
 		}),
 		..Default::default()
@@ -97,7 +115,7 @@ mod tests {
 		});
 
 		// Act
-		let svc = build_service(&app).expect("build should succeed");
+		let svc = build_service(&app, false).expect("build should succeed");
 
 		// Assert
 		let svc_spec = svc.spec.unwrap();
@@ -112,7 +130,7 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let svc = build_service(&app).expect("build should succeed");
+		let svc = build_service(&app, false).expect("build should succeed");
 
 		// Assert
 		let svc_spec = svc.spec.unwrap();
@@ -128,7 +146,7 @@ mod tests {
 		app.metadata.namespace = Some("production".to_string());
 
 		// Act
-		let svc = build_service(&app).expect("build should succeed");
+		let svc = build_service(&app, false).expect("build should succeed");
 
 		// Assert
 		assert_eq!(svc.metadata.namespace.as_deref(), Some("production"));
@@ -141,7 +159,7 @@ mod tests {
 		app.metadata.uid = None;
 
 		// Act
-		let result = build_service(&app);
+		let result = build_service(&app, false);
 
 		// Assert
 		assert!(result.is_err());
@@ -158,7 +176,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_service(&app);
+		let result = build_service(&app, false);
 
 		// Assert
 		assert!(result.is_err());
@@ -180,7 +198,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_service(&app);
+		let result = build_service(&app, false);
 
 		// Assert
 		assert!(result.is_err());
@@ -202,7 +220,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_service(&app);
+		let result = build_service(&app, false);
 
 		// Assert
 		assert!(result.is_err());
@@ -211,5 +229,35 @@ mod tests {
 			err,
 			"invalid port 70000 for field 'target_port': must be between 1 and 65535"
 		);
+	}
+
+	#[rstest]
+	fn test_build_service_with_pages_has_two_ports() {
+		// Arrange
+		let app = make_test_app("app", "app:v1", None);
+
+		// Act
+		let svc = build_service(&app, true).unwrap();
+		let ports = svc.spec.unwrap().ports.unwrap();
+
+		// Assert
+		assert_eq!(ports.len(), 2);
+		assert_eq!(ports[0].name.as_deref(), Some("http-app"));
+		assert_eq!(ports[0].port, 80);
+		assert_eq!(ports[1].name.as_deref(), Some("http-static"));
+		assert_eq!(ports[1].port, 8080);
+	}
+
+	#[rstest]
+	fn test_build_service_without_pages_single_port() {
+		// Arrange
+		let app = make_test_app("app", "app:v1", None);
+
+		// Act
+		let svc = build_service(&app, false).unwrap();
+		let ports = svc.spec.unwrap().ports.unwrap();
+
+		// Assert
+		assert_eq!(ports.len(), 1);
 	}
 }

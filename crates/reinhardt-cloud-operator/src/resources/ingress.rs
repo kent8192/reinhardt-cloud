@@ -13,6 +13,7 @@ use reinhardt_cloud_types::introspect::{InfraSignals, RouteMetadata};
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
+use crate::inference::pages::ResolvedPagesConfig;
 
 /// Builds an `Ingress` for the given `ReinhardtApp` from introspected route metadata.
 ///
@@ -79,6 +80,7 @@ pub(crate) fn build_ingress(
 	app_port: u16,
 	host: Option<&str>,
 	signals: Option<&InfraSignals>,
+	pages_config: Option<&ResolvedPagesConfig>,
 ) -> Result<Option<Ingress>, Error> {
 	let app_name = app.name_any();
 
@@ -97,13 +99,27 @@ pub(crate) fn build_ingress(
 		}
 	}
 
+	// Insert static file path for pages sidecar before any catch-all `/` path
+	if let Some(config) = pages_config
+		&& !paths
+			.iter()
+			.any(|p| p.path.as_deref() == Some(config.static_url.as_str()))
+	{
+		let static_path = build_http_path(&config.static_url, &app_name, 8080);
+		if let Some(root_idx) = paths.iter().position(|p| p.path.as_deref() == Some("/")) {
+			paths.insert(root_idx, static_path);
+		} else {
+			paths.push(static_path);
+		}
+	}
+
 	// Skip Ingress creation when there are no paths to route
 	if paths.is_empty() {
 		return Ok(None);
 	}
 
 	let labels = standard_labels(app, Component::Ingress);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
 	let rule = IngressRule {
@@ -111,12 +127,20 @@ pub(crate) fn build_ingress(
 		http: Some(HTTPIngressRuleValue { paths }),
 	};
 
+	let mut annotations = build_annotations(signals);
+	if pages_config.is_some() {
+		annotations.get_or_insert_with(BTreeMap::new).insert(
+			"nginx.ingress.kubernetes.io/proxy-buffering".to_string(),
+			"on".to_string(),
+		);
+	}
+
 	Ok(Some(Ingress {
 		metadata: ObjectMeta {
 			name: Some(app_name),
 			namespace: Some(namespace),
 			labels: Some(labels),
-			annotations: build_annotations(signals),
+			annotations,
 			owner_references: Some(vec![owner_ref]),
 			..Default::default()
 		},
@@ -168,7 +192,7 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, None)
+		let ingress = build_ingress(&app, &routes, 8000, None, None, None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -183,7 +207,7 @@ mod tests {
 		let routes = vec![make_route("/api/users/"), make_route("/api/posts/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8080, None, None)
+		let ingress = build_ingress(&app, &routes, 8080, None, None, None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -207,7 +231,7 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None)
+		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None, None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -224,7 +248,7 @@ mod tests {
 		let routes = vec![make_route("/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 80, None, None)
+		let ingress = build_ingress(&app, &routes, 80, None, None, None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -241,7 +265,8 @@ mod tests {
 		let routes: Vec<RouteMetadata> = vec![];
 
 		// Act
-		let result = build_ingress(&app, &routes, 8000, None, None).expect("build should succeed");
+		let result =
+			build_ingress(&app, &routes, 8000, None, None, None).expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());
@@ -258,7 +283,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -293,7 +318,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 50051, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 50051, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -321,7 +346,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -347,7 +372,7 @@ mod tests {
 		let routes = vec![make_route("/api/")];
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, None)
+		let ingress = build_ingress(&app, &routes, 8000, None, None, None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -366,7 +391,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -389,7 +414,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -412,7 +437,7 @@ mod tests {
 		};
 
 		// Act
-		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals))
+		let ingress = build_ingress(&app, &routes, 8000, None, Some(&signals), None)
 			.expect("build should succeed")
 			.expect("ingress should be created for non-empty routes");
 
@@ -425,5 +450,98 @@ mod tests {
 			.filter(|p| p.path.as_deref() == Some("/graphql/"))
 			.count();
 		assert_eq!(graphql_count, 1);
+	}
+
+	#[rstest]
+	fn test_build_ingress_with_pages_adds_static_path() {
+		// Arrange
+		let app = make_test_app("app");
+		let routes = vec![RouteMetadata {
+			path: "/".to_string(),
+			methods: vec!["GET".to_string()],
+			name: None,
+			namespace: None,
+		}];
+		let pages = crate::inference::pages::ResolvedPagesConfig::default();
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, None, Some(&pages))
+			.unwrap()
+			.unwrap();
+		let rules = ingress.spec.unwrap().rules.unwrap();
+		let paths = &rules[0].http.as_ref().unwrap().paths;
+
+		// Assert
+		let static_path = paths.iter().find(|p| p.path.as_deref() == Some("/static/"));
+		assert!(static_path.is_some());
+		let backend = &static_path.unwrap().backend;
+		let svc_port = &backend.service.as_ref().unwrap().port.as_ref().unwrap();
+		assert_eq!(svc_port.number, Some(8080));
+	}
+
+	#[rstest]
+	fn test_build_ingress_with_pages_preserves_existing_paths() {
+		// Arrange
+		let app = make_test_app("app");
+		let routes = vec![
+			RouteMetadata {
+				path: "/api/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			},
+			RouteMetadata {
+				path: "/".to_string(),
+				methods: vec!["GET".to_string()],
+				name: None,
+				namespace: None,
+			},
+		];
+		let pages = crate::inference::pages::ResolvedPagesConfig::default();
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, None, Some(&pages))
+			.unwrap()
+			.unwrap();
+		let spec = ingress.spec.unwrap();
+		let rules = spec.rules.unwrap();
+		let paths = &rules[0].http.as_ref().unwrap().paths;
+
+		// Assert
+		assert!(paths.iter().any(|p| p.path.as_deref() == Some("/static/")));
+		assert!(paths.iter().any(|p| p.path.as_deref() == Some("/api/")));
+		assert!(paths.iter().any(|p| p.path.as_deref() == Some("/")));
+	}
+
+	#[rstest]
+	fn test_build_ingress_static_path_before_root() {
+		// Arrange
+		let app = make_test_app("app");
+		let routes = vec![RouteMetadata {
+			path: "/".to_string(),
+			methods: vec!["GET".to_string()],
+			name: None,
+			namespace: None,
+		}];
+		let pages = crate::inference::pages::ResolvedPagesConfig::default();
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 8000, None, None, Some(&pages))
+			.unwrap()
+			.unwrap();
+		let spec = ingress.spec.unwrap();
+		let rules = spec.rules.unwrap();
+		let paths = &rules[0].http.as_ref().unwrap().paths;
+
+		// Assert — /static/ appears before /
+		let static_idx = paths
+			.iter()
+			.position(|p| p.path.as_deref() == Some("/static/"))
+			.unwrap();
+		let root_idx = paths
+			.iter()
+			.position(|p| p.path.as_deref() == Some("/"))
+			.unwrap();
+		assert!(static_idx < root_idx);
 	}
 }

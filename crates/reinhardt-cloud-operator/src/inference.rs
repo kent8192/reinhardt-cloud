@@ -7,5 +7,6 @@
 pub(crate) mod configmap;
 pub(crate) mod database;
 pub(crate) mod env_vars;
+pub(crate) mod pages;
 pub(crate) mod platform;
 pub(crate) mod secrets;

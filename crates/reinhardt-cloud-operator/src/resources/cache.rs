@@ -20,7 +20,7 @@ use crate::error::Error;
 /// Uses `redis:7-alpine` with a single replica and conservative resource limits.
 pub(crate) fn build_cache_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Cache);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 	let deploy_name = format!("{}-redis", app_name);
@@ -86,7 +86,7 @@ pub(crate) fn build_cache_deployment(app: &ReinhardtApp) -> Result<Deployment, E
 /// Targets port 6379 and selects pods by app name and cache component labels.
 pub(crate) fn build_cache_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Cache);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 

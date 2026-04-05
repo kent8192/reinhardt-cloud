@@ -71,11 +71,11 @@ fn standard_secret_labels(app_name: &str) -> BTreeMap<String, String> {
 	])
 }
 
-/// Generates a random 32-character alphanumeric password for database credentials.
-pub(crate) fn generate_password() -> String {
+/// Generate a random alphanumeric password of the given length.
+pub(crate) fn generate_random_password(len: usize) -> String {
+	const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 	let mut rng = rand::rng();
-	const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-	(0..32)
+	(0..len)
 		.map(|_| {
 			let idx = rng.random_range(0..CHARSET.len());
 			CHARSET[idx] as char

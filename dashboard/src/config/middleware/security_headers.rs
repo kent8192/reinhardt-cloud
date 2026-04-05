@@ -26,6 +26,20 @@ impl Middleware for CspPathMiddleware {
 		let path = request.uri.path();
 		let is_api = path.starts_with("/api/");
 		let is_admin = path.starts_with("/admin/");
+
+		// Detect HTTPS via X-Forwarded-Proto (set by trusted reverse proxy / LB).
+		// Only trust this header when SECURE_SSL_REDIRECT is enabled in settings,
+		// which implies the app runs behind a properly configured proxy.
+		let is_https = crate::config::settings::get_settings()
+			.core
+			.security
+			.secure_ssl_redirect
+			&& request
+				.headers
+				.get("X-Forwarded-Proto")
+				.and_then(|v| v.to_str().ok())
+				.is_some_and(|proto| proto == "https");
+
 		let response = next.handle(request).await?;
 
 		if is_admin {
@@ -37,7 +51,15 @@ impl Middleware for CspPathMiddleware {
 				 connect-src 'self'; \
 				 img-src 'self' data:; \
 				 font-src 'self'";
-			return Ok(response.with_header("Content-Security-Policy", csp));
+			let mut response = response.with_header("Content-Security-Policy", csp);
+			// HSTS only applies over HTTPS
+			if is_https {
+				response = response.with_header(
+					"Strict-Transport-Security",
+					"max-age=63072000; includeSubDomains",
+				);
+			}
+			return Ok(response);
 		}
 
 		let csp = if is_api {
@@ -50,6 +72,17 @@ impl Middleware for CspPathMiddleware {
 			 img-src 'self' data:"
 		};
 
-		Ok(response.with_header_if_absent("Content-Security-Policy", csp))
+		let mut response = response.with_header_if_absent("Content-Security-Policy", csp);
+
+		// HSTS only applies over HTTPS; sending it over plain HTTP is
+		// ignored by browsers and confusing in development environments.
+		if is_https {
+			response = response.with_header(
+				"Strict-Transport-Security",
+				"max-age=63072000; includeSubDomains",
+			);
+		}
+
+		Ok(response)
 	}
 }

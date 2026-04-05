@@ -23,6 +23,10 @@ pub(crate) enum Component {
 	Ingress,
 	/// Database migration job.
 	Migration,
+	/// Static file server sidecar (e.g. static-web-server for WASM assets).
+	/// Currently used for label generation in future per-resource labeling.
+	#[allow(dead_code)]
+	StaticServer,
 }
 
 impl Component {
@@ -35,6 +39,7 @@ impl Component {
 			Self::Cache => "cache",
 			Self::Ingress => "ingress",
 			Self::Migration => "migration",
+			Self::StaticServer => "static-server",
 		}
 	}
 }
@@ -59,7 +64,11 @@ pub(crate) fn standard_labels(
 		),
 		(
 			"paas.reinhardt-cloud.dev/owner".to_string(),
-			format!("{}/{}", app.namespace().unwrap_or_default(), app.name_any()),
+			format!(
+				"{}/{}",
+				app.namespace().unwrap_or_else(|| "<unknown>".to_string()),
+				app.name_any()
+			),
 		),
 	])
 }
@@ -133,6 +142,7 @@ mod tests {
 	#[case(Component::Cache, "cache")]
 	#[case(Component::Ingress, "ingress")]
 	#[case(Component::Migration, "migration")]
+	#[case(Component::StaticServer, "static-server")]
 	fn test_component_as_str(#[case] component: Component, #[case] expected: &str) {
 		// Arrange / Act / Assert
 		assert_eq!(component.as_str(), expected);

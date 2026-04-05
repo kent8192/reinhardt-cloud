@@ -12,35 +12,27 @@ use crate::error::Error;
 
 /// Builds a `ServiceAccount` with cloud IAM annotations for the given storage backend.
 ///
-/// - S3 backend: annotated with `eks.amazonaws.com/role-arn` (from app annotation or error)
-/// - GCS backend: annotated with `iam.gke.io/gcp-service-account` (from app annotation or error)
-/// - Other backends (e.g., `pvc`): returns `Ok(None)` (no ServiceAccount needed)
+/// - S3 backend with a role ARN: annotated with `eks.amazonaws.com/role-arn`
+/// - GCS backend with a service account: annotated with `iam.gke.io/gcp-service-account`
+/// - Backends without IAM values or non-cloud backends: returns `Ok(None)`
 pub(crate) fn build_storage_service_account(
 	app: &ReinhardtApp,
 	backend: &str,
+	iam_identity: Option<&str>,
 ) -> Result<Option<ServiceAccount>, Error> {
-	let app_annotations = app.metadata.annotations.as_ref();
-
-	let annotations = match backend {
-		"s3" => {
-			let arn = app_annotations
-				.and_then(|a| a.get("reinhardt-cloud.dev/s3-role-arn"))
-				.cloned()
-				.unwrap_or_default();
-			BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), arn)])
+	let annotations = match (backend, iam_identity) {
+		("s3", Some(role)) if !role.is_empty() => {
+			BTreeMap::from([("eks.amazonaws.com/role-arn".to_string(), role.to_string())])
 		}
-		"gcs" => {
-			let sa = app_annotations
-				.and_then(|a| a.get("reinhardt-cloud.dev/gcs-service-account"))
-				.cloned()
-				.unwrap_or_default();
-			BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), sa)])
+		("gcs", Some(sa)) if !sa.is_empty() => {
+			BTreeMap::from([("iam.gke.io/gcp-service-account".to_string(), sa.to_string())])
 		}
+		// No IAM identity configured or non-cloud backend — skip ServiceAccount
 		_ => return Ok(None),
 	};
 
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 
@@ -78,13 +70,17 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "s3")
-			.expect("build should succeed")
-			.expect("S3 should produce a ServiceAccount");
+		let sa =
+			build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
+				.expect("build should succeed")
+				.expect("S3 with role should produce a ServiceAccount");
 
 		// Assert
 		let annotations = sa.metadata.annotations.as_ref().unwrap();
-		assert!(annotations.contains_key("eks.amazonaws.com/role-arn"));
+		assert_eq!(
+			annotations.get("eks.amazonaws.com/role-arn").unwrap(),
+			"arn:aws:iam::123456:role/my-role"
+		);
 	}
 
 	#[rstest]
@@ -93,13 +89,20 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "gcs")
-			.expect("build should succeed")
-			.expect("GCS should produce a ServiceAccount");
+		let sa = build_storage_service_account(
+			&app,
+			"gcs",
+			Some("my-sa@project.iam.gserviceaccount.com"),
+		)
+		.expect("build should succeed")
+		.expect("GCS with SA should produce a ServiceAccount");
 
 		// Assert
 		let annotations = sa.metadata.annotations.as_ref().unwrap();
-		assert!(annotations.contains_key("iam.gke.io/gcp-service-account"));
+		assert_eq!(
+			annotations.get("iam.gke.io/gcp-service-account").unwrap(),
+			"my-sa@project.iam.gserviceaccount.com"
+		);
 	}
 
 	#[rstest]
@@ -108,7 +111,33 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let result = build_storage_service_account(&app, "pvc").expect("build should succeed");
+		let result =
+			build_storage_service_account(&app, "pvc", None).expect("build should succeed");
+
+		// Assert
+		assert!(result.is_none());
+	}
+
+	#[rstest]
+	fn test_build_storage_sa_s3_without_role_returns_none() {
+		// Arrange
+		let app = test_app("myapp");
+
+		// Act
+		let result = build_storage_service_account(&app, "s3", None).expect("build should succeed");
+
+		// Assert
+		assert!(result.is_none());
+	}
+
+	#[rstest]
+	fn test_build_storage_sa_s3_with_empty_role_returns_none() {
+		// Arrange
+		let app = test_app("myapp");
+
+		// Act
+		let result =
+			build_storage_service_account(&app, "s3", Some("")).expect("build should succeed");
 
 		// Assert
 		assert!(result.is_none());
@@ -120,9 +149,10 @@ mod tests {
 		let app = test_app("myapp");
 
 		// Act
-		let sa = build_storage_service_account(&app, "s3")
-			.expect("build should succeed")
-			.expect("S3 should produce a ServiceAccount");
+		let sa =
+			build_storage_service_account(&app, "s3", Some("arn:aws:iam::123456:role/my-role"))
+				.expect("build should succeed")
+				.expect("S3 with role should produce a ServiceAccount");
 
 		// Assert
 		assert_eq!(sa.metadata.name.as_deref(), Some("myapp-storage"));

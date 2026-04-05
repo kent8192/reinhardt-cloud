@@ -14,6 +14,7 @@ use super::cache::CacheSpec;
 use super::database::DatabaseSpec;
 use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
+use super::pages::PagesSpec;
 use super::policy::DeletionPolicy;
 use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
@@ -210,6 +211,10 @@ pub struct ReinhardtAppSpec {
 	/// Environment variables as key-value pairs
 	#[serde(default)]
 	pub env: BTreeMap<String, String>,
+	/// reinhardt-pages frontend configuration.
+	/// Auto-detected from introspect when not explicitly set.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pages: Option<PagesSpec>,
 	/// Introspect metadata from `manage introspect` output.
 	/// When present, the operator uses this to infer infrastructure requirements.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -269,6 +274,12 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref pages) = self.pages
+			&& let Err(errs) = pages.validate()
+		{
+			errors.extend(errs);
+		}
+
 		if let Some(ref isolation) = self.isolation
 			&& let Err(errs) = isolation.validate()
 		{
@@ -322,6 +333,7 @@ mod tests {
 				target_port: Some(8080),
 				ingress_host: Some("myapp.example.com".to_string()),
 			}),
+			pages: None,
 			deletion_policy: DeletionPolicy::default(),
 			features: vec![],
 			isolation: None,
@@ -375,6 +387,7 @@ mod tests {
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Retain);
 		assert!(spec.features.is_empty());
 		assert!(spec.env.is_empty());
+		assert!(spec.pages.is_none());
 		assert!(spec.introspect.is_none());
 	}
 
@@ -764,6 +777,15 @@ mod tests {
 				target_port: Some(8080),
 				ingress_host: Some("app.example.com".to_string()),
 			}),
+			pages: Some(crate::crd::pages::PagesSpec {
+				static_root: Some("/app/dist".to_string()),
+				static_url: Some("/static/".to_string()),
+				server_image: None,
+				server_resources: None,
+				cache_max_age: Some(86400),
+				brotli: None,
+				gzip: None,
+			}),
 			deletion_policy: DeletionPolicy::Delete,
 			features: vec!["db-postgres".to_string(), "auth-jwt".to_string()],
 			env: BTreeMap::from([("MY_VAR".to_string(), "my_val".to_string())]),
@@ -779,6 +801,7 @@ mod tests {
 		assert_eq!(spec.features.len(), 2);
 		assert_eq!(spec.env.len(), 1);
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Delete);
+		assert!(spec.pages.is_some());
 	}
 
 	#[rstest]
@@ -835,6 +858,59 @@ mod tests {
 		assert_eq!(value["image"], "myapp:latest");
 		assert_eq!(value["introspect"]["app"]["name"], "my-app");
 		assert_eq!(value["introspect"]["app"]["version"], "1.0.0");
+	}
+
+	#[rstest]
+	fn test_spec_with_pages_roundtrip() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			pages: Some(crate::crd::pages::PagesSpec {
+				static_root: Some("/app/dist".to_string()),
+				static_url: Some("/static/".to_string()),
+				server_image: None,
+				server_resources: None,
+				cache_max_age: Some(86400),
+				brotli: None,
+				gzip: None,
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).unwrap();
+		let deserialized: ReinhardtAppSpec = serde_yaml::from_str(&yaml).unwrap();
+
+		// Assert
+		assert!(deserialized.pages.is_some());
+		let pages = deserialized.pages.unwrap();
+		assert_eq!(pages.static_root.unwrap(), "/app/dist");
+		assert_eq!(pages.cache_max_age.unwrap(), 86400);
+	}
+
+	#[rstest]
+	fn test_spec_pages_validation_delegated() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			pages: Some(crate::crd::pages::PagesSpec {
+				static_root: Some(String::new()),
+				static_url: None,
+				server_image: None,
+				server_resources: None,
+				cache_max_age: None,
+				brotli: None,
+				gzip: None,
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("static_root")));
 	}
 
 	#[rstest]

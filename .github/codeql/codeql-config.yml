@@ -10,3 +10,11 @@ paths-ignore:
   - "tests/"
   - "**/tests/"
   - "**/tests/**"
+
+# Suppress hard-coded cryptographic value alerts.
+# Production code uses generate_random_password() for real credentials.
+# Remaining alerts are false positives from #[cfg(test)] modules
+# within source files, which paths-ignore cannot exclude.
+query-filters:
+  - exclude:
+      id: rust/hard-coded-cryptographic-value

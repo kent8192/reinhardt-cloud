@@ -200,6 +200,9 @@ pub struct InfraSignals {
 	/// Whether internationalization (i18n) is enabled.
 	#[serde(default)]
 	pub i18n: bool,
+	/// Whether the application uses reinhardt-pages (WASM frontend).
+	#[serde(default)]
+	pub pages: bool,
 }
 
 #[cfg(test)]
@@ -260,6 +263,7 @@ mod tests {
 					graphql: false,
 					admin_panel: true,
 					i18n: false,
+					pages: false,
 				},
 			},
 		};
@@ -365,5 +369,38 @@ databases: []
 		assert_eq!(output.features.infrastructure_signals.graphql, false);
 		assert_eq!(output.features.infrastructure_signals.admin_panel, false);
 		assert_eq!(output.features.infrastructure_signals.i18n, false);
+		assert_eq!(output.features.infrastructure_signals.pages, false);
+	}
+
+	#[rstest]
+	fn test_infra_signals_pages_field() {
+		// Arrange
+		let yaml = r#"
+infrastructure_signals:
+  pages: true
+  database: postgres
+"#;
+
+		// Act
+		let features: FeaturesMetadata = serde_yaml::from_str(yaml).unwrap();
+
+		// Assert
+		assert!(features.infrastructure_signals.pages);
+		assert_eq!(
+			features.infrastructure_signals.database.as_deref(),
+			Some("postgres")
+		);
+	}
+
+	#[rstest]
+	fn test_infra_signals_pages_defaults_false() {
+		// Arrange
+		let yaml = "infrastructure_signals: {}";
+
+		// Act
+		let features: FeaturesMetadata = serde_yaml::from_str(yaml).unwrap();
+
+		// Assert
+		assert!(!features.infrastructure_signals.pages);
 	}
 }

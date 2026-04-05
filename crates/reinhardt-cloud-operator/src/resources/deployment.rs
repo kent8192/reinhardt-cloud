@@ -4,11 +4,12 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec,
-	ResourceRequirements, Volume, VolumeMount,
+	ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+	PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
 use reinhardt_cloud_types::crd::ReinhardtApp;
 
@@ -18,18 +19,22 @@ use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
 use crate::inference::env_vars::{build_system_env_vars, merge_env_vars};
+use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
 /// Builds a `Deployment` for the given `ReinhardtApp`.
 ///
 /// Uses the app's own namespace as the single source of truth.
+/// When `pages_config` is provided, adds a collectstatic initContainer,
+/// a static-server sidecar container, and a shared emptyDir volume.
 /// Returns an error if the owner reference cannot be computed.
 pub(crate) fn build_deployment(
 	app: &ReinhardtApp,
+	pages_config: Option<&ResolvedPagesConfig>,
 	platform: &Platform,
 ) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Web);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let replicas = app.spec.replicas.unwrap_or(1);
 	let port = validate_port(
 		"target_port",
@@ -47,7 +52,7 @@ pub(crate) fn build_deployment(
 	let merged_env = merge_env_vars(&system_vars, &app.spec.env);
 
 	// Settings ConfigMap volume and mount
-	let volumes = vec![Volume {
+	let mut volumes = vec![Volume {
 		name: "settings".to_string(),
 		config_map: Some(ConfigMapVolumeSource {
 			name: format!("{}-settings", app.name_any()),
@@ -64,8 +69,8 @@ pub(crate) fn build_deployment(
 	}];
 
 	// Init container for database migrations when database is configured
-	let init_containers = if app.spec.database.is_some() {
-		Some(vec![Container {
+	let mut init_containers: Vec<Container> = if app.spec.database.is_some() {
+		vec![Container {
 			name: "migrate".to_string(),
 			image: Some(app.spec.image.clone()),
 			command: Some(vec![
@@ -87,12 +92,154 @@ pub(crate) fn build_deployment(
 				..Default::default()
 			}),
 			..Default::default()
-		}])
+		}]
 	} else {
-		None
+		Vec::new()
 	};
 
 	let isolated = app.spec.isolation.is_some();
+
+	// Additional containers (sidecars)
+	let mut extra_containers: Vec<Container> = Vec::new();
+
+	// Pages: collectstatic initContainer, static-server sidecar, emptyDir volume
+	if let Some(config) = pages_config {
+		// Add shared emptyDir volume for static files
+		volumes.push(Volume {
+			name: "static-files".to_string(),
+			empty_dir: Some(EmptyDirVolumeSource::default()),
+			..Default::default()
+		});
+
+		// collectstatic initContainer (after migrate)
+		let mut collectstatic_mounts = volume_mounts.clone();
+		collectstatic_mounts.push(VolumeMount {
+			name: "static-files".to_string(),
+			mount_path: config.static_root.clone(),
+			..Default::default()
+		});
+
+		let mut collectstatic_env = merged_env.clone();
+		collectstatic_env.push(EnvVar {
+			name: "REINHARDT_STATIC_ROOT".to_string(),
+			value: Some(config.static_root.clone()),
+			..Default::default()
+		});
+
+		init_containers.push(Container {
+			name: "collectstatic".to_string(),
+			image: Some(app.spec.image.clone()),
+			command: Some(vec![
+				"manage".to_string(),
+				"collectstatic".to_string(),
+				"--noinput".to_string(),
+			]),
+			env: Some(collectstatic_env),
+			volume_mounts: Some(collectstatic_mounts),
+			..Default::default()
+		});
+
+		// Convert server_resources to k8s ResourceRequirements
+		let server_resources = ResourceRequirements {
+			requests: Some(
+				config
+					.server_resources
+					.requests
+					.iter()
+					.map(|(k, v)| (k.clone(), Quantity(v.clone())))
+					.collect(),
+			),
+			limits: Some(
+				config
+					.server_resources
+					.limits
+					.iter()
+					.map(|(k, v)| (k.clone(), Quantity(v.clone())))
+					.collect(),
+			),
+			..Default::default()
+		};
+
+		// static-server sidecar container
+		extra_containers.push(Container {
+			name: "static-server".to_string(),
+			image: Some(config.server_image.clone()),
+			ports: Some(vec![ContainerPort {
+				container_port: 8080,
+				name: Some("http-static".to_string()),
+				..Default::default()
+			}]),
+			env: Some(vec![
+				EnvVar {
+					name: "SERVER_ROOT".to_string(),
+					value: Some(config.static_root.clone()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_PORT".to_string(),
+					value: Some("8080".to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_LOG_LEVEL".to_string(),
+					value: Some("info".to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_COMPRESSION".to_string(),
+					value: Some((config.brotli || config.gzip).to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_COMPRESSION_STATIC".to_string(),
+					value: Some((config.brotli || config.gzip).to_string()),
+					..Default::default()
+				},
+			]),
+			volume_mounts: Some(vec![VolumeMount {
+				name: "static-files".to_string(),
+				mount_path: config.static_root.clone(),
+				read_only: Some(true),
+				..Default::default()
+			}]),
+			readiness_probe: Some(Probe {
+				http_get: Some(HTTPGetAction {
+					path: Some("/health".to_string()),
+					port: IntOrString::Int(8080),
+					..Default::default()
+				}),
+				initial_delay_seconds: Some(2),
+				period_seconds: Some(5),
+				..Default::default()
+			}),
+			resources: Some(server_resources),
+			..Default::default()
+		});
+	}
+
+	let init_containers_opt = if init_containers.is_empty() {
+		None
+	} else {
+		Some(init_containers)
+	};
+
+	let mut containers = vec![Container {
+		name: app.name_any(),
+		image: Some(app.spec.image.clone()),
+		ports: Some(vec![ContainerPort {
+			container_port: port,
+			..Default::default()
+		}]),
+		env: Some(merged_env),
+		volume_mounts: Some(volume_mounts),
+		security_context: if isolated {
+			Some(build_container_security_context())
+		} else {
+			None
+		},
+		..Default::default()
+	}];
+	containers.extend(extra_containers);
 
 	Ok(Deployment {
 		metadata: ObjectMeta {
@@ -123,23 +270,8 @@ pub(crate) fn build_deployment(
 					} else {
 						None
 					},
-					init_containers,
-					containers: vec![Container {
-						name: app.name_any(),
-						image: Some(app.spec.image.clone()),
-						ports: Some(vec![ContainerPort {
-							container_port: port,
-							..Default::default()
-						}]),
-						env: Some(merged_env),
-						volume_mounts: Some(volume_mounts),
-						security_context: if isolated {
-							Some(build_container_security_context())
-						} else {
-							None
-						},
-						..Default::default()
-					}],
+					init_containers: init_containers_opt,
+					containers,
 					volumes: Some(volumes),
 					..Default::default()
 				}),
@@ -194,7 +326,8 @@ mod tests {
 		let app = make_test_app("web", "web:latest", Some(3));
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let spec = deploy.spec.unwrap();
@@ -209,7 +342,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.spec.unwrap().replicas, Some(1));
@@ -221,7 +355,8 @@ mod tests {
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
@@ -236,7 +371,8 @@ mod tests {
 		app.metadata.namespace = Some("staging".to_string());
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 
 		// Assert
 		assert_eq!(deploy.metadata.namespace.as_deref(), Some("staging"));
@@ -249,7 +385,7 @@ mod tests {
 		app.metadata.uid = None;
 
 		// Act
-		let result = build_deployment(&app, &Platform::Onpremise);
+		let result = build_deployment(&app, None, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -266,7 +402,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app, &Platform::Onpremise);
+		let result = build_deployment(&app, None, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -288,7 +424,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app, &Platform::Onpremise);
+		let result = build_deployment(&app, None, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -310,7 +446,7 @@ mod tests {
 		});
 
 		// Act
-		let result = build_deployment(&app, &Platform::Onpremise);
+		let result = build_deployment(&app, None, &Platform::Onpremise);
 
 		// Assert
 		assert!(result.is_err());
@@ -328,7 +464,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -348,7 +484,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -362,7 +498,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -382,7 +518,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 
 		// Assert
@@ -399,7 +535,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -419,7 +555,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -435,7 +571,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -454,7 +590,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
 
@@ -477,7 +613,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
 		let mounts = container.volume_mounts.as_ref().unwrap();
 
@@ -496,7 +632,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
@@ -515,7 +651,7 @@ mod tests {
 
 		// Act
 		let deployment =
-			build_deployment(&app, &Platform::Onpremise).expect("build should succeed");
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let main_env = pod_spec.containers[0].env.clone();
 		let init_containers = pod_spec.init_containers.unwrap();
@@ -525,13 +661,142 @@ mod tests {
 		assert_eq!(main_env, init_env);
 	}
 
+	// ── Pages sidecar tests ───────────────────────────────────────────
+
+	fn make_default_pages_config() -> crate::inference::pages::ResolvedPagesConfig {
+		crate::inference::pages::ResolvedPagesConfig::default()
+	}
+
+	#[rstest]
+	fn test_build_deployment_without_pages_unchanged() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+
+		// Act
+		let dep = build_deployment(&app, None, &Platform::Aws).unwrap();
+		let spec = dep.spec.unwrap();
+		let pod_spec = spec.template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.containers.len(), 1);
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_sidecar() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.containers.len(), 2);
+		let sidecar = &pod_spec.containers[1];
+		assert_eq!(sidecar.name, "static-server");
+		assert_eq!(
+			sidecar.image.as_deref(),
+			Some("joseluisq/static-web-server:2-alpine")
+		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_collectstatic_init_container() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let inits = pod_spec.init_containers.unwrap();
+
+		// Assert
+		let collectstatic = inits.iter().find(|c| c.name == "collectstatic");
+		assert!(collectstatic.is_some());
+	}
+
+	#[rstest]
+	fn test_build_deployment_with_pages_adds_emptydir_volume() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let volumes = pod_spec.volumes.unwrap();
+
+		// Assert
+		assert!(volumes.iter().any(|v| v.name == "static-files"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_custom_static_root() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/opt/static".to_string();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+		let server_root = sidecar
+			.env
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|e| e.name == "SERVER_ROOT")
+			.unwrap();
+
+		// Assert
+		assert_eq!(server_root.value.as_deref(), Some("/opt/static"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_custom_server_image() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.server_image = "custom:v2".to_string();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+
+		// Assert
+		assert_eq!(sidecar.image.as_deref(), Some("custom:v2"));
+	}
+
+	#[rstest]
+	fn test_build_deployment_pages_sidecar_readiness_probe() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let pages = make_default_pages_config();
+
+		// Act
+		let dep = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let pod_spec = dep.spec.unwrap().template.spec.unwrap();
+		let sidecar = &pod_spec.containers[1];
+
+		// Assert
+		let probe = sidecar.readiness_probe.as_ref().unwrap();
+		let http = probe.http_get.as_ref().unwrap();
+		assert_eq!(http.path.as_deref(), Some("/health"));
+	}
+
+	// ── Isolation tests ───────────────────────────────────────────
+
 	#[rstest]
 	fn test_build_deployment_no_runtime_class_without_isolation() {
 		// Arrange
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let deploy = build_deployment(&app, None, &Platform::Aws).expect("build should succeed");
 		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -548,7 +813,7 @@ mod tests {
 		});
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let deploy = build_deployment(&app, None, &Platform::Aws).expect("build should succeed");
 		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -565,7 +830,7 @@ mod tests {
 		});
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Gcp).expect("build should succeed");
+		let deploy = build_deployment(&app, None, &Platform::Gcp).expect("build should succeed");
 		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
 
 		// Assert
@@ -582,7 +847,7 @@ mod tests {
 		});
 
 		// Act
-		let deploy = build_deployment(&app, &Platform::Aws).expect("build should succeed");
+		let deploy = build_deployment(&app, None, &Platform::Aws).expect("build should succeed");
 		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
 
 		// Assert

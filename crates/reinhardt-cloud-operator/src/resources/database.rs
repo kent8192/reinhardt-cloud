@@ -57,7 +57,7 @@ fn sanitize_db_name(name: &str) -> String {
 /// and a fully-formed `DATABASE_URL` connection string.
 pub(crate) fn build_db_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
 	let labels = standard_labels(app, Component::Database);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 
@@ -94,7 +94,7 @@ pub(crate) fn build_db_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
 /// Credentials are injected from the companion secret via `envFrom`.
 pub(crate) fn build_db_statefulset(app: &ReinhardtApp) -> Result<StatefulSet, Error> {
 	let labels = standard_labels(app, Component::Database);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 	let sts_name = format!("{}-postgresql", app_name);
@@ -181,7 +181,7 @@ pub(crate) fn build_db_statefulset(app: &ReinhardtApp) -> Result<StatefulSet, Er
 /// Targets port 5432 and selects pods by app name and database component labels.
 pub(crate) fn build_db_service(app: &ReinhardtApp) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Database);
-	let namespace = app.namespace().unwrap_or_default();
+	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 	let app_name = app.name_any();
 

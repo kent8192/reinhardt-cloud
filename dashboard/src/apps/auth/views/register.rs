@@ -5,12 +5,12 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
-use reinhardt::{BaseUser, Json, Response, StatusCode};
+use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
 use tracing::error;
 
+use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::{RegisterRequest, TokenResponse};
-use crate::apps::auth::services;
 
 /// Register new user, persist to database, and return JWT token.
 #[post("/auth/register/", name = "auth_register", pre_validate = true)]
@@ -55,10 +55,20 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		}
 	};
 
-	let token = services::create_session_token(&created).map_err(|e| {
-		error!("JWT token generation failed during registration: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
+	// Generate JWT with UUID as sub claim
+	let secret = jwt_secret()?;
+	let auth = JwtAuth::new(secret.as_bytes());
+	let token = auth
+		.generate_token(
+			created.id().to_string(),
+			created.get_username().to_string(),
+			created.is_staff,
+			created.is_superuser,
+		)
+		.map_err(|e| {
+			error!("JWT token generation failed during registration: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 
 	let resp = TokenResponse::bearer(token);
 	Ok(Response::new(StatusCode::CREATED)

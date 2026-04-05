@@ -1,5 +1,7 @@
 //! Utility functions for auth views.
 
+use reinhardt::core::exception::{Error, Result};
+
 /// Get JWT secret from settings or environment.
 ///
 /// Reads the JWT secret with the following priority:
@@ -8,10 +10,12 @@
 ///
 /// In production, this MUST be set to a cryptographically
 /// random string of at least 32 bytes.
-pub(crate) fn jwt_secret() -> Result<String, String> {
+pub(crate) fn jwt_secret() -> Result<String> {
 	crate::config::settings::get_jwt_secret().ok_or_else(|| {
-		"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var \
-		 or jwt_secret in settings TOML"
-			.to_string()
+		Error::Internal(
+			"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var \
+			 or jwt_secret in settings TOML"
+				.to_string(),
+		)
 	})
 }

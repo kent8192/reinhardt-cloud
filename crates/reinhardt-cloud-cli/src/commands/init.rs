@@ -49,7 +49,7 @@ pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	// Write reinhardt-cloud.toml
-	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
+	tokio::fs::write(&reinhardt_cloud_toml_path, &toml_string).await?;
 	println!("\nGenerated reinhardt-cloud.toml");
 
 	Ok(())
