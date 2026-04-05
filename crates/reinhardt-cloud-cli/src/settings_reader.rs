@@ -20,9 +20,10 @@ pub(crate) fn parse_database_config(content: &str) -> Result<DatabaseConfig, Str
 		toml::from_str(content).map_err(|e| format!("Failed to parse settings: {e}"))?;
 
 	let db = parsed
-		.get("databases")
+		.get("core")
+		.and_then(|c| c.get("databases"))
 		.and_then(|d| d.get("default"))
-		.ok_or("No [databases.default] section found")?;
+		.ok_or("No [core.databases.default] section found")?;
 
 	Ok(DatabaseConfig {
 		engine: db
@@ -60,7 +61,7 @@ mod tests {
 	fn test_parse_database_config_postgresql() {
 		// Arrange
 		let content = r#"
-[databases.default]
+[core.databases.default]
 engine = "postgresql"
 host = "db.example.com"
 port = 5432
@@ -81,7 +82,7 @@ name = "mydb"
 	fn test_parse_database_config_mysql() {
 		// Arrange
 		let content = r#"
-[databases.default]
+[core.databases.default]
 engine = "mysql"
 host = "mysql.local"
 port = 3306
@@ -100,7 +101,7 @@ name = "app_db"
 	fn test_parse_database_config_defaults() {
 		// Arrange
 		let content = r#"
-[databases.default]
+[core.databases.default]
 "#;
 
 		// Act
@@ -126,7 +127,7 @@ host = "localhost"
 
 		// Assert
 		assert!(result.is_err());
-		assert!(result.unwrap_err().contains("No [databases.default]"));
+		assert!(result.unwrap_err().contains("No [core.databases.default]"));
 	}
 
 	#[rstest]
@@ -151,7 +152,7 @@ host = "localhost"
 		std::fs::write(
 			settings_dir.join("base.toml"),
 			r#"
-[databases.default]
+[core.databases.default]
 engine = "postgresql"
 host = "localhost"
 port = 5432
@@ -182,7 +183,7 @@ name = "test"
 
 		// Assert
 		assert!(result.is_err());
-		assert!(result.unwrap_err().contains("No [databases.default]"));
+		assert!(result.unwrap_err().contains("No [core.databases.default]"));
 	}
 
 	#[rstest]
@@ -202,7 +203,7 @@ name = "test"
 	fn test_parse_database_config_mysql_engine_detection() {
 		// Arrange
 		let content = r#"
-[databases.default]
+[core.databases.default]
 engine = "mysql"
 host = "mysql.example.com"
 port = 3306

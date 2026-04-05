@@ -161,16 +161,42 @@ args = [
 	"--ignore", "RUSTSEC-2023-0089",
 	"--ignore", "RUSTSEC-2025-0141",
 	"--ignore", "RUSTSEC-2021-0141",
-	"--ignore", "RUSTSEC-2024-0384",
 	"--ignore", "RUSTSEC-2024-0436",
 	"--ignore", "RUSTSEC-2025-0134",
 	"--ignore", "RUSTSEC-2024-0320",
 	"--ignore", "RUSTSEC-2024-0370",
-	"--ignore", "RUSTSEC-2026-0066",
 	"--ignore", "RUSTSEC-2026-0048",
 	"--ignore", "RUSTSEC-2026-0044",
 	"--ignore", "RUSTSEC-2026-0049",
 ]
+
+# ============================================================================
+# Development Server Tasks
+# ============================================================================
+
+[tasks.runserver]
+description = "Start local development server (requires PostgreSQL)"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "runserver"]
+
+[tasks.runserver.env]
+REINHARDT_ENV = "local"
+
+[tasks.showurls]
+description = "Display all registered URL patterns"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "showurls"]
+
+[tasks.showurls.env]
+REINHARDT_ENV = "local"
+
+[tasks.migrate]
+description = "Apply database migrations"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "migrate"]
+
+[tasks.migrate.env]
+REINHARDT_ENV = "local"
 
 # ============================================================================
 # Combined Checks (run before PR)

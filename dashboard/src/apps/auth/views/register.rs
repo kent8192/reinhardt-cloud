@@ -19,8 +19,12 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let mut user = User::new(
 		body.username.trim().to_string(),
 		body.email.trim().to_string(),
+		String::new(),
+		String::new(),
 		None,
 		true,
+		false,
+		false,
 	);
 	user.set_password(&body.password).map_err(|e| {
 		error!("Password hashing failed during registration: {e}");
@@ -55,7 +59,12 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let secret = jwt_secret()?;
 	let auth = JwtAuth::new(secret.as_bytes());
 	let token = auth
-		.generate_token(created.id().to_string(), created.username().to_string())
+		.generate_token(
+			created.id().to_string(),
+			created.get_username().to_string(),
+			created.is_staff,
+			created.is_superuser,
+		)
 		.map_err(|e| {
 			error!("JWT token generation failed during registration: {e}");
 			AppError::Internal("Internal server error".to_string())

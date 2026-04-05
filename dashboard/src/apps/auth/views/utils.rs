@@ -2,13 +2,20 @@
 
 use reinhardt::core::exception::{Error, Result};
 
-/// Get JWT secret from environment.
+/// Get JWT secret from settings or environment.
 ///
-/// Returns an internal error if `REINHARDT_CLOUD_JWT_SECRET` is not set.
-/// In production, this MUST be set to a cryptographically random
-/// string of at least 32 bytes.
+/// Reads the JWT secret with the following priority:
+/// 1. `REINHARDT_CLOUD_JWT_SECRET` environment variable
+/// 2. `jwt_secret` key in the active TOML settings file (e.g., `local.toml`)
+///
+/// In production, this MUST be set to a cryptographically
+/// random string of at least 32 bytes.
 pub(crate) fn jwt_secret() -> Result<String> {
-	std::env::var("REINHARDT_CLOUD_JWT_SECRET").map_err(|_| {
-		Error::Internal("REINHARDT_CLOUD_JWT_SECRET environment variable must be set".to_string())
+	crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		Error::Internal(
+			"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var \
+			 or jwt_secret in settings TOML"
+				.to_string(),
+		)
 	})
 }

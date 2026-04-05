@@ -48,7 +48,12 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	let secret = jwt_secret()?;
 	let auth = JwtAuth::new(secret.as_bytes());
 	let token = auth
-		.generate_token(user.id().to_string(), user.username().to_string())
+		.generate_token(
+			user.id().to_string(),
+			user.get_username().to_string(),
+			user.is_staff,
+			user.is_superuser,
+		)
 		.map_err(|e| {
 			error!("JWT token generation failed during login: {e}");
 			AppError::Internal("Internal server error".to_string())

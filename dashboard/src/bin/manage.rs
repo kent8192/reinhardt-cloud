@@ -8,8 +8,10 @@
 //! No manual registration is required - see `src/config/urls.rs` for the
 //! `#[routes]` attribute macro that enables this.
 
-use reinhardt::commands::execute_from_command_line;
-use reinhardt_cloud_dashboard as _;
+use reinhardt::commands::CommandRegistry;
+use reinhardt::commands::execute_from_command_line_with_registry;
+use reinhardt::reinhardt_auth::{register_superuser_creator, superuser_creator_for};
+use reinhardt_cloud_dashboard::apps::auth::models::user::User;
 use std::process;
 
 fn main() {
@@ -37,11 +39,10 @@ async fn async_main() {
 		reinhardt_cloud_dashboard::config::middleware::jwt_auth::JwtAuthMiddleware::validate_config();
 	}
 
-	// Workaround: reinhardt-web#2452
-	// Reason: execute_from_command_line() does not accept CommandRegistry
-	// Impact: custom commands (e.g., SyncClustersCommand) cannot be registered
-	// Remove-when: reinhardt-web supports CommandRegistry parameter
-	if let Err(e) = execute_from_command_line().await {
+	register_superuser_creator(superuser_creator_for::<User>());
+
+	let registry = CommandRegistry::new();
+	if let Err(e) = execute_from_command_line_with_registry(registry).await {
 		eprintln!("Error: {}", e);
 		process::exit(1);
 	}

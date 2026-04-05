@@ -21,7 +21,6 @@ args = ["run", "--bin", "manage", "runserver"]
 description = "Start the development server with auto-reload (requires bacon)"
 command = "bacon"
 args = ["runserver"]
-dependencies = ["install-bacon"]
 
 # ============================================================================
 # Database Migrations
@@ -78,25 +77,21 @@ args = ["run", "--bin", "manage", "shell"]
 description = "Run all tests"
 command = "cargo"
 args = ["nextest", "run", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-unit]
 description = "Run unit tests only"
 command = "cargo"
 args = ["nextest", "run", "--lib", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-integration]
 description = "Run integration tests only"
 command = "cargo"
 args = ["nextest", "run", "--test", "*", "--all-features"]
-dependencies = ["install-nextest"]
 
 [tasks.test-watch]
 description = "Run tests with auto-reload (requires bacon)"
 command = "bacon"
 args = ["test"]
-dependencies = ["install-bacon", "install-nextest"]
 
 # ============================================================================
 # Code Quality
@@ -150,38 +145,6 @@ command = "cargo"
 args = ["clean"]
 
 # ============================================================================
-# Dependencies Installation
-# ============================================================================
-
-[tasks.install-nextest]
-description = "Install cargo-nextest if not already installed"
-script = '''
-if ! command -v cargo-nextest &> /dev/null
-then
-	echo "Installing cargo-nextest..."
-	cargo install cargo-nextest --locked
-else
-	echo "cargo-nextest is already installed"
-fi
-'''
-
-[tasks.install-bacon]
-description = "Install bacon if not already installed"
-script = '''
-if ! command -v bacon &> /dev/null
-then
-	echo "Installing bacon..."
-	cargo install --locked bacon
-else
-	echo "bacon is already installed"
-fi
-'''
-
-[tasks.install-tools]
-description = "Install all required development tools"
-dependencies = ["install-nextest", "install-bacon"]
-
-# ============================================================================
 # Development Workflow
 # ============================================================================
 
@@ -219,6 +182,80 @@ args = ["run", "--bin", "manage", "runserver", "-vv"]
 description = "Start the development server with maximum verbosity"
 command = "cargo"
 args = ["run", "--bin", "manage", "runserver", "-vvv"]
+
+# ============================================================================
+# WASM Build (reinhardt-pages frontend)
+# ============================================================================
+
+[tasks.wasm-install-tools]
+description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
+script = '''
+# Keep this version in sync with the wasm-bindgen crate in Cargo.lock
+cargo install wasm-bindgen-cli --version "0.2.114" --locked 2>/dev/null || true
+'''
+
+[tasks.wasm-compile-dev]
+description = "Compile WASM library (debug)"
+command = "cargo"
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown"]
+
+[tasks.wasm-compile-release]
+description = "Compile WASM library (release)"
+command = "cargo"
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown", "--release"]
+
+[tasks.wasm-bindgen-dev]
+description = "Generate JS bindings for WASM (debug)"
+script = '''
+mkdir -p dist
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/reinhardt_cloud.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist --debug
+'''
+dependencies = ["wasm-compile-dev"]
+
+[tasks.wasm-bindgen-release]
+description = "Generate JS bindings for WASM (release)"
+script = '''
+mkdir -p dist
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/reinhardt_cloud.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist
+if command -v wasm-opt &> /dev/null; then
+	echo "Optimizing WASM with wasm-opt..."
+	wasm-opt -O3 dist/reinhardt_cloud_bg.wasm -o dist/reinhardt_cloud_bg.wasm
+fi
+'''
+dependencies = ["wasm-compile-release"]
+
+[tasks.wasm-build-dev]
+description = "Full WASM debug build pipeline"
+dependencies = ["wasm-install-tools", "wasm-bindgen-dev"]
+
+[tasks.wasm-build-release]
+description = "Full WASM release build pipeline"
+dependencies = ["wasm-install-tools", "wasm-bindgen-release"]
+
+[tasks.wasm-clean]
+description = "Clean WASM build artifacts"
+script = '''
+rm -rf dist/
+echo "Cleaned dist/"
+'''
+
+[tasks.runserver-pages]
+description = "Build WASM and start server with pages"
+dependencies = ["wasm-build-dev"]
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "--with-pages"]
 
 # ============================================================================
 # Help
@@ -269,8 +306,11 @@ echo ""
 echo "  CI/CD:"
 echo "    ci                 - Run CI pipeline"
 echo ""
-echo "  Tools:"
-echo "    install-tools      - Install dev tools"
+echo "  WASM Build:"
+echo "    wasm-build-dev     - Full WASM debug build"
+echo "    wasm-build-release - Full WASM release build"
+echo "    wasm-clean         - Clean WASM artifacts"
+echo "    runserver-pages    - Build WASM + start server"
 echo ""
 echo "Usage: cargo make <task>"
 '''

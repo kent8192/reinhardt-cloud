@@ -1,0 +1,43 @@
+//! Credential verification service.
+
+use reinhardt::BaseUser;
+use reinhardt::core::exception::Error as AppError;
+use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use tracing::error;
+
+use crate::apps::auth::models::User;
+
+/// Verify user credentials against the database.
+///
+/// Returns the authenticated `User` on success, or an `AppError`
+/// on failure (invalid credentials, inactive account, or DB error).
+pub async fn verify_credentials(username: &str, password: &str) -> Result<User, AppError> {
+	let user = User::objects()
+		.filter(
+			User::field_username(),
+			FilterOperator::Eq,
+			FilterValue::String(username.trim().to_string()),
+		)
+		.first()
+		.await
+		.map_err(|e| {
+			error!("Failed to query user during login: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?
+		.ok_or_else(|| AppError::Authentication("Invalid credentials".to_string()))?;
+
+	let valid = user.check_password(password).map_err(|e| {
+		error!("Password verification failed during login: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
+	if !valid {
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
+	}
+
+	// Use same generic message to prevent user enumeration
+	if !user.is_active() {
+		return Err(AppError::Authentication("Invalid credentials".to_string()));
+	}
+
+	Ok(user)
+}
