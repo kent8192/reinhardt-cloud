@@ -6,6 +6,7 @@ members = [
 	"crates/reinhardt-cloud-core",
 	"crates/reinhardt-cloud-k8s",
 	"crates/reinhardt-cloud-proto",
+	"crates/reinhardt-cloud-grpc",
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
@@ -69,6 +70,7 @@ reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
 reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
 reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
+reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc" }
 
 # Cryptography / encoding
 rand = "0.9"
