@@ -1,0 +1,33 @@
+meta {
+  name: 04 List Clusters
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/clusters/
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should return paginated cluster list containing created cluster", function() {
+    const body = res.getBody();
+    expect(body).to.be.an("object");
+    expect(body.items).to.be.an("array");
+    expect(body.items.length).to.be.greaterThan(0);
+    expect(body.total).to.be.a("number");
+    expect(body.page).to.equal(1);
+    expect(body.page_size).to.be.a("number");
+    expect(body.total_pages).to.be.a("number");
+
+    const cluster = body.items.find(c => c.name === "production-cluster");
+    expect(cluster).to.not.be.undefined;
+    expect(cluster.api_url).to.equal("https://k8s.example.com:6443");
+    expect(cluster.is_active).to.equal(true);
+  });
+}

@@ -1,0 +1,33 @@
+Reinhardt Cloud Operator has been installed.
+
+Platform: {{ .Values.platform }}
+
+Enabled features:
+  - Database: {{ .Values.features.database }}
+  - Cache: {{ .Values.features.cache }}
+  - Ingress: {{ .Values.features.ingress }}
+  - Autoscaling: {{ .Values.features.autoscaling }}
+  - Storage: {{ .Values.features.storage }}
+  - Worker: {{ .Values.features.worker }}
+
+To verify the installation:
+
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl get deployment -n {{ .Release.Namespace }}
+
+To deploy a sample application:
+
+  cat <<EOF | kubectl apply -f -
+  apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+  kind: ReinhardtApp
+  metadata:
+    name: sample-app
+    namespace: default
+  spec:
+    image: nginx:latest
+    replicas: 1
+  EOF
+
+To check the operator logs:
+
+  kubectl logs -n {{ .Release.Namespace }} deployment/{{ include "reinhardt-cloud-operator.fullname" . }}

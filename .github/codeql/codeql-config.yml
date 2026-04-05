@@ -1,0 +1,20 @@
+name: "Reinhardt Cloud CodeQL Configuration"
+
+# Exclude test code from analysis to reduce false positives
+# Test files contain intentional hard-coded values (passwords, tokens, keys)
+# that trigger false positive alerts for:
+# - rust/hard-coded-cryptographic-value
+# - rust/cleartext-logging
+# - rust/cleartext-storage-database
+paths-ignore:
+  - "tests/"
+  - "**/tests/"
+  - "**/tests/**"
+
+# Suppress hard-coded cryptographic value alerts.
+# Production code uses generate_random_password() for real credentials.
+# Remaining alerts are false positives from #[cfg(test)] modules
+# within source files, which paths-ignore cannot exclude.
+query-filters:
+  - exclude:
+      id: rust/hard-coded-cryptographic-value

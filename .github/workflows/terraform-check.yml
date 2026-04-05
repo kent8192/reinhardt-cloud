@@ -1,0 +1,31 @@
+name: Terraform Check
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: Terraform (repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra/repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: "~> 1.10"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform Init (backend-free)
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate

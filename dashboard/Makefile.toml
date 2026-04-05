@@ -1,0 +1,316 @@
+# Makefile.toml for Reinhardt Project
+#
+# This file provides cargo-make task definitions for common development operations.
+# Install cargo-make: `cargo install cargo-make`
+# Usage: `cargo make <task>`
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+# ============================================================================
+# Development Server
+# ============================================================================
+
+[tasks.runserver]
+description = "Start the development server"
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver"]
+
+[tasks.runserver-watch]
+description = "Start the development server with auto-reload (requires bacon)"
+command = "bacon"
+args = ["runserver"]
+
+# ============================================================================
+# Database Migrations
+# ============================================================================
+
+[tasks.makemigrations]
+description = "Create new migrations based on model changes"
+command = "cargo"
+args = ["run", "--bin", "manage", "makemigrations"]
+
+[tasks.makemigrations-app]
+description = "Create new migrations for a specific app (usage: cargo make makemigrations-app -- <app_label>)"
+command = "cargo"
+args = ["run", "--bin", "manage", "makemigrations", "${@}"]
+
+[tasks.migrate]
+description = "Apply database migrations"
+command = "cargo"
+args = ["run", "--bin", "manage", "migrate"]
+
+# ============================================================================
+# Static Files
+# ============================================================================
+
+[tasks.collectstatic]
+description = "Collect static files into STATIC_ROOT"
+command = "cargo"
+args = ["run", "--bin", "manage", "collectstatic"]
+
+# ============================================================================
+# Project Management
+# ============================================================================
+
+[tasks.check]
+description = "Check the project for common issues"
+command = "cargo"
+args = ["run", "--bin", "manage", "check"]
+
+[tasks.showurls]
+description = "Display all registered URL patterns"
+command = "cargo"
+args = ["run", "--bin", "manage", "showurls"]
+
+[tasks.shell]
+description = "Run an interactive Rust shell (REPL)"
+command = "cargo"
+args = ["run", "--bin", "manage", "shell"]
+
+# ============================================================================
+# Testing
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["nextest", "run", "--all-features"]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = ["nextest", "run", "--lib", "--all-features"]
+
+[tasks.test-integration]
+description = "Run integration tests only"
+command = "cargo"
+args = ["nextest", "run", "--test", "*", "--all-features"]
+
+[tasks.test-watch]
+description = "Run tests with auto-reload (requires bacon)"
+command = "bacon"
+args = ["test"]
+
+# ============================================================================
+# Code Quality
+# ============================================================================
+
+[tasks.fmt-check]
+description = "Check code formatting (rustfmt + page! DSL)"
+command = "reinhardt-admin"
+args = ["fmt", ".", "--check"]
+
+[tasks.fmt-fix]
+description = "Fix code formatting (rustfmt + page! DSL)"
+command = "reinhardt-admin"
+args = ["fmt", "."]
+
+[tasks.clippy-check]
+description = "Check linting rules"
+command = "cargo"
+args = ["clippy", "--all-features", "--", "-D", "warnings"]
+
+[tasks.clippy-fix]
+description = "Fix linting issues automatically"
+command = "cargo"
+args = ["clippy", "--all-features", "--fix", "--allow-dirty", "--allow-staged"]
+
+[tasks.quality]
+description = "Run all code quality checks (format + lint)"
+dependencies = ["fmt-check", "clippy-check"]
+
+[tasks.quality-fix]
+description = "Fix all code quality issues automatically"
+dependencies = ["fmt-fix", "clippy-fix"]
+
+# ============================================================================
+# Build & Clean
+# ============================================================================
+
+[tasks.build]
+description = "Build the project in debug mode"
+command = "cargo"
+args = ["build", "--all-features"]
+
+[tasks.build-release]
+description = "Build the project in release mode"
+command = "cargo"
+args = ["build", "--release", "--all-features"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+# ============================================================================
+# Development Workflow
+# ============================================================================
+
+[tasks.dev]
+description = "Start development environment (checks, builds, runs server)"
+dependencies = ["quality", "build", "runserver"]
+
+[tasks.dev-watch]
+description = "Start development with auto-reload"
+dependencies = ["quality", "build", "runserver-watch"]
+
+# ============================================================================
+# CI/CD Workflow
+# ============================================================================
+
+[tasks.ci]
+description = "Run CI pipeline (format, lint, build, test)"
+dependencies = ["fmt-check", "clippy-check", "build", "test"]
+
+# ============================================================================
+# Verbosity Control
+# ============================================================================
+
+[tasks.runserver-v]
+description = "Start the development server with verbose output"
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "-v"]
+
+[tasks.runserver-vv]
+description = "Start the development server with very verbose output"
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "-vv"]
+
+[tasks.runserver-vvv]
+description = "Start the development server with maximum verbosity"
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "-vvv"]
+
+# ============================================================================
+# WASM Build (reinhardt-pages frontend)
+# ============================================================================
+
+[tasks.wasm-install-tools]
+description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
+script = '''
+# Keep this version in sync with the wasm-bindgen crate in Cargo.lock
+cargo install wasm-bindgen-cli --version "0.2.114" --locked 2>/dev/null || true
+'''
+
+[tasks.wasm-compile-dev]
+description = "Compile WASM library (debug)"
+command = "cargo"
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown"]
+
+[tasks.wasm-compile-release]
+description = "Compile WASM library (release)"
+command = "cargo"
+args = ["build", "--lib", "--target", "wasm32-unknown-unknown", "--release"]
+
+[tasks.wasm-bindgen-dev]
+description = "Generate JS bindings for WASM (debug)"
+script = '''
+mkdir -p dist
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/reinhardt_cloud.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist --debug
+'''
+dependencies = ["wasm-compile-dev"]
+
+[tasks.wasm-bindgen-release]
+description = "Generate JS bindings for WASM (release)"
+script = '''
+mkdir -p dist
+WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
+WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/reinhardt_cloud.wasm"
+if [ ! -f "$WASM_FILE" ]; then
+	echo "Error: WASM file not found at $WASM_FILE"
+	exit 1
+fi
+wasm-bindgen --target web "$WASM_FILE" --out-dir dist
+if command -v wasm-opt &> /dev/null; then
+	echo "Optimizing WASM with wasm-opt..."
+	wasm-opt -O3 dist/reinhardt_cloud_bg.wasm -o dist/reinhardt_cloud_bg.wasm
+fi
+'''
+dependencies = ["wasm-compile-release"]
+
+[tasks.wasm-build-dev]
+description = "Full WASM debug build pipeline"
+dependencies = ["wasm-install-tools", "wasm-bindgen-dev"]
+
+[tasks.wasm-build-release]
+description = "Full WASM release build pipeline"
+dependencies = ["wasm-install-tools", "wasm-bindgen-release"]
+
+[tasks.wasm-clean]
+description = "Clean WASM build artifacts"
+script = '''
+rm -rf dist/
+echo "Cleaned dist/"
+'''
+
+[tasks.runserver-pages]
+description = "Build WASM and start server with pages"
+dependencies = ["wasm-build-dev"]
+command = "cargo"
+args = ["run", "--bin", "manage", "runserver", "--with-pages"]
+
+# ============================================================================
+# Help
+# ============================================================================
+
+[tasks.help]
+description = "Show available tasks"
+script = '''
+echo "Available tasks:"
+echo "  Development:"
+echo "    runserver          - Start the development server"
+echo "    runserver-watch    - Start server with auto-reload"
+echo "    dev                - Run checks + build + start server"
+echo "    dev-watch          - Development with auto-reload"
+echo ""
+echo "  Database:"
+echo "    makemigrations     - Create new migrations"
+echo "    makemigrations-app - Create migrations for specific app"
+echo "    migrate            - Apply migrations"
+echo ""
+echo "  Static Files:"
+echo "    collectstatic      - Collect static files"
+echo ""
+echo "  Project Management:"
+echo "    check              - Check project for issues"
+echo "    showurls           - Show URL patterns"
+echo "    shell              - Interactive REPL"
+echo ""
+echo "  Testing:"
+echo "    test               - Run all tests"
+echo "    test-unit          - Run unit tests"
+echo "    test-integration   - Run integration tests"
+echo "    test-watch         - Tests with auto-reload"
+echo ""
+echo "  Code Quality:"
+echo "    fmt-check          - Check formatting"
+echo "    fmt-fix            - Fix formatting"
+echo "    clippy-check       - Check linting"
+echo "    clippy-fix         - Fix linting issues"
+echo "    quality            - Run all checks"
+echo "    quality-fix        - Fix all issues"
+echo ""
+echo "  Build:"
+echo "    build              - Build (debug)"
+echo "    build-release      - Build (release)"
+echo "    clean              - Clean artifacts"
+echo ""
+echo "  CI/CD:"
+echo "    ci                 - Run CI pipeline"
+echo ""
+echo "  WASM Build:"
+echo "    wasm-build-dev     - Full WASM debug build"
+echo "    wasm-build-release - Full WASM release build"
+echo "    wasm-clean         - Clean WASM artifacts"
+echo "    runserver-pages    - Build WASM + start server"
+echo ""
+echo "Usage: cargo make <task>"
+'''

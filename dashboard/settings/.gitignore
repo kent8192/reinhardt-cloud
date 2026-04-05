@@ -1,0 +1,5 @@
+# Ignore all TOML files (contain environment-specific secrets)
+*.toml
+
+# Except for example templates
+!*.example.toml

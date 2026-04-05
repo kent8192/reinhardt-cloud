@@ -1,0 +1,123 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/repository/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-apply-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan (repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/repository
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: "~> 1.10"
+
+      - name: Check required variables
+        env:
+          TF_VAR_github_token: ${{ secrets.TF_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TF_VAR_github_token" ]; then
+            echo "::warning::TF_GITHUB_TOKEN not configured — skipping apply"
+            echo "SKIP_MODULE=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Terraform Init
+        if: env.SKIP_MODULE != 'true'
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        if: env.SKIP_MODULE != 'true'
+        id: plan
+        env:
+          # TF_VAR_ mappings for infra/repository variables
+          TF_VAR_github_owner: ${{ secrets.TF_GITHUB_OWNER }}
+          TF_VAR_github_token: ${{ secrets.TF_GITHUB_TOKEN }}
+          TF_VAR_environment_reviewer: ${{ secrets.TF_ENVIRONMENT_REVIEWER }}
+          TF_VAR_release_plz_app_id: ${{ secrets.TF_RELEASE_PLZ_APP_ID }}
+          TF_VAR_release_plz_app_private_key: ${{ secrets.TF_RELEASE_PLZ_APP_PRIVATE_KEY }}
+          TF_VAR_dockerhub_username: ${{ secrets.TF_DOCKERHUB_USERNAME }}
+          TF_VAR_dockerhub_token: ${{ secrets.TF_DOCKERHUB_TOKEN }}
+          TF_VAR_codecov_token: ${{ secrets.TF_CODECOV_TOKEN }}
+        run: |
+          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan-output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload plan artifact
+        if: env.SKIP_MODULE != 'true' && steps.plan.outputs.exitcode != '1'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tfplan-repository
+          path: |
+            infra/repository/tfplan
+            infra/repository/.terraform
+            infra/repository/.terraform.lock.hcl
+          retention-days: 1
+
+  apply:
+    name: Apply (repository)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/repository
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: "~> 1.10"
+
+      - name: Download plan artifact
+        id: download
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tfplan-repository
+          path: infra/repository
+        continue-on-error: true
+
+      - name: Skip if no plan artifact
+        if: steps.download.outcome == 'failure'
+        run: |
+          echo "::notice::No plan artifact for repository — skipping apply"
+          echo "SKIP_APPLY=true" >> "$GITHUB_ENV"
+
+      - name: Terraform Init
+        if: env.SKIP_APPLY != 'true'
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        if: env.SKIP_APPLY != 'true'
+        env:
+          # TF_VAR_ mappings for infra/repository variables
+          TF_VAR_github_owner: ${{ secrets.TF_GITHUB_OWNER }}
+          TF_VAR_github_token: ${{ secrets.TF_GITHUB_TOKEN }}
+          TF_VAR_environment_reviewer: ${{ secrets.TF_ENVIRONMENT_REVIEWER }}
+          TF_VAR_release_plz_app_id: ${{ secrets.TF_RELEASE_PLZ_APP_ID }}
+          TF_VAR_release_plz_app_private_key: ${{ secrets.TF_RELEASE_PLZ_APP_PRIVATE_KEY }}
+          TF_VAR_dockerhub_username: ${{ secrets.TF_DOCKERHUB_USERNAME }}
+          TF_VAR_dockerhub_token: ${{ secrets.TF_DOCKERHUB_TOKEN }}
+          TF_VAR_codecov_token: ${{ secrets.TF_CODECOV_TOKEN }}
+        run: |
+          terraform apply -no-color -input=false tfplan

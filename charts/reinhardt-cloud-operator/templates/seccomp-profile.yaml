@@ -1,0 +1,33 @@
+{{- if .Values.isolation.seccomp.enabled }}
+# Reference seccomp profile for documentation and future Localhost profile integration.
+# This ConfigMap is NOT directly consumed by kubelet's RuntimeDefault seccomp;
+# it serves as a baseline profile that can be provisioned to nodes as a
+# Localhost seccomp profile or integrated with a SecurityProfile Operator.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-seccomp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+data:
+  reinhardt-app.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+      "syscalls": [
+        {
+          "names": [
+            "read", "write", "open", "close", "stat", "fstat",
+            "mmap", "mprotect", "munmap", "brk", "rt_sigaction",
+            "access", "pipe", "select", "sched_yield", "clone",
+            "execve", "exit", "wait4", "kill", "fcntl",
+            "socket", "connect", "accept", "sendto", "recvfrom",
+            "bind", "listen", "epoll_create", "epoll_ctl", "epoll_wait",
+            "futex", "openat", "newfstatat", "getrandom"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }
+{{- end }}

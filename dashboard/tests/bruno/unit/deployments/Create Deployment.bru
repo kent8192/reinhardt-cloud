@@ -1,0 +1,37 @@
+meta {
+  name: Create Deployment
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/deployments/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "app_name": "my-web-app",
+    "cluster_id": {{clusterId}},
+    "image": "registry.example.com/my-web-app:v1.0.0"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.app_name: eq my-web-app
+  res.body.status: eq pending
+  res.body.image: eq registry.example.com/my-web-app:v1.0.0
+}
+
+tests {
+  test("should return 201 with created deployment", function() {
+    const body = res.getBody();
+    expect(body.app_name).to.equal("my-web-app");
+    expect(body.status).to.equal("pending");
+    expect(body.image).to.equal("registry.example.com/my-web-app:v1.0.0");
+    expect(body.id).to.be.a("number");
+    expect(body.cluster_id).to.be.a("number");
+  });
+}

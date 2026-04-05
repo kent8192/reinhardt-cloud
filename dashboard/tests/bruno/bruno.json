@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "name": "Reinhardt Cloud API",
+  "type": "collection",
+  "ignore": ["node_modules", ".git"]
+}

@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+	# Library crates
+	"crates/reinhardt-cloud-types",
+	"crates/reinhardt-cloud-core",
+	"crates/reinhardt-cloud-k8s",
+	# Binary crates
+	"crates/reinhardt-cloud-operator",
+	"crates/reinhardt-cloud-cli",
+	# Reinhardt startproject application (Control Plane)
+	"dashboard",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "BSL-1.1"
+repository = "https://github.com/kent8192/reinhardt-cloud"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Kubernetes
+kube = { version = "3.0.1", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.27.1", features = ["v1_31", "schemars"] }
+
+# Reinhardt — umbrella crate providing: HTTP server, auth (JWT + Argon2), database (SeaQuery),
+# configuration, DI container, middleware, OpenAPI, and management commands.
+# Direct hyper/jsonwebtoken/argon2/sea-query deps are NOT needed — reinhardt provides them.
+reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "middleware-security", "middleware-auth-jwt", "rest", "openapi", "openapi-router", "commands", "test", "testcontainers", "pages", "websockets", "admin"] }
+
+# PostgreSQL driver (sea-query is available via reinhardt::prelude — no direct dep needed)
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+deadpool-postgres = "0.14"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.9"
+
+# Types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# JWT
+jsonwebtoken = "9"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+schemars = "1"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Internal workspace crates
+reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
+reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
+reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
+
+# Cryptography / encoding
+rand = "0.9"
+
+# Testing
+rstest = "0.26"
+tokio-test = "0.4"
+
+[workspace.lints.clippy]
+module_name_repetitions = "allow"

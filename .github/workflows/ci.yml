@@ -1,0 +1,282 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+  security-events: write
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      startsWith(github.head_ref || '', 'release-plz-')
+        && 'release-plz'
+        || github.head_ref
+        || github.run_id
+    }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Check if PR branch has merge conflicts.
+  # When conflicts exist, skip all CI jobs to save runner costs.
+  check-branch-status:
+    name: Check Branch Status
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      has-conflicts: ${{ steps.check.outputs.has-conflicts }}
+      infra-changed: ${{ steps.check-infra.outputs.infra-changed }}
+    steps:
+      - name: Check if PR has merge conflicts
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const hasConflicts = pr.mergeable_state === 'dirty';
+            core.setOutput('has-conflicts', hasConflicts.toString());
+            if (hasConflicts) {
+              core.warning('PR has merge conflicts. Skipping CI — please resolve conflicts.');
+            }
+
+      - name: Check if infra files changed
+        id: check-infra
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const infraChanged = files.some(f => f.filename.startsWith('infra/'));
+            core.setOutput('infra-changed', infraChanged.toString());
+
+  # Determine runner type for CI jobs.
+  # - release-plz PRs (branch: release-plz-*): auto-assigned self-hosted runner
+  # - Repository owner PRs: self-hosted via checkbox opt-in
+  # - Other contributors: GitHub-hosted ubuntu-latest (free but slower)
+  # Self-hosted runners require SELF_HOSTED_ENABLED variable to be explicitly "true".
+  # AWS Budget circuit breaker sets this to "false" when monthly cost is exceeded.
+  determine-runner:
+    name: Determine Runner
+    runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.set-runner.outputs.runner }}
+      cargo-build-jobs: ${{ steps.set-runner.outputs.cargo-build-jobs }}
+    steps:
+      - name: Parse PR checkbox for self-hosted
+        if: github.event_name == 'pull_request'
+        id: parse-checkbox
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            // Default: false (when checkbox is missing or unchecked)
+            const checked = /- \[x\] I use self-hosted runner/i.test(body);
+            core.setOutput('self-hosted-requested', checked.toString());
+
+      - name: Set runner configuration
+        id: set-runner
+        env:
+          ACTOR: ${{ github.actor }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          SELF_HOSTED_ENABLED: ${{ vars.SELF_HOSTED_ENABLED }}
+          EVENT_NAME: ${{ github.event_name }}
+          SELF_HOSTED_REQUESTED: ${{ steps.parse-checkbox.outputs.self-hosted-requested }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          USE_SELF_HOSTED=false
+
+          # release-plz PRs: auto-assign self-hosted runner (bypass actor check).
+          # Only push-access users can create release-plz-* branches.
+          # Budget circuit breaker is still respected.
+          if [[ "$HEAD_REF" == release-plz-* ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
+            USE_SELF_HOSTED=true
+          elif [[ "$ACTOR" == "$REPO_OWNER" ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
+            if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              # PR: require explicit checkbox opt-in (default: false)
+              if [[ "$SELF_HOSTED_REQUESTED" == "true" ]]; then
+                USE_SELF_HOSTED=true
+              fi
+            else
+              # Non-PR events (workflow_dispatch): use self-hosted by default
+              USE_SELF_HOSTED=true
+            fi
+          fi
+
+          if [[ "$USE_SELF_HOSTED" == "true" ]]; then
+            # Self-hosted: faster CI with AWS Spot instances (Graviton arm64)
+            echo 'runner=["self-hosted","linux","arm64","reinhardt-cloud-ci"]' >> "$GITHUB_OUTPUT"
+            echo 'cargo-build-jobs=8' >> "$GITHUB_OUTPUT"
+          else
+            # GitHub-hosted: free, slower; CARGO_BUILD_JOBS=1 prevents OOM on 7GB RAM
+            echo 'runner="ubuntu-latest"' >> "$GITHUB_OUTPUT"
+            echo 'cargo-build-jobs=1' >> "$GITHUB_OUTPUT"
+          fi
+
+  fmt:
+    name: Format
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/fmt.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+
+  clippy:
+    name: Clippy
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/clippy.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  test:
+    name: Tests
+    needs: [fmt, clippy, determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  security-audit:
+    name: Security Audit
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/security-audit.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+
+  todo-check:
+    name: TODO Check
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/todo-check.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  bruno-tests:
+    name: Bruno API Tests
+    needs: [fmt, clippy, determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/bruno-tests.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  coverage:
+    name: Coverage
+    needs: [test, determine-runner]
+    if: always() && needs.test.result == 'success'
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  terraform-check:
+    name: Terraform Check
+    needs: [check-branch-status]
+    if: >-
+      ${{
+        needs.check-branch-status.outputs.has-conflicts != 'true' &&
+        needs.check-branch-status.outputs.infra-changed == 'true'
+      }}
+    uses: ./.github/workflows/terraform-check.yml
+
+  # All jobs must pass
+  ci-success:
+    name: CI Success
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - check-branch-status
+      - determine-runner
+      - fmt
+      - clippy
+      - test
+      - bruno-tests
+      - security-audit
+      - todo-check
+      - coverage
+      - terraform-check
+      - cross-platform-check
+    steps:
+      - name: Verify all required checks passed
+        env:
+          HAS_CONFLICTS: ${{ needs.check-branch-status.outputs.has-conflicts }}
+          FMT_RESULT: ${{ needs.fmt.result }}
+          CLIPPY_RESULT: ${{ needs.clippy.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          BRUNO_TESTS_RESULT: ${{ needs.bruno-tests.result }}
+          SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
+          TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
+          CROSS_PLATFORM_RESULT: ${{ needs.cross-platform-check.result }}
+        run: |
+          # If PR has merge conflicts, all jobs are expected to be skipped
+          if [[ "$HAS_CONFLICTS" == "true" ]]; then
+            echo "::error::PR has merge conflicts. All CI checks were skipped."
+            echo "Please resolve conflicts and push again to trigger CI."
+            exit 1
+          fi
+
+          # Always-required checks (must be 'success')
+          always_required=(
+            "fmt:$FMT_RESULT"
+            "clippy:$CLIPPY_RESULT"
+            "test:$TEST_RESULT"
+            "bruno-tests:$BRUNO_TESTS_RESULT"
+            "security-audit:$SECURITY_AUDIT_RESULT"
+            "todo-check:$TODO_CHECK_RESULT"
+          )
+          for entry in "${always_required[@]}"; do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            if [[ "$result" != "success" ]]; then
+              echo "::error::Required check '$name' failed with result: $result"
+              exit 1
+            fi
+          done
+
+          # Selectively-skippable checks (can be 'success' or 'skipped')
+          selectively_skippable=(
+            "coverage:$COVERAGE_RESULT"
+            "terraform-check:$TERRAFORM_CHECK_RESULT"
+            "cross-platform-check:$CROSS_PLATFORM_RESULT"
+          )
+          for entry in "${selectively_skippable[@]}"; do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "::error::Check '$name' failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "All CI checks passed!"
+
+  cross-platform-check:
+    name: Cross-Platform Check
+    needs: [fmt, clippy]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/cross-platform-check.yml

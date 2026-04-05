@@ -1,0 +1,58 @@
+[package]
+name = "reinhardt-cloud-dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "reinhardt_cloud_dashboard"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "manage"
+path = "src/bin/manage.rs"
+
+[dependencies]
+reinhardt = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# Server-side: full reinhardt with server, database, auth, admin, etc.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reinhardt = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-k8s = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+ctor = "0.6"
+inventory = "0.3"
+async-trait = "0.1"
+
+# WASM client: reinhardt with pages features only
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["pages", "admin"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Event", "History", "Location", "Storage", "WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent"] }
+js-sys = "0.3"
+gloo-timers = "0.3"
+console_error_panic_hook = "0.1"
+
+[build-dependencies]
+cfg_aliases = "0.2"
+
+[dev-dependencies]
+rstest = { workspace = true }
+serial_test = "3.2"
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

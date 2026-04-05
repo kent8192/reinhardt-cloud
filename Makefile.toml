@@ -1,0 +1,212 @@
+# Reinhardt Cloud - cargo-make configuration
+
+[config]
+default_to_workspace = false
+
+# Environment variables
+[env]
+CARGO_TERM_COLOR = "always"
+RUST_BACKTRACE = "1"
+
+# ============================================================================
+# Core Development Tasks
+# ============================================================================
+
+[tasks.check]
+description = "Run cargo check on workspace"
+command = "cargo"
+args = [
+	"check",
+	"--workspace",
+	"--all-features",
+	"--all-targets",
+	"--quiet",
+]
+
+[tasks.build]
+description = "Build workspace"
+command = "cargo"
+args = [
+	"build",
+	"--workspace",
+	"--all-features",
+	"--all-targets",
+	"--quiet",
+]
+
+[tasks.build-release]
+description = "Build workspace in release mode"
+command = "cargo"
+args = ["build", "--workspace", "--all-features", "--release", "--quiet"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+# ============================================================================
+# Code Quality Tasks
+# ============================================================================
+
+[tasks.fmt-check]
+description = "Check code formatting"
+command = "cargo"
+args = ["fmt", "--all", "--check"]
+
+[tasks.fmt-fix]
+description = "Auto-fix code formatting"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.clippy-check]
+description = "Run clippy linter"
+command = "cargo"
+args = [
+	"clippy",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--",
+	"-D",
+	"warnings",
+]
+
+[tasks.clippy-fix]
+description = "Run clippy linter and automatically fix found errors"
+command = "cargo"
+args = [
+	"clippy",
+	"--fix",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--allow-dirty",
+	"--",
+	"-D",
+	"warnings",
+]
+
+[tasks.clippy-todo-check]
+description = "Check for development-only code (todo!, unimplemented!, dbg!)"
+command = "cargo"
+args = [
+	"clippy",
+	"--workspace",
+	"--all",
+	"--all-features",
+	"--",
+	"-D", "clippy::todo",
+	"-D", "clippy::unimplemented",
+	"-D", "clippy::dbg_macro",
+]
+
+# ============================================================================
+# Testing Tasks
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests with nextest"
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"--workspace",
+	"--all-features",
+	"--no-fail-fast",
+]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"--workspace",
+	"--lib",
+	"--all-features",
+	"--no-fail-fast",
+]
+
+[tasks.doc-test]
+description = "Run documentation tests"
+command = "cargo"
+args = ["test", "--workspace", "--all-features", "--doc"]
+
+# ============================================================================
+# Documentation Tasks
+# ============================================================================
+
+[tasks.doc]
+description = "Build documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps"]
+
+[tasks.doc-open]
+description = "Build and open documentation"
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps", "--open"]
+
+# ============================================================================
+# Security Tasks
+# ============================================================================
+
+[tasks.audit]
+description = "Check for known vulnerabilities in dependencies"
+command = "cargo"
+args = [
+	"audit",
+	# Ignore upstream transitive dependency advisories from reinhardt-web.
+	# See audit.toml for detailed reasoning per advisory.
+	"--ignore", "RUSTSEC-2023-0071",
+	"--ignore", "RUSTSEC-2023-0089",
+	"--ignore", "RUSTSEC-2025-0141",
+	"--ignore", "RUSTSEC-2021-0141",
+	"--ignore", "RUSTSEC-2024-0436",
+	"--ignore", "RUSTSEC-2025-0134",
+	"--ignore", "RUSTSEC-2024-0320",
+	"--ignore", "RUSTSEC-2024-0370",
+	"--ignore", "RUSTSEC-2026-0048",
+	"--ignore", "RUSTSEC-2026-0044",
+	"--ignore", "RUSTSEC-2026-0049",
+]
+
+# ============================================================================
+# Development Server Tasks
+# ============================================================================
+
+[tasks.runserver]
+description = "Start local development server (requires PostgreSQL)"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "runserver"]
+
+[tasks.runserver.env]
+REINHARDT_ENV = "local"
+
+[tasks.showurls]
+description = "Display all registered URL patterns"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "showurls"]
+
+[tasks.showurls.env]
+REINHARDT_ENV = "local"
+
+[tasks.migrate]
+description = "Apply database migrations"
+command = "cargo"
+args = ["run", "--bin", "manage", "--", "migrate"]
+
+[tasks.migrate.env]
+REINHARDT_ENV = "local"
+
+# ============================================================================
+# Combined Checks (run before PR)
+# ============================================================================
+
+[tasks.pre-pr]
+description = "Run all checks before creating a PR"
+dependencies = [
+	"fmt-check",
+	"clippy-check",
+	"test",
+	"doc",
+]
