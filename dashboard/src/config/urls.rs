@@ -20,9 +20,11 @@ use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
+use crate::apps::auth::services::LocalAuthService;
 use crate::apps::realtime::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
 use reinhardt::{JwtAuthMiddleware, SecurityMiddleware};
+use reinhardt_cloud_core::traits::AuthService;
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
@@ -42,6 +44,10 @@ pub fn routes() -> UnifiedRouter {
 	// NOTE: Do not wrap in Arc — set_singleton() wraps internally,
 	// and double-wrapping causes TypeId mismatch during DI resolution.
 	di_ctx.set_singleton(WsBroadcaster::new());
+
+	// Register AuthService for trait-based authentication across REST and gRPC.
+	let auth_service: Arc<dyn AuthService> = Arc::new(LocalAuthService::new());
+	di_ctx.set_singleton(auth_service);
 
 	let jwt_secret = crate::config::settings::get_jwt_secret()
 		.expect("JWT secret must be configured: set REINHARDT_CLOUD_JWT_SECRET env var or jwt_secret in settings TOML");
