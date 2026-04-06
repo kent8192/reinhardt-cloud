@@ -31,5 +31,12 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError>;
 
 	/// Report the status of a deployment operation.
-	async fn report_deploy_status(&self, report: DeployStatusReport) -> Result<(), ApiError>;
+	///
+	/// Default implementation returns an unimplemented error, allowing
+	/// existing implementations to opt in incrementally.
+	async fn report_deploy_status(&self, _report: DeployStatusReport) -> Result<(), ApiError> {
+		Err(ApiError::internal(
+			"report_deploy_status is not implemented",
+		))
+	}
 }
