@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
 use reinhardt::RedisSessionBackend;
+use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
 
 use crate::apps::auth::models::User;
 

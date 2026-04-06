@@ -128,21 +128,16 @@ impl WebSocketConsumer for NotificationConsumer {
 			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());
 
 		// Authenticate from session cookie in handshake headers
-		if let Some(cookie_header) = context.cookie_header() {
-			if let Some(session_id) = extract_cookie_value(cookie_header, "sessionid") {
-				if let Some((user_id, _username)) = validate_session(&session_id).await {
-					context
-						.metadata
-						.insert(META_USER_ID.to_string(), user_id.clone());
-					self.broadcaster
-						.register_connection(
-							&connection_id,
-							&user_id,
-							Arc::clone(&context.connection),
-						)
-						.await;
-				}
-			}
+		if let Some(cookie_header) = context.cookie_header()
+			&& let Some(session_id) = extract_cookie_value(cookie_header, "sessionid")
+			&& let Some((user_id, _username)) = validate_session(&session_id).await
+		{
+			context
+				.metadata
+				.insert(META_USER_ID.to_string(), user_id.clone());
+			self.broadcaster
+				.register_connection(&connection_id, &user_id, Arc::clone(&context.connection))
+				.await;
 		}
 
 		Ok(())

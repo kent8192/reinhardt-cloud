@@ -35,10 +35,10 @@ pub async fn logout(
 		});
 
 	// Destroy the session in Redis if a session cookie was present
-	if let Some(ref sid) = session_id {
-		if let Err(e) = services::destroy_session(sid).await {
-			warn!("Failed to destroy session during logout: {e}");
-		}
+	if let Some(ref sid) = session_id
+		&& let Err(e) = services::destroy_session(sid).await
+	{
+		warn!("Failed to destroy session during logout: {e}");
 	}
 
 	// Clear the cookie regardless of whether destruction succeeded

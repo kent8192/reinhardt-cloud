@@ -22,7 +22,6 @@ use crate::shared::ws_messages::{
 	DeploymentStatusPayload, NotificationLevel, WsClientMessage, WsMessage,
 };
 
-
 #[cfg(wasm)]
 use super::components::status_badge;
 #[cfg(wasm)]
@@ -193,4 +192,3 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 		.unwrap();
 	badge.set_text_content(Some(label));
 }
-
