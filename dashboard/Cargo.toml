@@ -57,6 +57,7 @@ cfg_aliases = "0.2"
 rstest = { workspace = true }
 serial_test = "3.2"
 anyhow = { workspace = true }
+proptest = "1.4"
 
 [lints]
 workspace = true

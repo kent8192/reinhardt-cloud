@@ -242,4 +242,70 @@ mod tests {
 		// Assert
 		assert!(result.is_err());
 	}
+
+	#[rstest]
+	#[case(DeploymentState::Deploying)]
+	#[case(DeploymentState::Running)]
+	#[case(DeploymentState::Degraded)]
+	#[case(DeploymentState::Failed)]
+	#[case(DeploymentState::Stopped)]
+	fn test_deployment_state_all_variants_roundtrip(#[case] state: DeploymentState) {
+		// Act
+		let json = serde_json::to_string(&state).unwrap();
+		let roundtrip: DeploymentState = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(roundtrip, state);
+	}
+
+	#[rstest]
+	#[case(NotificationLevel::Info)]
+	#[case(NotificationLevel::Warning)]
+	#[case(NotificationLevel::Critical)]
+	fn test_notification_level_all_variants_roundtrip(#[case] level: NotificationLevel) {
+		// Act
+		let json = serde_json::to_string(&level).unwrap();
+		let roundtrip: NotificationLevel = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(roundtrip, level);
+	}
+
+	#[rstest]
+	#[case(None)]
+	#[case(Some("".to_string()))]
+	fn test_deployment_status_payload_optional_message(#[case] message: Option<String>) {
+		// Arrange
+		let payload = DeploymentStatusPayload {
+			deployment_id: "dep-1".to_string(),
+			name: "my-app".to_string(),
+			namespace: "default".to_string(),
+			status: DeploymentState::Running,
+			ready_replicas: 1,
+			desired_replicas: 1,
+			message: message.clone(),
+			timestamp: "2026-03-22T00:00:00Z".to_string(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&payload).unwrap();
+		let roundtrip: DeploymentStatusPayload = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(roundtrip.message, message);
+	}
+
+	mod property_tests {
+		use super::super::*;
+		use proptest::prelude::*;
+
+		proptest! {
+			#[test]
+			fn test_ws_client_message_fuzz_no_panic(s in "\\PC{0,500}") {
+				// Any string should never panic, only return Ok or Err
+				let _ = serde_json::from_str::<WsMessage>(&s);
+				let _ = serde_json::from_str::<WsClientMessage>(&s);
+			}
+		}
+	}
 }
