@@ -372,9 +372,9 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 
 	// Find the ReplicaSet with the target revision annotation
 	let rs_list = replica_sets
-		.list(&kube::api::ListParams::default().labels(&format!(
-			"app.kubernetes.io/name={app_name}"
-		)))
+		.list(
+			&kube::api::ListParams::default().labels(&format!("app.kubernetes.io/name={app_name}")),
+		)
 		.await?;
 
 	let target_rs = rs_list
@@ -398,10 +398,7 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 
 	// Extract the pod template from the target ReplicaSet and apply it
 	// to the Deployment via strategic merge patch.
-	let template = target_rs
-		.spec
-		.as_ref()
-		.map(|s| &s.template);
+	let template = target_rs.spec.as_ref().map(|s| &s.template);
 
 	let patch = serde_json::json!({
 		"spec": {
