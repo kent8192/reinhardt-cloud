@@ -23,10 +23,8 @@ fn timestamp_from_chrono(dt: chrono::DateTime<chrono::Utc>) -> Option<Timestamp>
 }
 
 fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::Utc> {
-	ts.and_then(|t| {
-		chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0))
-	})
-	.unwrap_or_else(chrono::Utc::now)
+	ts.and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)))
+		.unwrap_or_else(chrono::Utc::now)
 }
 
 fn proto_level_to_domain(level: i32) -> LogLevel {
@@ -111,7 +109,8 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 
 		while let Some(result) = stream.next().await {
 			let push_req = result.map_err(|e| Status::internal(e.to_string()))?;
-			let entries: Vec<LogEntry> = push_req.entries.iter().map(proto_entry_to_domain).collect();
+			let entries: Vec<LogEntry> =
+				push_req.entries.iter().map(proto_entry_to_domain).collect();
 			total += entries.len() as u64;
 			self.service
 				.push_logs(entries)
@@ -201,10 +200,7 @@ mod tests {
 	#[case(LogLevel::Info, pb::LogLevel::Info as i32)]
 	#[case(LogLevel::Warn, pb::LogLevel::Warn as i32)]
 	#[case(LogLevel::Error, pb::LogLevel::Error as i32)]
-	fn test_domain_level_to_proto_all_variants(
-		#[case] domain: LogLevel,
-		#[case] expected: i32,
-	) {
+	fn test_domain_level_to_proto_all_variants(#[case] domain: LogLevel, #[case] expected: i32) {
 		// Arrange — provided by #[case]
 
 		// Act
@@ -219,10 +215,7 @@ mod tests {
 	#[case(pb::LogLevel::Info as i32, LogLevel::Info)]
 	#[case(pb::LogLevel::Warn as i32, LogLevel::Warn)]
 	#[case(pb::LogLevel::Error as i32, LogLevel::Error)]
-	fn test_proto_level_to_domain_all_variants(
-		#[case] proto_val: i32,
-		#[case] expected: LogLevel,
-	) {
+	fn test_proto_level_to_domain_all_variants(#[case] proto_val: i32, #[case] expected: LogLevel) {
 		// Arrange — provided by #[case]
 
 		// Act
@@ -253,16 +246,13 @@ mod tests {
 	// --- proto_level boundary values ---
 
 	#[rstest]
-	#[case(-1, LogLevel::Info)]      // negative -> Info fallback
-	#[case(0, LogLevel::Info)]       // UNSPECIFIED -> Info fallback
-	#[case(5, LogLevel::Info)]       // out of range -> Info fallback
+	#[case(-1, LogLevel::Info)] // negative -> Info fallback
+	#[case(0, LogLevel::Info)] // UNSPECIFIED -> Info fallback
+	#[case(5, LogLevel::Info)] // out of range -> Info fallback
 	#[case(99, LogLevel::Info)]
 	#[case(i32::MAX, LogLevel::Info)]
 	#[case(i32::MIN, LogLevel::Info)]
-	fn test_proto_level_boundary_values(
-		#[case] proto_val: i32,
-		#[case] expected: LogLevel,
-	) {
+	fn test_proto_level_boundary_values(#[case] proto_val: i32, #[case] expected: LogLevel) {
 		// Arrange — provided by #[case]
 
 		// Act
@@ -445,7 +435,10 @@ mod tests {
 		// Assert
 		let meta = roundtripped.metadata.unwrap();
 		assert_eq!(meta["request"]["method"], "POST");
-		assert_eq!(meta["request"]["headers"]["content-type"], "application/json");
+		assert_eq!(
+			meta["request"]["headers"]["content-type"],
+			"application/json"
+		);
 		assert_eq!(meta["request"]["body_size"], 1024);
 		assert_eq!(meta["tags"][0], "slow");
 		assert_eq!(meta["tags"][1], "auth");

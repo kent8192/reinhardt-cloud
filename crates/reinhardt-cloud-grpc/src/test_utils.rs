@@ -86,8 +86,8 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 	use tonic::transport::Channel;
-	use tonic_health::pb::health_client::HealthClient;
 	use tonic_health::pb::HealthCheckRequest;
+	use tonic_health::pb::health_client::HealthClient;
 
 	#[rstest]
 	#[tokio::test]

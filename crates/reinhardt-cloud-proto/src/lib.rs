@@ -14,8 +14,7 @@ pub mod build {
 	tonic::include_proto!("reinhardt.cloud.build");
 
 	/// Encoded file descriptor set for gRPC reflection.
-	pub const FILE_DESCRIPTOR_SET: &[u8] =
-		tonic::include_file_descriptor_set!("build_descriptor");
+	pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("build_descriptor");
 }
 
 /// Cluster agent service protobuf types and gRPC stubs.
@@ -32,8 +31,7 @@ pub mod log {
 	tonic::include_proto!("reinhardt.cloud.log");
 
 	/// Encoded file descriptor set for gRPC reflection.
-	pub const FILE_DESCRIPTOR_SET: &[u8] =
-		tonic::include_file_descriptor_set!("log_descriptor");
+	pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("log_descriptor");
 }
 
 /// Plugin service protobuf types and gRPC stubs.
@@ -41,6 +39,5 @@ pub mod plugin {
 	tonic::include_proto!("reinhardt.cloud.plugin");
 
 	/// Encoded file descriptor set for gRPC reflection.
-	pub const FILE_DESCRIPTOR_SET: &[u8] =
-		tonic::include_file_descriptor_set!("plugin_descriptor");
+	pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("plugin_descriptor");
 }

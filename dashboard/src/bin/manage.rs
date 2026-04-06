@@ -51,11 +51,11 @@ async fn async_main() {
 		let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
 		let grpc_handle = tokio::spawn(async move {
-			if let Err(e) = reinhardt_cloud_dashboard::config::grpc::start_grpc_server(
-				grpc_config,
-				async { drop(shutdown_rx.await) },
-			)
-			.await
+			if let Err(e) =
+				reinhardt_cloud_dashboard::config::grpc::start_grpc_server(grpc_config, async {
+					drop(shutdown_rx.await)
+				})
+				.await
 			{
 				eprintln!("gRPC server error: {e}");
 			}

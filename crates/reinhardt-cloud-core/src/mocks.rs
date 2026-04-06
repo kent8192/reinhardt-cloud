@@ -15,10 +15,10 @@ use crate::auth::Claims;
 use crate::error::ApiError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::traits::{AuthService, BuildService, ClusterAgentService, LogService};
+use reinhardt_cloud_types::User;
 use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
 use reinhardt_cloud_types::build::{BuildEvent, BuildRequest, BuildStatus};
 use reinhardt_cloud_types::log::{LogEntry, LogFilter};
-use reinhardt_cloud_types::User;
 
 // --- MockAuthService ---
 
@@ -284,7 +284,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(events.len(), 2);
-		assert!(matches!(events[1], BuildEvent::Complete { success: true, .. }));
+		assert!(matches!(
+			events[1],
+			BuildEvent::Complete { success: true, .. }
+		));
 	}
 
 	#[rstest]

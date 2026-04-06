@@ -12,9 +12,7 @@ use tonic::{Request, Response, Status};
 use reinhardt_cloud_core::traits::BuildService;
 use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
-use reinhardt_cloud_types::build::{
-	self as domain, BuildEvent, BuildPhase, BuildRequest, EnvVar,
-};
+use reinhardt_cloud_types::build::{self as domain, BuildEvent, BuildPhase, BuildRequest, EnvVar};
 
 // --- Proto <-> Domain conversions ---
 
@@ -210,7 +208,12 @@ impl BuildService for GrpcBuildClient {
 		&self,
 		request: BuildRequest,
 	) -> Result<
-		Pin<Box<dyn Stream<Item = Result<domain::BuildEvent, reinhardt_cloud_core::ApiError>> + Send>>,
+		Pin<
+			Box<
+				dyn Stream<Item = Result<domain::BuildEvent, reinhardt_cloud_core::ApiError>>
+					+ Send,
+			>,
+		>,
 		reinhardt_cloud_core::ApiError,
 	> {
 		let proto_req = pb::StartBuildRequest {
@@ -243,7 +246,10 @@ impl BuildService for GrpcBuildClient {
 		Ok(Box::pin(stream))
 	}
 
-	async fn cancel_build(&self, build_id: uuid::Uuid) -> Result<(), reinhardt_cloud_core::ApiError> {
+	async fn cancel_build(
+		&self,
+		build_id: uuid::Uuid,
+	) -> Result<(), reinhardt_cloud_core::ApiError> {
 		self.client
 			.clone()
 			.cancel_build(pb::CancelBuildRequest {
@@ -269,16 +275,17 @@ impl BuildService for GrpcBuildClient {
 			.into_inner();
 
 		Ok(domain::BuildStatus {
-			build_id: resp
-				.build_id
-				.parse()
-				.map_err(|e| reinhardt_cloud_core::ApiError::Internal(format!("Invalid UUID: {e}")))?,
+			build_id: resp.build_id.parse().map_err(|e| {
+				reinhardt_cloud_core::ApiError::Internal(format!("Invalid UUID: {e}"))
+			})?,
 			app_name: resp.app_name,
 			phase: proto_phase_to_domain(resp.phase),
 			completed: resp.completed,
 			success: resp.success,
 			started_at: proto_timestamp_to_chrono(resp.started_at),
-			completed_at: resp.completed_at.map(|t| proto_timestamp_to_chrono(Some(t))),
+			completed_at: resp
+				.completed_at
+				.map(|t| proto_timestamp_to_chrono(Some(t))),
 		})
 	}
 }
@@ -295,10 +302,8 @@ fn proto_phase_to_domain(phase: i32) -> BuildPhase {
 }
 
 fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::Utc> {
-	ts.and_then(|t| {
-		chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0))
-	})
-	.unwrap_or_else(chrono::Utc::now)
+	ts.and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)))
+		.unwrap_or_else(chrono::Utc::now)
 }
 
 fn proto_event_to_domain(event: &pb::BuildEvent) -> Option<BuildEvent> {
@@ -356,10 +361,7 @@ mod tests {
 	#[case(BuildPhase::Building, pb::BuildPhase::Building as i32)]
 	#[case(BuildPhase::Pushing, pb::BuildPhase::Pushing as i32)]
 	#[case(BuildPhase::Finalizing, pb::BuildPhase::Finalizing as i32)]
-	fn test_build_phase_to_proto_all_variants(
-		#[case] domain: BuildPhase,
-		#[case] expected: i32,
-	) {
+	fn test_build_phase_to_proto_all_variants(#[case] domain: BuildPhase, #[case] expected: i32) {
 		// Arrange — provided by #[case]
 
 		// Act
@@ -394,15 +396,12 @@ mod tests {
 
 	#[rstest]
 	#[case(-1, BuildPhase::Queued)]
-	#[case(0, BuildPhase::Queued)]   // UNSPECIFIED -> Queued fallback
-	#[case(6, BuildPhase::Queued)]   // out of range -> Queued fallback
+	#[case(0, BuildPhase::Queued)] // UNSPECIFIED -> Queued fallback
+	#[case(6, BuildPhase::Queued)] // out of range -> Queued fallback
 	#[case(99, BuildPhase::Queued)]
 	#[case(i32::MAX, BuildPhase::Queued)]
 	#[case(i32::MIN, BuildPhase::Queued)]
-	fn test_proto_phase_boundary_values(
-		#[case] proto_val: i32,
-		#[case] expected: BuildPhase,
-	) {
+	fn test_proto_phase_boundary_values(#[case] proto_val: i32, #[case] expected: BuildPhase) {
 		// Arrange — provided by #[case]
 
 		// Act

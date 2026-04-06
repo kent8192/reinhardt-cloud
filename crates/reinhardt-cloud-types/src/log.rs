@@ -163,10 +163,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(deserialized, entry);
-		assert_eq!(
-			deserialized.metadata,
-			Some(serde_json::json!([1, 2, 3]))
-		);
+		assert_eq!(deserialized.metadata, Some(serde_json::json!([1, 2, 3])));
 	}
 
 	#[rstest]

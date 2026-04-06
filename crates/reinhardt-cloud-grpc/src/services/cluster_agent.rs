@@ -23,10 +23,8 @@ fn timestamp_from_chrono(dt: chrono::DateTime<chrono::Utc>) -> Option<Timestamp>
 }
 
 fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::Utc> {
-	ts.and_then(|t| {
-		chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0))
-	})
-	.unwrap_or_else(chrono::Utc::now)
+	ts.and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)))
+		.unwrap_or_else(chrono::Utc::now)
 }
 
 fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
@@ -46,13 +44,12 @@ fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
 				revision: *revision,
 			}))
 		}
-		AgentCommand::Scale {
-			app_name,
-			replicas,
-		} => Some(pb::agent_command::Command::Scale(pb::ScaleCommand {
-			app_name: app_name.clone(),
-			replicas: *replicas,
-		})),
+		AgentCommand::Scale { app_name, replicas } => {
+			Some(pb::agent_command::Command::Scale(pb::ScaleCommand {
+				app_name: app_name.clone(),
+				replicas: *replicas,
+			}))
+		}
 		AgentCommand::Restart { app_name } => {
 			Some(pb::agent_command::Command::Restart(pb::RestartCommand {
 				app_name: app_name.clone(),

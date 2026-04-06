@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -309,9 +309,9 @@ mod tests {
 		}
 
 		// Assert — should contain an error event about cancellation
-		let has_cancel_error = events.iter().any(|e| {
-			matches!(e, BuildEvent::Error { message, .. } if message.contains("cancelled"))
-		});
+		let has_cancel_error = events.iter().any(
+			|e| matches!(e, BuildEvent::Error { message, .. } if message.contains("cancelled")),
+		);
 		assert!(has_cancel_error);
 	}
 

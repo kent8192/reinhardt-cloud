@@ -155,10 +155,8 @@ mod tests {
 		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 		let mut req = Request::new(());
 		// Use "Token" prefix instead of "Bearer"
-		req.metadata_mut().insert(
-			"authorization",
-			format!("Token {token}").parse().unwrap(),
-		);
+		req.metadata_mut()
+			.insert("authorization", format!("Token {token}").parse().unwrap());
 
 		// Act
 		let result = interceptor.call(req);
@@ -174,10 +172,8 @@ mod tests {
 		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
 		let mut req = Request::new(());
 		// "Bearer " with no token after the prefix
-		req.metadata_mut().insert(
-			"authorization",
-			"Bearer ".parse().unwrap(),
-		);
+		req.metadata_mut()
+			.insert("authorization", "Bearer ".parse().unwrap());
 
 		// Act
 		let result = interceptor.call(req);
@@ -204,10 +200,8 @@ mod tests {
 
 		// Act — second call: invalid token
 		let mut req2 = Request::new(());
-		req2.metadata_mut().insert(
-			"authorization",
-			"Bearer bad-token".parse().unwrap(),
-		);
+		req2.metadata_mut()
+			.insert("authorization", "Bearer bad-token".parse().unwrap());
 		let result2 = interceptor.call(req2);
 
 		// Act — third call: valid token again

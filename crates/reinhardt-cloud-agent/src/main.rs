@@ -14,16 +14,21 @@ use tonic::transport::Channel;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use reinhardt_cloud_proto::cluster_agent::{
-	self as pb, agent_service_client::AgentServiceClient,
-};
+use reinhardt_cloud_proto::cluster_agent::{self as pb, agent_service_client::AgentServiceClient};
 
 /// Reinhardt Cloud Cluster Agent CLI arguments.
 #[derive(Parser)]
-#[command(name = "reinhardt-cloud-agent", about = "Reinhardt Cloud Cluster Agent")]
+#[command(
+	name = "reinhardt-cloud-agent",
+	about = "Reinhardt Cloud Cluster Agent"
+)]
 struct Args {
 	/// Control plane gRPC endpoint.
-	#[arg(long, env = "CONTROL_PLANE_URL", default_value = "http://127.0.0.1:50051")]
+	#[arg(
+		long,
+		env = "CONTROL_PLANE_URL",
+		default_value = "http://127.0.0.1:50051"
+	)]
 	control_plane_url: String,
 
 	/// Cluster name this agent belongs to.
@@ -102,9 +107,7 @@ async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error
 		.await?;
 
 	// Start the bidirectional stream
-	let response = client
-		.agent_stream(ReceiverStream::new(event_rx))
-		.await?;
+	let response = client.agent_stream(ReceiverStream::new(event_rx)).await?;
 
 	let mut command_stream = response.into_inner();
 

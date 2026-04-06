@@ -29,15 +29,9 @@ pub enum AgentCommand {
 		replicas: u32,
 	},
 	/// Rollback an application to a previous revision.
-	Rollback {
-		app_name: String,
-		revision: u32,
-	},
+	Rollback { app_name: String, revision: u32 },
 	/// Scale an application to the specified number of replicas.
-	Scale {
-		app_name: String,
-		replicas: u32,
-	},
+	Scale { app_name: String, replicas: u32 },
 	/// Restart all pods for an application.
 	Restart { app_name: String },
 }

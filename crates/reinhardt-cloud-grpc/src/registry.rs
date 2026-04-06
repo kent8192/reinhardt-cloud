@@ -46,10 +46,7 @@ impl AgentRegistry {
 	/// Register a new agent connection.
 	///
 	/// Returns a receiver for commands to send to the agent.
-	pub fn register(
-		&self,
-		info: AgentInfo,
-	) -> mpsc::Receiver<AgentCommand> {
+	pub fn register(&self, info: AgentInfo) -> mpsc::Receiver<AgentCommand> {
 		let (tx, rx) = mpsc::channel(64);
 		let agent_id = info.agent_id;
 
@@ -95,11 +92,7 @@ impl AgentRegistry {
 	}
 
 	/// Send a command to a specific agent.
-	pub async fn send_command(
-		&self,
-		agent_id: &Uuid,
-		command: AgentCommand,
-	) -> Result<(), String> {
+	pub async fn send_command(&self, agent_id: &Uuid, command: AgentCommand) -> Result<(), String> {
 		let conn = self
 			.agents
 			.get(agent_id)
@@ -119,8 +112,7 @@ impl AgentRegistry {
 	/// Check if an agent is healthy (heartbeat within threshold).
 	pub fn is_healthy(&self, agent_id: &Uuid) -> bool {
 		self.agents.get(agent_id).is_some_and(|conn| {
-			let timeout =
-				HEARTBEAT_INTERVAL * MISSED_HEARTBEATS_THRESHOLD;
+			let timeout = HEARTBEAT_INTERVAL * MISSED_HEARTBEATS_THRESHOLD;
 			let elapsed = Utc::now()
 				.signed_duration_since(conn.last_heartbeat)
 				.to_std()
@@ -149,8 +141,7 @@ impl AgentRegistry {
 
 	/// Evict agents that have missed too many heartbeats.
 	pub fn evict_stale_agents(&self) -> Vec<Uuid> {
-		let timeout =
-			HEARTBEAT_INTERVAL * MISSED_HEARTBEATS_THRESHOLD;
+		let timeout = HEARTBEAT_INTERVAL * MISSED_HEARTBEATS_THRESHOLD;
 		let mut evicted = vec![];
 
 		self.agents.retain(|id, conn| {
