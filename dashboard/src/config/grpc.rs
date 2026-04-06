@@ -16,11 +16,11 @@ use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServ
 use tonic::transport::Server;
 use tracing::info;
 
-/// Register a gRPC service and mark it as SERVING in the health reporter.
+/// Mark a gRPC service as SERVING in the health reporter.
 ///
-/// Centralises the register-then-serve pattern so each new service only
-/// needs a single call instead of duplicated `mark_service_serving` lines.
-async fn register_and_serve(health_reporter: &mut health::HealthReporter, service_name: &str) {
+/// Centralises the health transition so each new service only needs a
+/// single call instead of duplicated `mark_service_serving` lines.
+async fn mark_service_healthy(health_reporter: &mut health::HealthReporter, service_name: &str) {
 	health::mark_service_serving(health_reporter, service_name).await;
 }
 
@@ -44,8 +44,8 @@ pub async fn start_grpc_server(
 	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
 
 	// Register services and mark them as SERVING for health checks
-	register_and_serve(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
-	register_and_serve(&mut health_reporter, health::AGENT_SERVICE_NAME).await;
+	mark_service_healthy(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
+	mark_service_healthy(&mut health_reporter, health::AGENT_SERVICE_NAME).await;
 
 	// Build reflection service from proto file descriptors
 	let reflection_service = tonic_reflection::server::Builder::configure()
