@@ -251,8 +251,8 @@ pub(crate) async fn execute(
 	}
 
 	if args.direct {
-		// Direct mode: apply CRD via kubectl
-		let mut child = Command::new("kubectl")
+		// Direct mode: apply CRD via kubectl using async I/O
+		let mut child = tokio::process::Command::new("kubectl")
 			.args(["apply", "-f", "-", "-n", &args.namespace])
 			.stdin(std::process::Stdio::piped())
 			.stdout(std::process::Stdio::inherit())
@@ -261,14 +261,16 @@ pub(crate) async fn execute(
 			.map_err(|e| format!("failed to run kubectl: {e}"))?;
 
 		if let Some(ref mut stdin) = child.stdin {
-			use std::io::Write;
+			use tokio::io::AsyncWriteExt;
 			stdin
 				.write_all(yaml.as_bytes())
+				.await
 				.map_err(|e| format!("failed to write CRD to kubectl stdin: {e}"))?;
 		}
 
 		let exit_status = child
 			.wait()
+			.await
 			.map_err(|e| format!("failed to wait for kubectl: {e}"))?;
 		if !exit_status.success() {
 			return Err(format!("kubectl apply failed with status {exit_status}").into());

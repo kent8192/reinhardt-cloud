@@ -31,9 +31,12 @@ pub(crate) async fn execute(
 
 	match client.login(&args.username, &password).await {
 		Ok(token) => {
-			println!("Login successful.");
+			eprintln!("Login successful.");
 			tracing::debug!("received JWT token ({} bytes)", token.len());
-			// Print the token so callers can capture it (e.g. `eval $(reinhardt-cloud login ...)`)
+			// Print the token to stdout so callers can capture it
+			// (e.g. `eval $(reinhardt-cloud login ...)`).
+			// The success message goes to stderr to avoid polluting
+			// the captured output.
 			println!("{token}");
 			Ok(())
 		}

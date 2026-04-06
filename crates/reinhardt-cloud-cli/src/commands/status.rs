@@ -1,10 +1,9 @@
 //! Status command: checks the deployment status.
 
-use std::process::Command;
-
 use clap::Args;
+use tokio::process::Command;
 
-use crate::client::ReinhardtCloudClient;
+use crate::client::{ClientError, ReinhardtCloudClient};
 
 /// Check deployment status.
 #[derive(Debug, Args)]
@@ -14,9 +13,20 @@ pub(crate) struct StatusArgs {
 	pub name: Option<String>,
 }
 
+/// Returns `true` when the error looks like a transport-level failure
+/// (connection refused, timeout, DNS resolution) rather than an API error.
+fn is_transport_error(err: &ClientError) -> bool {
+	match err {
+		ClientError::RequestError(e) => e.is_connect() || e.is_timeout(),
+		_ => false,
+	}
+}
+
 /// Executes the status command.
 ///
-/// Tries the dashboard API first; falls back to `kubectl` if the API is unreachable.
+/// Tries the dashboard API first; falls back to `kubectl` only when the
+/// API is unreachable (transport-level errors). Other errors are propagated
+/// directly so they are not masked by the fallback.
 pub(crate) async fn execute(
 	args: &StatusArgs,
 	client: &ReinhardtCloudClient,
@@ -32,19 +42,21 @@ pub(crate) async fn execute(
 			println!("{formatted}");
 			Ok(())
 		}
-		Err(e) => {
+		Err(e) if is_transport_error(&e) => {
 			tracing::warn!("Dashboard API unreachable, falling back to kubectl: {e}");
-			eprintln!("Dashboard API unavailable, falling back to kubectl...");
-			kubectl_status(app_name)
+			eprintln!("Dashboard API unreachable, falling back to kubectl...");
+			kubectl_status(app_name).await
 		}
+		Err(e) => Err(format!("API error: {e}").into()),
 	}
 }
 
 /// Queries deployment status directly via `kubectl`.
-fn kubectl_status(app_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn kubectl_status(app_name: &str) -> Result<(), Box<dyn std::error::Error>> {
 	let output = Command::new("kubectl")
 		.args(["get", "reinhardtapp", app_name, "-o", "json"])
 		.output()
+		.await
 		.map_err(|e| format!("failed to run kubectl: {e}"))?;
 
 	if output.status.success() {

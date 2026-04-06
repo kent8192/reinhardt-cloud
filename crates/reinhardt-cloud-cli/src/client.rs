@@ -50,10 +50,8 @@ impl ReinhardtCloudClient {
 	///
 	/// Will be called from the main entry point once token persistence is
 	/// implemented; currently exercised only from tests.
-	#[expect(
-		dead_code,
-		reason = "used in tests; production use pending token persistence"
-	)]
+	// allow(dead_code): used in tests; production use pending token persistence
+	#[allow(dead_code)]
 	pub(crate) fn with_token(mut self, token: String) -> Self {
 		self.token = Some(token);
 		self
@@ -63,10 +61,8 @@ impl ReinhardtCloudClient {
 	///
 	/// Used in tests; will be used for user-facing URL display once status
 	/// and deploy commands print the target server.
-	#[expect(
-		dead_code,
-		reason = "used in tests; production use pending CLI output improvements"
-	)]
+	// allow(dead_code): used in tests; production use pending CLI output improvements
+	#[allow(dead_code)]
 	pub(crate) fn base_url(&self) -> &str {
 		self.base_url.as_str().trim_end_matches('/')
 	}
@@ -119,8 +115,11 @@ impl ReinhardtCloudClient {
 		&self,
 		app_name: &str,
 	) -> Result<serde_json::Value, ClientError> {
-		let path = format!("/api/deployments/?app_name={app_name}");
-		let response = self.request(reqwest::Method::GET, &path)?.send().await?;
+		let response = self
+			.request(reqwest::Method::GET, "/api/deployments/")?
+			.query(&[("app_name", app_name)])
+			.send()
+			.await?;
 
 		let status = response.status();
 		let body = response.text().await?;
@@ -315,11 +314,11 @@ mod tests {
 		// Arrange
 		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
-		// Act
-		let path = format!("/api/deployments/?app_name={}", "my-app");
+		// Act — uses .query() for proper percent-encoding
 		let req = client
-			.request(reqwest::Method::GET, &path)
+			.request(reqwest::Method::GET, "/api/deployments/")
 			.unwrap()
+			.query(&[("app_name", "my-app")])
 			.build()
 			.unwrap();
 
