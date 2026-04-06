@@ -126,6 +126,39 @@ pub fn get_settings() -> ProjectSettings {
 	build_settings()
 }
 
+/// Get Redis URL from settings or environment.
+///
+/// Priority (highest to lowest):
+/// 1. `redis_url` key in the active TOML settings file
+/// 2. `REINHARDT_CLOUD_REDIS_URL` environment variable (fallback for CI/container overrides)
+///
+/// Returns `None` if the Redis URL is not configured in either source.
+pub fn get_redis_url() -> Option<String> {
+	// TOML settings take highest priority
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
+	let from_toml = SettingsBuilder::new()
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
+		.add_source(TomlFileSource::new(
+			settings_dir.join(format!("{}.toml", profile_str)),
+		))
+		.build()
+		.ok()
+		.and_then(|merged| {
+			merged
+				.get_raw("redis_url")
+				.and_then(|v| v.as_str())
+				.map(String::from)
+		});
+
+	if from_toml.is_some() {
+		return from_toml;
+	}
+
+	// Fall back to env var for container/CI overrides
+	env::var("REINHARDT_CLOUD_REDIS_URL").ok()
+}
+
 /// Get JWT secret from settings or environment.
 ///
 /// Priority (highest to lowest):

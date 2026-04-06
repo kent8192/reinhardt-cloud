@@ -11,6 +11,9 @@
 # JWT secret for session token signing (required for auth endpoints)
 jwt_secret = "CHANGE-ME-to-a-random-string"
 
+# Redis URL for session storage (required for cookie session auth)
+redis_url = "redis://localhost:6379/1"
+
 [core]
 debug = true
 secret_key = "CHANGE-ME-to-a-random-string"

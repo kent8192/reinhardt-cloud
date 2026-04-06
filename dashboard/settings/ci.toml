@@ -10,6 +10,7 @@
 #   cp ci.example.toml ci.toml
 
 jwt_secret = "ci-only-jwt-secret-not-for-production"
+redis_url = "redis://localhost:6379/1"
 
 [core]
 # Enable debug mode for verbose error output in CI logs
