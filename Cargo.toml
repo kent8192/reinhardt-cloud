@@ -13,6 +13,8 @@ members = [
 	"crates/reinhardt-cloud-agent",
 	# Reinhardt startproject application (Control Plane)
 	"dashboard",
+	# Integration tests
+	"tests",
 ]
 
 [workspace.package]
@@ -79,6 +81,8 @@ rand = "0.9"
 # Testing
 rstest = "0.26"
 tokio-test = "0.4"
+proptest = "1"
+reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"
