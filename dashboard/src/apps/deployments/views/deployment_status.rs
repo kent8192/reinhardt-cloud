@@ -3,7 +3,7 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, post};
 use tracing::error;
@@ -32,11 +32,11 @@ pub async fn deployment_status(
 			FilterOperator::Eq,
 			FilterValue::Integer(id),
 		)
-		.filter(Filter::new(
+		.filter(
 			Deployment::field_user_id(),
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
-		))
+		)
 		.first()
 		.await
 		.map_err(|e| {

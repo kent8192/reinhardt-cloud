@@ -2,7 +2,7 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, delete};
 use tracing::error;
@@ -22,17 +22,17 @@ pub async fn delete_deployment(
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
-	let deployment = Deployment::objects()
+	Deployment::objects()
 		.filter(
 			Deployment::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(id),
 		)
-		.filter(Filter::new(
+		.filter(
 			Deployment::field_user_id(),
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
-		))
+		)
 		.first()
 		.await
 		.map_err(|e| {
@@ -41,11 +41,9 @@ pub async fn delete_deployment(
 		})?
 		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
 
-	let pk = deployment
-		.id
-		.ok_or_else(|| AppError::Internal("Deployment has no primary key".to_string()))?;
-
-	Deployment::objects().delete(pk).await.map_err(|e| {
+	// Use path id directly for deletion — the ownership check above
+	// already confirmed the record exists and belongs to this user
+	Deployment::objects().delete(id).await.map_err(|e| {
 		error!("Failed to delete deployment: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;

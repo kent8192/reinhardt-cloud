@@ -30,5 +30,4 @@ pub struct UpdateDeploymentRequest {
 pub struct DeploymentStatusRequest {
 	#[validate(length(min = 1, max = 50))]
 	pub status: String,
-	pub message: Option<String>,
 }
