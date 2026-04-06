@@ -104,39 +104,36 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 Three-plane architecture inspired by Vercel:
 
 ```mermaid
-flowchart LR
-    subgraph Developer
-        CLI[reinhardt-cloud CLI]
-    end
+C4Container
+    title Reinhardt Cloud - Three-Plane Architecture
 
-    subgraph Control Plane
-        Dashboard[Dashboard\nREST API + Auth]
-    end
+    Person(dev, "Developer", "Builds Reinhardt web applications")
 
-    subgraph Kubernetes Cluster
-        Operator
-        CRD[ReinhardtApp CRD]
+    Container_Boundary(cli_plane, "CLI Plane") {
+        Container(cli, "reinhardt-cloud CLI", "Rust, clap", "Analyzes projects via manage introspect and generates ReinhardtApp CRDs")
+    }
 
-        subgraph Reconciled Resources
-            Deployment
-            Service
-            Ingress
-            HPA
-            DB[(Database)]
-            Cache[(Cache)]
-            Workers
-        end
-    end
+    Container_Boundary(cp_plane, "Control Plane") {
+        Container(dashboard, "Dashboard", "Rust, reinhardt-web", "REST API, authentication, project management")
+        ContainerDb(pg, "PostgreSQL", "", "Users, projects, deployments")
+    }
 
-    CLI -- deploy --> Dashboard
-    CLI -. dry-run / direct .-> CRD
-    Dashboard --> Operator
-    Operator -- watches --> CRD
-    CRD --> Deployment & Service & Ingress & HPA
-    CRD --> DB & Cache & Workers
+    Container_Boundary(k8s_plane, "Kubernetes Cluster") {
+        Container(operator, "Operator", "Rust, kube-rs", "Reconciles ReinhardtApp CRDs into Deployments, Services, StatefulSets, Ingress, HPA")
+        Container(agent, "Agent", "Rust, tonic", "Bidirectional gRPC streaming with control plane")
+        ContainerDb(crd, "ReinhardtApp CRD", "v1alpha2", "Desired application state")
+    }
+
+    Rel(dev, cli, "Uses")
+    Rel(cli, dashboard, "deploy", "HTTPS")
+    Rel(cli, crd, "dry-run / direct", "kubectl apply")
+    Rel(dashboard, pg, "Reads/Writes", "SQL")
+    Rel(dashboard, agent, "Commands", "gRPC")
+    Rel(agent, operator, "Reports status", "gRPC streaming")
+    Rel(operator, crd, "Watches and reconciles")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
-
-> **Note:** This diagram uses `flowchart` for GitHub compatibility. The full `architecture` diagram with icons is available in [Mermaid Live Editor](https://mermaid.live).
 
 | Plane | Crate | Role |
 |---|---|---|
