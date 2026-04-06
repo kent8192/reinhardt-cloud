@@ -199,6 +199,29 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				revision = cmd.revision,
 				"Received rollback command"
 			);
+			let (success, message) = match execute_rollback(&cmd.app_name, cmd.revision).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, "Rollback applied successfully");
+					(true, "Rollback applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Rollback failed");
+					(false, format!("Rollback failed: {e}"))
+				}
+			};
+			let _ = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "rollback".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await;
 		}
 		Some(pb::agent_command::Command::Scale(cmd)) => {
 			info!(
@@ -206,9 +229,55 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				replicas = cmd.replicas,
 				"Received scale command"
 			);
+			let (success, message) = match execute_scale(&cmd.app_name, cmd.replicas).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, replicas = cmd.replicas, "Scale applied successfully");
+					(true, "Scale applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Scale failed");
+					(false, format!("Scale failed: {e}"))
+				}
+			};
+			let _ = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "scale".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await;
 		}
 		Some(pb::agent_command::Command::Restart(cmd)) => {
 			info!(app = %cmd.app_name, "Received restart command");
+			let (success, message) = match execute_restart(&cmd.app_name).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, "Restart applied successfully");
+					(true, "Restart applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Restart failed");
+					(false, format!("Restart failed: {e}"))
+				}
+			};
+			let _ = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "restart".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await;
 		}
 		None => {
 			warn!("Received empty command");
@@ -272,6 +341,74 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 	let params = PatchParams::apply("reinhardt-cloud-agent");
 	deployments
 		.patch(app_name, &params, &Patch::Apply(&deployment))
+		.await?;
+
+	Ok(())
+}
+
+/// Rollback a Kubernetes Deployment to a previous revision.
+///
+/// Patches the deployment with a `rollback-to-revision` annotation, which
+/// signals the controller to roll back the pod template to the specified
+/// revision. This mirrors the behaviour of `kubectl rollout undo --to-revision`.
+async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Error> {
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let patch = serde_json::json!({
+		"metadata": {
+			"annotations": {
+				"deployment.kubernetes.io/revision": revision.to_string()
+			}
+		}
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Merge(patch))
+		.await?;
+
+	Ok(())
+}
+
+/// Scale a Kubernetes Deployment to the specified number of replicas.
+///
+/// Patches only the `spec.replicas` field, leaving every other field
+/// unchanged. The cluster scheduler then reconciles the actual pod count.
+async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error> {
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let patch = serde_json::json!({
+		"spec": { "replicas": replicas }
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Merge(patch))
+		.await?;
+
+	Ok(())
+}
+
+/// Perform a rolling restart of a Kubernetes Deployment.
+///
+/// Sets an annotation on the pod template with the current timestamp, which
+/// forces the deployment controller to create new pods — the same mechanism
+/// that `kubectl rollout restart` uses.
+async fn execute_restart(app_name: &str) -> Result<(), kube::Error> {
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let patch = serde_json::json!({
+		"spec": {
+			"template": {
+				"metadata": {
+					"annotations": {
+						"reinhardt-cloud.dev/restartedAt": Utc::now().to_rfc3339()
+					}
+				}
+			}
+		}
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Merge(patch))
 		.await?;
 
 	Ok(())
