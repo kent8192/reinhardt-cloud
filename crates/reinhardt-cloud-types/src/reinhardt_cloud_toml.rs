@@ -8,9 +8,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::crd::{
-	AuthSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec, DeletionPolicy, HealthSpec,
-	MailSpec, ReinhardtAppSpec, ScaleMetric, ScaleSpec, ServicesSpec, StorageBackend, StorageSpec,
-	WorkerSpec,
+	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
+	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec,
+	ReinhardtAppSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend, StorageSpec,
+	WebhookEvent, WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`
@@ -48,6 +49,9 @@ pub struct ReinhardtCloudToml {
 	/// Mail (SMTP) configuration
 	#[serde(default)]
 	pub mail: Option<MailSection>,
+	/// Git source and CI/CD pipeline configuration
+	#[serde(default)]
+	pub source: Option<SourceSection>,
 	/// Environment variables as key-value pairs
 	#[serde(default)]
 	pub env: BTreeMap<String, String>,
@@ -176,6 +180,77 @@ pub struct MailSection {
 	pub smtp_port: Option<i32>,
 }
 
+/// Git source configuration section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SourceSection {
+	/// Git repository URL
+	pub repository: String,
+	/// Branch to track
+	pub branch: Option<String>,
+	/// Git hosting provider (github, gitlab)
+	pub provider: Option<String>,
+	/// Secret name containing Git credentials
+	pub credentials_secret: Option<String>,
+	/// Container build configuration
+	#[serde(default)]
+	pub build: Option<BuildSection>,
+	/// Webhook receiver configuration
+	#[serde(default)]
+	pub webhook: Option<WebhookTomlSection>,
+	/// Preview environment configuration
+	#[serde(default)]
+	pub preview: Option<PreviewTomlSection>,
+}
+
+/// Container build configuration section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuildSection {
+	/// Container registry URL
+	pub registry: Option<String>,
+	/// Dockerfile path relative to context
+	pub dockerfile: Option<String>,
+	/// Build context directory
+	pub context: Option<String>,
+	/// Additional build arguments
+	#[serde(default)]
+	pub build_args: BTreeMap<String, String>,
+}
+
+/// Webhook configuration section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WebhookTomlSection {
+	/// Whether webhook receiving is enabled
+	#[serde(default)]
+	pub enabled: bool,
+	/// Events to listen for (push, pull_request, tag)
+	#[serde(default)]
+	pub events: Vec<String>,
+	/// Secret name containing the webhook signing secret
+	pub secret_ref: Option<String>,
+}
+
+/// Preview environment configuration section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PreviewTomlSection {
+	/// Whether preview environments are enabled
+	#[serde(default)]
+	pub enabled: bool,
+	/// Time-to-live for preview environments (e.g., "72h", "7d")
+	pub ttl: Option<String>,
+	/// URL template for preview environments
+	pub url_template: Option<String>,
+	/// Resource overrides for preview deployments
+	#[serde(default)]
+	pub overrides: Option<PreviewOverridesTomlSection>,
+}
+
+/// Preview resource overrides section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PreviewOverridesTomlSection {
+	/// Override replica count for preview
+	pub replicas: Option<i32>,
+}
+
 impl ReinhardtCloudToml {
 	/// Converts this configuration to a `ReinhardtAppSpec` for CRD creation.
 	///
@@ -248,7 +323,45 @@ impl ReinhardtCloudToml {
 			features: Vec::new(),
 			introspect: None,
 			isolation: None,
-			source: None,
+			source: self.source.as_ref().map(|s| SourceSpec {
+				repository: s.repository.clone(),
+				branch: s.branch.clone(),
+				provider: s.provider.as_ref().map(|p| match p.as_str() {
+					"gitlab" => GitProvider::GitLab,
+					_ => GitProvider::GitHub,
+				}),
+				credentials_secret: s.credentials_secret.clone(),
+				build: s.build.as_ref().map(|b| CrdBuildSpec {
+					dockerfile: b.dockerfile.clone(),
+					context: b.context.clone(),
+					registry: b.registry.clone(),
+					build_args: b.build_args.clone(),
+				}),
+				webhook: s.webhook.as_ref().map(|w| WebhookSpec {
+					enabled: w.enabled,
+					events: w
+						.events
+						.iter()
+						.filter_map(|e| match e.as_str() {
+							"push" => Some(WebhookEvent::Push),
+							"pull_request" => Some(WebhookEvent::PullRequest),
+							"tag" => Some(WebhookEvent::Tag),
+							_ => None,
+						})
+						.collect(),
+					secret_ref: w.secret_ref.clone(),
+				}),
+				preview: s.preview.as_ref().map(|p| PreviewSpec {
+					enabled: p.enabled,
+					ttl: p.ttl.clone(),
+					url_template: p.url_template.clone(),
+					overrides: p.overrides.as_ref().map(|o| PreviewOverrides {
+						replicas: o.replicas,
+						database: None,
+						cache: None,
+					}),
+				}),
+			}),
 		}
 	}
 }
@@ -539,5 +652,185 @@ min_replicas = 2
 		let spec = config.to_reinhardt_app_spec();
 		// Assert
 		assert_eq!(spec.database.unwrap().engine, DatabaseEngine::Mysql);
+	}
+
+	#[rstest]
+	fn test_parse_source_section() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "my-app"
+image = "my-app:latest"
+
+[source]
+repository = "https://github.com/myorg/myapp"
+branch = "main"
+provider = "github"
+credentials_secret = "git-creds"
+
+[source.build]
+registry = "ghcr.io/myorg"
+dockerfile = "Dockerfile"
+context = "."
+"#;
+		// Act
+		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
+		// Assert
+		let source = config.source.unwrap();
+		assert_eq!(source.repository, "https://github.com/myorg/myapp");
+		assert_eq!(source.branch.as_deref(), Some("main"));
+		assert_eq!(source.provider.as_deref(), Some("github"));
+		assert_eq!(source.credentials_secret.as_deref(), Some("git-creds"));
+		let build = source.build.unwrap();
+		assert_eq!(build.registry.as_deref(), Some("ghcr.io/myorg"));
+		assert_eq!(build.dockerfile.as_deref(), Some("Dockerfile"));
+		assert_eq!(build.context.as_deref(), Some("."));
+	}
+
+	#[rstest]
+	fn test_parse_source_with_webhook_and_preview() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "my-app"
+image = "my-app:latest"
+
+[source]
+repository = "https://github.com/myorg/myapp"
+
+[source.webhook]
+enabled = true
+events = ["push", "pull_request"]
+secret_ref = "webhook-secret"
+
+[source.preview]
+enabled = true
+ttl = "72h"
+url_template = "{{branch}}.preview.example.com"
+
+[source.preview.overrides]
+replicas = 1
+"#;
+		// Act
+		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
+		// Assert
+		let source = config.source.unwrap();
+		let webhook = source.webhook.unwrap();
+		assert!(webhook.enabled);
+		assert_eq!(webhook.events, vec!["push", "pull_request"]);
+		assert_eq!(webhook.secret_ref.as_deref(), Some("webhook-secret"));
+		let preview = source.preview.unwrap();
+		assert!(preview.enabled);
+		assert_eq!(preview.ttl.as_deref(), Some("72h"));
+		assert_eq!(
+			preview.url_template.as_deref(),
+			Some("{{branch}}.preview.example.com")
+		);
+		assert_eq!(preview.overrides.unwrap().replicas, Some(1));
+	}
+
+	#[rstest]
+	fn test_source_section_conversion_to_spec() {
+		// Arrange
+		let config = ReinhardtCloudToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			source: Some(SourceSection {
+				repository: "https://github.com/myorg/myapp".into(),
+				branch: Some("develop".into()),
+				provider: Some("gitlab".into()),
+				credentials_secret: Some("git-creds".into()),
+				build: Some(BuildSection {
+					registry: Some("ghcr.io/myorg".into()),
+					dockerfile: Some("Dockerfile".into()),
+					context: Some(".".into()),
+					build_args: BTreeMap::from([("MODE".into(), "release".into())]),
+				}),
+				webhook: Some(WebhookTomlSection {
+					enabled: true,
+					events: vec![
+						"push".into(),
+						"pull_request".into(),
+						"tag".into(),
+						"unknown_event".into(),
+					],
+					secret_ref: Some("wh-secret".into()),
+				}),
+				preview: Some(PreviewTomlSection {
+					enabled: true,
+					ttl: Some("48h".into()),
+					url_template: Some("{{branch}}.dev.example.com".into()),
+					overrides: Some(PreviewOverridesTomlSection {
+						replicas: Some(2),
+					}),
+				}),
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		let source = spec.source.unwrap();
+		assert_eq!(source.repository, "https://github.com/myorg/myapp");
+		assert_eq!(source.branch.as_deref(), Some("develop"));
+		assert_eq!(source.provider, Some(GitProvider::GitLab));
+		assert_eq!(source.credentials_secret.as_deref(), Some("git-creds"));
+		let build = source.build.unwrap();
+		assert_eq!(build.registry.as_deref(), Some("ghcr.io/myorg"));
+		assert_eq!(build.dockerfile.as_deref(), Some("Dockerfile"));
+		assert_eq!(build.build_args.get("MODE").map(|s| s.as_str()), Some("release"));
+		let webhook = source.webhook.unwrap();
+		assert!(webhook.enabled);
+		// unknown_event should be filtered out
+		assert_eq!(webhook.events.len(), 3);
+		assert_eq!(webhook.events[0], WebhookEvent::Push);
+		assert_eq!(webhook.events[1], WebhookEvent::PullRequest);
+		assert_eq!(webhook.events[2], WebhookEvent::Tag);
+		let preview = source.preview.unwrap();
+		assert!(preview.enabled);
+		assert_eq!(preview.ttl.as_deref(), Some("48h"));
+		let overrides = preview.overrides.unwrap();
+		assert_eq!(overrides.replicas, Some(2));
+		assert!(overrides.database.is_none());
+		assert!(overrides.cache.is_none());
+	}
+
+	#[rstest]
+	fn test_invalid_provider_defaults_to_github() {
+		// Arrange
+		let config = ReinhardtCloudToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			source: Some(SourceSection {
+				repository: "https://example.com/repo".into(),
+				provider: Some("bitbucket".into()),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		assert_eq!(spec.source.unwrap().provider, Some(GitProvider::GitHub));
+	}
+
+	#[rstest]
+	fn test_no_source_section_produces_none() {
+		// Arrange
+		let config = ReinhardtCloudToml {
+			app: AppSection {
+				name: "t".into(),
+				image: "t:v1".into(),
+			},
+			..Default::default()
+		};
+		// Act
+		let spec = config.to_reinhardt_app_spec();
+		// Assert
+		assert!(spec.source.is_none());
 	}
 }
