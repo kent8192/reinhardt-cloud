@@ -49,14 +49,14 @@ args = ["clean"]
 # ============================================================================
 
 [tasks.fmt-check]
-description = "Check code formatting"
-command = "cargo"
-args = ["fmt", "--all", "--check"]
+description = "Check all code formatting (Rust + page! DSL)"
+command = "reinhardt-admin"
+args = ["fmt-all", "--check"]
 
 [tasks.fmt-fix]
-description = "Auto-fix code formatting"
-command = "cargo"
-args = ["fmt", "--all"]
+description = "Auto-fix all code formatting (Rust + page! DSL)"
+command = "reinhardt-admin"
+args = ["fmt-all"]
 
 [tasks.clippy-check]
 description = "Run clippy linter"
