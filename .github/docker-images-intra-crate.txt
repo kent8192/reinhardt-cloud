@@ -1,0 +1,5 @@
+# Docker images for Intra-Crate Integration Tests
+# Pre-pulled to avoid Docker Hub rate limits
+
+# Databases (used by dashboard e2e tests via TestContainers)
+postgres:16-alpine

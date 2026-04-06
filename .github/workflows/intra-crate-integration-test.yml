@@ -1,4 +1,4 @@
-name: Tests
+name: Intra-Crate Integration Tests
 
 on:
   workflow_call:
@@ -26,11 +26,27 @@ env:
   CARGO_BUILD_JOBS: ${{ inputs.cargo-build-jobs || '1' }}
 
 jobs:
-  test:
-    name: Tests
+  intra-crate-integration-test:
+    name: Intra-Crate Integration Tests (${{ matrix.partition }}/2)
     runs-on: ${{ fromJSON(inputs.runner || '"ubuntu-latest"') }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     steps:
+      - name: Free Disk Space (Ubuntu)
+        if: ${{ !contains(inputs.runner, 'self-hosted') }}
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -58,13 +74,47 @@ jobs:
         with:
           tool: cargo-make
 
+      - name: Pull Docker images
+        uses: ./.github/actions/pull-docker-images
+        with:
+          images-file: .github/docker-images-intra-crate.txt
+
+      - name: Additional disk cleanup before tests
+        if: ${{ !contains(inputs.runner, 'self-hosted') }}
+        run: |
+          echo "Disk usage before additional cleanup:"
+          df -h
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* || true
+          # Use -f (not -af) to preserve pre-pulled Docker images
+          docker system prune -f --volumes || true
+          docker builder prune -af || true
+          rm -rf ~/.cache/pip || true
+          rm -rf ~/.npm || true
+          echo "Disk usage after additional cleanup:"
+          df -h
+
       - name: Setup application settings
         run: |
           cp dashboard/settings/base.example.toml dashboard/settings/base.toml
           cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
 
-      - name: Run tests
-        run: cargo nextest run --workspace --all-features --no-fail-fast
+      - name: Run intra-crate integration tests (partition ${{ matrix.partition }}/2)
+        run: |
+          cargo nextest run \
+            --workspace \
+            --exclude reinhardt-cloud-integration-tests \
+            --test "*" \
+            --all-features \
+            --partition hash:${{ matrix.partition }}/2 \
+            --no-fail-fast \
+            --no-tests=warn \
+            --status-level=none \
+            --final-status-level=fail
         env:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
+
+      - name: Docker cleanup after tests
+        if: always()
+        run: docker system prune -af

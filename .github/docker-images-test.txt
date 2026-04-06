@@ -1,2 +1,0 @@
-# Add Docker images used in integration tests here
-# ghcr.io/k3d-io/k3d-tools:latest
