@@ -9,6 +9,7 @@ pub mod error;
 pub mod inference;
 pub mod mocks;
 pub mod pagination;
+pub mod plugin;
 pub mod services;
 pub mod traits;
 
