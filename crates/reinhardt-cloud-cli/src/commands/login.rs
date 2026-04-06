@@ -72,7 +72,7 @@ pub(crate) async fn execute(
 	args: &LoginArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	tracing::info!("attempting login for user: {}", args.username);
+	tracing::info!("attempting login");
 
 	let password = prompt_password()?;
 	if password.is_empty() {
