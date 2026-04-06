@@ -508,6 +508,156 @@ mod tests {
 
 	#[rstest]
 	#[tokio::test]
+	async fn test_multiple_connections_same_user() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+		let (conn1, mut rx1) = make_connection("conn-1");
+		let (conn2, mut rx2) = make_connection("conn-2");
+
+		// Act — register two connections for the same user
+		broadcaster
+			.register_connection("conn-1", "user-1", conn1)
+			.await;
+		broadcaster
+			.register_connection("conn-2", "user-1", conn2)
+			.await;
+
+		// Assert — connection_count counts users, not connections
+		assert_eq!(broadcaster.connection_count().await, 1);
+
+		// Act — broadcast system notification
+		let payload = SystemNotificationPayload {
+			id: "notif-1".to_string(),
+			level: NotificationLevel::Info,
+			title: "Test".to_string(),
+			message: "Broadcast test".to_string(),
+			timestamp: "2026-03-22T00:00:00Z".to_string(),
+		};
+		broadcaster.broadcast_system_notification(&payload).await;
+
+		// Assert — both connections receive the broadcast
+		assert!(rx1.try_recv().is_ok(), "conn-1 should receive the message");
+		assert!(rx2.try_recv().is_ok(), "conn-2 should receive the message");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_remove_one_connection_keeps_subscriptions() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+		let (conn1, _rx1) = make_connection("conn-1");
+		let (conn2, _rx2) = make_connection("conn-2");
+		broadcaster
+			.register_connection("conn-1", "user-1", conn1)
+			.await;
+		broadcaster
+			.register_connection("conn-2", "user-1", conn2)
+			.await;
+		broadcaster.subscribe("conn-1", "user-1", "dep-a").await;
+		broadcaster.subscribe("conn-2", "user-1", "dep-a").await;
+
+		// Act — remove conn-1 only
+		broadcaster.remove_connection("conn-1").await;
+
+		// Assert — user still subscribed because conn-2 is alive
+		assert!(broadcaster.is_subscribed("user-1", "dep-a").await);
+		assert_eq!(broadcaster.connection_count().await, 1);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_try_subscribe_idempotent() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+		let (conn, _rx) = make_connection("conn-1");
+		broadcaster
+			.register_connection("conn-1", "user-1", conn)
+			.await;
+
+		// Act — subscribe twice to the same deployment
+		let first = broadcaster.try_subscribe("conn-1", "user-1", "dep-a").await;
+		let second = broadcaster.try_subscribe("conn-1", "user-1", "dep-a").await;
+
+		// Assert — both return true
+		assert!(first);
+		assert!(second);
+		assert!(broadcaster.is_subscribed("user-1", "dep-a").await);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_subscribe_unregistered_connection_noop() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+
+		// Act — subscribe an unknown connection (no panic expected)
+		broadcaster.subscribe("ghost-conn", "user-x", "dep-a").await;
+
+		// Assert — user is tracked in subscriptions but connection was a no-op
+		assert!(broadcaster.is_subscribed("user-x", "dep-a").await);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_cleanup_nonexistent_user_noop() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+
+		// Act — cleanup a user that was never registered (no panic expected)
+		broadcaster.cleanup_user("ghost").await;
+
+		// Assert — still zero connections
+		assert_eq!(broadcaster.connection_count().await, 0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_broadcast_to_empty_room_noop() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+		let payload = DeploymentStatusPayload {
+			deployment_id: "dep-nonexistent".to_string(),
+			name: "ghost-app".to_string(),
+			namespace: "default".to_string(),
+			status: DeploymentState::Failed,
+			ready_replicas: 0,
+			desired_replicas: 1,
+			message: None,
+			timestamp: "2026-03-22T00:00:00Z".to_string(),
+		};
+
+		// Act — broadcast to a deployment with no subscribers (no panic expected)
+		broadcaster.broadcast_deployment_status(&payload).await;
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_connection_full_lifecycle() {
+		// Arrange
+		let broadcaster = WsBroadcaster::new();
+		let (conn, _rx) = make_connection("conn-1");
+
+		// Act & Assert — register
+		broadcaster
+			.register_connection("conn-1", "user-1", conn)
+			.await;
+		assert_eq!(broadcaster.connection_count().await, 1);
+
+		// Act & Assert — subscribe
+		broadcaster.subscribe("conn-1", "user-1", "dep-a").await;
+		assert!(broadcaster.is_subscribed("user-1", "dep-a").await);
+
+		// Act & Assert — unsubscribe
+		broadcaster.unsubscribe("conn-1", "dep-a").await;
+		assert!(!broadcaster.is_subscribed("user-1", "dep-a").await);
+
+		// Act & Assert — remove
+		broadcaster.remove_connection("conn-1").await;
+		assert_eq!(broadcaster.connection_count().await, 0);
+	}
+
+	#[rstest]
+	#[tokio::test]
 	async fn test_cleanup_user_removes_connections_and_subscriptions() {
 		// Arrange
 		let broadcaster = WsBroadcaster::new();
