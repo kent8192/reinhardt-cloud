@@ -98,8 +98,9 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
-			// Log streaming subscriptions — acknowledged here, forwarded to gRPC
-			// bridge in the async handler phase via the LogStreamAcknowledged action.
+			// Log streaming subscriptions — acknowledged but not yet wired to the
+			// gRPC log bridge. When the bridge is implemented, the
+			// LogStreamAcknowledged handler should start/stop the stream.
 			WsClientMessage::SubscribeBuildLogs { .. }
 			| WsClientMessage::SubscribeAppLogs { .. }
 			| WsClientMessage::UnsubscribeLogs => {

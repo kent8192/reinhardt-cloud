@@ -243,7 +243,8 @@ impl LogService for MockLogService {
 		pagination: PaginationParams,
 	) -> Result<PaginatedResponse<LogEntry>, ApiError> {
 		let logs = self.logs.lock().await.clone();
-		Ok(PaginatedResponse::new(logs, 0, &pagination))
+		let total = logs.len() as u64;
+		Ok(PaginatedResponse::new(logs, total, &pagination))
 	}
 }
 

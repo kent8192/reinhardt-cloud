@@ -7,11 +7,23 @@ use prost_types::Timestamp;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 
+use reinhardt_cloud_core::ApiError;
 use reinhardt_cloud_core::pagination::PaginationParams;
 use reinhardt_cloud_core::traits::LogService;
 use reinhardt_cloud_proto::common::{PaginationResponse, StatusResponse};
 use reinhardt_cloud_proto::log as pb;
 use reinhardt_cloud_types::log::{LogEntry, LogFilter, LogLevel};
+
+// --- Error mapping ---
+
+fn api_error_to_status(e: ApiError) -> Status {
+	match e {
+		ApiError::NotFound(msg) => Status::not_found(msg),
+		ApiError::BadRequest(msg) => Status::invalid_argument(msg),
+		ApiError::Unauthorized(msg) => Status::unauthenticated(msg),
+		ApiError::Internal(msg) => Status::internal(msg),
+	}
+}
 
 // --- Conversions ---
 
@@ -22,9 +34,16 @@ fn timestamp_from_chrono(dt: chrono::DateTime<chrono::Utc>) -> Option<Timestamp>
 	})
 }
 
-fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::Utc> {
-	ts.and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)))
-		.unwrap_or_else(chrono::Utc::now)
+fn proto_timestamp_to_chrono(
+	ts: Option<Timestamp>,
+) -> Result<chrono::DateTime<chrono::Utc>, Status> {
+	let t = ts.ok_or_else(|| Status::invalid_argument("missing required timestamp"))?;
+	chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)).ok_or_else(|| {
+		Status::invalid_argument(format!(
+			"invalid timestamp: seconds={}, nanos={}",
+			t.seconds, t.nanos
+		))
+	})
 }
 
 fn proto_level_to_domain(level: i32) -> LogLevel {
@@ -46,9 +65,9 @@ fn domain_level_to_proto(level: &LogLevel) -> i32 {
 	}
 }
 
-fn proto_entry_to_domain(entry: &pb::LogEntry) -> LogEntry {
-	LogEntry {
-		timestamp: proto_timestamp_to_chrono(entry.timestamp),
+fn proto_entry_to_domain(entry: &pb::LogEntry) -> Result<LogEntry, Status> {
+	Ok(LogEntry {
+		timestamp: proto_timestamp_to_chrono(entry.timestamp)?,
 		level: proto_level_to_domain(entry.level),
 		source: entry.source.clone(),
 		message: entry.message.clone(),
@@ -56,7 +75,7 @@ fn proto_entry_to_domain(entry: &pb::LogEntry) -> LogEntry {
 			.metadata_json
 			.as_ref()
 			.and_then(|s| serde_json::from_str(s).ok()),
-	}
+	})
 }
 
 fn domain_entry_to_proto(entry: &LogEntry) -> pb::LogEntry {
@@ -69,16 +88,22 @@ fn domain_entry_to_proto(entry: &LogEntry) -> pb::LogEntry {
 	}
 }
 
-fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> LogFilter {
+fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, Status> {
 	match filter {
-		Some(f) => LogFilter {
+		Some(f) => Ok(LogFilter {
 			source: f.source.clone(),
 			min_level: f.min_level.map(proto_level_to_domain),
-			since: f.since.map(|t| proto_timestamp_to_chrono(Some(t))),
-			until: f.until.map(|t| proto_timestamp_to_chrono(Some(t))),
+			since: f
+				.since
+				.map(|t| proto_timestamp_to_chrono(Some(t)))
+				.transpose()?,
+			until: f
+				.until
+				.map(|t| proto_timestamp_to_chrono(Some(t)))
+				.transpose()?,
 			search: f.search.clone(),
-		},
-		None => LogFilter::default(),
+		}),
+		None => Ok(LogFilter::default()),
 	}
 }
 
@@ -109,13 +134,16 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 
 		while let Some(result) = stream.next().await {
 			let push_req = result.map_err(|e| Status::internal(e.to_string()))?;
-			let entries: Vec<LogEntry> =
-				push_req.entries.iter().map(proto_entry_to_domain).collect();
+			let entries: Vec<LogEntry> = push_req
+				.entries
+				.iter()
+				.map(proto_entry_to_domain)
+				.collect::<Result<Vec<_>, _>>()?;
 			total += entries.len() as u64;
 			self.service
 				.push_logs(entries)
 				.await
-				.map_err(|e| Status::internal(e.to_string()))?;
+				.map_err(api_error_to_status)?;
 		}
 
 		Ok(Response::new(StatusResponse {
@@ -128,17 +156,17 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 		&self,
 		request: Request<pb::TailLogsRequest>,
 	) -> Result<Response<Self::TailLogsStream>, Status> {
-		let filter = proto_filter_to_domain(&request.into_inner().filter);
+		let filter = proto_filter_to_domain(&request.into_inner().filter)?;
 
 		let stream = self
 			.service
 			.tail_logs(filter)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		let mapped = stream.map(|result| match result {
 			Ok(entry) => Ok(domain_entry_to_proto(&entry)),
-			Err(e) => Err(Status::internal(e.to_string())),
+			Err(e) => Err(api_error_to_status(e)),
 		});
 
 		Ok(Response::new(Box::pin(mapped)))
@@ -149,7 +177,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 		request: Request<pb::ListLogsRequest>,
 	) -> Result<Response<pb::ListLogsResponse>, Status> {
 		let req = request.into_inner();
-		let filter = proto_filter_to_domain(&req.filter);
+		let filter = proto_filter_to_domain(&req.filter)?;
 		let pagination = req
 			.pagination
 			.map(|p| PaginationParams::new(Some(p.page), Some(p.page_size)))
@@ -159,7 +187,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 			.service
 			.list_logs(filter, pagination)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(pb::ListLogsResponse {
 			entries: result.items.iter().map(domain_entry_to_proto).collect(),
@@ -278,7 +306,7 @@ mod tests {
 
 		// Act
 		let proto = domain_entry_to_proto(&entry);
-		let roundtripped = proto_entry_to_domain(&proto);
+		let roundtripped = proto_entry_to_domain(&proto).unwrap();
 
 		// Assert
 		assert_eq!(roundtripped.timestamp, ts);
@@ -306,7 +334,7 @@ mod tests {
 
 		// Act
 		let proto = domain_entry_to_proto(&entry);
-		let roundtripped = proto_entry_to_domain(&proto);
+		let roundtripped = proto_entry_to_domain(&proto).unwrap();
 
 		// Assert
 		assert_eq!(roundtripped.timestamp, ts);
@@ -332,7 +360,7 @@ mod tests {
 		});
 
 		// Act
-		let domain = proto_filter_to_domain(&proto_filter);
+		let domain = proto_filter_to_domain(&proto_filter).unwrap();
 
 		// Assert
 		assert_eq!(domain.source, Some("web".to_string()));
@@ -350,7 +378,7 @@ mod tests {
 		let proto_filter: Option<pb::LogFilter> = None;
 
 		// Act
-		let domain = proto_filter_to_domain(&proto_filter);
+		let domain = proto_filter_to_domain(&proto_filter).unwrap();
 
 		// Assert
 		assert!(domain.source.is_none());
@@ -374,7 +402,7 @@ mod tests {
 		});
 
 		// Act
-		let domain = proto_filter_to_domain(&proto_filter);
+		let domain = proto_filter_to_domain(&proto_filter).unwrap();
 
 		// Assert
 		assert!(domain.source.is_none());
@@ -399,11 +427,29 @@ mod tests {
 		};
 
 		// Act
-		let domain = proto_entry_to_domain(&proto);
+		let domain = proto_entry_to_domain(&proto).unwrap();
 
-		// Assert
+		// Assert — invalid JSON is silently dropped (metadata=None)
 		assert_eq!(domain.message, "test");
 		assert!(domain.metadata.is_none());
+	}
+
+	#[rstest]
+	fn test_proto_entry_missing_timestamp_returns_error() {
+		// Arrange
+		let proto = pb::LogEntry {
+			timestamp: None,
+			level: pb::LogLevel::Info as i32,
+			source: "app".to_string(),
+			message: "test".to_string(),
+			metadata_json: None,
+		};
+
+		// Act
+		let result = proto_entry_to_domain(&proto);
+
+		// Assert
+		assert!(result.is_err());
 	}
 
 	// --- Nested JSON metadata preserved ---
@@ -430,7 +476,7 @@ mod tests {
 
 		// Act
 		let proto = domain_entry_to_proto(&entry);
-		let roundtripped = proto_entry_to_domain(&proto);
+		let roundtripped = proto_entry_to_domain(&proto).unwrap();
 
 		// Assert
 		let meta = roundtripped.metadata.unwrap();

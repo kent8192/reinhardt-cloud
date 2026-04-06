@@ -23,8 +23,11 @@ pub async fn start_grpc_server(
 		.parse()
 		.expect("Invalid gRPC bind address");
 
-	let (mut health_reporter, health_service) = health::create_health_service();
-	health::register_services(&mut health_reporter).await;
+	let (_health_reporter, health_service) = health::create_health_service();
+	// NOTE: Services are registered as NOT_SERVING by default.
+	// When Build/Agent/Log gRPC services are added to this server,
+	// call health::mark_service_serving(&mut health_reporter, NAME)
+	// for each to transition them to SERVING.
 
 	// Build reflection service from proto file descriptors
 	let reflection_service = tonic_reflection::server::Builder::configure()
@@ -33,6 +36,7 @@ pub async fn start_grpc_server(
 			reinhardt_cloud_proto::cluster_agent::FILE_DESCRIPTOR_SET,
 		)
 		.register_encoded_file_descriptor_set(reinhardt_cloud_proto::log::FILE_DESCRIPTOR_SET)
+		.register_encoded_file_descriptor_set(reinhardt_cloud_proto::plugin::FILE_DESCRIPTOR_SET)
 		.build_v1()
 		.expect("Failed to build gRPC reflection service");
 

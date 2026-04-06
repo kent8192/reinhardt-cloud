@@ -95,7 +95,16 @@ async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error
 		.connect()
 		.await?;
 
-	let mut client = AgentServiceClient::new(channel);
+	let auth_token = args.auth_token.clone();
+	#[allow(clippy::result_large_err)] // tonic interceptor signature requires Result<_, Status>
+	let mut client =
+		AgentServiceClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
+			if let Some(token) = &auth_token {
+				req.metadata_mut()
+					.insert("authorization", format!("Bearer {token}").parse().unwrap());
+			}
+			Ok(req)
+		});
 
 	// Create the outbound event stream
 	let (event_tx, event_rx) = mpsc::channel::<pb::AgentEvent>(64);
