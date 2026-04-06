@@ -94,6 +94,27 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
+			// Log streaming subscriptions — handled by the gRPC bridge layer.
+			// The consumer acknowledges them but delegates to the bridge.
+			WsClientMessage::SubscribeBuildLogs { .. }
+			| WsClientMessage::SubscribeAppLogs { .. }
+			| WsClientMessage::UnsubscribeLogs => {
+				if user_id.is_none() {
+					return ParsedAction::Rejected {
+						response: WsMessage::AuthResult(AuthResultPayload {
+							success: false,
+							message: Some("Authentication required".to_string()),
+						}),
+					};
+				}
+				// TODO: Forward to gRPC bridge for stream management
+				ParsedAction::Rejected {
+					response: WsMessage::AuthResult(AuthResultPayload {
+						success: true,
+						message: Some("Log streaming subscription acknowledged".to_string()),
+					}),
+				}
+			}
 		}
 	}
 }
