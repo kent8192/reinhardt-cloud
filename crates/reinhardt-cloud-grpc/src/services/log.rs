@@ -48,7 +48,7 @@ fn domain_level_to_proto(level: &LogLevel) -> i32 {
 
 fn proto_entry_to_domain(entry: &pb::LogEntry) -> LogEntry {
 	LogEntry {
-		timestamp: proto_timestamp_to_chrono(entry.timestamp.clone()),
+		timestamp: proto_timestamp_to_chrono(entry.timestamp),
 		level: proto_level_to_domain(entry.level),
 		source: entry.source.clone(),
 		message: entry.message.clone(),
@@ -74,8 +74,8 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> LogFilter {
 		Some(f) => LogFilter {
 			source: f.source.clone(),
 			min_level: f.min_level.map(proto_level_to_domain),
-			since: f.since.clone().map(|t| proto_timestamp_to_chrono(Some(t))),
-			until: f.until.clone().map(|t| proto_timestamp_to_chrono(Some(t))),
+			since: f.since.map(|t| proto_timestamp_to_chrono(Some(t))),
+			until: f.until.map(|t| proto_timestamp_to_chrono(Some(t))),
 			search: f.search.clone(),
 		},
 		None => LogFilter::default(),

@@ -4,8 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use prost_types::Timestamp;
-use tokio::sync::mpsc;
-use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
+use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 
 use reinhardt_cloud_core::traits::ClusterAgentService;
@@ -14,13 +13,6 @@ use reinhardt_cloud_proto::common::StatusResponse;
 use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
 
 // --- Conversions ---
-
-fn timestamp_from_chrono(dt: chrono::DateTime<chrono::Utc>) -> Option<Timestamp> {
-	Some(Timestamp {
-		seconds: dt.timestamp(),
-		nanos: dt.timestamp_subsec_nanos() as i32,
-	})
-}
 
 fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::Utc> {
 	ts.and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.try_into().unwrap_or(0)))
@@ -64,21 +56,21 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 		Some(pb::agent_event::Event::Connected(c)) => Some(AgentEvent::Connected {
 			agent_id: c.agent_id.parse().ok()?,
 			cluster_name: c.cluster_name.clone(),
-			timestamp: proto_timestamp_to_chrono(c.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(c.timestamp),
 		}),
 		Some(pb::agent_event::Event::DeployStatus(d)) => Some(AgentEvent::DeployStatus {
 			app_name: d.app_name.clone(),
 			success: d.success,
 			message: d.message.clone(),
-			timestamp: proto_timestamp_to_chrono(d.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(d.timestamp),
 		}),
 		Some(pb::agent_event::Event::Heartbeat(h)) => Some(AgentEvent::Heartbeat {
 			agent_id: h.agent_id.parse().ok()?,
-			timestamp: proto_timestamp_to_chrono(h.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(h.timestamp),
 		}),
 		Some(pb::agent_event::Event::Error(e)) => Some(AgentEvent::Error {
 			message: e.message.clone(),
-			timestamp: proto_timestamp_to_chrono(e.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(e.timestamp),
 		}),
 		None => None,
 	}

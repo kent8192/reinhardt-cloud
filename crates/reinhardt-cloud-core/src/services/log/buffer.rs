@@ -1,7 +1,6 @@
 //! In-memory ring buffer for log entries.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use tokio::sync::{Mutex, broadcast};
 
@@ -68,6 +67,11 @@ impl LogBuffer {
 	pub async fn len(&self) -> usize {
 		self.entries.lock().await.len()
 	}
+
+	/// Returns true if the buffer contains no entries.
+	pub async fn is_empty(&self) -> bool {
+		self.entries.lock().await.is_empty()
+	}
 }
 
 impl Default for LogBuffer {
@@ -78,30 +82,30 @@ impl Default for LogBuffer {
 
 /// Check if a log entry matches the given filter.
 pub fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
-	if let Some(source) = &filter.source {
-		if !entry.source.contains(source.as_str()) {
-			return false;
-		}
+	if let Some(source) = &filter.source
+		&& !entry.source.contains(source.as_str())
+	{
+		return false;
 	}
-	if let Some(min_level) = &filter.min_level {
-		if entry.level < *min_level {
-			return false;
-		}
+	if let Some(min_level) = &filter.min_level
+		&& entry.level < *min_level
+	{
+		return false;
 	}
-	if let Some(since) = &filter.since {
-		if entry.timestamp < *since {
-			return false;
-		}
+	if let Some(since) = &filter.since
+		&& entry.timestamp < *since
+	{
+		return false;
 	}
-	if let Some(until) = &filter.until {
-		if entry.timestamp > *until {
-			return false;
-		}
+	if let Some(until) = &filter.until
+		&& entry.timestamp > *until
+	{
+		return false;
 	}
-	if let Some(search) = &filter.search {
-		if !entry.message.contains(search.as_str()) {
-			return false;
-		}
+	if let Some(search) = &filter.search
+		&& !entry.message.contains(search.as_str())
+	{
+		return false;
 	}
 	true
 }

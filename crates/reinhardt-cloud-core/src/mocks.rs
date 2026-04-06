@@ -63,6 +63,12 @@ impl MockAuthService {
 	}
 }
 
+impl Default for MockAuthService {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 #[async_trait]
 impl AuthService for MockAuthService {
 	async fn authenticate(&self, _username: &str, _password: &str) -> Result<Claims, ApiError> {
@@ -113,6 +119,12 @@ impl MockBuildService {
 	}
 }
 
+impl Default for MockBuildService {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 #[async_trait]
 impl BuildService for MockBuildService {
 	async fn start_build(
@@ -149,6 +161,12 @@ pub struct MockClusterAgentService;
 impl MockClusterAgentService {
 	pub fn new() -> Self {
 		Self
+	}
+}
+
+impl Default for MockClusterAgentService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -195,6 +213,12 @@ impl MockLogService {
 	/// Get all pushed logs (for test assertions).
 	pub async fn get_pushed_logs(&self) -> Vec<LogEntry> {
 		self.logs.lock().await.clone()
+	}
+}
+
+impl Default for MockLogService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 

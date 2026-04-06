@@ -41,7 +41,7 @@ mod tests {
 	#[rstest]
 	fn test_storage_backend_serializes_lowercase() {
 		// Arrange
-		let backends = vec![StorageBackend::S3, StorageBackend::Gcs, StorageBackend::Pvc];
+		let backends = [StorageBackend::S3, StorageBackend::Gcs, StorageBackend::Pvc];
 		// Act
 		let jsons: Vec<String> = backends
 			.iter()

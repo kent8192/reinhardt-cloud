@@ -36,6 +36,12 @@ pub struct AgentRegistry {
 	agents: Arc<DashMap<Uuid, AgentConnection>>,
 }
 
+impl Default for AgentRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentRegistry {
 	pub fn new() -> Self {
 		Self {

@@ -14,7 +14,7 @@ use reinhardt_cloud_core::services::log::local::LocalLogService;
 use reinhardt_cloud_core::traits::LogService;
 use reinhardt_cloud_types::log::{LogEntry, LogFilter, LogLevel};
 
-use fixtures::{local_log_service, log_buffer, log_buffer_small, make_log_entries, make_log_entry};
+use fixtures::{log_buffer, make_log_entries, make_log_entry};
 
 // ===========================================================================
 // Happy path tests

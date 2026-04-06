@@ -3,6 +3,8 @@
 //! Provides composable rstest fixtures for build services, log services,
 //! plugin registries, and helper constructors for domain types.
 
+#![allow(dead_code)] // Items are used by other test files via `mod fixtures;`
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -81,7 +83,7 @@ pub fn plugin_registry() -> PluginRegistry {
 // ---------------------------------------------------------------------------
 
 /// Constructs a single `LogEntry` with the given source, level, and message.
-pub fn make_log_entry(source: &str, level: LogLevel, msg: &str) -> LogEntry {
+pub(crate) fn make_log_entry(source: &str, level: LogLevel, msg: &str) -> LogEntry {
 	LogEntry {
 		timestamp: Utc::now(),
 		level,
@@ -92,7 +94,7 @@ pub fn make_log_entry(source: &str, level: LogLevel, msg: &str) -> LogEntry {
 }
 
 /// Constructs `n` `LogEntry` items with sequential messages and Info level.
-pub fn make_log_entries(n: usize) -> Vec<LogEntry> {
+pub(crate) fn make_log_entries(n: usize) -> Vec<LogEntry> {
 	(0..n)
 		.map(|i| make_log_entry("test-source", LogLevel::Info, &format!("message-{i}")))
 		.collect()
@@ -106,7 +108,7 @@ pub fn make_log_entries(n: usize) -> Vec<LogEntry> {
 ///
 /// Controls whether the plugin reports success or failure, and whether
 /// it emits a fatal condition.
-pub struct TestPlugin {
+pub(crate) struct TestPlugin {
 	plugin_name: String,
 	hooks: Vec<PluginHookType>,
 	succeed: bool,
@@ -115,7 +117,7 @@ pub struct TestPlugin {
 
 impl TestPlugin {
 	/// Creates a new `TestPlugin` with the given behavior.
-	pub fn new(name: &str, hooks: Vec<PluginHookType>, succeed: bool, fatal: bool) -> Self {
+	pub(crate) fn new(name: &str, hooks: Vec<PluginHookType>, succeed: bool, fatal: bool) -> Self {
 		Self {
 			plugin_name: name.to_string(),
 			hooks,
@@ -162,11 +164,11 @@ impl PluginService for TestPlugin {
 }
 
 /// Creates a successful test plugin for the given hooks.
-pub fn test_plugin_success(name: &str, hooks: Vec<PluginHookType>) -> Arc<dyn PluginService> {
+pub(crate) fn test_plugin_success(name: &str, hooks: Vec<PluginHookType>) -> Arc<dyn PluginService> {
 	Arc::new(TestPlugin::new(name, hooks, true, false))
 }
 
 /// Creates a test plugin that returns a fatal condition (severity Error).
-pub fn test_plugin_fatal(name: &str, hooks: Vec<PluginHookType>) -> Arc<dyn PluginService> {
+pub(crate) fn test_plugin_fatal(name: &str, hooks: Vec<PluginHookType>) -> Arc<dyn PluginService> {
 	Arc::new(TestPlugin::new(name, hooks, false, true))
 }

@@ -310,24 +310,24 @@ fn proto_event_to_domain(event: &pb::BuildEvent) -> Option<BuildEvent> {
 	match &event.event {
 		Some(pb::build_event::Event::Log(log)) => Some(BuildEvent::Log {
 			message: log.message.clone(),
-			timestamp: proto_timestamp_to_chrono(log.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(log.timestamp),
 		}),
 		Some(pb::build_event::Event::PhaseChange(pc)) => Some(BuildEvent::PhaseChange {
 			phase: proto_phase_to_domain(pc.phase),
-			timestamp: proto_timestamp_to_chrono(pc.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(pc.timestamp),
 		}),
 		Some(pb::build_event::Event::ArtifactReady(ar)) => Some(BuildEvent::ArtifactReady {
 			artifact_url: ar.artifact_url.clone(),
 			digest: ar.digest.clone(),
-			timestamp: proto_timestamp_to_chrono(ar.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(ar.timestamp),
 		}),
 		Some(pb::build_event::Event::Error(e)) => Some(BuildEvent::Error {
 			message: e.message.clone(),
-			timestamp: proto_timestamp_to_chrono(e.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(e.timestamp),
 		}),
 		Some(pb::build_event::Event::Complete(c)) => Some(BuildEvent::Complete {
 			success: c.success,
-			timestamp: proto_timestamp_to_chrono(c.timestamp.clone()),
+			timestamp: proto_timestamp_to_chrono(c.timestamp),
 		}),
 		None => None,
 	}

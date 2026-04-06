@@ -18,9 +18,7 @@ use uuid::Uuid;
 
 use crate::error::ApiError;
 use crate::traits::BuildService;
-use reinhardt_cloud_types::build::{
-	BuildEvent, BuildPhase, BuildRequest, BuildStatus, EnvVar as _,
-};
+use reinhardt_cloud_types::build::{BuildEvent, BuildPhase, BuildRequest, BuildStatus};
 
 /// In-memory state for a running or completed build.
 #[derive(Clone)]
@@ -42,6 +40,12 @@ impl LocalBuildService {
 		Self {
 			builds: Arc::new(DashMap::new()),
 		}
+	}
+}
+
+impl Default for LocalBuildService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 

@@ -3,6 +3,9 @@
 //! Provides gRPC server configuration, interceptors, health checking,
 //! and service registration for the Reinhardt Cloud platform.
 
+// `tonic::Status` is inherently large; boxing it would break the tonic API contract.
+#![allow(clippy::result_large_err)]
+
 pub mod config;
 pub mod health;
 pub mod interceptor;
