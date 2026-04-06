@@ -50,7 +50,10 @@ impl ReinhardtCloudClient {
 	///
 	/// Will be called from the main entry point once token persistence is
 	/// implemented; currently exercised only from tests.
-	#[expect(dead_code, reason = "used in tests; production use pending token persistence")]
+	#[expect(
+		dead_code,
+		reason = "used in tests; production use pending token persistence"
+	)]
 	pub(crate) fn with_token(mut self, token: String) -> Self {
 		self.token = Some(token);
 		self
@@ -60,7 +63,10 @@ impl ReinhardtCloudClient {
 	///
 	/// Used in tests; will be used for user-facing URL display once status
 	/// and deploy commands print the target server.
-	#[expect(dead_code, reason = "used in tests; production use pending CLI output improvements")]
+	#[expect(
+		dead_code,
+		reason = "used in tests; production use pending CLI output improvements"
+	)]
 	pub(crate) fn base_url(&self) -> &str {
 		self.base_url.as_str().trim_end_matches('/')
 	}
