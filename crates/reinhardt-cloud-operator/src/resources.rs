@@ -15,6 +15,7 @@ pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod worker;
 pub(crate) mod credentials;
+pub(crate) mod preview;
 
 // Re-exports for convenient access from parent modules
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
