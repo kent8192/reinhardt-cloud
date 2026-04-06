@@ -22,16 +22,16 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
-use crate::resources::credentials;
-use crate::resources::preview;
-use crate::resources::source::{build_kaniko_job, should_build_from_source};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::resources::credentials;
+use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
+use crate::resources::source::{build_kaniko_job, should_build_from_source};
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
@@ -248,9 +248,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			.map_err(Error::Kube)?
 			.is_none()
 		{
-			warn!(
-				"Git credentials Secret '{secret_name}' referenced by {name} does not exist"
-			);
+			warn!("Git credentials Secret '{secret_name}' referenced by {name} does not exist");
 		}
 	}
 
@@ -297,9 +295,12 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	}
 
 	// Preview environment reconciliation (#277)
-	if app.spec.source.as_ref().is_some_and(|s| {
-		s.preview.as_ref().is_some_and(|p| p.enabled)
-	}) {
+	if app
+		.spec
+		.source
+		.as_ref()
+		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
+	{
 		let preview_action = app
 			.metadata
 			.annotations

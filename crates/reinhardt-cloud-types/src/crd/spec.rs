@@ -16,8 +16,8 @@ use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::pages::PagesSpec;
 use super::policy::DeletionPolicy;
-use super::status::ReinhardtAppStatus;
 use super::source::SourceSpec;
+use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
 use super::worker::WorkerSpec;
 
@@ -1148,6 +1148,9 @@ mod tests {
 		let source = spec.source.unwrap();
 		assert_eq!(source.repository, "https://github.com/myorg/myapp");
 		assert_eq!(source.branch.unwrap(), "develop");
-		assert_eq!(source.provider.unwrap(), crate::crd::source::GitProvider::GitLab);
+		assert_eq!(
+			source.provider.unwrap(),
+			crate::crd::source::GitProvider::GitLab
+		);
 	}
 }

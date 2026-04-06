@@ -39,9 +39,7 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 	let dockerfile = build
 		.and_then(|b| b.dockerfile.as_deref())
 		.unwrap_or("./Dockerfile");
-	let context = build
-		.and_then(|b| b.context.as_deref())
-		.unwrap_or(".");
+	let context = build.and_then(|b| b.context.as_deref()).unwrap_or(".");
 	let registry = build
 		.and_then(|b| b.registry.as_deref())
 		.unwrap_or(&app.spec.image);
@@ -135,9 +133,7 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 					restart_policy: Some("Never".to_string()),
 					containers: vec![Container {
 						name: "kaniko".to_string(),
-						image: Some(
-							"gcr.io/kaniko-project/executor:latest".to_string(),
-						),
+						image: Some("gcr.io/kaniko-project/executor:latest".to_string()),
 						args: Some(args),
 						env: if env.is_empty() { None } else { Some(env) },
 						volume_mounts: if volume_mounts.is_empty() {
@@ -270,7 +266,10 @@ mod tests {
 		let args = container.args.as_ref().unwrap();
 
 		// Assert
-		assert!(args.iter().any(|a| a.contains("--destination=ghcr.io/org/app:v1")));
+		assert!(
+			args.iter()
+				.any(|a| a.contains("--destination=ghcr.io/org/app:v1"))
+		);
 	}
 
 	#[rstest]

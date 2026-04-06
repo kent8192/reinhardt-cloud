@@ -12,7 +12,13 @@ pub(crate) fn should_warn_missing_credentials(app: &ReinhardtApp) -> Option<Stri
 /// Returns the webhook secret name from the source spec, if configured.
 #[allow(dead_code)]
 pub(crate) fn webhook_secret_name(app: &ReinhardtApp) -> Option<String> {
-	app.spec.source.as_ref()?.webhook.as_ref()?.secret_ref.clone()
+	app.spec
+		.source
+		.as_ref()?
+		.webhook
+		.as_ref()?
+		.secret_ref
+		.clone()
 }
 
 /// Returns the credentials Secret name for the source spec.

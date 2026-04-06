@@ -18,20 +18,14 @@ use crate::error::Error;
 /// - `reinhardt.dev/parent-app` = the parent application name
 /// - `reinhardt.dev/pr-number` = the PR/MR number
 /// - `app.kubernetes.io/managed-by` = `"reinhardt-cloud"`
-pub(crate) fn preview_labels(
-	parent_name: &str,
-	pr_number: &str,
-) -> BTreeMap<String, String> {
+pub(crate) fn preview_labels(parent_name: &str, pr_number: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("reinhardt.dev/preview".to_string(), "true".to_string()),
 		(
 			"reinhardt.dev/parent-app".to_string(),
 			parent_name.to_string(),
 		),
-		(
-			"reinhardt.dev/pr-number".to_string(),
-			pr_number.to_string(),
-		),
+		("reinhardt.dev/pr-number".to_string(), pr_number.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud".to_string(),
@@ -88,31 +82,31 @@ pub(crate) fn build_preview_spec(
 	let image = format!("{registry}:{image_tag}");
 
 	// Determine preview overrides
-	let preview_config = parent_spec
-		.source
-		.as_ref()
-		.and_then(|s| s.preview.as_ref());
+	let preview_config = parent_spec.source.as_ref().and_then(|s| s.preview.as_ref());
 
 	let overrides = preview_config.and_then(|p| p.overrides.as_ref());
 
-	let replicas = overrides
-		.and_then(|o| o.replicas)
-		.or(Some(1));
+	let replicas = overrides.and_then(|o| o.replicas).or(Some(1));
 
 	// Database and cache from overrides
-	let database = overrides
-		.and_then(|o| o.database)
-		.and_then(|enabled| if enabled { parent_spec.database.clone() } else { None });
+	let database = overrides.and_then(|o| o.database).and_then(|enabled| {
+		if enabled {
+			parent_spec.database.clone()
+		} else {
+			None
+		}
+	});
 
-	let cache = overrides
-		.and_then(|o| o.cache)
-		.and_then(|enabled| if enabled { parent_spec.cache.clone() } else { None });
+	let cache = overrides.and_then(|o| o.cache).and_then(|enabled| {
+		if enabled {
+			parent_spec.cache.clone()
+		} else {
+			None
+		}
+	});
 
 	// Build ingress host from url_template if available
-	let app_name = preview_app_name(
-		&kube::ResourceExt::name_any(parent),
-		pr_number,
-	);
+	let app_name = preview_app_name(&kube::ResourceExt::name_any(parent), pr_number);
 	let branch = parent_spec
 		.source
 		.as_ref()
@@ -124,13 +118,15 @@ pub(crate) fn build_preview_spec(
 		.map(|tmpl| preview_ingress_host(tmpl, &app_name, pr_number, branch));
 
 	// Inherit services, potentially with generated ingress_host
-	let services = parent_spec.services.as_ref().map(|s| {
-		reinhardt_cloud_types::crd::ServicesSpec {
-			port: s.port,
-			target_port: s.target_port,
-			ingress_host: ingress_host.or_else(|| s.ingress_host.clone()),
-		}
-	});
+	let services =
+		parent_spec
+			.services
+			.as_ref()
+			.map(|s| reinhardt_cloud_types::crd::ServicesSpec {
+				port: s.port,
+				target_port: s.target_port,
+				ingress_host: ingress_host.or_else(|| s.ingress_host.clone()),
+			});
 
 	Ok(ReinhardtAppSpec {
 		image,
@@ -315,15 +311,20 @@ mod tests {
 		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
 
 		// Assert
-		let host = spec.services.as_ref().unwrap().ingress_host.as_ref().unwrap();
+		let host = spec
+			.services
+			.as_ref()
+			.unwrap()
+			.ingress_host
+			.as_ref()
+			.unwrap();
 		assert_eq!(host, "pr-42.my-app-pr-42.preview.example.com");
 	}
 
 	#[rstest]
 	fn test_is_ttl_expired_true_when_past_ttl() {
 		// Arrange — 100 hours ago with 72h TTL
-		let activity = (Utc::now() - chrono::Duration::try_hours(100).unwrap())
-			.to_rfc3339();
+		let activity = (Utc::now() - chrono::Duration::try_hours(100).unwrap()).to_rfc3339();
 
 		// Act
 		let expired = is_ttl_expired(&activity, "72h");
@@ -335,8 +336,7 @@ mod tests {
 	#[rstest]
 	fn test_is_ttl_expired_false_when_within_ttl() {
 		// Arrange — 1 hour ago with 72h TTL
-		let activity = (Utc::now() - chrono::Duration::try_hours(1).unwrap())
-			.to_rfc3339();
+		let activity = (Utc::now() - chrono::Duration::try_hours(1).unwrap()).to_rfc3339();
 
 		// Act
 		let expired = is_ttl_expired(&activity, "72h");
@@ -348,19 +348,13 @@ mod tests {
 	#[rstest]
 	fn test_parse_duration_hours() {
 		// Arrange & Act & Assert
-		assert_eq!(
-			parse_duration("72h"),
-			chrono::Duration::try_hours(72)
-		);
+		assert_eq!(parse_duration("72h"), chrono::Duration::try_hours(72));
 	}
 
 	#[rstest]
 	fn test_parse_duration_days() {
 		// Arrange & Act & Assert
-		assert_eq!(
-			parse_duration("3d"),
-			chrono::Duration::try_days(3)
-		);
+		assert_eq!(parse_duration("3d"), chrono::Duration::try_days(3));
 	}
 
 	#[rstest]

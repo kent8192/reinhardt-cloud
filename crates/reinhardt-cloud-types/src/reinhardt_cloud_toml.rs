@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
 	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec,
-	ReinhardtAppSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend, StorageSpec,
-	WebhookEvent, WebhookSpec, WorkerSpec,
+	ReinhardtAppSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend,
+	StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`
@@ -762,9 +762,7 @@ replicas = 1
 					enabled: true,
 					ttl: Some("48h".into()),
 					url_template: Some("{branch}.dev.example.com".into()),
-					overrides: Some(PreviewOverridesTomlSection {
-						replicas: Some(2),
-					}),
+					overrides: Some(PreviewOverridesTomlSection { replicas: Some(2) }),
 				}),
 			}),
 			..Default::default()
@@ -780,7 +778,10 @@ replicas = 1
 		let build = source.build.unwrap();
 		assert_eq!(build.registry.as_deref(), Some("ghcr.io/myorg"));
 		assert_eq!(build.dockerfile.as_deref(), Some("Dockerfile"));
-		assert_eq!(build.build_args.get("MODE").map(|s| s.as_str()), Some("release"));
+		assert_eq!(
+			build.build_args.get("MODE").map(|s| s.as_str()),
+			Some("release")
+		);
 		let webhook = source.webhook.unwrap();
 		assert!(webhook.enabled);
 		// unknown_event should be filtered out
