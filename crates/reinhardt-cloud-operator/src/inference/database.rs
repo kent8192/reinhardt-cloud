@@ -25,28 +25,67 @@ use super::platform::{Platform, PlatformConfig};
 use super::secrets::{build_db_credentials_secret, generate_random_password};
 
 /// Map a `DatabaseEngine` variant to the lowercase engine name used by AWS RDS.
-fn engine_to_string(engine: &DatabaseEngine) -> &str {
+///
+/// Returns `None` for SQLite since it is not supported by cloud providers.
+fn engine_to_string(engine: &DatabaseEngine) -> Option<&str> {
 	match engine {
-		DatabaseEngine::Postgresql => "postgres",
-		DatabaseEngine::Mysql => "mysql",
-		DatabaseEngine::Sqlite => "sqlite",
+		DatabaseEngine::Postgresql => Some("postgres"),
+		DatabaseEngine::Mysql => Some("mysql"),
+		DatabaseEngine::Sqlite => None,
 	}
+}
+
+/// Return the default engine version for AWS RDS based on the engine type.
+fn default_engine_version(engine: &DatabaseEngine) -> &str {
+	match engine {
+		DatabaseEngine::Postgresql => "16",
+		DatabaseEngine::Mysql => "8.0",
+		DatabaseEngine::Sqlite => "",
+	}
+}
+
+/// Sanitize an application name for use as an RDS master username and db name.
+///
+/// RDS master usernames must start with a letter, contain only alphanumeric
+/// characters and underscores, and be at most 16 characters for MySQL or
+/// 63 characters for PostgreSQL. We use 16 as the safe limit.
+fn sanitize_rds_identifier(name: &str) -> String {
+	let sanitized: String = name
+		.chars()
+		.map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+		.collect();
+	// Ensure it starts with a letter
+	let sanitized = if sanitized.starts_with(|c: char| c.is_ascii_alphabetic()) {
+		sanitized
+	} else {
+		format!("app_{sanitized}")
+	};
+	// Truncate to 16 characters (safe for both MySQL and PostgreSQL)
+	sanitized.chars().take(16).collect()
 }
 
 /// Build a GCP Cloud SQL `databaseVersion` string from engine and optional
 /// version (e.g. `POSTGRES_16`, `MYSQL_8_0`).
-fn engine_to_gcp_version(engine: &DatabaseEngine, version: Option<&str>) -> String {
+///
+/// Returns `None` for SQLite since it is not supported by Cloud SQL.
+/// Version strings are normalized: dots are replaced with underscores
+/// to produce valid GCP version identifiers (e.g. `8.0` becomes `MYSQL_8_0`).
+fn engine_to_gcp_version(engine: &DatabaseEngine, version: Option<&str>) -> Option<String> {
 	let prefix = match engine {
 		DatabaseEngine::Postgresql => "POSTGRES",
 		DatabaseEngine::Mysql => "MYSQL",
-		DatabaseEngine::Sqlite => "SQLITE",
+		DatabaseEngine::Sqlite => return None,
 	};
 	match version {
-		Some(v) => format!("{prefix}_{v}"),
+		Some(v) => {
+			// Normalize dots to underscores for GCP format
+			let normalized = v.replace('.', "_");
+			Some(format!("{prefix}_{normalized}"))
+		}
 		None => match engine {
-			DatabaseEngine::Postgresql => "POSTGRES_16".to_string(),
-			DatabaseEngine::Mysql => "MYSQL_8_0".to_string(),
-			DatabaseEngine::Sqlite => "SQLITE_3".to_string(),
+			DatabaseEngine::Postgresql => Some("POSTGRES_16".to_string()),
+			DatabaseEngine::Mysql => Some("MYSQL_8_0".to_string()),
+			DatabaseEngine::Sqlite => None,
 		},
 	}
 }
@@ -89,8 +128,8 @@ pub(crate) fn infer_database_resources(
 
 	match platform.platform {
 		Platform::Onpremise => build_onprem_postgres(&app_name, &namespace, db, storage_gb),
-		Platform::Aws => build_aws_rds(&app_name, &namespace, db),
-		Platform::Gcp => build_gcp_cloud_sql(&app_name, &namespace, db, storage_gb),
+		Platform::Aws => build_aws_rds(&app_name, &namespace, db, platform),
+		Platform::Gcp => build_gcp_cloud_sql(&app_name, &namespace, db, storage_gb, platform),
 	}
 }
 
@@ -207,15 +246,31 @@ fn build_onprem_postgres(
 }
 
 /// Build AWS RDS resources via ACK (DBInstance DynamicObject + credentials Secret).
-fn build_aws_rds(app_name: &str, namespace: &str, db: &DatabaseSpec) -> Vec<DatabaseResource> {
-	let engine = engine_to_string(&db.engine);
-	let engine_version = db.version.as_deref().unwrap_or("16");
+///
+/// Returns an empty `Vec` for SQLite since AWS RDS does not support it.
+fn build_aws_rds(
+	app_name: &str,
+	namespace: &str,
+	db: &DatabaseSpec,
+	platform: &PlatformConfig,
+) -> Vec<DatabaseResource> {
+	let engine = match engine_to_string(&db.engine) {
+		Some(e) => e,
+		// SQLite is not supported by AWS RDS — skip resource generation
+		None => return vec![],
+	};
+	let engine_version = db
+		.version
+		.as_deref()
+		.unwrap_or_else(|| default_engine_version(&db.engine));
 	let instance_class = db
 		.instance_class
 		.as_deref()
 		.unwrap_or("db.t3.micro")
 		.to_string();
 	let allocated_storage = db.storage_gb.unwrap_or(20);
+	let master_username = sanitize_rds_identifier(app_name);
+	let db_name = sanitize_rds_identifier(&format!("{app_name}_db"));
 
 	let db_instance = DynamicObject {
 		metadata: ObjectMeta {
@@ -234,19 +289,20 @@ fn build_aws_rds(app_name: &str, namespace: &str, db: &DatabaseSpec) -> Vec<Data
 				"engineVersion": engine_version,
 				"dbInstanceClass": instance_class,
 				"allocatedStorage": allocated_storage,
-				"masterUsername": app_name,
+				"masterUsername": master_username,
 				"masterUserPassword": {
 					"namespace": namespace,
 					"name": format!("{app_name}-db-credentials"),
 					"key": "password"
 				},
-				"dbName": format!("{app_name}_db")
+				"dbName": db_name,
+				"availabilityZone": format!("{}a", platform.defaults.database.region)
 			}
 		}),
 	};
 
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
+	let secret = build_db_credentials_secret(app_name, namespace, &master_username, &password);
 
 	vec![
 		DatabaseResource::Dynamic(db_instance),
@@ -256,18 +312,26 @@ fn build_aws_rds(app_name: &str, namespace: &str, db: &DatabaseSpec) -> Vec<Data
 
 /// Build GCP Cloud SQL resources via Config Connector
 /// (SQLInstance, SQLDatabase, SQLUser DynamicObjects + credentials Secret).
+///
+/// Returns an empty `Vec` for SQLite since Cloud SQL does not support it.
 fn build_gcp_cloud_sql(
 	app_name: &str,
 	namespace: &str,
 	db: &DatabaseSpec,
 	storage_gb: i32,
+	platform: &PlatformConfig,
 ) -> Vec<DatabaseResource> {
-	let database_version = engine_to_gcp_version(&db.engine, db.version.as_deref());
+	let database_version = match engine_to_gcp_version(&db.engine, db.version.as_deref()) {
+		Some(v) => v,
+		// SQLite is not supported by GCP Cloud SQL — skip resource generation
+		None => return vec![],
+	};
 	let tier = db
 		.instance_class
 		.as_deref()
 		.unwrap_or("db-f1-micro")
 		.to_string();
+	let region = &platform.defaults.database.region;
 
 	let sql_instance = DynamicObject {
 		metadata: ObjectMeta {
@@ -283,12 +347,12 @@ fn build_gcp_cloud_sql(
 		data: serde_json::json!({
 			"spec": {
 				"databaseVersion": database_version,
-				"region": "us-central1",
+				"region": region,
 				"settings": {
 					"tier": tier,
 					"dataDiskSizeGb": storage_gb,
 					"ipConfiguration": {
-						"ipv4Enabled": true
+						"ipv4Enabled": false
 					}
 				}
 			}
@@ -734,10 +798,13 @@ mod tests {
 	// --- Helper function tests ---
 
 	#[rstest]
-	#[case(DatabaseEngine::Postgresql, "postgres")]
-	#[case(DatabaseEngine::Mysql, "mysql")]
-	#[case(DatabaseEngine::Sqlite, "sqlite")]
-	fn engine_to_string_maps_correctly(#[case] engine: DatabaseEngine, #[case] expected: &str) {
+	#[case(DatabaseEngine::Postgresql, Some("postgres"))]
+	#[case(DatabaseEngine::Mysql, Some("mysql"))]
+	#[case(DatabaseEngine::Sqlite, None)]
+	fn engine_to_string_maps_correctly(
+		#[case] engine: DatabaseEngine,
+		#[case] expected: Option<&str>,
+	) {
 		// Act
 		let result = engine_to_string(&engine);
 
@@ -746,20 +813,21 @@ mod tests {
 	}
 
 	#[rstest]
-	#[case(DatabaseEngine::Postgresql, Some("15"), "POSTGRES_15")]
-	#[case(DatabaseEngine::Postgresql, None, "POSTGRES_16")]
-	#[case(DatabaseEngine::Mysql, Some("8_0"), "MYSQL_8_0")]
-	#[case(DatabaseEngine::Mysql, None, "MYSQL_8_0")]
+	#[case(DatabaseEngine::Postgresql, Some("15"), Some("POSTGRES_15"))]
+	#[case(DatabaseEngine::Postgresql, None, Some("POSTGRES_16"))]
+	#[case(DatabaseEngine::Mysql, Some("8.0"), Some("MYSQL_8_0"))]
+	#[case(DatabaseEngine::Mysql, None, Some("MYSQL_8_0"))]
+	#[case(DatabaseEngine::Sqlite, None, None)]
 	fn engine_to_gcp_version_maps_correctly(
 		#[case] engine: DatabaseEngine,
 		#[case] version: Option<&str>,
-		#[case] expected: &str,
+		#[case] expected: Option<&str>,
 	) {
 		// Act
 		let result = engine_to_gcp_version(&engine, version);
 
 		// Assert
-		assert_eq!(result, expected);
+		assert_eq!(result.as_deref(), expected);
 	}
 
 	// --- AWS RDS field mapping tests ---
@@ -917,7 +985,7 @@ mod tests {
 			assert_eq!(spec["region"], "us-central1");
 			assert_eq!(spec["settings"]["dataDiskSizeGb"], 30);
 			assert_eq!(spec["settings"]["tier"], "db-f1-micro");
-			assert_eq!(spec["settings"]["ipConfiguration"]["ipv4Enabled"], true);
+			assert_eq!(spec["settings"]["ipConfiguration"]["ipv4Enabled"], false);
 		} else {
 			panic!("Expected Dynamic as first resource");
 		}
@@ -1044,6 +1112,98 @@ mod tests {
 			assert_eq!(secret_ref["key"], "password");
 		} else {
 			panic!("Expected Dynamic as third resource");
+		}
+	}
+
+	// --- SQLite cloud provider tests ---
+
+	#[rstest]
+	fn aws_sqlite_returns_empty_resources() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Sqlite,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(resources.is_empty());
+	}
+
+	#[rstest]
+	fn gcp_sqlite_returns_empty_resources() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Sqlite,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(resources.is_empty());
+	}
+
+	// --- Sanitization tests ---
+
+	#[rstest]
+	#[case("myapp", "myapp")]
+	#[case("my-app", "my_app")]
+	#[case("my.app.name", "my_app_name")]
+	#[case("123app", "app_123app")]
+	fn sanitize_rds_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
+		// Act
+		let result = sanitize_rds_identifier(input);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	fn sanitize_rds_identifier_truncates_long_names() {
+		// Arrange
+		let long_name = "a".repeat(32);
+
+		// Act
+		let result = sanitize_rds_identifier(&long_name);
+
+		// Assert
+		assert_eq!(result.len(), 16);
+	}
+
+	// --- Region configuration tests ---
+
+	#[rstest]
+	fn gcp_uses_platform_region() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			assert_eq!(obj.data["spec"]["region"], "us-central1");
+		} else {
+			panic!("Expected Dynamic as first resource");
 		}
 	}
 }
