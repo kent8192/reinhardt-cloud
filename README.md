@@ -103,20 +103,43 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 
 Three-plane architecture inspired by Vercel:
 
-```
-Developer                  Control Plane               Kubernetes Cluster
-─────────                  ─────────────               ──────────────────
-                           Dashboard                   Operator
-reinhardt-cloud CLI  ───>  (reinhardt-web app)  ───>   (watches ReinhardtApp CRDs)
-      │                    REST API + Auth                    │
-      │                         │                            ▼
-      └── dry-run / direct ─────┘                   ┌── ReinhardtApp CRD ──┐
-                                                    │                      │
-                                              Deployment            StatefulSet
-                                              Service               (Database)
-                                              Ingress               Redis
-                                              HPA                   Workers
-                                              ...                   ...
+```mermaid
+graph LR
+  subgraph Developer
+    CLI["reinhardt-cloud CLI"]
+  end
+
+  subgraph Control Plane
+    Dashboard["Dashboard<br/>(reinhardt-web app)<br/>REST API + Auth"]
+  end
+
+  subgraph Kubernetes Cluster
+    Operator["Operator"]
+    CRD["ReinhardtApp CRD"]
+    Operator -->|watches| CRD
+
+    subgraph Reconciled Resources
+      Deployment
+      Service
+      Ingress
+      HPA
+      StatefulSet["StatefulSet<br/>(Database)"]
+      Redis
+      Workers
+    end
+
+    CRD --> Deployment
+    CRD --> Service
+    CRD --> Ingress
+    CRD --> HPA
+    CRD --> StatefulSet
+    CRD --> Redis
+    CRD --> Workers
+  end
+
+  CLI -->|deploy| Dashboard
+  CLI -->|dry-run / direct| CRD
+  Dashboard --> Operator
 ```
 
 | Plane | Crate | Role |
