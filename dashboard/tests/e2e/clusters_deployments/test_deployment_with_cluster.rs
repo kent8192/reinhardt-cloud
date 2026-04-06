@@ -27,12 +27,6 @@ async fn test_app() -> (
 	TestServerGuard,
 	APIClient,
 ) {
-	unsafe {
-		std::env::set_var(
-			"REINHARDT_CLOUD_JWT_SECRET",
-			"test-secret-minimum-32-bytes-long!!",
-		);
-	}
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
@@ -43,8 +37,8 @@ async fn test_app() -> (
 	(container, conn, server, client)
 }
 
-/// Helper: register a test user and return the JWT token.
-async fn register_and_get_token(client: &APIClient) -> String {
+/// Helper: register a test user and return the session cookie value.
+async fn register_and_get_session(client: &APIClient) -> String {
 	let register_data = json!({
 		"username": "testuser",
 		"email": "test@example.com",
@@ -55,16 +49,24 @@ async fn register_and_get_token(client: &APIClient) -> String {
 		.await
 		.expect("Register request failed");
 	assert_eq!(resp.status_code(), 201);
-	let body: serde_json::Value = resp.json().expect("Failed to parse JSON response");
-	body["token"].as_str().unwrap().to_string()
+	let set_cookie = resp
+		.header("Set-Cookie")
+		.expect("Response should have Set-Cookie header");
+	let session_id = set_cookie
+		.split(';')
+		.next()
+		.unwrap()
+		.strip_prefix("sessionid=")
+		.expect("Cookie should start with sessionid=");
+	session_id.to_string()
 }
 
-/// Helper: set Authorization header on client.
-async fn authenticate_client(client: &APIClient, token: &str) {
+/// Helper: set session cookie on client.
+async fn authenticate_client(client: &APIClient, session_id: &str) {
 	client
-		.set_header("Authorization", format!("Bearer {token}"))
+		.set_header("Cookie", format!("sessionid={session_id}"))
 		.await
-		.expect("Failed to set Authorization header");
+		.expect("Failed to set Cookie header");
 }
 
 // ============================================================================
@@ -85,10 +87,10 @@ async fn test_create_deployment_with_cluster(
 ) {
 	// Arrange
 	let (_container, _conn, _server, client) = test_app.await;
-	let token = register_and_get_token(&client).await;
-	authenticate_client(&client, &token).await;
+	let session = register_and_get_session(&client).await;
+	authenticate_client(&client, &session).await;
 
-	// Act — create a cluster first (deployment requires cluster_id)
+	// Act -- create a cluster first (deployment requires cluster_id)
 	let cluster_data = json!({
 		"name": "staging-cluster",
 		"api_url": "https://staging.k8s.local:6443"
@@ -103,7 +105,7 @@ async fn test_create_deployment_with_cluster(
 		.expect("Failed to parse cluster response");
 	let cluster_id = cluster["id"].as_i64().expect("Cluster id should be i64");
 
-	// Act — create deployment referencing the cluster
+	// Act -- create deployment referencing the cluster
 	let deployment_data = json!({
 		"app_name": "my-web-app",
 		"cluster_id": cluster_id,
@@ -114,7 +116,7 @@ async fn test_create_deployment_with_cluster(
 		.await
 		.expect("Create deployment request failed");
 
-	// Assert — creation response
+	// Assert -- creation response
 	assert_eq!(create_response.status_code(), 201);
 	let created: serde_json::Value = create_response
 		.json()
@@ -125,13 +127,13 @@ async fn test_create_deployment_with_cluster(
 	assert_eq!(created["image"], "registry.example.com/my-web-app:v1.0.0");
 	assert!(created["id"].is_number());
 
-	// Act — list deployments to verify persistence
+	// Act -- list deployments to verify persistence
 	let list_response = client
 		.get("/api/deployments/")
 		.await
 		.expect("List deployments request failed");
 
-	// Assert — deployment appears in list
+	// Assert -- deployment appears in list
 	assert_eq!(list_response.status_code(), 200);
 	let body: serde_json::Value = list_response.json().expect("Failed to parse list response");
 	let items = body["items"].as_array().expect("items should be an array");

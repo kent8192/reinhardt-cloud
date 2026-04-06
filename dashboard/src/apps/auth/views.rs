@@ -2,7 +2,6 @@
 
 pub mod login;
 pub mod register;
-pub mod utils;
 
 pub use login::login;
 pub use register::register;

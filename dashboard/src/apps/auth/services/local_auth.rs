@@ -15,12 +15,12 @@ use reinhardt_cloud_core::traits::AuthService;
 use reinhardt_cloud_types::User as DomainUser;
 
 use crate::apps::auth::models::User;
-use crate::apps::auth::views::utils::jwt_secret;
 
 /// Local authentication service backed by the ORM and JWT utilities.
 ///
 /// Uses the database for credential verification and user lookups,
-/// and `reinhardt_cloud_core::auth` for token operations.
+/// and `reinhardt_cloud_core::auth` for token operations (used by
+/// the gRPC layer).
 pub struct LocalAuthService;
 
 impl LocalAuthService {
@@ -37,9 +37,17 @@ impl Default for LocalAuthService {
 }
 
 impl LocalAuthService {
-	/// Get the JWT secret, mapping errors to `ApiError`.
+	/// Get the JWT secret for gRPC token operations.
+	///
+	/// Reads from `REINHARDT_CLOUD_JWT_SECRET` environment variable.
+	/// This is only used by the gRPC `AuthService` trait implementation,
+	/// not by the dashboard's HTTP cookie-based auth.
 	fn secret(&self) -> Result<String, ApiError> {
-		jwt_secret().map_err(|e| ApiError::Internal(e.to_string()))
+		std::env::var("REINHARDT_CLOUD_JWT_SECRET").map_err(|_| {
+			ApiError::Internal(
+				"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var".to_string(),
+			)
+		})
 	}
 }
 

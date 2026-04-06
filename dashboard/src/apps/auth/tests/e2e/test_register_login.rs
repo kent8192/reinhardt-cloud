@@ -1,4 +1,9 @@
 //! End-to-end tests for auth API endpoints.
+//!
+//! These tests require both a PostgreSQL database and a Redis instance.
+//! The login and register endpoints now use cookie-based sessions instead
+//! of JWT tokens. Responses return `AuthResponse` with `success` and `user`
+//! fields, and authentication is conveyed via `Set-Cookie: sessionid=...`.
 
 #[cfg(test)]
 mod tests {
@@ -21,13 +26,6 @@ mod tests {
 		TestServerGuard,
 		APIClient,
 	) {
-		// Arrange — set required environment variable for JWT secret
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
@@ -38,11 +36,11 @@ mod tests {
 		(container, conn, server, client)
 	}
 
-	/// Verify POST /api/auth/register/ creates a user and returns JWT.
+	/// Verify POST /api/auth/register/ creates a user and returns session cookie.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_register_returns_jwt_token(
+	async fn test_register_returns_session_cookie(
 		#[future] test_app: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -67,16 +65,16 @@ mod tests {
 		// Assert
 		assert_eq!(response.status_code(), 201);
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
-		assert_eq!(body["token_type"], "Bearer");
-		assert!(body["token"].is_string());
-		assert!(!body["token"].as_str().unwrap().is_empty());
+		assert_eq!(body["success"], true);
+		assert!(body["user"].is_object());
+		assert!(body["user"]["username"].is_string());
 	}
 
-	/// Verify POST /api/auth/login/ authenticates against DB and returns JWT.
+	/// Verify POST /api/auth/login/ authenticates against DB and returns session cookie.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_login_returns_jwt_token(
+	async fn test_login_returns_session_cookie(
 		#[future] test_app: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -84,7 +82,7 @@ mod tests {
 			APIClient,
 		),
 	) {
-		// Arrange — register user first
+		// Arrange -- register user first
 		let (_container, _conn, _server, client) = test_app.await;
 		let register_data = json!({
 			"username": "loginuser",
@@ -96,7 +94,7 @@ mod tests {
 			.await
 			.expect("Register request failed");
 
-		// Act — login with same credentials
+		// Act -- login with same credentials
 		let login_data = json!({
 			"username": "loginuser",
 			"password": "testpassword"
@@ -109,9 +107,8 @@ mod tests {
 		// Assert
 		assert_eq!(response.status_code(), 200);
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
-		assert_eq!(body["token_type"], "Bearer");
-		assert!(body["token"].is_string());
-		assert!(!body["token"].as_str().unwrap().is_empty());
+		assert_eq!(body["success"], true);
+		assert!(body["user"].is_object());
 	}
 
 	/// Verify duplicate email registration returns 409 with email-specific message.
@@ -126,7 +123,7 @@ mod tests {
 			APIClient,
 		),
 	) {
-		// Arrange — register first user
+		// Arrange -- register first user
 		let (_container, _conn, _server, client) = test_app.await;
 		let first_user = json!({
 			"username": "emailuser1",
@@ -139,7 +136,7 @@ mod tests {
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
 
-		// Act — register second user with same email but different username
+		// Act -- register second user with same email but different username
 		let second_user = json!({
 			"username": "emailuser2",
 			"email": "test@example.com",
@@ -169,7 +166,7 @@ mod tests {
 			APIClient,
 		),
 	) {
-		// Arrange — register user first
+		// Arrange -- register user first
 		let (_container, _conn, _server, client) = test_app.await;
 		let register_data = json!({
 			"username": "failuser",
@@ -181,7 +178,7 @@ mod tests {
 			.await
 			.expect("Register request failed");
 
-		// Act — login with wrong password
+		// Act -- login with wrong password
 		let login_data = json!({
 			"username": "failuser",
 			"password": "wrongpassword"
@@ -191,7 +188,50 @@ mod tests {
 			.await
 			.expect("Login request failed");
 
-		// Assert — should not return 200
+		// Assert -- should not return 200
 		assert_ne!(response.status_code(), 200);
+	}
+
+	/// Register with whitespace-padded username should be trimmed; login with trimmed name succeeds.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_register_whitespace_username_trimmed(
+		#[future] test_app: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			TestServerGuard,
+			APIClient,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _server, client) = test_app.await;
+		let register_data = json!({
+			"username": "  trimuser  ",
+			"email": "trim@example.com",
+			"password": "securepassword"
+		});
+		let reg_response = client
+			.post("/api/auth/register/", &register_data, "json")
+			.await
+			.expect("Register request failed");
+		assert_eq!(reg_response.status_code(), 201);
+
+		// Act -- login with trimmed username
+		let login_data = json!({
+			"username": "trimuser",
+			"password": "securepassword"
+		});
+		let response = client
+			.post("/api/auth/login/", &login_data, "json")
+			.await
+			.expect("Login request failed");
+
+		// Assert
+		assert_eq!(
+			response.status_code(),
+			200,
+			"Login with trimmed username should succeed"
+		);
 	}
 }

@@ -56,16 +56,6 @@ pub async fn validate_session(session_id: &str) -> Option<(String, String)> {
 	Some((user_id, username))
 }
 
-/// Validate a raw JWT token (legacy stub).
-///
-/// With the migration to cookie-based sessions, JWT tokens are no longer
-/// issued. This function always returns `None`. It exists only to keep
-/// the WebSocket consumer compiling until it is migrated in a later task.
-#[deprecated(note = "JWT auth is being replaced by cookie sessions — see Task 6")]
-pub fn validate_raw_token(_token: &str) -> Option<(String, String)> {
-	None
-}
-
 fn get_session_backend() -> Result<RedisSessionBackend, String> {
 	let url = crate::config::settings::get_redis_url().ok_or("Redis URL not configured")?;
 	RedisSessionBackend::new_from_url(&url).map_err(|e| format!("Redis connection failed: {e}"))

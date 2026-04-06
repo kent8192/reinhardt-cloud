@@ -18,7 +18,7 @@ use reinhardt::{Handler, Middleware, Request, Response};
 
 /// Middleware that rebuilds the DI context per-request.
 ///
-/// Must run AFTER `JwtAuthMiddleware` (which injects `AuthState` into
+/// Must run AFTER the auth middleware (which injects `AuthState` into
 /// extensions) so that the rebuilt context carries the auth state.
 pub struct DiRequestMiddleware;
 

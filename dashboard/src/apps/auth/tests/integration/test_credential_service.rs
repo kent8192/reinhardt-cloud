@@ -24,13 +24,6 @@ mod tests {
 		TestServerGuard,
 		APIClient,
 	) {
-		// Arrange — set required environment variable for JWT secret
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await

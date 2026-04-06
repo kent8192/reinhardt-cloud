@@ -26,12 +26,6 @@ async fn test_app() -> (
 	TestServerGuard,
 	APIClient,
 ) {
-	unsafe {
-		std::env::set_var(
-			"REINHARDT_CLOUD_JWT_SECRET",
-			"test-secret-minimum-32-bytes-long!!",
-		);
-	}
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
@@ -53,15 +47,23 @@ async fn register_user(client: &APIClient, username: &str, email: &str) -> Strin
 		.await
 		.expect("Register request failed");
 	assert_eq!(resp.status_code(), 201);
-	let body: serde_json::Value = resp.json().expect("Failed to parse JSON response");
-	body["token"].as_str().unwrap().to_string()
+	let set_cookie = resp
+		.header("Set-Cookie")
+		.expect("Response should have Set-Cookie header");
+	let session_id = set_cookie
+		.split(';')
+		.next()
+		.unwrap()
+		.strip_prefix("sessionid=")
+		.expect("Cookie should start with sessionid=");
+	session_id.to_string()
 }
 
-async fn authenticate_client(client: &APIClient, token: &str) {
+async fn authenticate_client(client: &APIClient, session_id: &str) {
 	client
-		.set_header("Authorization", format!("Bearer {token}"))
+		.set_header("Cookie", format!("sessionid={session_id}"))
 		.await
-		.expect("Failed to set Authorization header");
+		.expect("Failed to set Cookie header");
 }
 
 async fn create_cluster(client: &APIClient, name: &str) -> i64 {
@@ -113,8 +115,8 @@ async fn test_two_users_full_isolation(
 	let (_container, _conn, server, client) = test_app.await;
 
 	// --- User A: 2 clusters, 2 deployments ---
-	let token_a = register_user(&client, "iso_user_a", "iso_a@example.com").await;
-	authenticate_client(&client, &token_a).await;
+	let session_a = register_user(&client, "iso_user_a", "iso_a@example.com").await;
+	authenticate_client(&client, &session_a).await;
 
 	let cluster_a1 = create_cluster(&client, "iso-cluster-a1").await;
 	let cluster_a2 = create_cluster(&client, "iso-cluster-a2").await;
@@ -123,14 +125,14 @@ async fn test_two_users_full_isolation(
 
 	// --- User B: 1 cluster, 1 deployment ---
 	let client_b = api_client_from_url(&server.url);
-	let token_b = register_user(&client_b, "iso_user_b", "iso_b@example.com").await;
-	authenticate_client(&client_b, &token_b).await;
+	let session_b = register_user(&client_b, "iso_user_b", "iso_b@example.com").await;
+	authenticate_client(&client_b, &session_b).await;
 
 	let cluster_b1 = create_cluster(&client_b, "iso-cluster-b1").await;
 	create_deployment(&client_b, "app-b1", cluster_b1).await;
 
-	// Assert — User A sees exactly 2 clusters and 2 deployments
-	authenticate_client(&client, &token_a).await;
+	// Assert -- User A sees exactly 2 clusters and 2 deployments
+	authenticate_client(&client, &session_a).await;
 
 	let clusters_a = client
 		.get("/api/clusters/")
@@ -160,7 +162,7 @@ async fn test_two_users_full_isolation(
 		"User A should have exactly 2 deployments"
 	);
 
-	// Assert — User B sees exactly 1 cluster and 1 deployment
+	// Assert -- User B sees exactly 1 cluster and 1 deployment
 	let clusters_b = client_b
 		.get("/api/clusters/")
 		.await
@@ -196,12 +198,12 @@ async fn test_multiple_deployments_same_cluster(
 ) {
 	// Arrange
 	let (_container, _conn, _server, client) = test_app.await;
-	let token = register_user(&client, "multi_deploy_user", "multi@example.com").await;
-	authenticate_client(&client, &token).await;
+	let session = register_user(&client, "multi_deploy_user", "multi@example.com").await;
+	authenticate_client(&client, &session).await;
 
 	let cluster_id = create_cluster(&client, "multi-deploy-cluster").await;
 
-	// Act — create 3 deployments on the same cluster
+	// Act -- create 3 deployments on the same cluster
 	create_deployment(&client, "svc-web", cluster_id).await;
 	create_deployment(&client, "svc-api", cluster_id).await;
 	create_deployment(&client, "svc-worker", cluster_id).await;

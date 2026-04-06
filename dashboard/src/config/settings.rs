@@ -159,39 +159,6 @@ pub fn get_redis_url() -> Option<String> {
 	env::var("REINHARDT_CLOUD_REDIS_URL").ok()
 }
 
-/// Get JWT secret from settings or environment.
-///
-/// Priority (highest to lowest):
-/// 1. `jwt_secret` key in the active TOML settings file
-/// 2. `REINHARDT_CLOUD_JWT_SECRET` environment variable (fallback for CI/container overrides)
-///
-/// Returns `None` if the JWT secret is not configured in either source.
-pub fn get_jwt_secret() -> Option<String> {
-	// TOML settings take highest priority
-	let profile_str = profile_name();
-	let settings_dir = resolve_settings_dir();
-	let from_toml = SettingsBuilder::new()
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		.add_source(TomlFileSource::new(
-			settings_dir.join(format!("{}.toml", profile_str)),
-		))
-		.build()
-		.ok()
-		.and_then(|merged| {
-			merged
-				.get_raw("jwt_secret")
-				.and_then(|v| v.as_str())
-				.map(String::from)
-		});
-
-	if from_toml.is_some() {
-		return from_toml;
-	}
-
-	// Fall back to env var for container/CI overrides
-	env::var("REINHARDT_CLOUD_JWT_SECRET").ok()
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

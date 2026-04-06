@@ -2,7 +2,6 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::JwtAuth;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::TestServerGuard;
@@ -12,7 +11,6 @@ mod tests {
 	use serde_json::json;
 	use serial_test::serial;
 	use std::sync::Arc;
-	use uuid::Uuid;
 
 	use crate::routes;
 
@@ -23,12 +21,6 @@ mod tests {
 		TestServerGuard,
 		APIClient,
 	) {
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
@@ -39,7 +31,7 @@ mod tests {
 		(container, conn, server, client)
 	}
 
-	/// Helper: register a user and return the JWT token.
+	/// Helper: register a user and return the session cookie value.
 	async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
 		let data = json!({
 			"username": username,
@@ -51,16 +43,25 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(resp.status_code(), 201);
-		let body: serde_json::Value = resp.json().expect("Failed to parse JSON response");
-		body["token"].as_str().unwrap().to_string()
+		// Extract session cookie from Set-Cookie header
+		let set_cookie = resp
+			.header("Set-Cookie")
+			.expect("Response should have Set-Cookie header");
+		let session_id = set_cookie
+			.split(';')
+			.next()
+			.unwrap()
+			.strip_prefix("sessionid=")
+			.expect("Cookie should start with sessionid=");
+		session_id.to_string()
 	}
 
-	/// Helper: set Authorization header on client.
-	async fn authenticate_client(client: &APIClient, token: &str) {
+	/// Helper: set session cookie on client.
+	async fn authenticate_client(client: &APIClient, session_id: &str) {
 		client
-			.set_header("Authorization", format!("Bearer {token}"))
+			.set_header("Cookie", format!("sessionid={session_id}"))
 			.await
-			.expect("Failed to set Authorization header");
+			.expect("Failed to set Cookie header");
 	}
 
 	/// Helper: create a cluster and return its response body.
@@ -92,12 +93,12 @@ mod tests {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
 
-		let token_a = register_user(&client, "user_a", "a@example.com").await;
-		authenticate_client(&client, &token_a).await;
+		let session_a = register_user(&client, "user_a", "a@example.com").await;
+		authenticate_client(&client, &session_a).await;
 		create_cluster(&client, "cluster-a").await;
 
-		let token_b = register_user(&client, "user_b", "b@example.com").await;
-		authenticate_client(&client, &token_b).await;
+		let session_b = register_user(&client, "user_b", "b@example.com").await;
+		authenticate_client(&client, &session_b).await;
 
 		// Act
 		let response = client
@@ -112,7 +113,7 @@ mod tests {
 		assert_eq!(body["total"], 0);
 	}
 
-	/// UserA creates 2 clusters, UserB creates 1 — each sees only their own.
+	/// UserA creates 2 clusters, UserB creates 1 -- each sees only their own.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -127,22 +128,22 @@ mod tests {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
 
-		let token_a = register_user(&client, "user_a", "a@example.com").await;
-		authenticate_client(&client, &token_a).await;
+		let session_a = register_user(&client, "user_a", "a@example.com").await;
+		authenticate_client(&client, &session_a).await;
 		create_cluster(&client, "cluster-a1").await;
 		create_cluster(&client, "cluster-a2").await;
 
-		let token_b = register_user(&client, "user_b", "b@example.com").await;
-		authenticate_client(&client, &token_b).await;
+		let session_b = register_user(&client, "user_b", "b@example.com").await;
+		authenticate_client(&client, &session_b).await;
 		create_cluster(&client, "cluster-b1").await;
 
-		// Act — UserB lists clusters
+		// Act -- UserB lists clusters
 		let resp_b = client
 			.get("/api/clusters/")
 			.await
 			.expect("List clusters request failed");
 
-		// Assert — UserB sees only 1
+		// Assert -- UserB sees only 1
 		assert_eq!(resp_b.status_code(), 200);
 		let body_b: serde_json::Value = resp_b.json().expect("Failed to parse JSON");
 		assert_eq!(body_b["total"], 1);
@@ -152,14 +153,14 @@ mod tests {
 		assert_eq!(items_b.len(), 1);
 		assert_eq!(items_b[0]["name"], "cluster-b1");
 
-		// Act — switch to UserA
-		authenticate_client(&client, &token_a).await;
+		// Act -- switch to UserA
+		authenticate_client(&client, &session_a).await;
 		let resp_a = client
 			.get("/api/clusters/")
 			.await
 			.expect("List clusters request failed");
 
-		// Assert — UserA sees 2
+		// Assert -- UserA sees 2
 		assert_eq!(resp_a.status_code(), 200);
 		let body_a: serde_json::Value = resp_a.json().expect("Failed to parse JSON");
 		assert_eq!(body_a["total"], 2);
@@ -169,11 +170,11 @@ mod tests {
 		assert_eq!(items_a.len(), 2);
 	}
 
-	/// A token signed with the wrong secret should return 401.
+	/// Unauthenticated request (no session cookie) should return 401.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_wrong_secret_token_returns_401(
+	async fn test_no_session_cookie_returns_401(
 		#[future] test_app: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -183,17 +184,6 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		let wrong_auth = JwtAuth::new(b"wrong-secret-that-is-32-bytes-long!");
-		let token = wrong_auth
-			.generate_token(
-				Uuid::new_v4().to_string(),
-				"wrong-secret-user".to_string(),
-				false,
-				false,
-			)
-			.expect("Failed to generate token");
-
-		authenticate_client(&client, &token).await;
 
 		// Act
 		let response = client
@@ -205,11 +195,11 @@ mod tests {
 		assert_eq!(response.status_code(), 401);
 	}
 
-	/// A malformed bearer token should return 401.
+	/// An invalid session cookie value should return 401.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_malformed_bearer_token_returns_401(
+	async fn test_invalid_session_cookie_returns_401(
 		#[future] test_app: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -219,36 +209,7 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		authenticate_client(&client, "invalid-jwt-gibberish").await;
-
-		// Act
-		let response = client
-			.get("/api/clusters/")
-			.await
-			.expect("List clusters request failed");
-
-		// Assert
-		assert_eq!(response.status_code(), 401);
-	}
-
-	/// Authorization header without "Bearer " prefix should return 401.
-	#[rstest]
-	#[tokio::test(flavor = "multi_thread")]
-	#[serial(database)]
-	async fn test_missing_bearer_prefix_returns_401(
-		#[future] test_app: (
-			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
-			TestServerGuard,
-			APIClient,
-		),
-	) {
-		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
-		client
-			.set_header("Authorization", "just-a-token-no-bearer".to_string())
-			.await
-			.expect("Failed to set Authorization header");
+		authenticate_client(&client, "invalid-session-id-gibberish").await;
 
 		// Act
 		let response = client

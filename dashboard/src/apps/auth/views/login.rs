@@ -5,14 +5,15 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
 use reinhardt::post;
-use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
+use reinhardt::{BaseUser, Json, Response, StatusCode};
 use tracing::error;
 
-use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
-use crate::apps::auth::serializers::{LoginRequest, TokenResponse};
+use crate::apps::auth::serializers::LoginRequest;
+use crate::apps::auth::services::session::create_session;
+use crate::shared::AuthResponse;
 
-/// Authenticate user against database and return JWT token.
+/// Authenticate user against database and create a session.
 #[post("/auth/login/", name = "auth_login", pre_validate = true)]
 pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	// Find user by username
@@ -44,23 +45,26 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
-	// Generate JWT with UUID as sub claim
-	let secret = jwt_secret()?;
-	let auth = JwtAuth::new(secret.as_bytes());
-	let token = auth
-		.generate_token(
-			user.id().to_string(),
-			user.get_username().to_string(),
-			user.is_staff,
-			user.is_superuser,
-		)
-		.map_err(|e| {
-			error!("JWT token generation failed during login: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
+	// Create session in Redis
+	let session_id = create_session(&user).await.map_err(|e| {
+		error!("Session creation failed during login: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 
-	let resp = TokenResponse::bearer(token);
+	let resp = AuthResponse {
+		success: true,
+		user: Some(crate::shared::UserInfo::from(&user)),
+	};
+
+	// Set session cookie on the response
+	let is_debug = crate::config::settings::get_settings().core.debug;
+	let secure_flag = if is_debug { "" } else { "; Secure" };
+	let cookie = format!(
+		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
+	);
+
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")
+		.with_header("Set-Cookie", &cookie)
 		.with_body(json::to_vec(&resp)?))
 }

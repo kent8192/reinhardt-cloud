@@ -21,12 +21,6 @@ mod tests {
 		TestServerGuard,
 		APIClient,
 	) {
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
@@ -37,8 +31,8 @@ mod tests {
 		(container, conn, server, client)
 	}
 
-	/// Helper: register a test user and return the JWT token.
-	async fn register_and_get_token(client: &APIClient) -> String {
+	/// Helper: register a test user and return the session cookie value.
+	async fn register_and_get_session(client: &APIClient) -> String {
 		let register_data = json!({
 			"username": "testuser",
 			"email": "test@example.com",
@@ -49,16 +43,24 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(resp.status_code(), 201);
-		let body: serde_json::Value = resp.json().expect("Failed to parse JSON response");
-		body["token"].as_str().unwrap().to_string()
+		let set_cookie = resp
+			.header("Set-Cookie")
+			.expect("Response should have Set-Cookie header");
+		let session_id = set_cookie
+			.split(';')
+			.next()
+			.unwrap()
+			.strip_prefix("sessionid=")
+			.expect("Cookie should start with sessionid=");
+		session_id.to_string()
 	}
 
-	/// Helper: set Authorization header on client.
-	async fn authenticate_client(client: &APIClient, token: &str) {
+	/// Helper: set session cookie on client.
+	async fn authenticate_client(client: &APIClient, session_id: &str) {
 		client
-			.set_header("Authorization", format!("Bearer {token}"))
+			.set_header("Cookie", format!("sessionid={session_id}"))
 			.await
-			.expect("Failed to set Authorization header");
+			.expect("Failed to set Cookie header");
 	}
 
 	/// Helper: create N clusters with sequential names.
@@ -90,8 +92,8 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		let token = register_and_get_token(&client).await;
-		authenticate_client(&client, &token).await;
+		let session = register_and_get_session(&client).await;
+		authenticate_client(&client, &session).await;
 		create_clusters(&client, 3).await;
 
 		// Act
@@ -123,8 +125,8 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		let token = register_and_get_token(&client).await;
-		authenticate_client(&client, &token).await;
+		let session = register_and_get_session(&client).await;
+		authenticate_client(&client, &session).await;
 		create_clusters(&client, 5).await;
 
 		// Act
@@ -155,8 +157,8 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		let token = register_and_get_token(&client).await;
-		authenticate_client(&client, &token).await;
+		let session = register_and_get_session(&client).await;
+		authenticate_client(&client, &session).await;
 		create_clusters(&client, 2).await;
 
 		// Act
@@ -186,8 +188,8 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, _conn, _server, client) = test_app.await;
-		let token = register_and_get_token(&client).await;
-		authenticate_client(&client, &token).await;
+		let session = register_and_get_session(&client).await;
+		authenticate_client(&client, &session).await;
 
 		// Act
 		let response = client
