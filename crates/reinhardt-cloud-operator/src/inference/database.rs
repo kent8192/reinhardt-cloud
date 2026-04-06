@@ -44,12 +44,24 @@ fn default_engine_version(engine: &DatabaseEngine) -> &str {
 	}
 }
 
-/// Sanitize an application name for use as an RDS master username and db name.
+/// Return the maximum identifier length for a given database engine.
 ///
-/// RDS master usernames must start with a letter, contain only alphanumeric
-/// characters and underscores, and be at most 16 characters for MySQL or
-/// 63 characters for PostgreSQL. We use 16 as the safe limit.
-fn sanitize_rds_identifier(name: &str) -> String {
+/// MySQL usernames are limited to 32 characters, PostgreSQL identifiers
+/// to 63 characters, and SQLite has no practical limit (use 63 as
+/// a reasonable upper bound).
+fn max_identifier_len(engine: &DatabaseEngine) -> usize {
+	match engine {
+		DatabaseEngine::Mysql => 32,
+		DatabaseEngine::Postgresql | DatabaseEngine::Sqlite => 63,
+	}
+}
+
+/// Sanitize an application name for use as a database username or db name.
+///
+/// The identifier must start with a letter, contain only ASCII alphanumeric
+/// characters and underscores, and be truncated to the engine-specific
+/// maximum length (MySQL: 32, PostgreSQL: 63).
+fn sanitize_identifier(name: &str, engine: &DatabaseEngine) -> String {
 	let sanitized: String = name
 		.chars()
 		.map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
@@ -60,8 +72,8 @@ fn sanitize_rds_identifier(name: &str) -> String {
 	} else {
 		format!("app_{sanitized}")
 	};
-	// Truncate to 16 characters (safe for both MySQL and PostgreSQL)
-	sanitized.chars().take(16).collect()
+	let max_len = max_identifier_len(engine);
+	sanitized.chars().take(max_len).collect()
 }
 
 /// Build a GCP Cloud SQL `databaseVersion` string from engine and optional
@@ -266,11 +278,13 @@ fn build_aws_rds(
 	let instance_class = db
 		.instance_class
 		.as_deref()
-		.unwrap_or("db.t3.micro")
+		.unwrap_or(&platform.defaults.database.instance_class)
 		.to_string();
-	let allocated_storage = db.storage_gb.unwrap_or(20);
-	let master_username = sanitize_rds_identifier(app_name);
-	let db_name = sanitize_rds_identifier(&format!("{app_name}_db"));
+	let allocated_storage = db
+		.storage_gb
+		.unwrap_or(platform.defaults.database.storage_gb);
+	let master_username = sanitize_identifier(app_name, &db.engine);
+	let db_name = sanitize_identifier(&format!("{app_name}_db"), &db.engine);
 
 	let db_instance = DynamicObject {
 		metadata: ObjectMeta {
@@ -295,8 +309,7 @@ fn build_aws_rds(
 					"name": format!("{app_name}-db-credentials"),
 					"key": "password"
 				},
-				"dbName": db_name,
-				"availabilityZone": format!("{}a", platform.defaults.database.region)
+				"dbName": db_name
 			}
 		}),
 	};
@@ -411,8 +424,9 @@ fn build_gcp_cloud_sql(
 		}),
 	};
 
+	let sanitized_user = sanitize_identifier(app_name, &db.engine);
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
+	let secret = build_db_credentials_secret(app_name, namespace, &sanitized_user, &password);
 
 	vec![
 		DatabaseResource::Dynamic(sql_instance),
@@ -910,7 +924,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn aws_rds_uses_defaults_when_optional_fields_unset() {
+	fn aws_rds_uses_platform_defaults_when_optional_fields_unset() {
 		// Arrange
 		let db_spec = DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -924,11 +938,17 @@ mod tests {
 		// Act
 		let resources = infer_database_resources(&app, &platform);
 
-		// Assert
+		// Assert — values should come from platform.defaults.database
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
 			let spec = &obj.data["spec"];
-			assert_eq!(spec["dbInstanceClass"], "db.t3.micro");
-			assert_eq!(spec["allocatedStorage"], 20);
+			assert_eq!(
+				spec["dbInstanceClass"],
+				platform.defaults.database.instance_class
+			);
+			assert_eq!(
+				spec["allocatedStorage"],
+				platform.defaults.database.storage_gb
+			);
 			assert_eq!(spec["engineVersion"], "16");
 		} else {
 			panic!("Expected Dynamic as first resource");
@@ -1162,24 +1182,36 @@ mod tests {
 	#[case("my-app", "my_app")]
 	#[case("my.app.name", "my_app_name")]
 	#[case("123app", "app_123app")]
-	fn sanitize_rds_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
+	fn sanitize_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
 		// Act
-		let result = sanitize_rds_identifier(input);
+		let result = sanitize_identifier(input, &DatabaseEngine::Postgresql);
 
 		// Assert
 		assert_eq!(result, expected);
 	}
 
 	#[rstest]
-	fn sanitize_rds_identifier_truncates_long_names() {
+	fn sanitize_identifier_truncates_to_mysql_limit() {
 		// Arrange
-		let long_name = "a".repeat(32);
+		let long_name = "a".repeat(64);
 
 		// Act
-		let result = sanitize_rds_identifier(&long_name);
+		let result = sanitize_identifier(&long_name, &DatabaseEngine::Mysql);
 
-		// Assert
-		assert_eq!(result.len(), 16);
+		// Assert — MySQL limit is 32 characters
+		assert_eq!(result.len(), 32);
+	}
+
+	#[rstest]
+	fn sanitize_identifier_truncates_to_postgresql_limit() {
+		// Arrange
+		let long_name = "a".repeat(128);
+
+		// Act
+		let result = sanitize_identifier(&long_name, &DatabaseEngine::Postgresql);
+
+		// Assert — PostgreSQL limit is 63 characters
+		assert_eq!(result.len(), 63);
 	}
 
 	// --- Region configuration tests ---
