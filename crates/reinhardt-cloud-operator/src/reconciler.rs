@@ -1,5 +1,6 @@
 //! Reconciler logic for the `ReinhardtApp` custom resource.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +22,9 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
+use crate::resources::credentials;
+use crate::resources::preview;
+use crate::resources::source::{build_kaniko_job, should_build_from_source};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
@@ -235,6 +239,144 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
 	}
 
+	// Git credentials validation (#278)
+	if let Some(secret_name) = credentials::should_warn_missing_credentials(&app) {
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			warn!(
+				"Git credentials Secret '{secret_name}' referenced by {name} does not exist"
+			);
+		}
+	}
+
+	// Source build (#275) — triggered by build-trigger annotation
+	if should_build_from_source(&app) {
+		let trigger = app
+			.metadata
+			.annotations
+			.as_ref()
+			.and_then(|a| a.get("reinhardt.dev/build-trigger"));
+		if let Some(trigger_ts) = trigger {
+			let image_tag = format!("{}-{}", name, &trigger_ts[..8.min(trigger_ts.len())]);
+			let job = build_kaniko_job(&app, &image_tag)?;
+			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
+			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
+			if job_api
+				.get_opt(job_name)
+				.await
+				.map_err(Error::Kube)?
+				.is_none()
+			{
+				job_api
+					.create(&PostParams::default(), &job)
+					.await
+					.map_err(Error::Kube)?;
+				info!("Created build Job {namespace}/{job_name}");
+			}
+		}
+	}
+
+	// Preview environment reconciliation (#277)
+	if app.spec.source.as_ref().is_some_and(|s| {
+		s.preview.as_ref().is_some_and(|p| p.enabled)
+	}) {
+		let preview_action = app
+			.metadata
+			.annotations
+			.as_ref()
+			.and_then(|a| a.get("reinhardt.dev/preview-action"));
+		if let Some(action) = preview_action {
+			let pr_number = app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/pr-number"))
+				.cloned()
+				.unwrap_or_default();
+			let preview_name = preview::preview_app_name(&name, &pr_number);
+			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+
+			match action.as_str() {
+				"create" | "update" => {
+					let image_tag = format!("pr-{pr_number}-latest");
+					let preview_spec = preview::build_preview_spec(&app, &pr_number, &image_tag)?;
+					let preview_labels = preview::preview_labels(&name, &pr_number);
+					let preview_app = ReinhardtApp {
+						metadata: kube::api::ObjectMeta {
+							name: Some(preview_name.clone()),
+							namespace: Some(namespace.to_string()),
+							labels: Some(preview_labels),
+							owner_references: Some(vec![resources::labels::owner_reference(&app)?]),
+							annotations: Some(BTreeMap::from([(
+								"reinhardt.dev/last-activity".to_string(),
+								chrono::Utc::now().to_rfc3339(),
+							)])),
+							..Default::default()
+						},
+						spec: preview_spec,
+						status: None,
+					};
+					app_api
+						.patch(
+							&preview_name,
+							&PatchParams::apply("reinhardt-cloud-operator").force(),
+							&Patch::Apply(&preview_app),
+						)
+						.await
+						.map_err(Error::Kube)?;
+					info!("Reconciled preview environment {namespace}/{preview_name}");
+				}
+				"delete" => {
+					let _ = app_api
+						.delete(&preview_name, &DeleteParams::default())
+						.await;
+					info!("Deleted preview environment {namespace}/{preview_name}");
+				}
+				_ => {
+					warn!("Unknown preview action: {action}");
+				}
+			}
+		}
+
+		// TTL cleanup for existing previews
+		let preview_list = Api::<ReinhardtApp>::namespaced(ctx.client.clone(), namespace)
+			.list(&kube::api::ListParams::default().labels(&format!(
+				"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
+			)))
+			.await
+			.map_err(Error::Kube)?;
+
+		let ttl = app
+			.spec
+			.source
+			.as_ref()
+			.and_then(|s| s.preview.as_ref())
+			.and_then(|p| p.ttl.as_deref())
+			.unwrap_or("72h");
+
+		for preview_app in preview_list {
+			let last_activity = preview_app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/last-activity"));
+			if let Some(ts) = last_activity
+				&& preview::is_ttl_expired(ts, ttl)
+			{
+				let pname = preview_app.name_any();
+				let _ = Api::<ReinhardtApp>::namespaced(ctx.client.clone(), namespace)
+					.delete(&pname, &DeleteParams::default())
+					.await;
+				info!("TTL expired, deleted preview {namespace}/{pname}");
+			}
+		}
+	}
+
 	// Session backend: ensure Redis when session_backend=redis (Phase 4)
 	let needs_redis_sessions = app
 		.spec
@@ -327,6 +469,19 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 	// i18n ConfigMap (stateless — always clean up)
 	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
 
+	// Build Jobs (stateless — always clean up)
+	let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
+	let build_jobs = job_api
+		.list(&kube::api::ListParams::default().labels(&format!(
+			"app.kubernetes.io/name={name},app.kubernetes.io/component=build"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+	for job in build_jobs {
+		let jname = job.metadata.name.unwrap_or_default();
+		let _ = job_api.delete(&jname, &DeleteParams::default()).await;
+	}
+
 	// Always clean up introspect-managed resources that are safe to delete
 	// (Ingress, migration Job). These have ownerReferences but we delete
 	// explicitly for a cleaner teardown sequence.
@@ -369,6 +524,11 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 					&format!("{name}-smtp-credentials"),
 					&DeleteParams::default(),
 				)
+				.await;
+
+			// Delete git credentials Secret
+			let _ = secret_api
+				.delete(&format!("{name}-git-credentials"), &DeleteParams::default())
 				.await;
 
 			// Delete introspect-managed database resources
