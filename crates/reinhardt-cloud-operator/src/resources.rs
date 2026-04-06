@@ -23,7 +23,8 @@ pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
-pub(crate) use source::{build_kaniko_job, should_build_from_source};
+// source::build_kaniko_job and source::should_build_from_source are used
+// directly via crate::resources::source in the reconciler.
 
 /// Extracts the namespace from a `ReinhardtApp`, returning
 /// `Error::MissingNamespace` if absent.

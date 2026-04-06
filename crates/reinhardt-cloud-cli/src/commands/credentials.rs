@@ -131,10 +131,10 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
         Some(secret) => {
             println!("Secret '{secret_name}' found in namespace '{}'", args.namespace);
 
-            if let Some(labels) = &secret.metadata.labels {
-                if let Some(provider) = labels.get("reinhardt.dev/provider") {
-                    println!("  Provider: {provider}");
-                }
+            if let Some(labels) = &secret.metadata.labels
+                && let Some(provider) = labels.get("reinhardt.dev/provider")
+            {
+                println!("  Provider: {provider}");
             }
 
             let mut keys = Vec::new();

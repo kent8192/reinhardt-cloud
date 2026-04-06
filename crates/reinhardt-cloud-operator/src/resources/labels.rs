@@ -30,6 +30,7 @@ pub(crate) enum Component {
 	/// Container image build job (e.g. Kaniko).
 	Build,
 	/// Preview environment for pull requests.
+	#[allow(dead_code)]
 	Preview,
 }
 

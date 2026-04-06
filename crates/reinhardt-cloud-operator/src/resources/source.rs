@@ -59,7 +59,7 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 		"--cache=true".to_string(),
 	];
 
-	if let Some(ref b) = build {
+	if let Some(b) = build {
 		for (key, value) in &b.build_args {
 			args.push(format!("--build-arg={key}={value}"));
 		}

@@ -174,14 +174,13 @@ impl PreviewSpec {
             ));
         }
 
-        if let Some(ref overrides) = self.overrides {
-            if let Some(replicas) = overrides.replicas
-                && replicas <= 0
-            {
-                errors.push(ValidationError::new(
-                    "source.preview.overrides.replicas must be > 0",
-                ));
-            }
+        if let Some(ref overrides) = self.overrides
+            && let Some(replicas) = overrides.replicas
+            && replicas <= 0
+        {
+            errors.push(ValidationError::new(
+                "source.preview.overrides.replicas must be > 0",
+            ));
         }
 
         if errors.is_empty() {
