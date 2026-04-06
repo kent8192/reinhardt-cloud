@@ -20,7 +20,7 @@ pub enum GitProvider {
 
 /// Webhook event types that trigger pipeline actions.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum WebhookEvent {
     Push,
     PullRequest,
@@ -144,7 +144,7 @@ pub struct PreviewSpec {
     /// Time-to-live for preview environments (e.g., "72h", "7d").
     pub ttl: Option<String>,
     /// URL template for preview environments.
-    /// Supports `{{branch}}` and `{{pr}}` placeholders.
+    /// Supports `{app}`, `{pr_number}`, and `{branch}` placeholders.
     pub url_template: Option<String>,
     /// Resource overrides for preview deployments.
     pub overrides: Option<PreviewOverrides>,
@@ -317,10 +317,10 @@ mod tests {
     }
 
     #[rstest]
-    fn webhook_event_serializes_lowercase() {
+    fn webhook_event_serializes_snake_case() {
         // Arrange & Act & Assert
         assert_eq!(serde_json::to_string(&WebhookEvent::Push).unwrap(), r#""push""#);
-        assert_eq!(serde_json::to_string(&WebhookEvent::PullRequest).unwrap(), r#""pullrequest""#);
+        assert_eq!(serde_json::to_string(&WebhookEvent::PullRequest).unwrap(), r#""pull_request""#);
         assert_eq!(serde_json::to_string(&WebhookEvent::Tag).unwrap(), r#""tag""#);
     }
 
@@ -513,7 +513,7 @@ mod tests {
         let spec = PreviewSpec {
             enabled: true,
             ttl: Some("72h".to_string()),
-            url_template: Some("{{branch}}.preview.example.com".to_string()),
+            url_template: Some("{branch}.preview.example.com".to_string()),
             overrides: Some(PreviewOverrides {
                 replicas: Some(1),
                 database: Some(false),
@@ -640,7 +640,7 @@ mod tests {
         let spec = PreviewSpec {
             enabled: true,
             ttl: Some("7d".to_string()),
-            url_template: Some("{{pr}}.dev.example.com".to_string()),
+            url_template: Some("{pr_number}.dev.example.com".to_string()),
             overrides: Some(PreviewOverrides {
                 replicas: Some(2),
                 database: Some(true),
@@ -700,7 +700,7 @@ mod tests {
             preview: Some(PreviewSpec {
                 enabled: true,
                 ttl: Some("72h".to_string()),
-                url_template: Some("{{branch}}.preview.example.com".to_string()),
+                url_template: Some("{branch}.preview.example.com".to_string()),
                 overrides: Some(PreviewOverrides {
                     replicas: Some(1),
                     database: Some(false),
@@ -925,7 +925,7 @@ mod tests {
             preview: Some(PreviewSpec {
                 enabled: true,
                 ttl: Some("48h".to_string()),
-                url_template: Some("{{branch}}.dev.example.com".to_string()),
+                url_template: Some("{branch}.dev.example.com".to_string()),
                 overrides: Some(PreviewOverrides {
                     replicas: Some(1),
                     database: Some(true),

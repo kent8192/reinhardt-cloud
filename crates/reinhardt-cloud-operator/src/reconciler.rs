@@ -262,7 +262,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			.as_ref()
 			.and_then(|a| a.get("reinhardt.dev/build-trigger"));
 		if let Some(trigger_ts) = trigger {
-			let image_tag = format!("{}-{}", name, &trigger_ts[..8.min(trigger_ts.len())]);
+			let short_trigger: String = trigger_ts.chars().take(8).collect();
+			let image_tag = format!("{name}-{short_trigger}");
 			let job = build_kaniko_job(&app, &image_tag)?;
 			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
 			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
@@ -278,6 +279,20 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 					.map_err(Error::Kube)?;
 				info!("Created build Job {namespace}/{job_name}");
 			}
+
+			// Clear the build-trigger annotation to prevent re-triggering
+			let patch = serde_json::json!({
+				"metadata": {
+					"annotations": {
+						"reinhardt.dev/build-trigger": null
+					}
+				}
+			});
+			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+			app_api
+				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+				.await
+				.map_err(Error::Kube)?;
 		}
 	}
 
@@ -341,6 +356,22 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 					warn!("Unknown preview action: {action}");
 				}
 			}
+
+			// Clear preview-action annotation after processing
+			let patch = serde_json::json!({
+				"metadata": {
+					"annotations": {
+						"reinhardt.dev/preview-action": null,
+						"reinhardt.dev/pr-number": null,
+						"reinhardt.dev/pr-branch": null
+					}
+				}
+			});
+			let parent_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+			parent_api
+				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+				.await
+				.map_err(Error::Kube)?;
 		}
 
 		// TTL cleanup for existing previews
@@ -526,10 +557,14 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 				)
 				.await;
 
-			// Delete git credentials Secret
-			let _ = secret_api
-				.delete(&format!("{name}-git-credentials"), &DeleteParams::default())
-				.await;
+			// Delete git credentials Secret (use spec reference if available)
+			if let Some(ref source) = app.spec.source
+				&& let Some(ref creds_name) = source.credentials_secret
+			{
+				let _ = secret_api
+					.delete(creds_name, &DeleteParams::default())
+					.await;
+			}
 
 			// Delete introspect-managed database resources
 			delete_if_exists::<StatefulSet>(&ctx.client, namespace, &format!("{name}-postgresql"))

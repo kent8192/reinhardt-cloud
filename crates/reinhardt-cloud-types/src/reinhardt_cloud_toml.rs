@@ -706,7 +706,7 @@ secret_ref = "webhook-secret"
 [source.preview]
 enabled = true
 ttl = "72h"
-url_template = "{{branch}}.preview.example.com"
+url_template = "{branch}.preview.example.com"
 
 [source.preview.overrides]
 replicas = 1
@@ -724,7 +724,7 @@ replicas = 1
 		assert_eq!(preview.ttl.as_deref(), Some("72h"));
 		assert_eq!(
 			preview.url_template.as_deref(),
-			Some("{{branch}}.preview.example.com")
+			Some("{branch}.preview.example.com")
 		);
 		assert_eq!(preview.overrides.unwrap().replicas, Some(1));
 	}
@@ -761,7 +761,7 @@ replicas = 1
 				preview: Some(PreviewTomlSection {
 					enabled: true,
 					ttl: Some("48h".into()),
-					url_template: Some("{{branch}}.dev.example.com".into()),
+					url_template: Some("{branch}.dev.example.com".into()),
 					overrides: Some(PreviewOverridesTomlSection {
 						replicas: Some(2),
 					}),

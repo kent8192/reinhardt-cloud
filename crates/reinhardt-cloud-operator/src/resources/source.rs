@@ -71,9 +71,15 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 	let mut volumes = Vec::new();
 
 	if let Some(ref secret_name) = source.credentials_secret {
-		// GIT_TOKEN from secret
+		// GIT_USERNAME for kaniko git authentication (x-access-token works for GitHub and GitLab)
 		env.push(EnvVar {
-			name: "GIT_TOKEN".to_string(),
+			name: "GIT_USERNAME".to_string(),
+			value: Some("x-access-token".to_string()),
+			..Default::default()
+		});
+		// GIT_PASSWORD from secret (kaniko consumes GIT_USERNAME + GIT_PASSWORD since v1.9.0)
+		env.push(EnvVar {
+			name: "GIT_PASSWORD".to_string(),
 			value_from: Some(EnvVarSource {
 				secret_key_ref: Some(SecretKeySelector {
 					name: secret_name.clone(),
@@ -296,7 +302,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_git_token_env_from_secret() {
+	fn test_git_credentials_env_from_secret() {
 		// Arrange
 		let app = test_app_with_source("my-app");
 
@@ -305,9 +311,13 @@ mod tests {
 		let container = &job.spec.unwrap().template.spec.unwrap().containers[0];
 		let env = container.env.as_ref().unwrap();
 
-		// Assert
-		let git_token = env.iter().find(|e| e.name == "GIT_TOKEN").unwrap();
-		let key_ref = git_token
+		// Assert — GIT_USERNAME is a static value for token-based auth
+		let git_username = env.iter().find(|e| e.name == "GIT_USERNAME").unwrap();
+		assert_eq!(git_username.value.as_deref(), Some("x-access-token"));
+
+		// Assert — GIT_PASSWORD comes from the secret
+		let git_password = env.iter().find(|e| e.name == "GIT_PASSWORD").unwrap();
+		let key_ref = git_password
 			.value_from
 			.as_ref()
 			.unwrap()
