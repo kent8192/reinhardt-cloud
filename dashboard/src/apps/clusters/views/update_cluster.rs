@@ -3,7 +3,7 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue};
+use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, Validate, patch};
 use tracing::error;
@@ -42,11 +42,11 @@ pub async fn update_cluster(
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
 		)
-		.filter(
+		.filter(Filter::new(
 			Cluster::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(id),
-		)
+		))
 		.first()
 		.await
 		.map_err(|e| {
