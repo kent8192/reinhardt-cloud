@@ -4,9 +4,15 @@
 //! checking and reflection services pre-registered.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+use reinhardt_cloud_core::mocks::{MockBuildService, MockClusterAgentService};
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
+use reinhardt_cloud_grpc::services::build::BuildServiceGrpc;
+use reinhardt_cloud_grpc::services::cluster_agent::AgentServiceGrpc;
+use reinhardt_cloud_proto::build::build_service_server::BuildServiceServer;
+use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServer;
 use tonic::transport::Server;
 use tracing::info;
 
@@ -23,11 +29,15 @@ pub async fn start_grpc_server(
 		.parse()
 		.expect("Invalid gRPC bind address");
 
-	let (_health_reporter, health_service) = health::create_health_service();
-	// NOTE: Services are registered as NOT_SERVING by default.
-	// When Build/Agent/Log gRPC services are added to this server,
-	// call health::mark_service_serving(&mut health_reporter, NAME)
-	// for each to transition them to SERVING.
+	let (mut health_reporter, health_service) = health::create_health_service();
+
+	// Create gRPC service instances backed by mock implementations
+	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
+	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
+
+	// Mark registered services as SERVING for health checks
+	health::mark_service_serving(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
+	health::mark_service_serving(&mut health_reporter, health::AGENT_SERVICE_NAME).await;
 
 	// Build reflection service from proto file descriptors
 	let reflection_service = tonic_reflection::server::Builder::configure()
@@ -49,6 +59,8 @@ pub async fn start_grpc_server(
 		.timeout(config.timeout)
 		.add_service(health_service)
 		.add_service(reflection_service)
+		.add_service(BuildServiceServer::new(build_grpc))
+		.add_service(AgentServiceServer::new(agent_grpc))
 		.serve_with_shutdown(addr, shutdown)
 		.await
 }
