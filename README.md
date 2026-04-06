@@ -104,42 +104,33 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 Three-plane architecture inspired by Vercel:
 
 ```mermaid
-graph LR
-  subgraph Developer
-    CLI["reinhardt-cloud CLI"]
-  end
+architecture-beta
+    group developer(internet)[Developer]
+    group controlplane(cloud)[Control Plane]
+    group k8s(server)[Kubernetes Cluster]
+    group resources[Reconciled Resources] in k8s
 
-  subgraph Control Plane
-    Dashboard["Dashboard<br/>(reinhardt-web app)<br/>REST API + Auth"]
-  end
+    service cli(server)[reinhardt-cloud CLI] in developer
+    service dashboard(server)[Dashboard] in controlplane
+    service operator(server)[Operator] in k8s
+    service crd(disk)[ReinhardtApp CRD] in k8s
+    service deploy(server)[Deployment + HPA] in resources
+    service network(internet)[Service + Ingress] in resources
+    service db(database)[Database + Cache] in resources
+    service workers(server)[Workers] in resources
 
-  subgraph Kubernetes Cluster
-    Operator["Operator"]
-    CRD["ReinhardtApp CRD"]
-    Operator -->|watches| CRD
+    junction j1 in resources
+    junction j2 in resources
 
-    subgraph Reconciled Resources
-      Deployment
-      Service
-      Ingress
-      HPA
-      StatefulSet["StatefulSet<br/>(Database)"]
-      Redis
-      Workers
-    end
-
-    CRD --> Deployment
-    CRD --> Service
-    CRD --> Ingress
-    CRD --> HPA
-    CRD --> StatefulSet
-    CRD --> Redis
-    CRD --> Workers
-  end
-
-  CLI -->|deploy| Dashboard
-  CLI -->|dry-run / direct| CRD
-  Dashboard --> Operator
+    cli:R -- L:dashboard
+    dashboard:R -- L:operator
+    operator:B -- T:crd
+    crd:B -- T:j1
+    j1:L -- R:deploy
+    j1:R -- L:network
+    j1:B -- T:j2
+    j2:L -- R:db
+    j2:R -- L:workers
 ```
 
 | Plane | Crate | Role |
