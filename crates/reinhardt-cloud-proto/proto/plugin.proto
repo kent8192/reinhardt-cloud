@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package reinhardt.cloud.plugin;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// Request to execute a plugin function.
+message RunFunctionRequest {
+  // Plugin function name.
+  string function_name = 1;
+  // Serialized input (JSON).
+  bytes input = 2;
+  // Execution context metadata.
+  map<string, string> context = 3;
+  // Timeout in seconds for this execution.
+  uint32 timeout_seconds = 4;
+}
+
+// Response from a plugin function execution.
+message RunFunctionResponse {
+  // Serialized output (JSON).
+  bytes output = 1;
+  // Execution result status.
+  ResultStatus status = 2;
+  // Conditions/warnings generated during execution.
+  repeated Condition conditions = 3;
+}
+
+// Result status of a plugin function execution.
+enum ResultStatus {
+  RESULT_STATUS_UNSPECIFIED = 0;
+  RESULT_STATUS_SUCCESS = 1;
+  RESULT_STATUS_FAILURE = 2;
+  RESULT_STATUS_FATAL = 3;
+}
+
+// A condition reported by a plugin function.
+message Condition {
+  // Condition type (e.g. "ValidationError", "Warning").
+  string type = 1;
+  // Human-readable message.
+  string message = 2;
+  // Severity.
+  ConditionSeverity severity = 3;
+  // When the condition was observed.
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// Severity of a plugin condition.
+enum ConditionSeverity {
+  CONDITION_SEVERITY_UNSPECIFIED = 0;
+  CONDITION_SEVERITY_INFO = 1;
+  CONDITION_SEVERITY_WARNING = 2;
+  CONDITION_SEVERITY_ERROR = 3;
+}
+
+// Event emitted during a streaming plugin execution.
+message RunFunctionEvent {
+  oneof event {
+    // Progress update.
+    ProgressEvent progress = 1;
+    // Log output from the function.
+    LogEvent log = 2;
+    // Final result.
+    RunFunctionResponse result = 3;
+  }
+}
+
+message ProgressEvent {
+  // Progress percentage (0-100).
+  uint32 percent = 1;
+  // Human-readable status message.
+  string message = 2;
+}
+
+message LogEvent {
+  string message = 1;
+  string level = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Plugin service interface (Crossplane Composition Functions pattern).
+service PluginService {
+  // Synchronous function execution.
+  rpc RunFunction(RunFunctionRequest) returns (RunFunctionResponse);
+  // Long-running function with progress streaming.
+  rpc RunFunctionStream(RunFunctionRequest) returns (stream RunFunctionEvent);
+}
