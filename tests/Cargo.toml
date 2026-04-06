@@ -1,0 +1,41 @@
+[package]
+name = "reinhardt-cloud-integration-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dev-dependencies]
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-grpc = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-proto = { workspace = true }
+reinhardt-test = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+tonic = "0.13"
+tonic-health = "0.13"
+rstest = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+async-trait = "0.1"
+prost-types = "0.13"
+
+[[test]]
+name = "build_grpc_integration"
+path = "integration/tests/build_grpc_integration.rs"
+
+[[test]]
+name = "log_grpc_integration"
+path = "integration/tests/log_grpc_integration.rs"
+
+[[test]]
+name = "plugin_pipeline_integration"
+path = "integration/tests/plugin_pipeline_integration.rs"
+
+[[test]]
+name = "agent_grpc_integration"
+path = "integration/tests/agent_grpc_integration.rs"
+
+[lints]
+workspace = true
