@@ -2,7 +2,7 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{FilterOperator, FilterValue};
+use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, delete};
 use tracing::error;
@@ -23,16 +23,12 @@ pub async fn delete_deployment(
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	Deployment::objects()
-		.filter(
-			Deployment::field_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(id),
-		)
-		.filter(
+		.filter("id", FilterOperator::Eq, FilterValue::Integer(id))
+		.filter(Filter::new(
 			Deployment::field_user_id(),
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
-		)
+		))
 		.first()
 		.await
 		.map_err(|e| {
