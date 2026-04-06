@@ -84,14 +84,29 @@ impl ReinhardtCloudClient {
 		Ok(req)
 	}
 
-	/// Deploys an application by sending CRD YAML to the dashboard API.
+	/// Deploys an application by sending JSON to the dashboard API.
+	///
+	/// The dashboard create-deployment endpoint expects a JSON body with
+	/// `app_name`, `image`, and optionally `cluster_id`.
 	///
 	/// Returns the response body on success.
-	pub(crate) async fn deploy(&self, crd_yaml: &str) -> Result<String, ClientError> {
+	pub(crate) async fn deploy(
+		&self,
+		app_name: &str,
+		image: &str,
+		cluster_id: Option<&str>,
+	) -> Result<String, ClientError> {
+		let mut payload = serde_json::json!({
+			"app_name": app_name,
+			"image": image,
+		});
+		if let Some(cid) = cluster_id {
+			payload["cluster_id"] = serde_json::Value::String(cid.to_string());
+		}
+
 		let response = self
 			.request(reqwest::Method::POST, "/api/deployments/")?
-			.header("Content-Type", "application/x-yaml")
-			.body(crd_yaml.to_string())
+			.json(&payload)
 			.send()
 			.await?;
 
@@ -110,14 +125,15 @@ impl ReinhardtCloudClient {
 
 	/// Queries deployment status from the dashboard API.
 	///
-	/// Returns the parsed JSON response for the given application.
+	/// The dashboard list endpoint returns a paginated list. This method
+	/// fetches the list and filters client-side by `app_name`, returning
+	/// the matching deployment entry or an error when not found.
 	pub(crate) async fn get_status(
 		&self,
 		app_name: &str,
 	) -> Result<serde_json::Value, ClientError> {
 		let response = self
 			.request(reqwest::Method::GET, "/api/deployments/")?
-			.query(&[("app_name", app_name)])
 			.send()
 			.await?;
 
@@ -130,7 +146,22 @@ impl ReinhardtCloudClient {
 					status: status.as_u16(),
 					message: format!("invalid JSON in response: {e}"),
 				})?;
-			Ok(value)
+
+			// The dashboard returns a paginated response with an "items" array.
+			// Filter client-side to find the deployment matching app_name.
+			if let Some(items) = value.get("items").and_then(|v| v.as_array()) {
+				if let Some(entry) = items
+					.iter()
+					.find(|item| item.get("app_name").and_then(|n| n.as_str()) == Some(app_name))
+				{
+					return Ok(entry.clone());
+				}
+			}
+
+			Err(ClientError::ApiError {
+				status: 404,
+				message: format!("deployment '{app_name}' not found"),
+			})
 		} else {
 			Err(ClientError::ApiError {
 				status: status.as_u16(),

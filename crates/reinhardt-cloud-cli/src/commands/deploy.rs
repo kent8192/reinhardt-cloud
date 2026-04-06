@@ -260,12 +260,17 @@ pub(crate) async fn execute(
 			.spawn()
 			.map_err(|e| format!("failed to run kubectl: {e}"))?;
 
-		if let Some(ref mut stdin) = child.stdin {
+		if let Some(mut stdin) = child.stdin.take() {
 			use tokio::io::AsyncWriteExt;
 			stdin
 				.write_all(yaml.as_bytes())
 				.await
 				.map_err(|e| format!("failed to write CRD to kubectl stdin: {e}"))?;
+			// Close stdin so kubectl sees EOF and proceeds.
+			stdin
+				.shutdown()
+				.await
+				.map_err(|e| format!("failed to close kubectl stdin: {e}"))?;
 		}
 
 		let exit_status = child
@@ -280,8 +285,11 @@ pub(crate) async fn execute(
 			args.namespace
 		);
 	} else {
-		// API mode: send CRD to the dashboard API
-		match client.deploy(&yaml).await {
+		// API mode: send JSON payload to the dashboard API
+		match client
+			.deploy(&app_name, &image, args.cluster.as_deref())
+			.await
+		{
 			Ok(response) => {
 				println!("Deployment submitted via API.");
 				tracing::debug!("API response: {response}");
