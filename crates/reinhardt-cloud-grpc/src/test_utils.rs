@@ -121,8 +121,9 @@ mod tests {
 
 	#[rstest]
 	#[tokio::test]
-	async fn test_server_reports_build_service_healthy() {
-		// Arrange
+	async fn test_server_reports_build_service_not_serving() {
+		// Arrange — TestGrpcServer registers health services but does not add
+		// BuildService to the server, so health status should be NOT_SERVING.
 		let server = TestGrpcServer::start().await;
 		let channel = Channel::from_shared(server.endpoint())
 			.unwrap()
@@ -142,7 +143,7 @@ mod tests {
 		// Assert
 		assert_eq!(
 			response.into_inner().status(),
-			tonic_health::pb::health_check_response::ServingStatus::Serving
+			tonic_health::pb::health_check_response::ServingStatus::NotServing
 		);
 
 		server.shutdown().await;
