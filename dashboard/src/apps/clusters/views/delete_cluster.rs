@@ -14,7 +14,7 @@ use crate::apps::clusters::models::Cluster;
 ///
 /// Returns 204 No Content on success.
 /// Returns 404 if the cluster does not exist or belongs to another user.
-#[delete("/clusters/{id}", name = "cluster_delete")]
+#[delete("/clusters/{id}/", name = "cluster_delete")]
 pub async fn delete_cluster(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -45,6 +45,16 @@ pub async fn delete_cluster(
 	// Use path id directly for deletion — the ownership check above
 	// already confirmed the record exists and belongs to this user
 	Cluster::objects().delete(id).await.map_err(|e| {
+		let err_msg = e.to_string();
+		// Detect foreign key constraint violations (e.g., deployments referencing this cluster)
+		if err_msg.contains("foreign key")
+			|| err_msg.contains("FOREIGN KEY")
+			|| err_msg.contains("RESTRICT")
+		{
+			return AppError::Conflict(
+				"Cannot delete cluster: it still has associated deployments".to_string(),
+			);
+		}
 		error!("Failed to delete cluster: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;
