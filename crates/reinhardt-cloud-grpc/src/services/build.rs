@@ -5,14 +5,25 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use prost_types::Timestamp;
-use tokio::sync::mpsc;
-use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
+use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status};
 
+use reinhardt_cloud_core::ApiError;
 use reinhardt_cloud_core::traits::BuildService;
 use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
 use reinhardt_cloud_types::build::{self as domain, BuildEvent, BuildPhase, BuildRequest, EnvVar};
+
+// --- Error mapping ---
+
+fn api_error_to_status(e: ApiError) -> Status {
+	match e {
+		ApiError::NotFound(msg) => Status::not_found(msg),
+		ApiError::BadRequest(msg) => Status::invalid_argument(msg),
+		ApiError::Unauthorized(msg) => Status::unauthenticated(msg),
+		ApiError::Internal(msg) => Status::internal(msg),
+	}
+}
 
 // --- Proto <-> Domain conversions ---
 
@@ -119,7 +130,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 			.service
 			.start_build(domain_req)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		let mapped = stream.map(|result| match result {
 			Ok(event) => Ok(domain_event_to_proto(&event)),
@@ -142,7 +153,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 		self.service
 			.cancel_build(build_id)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(StatusResponse {
 			success: true,
@@ -164,7 +175,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 			.service
 			.get_build_status(build_id)
 			.await
-			.map_err(|e| Status::not_found(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(pb::BuildStatusResponse {
 			build_id: status.build_id.to_string(),
@@ -181,9 +192,9 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 		&self,
 		_request: Request<pb::StreamBuildLogsRequest>,
 	) -> Result<Response<Self::StreamBuildLogsStream>, Status> {
-		// Placeholder — full implementation requires build log persistence
-		let (_, rx) = mpsc::channel::<Result<pb::BuildLog, Status>>(1);
-		Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+		Err(Status::unimplemented(
+			"StreamBuildLogs is not yet implemented — requires build log persistence",
+		))
 	}
 }
 

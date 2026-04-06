@@ -24,8 +24,6 @@ use crate::apps::auth::services::LocalAuthService;
 use crate::apps::realtime::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
 use reinhardt::{JwtAuthMiddleware, SecurityMiddleware};
-use reinhardt_cloud_core::traits::AuthService;
-
 #[routes]
 pub fn routes() -> UnifiedRouter {
 	let singleton_scope = Arc::new(SingletonScope::new());
@@ -46,8 +44,9 @@ pub fn routes() -> UnifiedRouter {
 	di_ctx.set_singleton(WsBroadcaster::new());
 
 	// Register AuthService for trait-based authentication across REST and gRPC.
-	let auth_service: Arc<dyn AuthService> = Arc::new(LocalAuthService::new());
-	di_ctx.set_singleton(auth_service);
+	// NOTE: Register the concrete type directly — set_singleton() wraps in Arc
+	// internally, so passing Arc<dyn AuthService> would create Arc<Arc<...>>.
+	di_ctx.set_singleton(LocalAuthService::new());
 
 	let jwt_secret = crate::config::settings::get_jwt_secret()
 		.expect("JWT secret must be configured: set REINHARDT_CLOUD_JWT_SECRET env var or jwt_secret in settings TOML");

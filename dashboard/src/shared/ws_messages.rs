@@ -16,6 +16,8 @@ pub enum WsMessage {
 	SystemNotification(SystemNotificationPayload),
 	/// Authentication result after `Authenticate` client message.
 	AuthResult(AuthResultPayload),
+	/// Acknowledgement for a log stream subscription request.
+	LogStreamAck(LogStreamAckPayload),
 	/// Real-time build log event.
 	BuildLog(BuildLogPayload),
 	/// Application log entry.
@@ -103,6 +105,13 @@ pub enum NotificationLevel {
 pub struct AuthResultPayload {
 	pub success: bool,
 	pub message: Option<String>,
+}
+
+/// Acknowledgement payload for log stream subscription requests.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LogStreamAckPayload {
+	pub acknowledged: bool,
+	pub message: String,
 }
 
 /// Client-to-server WebSocket message.

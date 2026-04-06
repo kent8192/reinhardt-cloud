@@ -43,14 +43,18 @@ async fn start_log_server(
 			.unwrap();
 	});
 
-	// Give server time to start accepting connections
-	tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 	(addr, handle, domain_service)
 }
 
-/// Connect a LogService gRPC client to the given address.
+/// Connect a LogService gRPC client to the given address with retry.
 async fn connect_log_client(addr: SocketAddr) -> LogServiceClient<Channel> {
 	let endpoint = format!("http://{addr}");
+	for _ in 0..20 {
+		if let Ok(client) = LogServiceClient::connect(endpoint.clone()).await {
+			return client;
+		}
+		tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+	}
 	LogServiceClient::connect(endpoint).await.unwrap()
 }
 

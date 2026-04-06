@@ -17,16 +17,27 @@ pub fn create_health_service() -> (HealthReporter, HealthServer<impl Health>) {
 	health_reporter()
 }
 
-/// Register all gRPC services as serving in the health reporter.
+/// Register all gRPC services with initial NOT_SERVING status.
+///
+/// Services are registered as NOT_SERVING by default. Call
+/// [`mark_service_serving`] once a service is actually added to the
+/// tonic `Server` builder so health checks accurately reflect availability.
 pub async fn register_services(reporter: &mut HealthReporter) {
 	reporter
-		.set_service_status(BUILD_SERVICE_NAME, tonic_health::ServingStatus::Serving)
+		.set_service_status(BUILD_SERVICE_NAME, tonic_health::ServingStatus::NotServing)
 		.await;
 	reporter
-		.set_service_status(AGENT_SERVICE_NAME, tonic_health::ServingStatus::Serving)
+		.set_service_status(AGENT_SERVICE_NAME, tonic_health::ServingStatus::NotServing)
 		.await;
 	reporter
-		.set_service_status(LOG_SERVICE_NAME, tonic_health::ServingStatus::Serving)
+		.set_service_status(LOG_SERVICE_NAME, tonic_health::ServingStatus::NotServing)
+		.await;
+}
+
+/// Mark a single service as SERVING after it has been registered on the server.
+pub async fn mark_service_serving(reporter: &mut HealthReporter, service_name: &str) {
+	reporter
+		.set_service_status(service_name, tonic_health::ServingStatus::Serving)
 		.await;
 }
 

@@ -33,14 +33,18 @@ async fn start_build_server(
 			.unwrap();
 	});
 
-	// Give server time to start accepting connections
-	tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 	(addr, handle)
 }
 
-/// Connect a BuildService gRPC client to the given address.
+/// Connect a BuildService gRPC client to the given address with retry.
 async fn connect_build_client(addr: SocketAddr) -> BuildServiceClient<Channel> {
 	let endpoint = format!("http://{addr}");
+	for _ in 0..20 {
+		if let Ok(client) = BuildServiceClient::connect(endpoint.clone()).await {
+			return client;
+		}
+		tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+	}
 	BuildServiceClient::connect(endpoint).await.unwrap()
 }
 
@@ -144,8 +148,8 @@ async fn test_cancel_nonexistent_build_through_grpc() {
 	let status = result.unwrap_err();
 	assert_eq!(
 		status.code(),
-		tonic::Code::Internal,
-		"Expected INTERNAL status code (mapped from NotFound), got {:?}",
+		tonic::Code::NotFound,
+		"Expected NOT_FOUND status code, got {:?}",
 		status.code()
 	);
 }
