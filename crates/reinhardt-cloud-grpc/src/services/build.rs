@@ -190,11 +190,42 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 
 	async fn stream_build_logs(
 		&self,
-		_request: Request<pb::StreamBuildLogsRequest>,
+		request: Request<pb::StreamBuildLogsRequest>,
 	) -> Result<Response<Self::StreamBuildLogsStream>, Status> {
-		Err(Status::unimplemented(
-			"StreamBuildLogs is not yet implemented — requires build log persistence",
-		))
+		let build_id: uuid::Uuid = request
+			.get_ref()
+			.build_id
+			.parse()
+			.map_err(|e| Status::invalid_argument(format!("Invalid build_id: {e}")))?;
+
+		let status = self
+			.service
+			.get_build_status(build_id)
+			.await
+			.map_err(api_error_to_status)?;
+
+		let now = chrono::Utc::now();
+		let mut logs = vec![Ok(pb::BuildLog {
+			message: format!(
+				"Build {} for app '{}' is in phase {:?}",
+				status.build_id, status.app_name, status.phase
+			),
+			timestamp: timestamp_from_chrono(now),
+		})];
+
+		if status.completed {
+			let outcome = match status.success {
+				Some(true) => "succeeded",
+				Some(false) => "failed",
+				None => "completed (unknown outcome)",
+			};
+			logs.push(Ok(pb::BuildLog {
+				message: format!("Build {} {outcome}", status.build_id),
+				timestamp: timestamp_from_chrono(now),
+			}));
+		}
+
+		Ok(Response::new(Box::pin(tokio_stream::iter(logs))))
 	}
 }
 
