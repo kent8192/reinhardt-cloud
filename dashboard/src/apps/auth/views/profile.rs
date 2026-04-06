@@ -5,7 +5,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Response, StatusCode};
-use reinhardt::{get, put};
+use reinhardt::{get, patch};
 use tracing::error;
 use uuid::Uuid;
 
@@ -39,7 +39,11 @@ pub async fn profile(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response
 }
 
 /// Update the authenticated user's profile fields.
-#[put("/auth/profile/", name = "auth_profile_update", pre_validate = true)]
+///
+/// Note: Email changes currently do not require re-authentication or email
+/// verification. This should be enhanced with a confirmation flow in a
+/// future iteration to prevent unauthorized email takeover.
+#[patch("/auth/profile/", name = "auth_profile_update", pre_validate = true)]
 pub async fn profile_update(
 	body: Json<UpdateProfileRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -61,15 +65,28 @@ pub async fn profile_update(
 		})?
 		.ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-	// Apply only the fields that were provided
+	// Trim values before applying — reject empty-after-trim values to prevent
+	// whitespace-only strings from bypassing length(min=1) validation.
 	if let Some(ref first_name) = body.first_name {
-		user.first_name = first_name.trim().to_string();
+		let trimmed = first_name.trim();
+		if trimmed.is_empty() {
+			return Err(AppError::Validation("first_name must not be blank".to_string()).into());
+		}
+		user.first_name = trimmed.to_string();
 	}
 	if let Some(ref last_name) = body.last_name {
-		user.last_name = last_name.trim().to_string();
+		let trimmed = last_name.trim();
+		if trimmed.is_empty() {
+			return Err(AppError::Validation("last_name must not be blank".to_string()).into());
+		}
+		user.last_name = trimmed.to_string();
 	}
 	if let Some(ref email) = body.email {
-		user.email = email.trim().to_string();
+		let trimmed = email.trim();
+		if trimmed.is_empty() {
+			return Err(AppError::Validation("email must not be blank".to_string()).into());
+		}
+		user.email = trimmed.to_string();
 	}
 
 	let updated = User::objects().update(&user).await.map_err(|e| {

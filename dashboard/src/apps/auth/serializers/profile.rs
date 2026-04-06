@@ -39,7 +39,7 @@ impl From<User> for ProfileResponse {
 	}
 }
 
-/// Update profile request body for PUT /auth/profile/.
+/// Update profile request body for PATCH /auth/profile/.
 #[derive(Debug, Clone, Deserialize, Validate, Schema)]
 pub struct UpdateProfileRequest {
 	#[validate(length(min = 1, max = 150))]
