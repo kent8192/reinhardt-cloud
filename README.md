@@ -104,34 +104,39 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 Three-plane architecture inspired by Vercel:
 
 ```mermaid
-architecture-beta
-    group developer(internet)[Developer]
-    group controlplane(cloud)[Control Plane]
-    group k8s(server)[Kubernetes Cluster]
-    group resources[Reconciled Resources] in k8s
+flowchart LR
+    subgraph Developer
+        CLI[reinhardt-cloud CLI]
+    end
 
-    service cli(server)[reinhardt-cloud CLI] in developer
-    service dashboard(server)[Dashboard] in controlplane
-    service operator(server)[Operator] in k8s
-    service crd(disk)[ReinhardtApp CRD] in k8s
-    service deploy(server)[Deployment + HPA] in resources
-    service network(internet)[Service + Ingress] in resources
-    service db(database)[Database + Cache] in resources
-    service workers(server)[Workers] in resources
+    subgraph Control Plane
+        Dashboard[Dashboard\nREST API + Auth]
+    end
 
-    junction j1 in resources
-    junction j2 in resources
+    subgraph Kubernetes Cluster
+        Operator
+        CRD[ReinhardtApp CRD]
 
-    cli:R -- L:dashboard
-    dashboard:R -- L:operator
-    operator:B -- T:crd
-    crd:B -- T:j1
-    j1:L -- R:deploy
-    j1:R -- L:network
-    j1:B -- T:j2
-    j2:L -- R:db
-    j2:R -- L:workers
+        subgraph Reconciled Resources
+            Deployment
+            Service
+            Ingress
+            HPA
+            DB[(Database)]
+            Cache[(Cache)]
+            Workers
+        end
+    end
+
+    CLI -- deploy --> Dashboard
+    CLI -. dry-run / direct .-> CRD
+    Dashboard --> Operator
+    Operator -- watches --> CRD
+    CRD --> Deployment & Service & Ingress & HPA
+    CRD --> DB & Cache & Workers
 ```
+
+> **Note:** This diagram uses `flowchart` for GitHub compatibility. The full `architecture` diagram with icons is available in [Mermaid Live Editor](https://mermaid.live).
 
 | Plane | Crate | Role |
 |---|---|---|
