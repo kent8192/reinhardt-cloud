@@ -59,6 +59,5 @@ pub async fn login(
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),
-		token: None,
 	})
 }

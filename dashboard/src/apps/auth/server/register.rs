@@ -82,6 +82,5 @@ pub async fn register(
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),
-		token: None,
 	})
 }
