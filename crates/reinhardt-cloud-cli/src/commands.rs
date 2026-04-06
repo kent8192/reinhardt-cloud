@@ -1,5 +1,6 @@
 //! CLI command implementations.
 
+pub(crate) mod credentials;
 pub(crate) mod deploy;
 pub(crate) mod init;
 pub(crate) mod login;

@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+k8s-openapi = { workspace = true }
+kube = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
