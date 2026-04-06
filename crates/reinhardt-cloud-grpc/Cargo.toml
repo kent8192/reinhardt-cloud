@@ -33,6 +33,9 @@ async-trait = "0.1"
 rstest = { workspace = true }
 tokio-test = { workspace = true }
 uuid = { workspace = true }
+proptest = { workspace = true }
+reinhardt-test = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
 
 [lints]
 workspace = true

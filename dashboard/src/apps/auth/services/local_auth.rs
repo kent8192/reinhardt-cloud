@@ -28,7 +28,15 @@ impl LocalAuthService {
 	pub fn new() -> Self {
 		Self
 	}
+}
 
+impl Default for LocalAuthService {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl LocalAuthService {
 	/// Get the JWT secret, mapping errors to `ApiError`.
 	fn secret(&self) -> Result<String, ApiError> {
 		jwt_secret().map_err(|e| ApiError::Internal(e.to_string()))

@@ -15,10 +15,10 @@ use crate::auth::Claims;
 use crate::error::ApiError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::traits::{AuthService, BuildService, ClusterAgentService, LogService};
+use reinhardt_cloud_types::User;
 use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
 use reinhardt_cloud_types::build::{BuildEvent, BuildRequest, BuildStatus};
 use reinhardt_cloud_types::log::{LogEntry, LogFilter};
-use reinhardt_cloud_types::User;
 
 // --- MockAuthService ---
 
@@ -60,6 +60,12 @@ impl MockAuthService {
 	/// Configure the result returned by `get_user_info`.
 	pub async fn set_user_info_result(&self, result: Result<User, ApiError>) {
 		*self.user_info_result.lock().await = result;
+	}
+}
+
+impl Default for MockAuthService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -113,6 +119,12 @@ impl MockBuildService {
 	}
 }
 
+impl Default for MockBuildService {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 #[async_trait]
 impl BuildService for MockBuildService {
 	async fn start_build(
@@ -149,6 +161,12 @@ pub struct MockClusterAgentService;
 impl MockClusterAgentService {
 	pub fn new() -> Self {
 		Self
+	}
+}
+
+impl Default for MockClusterAgentService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -195,6 +213,12 @@ impl MockLogService {
 	/// Get all pushed logs (for test assertions).
 	pub async fn get_pushed_logs(&self) -> Vec<LogEntry> {
 		self.logs.lock().await.clone()
+	}
+}
+
+impl Default for MockLogService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -284,7 +308,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(events.len(), 2);
-		assert!(matches!(events[1], BuildEvent::Complete { success: true, .. }));
+		assert!(matches!(
+			events[1],
+			BuildEvent::Complete { success: true, .. }
+		));
 	}
 
 	#[rstest]

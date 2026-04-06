@@ -298,7 +298,7 @@ image = "test-app:v1"
 		let result = read_reinhardt_cloud_toml(dir.path());
 
 		// Assert
-		assert_eq!(result.unwrap().is_none(), true);
+		assert!(result.unwrap().is_none());
 	}
 
 	#[rstest]
@@ -374,7 +374,7 @@ features:
 		assert_eq!(output.routes[0].path, "/api/users/");
 		assert_eq!(output.middleware.len(), 1);
 		assert_eq!(output.settings.server.default_port, 8080);
-		assert_eq!(output.settings.security.ssl_redirect, true);
+		assert!(output.settings.security.ssl_redirect);
 		assert_eq!(output.features.declared, vec!["database"]);
 		assert_eq!(
 			output.features.infrastructure_signals.database,
@@ -384,7 +384,7 @@ features:
 			output.features.infrastructure_signals.cache,
 			Some("redis".to_string())
 		);
-		assert_eq!(output.features.infrastructure_signals.admin_panel, true);
+		assert!(output.features.infrastructure_signals.admin_panel);
 	}
 
 	#[rstest]
@@ -457,7 +457,7 @@ features:
 		let mapping = crd.as_mapping().expect("CRD should be a mapping");
 
 		let api_version = mapping
-			.get(&serde_yaml::Value::String("apiVersion".to_string()))
+			.get(serde_yaml::Value::String("apiVersion".to_string()))
 			.expect("apiVersion should exist");
 		assert_eq!(
 			api_version,
@@ -465,41 +465,41 @@ features:
 		);
 
 		let kind = mapping
-			.get(&serde_yaml::Value::String("kind".to_string()))
+			.get(serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
 		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
 
 		let metadata = mapping
-			.get(&serde_yaml::Value::String("metadata".to_string()))
+			.get(serde_yaml::Value::String("metadata".to_string()))
 			.expect("metadata should exist")
 			.as_mapping()
 			.expect("metadata should be mapping");
 		assert_eq!(
-			metadata.get(&serde_yaml::Value::String("name".to_string())),
+			metadata.get(serde_yaml::Value::String("name".to_string())),
 			Some(&serde_yaml::Value::String("my-app".to_string()))
 		);
 		assert_eq!(
-			metadata.get(&serde_yaml::Value::String("namespace".to_string())),
+			metadata.get(serde_yaml::Value::String("namespace".to_string())),
 			Some(&serde_yaml::Value::String("production".to_string()))
 		);
 
 		let spec = mapping
-			.get(&serde_yaml::Value::String("spec".to_string()))
+			.get(serde_yaml::Value::String("spec".to_string()))
 			.expect("spec should exist")
 			.as_mapping()
 			.expect("spec should be mapping");
 		assert_eq!(
-			spec.get(&serde_yaml::Value::String("image".to_string())),
+			spec.get(serde_yaml::Value::String("image".to_string())),
 			Some(&serde_yaml::Value::String("my-app:v1".to_string()))
 		);
 		assert_eq!(
-			spec.get(&serde_yaml::Value::String("replicas".to_string())),
+			spec.get(serde_yaml::Value::String("replicas".to_string())),
 			Some(&serde_yaml::Value::Number(serde_yaml::Number::from(3)))
 		);
 
 		// Verify introspect is present
 		let introspect_value = spec
-			.get(&serde_yaml::Value::String("introspect".to_string()))
+			.get(serde_yaml::Value::String("introspect".to_string()))
 			.expect("introspect should exist in spec");
 		assert!(introspect_value.as_mapping().is_some());
 	}
@@ -513,7 +513,7 @@ features:
 		let mapping = crd.as_mapping().expect("CRD should be a mapping");
 
 		let api_version = mapping
-			.get(&serde_yaml::Value::String("apiVersion".to_string()))
+			.get(serde_yaml::Value::String("apiVersion".to_string()))
 			.expect("apiVersion should exist");
 		assert_eq!(
 			api_version,
@@ -521,27 +521,27 @@ features:
 		);
 
 		let kind = mapping
-			.get(&serde_yaml::Value::String("kind".to_string()))
+			.get(serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
 		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
 
 		let spec = mapping
-			.get(&serde_yaml::Value::String("spec".to_string()))
+			.get(serde_yaml::Value::String("spec".to_string()))
 			.expect("spec should exist")
 			.as_mapping()
 			.expect("spec should be mapping");
 		assert_eq!(
-			spec.get(&serde_yaml::Value::String("image".to_string())),
+			spec.get(serde_yaml::Value::String("image".to_string())),
 			Some(&serde_yaml::Value::String("simple:latest".to_string()))
 		);
 		assert_eq!(
-			spec.get(&serde_yaml::Value::String("replicas".to_string())),
+			spec.get(serde_yaml::Value::String("replicas".to_string())),
 			Some(&serde_yaml::Value::Number(serde_yaml::Number::from(1)))
 		);
 
 		// Verify introspect is absent
 		assert!(
-			spec.get(&serde_yaml::Value::String("introspect".to_string()))
+			spec.get(serde_yaml::Value::String("introspect".to_string()))
 				.is_none()
 		);
 	}

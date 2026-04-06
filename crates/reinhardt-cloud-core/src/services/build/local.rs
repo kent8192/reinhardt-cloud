@@ -10,17 +10,15 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::error::ApiError;
 use crate::traits::BuildService;
-use reinhardt_cloud_types::build::{
-	BuildEvent, BuildPhase, BuildRequest, BuildStatus, EnvVar as _,
-};
+use reinhardt_cloud_types::build::{BuildEvent, BuildPhase, BuildRequest, BuildStatus};
 
 /// In-memory state for a running or completed build.
 #[derive(Clone)]
@@ -42,6 +40,12 @@ impl LocalBuildService {
 		Self {
 			builds: Arc::new(DashMap::new()),
 		}
+	}
+}
+
+impl Default for LocalBuildService {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -309,9 +313,9 @@ mod tests {
 		}
 
 		// Assert — should contain an error event about cancellation
-		let has_cancel_error = events.iter().any(|e| {
-			matches!(e, BuildEvent::Error { message, .. } if message.contains("cancelled"))
-		});
+		let has_cancel_error = events.iter().any(
+			|e| matches!(e, BuildEvent::Error { message, .. } if message.contains("cancelled")),
+		);
 		assert!(has_cancel_error);
 	}
 
