@@ -248,6 +248,7 @@ impl ReinhardtCloudToml {
 			features: Vec::new(),
 			introspect: None,
 			isolation: None,
+			source: None,
 		}
 	}
 }

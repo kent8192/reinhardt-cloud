@@ -17,6 +17,7 @@ use super::mail::MailSpec;
 use super::pages::PagesSpec;
 use super::policy::DeletionPolicy;
 use super::status::ReinhardtAppStatus;
+use super::source::SourceSpec;
 use super::storage::StorageSpec;
 use super::worker::WorkerSpec;
 
@@ -222,6 +223,9 @@ pub struct ReinhardtAppSpec {
 	/// Workload isolation and security configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub isolation: Option<IsolationSpec>,
+	/// Git source and CI/CD pipeline configuration.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<SourceSpec>,
 }
 
 impl ReinhardtAppSpec {
@@ -286,6 +290,12 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref source) = self.source
+			&& let Err(errs) = source.validate()
+		{
+			errors.extend(errs);
+		}
+
 		if errors.is_empty() {
 			Ok(())
 		} else {
@@ -337,6 +347,7 @@ mod tests {
 			deletion_policy: DeletionPolicy::default(),
 			features: vec![],
 			isolation: None,
+			source: None,
 			env: BTreeMap::from([
 				("RUST_LOG".to_string(), "info".to_string()),
 				(
@@ -791,6 +802,7 @@ mod tests {
 			env: BTreeMap::from([("MY_VAR".to_string(), "my_val".to_string())]),
 			introspect: None,
 			isolation: None,
+			source: None,
 		};
 
 		// Act
@@ -1001,5 +1013,141 @@ mod tests {
 
 		// Assert
 		assert!(value.get("isolation").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_source_field_backward_compatible() {
+		// Arrange: JSON without source field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.source.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_source_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("source").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_with_source_roundtrip() {
+		// Arrange
+		use crate::crd::source::{
+			BuildSpec, GitProvider, PreviewOverrides, PreviewSpec, SourceSpec, WebhookEvent,
+			WebhookSpec,
+		};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			source: Some(SourceSpec {
+				repository: "https://github.com/myorg/myapp".to_string(),
+				branch: Some("main".to_string()),
+				provider: Some(GitProvider::GitHub),
+				credentials_secret: Some("git-token".to_string()),
+				build: Some(BuildSpec {
+					dockerfile: Some("Dockerfile".to_string()),
+					context: Some(".".to_string()),
+					registry: Some("ghcr.io/myorg".to_string()),
+					build_args: std::collections::BTreeMap::from([(
+						"MODE".to_string(),
+						"release".to_string(),
+					)]),
+				}),
+				webhook: Some(WebhookSpec {
+					enabled: true,
+					events: vec![WebhookEvent::Push],
+					secret_ref: Some("wh-secret".to_string()),
+				}),
+				preview: Some(PreviewSpec {
+					enabled: true,
+					ttl: Some("72h".to_string()),
+					url_template: Some("{{branch}}.preview.example.com".to_string()),
+					overrides: Some(PreviewOverrides {
+						replicas: Some(1),
+						database: Some(false),
+						cache: Some(false),
+					}),
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).unwrap();
+		let deserialized: ReinhardtAppSpec = serde_yaml::from_str(&yaml).unwrap();
+
+		// Assert
+		assert!(deserialized.source.is_some());
+		let source = deserialized.source.unwrap();
+		assert_eq!(source.repository, "https://github.com/myorg/myapp");
+		assert_eq!(source.branch.unwrap(), "main");
+		assert_eq!(source.provider.unwrap(), GitProvider::GitHub);
+		assert!(source.build.is_some());
+		assert!(source.webhook.is_some());
+		assert!(source.preview.is_some());
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_source() {
+		// Arrange
+		use crate::crd::source::SourceSpec;
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			source: Some(SourceSpec {
+				repository: String::new(),
+				branch: None,
+				provider: None,
+				credentials_secret: None,
+				build: None,
+				webhook: None,
+				preview: None,
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("repository")));
+	}
+
+	#[rstest]
+	fn test_spec_with_source_from_json() {
+		// Arrange
+		let json = r#"{
+			"image": "myapp:v1",
+			"source": {
+				"repository": "https://github.com/myorg/myapp",
+				"branch": "develop",
+				"provider": "gitlab"
+			}
+		}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		let source = spec.source.unwrap();
+		assert_eq!(source.repository, "https://github.com/myorg/myapp");
+		assert_eq!(source.branch.unwrap(), "develop");
+		assert_eq!(source.provider.unwrap(), crate::crd::source::GitProvider::GitLab);
 	}
 }
