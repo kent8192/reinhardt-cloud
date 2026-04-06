@@ -388,17 +388,30 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 				.is_some_and(|v| v == &revision.to_string())
 		})
 		.ok_or_else(|| {
-			kube::Error::Api(kube::error::ErrorResponse {
-				status: "Failure".to_string(),
-				message: format!("ReplicaSet with revision {revision} not found"),
-				reason: "NotFound".to_string(),
-				code: 404,
-			})
+			kube::Error::Api(
+				kube::core::Status::failure(
+					&format!("ReplicaSet with revision {revision} not found"),
+					"NotFound",
+				)
+				.boxed(),
+			)
 		})?;
 
 	// Extract the pod template from the target ReplicaSet and apply it
 	// to the Deployment via strategic merge patch.
-	let template = target_rs.spec.as_ref().map(|s| &s.template);
+	let template = target_rs
+		.spec
+		.as_ref()
+		.and_then(|s| s.template.as_ref())
+		.ok_or_else(|| {
+			kube::Error::Api(
+				kube::core::Status::failure(
+					&format!("ReplicaSet revision {revision} has no pod template in its spec"),
+					"InvalidSpec",
+				)
+				.boxed(),
+			)
+		})?;
 
 	let patch = serde_json::json!({
 		"spec": {
@@ -416,7 +429,24 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 ///
 /// Patches only the `spec.replicas` field, leaving every other field
 /// unchanged. The cluster scheduler then reconciles the actual pod count.
+///
+/// Returns an error if `replicas` exceeds `i32::MAX` because Kubernetes
+/// `spec.replicas` is an `int32` field.
 async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error> {
+	// Kubernetes spec.replicas is int32; reject values that would overflow.
+	if replicas > i32::MAX as u32 {
+		return Err(kube::Error::Api(
+			kube::core::Status::failure(
+				&format!(
+					"replicas value {replicas} exceeds Kubernetes int32 limit ({})",
+					i32::MAX
+				),
+				"Invalid",
+			)
+			.boxed(),
+		));
+	}
+
 	let client = kube::Client::try_default().await?;
 	let deployments: Api<Deployment> = Api::default_namespaced(client);
 
