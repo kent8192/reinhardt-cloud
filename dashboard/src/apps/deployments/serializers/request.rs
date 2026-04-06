@@ -25,7 +25,7 @@ pub struct UpdateDeploymentRequest {
 	pub status: Option<String>,
 }
 
-/// Request body for updating deployment status from an agent.
+/// Request body for updating deployment status.
 #[derive(Debug, Clone, Deserialize, Validate, Schema)]
 pub struct DeploymentStatusRequest {
 	#[validate(length(min = 1, max = 50))]

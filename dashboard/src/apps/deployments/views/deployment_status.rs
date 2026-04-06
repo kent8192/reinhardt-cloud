@@ -12,10 +12,10 @@ use uuid::Uuid;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, DeploymentStatusRequest};
 
-/// Update the status of a deployment (agent callback endpoint).
+/// Update the status of a deployment (user-authenticated endpoint).
 ///
-/// Accepts a status string and an optional message. Returns the updated
-/// deployment. Returns 404 if the deployment does not exist or is not owned
+/// Accepts a status string. Returns the updated deployment.
+/// Returns 404 if the deployment does not exist or is not owned
 /// by the authenticated user.
 #[post("/deployments/{id}/status/", name = "deployment_status")]
 pub async fn deployment_status(
