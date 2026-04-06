@@ -37,9 +37,9 @@ pub struct AgentRegistry {
 }
 
 impl Default for AgentRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl AgentRegistry {

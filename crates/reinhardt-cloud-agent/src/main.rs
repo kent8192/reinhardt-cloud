@@ -3,10 +3,15 @@
 //! Per-cluster agent that connects to the control plane via bidirectional
 //! gRPC streaming. Handles deployments, health reporting, and log collection.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use chrono::Utc;
 use clap::Parser;
+use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
+use k8s_openapi::api::core::v1::{Container, ContainerPort, PodSpec, PodTemplateSpec};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
+use kube::api::{Api, Patch, PatchParams};
 use prost_types::Timestamp;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -146,7 +151,7 @@ async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error
 	Ok(())
 }
 
-async fn handle_command(command: &pb::AgentCommand, _event_tx: &mpsc::Sender<pb::AgentEvent>) {
+async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::AgentEvent>) {
 	match &command.command {
 		Some(pb::agent_command::Command::Deploy(cmd)) => {
 			info!(
@@ -155,7 +160,29 @@ async fn handle_command(command: &pb::AgentCommand, _event_tx: &mpsc::Sender<pb:
 				replicas = cmd.replicas,
 				"Received deploy command"
 			);
-			// TODO: Execute deployment via Kubernetes API
+			let (success, message) =
+				match execute_deploy(&cmd.app_name, &cmd.image, cmd.replicas).await {
+					Ok(()) => {
+						info!(app = %cmd.app_name, "Deployment applied successfully");
+						(true, "Deployment applied".to_string())
+					}
+					Err(e) => {
+						error!(app = %cmd.app_name, error = %e, "Deployment failed");
+						(false, format!("Deployment failed: {e}"))
+					}
+				};
+			let _ = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::DeployStatus(
+						pb::AgentDeployStatus {
+							app_name: cmd.app_name.clone(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await;
 		}
 		Some(pb::agent_command::Command::Rollback(cmd)) => {
 			info!(
@@ -178,4 +205,65 @@ async fn handle_command(command: &pb::AgentCommand, _event_tx: &mpsc::Sender<pb:
 			warn!("Received empty command");
 		}
 	}
+}
+
+/// Execute a Kubernetes Deployment via server-side apply.
+///
+/// Constructs a minimal `apps/v1 Deployment` with the given parameters and
+/// applies it to the `default` namespace. Uses server-side apply so the
+/// operation is idempotent — creating the resource if absent or updating it
+/// if it already exists.
+async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<(), kube::Error> {
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let labels = BTreeMap::from([
+		("app.kubernetes.io/name".to_string(), app_name.to_string()),
+		(
+			"app.kubernetes.io/managed-by".to_string(),
+			"reinhardt-cloud".to_string(),
+		),
+	]);
+
+	let deployment = Deployment {
+		metadata: ObjectMeta {
+			name: Some(app_name.to_string()),
+			labels: Some(labels.clone()),
+			..Default::default()
+		},
+		spec: Some(DeploymentSpec {
+			replicas: Some(replicas as i32),
+			selector: LabelSelector {
+				match_labels: Some(labels.clone()),
+				..Default::default()
+			},
+			template: PodTemplateSpec {
+				metadata: Some(ObjectMeta {
+					labels: Some(labels),
+					..Default::default()
+				}),
+				spec: Some(PodSpec {
+					containers: vec![Container {
+						name: app_name.to_string(),
+						image: Some(image.to_string()),
+						ports: Some(vec![ContainerPort {
+							container_port: 8000,
+							..Default::default()
+						}]),
+						..Default::default()
+					}],
+					..Default::default()
+				}),
+			},
+			..Default::default()
+		}),
+		..Default::default()
+	};
+
+	let params = PatchParams::apply("reinhardt-cloud-agent");
+	deployments
+		.patch(app_name, &params, &Patch::Apply(&deployment))
+		.await?;
+
+	Ok(())
 }

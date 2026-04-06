@@ -299,9 +299,7 @@ mod tests {
 			Some("redis".to_string())
 		);
 		assert!(deserialized.features.infrastructure_signals.websocket);
-		assert!(
-			deserialized.features.infrastructure_signals.admin_panel
-		);
+		assert!(deserialized.features.infrastructure_signals.admin_panel);
 	}
 
 	#[rstest]
@@ -357,9 +355,7 @@ databases: []
 		assert_eq!(output.features.infrastructure_signals.database, None);
 		assert_eq!(output.features.infrastructure_signals.cache, None);
 		assert!(!output.features.infrastructure_signals.websocket);
-		assert!(
-			!output.features.infrastructure_signals.background_worker
-		);
+		assert!(!output.features.infrastructure_signals.background_worker);
 		assert!(!output.features.infrastructure_signals.grpc);
 		assert_eq!(output.features.infrastructure_signals.storage, None);
 		assert_eq!(output.features.infrastructure_signals.mail, None);

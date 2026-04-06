@@ -14,6 +14,8 @@ path = "src/main.rs"
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
 
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
 tonic = "0.13"
 prost = "0.13"
 prost-types = "0.13"

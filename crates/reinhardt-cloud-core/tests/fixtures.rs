@@ -164,7 +164,10 @@ impl PluginService for TestPlugin {
 }
 
 /// Creates a successful test plugin for the given hooks.
-pub(crate) fn test_plugin_success(name: &str, hooks: Vec<PluginHookType>) -> Arc<dyn PluginService> {
+pub(crate) fn test_plugin_success(
+	name: &str,
+	hooks: Vec<PluginHookType>,
+) -> Arc<dyn PluginService> {
 	Arc::new(TestPlugin::new(name, hooks, true, false))
 }
 
