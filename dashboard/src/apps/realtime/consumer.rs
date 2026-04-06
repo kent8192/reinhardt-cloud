@@ -70,8 +70,10 @@ pub struct NotificationConsumer {
 	broadcaster: Arc<WsBroadcaster>,
 	/// Active log streaming task handle. Protected by a `Mutex` so that only
 	/// one log stream is active per consumer at a time. Subscribing to a new
-	/// stream automatically cancels the previous one.
-	log_stream_handle: Mutex<Option<JoinHandle<()>>>,
+	/// stream automatically cancels the previous one. Wrapped in `Arc` so
+	/// that the spawned cleanup task can clear the handle when the stream
+	/// finishes normally.
+	log_stream_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl NotificationConsumer {
@@ -79,7 +81,7 @@ impl NotificationConsumer {
 	pub fn new(broadcaster: Arc<WsBroadcaster>) -> Self {
 		Self {
 			broadcaster,
-			log_stream_handle: Mutex::new(None),
+			log_stream_handle: Arc::new(Mutex::new(None)),
 		}
 	}
 
@@ -290,12 +292,18 @@ impl WebSocketConsumer for NotificationConsumer {
 								let ts = log
 									.timestamp
 									.map(|t| {
-										chrono::DateTime::from_timestamp(
-											t.seconds,
-											t.nanos.try_into().unwrap_or(0),
-										)
-										.map(|dt| dt.to_rfc3339())
-										.unwrap_or_default()
+										// Validate nanos is within the valid range
+										// (0..=999_999_999). Out-of-range values
+										// (including negatives from prost_types)
+										// are clamped to 0.
+										let nanos = if (0..=999_999_999).contains(&t.nanos) {
+											t.nanos as u32
+										} else {
+											0
+										};
+										chrono::DateTime::from_timestamp(t.seconds, nanos)
+											.map(|dt| dt.to_rfc3339())
+											.unwrap_or_default()
 									})
 									.unwrap_or_default();
 
@@ -327,9 +335,21 @@ impl WebSocketConsumer for NotificationConsumer {
 					}
 				});
 
-				*self.log_stream_handle.lock().await = Some(handle);
+				// Store the handle and spawn a cleanup task that clears it
+				// when the stream task exits normally (avoids stale handles).
+				let handle_ref = Arc::clone(&self.log_stream_handle);
+				let cleanup_handle = tokio::spawn(async move {
+					// Wait for the streaming task to finish (ignore result).
+					let _ = handle.await;
+					// Clear the stale handle.
+					*handle_ref.lock().await = None;
+				});
+				*self.log_stream_handle.lock().await = Some(cleanup_handle);
 			}
 			ParsedAction::SubscribeAppLogs { app_name } => {
+				// Cancel any previous log stream before acknowledging.
+				self.cancel_log_stream().await;
+
 				// App log streaming is not yet available in the gRPC proto.
 				// Send an acknowledgement so the client knows the request was
 				// received and can display a placeholder.
