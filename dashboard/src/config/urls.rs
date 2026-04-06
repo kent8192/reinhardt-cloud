@@ -23,7 +23,10 @@ use crate::apps::auth::server;
 use crate::apps::auth::services::LocalAuthService;
 use crate::apps::realtime::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
-use reinhardt::{JwtAuthMiddleware, SecurityMiddleware};
+use reinhardt::{
+	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
+	SecurityMiddleware,
+};
 #[routes]
 pub fn routes() -> UnifiedRouter {
 	let singleton_scope = Arc::new(SingletonScope::new());
@@ -48,8 +51,27 @@ pub fn routes() -> UnifiedRouter {
 	// internally, so passing Arc<dyn AuthService> would create Arc<Arc<...>>.
 	di_ctx.set_singleton(LocalAuthService::new());
 
-	let jwt_secret = crate::config::settings::get_jwt_secret()
-		.expect("JWT secret must be configured: set REINHARDT_CLOUD_JWT_SECRET env var or jwt_secret in settings TOML");
+	// Configure Redis-backed session authentication
+	let redis_url = crate::config::settings::get_redis_url()
+		.expect("Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML");
+	let session_backend = Arc::new(
+		RedisSessionBackend::new_from_url(&redis_url)
+			.expect("Failed to create Redis session backend"),
+	);
+
+	let session_config = CookieSessionConfig {
+		cookie_name: "sessionid".to_string(),
+		sliding_ttl: std::time::Duration::from_secs(1800),
+		absolute_max: std::time::Duration::from_secs(86400),
+		secure: !crate::config::settings::get_settings().core.debug,
+		same_site: "Lax".to_string(),
+		skip_paths: vec![
+			"/api/auth/".to_string(),
+			"/api/openapi.json".to_string(),
+			"/api/docs".to_string(),
+			"/api/redoc".to_string(),
+		],
+	};
 
 	UnifiedRouter::new()
 		// Admin panel
@@ -69,7 +91,14 @@ pub fn routes() -> UnifiedRouter {
 		.with_di_context(di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(JwtAuthMiddleware::from_secret(jwt_secret.as_bytes()))
+		.with_middleware(OriginGuardMiddleware::new(vec![format!(
+			"http://localhost:{}",
+			std::env::var("PORT").unwrap_or("8000".to_string())
+		)]))
+		.with_middleware(CookieSessionAuthMiddleware::with_config(
+			session_backend,
+			session_config,
+		))
 }
 
 /// Initialize WebSocket routes.

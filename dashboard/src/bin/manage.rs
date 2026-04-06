@@ -35,11 +35,12 @@ fn main() {
 async fn async_main() {
 	let is_runserver = std::env::args().nth(1).as_deref() == Some("runserver");
 
-	// Fail fast if JWT secret is missing (better than per-request errors).
+	// Fail fast if Redis URL is missing (better than per-request errors).
 	// Only validate when running the server, not for management commands
 	// like migrate or collectstatic.
 	if is_runserver {
-		reinhardt_cloud_dashboard::config::middleware::jwt_auth::JwtAuthMiddleware::validate_config(
+		reinhardt_cloud_dashboard::config::settings::get_redis_url().expect(
+			"Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML",
 		);
 	}
 
