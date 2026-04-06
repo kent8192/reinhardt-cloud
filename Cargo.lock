@@ -5691,6 +5691,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "reinhardt-cloud-agent"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "prost 0.13.5",
+ "prost-types 0.13.5",
+ "reinhardt-cloud-proto",
+ "reinhardt-cloud-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.13.1",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "reinhardt-cloud-cli"
 version = "0.1.0"
 dependencies = [
@@ -5713,8 +5733,10 @@ dependencies = [
 name = "reinhardt-cloud-core"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "chrono",
+ "dashmap",
  "jsonwebtoken 9.3.1",
  "reinhardt-cloud-types",
  "rstest",
@@ -5724,6 +5746,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-test",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -5767,6 +5790,9 @@ dependencies = [
 name = "reinhardt-cloud-grpc"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "chrono",
+ "dashmap",
  "jsonwebtoken 9.3.1",
  "prost 0.13.5",
  "prost-types 0.13.5",
