@@ -252,6 +252,8 @@ impl WebSocketConsumer for NotificationConsumer {
 				let bid = build_id.clone();
 				let endpoint = grpc_endpoint();
 
+				let handle_ref = Arc::clone(&self.log_stream_handle);
+
 				let handle = tokio::spawn(async move {
 					let mut client =
 						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
@@ -263,6 +265,16 @@ impl WebSocketConsumer for NotificationConsumer {
 									error = %e,
 									"Failed to connect to gRPC BuildService for log streaming",
 								);
+								// Notify client that the stream could not be established.
+								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+									acknowledged: false,
+									message: format!(
+										"Failed to connect to build log service for {bid}: {e}"
+									),
+								});
+								let _ = conn.send_json(&err_msg).await;
+								// Clear handle on exit.
+								*handle_ref.lock().await = None;
 								return;
 							}
 						};
@@ -280,6 +292,14 @@ impl WebSocketConsumer for NotificationConsumer {
 								error = %e,
 								"gRPC StreamBuildLogs call failed",
 							);
+							// Notify client that the stream call failed.
+							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+								acknowledged: false,
+								message: format!("Build log stream failed for {bid}: {e}"),
+							});
+							let _ = conn.send_json(&err_msg).await;
+							// Clear handle on exit.
+							*handle_ref.lock().await = None;
 							return;
 						}
 					};
@@ -333,18 +353,14 @@ impl WebSocketConsumer for NotificationConsumer {
 							}
 						}
 					}
-				});
 
-				// Store the handle and spawn a cleanup task that clears it
-				// when the stream task exits normally (avoids stale handles).
-				let handle_ref = Arc::clone(&self.log_stream_handle);
-				let cleanup_handle = tokio::spawn(async move {
-					// Wait for the streaming task to finish (ignore result).
-					let _ = handle.await;
-					// Clear the stale handle.
+					// Clear the stale handle when the stream exits normally.
 					*handle_ref.lock().await = None;
 				});
-				*self.log_stream_handle.lock().await = Some(cleanup_handle);
+
+				// Store the streaming task handle directly so that
+				// cancel_log_stream() aborts the actual gRPC stream task.
+				*self.log_stream_handle.lock().await = Some(handle);
 			}
 			ParsedAction::SubscribeAppLogs { app_name } => {
 				// Cancel any previous log stream before acknowledging.
