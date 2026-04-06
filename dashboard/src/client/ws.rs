@@ -1,8 +1,9 @@
 //! WebSocket connection manager for the WASM client.
 //!
-//! Establishes a single global connection to `/ws/notifications`,
-//! authenticates with JWT, and dispatches incoming messages to
-//! toast notifications and status badge updates.
+//! Establishes a single global connection to `/ws/notifications`
+//! and dispatches incoming messages to toast notifications and
+//! status badge updates. Authentication is handled via session
+//! cookies sent automatically with the WebSocket handshake.
 
 #[cfg(wasm)]
 use std::cell::RefCell;
@@ -20,6 +21,7 @@ use web_sys::{MessageEvent, WebSocket};
 use crate::shared::ws_messages::{
 	DeploymentStatusPayload, NotificationLevel, WsClientMessage, WsMessage,
 };
+
 
 #[cfg(wasm)]
 use super::components::status_badge;
@@ -40,18 +42,15 @@ const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 
 /// Open a WebSocket to `/ws/notifications` and wire up event handlers.
 ///
-/// On open the connection authenticates with the JWT stored in
-/// `sessionStorage("auth_token")` and re-subscribes to any deployment
-/// IDs previously registered via [`track_subscriptions`].
+/// Session cookies are sent automatically with the WebSocket handshake,
+/// so no explicit authentication message is needed. On open, the
+/// connection re-subscribes to any deployment IDs previously registered
+/// via [`track_subscriptions`].
 ///
 /// Automatically reconnects on close up to [`MAX_RECONNECT_ATTEMPTS`]
 /// times with a fixed 3-second delay.
 #[cfg(wasm)]
 pub fn connect_notifications() {
-	let Some(token) = get_auth_token() else {
-		return;
-	};
-
 	// Close the previous WebSocket (if any) to prevent handler accumulation
 	CURRENT_WS.with(|prev| {
 		if let Some(old_ws) = prev.borrow_mut().take() {
@@ -80,18 +79,10 @@ pub fn connect_notifications() {
 		*prev.borrow_mut() = Some(ws.clone());
 	});
 
-	// On open: reset reconnect counter, send JWT, re-subscribe
-	let token_for_open = token.clone();
+	// On open: reset reconnect counter, re-subscribe to tracked deployments
 	let ws_for_open = ws.clone();
 	let on_open = Closure::wrap(Box::new(move |_: web_sys::Event| {
 		RECONNECT_ATTEMPTS.with(|c| *c.borrow_mut() = 0);
-
-		let auth = WsClientMessage::Authenticate {
-			token: token_for_open.clone(),
-		};
-		if let Ok(json) = serde_json::to_string(&auth) {
-			let _ = ws_for_open.send_with_str(&json);
-		}
 
 		SUBSCRIBED_IDS.with(|ids| {
 			let ids = ids.borrow();
@@ -171,18 +162,9 @@ fn handle_ws_message(msg: WsMessage) {
 		WsMessage::SystemNotification(payload) => {
 			show_toast(&payload.level, &payload.title, &payload.message);
 		}
-		WsMessage::AuthResult(payload) => {
-			if !payload.success {
-				show_toast(
-					&NotificationLevel::Critical,
-					"Authentication",
-					payload
-						.message
-						.as_deref()
-						.unwrap_or("WebSocket auth failed"),
-				);
-			}
-		}
+		// Log and cluster health messages are handled by dedicated UI
+		// components (not yet implemented); ignore them here.
+		_ => {}
 	}
 }
 
@@ -212,8 +194,3 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 	badge.set_text_content(Some(label));
 }
 
-/// Retrieve the JWT from `sessionStorage`.
-#[cfg(wasm)]
-fn get_auth_token() -> Option<String> {
-	reinhardt::pages::auth::get_jwt_token()
-}
