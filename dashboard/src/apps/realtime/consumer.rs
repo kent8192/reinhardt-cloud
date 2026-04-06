@@ -283,6 +283,77 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_parse_unsubscribe_without_auth_works() {
+		// Arrange
+		let msg = WsClientMessage::Unsubscribe {
+			deployment_ids: vec!["dep-1".to_string()],
+		};
+
+		// Act — no user_id (unauthenticated), but Unsubscribe should still work
+		let action = NotificationConsumer::parse_client_message(None, msg);
+
+		// Assert
+		match action {
+			ParsedAction::Unsubscribe { deployment_ids } => {
+				assert_eq!(deployment_ids, vec!["dep-1"]);
+			}
+			_ => panic!("expected Unsubscribe action"),
+		}
+	}
+
+	#[rstest]
+	fn test_parse_subscribe_empty_deployment_ids() {
+		// Arrange
+		let msg = WsClientMessage::Subscribe {
+			deployment_ids: vec![],
+		};
+
+		// Act — authenticated user subscribes with empty list
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
+
+		// Assert
+		match action {
+			ParsedAction::Subscribe { deployment_ids } => {
+				assert!(deployment_ids.is_empty());
+			}
+			_ => panic!("expected Subscribe action"),
+		}
+	}
+
+	#[rstest]
+	#[serial(jwt)]
+	fn test_parse_authenticate_empty_token() {
+		// Arrange
+		// SAFETY: Tests using this helper are serialized with #[serial(jwt)]
+		// to prevent concurrent environment variable mutation.
+		unsafe {
+			std::env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-secret-key-for-unit-tests-minimum-length-32",
+			);
+		}
+
+		let msg = WsClientMessage::Authenticate {
+			token: "".to_string(),
+		};
+
+		// Act
+		let action = NotificationConsumer::parse_client_message(None, msg);
+
+		// Assert
+		match action {
+			ParsedAction::AuthFailure { response } => match &response {
+				WsMessage::AuthResult(payload) => {
+					assert!(!payload.success);
+					assert!(payload.message.is_some());
+				}
+				_ => panic!("expected AuthResult"),
+			},
+			_ => panic!("expected AuthFailure action"),
+		}
+	}
+
+	#[rstest]
 	#[tokio::test]
 	async fn test_on_disconnect_cleans_up_broadcaster() {
 		// Arrange

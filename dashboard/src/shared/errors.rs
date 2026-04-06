@@ -51,3 +51,74 @@ impl std::fmt::Display for AppError {
 }
 
 impl std::error::Error for AppError {}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	#[case(AppError::InvalidCredentials, "Invalid credentials")]
+	#[case(AppError::SessionExpired, "Session expired")]
+	#[case(AppError::NotFound, "Not found")]
+	#[case(AppError::Conflict("dup".into()), "Conflict: dup")]
+	#[case(AppError::Internal("boom".into()), "Internal error: boom")]
+	fn test_app_error_display_variants(#[case] error: AppError, #[case] expected: &str) {
+		// Act
+		let display = error.to_string();
+
+		// Assert
+		assert_eq!(display, expected);
+	}
+
+	#[rstest]
+	fn test_app_error_validation_display() {
+		// Arrange
+		let error = AppError::ValidationError(vec![
+			FieldError {
+				field: "username".to_string(),
+				message: "too short".to_string(),
+			},
+			FieldError {
+				field: "email".to_string(),
+				message: "invalid format".to_string(),
+			},
+		]);
+
+		// Act
+		let display = error.to_string();
+
+		// Assert
+		assert!(display.contains("username: too short"));
+		assert!(display.contains("email: invalid format"));
+	}
+
+	#[rstest]
+	#[case(AppError::InvalidCredentials)]
+	#[case(AppError::SessionExpired)]
+	#[case(AppError::NotFound)]
+	#[case(AppError::Conflict("dup".into()))]
+	#[case(AppError::Internal("boom".into()))]
+	#[case(AppError::ValidationError(vec![FieldError { field: "f".into(), message: "m".into() }]))]
+	fn test_app_error_serde_roundtrip(#[case] error: AppError) {
+		// Act
+		let json = serde_json::to_string(&error).unwrap();
+		let roundtrip: AppError = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(error.to_string(), roundtrip.to_string());
+	}
+
+	#[rstest]
+	fn test_field_error_construction() {
+		// Arrange
+		let field_error = FieldError {
+			field: "password".to_string(),
+			message: "must be at least 8 characters".to_string(),
+		};
+
+		// Assert
+		assert_eq!(field_error.field, "password");
+		assert_eq!(field_error.message, "must be at least 8 characters");
+	}
+}
