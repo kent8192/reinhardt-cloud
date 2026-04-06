@@ -72,6 +72,7 @@ mod tests {
 	use super::*;
 	use reinhardt_cloud_core::auth;
 	use rstest::rstest;
+	use tonic::service::Interceptor;
 	use uuid::Uuid;
 
 	const TEST_SECRET: &[u8] = b"test-secret-key-for-grpc-jwt";
@@ -124,6 +125,112 @@ mod tests {
 		let interceptor = JwtInterceptor::new(TEST_SECRET);
 		let user_id = Uuid::new_v4();
 		let token = auth::create_token(user_id, "charlie", TEST_SECRET, -1).unwrap();
+
+		// Act
+		let result = interceptor.validate_token(&token);
+
+		// Assert
+		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_interceptor_call_missing_auth_header() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let req = Request::new(());
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_interceptor_call_malformed_bearer() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::new_v4();
+		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		// Use "Token" prefix instead of "Bearer"
+		req.metadata_mut().insert(
+			"authorization",
+			format!("Token {token}").parse().unwrap(),
+		);
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_interceptor_call_empty_bearer() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let mut req = Request::new(());
+		// "Bearer " with no token after the prefix
+		req.metadata_mut().insert(
+			"authorization",
+			"Bearer ".parse().unwrap(),
+		);
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_interceptor_reusable_across_calls() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::new_v4();
+		let valid_token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
+
+		// Act — first call: valid token
+		let mut req1 = Request::new(());
+		req1.metadata_mut().insert(
+			"authorization",
+			format!("Bearer {valid_token}").parse().unwrap(),
+		);
+		let result1 = interceptor.call(req1);
+
+		// Act — second call: invalid token
+		let mut req2 = Request::new(());
+		req2.metadata_mut().insert(
+			"authorization",
+			"Bearer bad-token".parse().unwrap(),
+		);
+		let result2 = interceptor.call(req2);
+
+		// Act — third call: valid token again
+		let mut req3 = Request::new(());
+		req3.metadata_mut().insert(
+			"authorization",
+			format!("Bearer {valid_token}").parse().unwrap(),
+		);
+		let result3 = interceptor.call(req3);
+
+		// Assert
+		assert!(result1.is_ok());
+		assert!(result2.is_err());
+		assert!(result3.is_ok());
+	}
+
+	#[rstest]
+	fn test_interceptor_empty_secret() {
+		// Arrange — empty secret
+		let interceptor = JwtInterceptor::new(&[]);
+		let user_id = Uuid::new_v4();
+		// Token created with the original secret won't match empty secret
+		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 
 		// Act
 		let result = interceptor.validate_token(&token);

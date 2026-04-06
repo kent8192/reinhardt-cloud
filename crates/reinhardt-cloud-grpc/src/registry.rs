@@ -139,6 +139,14 @@ impl AgentRegistry {
 		self.agents.len()
 	}
 
+	/// Set last_heartbeat for testing time-dependent behavior.
+	#[cfg(test)]
+	pub fn set_last_heartbeat_for_test(&self, agent_id: &Uuid, time: DateTime<Utc>) {
+		if let Some(mut conn) = self.agents.get_mut(agent_id) {
+			conn.last_heartbeat = time;
+		}
+	}
+
 	/// Evict agents that have missed too many heartbeats.
 	pub fn evict_stale_agents(&self) -> Vec<Uuid> {
 		let timeout =
@@ -262,5 +270,299 @@ mod tests {
 		// Assert
 		let stored = registry.get_health(&id).unwrap();
 		assert!((stored.cpu_usage_percent - 42.0).abs() < f64::EPSILON);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_send_command_to_nonexistent_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let cmd = AgentCommand::Restart {
+			app_name: "web".to_string(),
+		};
+
+		// Act
+		let result = registry.send_command(&id, cmd).await;
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("not connected"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_send_command_channel_closed() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let rx = registry.register(test_agent_info(id));
+		drop(rx); // close the receiver side
+
+		let cmd = AgentCommand::Restart {
+			app_name: "web".to_string(),
+		};
+
+		// Act
+		let result = registry.send_command(&id, cmd).await;
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("channel closed"));
+	}
+
+	#[rstest]
+	fn test_get_health_nonexistent_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+
+		// Act
+		let result = registry.get_health(&id);
+
+		// Assert
+		assert!(result.is_none());
+	}
+
+	#[rstest]
+	fn test_is_healthy_nonexistent_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+
+		// Act
+		let result = registry.is_healthy(&id);
+
+		// Assert
+		assert!(!result);
+	}
+
+	#[rstest]
+	fn test_register_same_agent_twice() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let _rx1 = registry.register(test_agent_info(id));
+
+		// Act — register same agent_id again
+		let _rx2 = registry.register(test_agent_info(id));
+
+		// Assert — second registration replaces first, count remains 1
+		assert_eq!(registry.count(), 1);
+		let agents = registry.list_connected();
+		assert_eq!(agents.len(), 1);
+		assert_eq!(agents[0].agent_id, id);
+	}
+
+	#[rstest]
+	fn test_unregister_nonexistent_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let other = Uuid::new_v4();
+		let _rx = registry.register(test_agent_info(id));
+
+		// Act — unregister a non-existent agent
+		registry.unregister(&other);
+
+		// Assert — no panic, count unchanged
+		assert_eq!(registry.count(), 1);
+	}
+
+	#[rstest]
+	fn test_heartbeat_nonexistent_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+
+		// Act — heartbeat for non-existent agent
+		registry.heartbeat(&id);
+
+		// Assert — no panic
+		assert_eq!(registry.count(), 0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_agent_lifecycle_full() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let mut rx = registry.register(test_agent_info(id));
+
+		// Act — heartbeat
+		registry.heartbeat(&id);
+		assert!(registry.is_healthy(&id));
+
+		// Act — update health
+		let health = AgentHealth {
+			agent_id: id,
+			healthy: true,
+			cpu_usage_percent: 30.0,
+			memory_usage_percent: 50.0,
+			pod_count: 5,
+			reported_at: Utc::now(),
+		};
+		registry.update_health(&id, health);
+
+		// Assert — health stored
+		assert!(registry.is_healthy(&id));
+		let stored = registry.get_health(&id).unwrap();
+		assert_eq!(stored.pod_count, 5);
+
+		// Act — send a command
+		let cmd = AgentCommand::Scale {
+			app_name: "api".to_string(),
+			replicas: 3,
+		};
+		registry.send_command(&id, cmd).await.unwrap();
+		let received = rx.recv().await.unwrap();
+		assert!(matches!(received, AgentCommand::Scale { replicas: 3, .. }));
+
+		// Act — unregister
+		registry.unregister(&id);
+
+		// Assert
+		assert_eq!(registry.count(), 0);
+	}
+
+	#[rstest]
+	fn test_evict_stale_agents() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let _rx = registry.register(test_agent_info(id));
+
+		// Set heartbeat to 2 minutes ago (well past 90s threshold)
+		let two_min_ago = Utc::now() - chrono::Duration::seconds(120);
+		registry.set_last_heartbeat_for_test(&id, two_min_ago);
+
+		// Act
+		let evicted = registry.evict_stale_agents();
+
+		// Assert
+		assert_eq!(evicted.len(), 1);
+		assert_eq!(evicted[0], id);
+		assert_eq!(registry.count(), 0);
+	}
+
+	#[rstest]
+	fn test_is_healthy_heartbeat_boundary() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id = Uuid::new_v4();
+		let _rx = registry.register(test_agent_info(id));
+
+		// Just under 90s ago -> healthy
+		let just_under = Utc::now() - chrono::Duration::seconds(89);
+		registry.set_last_heartbeat_for_test(&id, just_under);
+
+		// Assert
+		assert!(registry.is_healthy(&id));
+
+		// Exactly 90s ago -> unhealthy (elapsed >= timeout)
+		let exactly_90 = Utc::now() - chrono::Duration::seconds(90);
+		registry.set_last_heartbeat_for_test(&id, exactly_90);
+
+		// Assert
+		assert!(!registry.is_healthy(&id));
+
+		// Over 90s ago -> unhealthy
+		let over_90 = Utc::now() - chrono::Duration::seconds(120);
+		registry.set_last_heartbeat_for_test(&id, over_90);
+
+		// Assert
+		assert!(!registry.is_healthy(&id));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_multiple_agents_independent_channels() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let id1 = Uuid::new_v4();
+		let id2 = Uuid::new_v4();
+		let id3 = Uuid::new_v4();
+		let mut rx1 = registry.register(test_agent_info(id1));
+		let mut rx2 = registry.register(test_agent_info(id2));
+		let mut rx3 = registry.register(test_agent_info(id3));
+
+		// Act — send different commands to each agent
+		registry
+			.send_command(
+				&id1,
+				AgentCommand::Deploy {
+					app_name: "app1".to_string(),
+					image: "img1".to_string(),
+					replicas: 1,
+				},
+			)
+			.await
+			.unwrap();
+
+		registry
+			.send_command(
+				&id2,
+				AgentCommand::Scale {
+					app_name: "app2".to_string(),
+					replicas: 5,
+				},
+			)
+			.await
+			.unwrap();
+
+		registry
+			.send_command(
+				&id3,
+				AgentCommand::Restart {
+					app_name: "app3".to_string(),
+				},
+			)
+			.await
+			.unwrap();
+
+		// Assert — each agent receives its own command
+		let cmd1 = rx1.recv().await.unwrap();
+		assert!(matches!(cmd1, AgentCommand::Deploy { app_name, .. } if app_name == "app1"));
+
+		let cmd2 = rx2.recv().await.unwrap();
+		assert!(matches!(cmd2, AgentCommand::Scale { app_name, .. } if app_name == "app2"));
+
+		let cmd3 = rx3.recv().await.unwrap();
+		assert!(matches!(cmd3, AgentCommand::Restart { app_name } if app_name == "app3"));
+
+		assert_eq!(registry.count(), 3);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_concurrent_register_unregister() {
+		// Arrange
+		let registry = std::sync::Arc::new(AgentRegistry::new());
+		let mut handles = vec![];
+
+		// Act — spawn 10 register/unregister tasks concurrently
+		for _ in 0..10 {
+			let reg = registry.clone();
+			handles.push(tokio::spawn(async move {
+				let id = Uuid::new_v4();
+				let _rx = reg.register(AgentInfo {
+					agent_id: id,
+					cluster_name: "test".to_string(),
+					node_name: "node".to_string(),
+					version: "0.1.0".to_string(),
+					last_seen: Utc::now(),
+				});
+				reg.heartbeat(&id);
+				reg.unregister(&id);
+			}));
+		}
+
+		for handle in handles {
+			handle.await.unwrap();
+		}
+
+		// Assert — all agents have been unregistered, no panic
+		assert_eq!(registry.count(), 0);
 	}
 }
