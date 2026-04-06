@@ -6,5 +6,8 @@
 pub mod config;
 pub mod health;
 pub mod interceptor;
+pub mod registry;
+pub mod services;
 pub mod settings;
+pub mod sse;
 pub mod test_utils;
