@@ -32,5 +32,8 @@ jobs:
         with:
           tool: cargo-make
 
+      - name: Install reinhardt-admin
+        run: cargo install reinhardt-admin-cli --version "=0.1.0-rc.15" --locked
+
       - name: Check code formatting
         run: cargo make fmt-check
