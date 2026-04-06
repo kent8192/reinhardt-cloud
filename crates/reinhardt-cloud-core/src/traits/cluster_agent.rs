@@ -7,7 +7,7 @@ use tokio_stream::Stream;
 use uuid::Uuid;
 
 use crate::error::ApiError;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
+use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
 
 /// Trait for bidirectional communication with cluster agents.
 ///
@@ -29,4 +29,7 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 
 	/// Get health status for an agent by ID.
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError>;
+
+	/// Report the status of a deployment operation.
+	async fn report_deploy_status(&self, report: DeployStatusReport) -> Result<(), ApiError>;
 }

@@ -10,7 +10,7 @@ use tonic::{Request, Response, Status, Streaming};
 use reinhardt_cloud_core::traits::ClusterAgentService;
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
+use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
 
 // --- Conversions ---
 
@@ -152,8 +152,31 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 
 	async fn report_deploy_status(
 		&self,
-		_request: Request<pb::AgentDeployStatus>,
+		request: Request<pb::AgentDeployStatus>,
 	) -> Result<Response<StatusResponse>, Status> {
+		let status = request.into_inner();
+		let reported_at = proto_timestamp_to_chrono(status.timestamp);
+
+		tracing::info!(
+			app_name = %status.app_name,
+			success = status.success,
+			message = %status.message,
+			reported_at = %reported_at,
+			"Received deploy status report"
+		);
+
+		let report = DeployStatusReport {
+			app_name: status.app_name,
+			success: status.success,
+			message: status.message,
+			reported_at,
+		};
+
+		self.service
+			.report_deploy_status(report)
+			.await
+			.map_err(|e| Status::internal(e.to_string()))?;
+
 		Ok(Response::new(StatusResponse {
 			success: true,
 			message: "Deploy status received".to_string(),
