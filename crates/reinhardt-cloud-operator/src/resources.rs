@@ -11,8 +11,10 @@ pub(crate) mod mail;
 pub(crate) mod migration;
 pub(crate) mod security;
 pub(crate) mod service;
+pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod worker;
+pub(crate) mod credentials;
 
 // Re-exports for convenient access from parent modules
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
@@ -20,6 +22,7 @@ pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
+pub(crate) use source::{build_kaniko_job, should_build_from_source};
 
 /// Extracts the namespace from a `ReinhardtApp`, returning
 /// `Error::MissingNamespace` if absent.
