@@ -7,6 +7,7 @@ use prost_types::Timestamp;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 
+use reinhardt_cloud_core::ApiError;
 use reinhardt_cloud_core::traits::ClusterAgentService;
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
@@ -76,6 +77,17 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 	}
 }
 
+// --- Error mapping ---
+
+fn api_error_to_status(e: ApiError) -> Status {
+	match e {
+		ApiError::NotFound(msg) => Status::not_found(msg),
+		ApiError::BadRequest(msg) => Status::invalid_argument(msg),
+		ApiError::Unauthorized(msg) => Status::unauthenticated(msg),
+		ApiError::Internal(msg) => Status::internal(msg),
+	}
+}
+
 // --- gRPC Server ---
 
 /// gRPC server implementation wrapping a `ClusterAgentService` trait object.
@@ -110,11 +122,11 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 			.service
 			.agent_stream(Box::pin(domain_stream))
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		let mapped = command_stream.map(|result| match result {
 			Ok(cmd) => Ok(domain_command_to_proto(&cmd)),
-			Err(e) => Err(Status::internal(e.to_string())),
+			Err(e) => Err(api_error_to_status(e)),
 		});
 
 		Ok(Response::new(Box::pin(mapped)))
@@ -142,7 +154,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		self.service
 			.report_health(health)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(StatusResponse {
 			success: true,
@@ -175,7 +187,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		self.service
 			.report_deploy_status(report)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(StatusResponse {
 			success: true,
