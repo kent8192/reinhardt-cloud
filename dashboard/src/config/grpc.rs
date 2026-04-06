@@ -20,10 +20,7 @@ use tracing::info;
 ///
 /// Centralises the register-then-serve pattern so each new service only
 /// needs a single call instead of duplicated `mark_service_serving` lines.
-async fn register_and_serve(
-	health_reporter: &mut tonic_health::server::HealthReporter,
-	service_name: &str,
-) {
+async fn register_and_serve(health_reporter: &mut health::HealthReporter, service_name: &str) {
 	health::mark_service_serving(health_reporter, service_name).await;
 }
 
