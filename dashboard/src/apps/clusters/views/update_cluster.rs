@@ -1,0 +1,71 @@
+//! Update cluster view.
+
+use reinhardt::Model;
+use reinhardt::core::exception::Error as AppError;
+use reinhardt::core::serde::json;
+use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::http::ViewResult;
+use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, Validate, put};
+use tracing::error;
+use uuid::Uuid;
+
+use crate::apps::clusters::models::Cluster;
+use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
+
+/// Update an existing cluster (authentication required).
+///
+/// Supports partial updates: only provided fields are modified.
+/// Returns 404 if the cluster does not exist or belongs to another user.
+#[put("/clusters/{id}", name = "cluster_update")]
+pub async fn update_cluster(
+	Path(id): Path<i64>,
+	Json(body): Json<UpdateClusterRequest>,
+	#[inject] AuthInfo(state): AuthInfo,
+) -> ViewResult<Response> {
+	let user_id = Uuid::parse_str(state.user_id())
+		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+
+	// Validate the request body
+	body.validate()?;
+
+	let manager = Cluster::objects();
+	let mut cluster = manager
+		.filter(
+			Cluster::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user_id.to_string()),
+		)
+		.filter(Filter::new(
+			"id",
+			FilterOperator::Eq,
+			FilterValue::Integer(id),
+		))
+		.first()
+		.await
+		.map_err(|e| {
+			error!("Failed to retrieve cluster for update: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?
+		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {id} not found")))?;
+
+	// Apply partial updates
+	if let Some(name) = body.name {
+		cluster.name = name;
+	}
+	if let Some(api_url) = body.api_url {
+		cluster.api_url = api_url;
+	}
+	if let Some(is_active) = body.is_active {
+		cluster.is_active = is_active;
+	}
+
+	let updated = manager.update(&cluster).await.map_err(|e| {
+		error!("Failed to update cluster: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
+
+	let resp = ClusterResponse::from(updated);
+	Ok(Response::new(StatusCode::OK)
+		.with_header("Content-Type", "application/json")
+		.with_body(json::to_vec(&resp)?))
+}
