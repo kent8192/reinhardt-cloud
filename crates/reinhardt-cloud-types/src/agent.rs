@@ -200,4 +200,237 @@ mod tests {
 		assert!((deserialized.cpu_usage_percent - 45.2).abs() < f64::EPSILON);
 		assert_eq!(deserialized.pod_count, 42);
 	}
+
+	#[rstest]
+	fn test_agent_health_cpu_zero() {
+		// Arrange
+		let health = AgentHealth {
+			agent_id: Uuid::new_v4(),
+			healthy: true,
+			cpu_usage_percent: 0.0,
+			memory_usage_percent: 50.0,
+			pod_count: 1,
+			reported_at: Utc::now(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&health).unwrap();
+		let deserialized: AgentHealth = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized.cpu_usage_percent, 0.0);
+	}
+
+	#[rstest]
+	fn test_agent_health_cpu_hundred() {
+		// Arrange
+		let health = AgentHealth {
+			agent_id: Uuid::new_v4(),
+			healthy: false,
+			cpu_usage_percent: 100.0,
+			memory_usage_percent: 99.0,
+			pod_count: 50,
+			reported_at: Utc::now(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&health).unwrap();
+		let deserialized: AgentHealth = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized.cpu_usage_percent, 100.0);
+		assert!(!deserialized.healthy);
+	}
+
+	#[rstest]
+	fn test_agent_command_deploy_zero_replicas() {
+		// Arrange
+		let cmd = AgentCommand::Deploy {
+			app_name: "zero-app".to_string(),
+			image: "img:v1".to_string(),
+			replicas: 0,
+		};
+
+		// Act
+		let json = serde_json::to_string(&cmd).unwrap();
+		let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized, cmd);
+		if let AgentCommand::Deploy { replicas, .. } = deserialized {
+			assert_eq!(replicas, 0);
+		} else {
+			panic!("Expected AgentCommand::Deploy variant");
+		}
+	}
+
+	#[rstest]
+	fn test_agent_command_rollback_revision_zero() {
+		// Arrange
+		let cmd = AgentCommand::Rollback {
+			app_name: "rollback-app".to_string(),
+			revision: 0,
+		};
+
+		// Act
+		let json = serde_json::to_string(&cmd).unwrap();
+		let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized, cmd);
+		if let AgentCommand::Rollback { revision, .. } = deserialized {
+			assert_eq!(revision, 0);
+		} else {
+			panic!("Expected AgentCommand::Rollback variant");
+		}
+	}
+
+	#[rstest]
+	fn test_agent_info_empty_version() {
+		// Arrange
+		let info = AgentInfo {
+			agent_id: Uuid::new_v4(),
+			cluster_name: "test-cluster".to_string(),
+			node_name: "node-01".to_string(),
+			version: "".to_string(),
+			last_seen: Utc::now(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&info).unwrap();
+		let deserialized: AgentInfo = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized.version, "");
+		assert_eq!(deserialized.agent_id, info.agent_id);
+	}
+
+	#[rstest]
+	#[case(0.0)]
+	#[case(0.001)]
+	#[case(50.0)]
+	#[case(99.999)]
+	#[case(100.0)]
+	fn test_agent_health_percentage_boundaries(#[case] cpu: f64) {
+		// Arrange
+		let health = AgentHealth {
+			agent_id: Uuid::new_v4(),
+			healthy: true,
+			cpu_usage_percent: cpu,
+			memory_usage_percent: 50.0,
+			pod_count: 10,
+			reported_at: Utc::now(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&health).unwrap();
+		let deserialized: AgentHealth = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized.cpu_usage_percent, cpu);
+	}
+
+	#[rstest]
+	#[case(0u32)]
+	#[case(1)]
+	#[case(u32::MAX)]
+	fn test_agent_command_replicas_boundary(#[case] replicas: u32) {
+		// Arrange
+		let cmd = AgentCommand::Scale {
+			app_name: "scale-app".to_string(),
+			replicas,
+		};
+
+		// Act
+		let json = serde_json::to_string(&cmd).unwrap();
+		let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized, cmd);
+		if let AgentCommand::Scale {
+			replicas: deser_replicas,
+			..
+		} = deserialized
+		{
+			assert_eq!(deser_replicas, replicas);
+		} else {
+			panic!("Expected AgentCommand::Scale variant");
+		}
+	}
+
+	#[rstest]
+	fn test_agent_command_debug_impl() {
+		// Arrange
+		let variants: Vec<(&str, AgentCommand)> = vec![
+			(
+				"Deploy",
+				AgentCommand::Deploy {
+					app_name: "app".to_string(),
+					image: "img:v1".to_string(),
+					replicas: 1,
+				},
+			),
+			(
+				"Rollback",
+				AgentCommand::Rollback {
+					app_name: "app".to_string(),
+					revision: 1,
+				},
+			),
+			(
+				"Scale",
+				AgentCommand::Scale {
+					app_name: "app".to_string(),
+					replicas: 2,
+				},
+			),
+			(
+				"Restart",
+				AgentCommand::Restart {
+					app_name: "app".to_string(),
+				},
+			),
+		];
+
+		// Act & Assert
+		for (name, variant) in &variants {
+			let debug_str = format!("{:?}", variant);
+			assert!(
+				debug_str.contains(name),
+				"Debug output for {} should contain variant name, got: {}",
+				name,
+				debug_str
+			);
+		}
+	}
+
+	mod proptest_agent {
+		use super::*;
+		use proptest::prelude::*;
+
+		proptest! {
+			#[test]
+			fn prop_agent_command_serde_roundtrip(
+				variant in 0..4u8,
+				app_name in "[a-z][a-z0-9-]{0,20}",
+				replicas in 0..u32::MAX,
+				revision in 0..u32::MAX,
+			) {
+				let cmd = match variant {
+					0 => AgentCommand::Deploy { app_name: app_name.clone(), image: "img:v1".into(), replicas },
+					1 => AgentCommand::Rollback { app_name: app_name.clone(), revision },
+					2 => AgentCommand::Scale { app_name: app_name.clone(), replicas },
+					_ => AgentCommand::Restart { app_name: app_name.clone() },
+				};
+				let json = serde_json::to_string(&cmd).unwrap();
+				let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
+				prop_assert_eq!(deserialized, cmd);
+			}
+
+			#[test]
+			fn fuzz_agent_command_deserialize_no_panic(s in "\\PC*") {
+				let _ = serde_json::from_str::<AgentCommand>(&s);
+			}
+		}
+	}
 }

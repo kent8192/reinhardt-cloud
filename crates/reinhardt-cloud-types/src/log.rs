@@ -145,4 +145,168 @@ mod tests {
 			assert_eq!(&deserialized, level);
 		}
 	}
+
+	#[rstest]
+	fn test_log_entry_metadata_array() {
+		// Arrange
+		let entry = LogEntry {
+			timestamp: Utc::now(),
+			level: LogLevel::Info,
+			source: "test-source".to_string(),
+			message: "array metadata".to_string(),
+			metadata: Some(serde_json::json!([1, 2, 3])),
+		};
+
+		// Act
+		let json = serde_json::to_string(&entry).unwrap();
+		let deserialized: LogEntry = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized, entry);
+		assert_eq!(
+			deserialized.metadata,
+			Some(serde_json::json!([1, 2, 3]))
+		);
+	}
+
+	#[rstest]
+	fn test_log_entry_very_large_metadata() {
+		// Arrange
+		let nested = serde_json::json!({
+			"level1": {
+				"level2": {
+					"level3": {
+						"level4": {
+							"level5": {
+								"data": [1, 2, 3, 4, 5],
+								"flag": true,
+								"name": "deeply nested"
+							}
+						}
+					}
+				}
+			}
+		});
+		let entry = LogEntry {
+			timestamp: Utc::now(),
+			level: LogLevel::Debug,
+			source: "deep-source".to_string(),
+			message: "deeply nested metadata".to_string(),
+			metadata: Some(nested.clone()),
+		};
+
+		// Act
+		let json = serde_json::to_string(&entry).unwrap();
+		let deserialized: LogEntry = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized, entry);
+		assert_eq!(deserialized.metadata, Some(nested));
+	}
+
+	#[rstest]
+	fn test_log_filter_since_after_until() {
+		// Arrange — since > until is structurally valid (no validation)
+		let now = Utc::now();
+		let past = now - chrono::Duration::hours(1);
+		let filter = LogFilter {
+			source: None,
+			min_level: None,
+			since: Some(now),
+			until: Some(past),
+			search: None,
+		};
+
+		// Act
+		let json = serde_json::to_string(&filter).unwrap();
+		let deserialized: LogFilter = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(deserialized.since.unwrap() > deserialized.until.unwrap());
+	}
+
+	#[rstest]
+	fn test_log_level_same_variant_equality() {
+		// Arrange
+		let a = LogLevel::Debug;
+		let b = LogLevel::Debug;
+
+		// Act & Assert
+		assert_eq!(a, b);
+	}
+
+	#[rstest]
+	#[case(Some("web-app"), None, None)]
+	#[case(None, Some(LogLevel::Warn), None)]
+	#[case(None, None, Some("error pattern"))]
+	#[case(Some("api"), Some(LogLevel::Error), Some("timeout"))]
+	#[case(None, None, None)]
+	#[case(Some("worker"), Some(LogLevel::Debug), None)]
+	fn test_log_filter_all_field_combinations(
+		#[case] source: Option<&str>,
+		#[case] min_level: Option<LogLevel>,
+		#[case] search: Option<&str>,
+	) {
+		// Arrange
+		let filter = LogFilter {
+			source: source.map(String::from),
+			min_level,
+			since: None,
+			until: None,
+			search: search.map(String::from),
+		};
+
+		// Act
+		let json = serde_json::to_string(&filter).unwrap();
+		let deserialized: LogFilter = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(deserialized.source, source.map(String::from));
+		assert_eq!(deserialized.min_level, min_level);
+		assert_eq!(deserialized.search, search.map(String::from));
+	}
+
+	mod proptest_log {
+		use super::*;
+		use proptest::prelude::*;
+
+		proptest! {
+			#[test]
+			fn prop_log_level_ordering_total(a_idx in 0..4u8, b_idx in 0..4u8) {
+				let levels = [LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error];
+				let a = levels[a_idx as usize];
+				let b = levels[b_idx as usize];
+				// Exactly one of: a < b, a == b, a > b
+				let lt = a < b;
+				let eq = a == b;
+				let gt = a > b;
+				prop_assert_eq!(lt as u8 + eq as u8 + gt as u8, 1);
+			}
+
+			#[test]
+			fn prop_log_entry_serde_idempotent(
+				level_idx in 0..4u8,
+				source in "[a-z]{1,20}",
+				message in "\\PC{0,100}",
+			) {
+				let levels = [LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error];
+				let entry = LogEntry {
+					timestamp: Utc::now(),
+					level: levels[level_idx as usize],
+					source,
+					message,
+					metadata: None,
+				};
+				let json1 = serde_json::to_string(&entry).unwrap();
+				let roundtrip: LogEntry = serde_json::from_str(&json1).unwrap();
+				let json2 = serde_json::to_string(&roundtrip).unwrap();
+				prop_assert_eq!(json1, json2);
+			}
+
+			#[test]
+			fn fuzz_log_entry_deserialize_no_panic(s in "\\PC*") {
+				let _ = serde_json::from_str::<LogEntry>(&s);
+			}
+		}
+	}
 }
