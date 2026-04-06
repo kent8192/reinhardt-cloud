@@ -27,6 +27,10 @@ pub(crate) enum Component {
 	/// Currently used for label generation in future per-resource labeling.
 	#[allow(dead_code)]
 	StaticServer,
+	/// Container image build job (e.g. Kaniko).
+	Build,
+	/// Preview environment for pull requests.
+	Preview,
 }
 
 impl Component {
@@ -40,6 +44,8 @@ impl Component {
 			Self::Ingress => "ingress",
 			Self::Migration => "migration",
 			Self::StaticServer => "static-server",
+			Self::Build => "build",
+			Self::Preview => "preview",
 		}
 	}
 }
@@ -143,6 +149,8 @@ mod tests {
 	#[case(Component::Ingress, "ingress")]
 	#[case(Component::Migration, "migration")]
 	#[case(Component::StaticServer, "static-server")]
+	#[case(Component::Build, "build")]
+	#[case(Component::Preview, "preview")]
 	fn test_component_as_str(#[case] component: Component, #[case] expected: &str) {
 		// Arrange / Act / Assert
 		assert_eq!(component.as_str(), expected);

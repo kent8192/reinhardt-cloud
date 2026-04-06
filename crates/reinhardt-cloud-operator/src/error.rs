@@ -50,4 +50,16 @@ pub(crate) enum Error {
 	/// Secret generation failed.
 	#[error("secret generation failed: {0}")]
 	SecretGeneration(String),
+
+	/// Git credentials secret not found.
+	/// Used by credential reconciliation when the referenced secret is missing.
+	#[allow(dead_code)]
+	#[error("git credentials secret '{0}' not found")]
+	CredentialsMissing(String),
+
+	/// Source build failed.
+	/// Used by the build job reconciler when a Kaniko build fails.
+	#[allow(dead_code)]
+	#[error("source build failed: {0}")]
+	BuildFailed(String),
 }
