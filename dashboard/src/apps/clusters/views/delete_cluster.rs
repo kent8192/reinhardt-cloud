@@ -2,7 +2,7 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, delete};
 use tracing::error;
@@ -23,17 +23,17 @@ pub async fn delete_cluster(
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	// Verify ownership before deleting
-	let cluster = Cluster::objects()
+	Cluster::objects()
 		.filter(
 			Cluster::field_user_id(),
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
 		)
-		.filter(Filter::new(
-			"id",
+		.filter(
+			Cluster::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(id),
-		))
+		)
 		.first()
 		.await
 		.map_err(|e| {
@@ -42,11 +42,9 @@ pub async fn delete_cluster(
 		})?
 		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {id} not found")))?;
 
-	let cluster_id = cluster
-		.id
-		.ok_or_else(|| AppError::Internal("Cluster has no ID".to_string()))?;
-
-	Cluster::objects().delete(cluster_id).await.map_err(|e| {
+	// Use path id directly for deletion — the ownership check above
+	// already confirmed the record exists and belongs to this user
+	Cluster::objects().delete(id).await.map_err(|e| {
 		error!("Failed to delete cluster: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;

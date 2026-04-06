@@ -3,9 +3,9 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
-use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, Validate, put};
+use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, Validate, patch};
 use tracing::error;
 use uuid::Uuid;
 
@@ -16,7 +16,7 @@ use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
 ///
 /// Supports partial updates: only provided fields are modified.
 /// Returns 404 if the cluster does not exist or belongs to another user.
-#[put("/clusters/{id}", name = "cluster_update")]
+#[patch("/clusters/{id}", name = "cluster_update")]
 pub async fn update_cluster(
 	Path(id): Path<i64>,
 	Json(body): Json<UpdateClusterRequest>,
@@ -28,6 +28,13 @@ pub async fn update_cluster(
 	// Validate the request body
 	body.validate()?;
 
+	// Reject empty updates — at least one field must be provided
+	if body.name.is_none() && body.api_url.is_none() && body.is_active.is_none() {
+		return Err(AppError::Validation(
+			"At least one field must be provided for update".to_string(),
+		));
+	}
+
 	let manager = Cluster::objects();
 	let mut cluster = manager
 		.filter(
@@ -35,11 +42,11 @@ pub async fn update_cluster(
 			FilterOperator::Eq,
 			FilterValue::String(user_id.to_string()),
 		)
-		.filter(Filter::new(
-			"id",
+		.filter(
+			Cluster::field_id(),
 			FilterOperator::Eq,
 			FilterValue::Integer(id),
-		))
+		)
 		.first()
 		.await
 		.map_err(|e| {
