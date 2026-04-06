@@ -146,11 +146,31 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
-  test:
-    name: Tests
+  unit-test:
+    name: Unit Tests
     needs: [fmt, clippy, determine-runner, check-branch-status]
     if: needs.check-branch-status.outputs.has-conflicts != 'true'
-    uses: ./.github/workflows/test.yml
+    uses: ./.github/workflows/unit-test.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  intra-crate-integration-test:
+    name: Intra-Crate Integration Tests
+    needs: [fmt, clippy, determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/intra-crate-integration-test.yml
+    secrets: inherit
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
+  cross-crate-integration-test:
+    name: Cross-Crate Integration Tests
+    needs: [fmt, clippy, determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/cross-crate-integration-test.yml
     secrets: inherit
     with:
       runner: ${{ needs.determine-runner.outputs.runner }}
@@ -185,8 +205,12 @@ jobs:
 
   coverage:
     name: Coverage
-    needs: [test, determine-runner]
-    if: always() && needs.test.result == 'success'
+    needs: [unit-test, intra-crate-integration-test, cross-crate-integration-test, determine-runner]
+    if: >-
+      always() &&
+      needs.unit-test.result == 'success' &&
+      needs.intra-crate-integration-test.result == 'success' &&
+      needs.cross-crate-integration-test.result == 'success'
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
     with:
@@ -213,7 +237,9 @@ jobs:
       - determine-runner
       - fmt
       - clippy
-      - test
+      - unit-test
+      - intra-crate-integration-test
+      - cross-crate-integration-test
       - bruno-tests
       - security-audit
       - todo-check
@@ -226,7 +252,9 @@ jobs:
           HAS_CONFLICTS: ${{ needs.check-branch-status.outputs.has-conflicts }}
           FMT_RESULT: ${{ needs.fmt.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
-          TEST_RESULT: ${{ needs.test.result }}
+          UNIT_TEST_RESULT: ${{ needs.unit-test.result }}
+          INTRA_CRATE_RESULT: ${{ needs.intra-crate-integration-test.result }}
+          CROSS_CRATE_RESULT: ${{ needs.cross-crate-integration-test.result }}
           BRUNO_TESTS_RESULT: ${{ needs.bruno-tests.result }}
           SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
           TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
@@ -245,7 +273,9 @@ jobs:
           always_required=(
             "fmt:$FMT_RESULT"
             "clippy:$CLIPPY_RESULT"
-            "test:$TEST_RESULT"
+            "unit-test:$UNIT_TEST_RESULT"
+            "intra-crate-integration-test:$INTRA_CRATE_RESULT"
+            "cross-crate-integration-test:$CROSS_CRATE_RESULT"
             "bruno-tests:$BRUNO_TESTS_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
