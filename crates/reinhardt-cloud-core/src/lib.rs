@@ -7,8 +7,13 @@
 pub mod auth;
 pub mod error;
 pub mod inference;
+pub mod mocks;
 pub mod pagination;
+pub mod plugin;
 pub mod services;
+pub mod traits;
 
 pub use error::ApiError;
+pub use mocks::{MockAuthService, MockBuildService, MockClusterAgentService, MockLogService};
 pub use pagination::{PaginatedResponse, PaginationParams};
+pub use traits::{AuthService, BuildService, ClusterAgentService, LogService};

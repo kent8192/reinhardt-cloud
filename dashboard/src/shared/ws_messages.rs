@@ -16,6 +16,45 @@ pub enum WsMessage {
 	SystemNotification(SystemNotificationPayload),
 	/// Authentication result after `Authenticate` client message.
 	AuthResult(AuthResultPayload),
+	/// Acknowledgement for a log stream subscription request.
+	LogStreamAck(LogStreamAckPayload),
+	/// Real-time build log event.
+	BuildLog(BuildLogPayload),
+	/// Application log entry.
+	AppLog(AppLogPayload),
+	/// Cluster agent health update.
+	ClusterHealth(ClusterHealthPayload),
+}
+
+/// Build log event payload (streamed from gRPC BuildService).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BuildLogPayload {
+	pub build_id: String,
+	pub event_type: String,
+	pub message: String,
+	pub timestamp: String,
+}
+
+/// Application log entry payload (streamed from gRPC LogService).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AppLogPayload {
+	pub source: String,
+	pub level: String,
+	pub message: String,
+	pub timestamp: String,
+	pub metadata: Option<serde_json::Value>,
+}
+
+/// Cluster health update payload (from AgentRegistry).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ClusterHealthPayload {
+	pub cluster_name: String,
+	pub agent_id: String,
+	pub healthy: bool,
+	pub cpu_usage_percent: f64,
+	pub memory_usage_percent: f64,
+	pub pod_count: u32,
+	pub timestamp: String,
 }
 
 /// Deployment status update payload.
@@ -68,6 +107,13 @@ pub struct AuthResultPayload {
 	pub message: Option<String>,
 }
 
+/// Acknowledgement payload for log stream subscription requests.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LogStreamAckPayload {
+	pub acknowledged: bool,
+	pub message: String,
+}
+
 /// Client-to-server WebSocket message.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", content = "payload")]
@@ -78,6 +124,12 @@ pub enum WsClientMessage {
 	Subscribe { deployment_ids: Vec<String> },
 	/// Unsubscribe from deployment status updates.
 	Unsubscribe { deployment_ids: Vec<String> },
+	/// Subscribe to build log events.
+	SubscribeBuildLogs { build_id: String },
+	/// Subscribe to application log stream.
+	SubscribeAppLogs { app_name: String },
+	/// Unsubscribe from all log streams.
+	UnsubscribeLogs,
 }
 
 #[cfg(test)]

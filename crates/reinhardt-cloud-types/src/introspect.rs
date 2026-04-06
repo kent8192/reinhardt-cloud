@@ -287,8 +287,8 @@ mod tests {
 		assert_eq!(deserialized.routes[0].name, Some("user-list".to_string()));
 		assert_eq!(deserialized.middleware.len(), 1);
 		assert_eq!(deserialized.settings.server.default_port, 8080);
-		assert_eq!(deserialized.settings.server.debug, true);
-		assert_eq!(deserialized.settings.security.ssl_redirect, true);
+		assert!(deserialized.settings.server.debug);
+		assert!(deserialized.settings.security.ssl_redirect);
 		assert_eq!(deserialized.features.declared, vec!["database"]);
 		assert_eq!(
 			deserialized.features.infrastructure_signals.database,
@@ -298,11 +298,8 @@ mod tests {
 			deserialized.features.infrastructure_signals.cache,
 			Some("redis".to_string())
 		);
-		assert_eq!(deserialized.features.infrastructure_signals.websocket, true);
-		assert_eq!(
-			deserialized.features.infrastructure_signals.admin_panel,
-			true
-		);
+		assert!(deserialized.features.infrastructure_signals.websocket);
+		assert!(deserialized.features.infrastructure_signals.admin_panel);
 	}
 
 	#[rstest]
@@ -325,12 +322,12 @@ databases: []
 		assert!(output.routes.is_empty());
 		assert!(output.middleware.is_empty());
 		assert_eq!(output.settings.server.default_port, 8000);
-		assert_eq!(output.settings.server.debug, false);
-		assert_eq!(output.settings.security.ssl_redirect, false);
+		assert!(!output.settings.server.debug);
+		assert!(!output.settings.security.ssl_redirect);
 		assert!(output.features.declared.is_empty());
 		assert!(output.features.resolved.is_empty());
 		assert_eq!(output.features.infrastructure_signals.database, None);
-		assert_eq!(output.features.infrastructure_signals.websocket, false);
+		assert!(!output.features.infrastructure_signals.websocket);
 	}
 
 	#[rstest]
@@ -348,28 +345,25 @@ databases: []
 		assert!(output.routes.is_empty());
 		assert!(output.middleware.is_empty());
 		assert_eq!(output.settings.server.default_port, 8000);
-		assert_eq!(output.settings.server.debug, false);
-		assert_eq!(output.settings.security.ssl_redirect, false);
-		assert_eq!(output.settings.security.session_cookie_secure, false);
-		assert_eq!(output.settings.security.csrf_cookie_secure, false);
-		assert_eq!(output.settings.security.hsts_enabled, false);
+		assert!(!output.settings.server.debug);
+		assert!(!output.settings.security.ssl_redirect);
+		assert!(!output.settings.security.session_cookie_secure);
+		assert!(!output.settings.security.csrf_cookie_secure);
+		assert!(!output.settings.security.hsts_enabled);
 		assert!(output.features.declared.is_empty());
 		assert!(output.features.resolved.is_empty());
 		assert_eq!(output.features.infrastructure_signals.database, None);
 		assert_eq!(output.features.infrastructure_signals.cache, None);
-		assert_eq!(output.features.infrastructure_signals.websocket, false);
-		assert_eq!(
-			output.features.infrastructure_signals.background_worker,
-			false
-		);
-		assert_eq!(output.features.infrastructure_signals.grpc, false);
+		assert!(!output.features.infrastructure_signals.websocket);
+		assert!(!output.features.infrastructure_signals.background_worker);
+		assert!(!output.features.infrastructure_signals.grpc);
 		assert_eq!(output.features.infrastructure_signals.storage, None);
 		assert_eq!(output.features.infrastructure_signals.mail, None);
 		assert_eq!(output.features.infrastructure_signals.session_backend, None);
-		assert_eq!(output.features.infrastructure_signals.graphql, false);
-		assert_eq!(output.features.infrastructure_signals.admin_panel, false);
-		assert_eq!(output.features.infrastructure_signals.i18n, false);
-		assert_eq!(output.features.infrastructure_signals.pages, false);
+		assert!(!output.features.infrastructure_signals.graphql);
+		assert!(!output.features.infrastructure_signals.admin_panel);
+		assert!(!output.features.infrastructure_signals.i18n);
+		assert!(!output.features.infrastructure_signals.pages);
 	}
 
 	#[rstest]

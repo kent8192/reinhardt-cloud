@@ -15,10 +15,19 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 jsonwebtoken = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+tokio-util = "0.7"
+async-trait = "0.1"
+dashmap = "6"
+async-stream = "0.3"
 
 [dev-dependencies]
 rstest = { workspace = true }
 tokio-test = { workspace = true }
+proptest = { workspace = true }
+reinhardt-test = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

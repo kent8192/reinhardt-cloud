@@ -11,7 +11,9 @@ use uuid::Uuid;
 
 use crate::apps::auth::services::session::validate_raw_token;
 use crate::apps::realtime::broadcaster::WsBroadcaster;
-use crate::shared::ws_messages::{AuthResultPayload, WsClientMessage, WsMessage};
+use crate::shared::ws_messages::{
+	AuthResultPayload, LogStreamAckPayload, WsClientMessage, WsMessage,
+};
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
 const META_CONNECTION_ID: &str = "connection_id";
@@ -37,6 +39,8 @@ pub(crate) enum ParsedAction {
 	Unsubscribe { deployment_ids: Vec<String> },
 	/// Unauthenticated subscribe attempt — send error response.
 	Rejected { response: WsMessage },
+	/// Log stream subscription acknowledged — send ack and delegate to gRPC bridge.
+	LogStreamAcknowledged { response: WsMessage },
 }
 
 /// WebSocket consumer that authenticates users, manages deployment
@@ -94,6 +98,27 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
+			// Log streaming subscriptions — acknowledged but not yet wired to the
+			// gRPC log bridge. When the bridge is implemented, the
+			// LogStreamAcknowledged handler should start/stop the stream.
+			WsClientMessage::SubscribeBuildLogs { .. }
+			| WsClientMessage::SubscribeAppLogs { .. }
+			| WsClientMessage::UnsubscribeLogs => {
+				if user_id.is_none() {
+					return ParsedAction::Rejected {
+						response: WsMessage::AuthResult(AuthResultPayload {
+							success: false,
+							message: Some("Authentication required".to_string()),
+						}),
+					};
+				}
+				ParsedAction::LogStreamAcknowledged {
+					response: WsMessage::LogStreamAck(LogStreamAckPayload {
+						acknowledged: true,
+						message: "Log streaming subscription acknowledged".to_string(),
+					}),
+				}
+			}
 		}
 	}
 }
@@ -148,7 +173,9 @@ impl WebSocketConsumer for NotificationConsumer {
 					.register_connection(&connection_id, &uid, Arc::clone(&context.connection))
 					.await;
 			}
-			ParsedAction::AuthFailure { response } | ParsedAction::Rejected { response } => {
+			ParsedAction::AuthFailure { response }
+			| ParsedAction::Rejected { response }
+			| ParsedAction::LogStreamAcknowledged { response } => {
 				let _ = context.connection.send_json(&response).await;
 			}
 			ParsedAction::Subscribe { deployment_ids } => {

@@ -5,11 +5,16 @@ members = [
 	"crates/reinhardt-cloud-types",
 	"crates/reinhardt-cloud-core",
 	"crates/reinhardt-cloud-k8s",
+	"crates/reinhardt-cloud-proto",
+	"crates/reinhardt-cloud-grpc",
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
+	"crates/reinhardt-cloud-agent",
 	# Reinhardt startproject application (Control Plane)
 	"dashboard",
+	# Integration tests
+	"tests",
 ]
 
 [workspace.package]
@@ -67,6 +72,8 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
 reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
+reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
+reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc" }
 
 # Cryptography / encoding
 rand = "0.9"
@@ -74,6 +81,8 @@ rand = "0.9"
 # Testing
 rstest = "0.26"
 tokio-test = "0.4"
+proptest = "1"
+reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"

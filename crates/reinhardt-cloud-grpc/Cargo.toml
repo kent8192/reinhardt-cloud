@@ -1,0 +1,41 @@
+[package]
+name = "reinhardt-cloud-grpc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+reinhardt-cloud-proto = { workspace = true }
+
+tonic = "0.13"
+tonic-health = "0.13"
+tonic-reflection = "0.13"
+prost = "0.13"
+prost-types = "0.13"
+tokio = { workspace = true }
+tokio-stream = "0.1"
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dashmap = "6"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+jsonwebtoken = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio-test = { workspace = true }
+uuid = { workspace = true }
+proptest = { workspace = true }
+reinhardt-test = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
+
+[lints]
+workspace = true

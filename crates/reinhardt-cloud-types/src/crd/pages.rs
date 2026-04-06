@@ -213,8 +213,8 @@ gzip: true
 		assert_eq!(spec.static_url.unwrap(), "/assets/");
 		assert_eq!(spec.server_image.unwrap(), "custom:v1");
 		assert_eq!(spec.cache_max_age.unwrap(), 604800);
-		assert_eq!(spec.brotli.unwrap(), false);
-		assert_eq!(spec.gzip.unwrap(), true);
+		assert!(!spec.brotli.unwrap());
+		assert!(spec.gzip.unwrap());
 	}
 
 	#[rstest]
