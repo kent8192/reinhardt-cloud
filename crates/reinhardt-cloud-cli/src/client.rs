@@ -149,13 +149,15 @@ impl ReinhardtCloudClient {
 
 			// The dashboard returns a paginated response with an "items" array.
 			// Filter client-side to find the deployment matching app_name.
-			if let Some(items) = value.get("items").and_then(|v| v.as_array()) {
-				if let Some(entry) = items
-					.iter()
-					.find(|item| item.get("app_name").and_then(|n| n.as_str()) == Some(app_name))
-				{
-					return Ok(entry.clone());
-				}
+			if let Some(entry) = value
+				.get("items")
+				.and_then(|v| v.as_array())
+				.and_then(|items| {
+					items.iter().find(|item| {
+						item.get("app_name").and_then(|n| n.as_str()) == Some(app_name)
+					})
+				}) {
+				return Ok(entry.clone());
 			}
 
 			Err(ClientError::ApiError {
