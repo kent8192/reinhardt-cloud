@@ -70,21 +70,25 @@ pub async fn profile_update(
 	if let Some(ref first_name) = body.first_name {
 		let trimmed = first_name.trim();
 		if trimmed.is_empty() {
-			return Err(AppError::Validation("first_name must not be blank".to_string()).into());
+			return Err(AppError::Validation(
+				"first_name must not be blank".to_string(),
+			));
 		}
 		user.first_name = trimmed.to_string();
 	}
 	if let Some(ref last_name) = body.last_name {
 		let trimmed = last_name.trim();
 		if trimmed.is_empty() {
-			return Err(AppError::Validation("last_name must not be blank".to_string()).into());
+			return Err(AppError::Validation(
+				"last_name must not be blank".to_string(),
+			));
 		}
 		user.last_name = trimmed.to_string();
 	}
 	if let Some(ref email) = body.email {
 		let trimmed = email.trim();
 		if trimmed.is_empty() {
-			return Err(AppError::Validation("email must not be blank".to_string()).into());
+			return Err(AppError::Validation("email must not be blank".to_string()));
 		}
 		user.email = trimmed.to_string();
 	}
