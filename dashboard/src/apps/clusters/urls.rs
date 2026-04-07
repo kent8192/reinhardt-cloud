@@ -9,4 +9,7 @@ pub fn url_patterns() -> ServerRouter {
 	ServerRouter::new()
 		.endpoint(views::list_clusters)
 		.endpoint(views::create_cluster)
+		.endpoint(views::retrieve_cluster)
+		.endpoint(views::update_cluster)
+		.endpoint(views::delete_cluster)
 }

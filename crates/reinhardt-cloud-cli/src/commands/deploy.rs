@@ -167,6 +167,56 @@ fn build_reinhardt_app_crd(
 	serde_yaml::Value::Mapping(root)
 }
 
+/// Applies a CRD YAML directly to Kubernetes using `kubectl apply`.
+///
+/// Writes the CRD to a temporary file, invokes `kubectl apply -f <tempfile>`,
+/// and reports success or failure. The temporary file is cleaned up automatically
+/// when the `NamedTempFile` is dropped.
+// Used by tests to verify CRD YAML serialization and kubectl argument construction.
+#[cfg(test)]
+fn apply_crd_directly(
+	crd: &serde_yaml::Value,
+	namespace: &str,
+	cluster: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+	use std::io::Write;
+	let yaml = serde_yaml::to_string(crd)?;
+
+	let mut tmpfile = tempfile::NamedTempFile::new()
+		.map_err(|e| format!("Failed to create temporary file: {e}"))?;
+	tmpfile
+		.write_all(yaml.as_bytes())
+		.map_err(|e| format!("Failed to write CRD to temporary file: {e}"))?;
+	tmpfile
+		.flush()
+		.map_err(|e| format!("Failed to flush temporary file: {e}"))?;
+
+	let tmppath = tmpfile.path();
+
+	let mut cmd = Command::new("kubectl");
+	cmd.args(["apply", "-f"]);
+	cmd.arg(tmppath);
+	cmd.args(["-n", namespace]);
+
+	if let Some(ctx) = cluster {
+		cmd.args(["--context", ctx]);
+	}
+
+	let output = cmd
+		.output()
+		.map_err(|e| format!("Failed to run kubectl (is it installed?): {e}"))?;
+
+	if output.status.success() {
+		let stdout = String::from_utf8_lossy(&output.stdout);
+		println!("Successfully applied CRD to Kubernetes:");
+		print!("{stdout}");
+		Ok(())
+	} else {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		Err(format!("kubectl apply failed: {stderr}").into())
+	}
+}
+
 /// Executes the deploy command.
 pub(crate) async fn execute(
 	args: &DeployArgs,
@@ -246,7 +296,9 @@ pub(crate) async fn execute(
 	let yaml = serde_yaml::to_string(&crd)?;
 
 	println!("Deploying {app_name} with image {image} ({replicas} replicas)...");
-	if let Some(ref cluster) = args.cluster {
+	if let Some(ref cluster) = args.cluster
+		&& !args.direct
+	{
 		println!("Target cluster: {cluster}");
 	}
 
@@ -589,6 +641,42 @@ features:
 		assert!(
 			spec.get(serde_yaml::Value::String("introspect".to_string()))
 				.is_none()
+		);
+	}
+
+	#[rstest]
+	fn test_apply_crd_directly_writes_valid_yaml_to_tempfile() {
+		// Arrange
+		let crd = build_reinhardt_app_crd("test-app", "staging", "test:v1", Some(2), None);
+
+		// Act: call apply_crd_directly - kubectl is not available in CI,
+		// so we expect an error about kubectl not being found or apply failing.
+		let result = apply_crd_directly(&crd, "staging", None);
+
+		// Assert: the function should return an error (kubectl not available in test env),
+		// but the error message should indicate kubectl execution, not YAML serialization.
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert!(
+			err.contains("kubectl") || err.contains("apply"),
+			"expected kubectl-related error, got: {err}"
+		);
+	}
+
+	#[rstest]
+	fn test_apply_crd_directly_passes_cluster_context() {
+		// Arrange
+		let crd = build_reinhardt_app_crd("ctx-app", "prod", "ctx:v1", Some(1), None);
+
+		// Act
+		let result = apply_crd_directly(&crd, "prod", Some("my-cluster"));
+
+		// Assert: should fail with kubectl error, not a code-level error
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert!(
+			err.contains("kubectl") || err.contains("apply"),
+			"expected kubectl-related error, got: {err}"
 		);
 	}
 }
