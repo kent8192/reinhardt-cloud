@@ -39,11 +39,16 @@ pub async fn start_grpc_server(
 
 	let (mut health_reporter, health_service) = health::create_health_service();
 
+	// Register all known services as NOT_SERVING first, so that
+	// services not explicitly marked as SERVING still appear in
+	// health check responses.
+	health::register_services(&mut health_reporter).await;
+
 	// Create gRPC service instances backed by mock implementations
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
 	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
 
-	// Register services and mark them as SERVING for health checks
+	// Mark active services as SERVING for health checks
 	mark_service_healthy(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
 	mark_service_healthy(&mut health_reporter, health::AGENT_SERVICE_NAME).await;
 
