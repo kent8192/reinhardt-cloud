@@ -5,7 +5,10 @@
 //! so the `OriginGuardMiddleware` accepts requests from the test client.
 //!
 //! Uses reinhardt-web's public DI APIs (`SingletonScope::set`,
-//! `InjectionContext::get_singleton`) — no framework-internal workarounds.
+//! `InjectionContext::get_singleton`).
+//!
+//! All singletons (`WsBroadcaster`, `LocalAuthService`, etc.) can be
+//! overridden by pre-registering in the scope before calling `build_routes`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

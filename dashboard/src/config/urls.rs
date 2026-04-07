@@ -4,6 +4,14 @@
 //! including REST API endpoints and server function registrations
 //! for the WASM frontend.
 //!
+//! ## DI-based configuration
+//!
+//! Singletons such as `AllowedOrigins`, `WsBroadcaster`, and
+//! `LocalAuthService` are resolved from the `SingletonScope`.
+//! Tests can pre-register overrides before calling `build_routes(scope)`.
+//!
+//! ## WebSocket routes
+//!
 //! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt, which is async and independent of `UnifiedRouter`.
 //! See `init_websocket_routes()` below.
@@ -30,24 +38,50 @@ use reinhardt::{
 
 /// Allowed origins for the `OriginGuardMiddleware`.
 ///
-/// Register in `SingletonScope` before calling `routes()` to override
-/// the default origins read from `[cors].allow_origins` in settings.
-///
-/// # Default behaviour
-///
-/// When not pre-registered, `routes()` reads `CorsSettings.allow_origins`
-/// from `ProjectSettings`, filters out `"*"` (OriginGuard uses exact
-/// matching), and falls back to `http://localhost:{PORT}` /
-/// `http://127.0.0.1:{PORT}` when the list is empty.
+/// Pre-register in `SingletonScope` to override the default origins
+/// read from `[cors].allow_origins` in settings.
 ///
 /// # Test override
 ///
 /// ```ignore
 /// let scope = Arc::new(SingletonScope::new());
 /// scope.set(AllowedOrigins(vec![test_server_url]));
-/// let router = routes(scope);
+/// let router = build_routes(scope);
 /// ```
 pub struct AllowedOrigins(pub Vec<String>);
+
+/// Resolve allowed origins from DI or settings.
+///
+/// Priority: DI override > `[cors].allow_origins` > default localhost.
+fn resolve_origins(di_ctx: &InjectionContext) -> Vec<String> {
+	if let Some(injected) = di_ctx.get_singleton::<AllowedOrigins>() {
+		return injected.0.clone();
+	}
+
+	let settings = crate::config::settings::get_settings();
+	let mut origins = settings.cors.allow_origins.clone();
+	// Filter out wildcard "*" — OriginGuard uses exact matching
+	origins.retain(|o| o != "*");
+	if origins.is_empty() {
+		let port = std::env::var("PORT").unwrap_or("8000".to_string());
+		vec![
+			format!("http://localhost:{port}"),
+			format!("http://127.0.0.1:{port}"),
+		]
+	} else {
+		origins
+	}
+}
+
+/// Register default singletons unless already pre-registered (e.g. by tests).
+fn register_defaults(di_ctx: &InjectionContext) {
+	if di_ctx.get_singleton::<WsBroadcaster>().is_none() {
+		di_ctx.set_singleton(WsBroadcaster::new());
+	}
+	if di_ctx.get_singleton::<LocalAuthService>().is_none() {
+		di_ctx.set_singleton(LocalAuthService::new());
+	}
+}
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
@@ -60,57 +94,22 @@ pub fn routes() -> UnifiedRouter {
 
 /// Build the router with a pre-configured `SingletonScope`.
 ///
-/// If `AllowedOrigins` is registered in the scope, it is used directly
-/// for the `OriginGuardMiddleware`.  Otherwise, origins are read from
-/// `[cors].allow_origins` in the project settings.
+/// Singletons registered in the scope take precedence over defaults:
 ///
-/// # Test override
-///
-/// ```ignore
-/// let scope = Arc::new(SingletonScope::new());
-/// scope.set(AllowedOrigins(vec![test_server_url]));
-/// let router = build_routes(scope).into_server();
-/// ```
+/// | Singleton | Default | Override in tests |
+/// |-----------|---------|-------------------|
+/// | `AllowedOrigins` | `[cors].allow_origins` | `scope.set(AllowedOrigins(vec![url]))` |
+/// | `WsBroadcaster` | `WsBroadcaster::new()` | `scope.set(mock_broadcaster)` |
+/// | `LocalAuthService` | `LocalAuthService::new()` | `scope.set(mock_auth)` |
 pub fn build_routes(singleton_scope: Arc<SingletonScope>) -> UnifiedRouter {
 	let di_ctx = Arc::new(InjectionContext::builder(Arc::clone(&singleton_scope)).build());
 
-	// Resolve AllowedOrigins: DI override > settings > default localhost
-	let origins = if let Some(injected) = di_ctx.get_singleton::<AllowedOrigins>() {
-		injected.0.clone()
-	} else {
-		let settings = crate::config::settings::get_settings();
-		let mut from_settings = settings.cors.allow_origins.clone();
-		// Filter out wildcard "*" — OriginGuard uses exact matching
-		from_settings.retain(|o| o != "*");
-		if from_settings.is_empty() {
-			let port = std::env::var("PORT").unwrap_or("8000".to_string());
-			vec![
-				format!("http://localhost:{port}"),
-				format!("http://127.0.0.1:{port}"),
-			]
-		} else {
-			from_settings
-		}
-	};
+	let origins = resolve_origins(&di_ctx);
+	register_defaults(&di_ctx);
 
 	// Configure admin site with deferred DI registration.
-	// AdminSite is captured in DiRegistrationList and applied to the server's
-	// singleton scope during startup. AdminDatabase is lazily constructed from
-	// DatabaseConnection at first request.
 	let admin_site = Arc::new(crate::config::admin::configure_admin());
 	let (admin_router, admin_di) = admin_routes_with_di_deferred(admin_site);
-
-	// Register the WebSocket broadcaster as a singleton so that other
-	// services (e.g. deployment status updaters) can obtain it via DI
-	// and push events to connected clients.
-	// NOTE: Do not wrap in Arc — set_singleton() wraps internally,
-	// and double-wrapping causes TypeId mismatch during DI resolution.
-	di_ctx.set_singleton(WsBroadcaster::new());
-
-	// Register AuthService for trait-based authentication across REST and gRPC.
-	// NOTE: Register the concrete type directly — set_singleton() wraps in Arc
-	// internally, so passing Arc<dyn AuthService> would create Arc<Arc<...>>.
-	di_ctx.set_singleton(LocalAuthService::new());
 
 	// Configure Redis-backed session authentication
 	let redis_url = crate::config::settings::get_redis_url()
