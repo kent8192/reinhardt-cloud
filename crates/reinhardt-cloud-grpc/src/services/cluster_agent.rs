@@ -72,6 +72,13 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 			message: e.message.clone(),
 			timestamp: proto_timestamp_to_chrono(e.timestamp),
 		}),
+		Some(pb::agent_event::Event::CommandStatus(s)) => Some(AgentEvent::CommandStatus {
+			app_name: s.app_name.clone(),
+			command_type: s.command_type.clone(),
+			success: s.success,
+			message: s.message.clone(),
+			timestamp: proto_timestamp_to_chrono(s.timestamp),
+		}),
 		None => None,
 	}
 }
@@ -380,6 +387,44 @@ mod tests {
 				assert_eq!(timestamp, ts);
 			}
 			other => panic!("Expected Error variant, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn test_proto_event_to_domain_command_status() {
+		// Arrange
+		let ts = fixed_timestamp();
+		let proto = pb::AgentEvent {
+			event: Some(pb::agent_event::Event::CommandStatus(
+				pb::AgentCommandStatus {
+					app_name: "web".to_string(),
+					command_type: "rollback".to_string(),
+					success: true,
+					message: "Rollback applied".to_string(),
+					timestamp: Some(to_proto_ts(ts)),
+				},
+			)),
+		};
+
+		// Act
+		let domain = proto_event_to_domain(&proto).unwrap();
+
+		// Assert
+		match domain {
+			AgentEvent::CommandStatus {
+				app_name,
+				command_type,
+				success,
+				message,
+				timestamp,
+			} => {
+				assert_eq!(app_name, "web");
+				assert_eq!(command_type, "rollback");
+				assert!(success);
+				assert_eq!(message, "Rollback applied");
+				assert_eq!(timestamp, ts);
+			}
+			other => panic!("Expected CommandStatus variant, got {other:?}"),
 		}
 	}
 
