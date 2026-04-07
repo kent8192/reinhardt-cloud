@@ -1,11 +1,9 @@
 headers {
   Content-Type: application/json
+  Origin: {{baseUrl}}
+  Cookie: sessionid={{sessionId}}
 }
 
 auth {
-  mode: bearer
-}
-
-auth:bearer {
-  token: {{jwtToken}}
+  mode: none
 }

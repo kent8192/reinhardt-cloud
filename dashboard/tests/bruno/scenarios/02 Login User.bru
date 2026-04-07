@@ -19,19 +19,20 @@ body:json {
 
 assert {
   res.status: eq 200
-  res.body.token_type: eq Bearer
-  res.body.token: isString
 }
 
 tests {
-  test("should login and return JWT token", function() {
-    const body = res.getBody();
-    expect(body.token_type).to.equal("Bearer");
-    expect(body.token).to.be.a("string");
-    expect(body.token.length).to.be.greaterThan(0);
+  test("should login and return session cookie", function() {
+    const setCookie = res.getHeader("set-cookie");
+    expect(setCookie).to.be.a("string");
+    expect(setCookie).to.include("sessionid=");
   });
 }
 
 script:post-response {
-  bru.setEnvVar("jwtToken", res.body.token);
+  const setCookie = res.headers["set-cookie"] || "";
+  const match = setCookie.match(/sessionid=([^;]+)/);
+  if (match) {
+    bru.setEnvVar("sessionId", match[1]);
+  }
 }

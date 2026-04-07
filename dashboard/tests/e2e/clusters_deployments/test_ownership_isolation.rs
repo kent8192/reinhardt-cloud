@@ -33,6 +33,7 @@ async fn test_app() -> (
 	let router = routes().into_server();
 	let server = test_server_guard(router).await;
 	let client = api_client_from_url(&server.url);
+	client.set_header("Origin", &server.url);
 	(container, conn, server, client)
 }
 
