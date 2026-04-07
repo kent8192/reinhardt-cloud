@@ -10,6 +10,12 @@
 //! `reinhardt-testkit` so the listener, router, and origin configuration
 //! can be wired together atomically — without a TOCTOU race on port
 //! numbers.
+//!
+//! Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
+//! Remove this entire module when `CoreSettings.allowed_origins` + DI-based
+//! configuration override is available. The ideal approach is to register
+//! `AllowedOrigins` in `SingletonScope` and use `InjectionContext.get_singleton()`
+//! during router construction, with tests overriding via `singleton.set()`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

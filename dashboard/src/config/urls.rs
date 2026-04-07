@@ -32,6 +32,13 @@ use reinhardt::{
 /// Includes `http://localhost:{PORT}` and `http://127.0.0.1:{PORT}` by default.
 /// Additional origins can be supplied via `extra` for test environments where
 /// the server binds to a random port.
+///
+/// Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
+/// Remove this workaround when `CoreSettings.allowed_origins` is available.
+///
+/// Ideal implementation (without workaround):
+///   let origins = di_ctx.get_singleton::<AllowedOrigins>().unwrap();
+///   OriginGuardMiddleware::new(origins.0.clone())
 fn allowed_origins(extra: &[String]) -> Vec<String> {
 	let port = std::env::var("PORT").unwrap_or("8000".to_string());
 	let mut origins = vec![
@@ -56,6 +63,9 @@ pub fn routes() -> UnifiedRouter {
 /// This allows test code to pass the test server URL so the
 /// `OriginGuardMiddleware` accepts requests without relying on
 /// environment variables (which would prevent parallel test execution).
+///
+/// Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
+/// Remove when `CoreSettings.allowed_origins` + DI override is available.
 pub fn routes_with_origins(extra_origins: &[String]) -> UnifiedRouter {
 	routes_inner(extra_origins)
 }
