@@ -129,10 +129,7 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
 	match secrets.get_opt(&secret_name).await? {
 		Some(secret) => {
 			// Avoid logging secret-derived data to satisfy CodeQL cleartext-logging rules
-			println!(
-				"Credentials secret found in namespace '{}'",
-				args.namespace
-			);
+			println!("Credentials secret found in namespace '{}'", args.namespace);
 
 			if let Some(labels) = &secret.metadata.labels
 				&& labels.contains_key("reinhardt.dev/provider")
