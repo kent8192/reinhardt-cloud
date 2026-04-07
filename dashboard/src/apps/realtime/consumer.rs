@@ -45,6 +45,8 @@ pub(crate) enum ParsedAction {
 	/// Subscribe to application log events (placeholder — no gRPC backend yet).
 	SubscribeAppLogs { app_name: String },
 	/// Acknowledged log stream subscription — send ack and start/stop stream.
+	/// Currently unused; will be wired when build log streaming is connected to the match arm.
+	#[allow(dead_code)]
 	LogStreamAcknowledged { response: WsMessage },
 	/// Cancel any active log stream.
 	UnsubscribeLogs,
