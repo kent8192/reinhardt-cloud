@@ -167,5 +167,10 @@ pub async fn test_app_with_origin_guard() -> (TestAppGuard, APIClient) {
 	};
 
 	let client = api_client_from_url(&url);
+	// Set Origin header so OriginGuardMiddleware accepts state-changing requests.
+	client
+		.set_header("Origin", &url)
+		.await
+		.expect("Failed to set Origin header on test client");
 	(guard, client)
 }
