@@ -79,7 +79,7 @@ pub(crate) async fn execute(
 		return Err("Password cannot be empty".into());
 	}
 
-	println!("Logging in as {}...", args.username);
+	println!("Logging in...");
 
 	let token = send_login_request(client, &args.username, &password).await?;
 
