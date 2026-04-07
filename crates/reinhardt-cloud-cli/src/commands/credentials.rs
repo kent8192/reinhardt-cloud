@@ -111,8 +111,9 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 		.patch(&secret_name, &params, &Patch::Apply(secret))
 		.await?;
 
+	// Print confirmation without exposing the full secret name in logs
 	println!(
-		"Secret '{secret_name}' applied in namespace '{}'",
+		"Credentials secret applied successfully in namespace '{}'",
 		args.namespace
 	);
 	Ok(())
@@ -127,35 +128,31 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
 
 	match secrets.get_opt(&secret_name).await? {
 		Some(secret) => {
+			// Avoid logging secret-derived data to satisfy CodeQL cleartext-logging rules
 			println!(
-				"Secret '{secret_name}' found in namespace '{}'",
+				"Credentials secret found in namespace '{}'",
 				args.namespace
 			);
 
 			if let Some(labels) = &secret.metadata.labels
-				&& let Some(provider) = labels.get("reinhardt.dev/provider")
+				&& labels.contains_key("reinhardt.dev/provider")
 			{
-				println!("  Provider: {provider}");
+				println!("  Provider: configured");
 			}
 
-			let mut keys = Vec::new();
+			let mut key_count = 0;
 			if let Some(ref data) = secret.data {
-				keys.extend(data.keys().cloned());
+				key_count += data.len();
 			}
 			if let Some(ref string_data) = secret.string_data {
-				keys.extend(string_data.keys().cloned());
+				key_count += string_data.len();
 			}
 
-			if keys.is_empty() {
-				println!("  Keys: (none)");
-			} else {
-				keys.sort();
-				println!("  Keys: {}", keys.join(", "));
-			}
+			println!("  Credential keys: {key_count} configured");
 		}
 		None => {
 			println!(
-				"Secret '{secret_name}' not found in namespace '{}'",
+				"No credentials secret found in namespace '{}'",
 				args.namespace
 			);
 		}
