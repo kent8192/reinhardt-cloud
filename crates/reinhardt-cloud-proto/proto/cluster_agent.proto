@@ -12,6 +12,7 @@ message AgentEvent {
     AgentDeployStatus deploy_status = 2;
     AgentHeartbeat heartbeat = 3;
     AgentError error = 4;
+    AgentCommandStatus command_status = 5;
   }
 }
 
@@ -36,6 +37,15 @@ message AgentHeartbeat {
 message AgentError {
   string message = 1;
   google.protobuf.Timestamp timestamp = 2;
+}
+
+// Generic status event for rollback, scale, and restart operations.
+message AgentCommandStatus {
+  string app_name = 1;
+  string command_type = 2;
+  bool success = 3;
+  string message = 4;
+  google.protobuf.Timestamp timestamp = 5;
 }
 
 // Commands sent to a cluster agent.
