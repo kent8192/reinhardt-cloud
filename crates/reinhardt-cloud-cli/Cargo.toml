@@ -21,11 +21,15 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 url = "2"
+serde_json = { workspace = true }
+tempfile = "3"
+rpassword = "7"
+colored = "3"
+dirs = "6"
 
 [dev-dependencies]
 rstest = { workspace = true }
 serial_test = "3.2"
-tempfile = "3"
 
 [lints]
 workspace = true
