@@ -1,7 +1,8 @@
 //! gRPC health checking and reflection services.
 
 use tonic_health::pb::health_server::{Health, HealthServer};
-use tonic_health::server::{HealthReporter, health_reporter};
+pub use tonic_health::server::HealthReporter;
+use tonic_health::server::health_reporter;
 
 /// Service names for health checking registration.
 pub const BUILD_SERVICE_NAME: &str = "reinhardt.cloud.build.BuildService";
