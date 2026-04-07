@@ -183,7 +183,15 @@ async fn kubectl_status(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let output = {
 		let mut cmd = Command::new("kubectl");
-		cmd.args(["get", "reinhardtapp", app_name, "-n", namespace, "-o", "json"]);
+		cmd.args([
+			"get",
+			"reinhardtapp",
+			app_name,
+			"-n",
+			namespace,
+			"-o",
+			"json",
+		]);
 		if let Some(ctx) = cluster {
 			cmd.args(["--context", ctx]);
 		}
