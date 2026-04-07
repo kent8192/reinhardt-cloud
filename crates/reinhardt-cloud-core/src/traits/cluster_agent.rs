@@ -32,11 +32,12 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 
 	/// Report the status of a deployment operation.
 	///
-	/// Default implementation returns an unimplemented error, allowing
-	/// existing implementations to opt in incrementally.
+	/// Default implementation returns a bad-request error indicating the
+	/// method is not yet implemented by this service, allowing existing
+	/// implementations to opt in incrementally.
 	async fn report_deploy_status(&self, _report: DeployStatusReport) -> Result<(), ApiError> {
-		Err(ApiError::Internal(
-			"report_deploy_status is not implemented".to_string(),
+		Err(ApiError::BadRequest(
+			"report_deploy_status is not implemented for this service".to_string(),
 		))
 	}
 }

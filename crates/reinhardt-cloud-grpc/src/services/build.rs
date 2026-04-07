@@ -207,7 +207,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 		let now = chrono::Utc::now();
 		let mut logs = vec![Ok(pb::BuildLog {
 			message: format!(
-				"Build {} for app '{}' is in phase {:?}",
+				"Build {} for app '{}' is in phase {}",
 				status.build_id, status.app_name, status.phase
 			),
 			timestamp: timestamp_from_chrono(now),
