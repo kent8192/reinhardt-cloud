@@ -28,6 +28,11 @@ mod tests {
 		let router = routes().into_server();
 		let server = test_server_guard(router).await;
 		let client = api_client_from_url(&server.url);
+		// Set Origin header so OriginGuardMiddleware accepts POST requests
+		client
+			.set_header("Origin", &server.url)
+			.await
+			.expect("Failed to set Origin header");
 		(container, conn, server, client)
 	}
 
