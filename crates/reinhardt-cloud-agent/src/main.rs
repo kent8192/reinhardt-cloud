@@ -180,7 +180,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 						(false, format!("Deployment failed: {e}"))
 					}
 				};
-			let _ = event_tx
+			if let Err(e) = event_tx
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::DeployStatus(
 						pb::AgentDeployStatus {
@@ -191,7 +191,10 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 						},
 					)),
 				})
-				.await;
+				.await
+			{
+				error!("Failed to send deploy status event: {e}");
+			}
 		}
 		Some(pb::agent_command::Command::Rollback(cmd)) => {
 			info!(
@@ -199,6 +202,32 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				revision = cmd.revision,
 				"Received rollback command"
 			);
+			let (success, message) = match execute_rollback(&cmd.app_name, cmd.revision).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, "Rollback applied successfully");
+					(true, "Rollback applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Rollback failed");
+					(false, format!("Rollback failed: {e}"))
+				}
+			};
+			if let Err(e) = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "rollback".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await
+			{
+				error!("Failed to send rollback status event: {e}");
+			}
 		}
 		Some(pb::agent_command::Command::Scale(cmd)) => {
 			info!(
@@ -206,9 +235,61 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				replicas = cmd.replicas,
 				"Received scale command"
 			);
+			let (success, message) = match execute_scale(&cmd.app_name, cmd.replicas).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, replicas = cmd.replicas, "Scale applied successfully");
+					(true, "Scale applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Scale failed");
+					(false, format!("Scale failed: {e}"))
+				}
+			};
+			if let Err(e) = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "scale".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await
+			{
+				error!("Failed to send scale status event: {e}");
+			}
 		}
 		Some(pb::agent_command::Command::Restart(cmd)) => {
 			info!(app = %cmd.app_name, "Received restart command");
+			let (success, message) = match execute_restart(&cmd.app_name).await {
+				Ok(()) => {
+					info!(app = %cmd.app_name, "Restart applied successfully");
+					(true, "Restart applied".to_string())
+				}
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Restart failed");
+					(false, format!("Restart failed: {e}"))
+				}
+			};
+			if let Err(e) = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "restart".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await
+			{
+				error!("Failed to send restart status event: {e}");
+			}
 		}
 		None => {
 			warn!("Received empty command");
@@ -272,6 +353,135 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 	let params = PatchParams::apply("reinhardt-cloud-agent");
 	deployments
 		.patch(app_name, &params, &Patch::Apply(&deployment))
+		.await?;
+
+	Ok(())
+}
+
+/// Rollback a Kubernetes Deployment to a previous revision.
+///
+/// Reads the target ReplicaSet's pod template spec and patches it onto
+/// the Deployment, triggering a rollout to the desired revision. This
+/// mirrors the behaviour of `kubectl rollout undo --to-revision`.
+async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Error> {
+	use k8s_openapi::api::apps::v1::ReplicaSet;
+
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client.clone());
+	let replica_sets: Api<ReplicaSet> = Api::default_namespaced(client);
+
+	// Find the ReplicaSet with the target revision annotation
+	let rs_list = replica_sets
+		.list(
+			&kube::api::ListParams::default().labels(&format!("app.kubernetes.io/name={app_name}")),
+		)
+		.await?;
+
+	let target_rs = rs_list
+		.items
+		.iter()
+		.find(|rs| {
+			rs.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("deployment.kubernetes.io/revision"))
+				.is_some_and(|v| v == &revision.to_string())
+		})
+		.ok_or_else(|| {
+			kube::Error::Api(
+				kube::core::Status::failure(
+					&format!("ReplicaSet with revision {revision} not found"),
+					"NotFound",
+				)
+				.boxed(),
+			)
+		})?;
+
+	// Extract the pod template from the target ReplicaSet and apply it
+	// to the Deployment via strategic merge patch.
+	let template = target_rs
+		.spec
+		.as_ref()
+		.and_then(|s| s.template.as_ref())
+		.ok_or_else(|| {
+			kube::Error::Api(
+				kube::core::Status::failure(
+					&format!("ReplicaSet revision {revision} has no pod template in its spec"),
+					"InvalidSpec",
+				)
+				.boxed(),
+			)
+		})?;
+
+	let patch = serde_json::json!({
+		"spec": {
+			"template": template
+		}
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.await?;
+
+	Ok(())
+}
+
+/// Scale a Kubernetes Deployment to the specified number of replicas.
+///
+/// Patches only the `spec.replicas` field, leaving every other field
+/// unchanged. The cluster scheduler then reconciles the actual pod count.
+///
+/// Returns an error if `replicas` exceeds `i32::MAX` because Kubernetes
+/// `spec.replicas` is an `int32` field.
+async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error> {
+	// Kubernetes spec.replicas is int32; reject values that would overflow.
+	if replicas > i32::MAX as u32 {
+		return Err(kube::Error::Api(
+			kube::core::Status::failure(
+				&format!(
+					"replicas value {replicas} exceeds Kubernetes int32 limit ({})",
+					i32::MAX
+				),
+				"Invalid",
+			)
+			.boxed(),
+		));
+	}
+
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let patch = serde_json::json!({
+		"spec": { "replicas": replicas }
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.await?;
+
+	Ok(())
+}
+
+/// Perform a rolling restart of a Kubernetes Deployment.
+///
+/// Sets an annotation on the pod template with the current timestamp, which
+/// forces the deployment controller to create new pods — the same mechanism
+/// that `kubectl rollout restart` uses.
+async fn execute_restart(app_name: &str) -> Result<(), kube::Error> {
+	let client = kube::Client::try_default().await?;
+	let deployments: Api<Deployment> = Api::default_namespaced(client);
+
+	let patch = serde_json::json!({
+		"spec": {
+			"template": {
+				"metadata": {
+					"annotations": {
+						"kubectl.kubernetes.io/restartedAt": Utc::now().to_rfc3339()
+					}
+				}
+			}
+		}
+	});
+	deployments
+		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
 		.await?;
 
 	Ok(())
