@@ -93,6 +93,7 @@ jobs:
         env:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
+          REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
 
       - name: Docker cleanup after tests
         if: always()

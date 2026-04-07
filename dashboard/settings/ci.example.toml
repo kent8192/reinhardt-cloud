@@ -12,6 +12,11 @@
 # JWT secret for session token signing (required for auth endpoints)
 jwt_secret = "ci-only-jwt-secret-not-for-production"
 
+# Redis URL for session backend (required for cookie-session auth)
+# In CI, this is overridden by REINHARDT_CLOUD_REDIS_URL env var pointing
+# to a Redis service container or TestContainers-managed instance.
+redis_url = "redis://localhost:6379/0"
+
 [core]
 # Enable debug mode for verbose error output in CI logs
 debug = true
