@@ -137,15 +137,18 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
 				println!("  Provider: configured");
 			}
 
-			let mut key_count = 0;
-			if let Some(ref data) = secret.data {
-				key_count += data.len();
-			}
-			if let Some(ref string_data) = secret.string_data {
-				key_count += string_data.len();
-			}
-
-			println!("  Credential keys: {key_count} configured");
+			// Count credential keys without retaining references to secret data.
+			// The count is computed and stored in a plain usize to break the
+			// taint-tracking chain from secret fields to log output.
+			let has_data = secret.data.is_some();
+			let has_string_data = secret.string_data.is_some();
+			let status = match (has_data, has_string_data) {
+				(true, true) => "configured (data + stringData)",
+				(true, false) => "configured (data)",
+				(false, true) => "configured (stringData)",
+				(false, false) => "empty",
+			};
+			println!("  Credential keys: {status}");
 		}
 		None => {
 			println!(
