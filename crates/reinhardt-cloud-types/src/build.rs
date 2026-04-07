@@ -67,6 +67,18 @@ pub enum BuildPhase {
 	Finalizing,
 }
 
+impl std::fmt::Display for BuildPhase {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			BuildPhase::Queued => write!(f, "queued"),
+			BuildPhase::Pulling => write!(f, "pulling"),
+			BuildPhase::Building => write!(f, "building"),
+			BuildPhase::Pushing => write!(f, "pushing"),
+			BuildPhase::Finalizing => write!(f, "finalizing"),
+		}
+	}
+}
+
 /// Current status of a build.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildStatus {

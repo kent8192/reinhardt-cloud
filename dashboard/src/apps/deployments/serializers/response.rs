@@ -26,3 +26,17 @@ impl From<Deployment> for DeploymentResponse {
 		}
 	}
 }
+
+/// Single log entry returned in the logs response.
+#[derive(Debug, Serialize, Schema)]
+pub struct LogEntry {
+	pub timestamp: String,
+	pub message: String,
+	pub level: String,
+}
+
+/// Response body for the deployment logs endpoint.
+#[derive(Debug, Serialize, Schema)]
+pub struct DeploymentLogsResponse {
+	pub logs: Vec<LogEntry>,
+}

@@ -16,7 +16,7 @@ use crate::error::ApiError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::traits::{AuthService, BuildService, ClusterAgentService, LogService};
 use reinhardt_cloud_types::User;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
+use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
 use reinhardt_cloud_types::build::{BuildEvent, BuildRequest, BuildStatus};
 use reinhardt_cloud_types::log::{LogEntry, LogFilter};
 
@@ -193,6 +193,10 @@ impl ClusterAgentService for MockClusterAgentService {
 			pod_count: 5,
 			reported_at: chrono::Utc::now(),
 		})
+	}
+
+	async fn report_deploy_status(&self, _report: DeployStatusReport) -> Result<(), ApiError> {
+		Ok(())
 	}
 }
 
