@@ -43,6 +43,7 @@ pub(crate) struct PlatformDefaults {
 pub(crate) struct DatabaseDefaults {
 	pub instance_class: String,
 	pub storage_gb: i32,
+	pub region: String,
 }
 
 /// Cache provisioning defaults.
@@ -94,6 +95,7 @@ impl PlatformConfig {
 				database: DatabaseDefaults {
 					instance_class: "db.t3.micro".to_string(),
 					storage_gb: 20,
+					region: "us-east-1".to_string(),
 				},
 				cache: CacheDefaults {
 					instance_type: "cache.t3.micro".to_string(),
@@ -120,6 +122,7 @@ impl PlatformConfig {
 				database: DatabaseDefaults {
 					instance_class: "db-f1-micro".to_string(),
 					storage_gb: 10,
+					region: "us-central1".to_string(),
 				},
 				cache: CacheDefaults {
 					instance_type: "BASIC".to_string(),
@@ -146,6 +149,7 @@ impl PlatformConfig {
 				database: DatabaseDefaults {
 					instance_class: String::new(),
 					storage_gb: 20,
+					region: String::new(),
 				},
 				cache: CacheDefaults {
 					instance_type: String::new(),

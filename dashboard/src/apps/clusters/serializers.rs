@@ -3,5 +3,5 @@
 pub mod request;
 pub mod response;
 
-pub use request::CreateClusterRequest;
+pub use request::{CreateClusterRequest, UpdateClusterRequest};
 pub use response::ClusterResponse;
