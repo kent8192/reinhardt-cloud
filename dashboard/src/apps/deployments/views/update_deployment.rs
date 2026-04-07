@@ -5,7 +5,7 @@ use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
-use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, put};
+use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, Validate, put};
 use tracing::error;
 use uuid::Uuid;
 
@@ -15,6 +15,7 @@ use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeployment
 /// Update an existing deployment (authentication required).
 ///
 /// Accepts optional fields; only provided fields are applied.
+/// Returns 400 if the request body is empty (no fields provided).
 /// Returns 404 if the deployment does not exist or is not owned by the
 /// authenticated user.
 #[put("/deployments/{id}/", name = "deployment_update")]
@@ -25,6 +26,16 @@ pub async fn update_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+
+	// Validate the request body
+	body.validate()?;
+
+	// Reject empty updates — at least one field must be provided
+	if body.app_name.is_none() && body.image.is_none() && body.status.is_none() {
+		return Err(AppError::Validation(
+			"At least one field must be provided for update".to_string(),
+		));
+	}
 
 	let mut deployment = Deployment::objects()
 		.filter(
