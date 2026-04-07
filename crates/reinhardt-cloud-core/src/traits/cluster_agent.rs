@@ -7,7 +7,7 @@ use tokio_stream::Stream;
 use uuid::Uuid;
 
 use crate::error::ApiError;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
+use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
 
 /// Trait for bidirectional communication with cluster agents.
 ///
@@ -29,4 +29,15 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 
 	/// Get health status for an agent by ID.
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError>;
+
+	/// Report the status of a deployment operation.
+	///
+	/// Default implementation returns a bad-request error indicating the
+	/// method is not yet implemented by this service, allowing existing
+	/// implementations to opt in incrementally.
+	async fn report_deploy_status(&self, _report: DeployStatusReport) -> Result<(), ApiError> {
+		Err(ApiError::BadRequest(
+			"report_deploy_status is not implemented for this service".to_string(),
+		))
+	}
 }

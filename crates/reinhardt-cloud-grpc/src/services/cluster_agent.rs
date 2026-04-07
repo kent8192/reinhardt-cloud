@@ -7,10 +7,11 @@ use prost_types::Timestamp;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 
+use reinhardt_cloud_core::ApiError;
 use reinhardt_cloud_core::traits::ClusterAgentService;
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth};
+use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
 
 // --- Conversions ---
 
@@ -72,7 +73,25 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 			message: e.message.clone(),
 			timestamp: proto_timestamp_to_chrono(e.timestamp),
 		}),
+		Some(pb::agent_event::Event::CommandStatus(s)) => Some(AgentEvent::CommandStatus {
+			app_name: s.app_name.clone(),
+			command_type: s.command_type.clone(),
+			success: s.success,
+			message: s.message.clone(),
+			timestamp: proto_timestamp_to_chrono(s.timestamp),
+		}),
 		None => None,
+	}
+}
+
+// --- Error mapping ---
+
+fn api_error_to_status(e: ApiError) -> Status {
+	match e {
+		ApiError::NotFound(msg) => Status::not_found(msg),
+		ApiError::BadRequest(msg) => Status::invalid_argument(msg),
+		ApiError::Unauthorized(msg) => Status::unauthenticated(msg),
+		ApiError::Internal(msg) => Status::internal(msg),
 	}
 }
 
@@ -110,11 +129,11 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 			.service
 			.agent_stream(Box::pin(domain_stream))
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		let mapped = command_stream.map(|result| match result {
 			Ok(cmd) => Ok(domain_command_to_proto(&cmd)),
-			Err(e) => Err(Status::internal(e.to_string())),
+			Err(e) => Err(api_error_to_status(e)),
 		});
 
 		Ok(Response::new(Box::pin(mapped)))
@@ -142,7 +161,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		self.service
 			.report_health(health)
 			.await
-			.map_err(|e| Status::internal(e.to_string()))?;
+			.map_err(api_error_to_status)?;
 
 		Ok(Response::new(StatusResponse {
 			success: true,
@@ -152,8 +171,31 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 
 	async fn report_deploy_status(
 		&self,
-		_request: Request<pb::AgentDeployStatus>,
+		request: Request<pb::AgentDeployStatus>,
 	) -> Result<Response<StatusResponse>, Status> {
+		let status = request.into_inner();
+		let reported_at = proto_timestamp_to_chrono(status.timestamp);
+
+		tracing::info!(
+			app_name = %status.app_name,
+			success = status.success,
+			message = %status.message,
+			reported_at = %reported_at,
+			"Received deploy status report"
+		);
+
+		let report = DeployStatusReport {
+			app_name: status.app_name,
+			success: status.success,
+			message: status.message,
+			reported_at,
+		};
+
+		self.service
+			.report_deploy_status(report)
+			.await
+			.map_err(api_error_to_status)?;
+
 		Ok(Response::new(StatusResponse {
 			success: true,
 			message: "Deploy status received".to_string(),
@@ -380,6 +422,44 @@ mod tests {
 				assert_eq!(timestamp, ts);
 			}
 			other => panic!("Expected Error variant, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn test_proto_event_to_domain_command_status() {
+		// Arrange
+		let ts = fixed_timestamp();
+		let proto = pb::AgentEvent {
+			event: Some(pb::agent_event::Event::CommandStatus(
+				pb::AgentCommandStatus {
+					app_name: "web".to_string(),
+					command_type: "rollback".to_string(),
+					success: true,
+					message: "Rollback applied".to_string(),
+					timestamp: Some(to_proto_ts(ts)),
+				},
+			)),
+		};
+
+		// Act
+		let domain = proto_event_to_domain(&proto).unwrap();
+
+		// Assert
+		match domain {
+			AgentEvent::CommandStatus {
+				app_name,
+				command_type,
+				success,
+				message,
+				timestamp,
+			} => {
+				assert_eq!(app_name, "web");
+				assert_eq!(command_type, "rollback");
+				assert!(success);
+				assert_eq!(message, "Rollback applied");
+				assert_eq!(timestamp, ts);
+			}
+			other => panic!("Expected CommandStatus variant, got {other:?}"),
 		}
 	}
 
