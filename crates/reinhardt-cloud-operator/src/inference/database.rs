@@ -19,10 +19,88 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
 use kube::api::{DynamicObject, TypeMeta};
-use reinhardt_cloud_types::crd::{DatabaseSpec, ReinhardtApp};
+use reinhardt_cloud_types::crd::{DatabaseEngine, DatabaseSpec, ReinhardtApp};
 
 use super::platform::{Platform, PlatformConfig};
 use super::secrets::{build_db_credentials_secret, generate_random_password};
+
+/// Map a `DatabaseEngine` variant to the lowercase engine name used by AWS RDS.
+///
+/// Returns `None` for SQLite since it is not supported by cloud providers.
+fn engine_to_string(engine: &DatabaseEngine) -> Option<&str> {
+	match engine {
+		DatabaseEngine::Postgresql => Some("postgres"),
+		DatabaseEngine::Mysql => Some("mysql"),
+		DatabaseEngine::Sqlite => None,
+	}
+}
+
+/// Return the default engine version for AWS RDS based on the engine type.
+fn default_engine_version(engine: &DatabaseEngine) -> &str {
+	match engine {
+		DatabaseEngine::Postgresql => "16",
+		DatabaseEngine::Mysql => "8.0",
+		DatabaseEngine::Sqlite => "",
+	}
+}
+
+/// Return the maximum identifier length for a given database engine.
+///
+/// MySQL usernames are limited to 32 characters, PostgreSQL identifiers
+/// to 63 characters, and SQLite has no practical limit (use 63 as
+/// a reasonable upper bound).
+fn max_identifier_len(engine: &DatabaseEngine) -> usize {
+	match engine {
+		DatabaseEngine::Mysql => 32,
+		DatabaseEngine::Postgresql | DatabaseEngine::Sqlite => 63,
+	}
+}
+
+/// Sanitize an application name for use as a database username or db name.
+///
+/// The identifier must start with a letter, contain only ASCII alphanumeric
+/// characters and underscores, and be truncated to the engine-specific
+/// maximum length (MySQL: 32, PostgreSQL: 63).
+fn sanitize_identifier(name: &str, engine: &DatabaseEngine) -> String {
+	let sanitized: String = name
+		.chars()
+		.map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+		.collect();
+	// Ensure it starts with a letter
+	let sanitized = if sanitized.starts_with(|c: char| c.is_ascii_alphabetic()) {
+		sanitized
+	} else {
+		format!("app_{sanitized}")
+	};
+	let max_len = max_identifier_len(engine);
+	sanitized.chars().take(max_len).collect()
+}
+
+/// Build a GCP Cloud SQL `databaseVersion` string from engine and optional
+/// version (e.g. `POSTGRES_16`, `MYSQL_8_0`).
+///
+/// Returns `None` for SQLite since it is not supported by Cloud SQL.
+/// Version strings are normalized: dots are replaced with underscores
+/// to produce valid GCP version identifiers (e.g. `8.0` becomes `MYSQL_8_0`).
+fn engine_to_gcp_version(engine: &DatabaseEngine, version: Option<&str>) -> Option<String> {
+	let prefix = match engine {
+		DatabaseEngine::Postgresql => "POSTGRES",
+		DatabaseEngine::Mysql => "MYSQL",
+		DatabaseEngine::Sqlite => return None,
+	};
+	match version {
+		Some(v) => {
+			// Normalize dots to underscores for GCP format
+			let normalized = v.replace('.', "_");
+			Some(format!("{prefix}_{normalized}"))
+		}
+		None => match engine {
+			DatabaseEngine::Postgresql => Some("POSTGRES_16".to_string()),
+			DatabaseEngine::Mysql => Some("MYSQL_8_0".to_string()),
+			DatabaseEngine::Sqlite => None,
+		},
+	}
+}
 
 /// Represents a database-related Kubernetes resource produced by the
 /// inference engine.
@@ -62,8 +140,8 @@ pub(crate) fn infer_database_resources(
 
 	match platform.platform {
 		Platform::Onpremise => build_onprem_postgres(&app_name, &namespace, db, storage_gb),
-		Platform::Aws => build_aws_rds(&app_name, &namespace, db),
-		Platform::Gcp => build_gcp_cloud_sql(&app_name, &namespace, db, storage_gb),
+		Platform::Aws => build_aws_rds(&app_name, &namespace, db, platform),
+		Platform::Gcp => build_gcp_cloud_sql(&app_name, &namespace, db, storage_gb, platform),
 	}
 }
 
@@ -179,8 +257,35 @@ fn build_onprem_postgres(
 	]
 }
 
-/// Build AWS RDS resources via ACK (stub: returns DynamicObject for DBInstance + Secret).
-fn build_aws_rds(app_name: &str, namespace: &str, _db: &DatabaseSpec) -> Vec<DatabaseResource> {
+/// Build AWS RDS resources via ACK (DBInstance DynamicObject + credentials Secret).
+///
+/// Returns an empty `Vec` for SQLite since AWS RDS does not support it.
+fn build_aws_rds(
+	app_name: &str,
+	namespace: &str,
+	db: &DatabaseSpec,
+	platform: &PlatformConfig,
+) -> Vec<DatabaseResource> {
+	let engine = match engine_to_string(&db.engine) {
+		Some(e) => e,
+		// SQLite is not supported by AWS RDS — skip resource generation
+		None => return vec![],
+	};
+	let engine_version = db
+		.version
+		.as_deref()
+		.unwrap_or_else(|| default_engine_version(&db.engine));
+	let instance_class = db
+		.instance_class
+		.as_deref()
+		.unwrap_or(&platform.defaults.database.instance_class)
+		.to_string();
+	let allocated_storage = db
+		.storage_gb
+		.unwrap_or(platform.defaults.database.storage_gb);
+	let master_username = sanitize_identifier(app_name, &db.engine);
+	let db_name = sanitize_identifier(&format!("{app_name}_db"), &db.engine);
+
 	let db_instance = DynamicObject {
 		metadata: ObjectMeta {
 			name: Some(format!("{app_name}-rds")),
@@ -192,11 +297,25 @@ fn build_aws_rds(app_name: &str, namespace: &str, _db: &DatabaseSpec) -> Vec<Dat
 			api_version: "rds.services.k8s.aws/v1alpha1".to_string(),
 			kind: "DBInstance".to_string(),
 		}),
-		data: serde_json::json!({}),
+		data: serde_json::json!({
+			"spec": {
+				"engine": engine,
+				"engineVersion": engine_version,
+				"dbInstanceClass": instance_class,
+				"allocatedStorage": allocated_storage,
+				"masterUsername": master_username,
+				"masterUserPassword": {
+					"namespace": namespace,
+					"name": format!("{app_name}-db-credentials"),
+					"key": "password"
+				},
+				"dbName": db_name
+			}
+		}),
 	};
 
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
+	let secret = build_db_credentials_secret(app_name, namespace, &master_username, &password);
 
 	vec![
 		DatabaseResource::Dynamic(db_instance),
@@ -205,13 +324,28 @@ fn build_aws_rds(app_name: &str, namespace: &str, _db: &DatabaseSpec) -> Vec<Dat
 }
 
 /// Build GCP Cloud SQL resources via Config Connector
-/// (stub: returns DynamicObjects for SQLInstance, SQLDatabase, SQLUser + Secret).
+/// (SQLInstance, SQLDatabase, SQLUser DynamicObjects + credentials Secret).
+///
+/// Returns an empty `Vec` for SQLite since Cloud SQL does not support it.
 fn build_gcp_cloud_sql(
 	app_name: &str,
 	namespace: &str,
-	_db: &DatabaseSpec,
-	_storage_gb: i32,
+	db: &DatabaseSpec,
+	storage_gb: i32,
+	platform: &PlatformConfig,
 ) -> Vec<DatabaseResource> {
+	let database_version = match engine_to_gcp_version(&db.engine, db.version.as_deref()) {
+		Some(v) => v,
+		// SQLite is not supported by GCP Cloud SQL — skip resource generation
+		None => return vec![],
+	};
+	let tier = db
+		.instance_class
+		.as_deref()
+		.unwrap_or("db-f1-micro")
+		.to_string();
+	let region = &platform.defaults.database.region;
+
 	let sql_instance = DynamicObject {
 		metadata: ObjectMeta {
 			name: Some(format!("{app_name}-sql-instance")),
@@ -223,8 +357,22 @@ fn build_gcp_cloud_sql(
 			api_version: "sql.cnrm.cloud.google.com/v1beta1".to_string(),
 			kind: "SQLInstance".to_string(),
 		}),
-		data: serde_json::json!({}),
+		data: serde_json::json!({
+			"spec": {
+				"databaseVersion": database_version,
+				"region": region,
+				"settings": {
+					"tier": tier,
+					"dataDiskSizeGb": storage_gb,
+					"ipConfiguration": {
+						"ipv4Enabled": false
+					}
+				}
+			}
+		}),
 	};
+
+	let instance_ref_name = format!("{app_name}-sql-instance");
 
 	let sql_database = DynamicObject {
 		metadata: ObjectMeta {
@@ -237,7 +385,15 @@ fn build_gcp_cloud_sql(
 			api_version: "sql.cnrm.cloud.google.com/v1beta1".to_string(),
 			kind: "SQLDatabase".to_string(),
 		}),
-		data: serde_json::json!({}),
+		data: serde_json::json!({
+			"spec": {
+				"instanceRef": {
+					"name": instance_ref_name
+				},
+				"charset": "UTF8",
+				"collation": "en_US.UTF8"
+			}
+		}),
 	};
 
 	let sql_user = DynamicObject {
@@ -251,11 +407,26 @@ fn build_gcp_cloud_sql(
 			api_version: "sql.cnrm.cloud.google.com/v1beta1".to_string(),
 			kind: "SQLUser".to_string(),
 		}),
-		data: serde_json::json!({}),
+		data: serde_json::json!({
+			"spec": {
+				"instanceRef": {
+					"name": instance_ref_name
+				},
+				"password": {
+					"valueFrom": {
+						"secretKeyRef": {
+							"name": format!("{app_name}-db-credentials"),
+							"key": "password"
+						}
+					}
+				}
+			}
+		}),
 	};
 
+	let sanitized_user = sanitize_identifier(app_name, &db.engine);
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, app_name, &password);
+	let secret = build_db_credentials_secret(app_name, namespace, &sanitized_user, &password);
 
 	vec![
 		DatabaseResource::Dynamic(sql_instance),
@@ -474,7 +645,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn aws_dynamic_object_has_rds_type() {
+	fn aws_dynamic_object_has_rds_type_and_non_empty_spec() {
 		// Arrange
 		let db_spec = DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -493,6 +664,8 @@ mod tests {
 			let types = obj.types.as_ref().unwrap();
 			assert_eq!(types.kind, "DBInstance");
 			assert_eq!(types.api_version, "rds.services.k8s.aws/v1alpha1");
+			assert!(obj.data["spec"].is_object(), "spec must be non-empty");
+			assert!(obj.data["spec"]["engine"].is_string());
 		} else {
 			panic!("Expected Dynamic as first resource");
 		}
@@ -522,7 +695,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn gcp_dynamic_objects_have_config_connector_types() {
+	fn gcp_dynamic_objects_have_config_connector_types_and_non_empty_specs() {
 		// Arrange
 		let db_spec = DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -540,6 +713,10 @@ mod tests {
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
 			let types = obj.types.as_ref().unwrap();
 			assert_eq!(types.kind, "SQLInstance");
+			assert!(
+				obj.data["spec"].is_object(),
+				"SQLInstance spec must be non-empty"
+			);
 		} else {
 			panic!("Expected Dynamic as first resource");
 		}
@@ -547,6 +724,10 @@ mod tests {
 		if let DatabaseResource::Dynamic(obj) = &resources[1] {
 			let types = obj.types.as_ref().unwrap();
 			assert_eq!(types.kind, "SQLDatabase");
+			assert!(
+				obj.data["spec"].is_object(),
+				"SQLDatabase spec must be non-empty"
+			);
 		} else {
 			panic!("Expected Dynamic as second resource");
 		}
@@ -554,6 +735,10 @@ mod tests {
 		if let DatabaseResource::Dynamic(obj) = &resources[2] {
 			let types = obj.types.as_ref().unwrap();
 			assert_eq!(types.kind, "SQLUser");
+			assert!(
+				obj.data["spec"].is_object(),
+				"SQLUser spec must be non-empty"
+			);
 		} else {
 			panic!("Expected Dynamic as third resource");
 		}
@@ -621,6 +806,436 @@ mod tests {
 			assert_eq!(container.image.as_deref(), Some("postgres:16"));
 		} else {
 			panic!("Expected StatefulSet as first resource");
+		}
+	}
+
+	// --- Helper function tests ---
+
+	#[rstest]
+	#[case(DatabaseEngine::Postgresql, Some("postgres"))]
+	#[case(DatabaseEngine::Mysql, Some("mysql"))]
+	#[case(DatabaseEngine::Sqlite, None)]
+	fn engine_to_string_maps_correctly(
+		#[case] engine: DatabaseEngine,
+		#[case] expected: Option<&str>,
+	) {
+		// Act
+		let result = engine_to_string(&engine);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	#[case(DatabaseEngine::Postgresql, Some("15"), Some("POSTGRES_15"))]
+	#[case(DatabaseEngine::Postgresql, None, Some("POSTGRES_16"))]
+	#[case(DatabaseEngine::Mysql, Some("8.0"), Some("MYSQL_8_0"))]
+	#[case(DatabaseEngine::Mysql, None, Some("MYSQL_8_0"))]
+	#[case(DatabaseEngine::Sqlite, None, None)]
+	fn engine_to_gcp_version_maps_correctly(
+		#[case] engine: DatabaseEngine,
+		#[case] version: Option<&str>,
+		#[case] expected: Option<&str>,
+	) {
+		// Act
+		let result = engine_to_gcp_version(&engine, version);
+
+		// Assert
+		assert_eq!(result.as_deref(), expected);
+	}
+
+	// --- AWS RDS field mapping tests ---
+
+	#[rstest]
+	fn aws_rds_maps_postgresql_engine() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: Some("15".to_string()),
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["engine"], "postgres");
+			assert_eq!(spec["engineVersion"], "15");
+			assert_eq!(spec["dbName"], "myapp_db");
+			assert_eq!(spec["masterUsername"], "myapp");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn aws_rds_maps_mysql_engine() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Mysql,
+			instance_class: None,
+			storage_gb: None,
+			version: Some("8.0".to_string()),
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["engine"], "mysql");
+			assert_eq!(spec["engineVersion"], "8.0");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn aws_rds_uses_custom_instance_class() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: Some("db.r5.large".to_string()),
+			storage_gb: Some(100),
+			version: Some("16".to_string()),
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["dbInstanceClass"], "db.r5.large");
+			assert_eq!(spec["allocatedStorage"], 100);
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn aws_rds_uses_platform_defaults_when_optional_fields_unset() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert — values should come from platform.defaults.database
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let spec = &obj.data["spec"];
+			assert_eq!(
+				spec["dbInstanceClass"],
+				platform.defaults.database.instance_class
+			);
+			assert_eq!(
+				spec["allocatedStorage"],
+				platform.defaults.database.storage_gb
+			);
+			assert_eq!(spec["engineVersion"], "16");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn aws_rds_master_user_password_references_credentials_secret() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let pwd_ref = &obj.data["spec"]["masterUserPassword"];
+			assert_eq!(pwd_ref["namespace"], "default");
+			assert_eq!(pwd_ref["name"], "myapp-db-credentials");
+			assert_eq!(pwd_ref["key"], "password");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	// --- GCP Cloud SQL field mapping tests ---
+
+	#[rstest]
+	fn gcp_sql_instance_maps_postgresql_version() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(30),
+			version: Some("15".to_string()),
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["databaseVersion"], "POSTGRES_15");
+			assert_eq!(spec["region"], "us-central1");
+			assert_eq!(spec["settings"]["dataDiskSizeGb"], 30);
+			assert_eq!(spec["settings"]["tier"], "db-f1-micro");
+			assert_eq!(spec["settings"]["ipConfiguration"]["ipv4Enabled"], false);
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn gcp_sql_instance_maps_mysql_version() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Mysql,
+			instance_class: None,
+			storage_gb: None,
+			version: Some("8_0".to_string()),
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			assert_eq!(obj.data["spec"]["databaseVersion"], "MYSQL_8_0");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn gcp_sql_instance_uses_custom_tier() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: Some("db-custom-2-8192".to_string()),
+			storage_gb: Some(50),
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			let settings = &obj.data["spec"]["settings"];
+			assert_eq!(settings["tier"], "db-custom-2-8192");
+			assert_eq!(settings["dataDiskSizeGb"], 50);
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn gcp_sql_instance_defaults_version_when_unset() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			assert_eq!(obj.data["spec"]["databaseVersion"], "POSTGRES_16");
+		} else {
+			panic!("Expected Dynamic as first resource");
+		}
+	}
+
+	#[rstest]
+	fn gcp_sql_database_references_instance() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[1] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["instanceRef"]["name"], "myapp-sql-instance");
+			assert_eq!(spec["charset"], "UTF8");
+			assert_eq!(spec["collation"], "en_US.UTF8");
+		} else {
+			panic!("Expected Dynamic as second resource");
+		}
+	}
+
+	#[rstest]
+	fn gcp_sql_user_references_instance_and_credentials() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[2] {
+			let spec = &obj.data["spec"];
+			assert_eq!(spec["instanceRef"]["name"], "myapp-sql-instance");
+			let secret_ref = &spec["password"]["valueFrom"]["secretKeyRef"];
+			assert_eq!(secret_ref["name"], "myapp-db-credentials");
+			assert_eq!(secret_ref["key"], "password");
+		} else {
+			panic!("Expected Dynamic as third resource");
+		}
+	}
+
+	// --- SQLite cloud provider tests ---
+
+	#[rstest]
+	fn aws_sqlite_returns_empty_resources() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Sqlite,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(resources.is_empty());
+	}
+
+	#[rstest]
+	fn gcp_sqlite_returns_empty_resources() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Sqlite,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(resources.is_empty());
+	}
+
+	// --- Sanitization tests ---
+
+	#[rstest]
+	#[case("myapp", "myapp")]
+	#[case("my-app", "my_app")]
+	#[case("my.app.name", "my_app_name")]
+	#[case("123app", "app_123app")]
+	fn sanitize_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
+		// Act
+		let result = sanitize_identifier(input, &DatabaseEngine::Postgresql);
+
+		// Assert
+		assert_eq!(result, expected);
+	}
+
+	#[rstest]
+	fn sanitize_identifier_truncates_to_mysql_limit() {
+		// Arrange
+		let long_name = "a".repeat(64);
+
+		// Act
+		let result = sanitize_identifier(&long_name, &DatabaseEngine::Mysql);
+
+		// Assert — MySQL limit is 32 characters
+		assert_eq!(result.len(), 32);
+	}
+
+	#[rstest]
+	fn sanitize_identifier_truncates_to_postgresql_limit() {
+		// Arrange
+		let long_name = "a".repeat(128);
+
+		// Act
+		let result = sanitize_identifier(&long_name, &DatabaseEngine::Postgresql);
+
+		// Assert — PostgreSQL limit is 63 characters
+		assert_eq!(result.len(), 63);
+	}
+
+	// --- Region configuration tests ---
+
+	#[rstest]
+	fn gcp_uses_platform_region() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::gcp_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Dynamic(obj) = &resources[0] {
+			assert_eq!(obj.data["spec"]["region"], "us-central1");
+		} else {
+			panic!("Expected Dynamic as first resource");
 		}
 	}
 }

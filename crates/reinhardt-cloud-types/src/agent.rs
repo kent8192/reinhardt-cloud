@@ -62,6 +62,14 @@ pub enum AgentEvent {
 		message: String,
 		timestamp: DateTime<Utc>,
 	},
+	/// A command operation (rollback, scale, restart) has completed.
+	CommandStatus {
+		app_name: String,
+		command_type: String,
+		success: bool,
+		message: String,
+		timestamp: DateTime<Utc>,
+	},
 }
 
 /// Health status of a cluster agent.
@@ -160,6 +168,13 @@ mod tests {
 			},
 			AgentEvent::Error {
 				message: "connection lost".to_string(),
+				timestamp: now,
+			},
+			AgentEvent::CommandStatus {
+				app_name: "web".to_string(),
+				command_type: "rollback".to_string(),
+				success: true,
+				message: "Rollback applied".to_string(),
 				timestamp: now,
 			},
 		];
