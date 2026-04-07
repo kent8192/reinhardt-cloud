@@ -604,11 +604,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
@@ -646,11 +646,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
@@ -679,11 +679,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
