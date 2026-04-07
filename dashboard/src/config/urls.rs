@@ -29,22 +29,27 @@ use reinhardt::{
 };
 /// Build the list of allowed origins for the OriginGuard middleware.
 ///
-/// Includes `http://localhost:{PORT}` and `http://127.0.0.1:{PORT}` by default.
-/// Additional origins can be supplied via `extra` for test environments where
-/// the server binds to a random port.
+/// Reads `[cors].allow_origins` from `ProjectSettings` and appends any extra
+/// origins supplied by the caller (used by tests to add random-port URLs).
 ///
 /// Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
-/// Remove this workaround when `CoreSettings.allowed_origins` is available.
+/// Remove this workaround when `CoreSettings.allowed_origins` is available
+/// and origins can be resolved purely via DI.
 ///
 /// Ideal implementation (without workaround):
 ///   let origins = di_ctx.get_singleton::<AllowedOrigins>().unwrap();
 ///   OriginGuardMiddleware::new(origins.0.clone())
 fn allowed_origins(extra: &[String]) -> Vec<String> {
-	let port = std::env::var("PORT").unwrap_or("8000".to_string());
-	let mut origins = vec![
-		format!("http://localhost:{port}"),
-		format!("http://127.0.0.1:{port}"),
-	];
+	let settings = crate::config::settings::get_settings();
+	let mut origins = settings.cors.allow_origins.clone();
+	// Filter out wildcard "*" — OriginGuard uses exact matching
+	origins.retain(|o| o != "*");
+	// Add default localhost origins if settings didn't provide any
+	if origins.is_empty() {
+		let port = std::env::var("PORT").unwrap_or("8000".to_string());
+		origins.push(format!("http://localhost:{port}"));
+		origins.push(format!("http://127.0.0.1:{port}"));
+	}
 	origins.extend_from_slice(extra);
 	origins
 }

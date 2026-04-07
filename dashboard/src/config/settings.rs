@@ -49,7 +49,8 @@ use std::path::PathBuf;
 /// - `[i18n]` → `I18nSettings`
 /// - `[static_files]` → `StaticSettings`
 /// - `[media]` → `MediaSettings`
-#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings)]
+/// - `[cors]` → `CorsSettings` (includes `allow_origins` used by `OriginGuardMiddleware`)
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
