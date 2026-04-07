@@ -1,7 +1,6 @@
 //! Deploy command: deploys an application to the Reinhardt Cloud platform.
 
 use clap::Args;
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -173,11 +172,14 @@ fn build_reinhardt_app_crd(
 /// Writes the CRD to a temporary file, invokes `kubectl apply -f <tempfile>`,
 /// and reports success or failure. The temporary file is cleaned up automatically
 /// when the `NamedTempFile` is dropped.
+// Used by tests to verify CRD YAML serialization and kubectl argument construction.
+#[cfg(test)]
 fn apply_crd_directly(
 	crd: &serde_yaml::Value,
 	namespace: &str,
 	cluster: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	use std::io::Write;
 	let yaml = serde_yaml::to_string(crd)?;
 
 	let mut tmpfile = tempfile::NamedTempFile::new()
@@ -218,7 +220,7 @@ fn apply_crd_directly(
 /// Executes the deploy command.
 pub(crate) async fn execute(
 	args: &DeployArgs,
-	_client: &ReinhardtCloudClient,
+	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
@@ -291,14 +293,63 @@ pub(crate) async fn execute(
 		return Ok(());
 	}
 
+	let yaml = serde_yaml::to_string(&crd)?;
+
 	println!("Deploying {app_name} with image {image} ({replicas} replicas)...");
-	if args.direct {
-		apply_crd_directly(&crd, &args.namespace, args.cluster.as_deref())?;
-	}
 	if let Some(ref cluster) = args.cluster
 		&& !args.direct
 	{
 		println!("Target cluster: {cluster}");
+	}
+
+	if args.direct {
+		// Direct mode: apply CRD via kubectl using async I/O
+		let mut child = tokio::process::Command::new("kubectl")
+			.args(["apply", "-f", "-", "-n", &args.namespace])
+			.stdin(std::process::Stdio::piped())
+			.stdout(std::process::Stdio::inherit())
+			.stderr(std::process::Stdio::inherit())
+			.spawn()
+			.map_err(|e| format!("failed to run kubectl: {e}"))?;
+
+		if let Some(mut stdin) = child.stdin.take() {
+			use tokio::io::AsyncWriteExt;
+			stdin
+				.write_all(yaml.as_bytes())
+				.await
+				.map_err(|e| format!("failed to write CRD to kubectl stdin: {e}"))?;
+			// Close stdin so kubectl sees EOF and proceeds.
+			stdin
+				.shutdown()
+				.await
+				.map_err(|e| format!("failed to close kubectl stdin: {e}"))?;
+		}
+
+		let exit_status = child
+			.wait()
+			.await
+			.map_err(|e| format!("failed to wait for kubectl: {e}"))?;
+		if !exit_status.success() {
+			return Err(format!("kubectl apply failed with status {exit_status}").into());
+		}
+		println!(
+			"CRD applied directly to Kubernetes (namespace: {})",
+			args.namespace
+		);
+	} else {
+		// API mode: send JSON payload to the dashboard API
+		match client
+			.deploy(&app_name, &image, args.cluster.as_deref())
+			.await
+		{
+			Ok(response) => {
+				println!("Deployment submitted via API.");
+				tracing::debug!("API response: {response}");
+			}
+			Err(e) => {
+				return Err(format!("failed to deploy via API: {e}").into());
+			}
+		}
 	}
 
 	Ok(())

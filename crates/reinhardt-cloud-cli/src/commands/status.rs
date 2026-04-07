@@ -3,9 +3,9 @@
 use clap::Args;
 use colored::Colorize;
 use serde::Deserialize;
-use std::process::Command;
+use tokio::process::Command;
 
-use crate::client::ReinhardtCloudClient;
+use crate::client::{ClientError, ReinhardtCloudClient};
 
 /// Check deployment status.
 #[derive(Debug, Args)]
@@ -64,33 +64,6 @@ struct ResourceStatus {
 	conditions: Vec<StatusCondition>,
 	#[serde(default, rename = "readyReplicas")]
 	ready_replicas: Option<i32>,
-}
-
-/// Queries kubectl for a ReinhardtApp resource and returns the JSON output.
-fn query_kubectl_status(
-	name: &str,
-	namespace: &str,
-	cluster: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
-	let mut cmd = Command::new("kubectl");
-	cmd.args(["get", "reinhardtapp", name, "-n", namespace, "-o", "json"]);
-
-	if let Some(ctx) = cluster {
-		cmd.args(["--context", ctx]);
-	}
-
-	let output = cmd
-		.output()
-		.map_err(|e| format!("Failed to run kubectl (is it installed?): {e}"))?;
-
-	if output.status.success() {
-		let stdout = String::from_utf8(output.stdout)
-			.map_err(|e| format!("Invalid UTF-8 in kubectl output: {e}"))?;
-		Ok(stdout)
-	} else {
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		Err(format!("kubectl get failed: {stderr}").into())
-	}
 }
 
 /// Determines the overall status label from conditions.
@@ -164,28 +137,118 @@ fn display_status(resource: &ReinhardtAppResource) {
 	}
 }
 
+/// Returns `true` when the error looks like a transport-level failure
+/// (connection refused, timeout, DNS resolution) rather than an API error.
+fn is_transport_error(err: &ClientError) -> bool {
+	match err {
+		ClientError::RequestError(e) => e.is_connect() || e.is_timeout(),
+		_ => false,
+	}
+}
+
 /// Executes the status command.
+///
+/// Tries the dashboard API first; falls back to `kubectl` only when the
+/// API is unreachable (transport-level errors). Other errors are propagated
+/// directly so they are not masked by the fallback.
 pub(crate) async fn execute(
 	args: &StatusArgs,
-	_client: &ReinhardtCloudClient,
+	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let app_name = args.name.as_deref().unwrap_or("default-app");
 	println!("Checking status of {app_name}...\n");
 
-	let json_output = query_kubectl_status(app_name, &args.namespace, args.cluster.as_deref())?;
+	// Try the dashboard API first
+	match client.get_status(app_name).await {
+		Ok(status) => {
+			let formatted =
+				serde_json::to_string_pretty(&status).unwrap_or_else(|_| status.to_string());
+			println!("{formatted}");
+			Ok(())
+		}
+		Err(e) if is_transport_error(&e) => {
+			tracing::warn!("Dashboard API unreachable, falling back to kubectl: {e}");
+			eprintln!("Dashboard API unreachable, falling back to kubectl...");
+			kubectl_status(app_name, &args.namespace, args.cluster.as_deref()).await
+		}
+		Err(e) => Err(format!("API error: {e}").into()),
+	}
+}
 
-	let resource: ReinhardtAppResource = serde_json::from_str(&json_output)
-		.map_err(|e| format!("Failed to parse kubectl JSON output: {e}"))?;
+/// Queries deployment status directly via `kubectl` with rich display.
+async fn kubectl_status(
+	app_name: &str,
+	namespace: &str,
+	cluster: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+	let output = {
+		let mut cmd = Command::new("kubectl");
+		cmd.args([
+			"get",
+			"reinhardtapp",
+			app_name,
+			"-n",
+			namespace,
+			"-o",
+			"json",
+		]);
+		if let Some(ctx) = cluster {
+			cmd.args(["--context", ctx]);
+		}
+		cmd.output()
+			.await
+			.map_err(|e| format!("failed to run kubectl: {e}"))?
+	};
 
-	display_status(&resource);
+	if output.status.success() {
+		let stdout = String::from_utf8_lossy(&output.stdout);
+		let resource: ReinhardtAppResource = serde_json::from_str(&stdout)
+			.map_err(|e| format!("failed to parse kubectl output: {e}"))?;
 
-	Ok(())
+		display_status(&resource);
+		Ok(())
+	} else {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		Err(format!("kubectl get reinhardtapp failed: {stderr}").into())
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use rstest::rstest;
+
+	#[rstest]
+	fn test_status_args_default_name() {
+		// Arrange
+		let args = StatusArgs {
+			name: None,
+			namespace: "default".to_string(),
+			cluster: None,
+		};
+
+		// Act
+		let name = args.name.as_deref().unwrap_or("default-app");
+
+		// Assert
+		assert_eq!(name, "default-app");
+	}
+
+	#[rstest]
+	fn test_status_args_custom_name() {
+		// Arrange
+		let args = StatusArgs {
+			name: Some("my-app".to_string()),
+			namespace: "default".to_string(),
+			cluster: None,
+		};
+
+		// Act
+		let name = args.name.as_deref().unwrap_or("default-app");
+
+		// Assert
+		assert_eq!(name, "my-app");
+	}
 
 	#[rstest]
 	#[case("Ready", "True", "Ready")]
@@ -369,19 +432,5 @@ mod tests {
 		assert_eq!(resource.spec.image, "new-app:v1");
 		assert!(resource.spec.replicas.is_none());
 		assert!(resource.status.is_none());
-	}
-
-	#[rstest]
-	fn test_query_kubectl_status_fails_without_kubectl() {
-		// Arrange & Act
-		let result = query_kubectl_status("test-app", "default", None);
-
-		// Assert: should fail because kubectl is not available in test env
-		assert!(result.is_err());
-		let err = result.unwrap_err().to_string();
-		assert!(
-			err.contains("kubectl"),
-			"expected kubectl-related error, got: {err}"
-		);
 	}
 }
