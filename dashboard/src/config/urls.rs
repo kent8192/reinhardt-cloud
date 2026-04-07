@@ -27,8 +27,40 @@ use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
 	SecurityMiddleware,
 };
+/// Build the list of allowed origins for the OriginGuard middleware.
+///
+/// Includes `http://localhost:{PORT}` and `http://127.0.0.1:{PORT}` by default.
+/// Additional origins can be supplied via `extra` for test environments where
+/// the server binds to a random port.
+fn allowed_origins(extra: &[String]) -> Vec<String> {
+	let port = std::env::var("PORT").unwrap_or("8000".to_string());
+	let mut origins = vec![
+		format!("http://localhost:{port}"),
+		format!("http://127.0.0.1:{port}"),
+	];
+	origins.extend_from_slice(extra);
+	origins
+}
+
+/// Build the router with default allowed origins.
+///
+/// For test scenarios that need additional origins (e.g. a random-port test
+/// server), use [`routes_with_origins`] instead.
 #[routes]
 pub fn routes() -> UnifiedRouter {
+	routes_inner(&[])
+}
+
+/// Build the router with extra allowed origins appended to the defaults.
+///
+/// This allows test code to pass the test server URL so the
+/// `OriginGuardMiddleware` accepts requests without relying on
+/// environment variables (which would prevent parallel test execution).
+pub fn routes_with_origins(extra_origins: &[String]) -> UnifiedRouter {
+	routes_inner(extra_origins)
+}
+
+fn routes_inner(extra_origins: &[String]) -> UnifiedRouter {
 	let singleton_scope = Arc::new(SingletonScope::new());
 	let di_ctx = Arc::new(InjectionContext::builder(singleton_scope).build());
 
@@ -91,10 +123,7 @@ pub fn routes() -> UnifiedRouter {
 		.with_di_context(di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(OriginGuardMiddleware::new(vec![format!(
-			"http://localhost:{}",
-			std::env::var("PORT").unwrap_or("8000".to_string())
-		)]))
+		.with_middleware(OriginGuardMiddleware::new(allowed_origins(extra_origins)))
 		.with_middleware(CookieSessionAuthMiddleware::with_config(
 			session_backend,
 			session_config,

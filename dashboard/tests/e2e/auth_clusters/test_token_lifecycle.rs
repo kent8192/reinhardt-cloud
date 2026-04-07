@@ -6,15 +6,14 @@
 
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
-use reinhardt::test::fixtures::TestServerGuard;
-use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
+use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
+use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::routes;
+use reinhardt_cloud_dashboard::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
 
 // ============================================================================
 // Fixtures & Helpers
@@ -24,17 +23,14 @@ use reinhardt_cloud_dashboard::routes;
 async fn test_app() -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
-	TestServerGuard,
+	TestAppGuard,
 	APIClient,
 ) {
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	let router = routes().into_server();
-	let server = test_server_guard(router).await;
-	let client = api_client_from_url(&server.url);
-	client.set_header("Origin", &server.url);
+	let (server, client) = test_app_with_origin_guard().await;
 	(container, conn, server, client)
 }
 
@@ -80,7 +76,7 @@ async fn test_register_session_works_for_cluster_creation(
 	#[future] test_app: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
+		TestAppGuard,
 		APIClient,
 	),
 ) {
@@ -111,7 +107,7 @@ async fn test_login_session_works_for_cluster_creation(
 	#[future] test_app: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
+		TestAppGuard,
 		APIClient,
 	),
 ) {
@@ -162,7 +158,7 @@ async fn test_register_and_login_sessions_same_resources(
 	#[future] test_app: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
+		TestAppGuard,
 		APIClient,
 	),
 ) {
@@ -225,7 +221,7 @@ async fn test_invalid_session_rejected_at_resource_endpoint(
 	#[future] test_app: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
+		TestAppGuard,
 		APIClient,
 	),
 ) {
