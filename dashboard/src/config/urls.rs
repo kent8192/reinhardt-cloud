@@ -27,57 +27,71 @@ use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
 	SecurityMiddleware,
 };
-/// Build the list of allowed origins for the OriginGuard middleware.
-///
-/// Reads `[cors].allow_origins` from `ProjectSettings` and appends any extra
-/// origins supplied by the caller (used by tests to add random-port URLs).
-///
-/// Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
-/// Remove this workaround when `CoreSettings.allowed_origins` is available
-/// and origins can be resolved purely via DI.
-///
-/// Ideal implementation (without workaround):
-///   let origins = di_ctx.get_singleton::<AllowedOrigins>().unwrap();
-///   OriginGuardMiddleware::new(origins.0.clone())
-fn allowed_origins(extra: &[String]) -> Vec<String> {
-	let settings = crate::config::settings::get_settings();
-	let mut origins = settings.cors.allow_origins.clone();
-	// Filter out wildcard "*" — OriginGuard uses exact matching
-	origins.retain(|o| o != "*");
-	// Add default localhost origins if settings didn't provide any
-	if origins.is_empty() {
-		let port = std::env::var("PORT").unwrap_or("8000".to_string());
-		origins.push(format!("http://localhost:{port}"));
-		origins.push(format!("http://127.0.0.1:{port}"));
-	}
-	origins.extend_from_slice(extra);
-	origins
-}
 
-/// Build the router with default allowed origins.
+/// Allowed origins for the `OriginGuardMiddleware`.
 ///
-/// For test scenarios that need additional origins (e.g. a random-port test
-/// server), use [`routes_with_origins`] instead.
+/// Register in `SingletonScope` before calling `routes()` to override
+/// the default origins read from `[cors].allow_origins` in settings.
+///
+/// # Default behaviour
+///
+/// When not pre-registered, `routes()` reads `CorsSettings.allow_origins`
+/// from `ProjectSettings`, filters out `"*"` (OriginGuard uses exact
+/// matching), and falls back to `http://localhost:{PORT}` /
+/// `http://127.0.0.1:{PORT}` when the list is empty.
+///
+/// # Test override
+///
+/// ```ignore
+/// let scope = Arc::new(SingletonScope::new());
+/// scope.set(AllowedOrigins(vec![test_server_url]));
+/// let router = routes(scope);
+/// ```
+pub struct AllowedOrigins(pub Vec<String>);
+
+/// Entry point for the `#[routes]` macro (called by the framework).
+///
+/// Delegates to [`build_routes`] with a fresh `SingletonScope`.
+/// Tests should call `build_routes()` directly with a pre-configured scope.
 #[routes]
 pub fn routes() -> UnifiedRouter {
-	routes_inner(&[])
+	build_routes(Arc::new(SingletonScope::new()))
 }
 
-/// Build the router with extra allowed origins appended to the defaults.
+/// Build the router with a pre-configured `SingletonScope`.
 ///
-/// This allows test code to pass the test server URL so the
-/// `OriginGuardMiddleware` accepts requests without relying on
-/// environment variables (which would prevent parallel test execution).
+/// If `AllowedOrigins` is registered in the scope, it is used directly
+/// for the `OriginGuardMiddleware`.  Otherwise, origins are read from
+/// `[cors].allow_origins` in the project settings.
 ///
-/// Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
-/// Remove when `CoreSettings.allowed_origins` + DI override is available.
-pub fn routes_with_origins(extra_origins: &[String]) -> UnifiedRouter {
-	routes_inner(extra_origins)
-}
+/// # Test override
+///
+/// ```ignore
+/// let scope = Arc::new(SingletonScope::new());
+/// scope.set(AllowedOrigins(vec![test_server_url]));
+/// let router = build_routes(scope).into_server();
+/// ```
+pub fn build_routes(singleton_scope: Arc<SingletonScope>) -> UnifiedRouter {
+	let di_ctx = Arc::new(InjectionContext::builder(Arc::clone(&singleton_scope)).build());
 
-fn routes_inner(extra_origins: &[String]) -> UnifiedRouter {
-	let singleton_scope = Arc::new(SingletonScope::new());
-	let di_ctx = Arc::new(InjectionContext::builder(singleton_scope).build());
+	// Resolve AllowedOrigins: DI override > settings > default localhost
+	let origins = if let Some(injected) = di_ctx.get_singleton::<AllowedOrigins>() {
+		injected.0.clone()
+	} else {
+		let settings = crate::config::settings::get_settings();
+		let mut from_settings = settings.cors.allow_origins.clone();
+		// Filter out wildcard "*" — OriginGuard uses exact matching
+		from_settings.retain(|o| o != "*");
+		if from_settings.is_empty() {
+			let port = std::env::var("PORT").unwrap_or("8000".to_string());
+			vec![
+				format!("http://localhost:{port}"),
+				format!("http://127.0.0.1:{port}"),
+			]
+		} else {
+			from_settings
+		}
+	};
 
 	// Configure admin site with deferred DI registration.
 	// AdminSite is captured in DiRegistrationList and applied to the server's
@@ -138,7 +152,7 @@ fn routes_inner(extra_origins: &[String]) -> UnifiedRouter {
 		.with_di_context(di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(OriginGuardMiddleware::new(allowed_origins(extra_origins)))
+		.with_middleware(OriginGuardMiddleware::new(origins))
 		.with_middleware(CookieSessionAuthMiddleware::with_config(
 			session_backend,
 			session_config,

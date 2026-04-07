@@ -1,34 +1,25 @@
 //! Test helpers for dashboard end-to-end tests.
 //!
 //! Provides [`TestAppGuard`] which spawns the dashboard HTTP server on a
-//! random port and builds the router with that port's origin already in
-//! the `OriginGuardMiddleware` allow-list.  This avoids the 403 errors
-//! caused by the test server binding to a random port that doesn't match
-//! the default allowed origins (`localhost:8000` / `127.0.0.1:8000`).
+//! random port with `AllowedOrigins` pre-registered in the `SingletonScope`
+//! so the `OriginGuardMiddleware` accepts requests from the test client.
 //!
-//! The helper replicates the minimal server-spawning logic from
-//! `reinhardt-testkit` so the listener, router, and origin configuration
-//! can be wired together atomically — without a TOCTOU race on port
-//! numbers.
-//!
-//! Workaround for kent8192/reinhardt-web#3375 (tracked in reinhardt-cloud#297)
-//! Remove this entire module when `CoreSettings.allowed_origins` + DI-based
-//! configuration override is available. The ideal approach is to register
-//! `AllowedOrigins` in `SingletonScope` and use `InjectionContext.get_singleton()`
-//! during router construction, with tests overriding via `singleton.set()`.
+//! Uses reinhardt-web's public DI APIs (`SingletonScope::set`,
+//! `InjectionContext::get_singleton`) — no framework-internal workarounds.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use reinhardt::Handler;
+use reinhardt::di::SingletonScope;
 use reinhardt::server::{HttpServer, ShutdownCoordinator};
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::api_client_from_url;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use crate::config::urls::routes_with_origins;
+use crate::config::urls::{AllowedOrigins, build_routes};
 
 /// Guard that owns a running test server and shuts it down on drop.
 ///
@@ -88,8 +79,12 @@ async fn wait_for_server_ready(addr: SocketAddr) -> Result<(), std::io::Error> {
 	))
 }
 
-/// Spawn a test server whose `OriginGuardMiddleware` already allows the
-/// random-port origin.
+/// Spawn a test server with `AllowedOrigins` injected via DI.
+///
+/// 1. Binds a `TcpListener` to a random port
+/// 2. Registers `AllowedOrigins` in `SingletonScope` with the test server URL
+/// 3. Builds the router via `routes(scope)` — OriginGuard reads from DI
+/// 4. Spawns the HTTP server on the pre-bound listener
 ///
 /// Returns `(guard, client)` where:
 /// - `guard` keeps the server alive and shuts it down on drop
@@ -109,10 +104,11 @@ pub async fn test_app_with_origin_guard() -> (TestAppGuard, APIClient) {
 	let actual_addr = listener.local_addr().expect("Failed to get local addr");
 	let url = format!("http://{}", actual_addr);
 
-	// Build the router with this exact origin in the allow-list so that
-	// the OriginGuardMiddleware accepts requests from the test client.
-	let extra = vec![url.clone()];
-	let router = routes_with_origins(&extra).into_server();
+	// Register AllowedOrigins in DI scope — routes() reads this via
+	// get_singleton::<AllowedOrigins>() during OriginGuard construction.
+	let scope = Arc::new(SingletonScope::new());
+	scope.set(AllowedOrigins(vec![url.clone()]));
+	let router = build_routes(scope).into_server();
 
 	// Create shutdown coordinator.
 	let coordinator = Arc::new(ShutdownCoordinator::new(shutdown_timeout));
