@@ -30,6 +30,10 @@ reinhardt-cloud-k8s = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
 reinhardt-cloud-grpc = { workspace = true }
 tokio = { workspace = true }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2"
 tonic = "0.13"
 tonic-reflection = "0.13"
 tracing = { workspace = true }

@@ -40,6 +40,8 @@ enum Commands {
 	Init(commands::init::InitArgs),
 	/// Re-synchronize reinhardt-cloud.toml with current project state
 	Sync(commands::sync::SyncArgs),
+	/// Manage Git and registry credentials
+	Credentials(commands::credentials::CredentialsArgs),
 }
 
 #[tokio::main]
@@ -57,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Commands::Login(args) => commands::login::execute(args, &client).await,
 		Commands::Init(args) => commands::init::execute(args).await,
 		Commands::Sync(args) => commands::sync::execute(args).await,
+		Commands::Credentials(args) => commands::credentials::execute(args).await,
 	}
 }
 
@@ -205,6 +208,27 @@ mod tests {
 		let cli = Cli::try_parse_from(args);
 
 		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_credentials_set_command() {
+		let args = vec![
+			"reinhardt-cloud",
+			"credentials",
+			"set",
+			"github",
+			"--git-token",
+			"ghp_xxx",
+		];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_credentials_check_command() {
+		let args = vec!["reinhardt-cloud", "credentials", "check", "my-app"];
+		let cli = Cli::try_parse_from(args);
 		assert!(cli.is_ok());
 	}
 }

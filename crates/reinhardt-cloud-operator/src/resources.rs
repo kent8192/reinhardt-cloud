@@ -1,6 +1,7 @@
 //! Kubernetes resource builders for operator-managed resources.
 
 pub(crate) mod cache;
+pub(crate) mod credentials;
 pub(crate) mod database;
 pub(crate) mod deployment;
 pub(crate) mod grpc;
@@ -9,8 +10,10 @@ pub(crate) mod ingress;
 pub(crate) mod labels;
 pub(crate) mod mail;
 pub(crate) mod migration;
+pub(crate) mod preview;
 pub(crate) mod security;
 pub(crate) mod service;
+pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod worker;
 
@@ -20,6 +23,8 @@ pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
 pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
+// source::build_kaniko_job and source::should_build_from_source are used
+// directly via crate::resources::source in the reconciler.
 
 /// Extracts the namespace from a `ReinhardtApp`, returning
 /// `Error::MissingNamespace` if absent.
