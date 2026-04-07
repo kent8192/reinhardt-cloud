@@ -1,8 +1,6 @@
 //! Login command: authenticates with the Reinhardt Cloud platform.
 
 use clap::Args;
-use reqwest::Method;
-use serde::{Deserialize, Serialize};
 
 use crate::client::ReinhardtCloudClient;
 use crate::config::{Credentials, save_token};
@@ -15,19 +13,6 @@ pub(crate) struct LoginArgs {
 	pub username: String,
 }
 
-/// Request body for the login endpoint.
-#[derive(Debug, Serialize)]
-struct LoginRequest {
-	username: String,
-	password: String,
-}
-
-/// Response body from the login endpoint.
-#[derive(Debug, Deserialize)]
-struct LoginResponse {
-	token: String,
-}
-
 /// Prompts for a password using hidden input.
 ///
 /// Extracted as a function to allow tests to substitute input.
@@ -37,69 +22,67 @@ fn prompt_password() -> Result<String, Box<dyn std::error::Error>> {
 	Ok(password)
 }
 
-/// Sends login credentials and returns the JWT token.
-async fn send_login_request(
-	client: &ReinhardtCloudClient,
-	username: &str,
-	password: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-	let body = LoginRequest {
-		username: username.to_string(),
-		password: password.to_string(),
-	};
-
-	let request = client.request(Method::POST, "/api/auth/login/")?;
-	let response = request.json(&body).send().await?;
-
-	if !response.status().is_success() {
-		let status = response.status();
-		let text = response
-			.text()
-			.await
-			.unwrap_or_else(|_| "no response body".to_string());
-		return Err(format!("Login failed (HTTP {status}): {text}").into());
-	}
-
-	let login_resp: LoginResponse = response.json().await.map_err(|e| {
-		format!("Failed to parse login response (expected JSON with 'token' field): {e}")
-	})?;
-
-	Ok(login_resp.token)
-}
-
 /// Executes the login command.
+///
+/// Prompts for a password on stderr (so it works in pipelines) and
+/// authenticates via the dashboard API. On success, prints the JWT token.
 pub(crate) async fn execute(
 	args: &LoginArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	tracing::info!("attempting login");
+	tracing::info!("attempting login for user: {}", args.username);
 
 	let password = prompt_password()?;
 	if password.is_empty() {
-		return Err("Password cannot be empty".into());
+		return Err("password must not be empty".into());
 	}
 
 	println!("Logging in...");
 
-	let token = send_login_request(client, &args.username, &password).await?;
+	match client.login(&args.username, &password).await {
+		Ok(token) => {
+			tracing::debug!("received JWT token ({} bytes)", token.len());
 
-	let creds = Credentials {
-		token,
-		username: args.username.clone(),
-	};
-	save_token(&creds)?;
+			let creds = Credentials {
+				token: token.clone(),
+				username: args.username.clone(),
+			};
+			save_token(&creds)?;
 
-	println!(
-		"Login successful. Credentials saved to {:?}",
-		crate::config::credentials_path()
-	);
-	Ok(())
+			eprintln!("Login successful.");
+			println!(
+				"Credentials saved to {:?}",
+				crate::config::credentials_path()
+			);
+			// Print the token to stdout so callers can capture it
+			// (e.g. `eval $(reinhardt-cloud login ...)`).
+			// The success message goes to stderr to avoid polluting
+			// the captured output.
+			println!("{token}");
+			Ok(())
+		}
+		Err(e) => Err(format!("login failed: {e}").into()),
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serde::{Deserialize, Serialize};
+
+	/// Request body for the login endpoint.
+	#[derive(Debug, Serialize)]
+	struct LoginRequest {
+		username: String,
+		password: String,
+	}
+
+	/// Response body from the login endpoint.
+	#[derive(Debug, Deserialize)]
+	struct LoginResponse {
+		token: String,
+	}
 
 	#[rstest]
 	fn test_login_request_serialization() {

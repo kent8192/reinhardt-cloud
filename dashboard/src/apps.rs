@@ -13,3 +13,5 @@ pub mod deployments;
 pub mod realtime;
 #[cfg(native)]
 pub mod validators;
+#[cfg(native)]
+pub mod vcs;
