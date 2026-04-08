@@ -11,21 +11,21 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(test_app: (APIClient, TestUrls)) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	) {
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (server, client) = test_app_with_origin_guard().await;
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Helper: register a user and return the session cookie value.
@@ -94,15 +94,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_deployments_default_pagination(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		let session = register_and_get_session(&client).await;
 		authenticate_client(&client, &session).await;
 		let cluster_id = create_cluster(&client).await;
@@ -129,15 +129,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_deployments_page_2(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		let session = register_and_get_session(&client).await;
 		authenticate_client(&client, &session).await;
 		let cluster_id = create_cluster(&client).await;
@@ -164,15 +164,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_deployments_empty_page(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		let session = register_and_get_session(&client).await;
 		authenticate_client(&client, &session).await;
 		let cluster_id = create_cluster(&client).await;

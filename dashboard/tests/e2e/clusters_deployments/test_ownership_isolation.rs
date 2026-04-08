@@ -6,31 +6,26 @@
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
+use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 
 // ============================================================================
 // Fixtures & Helpers
 // ============================================================================
 
 #[fixture]
-async fn test_app() -> (
-	ContainerAsync<GenericImage>,
-	Arc<DatabaseConnection>,
-	TestAppGuard,
-	APIClient,
-) {
+async fn db(test_app: (APIClient, TestUrls)) -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>, APIClient, TestUrls) {
+	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	let (server, client) = test_app_with_origin_guard().await;
-	(container, conn, server, client)
+	(container, conn, client, urls)
 }
 
 async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
@@ -101,15 +96,16 @@ async fn create_deployment(client: &APIClient, app_name: &str, cluster_id: i64) 
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_two_users_full_isolation(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	),
+	test_app: (APIClient, TestUrls),
 ) {
 	// Arrange
-	let (_container, _conn, server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 
 	// --- User A: 2 clusters, 2 deployments ---
 	let session_a = register_user(&client, "iso_user_a", "iso_a@example.com").await;
@@ -121,7 +117,7 @@ async fn test_two_users_full_isolation(
 	create_deployment(&client, "app-a2", cluster_a2).await;
 
 	// --- User B: 1 cluster, 1 deployment ---
-	let client_b = api_client_from_url(&server.url);
+	let (client_b, _) = test_app;
 	let session_b = register_user(&client_b, "iso_user_b", "iso_b@example.com").await;
 	authenticate_client(&client_b, &session_b).await;
 
@@ -186,15 +182,15 @@ async fn test_two_users_full_isolation(
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_multiple_deployments_same_cluster(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, _server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 	let session = register_user(&client, "multi_deploy_user", "multi@example.com").await;
 	authenticate_client(&client, &session).await;
 

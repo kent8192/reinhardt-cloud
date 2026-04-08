@@ -12,7 +12,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 
 // ============================================================================
 // Test Fixtures
@@ -20,18 +20,13 @@ use reinhardt_cloud_dashboard::config::test_helpers::{TestAppGuard, test_app_wit
 
 /// PostgreSQL + migrations + test server fixture.
 #[fixture]
-async fn test_app() -> (
-	ContainerAsync<GenericImage>,
-	Arc<DatabaseConnection>,
-	TestAppGuard,
-	APIClient,
-) {
+async fn db(test_app: (APIClient, TestUrls)) -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>, APIClient, TestUrls) {
+	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	let (server, client) = test_app_with_origin_guard().await;
-	(container, conn, server, client)
+	(container, conn, client, urls)
 }
 
 /// Helper: register a test user and return the session cookie value.
@@ -75,15 +70,15 @@ async fn authenticate_client(client: &APIClient, session_id: &str) {
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_create_deployment_with_cluster(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, _server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 	let session = register_and_get_session(&client).await;
 	authenticate_client(&client, &session).await;
 

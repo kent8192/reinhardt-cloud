@@ -11,21 +11,21 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(test_app: (APIClient, TestUrls)) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	) {
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (server, client) = test_app_with_origin_guard().await;
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Helper: register a user and return the session cookie value.
@@ -95,15 +95,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_user_cannot_see_other_users_deployments(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
 		let session_a = register_user(&client, "user_a", "a@example.com").await;
 		authenticate_client(&client, &session_a).await;
@@ -131,15 +131,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_create_deployment_nonexistent_cluster_404(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		let session = register_user(&client, "testuser", "test@example.com").await;
 		authenticate_client(&client, &session).await;
 
@@ -171,15 +171,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_create_deployment_other_users_cluster_404(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
 		// UserA creates a cluster
 		let session_a = register_user(&client, "owner", "owner@example.com").await;
@@ -221,18 +221,18 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_deployment_ownership_decision_table(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 		#[case] cluster_exists: bool,
 		#[case] is_owner: bool,
 		#[case] expected_status: u16,
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
 		let cluster_id = if cluster_exists {
 			// Create a cluster owned by user_a

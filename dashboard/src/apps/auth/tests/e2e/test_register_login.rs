@@ -16,21 +16,21 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(test_app: (APIClient, TestUrls)) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	) {
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (server, client) = test_app_with_origin_guard().await;
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Verify POST /api/auth/register/ creates a user and returns session cookie.
@@ -38,15 +38,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_returns_session_cookie(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "newuser",
 			"email": "newuser@example.com",
@@ -55,7 +55,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 
@@ -72,22 +72,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_returns_session_cookie(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange -- register user first
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "loginuser",
 			"email": "login@example.com",
 			"password": "testpassword"
 		});
 		client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 
@@ -97,7 +97,7 @@ mod tests {
 			"password": "testpassword"
 		});
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -113,22 +113,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_duplicate_email_returns_conflict(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange -- register first user
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let first_user = json!({
 			"username": "emailuser1",
 			"email": "test@example.com",
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post("/api/auth/register/", &first_user, "json")
+			.post(&urls.auth_register, &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -140,7 +140,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/register/", &second_user, "json")
+			.post(&urls.auth_register, &second_user, "json")
 			.await
 			.expect("Second register request failed");
 
@@ -156,22 +156,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_wrong_password_fails(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange -- register user first
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "failuser",
 			"email": "fail@example.com",
 			"password": "correctpassword"
 		});
 		client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 
@@ -181,7 +181,7 @@ mod tests {
 			"password": "wrongpassword"
 		});
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -194,22 +194,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_whitespace_username_trimmed(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "  trimuser  ",
 			"email": "trim@example.com",
 			"password": "securepassword"
 		});
 		let reg_response = client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
@@ -220,7 +220,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 

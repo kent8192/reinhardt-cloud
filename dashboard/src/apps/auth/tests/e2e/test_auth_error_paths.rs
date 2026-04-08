@@ -13,21 +13,21 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(test_app: (APIClient, TestUrls)) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	) {
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (server, client) = test_app_with_origin_guard().await;
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Login with a non-existent user should not return 200.
@@ -35,15 +35,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_nonexistent_user_returns_401(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let login_data = json!({
 			"username": "ghost_user",
 			"password": "doesnotmatter"
@@ -51,7 +51,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -69,20 +69,20 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_empty_body_returns_422(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let empty_body = json!({});
 
 		// Act
 		let response = client
-			.post("/api/auth/login/", &empty_body, "json")
+			.post(&urls.auth_login, &empty_body, "json")
 			.await
 			.expect("Login request failed");
 
@@ -95,20 +95,20 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_empty_body_returns_422(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let empty_body = json!({});
 
 		// Act
 		let response = client
-			.post("/api/auth/register/", &empty_body, "json")
+			.post(&urls.auth_register, &empty_body, "json")
 			.await
 			.expect("Register request failed");
 
@@ -121,22 +121,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_duplicate_username_returns_conflict(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange -- register first user
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let first_user = json!({
 			"username": "dupeuser",
 			"email": "dupe1@example.com",
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post("/api/auth/register/", &first_user, "json")
+			.post(&urls.auth_register, &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -148,7 +148,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/register/", &second_user, "json")
+			.post(&urls.auth_register, &second_user, "json")
 			.await
 			.expect("Second register request failed");
 
@@ -163,22 +163,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_inactive_user_returns_401(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange -- register a user
-		let (_container, conn, _server, client) = test_app.await;
+		let (_container, conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "inactiveuser",
 			"email": "inactive@example.com",
 			"password": "securepassword"
 		});
 		let reg_response = client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
@@ -206,7 +206,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 

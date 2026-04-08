@@ -14,21 +14,21 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::credentials::verify_credentials;
-	use crate::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(test_app: (APIClient, TestUrls)) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	) {
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (server, client) = test_app_with_origin_guard().await;
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Helper: register a user via the API.
@@ -50,15 +50,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_valid_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(&client, "creduser", "cred@example.com", "securepassword").await;
 
 		// Act
@@ -74,15 +74,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_wrong_password(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"wrongpwuser",
@@ -106,15 +106,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_nonexistent_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, _client) = test_app.await;
+		let (_container, _conn, _client, _urls) = db.await;
 
 		// Act
 		let result = verify_credentials("ghost", "pw").await;
@@ -131,15 +131,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_inactive_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange — register user then deactivate via ORM
-		let (_container, conn, _server, client) = test_app.await;
+		let (_container, conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"inactivecred",
@@ -179,15 +179,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_whitespace_trimmed(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestAppGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"trimcreduser",

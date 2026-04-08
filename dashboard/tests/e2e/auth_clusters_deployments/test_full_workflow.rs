@@ -7,31 +7,26 @@
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
+use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestAppGuard, test_app_with_origin_guard};
+use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 
 // ============================================================================
 // Fixtures & Helpers
 // ============================================================================
 
 #[fixture]
-async fn test_app() -> (
-	ContainerAsync<GenericImage>,
-	Arc<DatabaseConnection>,
-	TestAppGuard,
-	APIClient,
-) {
+async fn db(test_app: (APIClient, TestUrls)) -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>, APIClient, TestUrls) {
+	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	let (server, client) = test_app_with_origin_guard().await;
-	(container, conn, server, client)
+	(container, conn, client, urls)
 }
 
 async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
@@ -73,15 +68,15 @@ async fn authenticate_client(client: &APIClient, session_id: &str) {
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_full_user_journey(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, _server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 	let session = register_user(&client, "journeyuser", "journey@example.com").await;
 	authenticate_client(&client, &session).await;
 
@@ -144,15 +139,16 @@ async fn test_full_user_journey(
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_two_users_independent_workflows(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestAppGuard,
 		APIClient,
+		TestUrls,
 	),
+	test_app: (APIClient, TestUrls),
 ) {
 	// Arrange
-	let (_container, _conn, server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 
 	// --- User A ---
 	let session_a = register_user(&client, "user_a", "a@example.com").await;
@@ -182,7 +178,7 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(resp.status_code(), 201);
 
 	// --- User B (new client to reset headers) ---
-	let client_b = api_client_from_url(&server.url);
+	let (client_b, _) = test_app;
 	let session_b = register_user(&client_b, "user_b", "b@example.com").await;
 	authenticate_client(&client_b, &session_b).await;
 
