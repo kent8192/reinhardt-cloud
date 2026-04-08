@@ -43,6 +43,7 @@ chrono = { workspace = true }
 ctor = "0.6"
 inventory = "0.3"
 async-trait = "0.1"
+rstest = { workspace = true }
 
 # WASM client: reinhardt with pages features only
 [target.'cfg(target_arch = "wasm32")'.dependencies]
