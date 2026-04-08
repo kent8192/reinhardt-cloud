@@ -20,7 +20,14 @@ use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 // ============================================================================
 
 #[fixture]
-async fn db(test_app: (APIClient, TestUrls)) -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>, APIClient, TestUrls) {
+async fn db(
+	test_app: (APIClient, TestUrls),
+) -> (
+	ContainerAsync<GenericImage>,
+	Arc<DatabaseConnection>,
+	APIClient,
+	TestUrls,
+) {
 	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)

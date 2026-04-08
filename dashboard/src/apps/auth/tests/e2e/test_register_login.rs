@@ -19,7 +19,9 @@ mod tests {
 	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn db(test_app: (APIClient, TestUrls)) -> (
+	async fn db(
+		test_app: (APIClient, TestUrls),
+	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
