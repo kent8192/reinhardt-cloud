@@ -13,7 +13,9 @@ use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::test::APIClient;
 use rstest::fixture;
 
-use crate::config::urls::{AllowedOrigins, make_router};
+use reinhardt::urls::prelude::UnifiedRouter;
+
+use crate::config::urls::AllowedOrigins;
 
 /// Pre-resolved URL paths for test use.
 ///
@@ -43,10 +45,13 @@ pub fn test_app() -> (APIClient, TestUrls) {
 	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	let router = tokio::task::block_in_place(|| {
-		tokio::runtime::Handle::current().block_on(make_router(di_ctx))
-	});
-	let server_router = router.into_server();
+	let router: Arc<UnifiedRouter> = tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<UnifiedRouter>())
+	})
+	.expect("Failed to resolve UnifiedRouter");
+	let server_router = Arc::try_unwrap(router)
+		.expect("UnifiedRouter has multiple owners after resolve")
+		.into_server();
 
 	let rev = |name: &str| -> String {
 		server_router
