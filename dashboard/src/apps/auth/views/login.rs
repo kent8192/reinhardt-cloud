@@ -14,7 +14,7 @@ use crate::apps::auth::services::session::create_session;
 use crate::shared::AuthResponse;
 
 /// Authenticate user against database and create a session.
-#[post("/auth/login/", name = "auth_login", pre_validate = true)]
+#[post("/login/", name = "auth_login", pre_validate = true)]
 pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	// Find user by username
 	let user = User::objects()

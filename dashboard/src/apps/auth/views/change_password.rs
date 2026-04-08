@@ -24,7 +24,7 @@ struct MessageResponse {
 /// Requires the current (old) password for verification before
 /// setting the new password.
 #[post(
-	"/auth/change-password/",
+	"/change-password/",
 	name = "auth_change_password",
 	pre_validate = true
 )]

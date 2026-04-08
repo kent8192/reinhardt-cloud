@@ -17,7 +17,7 @@ use crate::apps::deployments::serializers::DeploymentLogsResponse;
 /// Returns an empty log list as a placeholder until log persistence is
 /// implemented. Returns 404 if the deployment does not exist or is not owned
 /// by the authenticated user.
-#[get("/deployments/{id}/logs/", name = "deployment_logs")]
+#[get("/{id}/logs/", name = "deployment_logs")]
 pub async fn deployment_logs(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,

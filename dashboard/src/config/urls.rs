@@ -138,11 +138,12 @@ pub(crate) async fn make_router(di_ctx: Arc<InjectionContext>) -> UnifiedRouter 
 		// Admin panel
 		.mount("/admin/", admin_router)
 		.mount("/static/admin/", admin_static_routes())
+		.with_prefix("/api/")
 		.with_di_registrations(admin_di)
 		// REST API endpoints
-		.mount("/api/", crate::apps::auth::urls::url_patterns())
-		.mount("/api/", crate::apps::clusters::urls::url_patterns())
-		.mount("/api/", crate::apps::deployments::urls::url_patterns())
+		.mount("/auth/", crate::apps::auth::urls::url_patterns())
+		.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
+		.mount("/deployments/", crate::apps::deployments::urls::url_patterns())
 		.server(|s| {
 			s.server_fn(server::login::login::marker)
 				.server_fn(server::register::register::marker)

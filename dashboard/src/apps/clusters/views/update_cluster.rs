@@ -16,7 +16,7 @@ use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
 ///
 /// Supports partial updates: only provided fields are modified.
 /// Returns 404 if the cluster does not exist or belongs to another user.
-#[patch("/clusters/{id}/", name = "cluster_update")]
+#[patch("/{id}/", name = "cluster_update")]
 pub async fn update_cluster(
 	Path(id): Path<i64>,
 	Json(body): Json<UpdateClusterRequest>,
