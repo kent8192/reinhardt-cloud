@@ -19,7 +19,6 @@ pub async fn register(
 ) -> Result<AuthResponse, ServerFnError> {
 	use reinhardt::BaseUser;
 	use reinhardt::db::orm::Model;
-	use reinhardt::http::ResponseCookies;
 	use tracing::error;
 
 	use crate::apps::auth::models::User;
@@ -64,19 +63,13 @@ pub async fn register(
 		ServerFnError::application("Internal server error")
 	})?;
 
-	// Set session cookie via ResponseCookies extension.
+	// Set session cookie via the SharedResponseCookies jar.
 	let is_debug = crate::config::settings::get_settings().core.debug;
 	let secure_flag = if is_debug { "" } else { "; Secure" };
 	let cookie = format!(
 		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
 	);
-	let mut response_cookies = http_request
-		.inner()
-		.extensions
-		.remove::<ResponseCookies>()
-		.unwrap_or_default();
-	response_cookies.add(cookie);
-	http_request.inner().extensions.insert(response_cookies);
+	http_request.add_response_cookie(cookie);
 
 	let user_info = UserInfo::from(&created);
 	Ok(AuthResponse {

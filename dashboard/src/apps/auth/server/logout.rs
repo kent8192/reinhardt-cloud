@@ -11,7 +11,6 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 pub async fn logout(
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
 ) -> Result<bool, ServerFnError> {
-	use reinhardt::http::ResponseCookies;
 	use tracing::warn;
 
 	use crate::apps::auth::services;
@@ -43,13 +42,7 @@ pub async fn logout(
 
 	// Clear the cookie regardless of whether destruction succeeded
 	let cookie = "sessionid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string();
-	let mut response_cookies = http_request
-		.inner()
-		.extensions
-		.remove::<ResponseCookies>()
-		.unwrap_or_default();
-	response_cookies.add(cookie);
-	http_request.inner().extensions.insert(response_cookies);
+	http_request.add_response_cookie(cookie);
 
 	Ok(true)
 }
