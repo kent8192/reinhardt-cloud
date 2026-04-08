@@ -20,7 +20,9 @@
 use std::sync::Arc;
 
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
-use reinhardt::di::{InjectionContext, SingletonScope, injectable_factory};
+use reinhardt::di::{
+	ContextLevel, InjectionContext, SingletonScope, get_di_context, injectable_factory,
+};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -29,6 +31,8 @@ use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
+use crate::apps::auth::services::local_auth::LocalAuthService;
+use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
@@ -88,9 +92,11 @@ async fn create_cookie_session_config() -> CookieSessionConfig {
 pub fn routes() -> UnifiedRouter {
 	let scope = Arc::new(SingletonScope::new());
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
-	tokio::task::block_in_place(|| {
-		tokio::runtime::Handle::current().block_on(make_router(di_ctx))
+	let router: Arc<UnifiedRouter> = tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<UnifiedRouter>())
 	})
+	.expect("Failed to resolve UnifiedRouter");
+	Arc::try_unwrap(router).expect("UnifiedRouter has multiple owners after resolve")
 }
 
 /// Build the application router by resolving dependencies from DI.
@@ -99,28 +105,14 @@ pub fn routes() -> UnifiedRouter {
 /// `WsBroadcaster`, `LocalAuthService`) are resolved from the
 /// DI registry. Tests can override any of them by pre-registering
 /// in the `SingletonScope` before calling this function.
-///
-// Workaround for kent8192/reinhardt-web#3390 (tracked in reinhardt-cloud#298)
-// Remove this workaround when the upstream issue is resolved.
-//
-// Ideal implementation (without workaround):
-//   #[injectable_factory(scope = "transient")]
-//   async fn make_router(
-//       #[inject] allowed_origins: AllowedOrigins,
-//       #[inject] session_config: CookieSessionConfig,
-//       #[inject] _ws_broadcaster: WsBroadcaster,
-//       #[inject] _local_auth_service: LocalAuthService,
-//   ) -> UnifiedRouter { ... }
-pub(crate) async fn make_router(di_ctx: Arc<InjectionContext>) -> UnifiedRouter {
-	// Resolve DI-registered singletons
-	let allowed_origins = di_ctx
-		.resolve::<AllowedOrigins>()
-		.await
-		.expect("Failed to resolve AllowedOrigins");
-	let session_config = di_ctx
-		.resolve::<CookieSessionConfig>()
-		.await
-		.expect("Failed to resolve CookieSessionConfig");
+#[injectable_factory(scope = "transient")]
+async fn make_router(
+	#[inject] allowed_origins: Arc<AllowedOrigins>,
+	#[inject] session_config: Arc<CookieSessionConfig>,
+	#[inject] _ws_broadcaster: Arc<WsBroadcaster>,
+	#[inject] _local_auth_service: Arc<LocalAuthService>,
+) -> UnifiedRouter {
+	let di_ctx = get_di_context(ContextLevel::Root);
 
 	// Configure admin site with DI registration.
 	let admin_site = Arc::new(crate::config::admin::configure_admin());
