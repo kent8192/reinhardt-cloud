@@ -1,176 +1,68 @@
 //! Test helpers for dashboard end-to-end tests.
 //!
-//! Provides [`TestAppGuard`] which spawns the dashboard HTTP server on a
-//! random port with `AllowedOrigins` pre-registered in the `SingletonScope`
-//! so the `OriginGuardMiddleware` accepts requests from the test client.
+//! Provides the [`test_app`] fixture which resolves the dashboard router
+//! from the DI registry and returns an in-process [`APIClient`] that
+//! dispatches requests directly to the `Handler` without TCP.
 //!
-//! Uses reinhardt-web's public DI APIs (`SingletonScope::set`,
-//! `InjectionContext::get_singleton`).
-//!
-//! All singletons (`WsBroadcaster`, `LocalAuthService`, etc.) can be
-//! overridden by pre-registering in the scope before calling `build_routes`.
+//! URL paths are resolved via `ServerRouter::reverse()` at construction time,
+//! so tests are robust against path changes as long as route names stay the same.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
-use reinhardt::Handler;
-use reinhardt::di::SingletonScope;
-use reinhardt::server::{HttpServer, ShutdownCoordinator};
+use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::test::APIClient;
-use reinhardt::test::fixtures::api_client_from_url;
-use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
+use rstest::fixture;
 
-use crate::config::urls::{AllowedOrigins, build_routes};
+use crate::config::urls::{AllowedOrigins, make_router};
 
-/// Guard that owns a running test server and shuts it down on drop.
+/// Pre-resolved URL paths for test use.
 ///
-/// Created via [`test_app_with_origin_guard`].  The guard keeps the
-/// server task alive until it is dropped, at which point the
-/// `ShutdownCoordinator` signal is sent and the task is aborted.
-pub struct TestAppGuard {
-	/// Base URL of the running server (e.g. `http://127.0.0.1:54321`).
-	pub url: String,
-	/// Shutdown coordinator — triggers graceful shutdown on drop.
-	coordinator: Arc<ShutdownCoordinator>,
-	/// Handle to the spawned server task.
-	server_task: Option<JoinHandle<()>>,
+/// Built from `ServerRouter::reverse()` at construction time so that
+/// tests break at the right place if a route name is removed, and
+/// automatically pick up path changes without manual updates.
+pub struct TestUrls {
+	pub auth_register: String,
+	pub auth_login: String,
+	pub auth_profile: String,
+	pub auth_change_password: String,
+	pub cluster_list: String,
+	pub deployment_list: String,
 }
 
-impl Drop for TestAppGuard {
-	fn drop(&mut self) {
-		self.coordinator.shutdown();
-		if let Some(task) = self.server_task.take() {
-			task.abort();
-		}
-	}
-}
-
-/// Maximum number of TCP readiness probe attempts.
-const SERVER_READY_MAX_ATTEMPTS: u32 = 20;
-
-/// Interval between TCP readiness probe attempts.
-const SERVER_READY_PROBE_INTERVAL_MS: u64 = 50;
-
-/// Probe the server address until it accepts a TCP connection.
-async fn wait_for_server_ready(addr: SocketAddr) -> Result<(), std::io::Error> {
-	for attempt in 1..=SERVER_READY_MAX_ATTEMPTS {
-		match tokio::net::TcpStream::connect(addr).await {
-			Ok(_) => return Ok(()),
-			Err(_) if attempt < SERVER_READY_MAX_ATTEMPTS => {
-				tokio::time::sleep(Duration::from_millis(SERVER_READY_PROBE_INTERVAL_MS)).await;
-			}
-			Err(e) => {
-				return Err(std::io::Error::new(
-					std::io::ErrorKind::TimedOut,
-					format!(
-						"Server at {} not ready after {} attempts: {}",
-						addr, SERVER_READY_MAX_ATTEMPTS, e
-					),
-				));
-			}
-		}
-	}
-
-	Err(std::io::Error::new(
-		std::io::ErrorKind::TimedOut,
-		format!(
-			"Server at {} not ready after {} attempts",
-			addr, SERVER_READY_MAX_ATTEMPTS
-		),
-	))
-}
-
-/// Spawn a test server with `AllowedOrigins` injected via DI.
+/// Build the dashboard router via DI and return an in-process test client
+/// together with pre-resolved URL paths.
 ///
-/// 1. Binds a `TcpListener` to a random port
-/// 2. Registers `AllowedOrigins` in `SingletonScope` with the test server URL
-/// 3. Builds the router via `routes(scope)` — OriginGuard reads from DI
-/// 4. Spawns the HTTP server on the pre-bound listener
-///
-/// Returns `(guard, client)` where:
-/// - `guard` keeps the server alive and shuts it down on drop
-/// - `client` is an [`APIClient`] with `base_url` pointing at the server
-///
-/// # Panics
-///
-/// Panics if the TCP listener cannot bind or the server fails to become
-/// ready within the probe window.
-pub async fn test_app_with_origin_guard() -> (TestAppGuard, APIClient) {
-	let shutdown_timeout = Duration::from_secs(5);
-
-	// Bind to a random port and keep the listener to avoid TOCTOU race.
-	let listener = TcpListener::bind("127.0.0.1:0")
-		.await
-		.expect("Failed to bind TcpListener to 127.0.0.1:0");
-	let actual_addr = listener.local_addr().expect("Failed to get local addr");
-	let url = format!("http://{}", actual_addr);
-
-	// Register AllowedOrigins in DI scope — routes() reads this via
-	// get_singleton::<AllowedOrigins>() during OriginGuard construction.
+/// `AllowedOrigins` is pre-registered with `"http://testserver"` so the
+/// `OriginGuardMiddleware` accepts requests from `APIClient::from_handler`.
+/// All other singletons (`WsBroadcaster`, `LocalAuthService`,
+/// `CookieSessionConfig`) are resolved lazily via their
+/// `#[injectable_factory]` registrations.
+#[fixture]
+pub fn test_app() -> (APIClient, TestUrls) {
 	let scope = Arc::new(SingletonScope::new());
-	scope.set(AllowedOrigins(vec![url.clone()]));
-	let router = build_routes(scope).into_server();
+	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	// Create shutdown coordinator.
-	let coordinator = Arc::new(ShutdownCoordinator::new(shutdown_timeout));
-
-	// Spawn the HTTP server using the already-bound listener.
-	let server_coordinator = (*coordinator).clone();
-	let handler: Arc<dyn Handler> = Arc::new(router);
-	let server = HttpServer::new(handler);
-	let mut shutdown_rx = server_coordinator.subscribe();
-	let server_task = tokio::spawn(async move {
-		loop {
-			tokio::select! {
-				result = listener.accept() => {
-					match result {
-						Ok((stream, socket_addr)) => {
-							let handler_clone = server.handler();
-							tokio::spawn(async move {
-								if let Err(e) =
-									HttpServer::handle_connection(
-										stream,
-										socket_addr,
-										handler_clone,
-										None,
-									)
-									.await
-								{
-									eprintln!("Error handling connection: {:?}", e);
-								}
-							});
-						}
-						Err(e) => {
-							eprintln!("Error accepting connection: {:?}", e);
-							break;
-						}
-					}
-				}
-				_ = shutdown_rx.recv() => {
-					break;
-				}
-			}
-		}
+	let router = tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current().block_on(make_router(di_ctx))
 	});
+	let server_router = router.into_server();
 
-	// Wait for the server to be ready.
-	wait_for_server_ready(actual_addr)
-		.await
-		.expect("Test server failed to become ready");
-
-	let guard = TestAppGuard {
-		url: url.clone(),
-		coordinator,
-		server_task: Some(server_task),
+	let rev = |name: &str| -> String {
+		server_router
+			.reverse(name, &[])
+			.unwrap_or_else(|| panic!("Route '{name}' not found in router"))
 	};
 
-	let client = api_client_from_url(&url);
-	// Set Origin header so OriginGuardMiddleware accepts state-changing requests.
-	client
-		.set_header("Origin", &url)
-		.await
-		.expect("Failed to set Origin header on test client");
-	(guard, client)
+	let urls = TestUrls {
+		auth_register: rev("auth_register"),
+		auth_login: rev("auth_login"),
+		auth_profile: rev("auth_profile"),
+		auth_change_password: rev("auth_change_password"),
+		cluster_list: rev("cluster_list"),
+		deployment_list: rev("deployment_list"),
+	};
+
+	let client = APIClient::from_handler(server_router);
+	(client, urls)
 }
