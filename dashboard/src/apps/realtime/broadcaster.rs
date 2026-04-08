@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use reinhardt::di::injectable_factory;
 use reinhardt::{Message, RoomManager, WebSocketConnection};
 use tokio::sync::RwLock;
 
@@ -321,6 +322,13 @@ impl Default for WsBroadcaster {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+/// DI factory — auto-registers `WsBroadcaster` as a singleton.
+/// Tests can override via `SingletonScope::set()` before resolution.
+#[injectable_factory(scope = "singleton")]
+async fn create_ws_broadcaster() -> WsBroadcaster {
+	WsBroadcaster::new()
 }
 
 #[cfg(test)]

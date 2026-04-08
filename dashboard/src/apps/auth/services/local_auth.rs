@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use reinhardt::BaseUser;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::di::injectable_factory;
 use tracing::error;
 use uuid::Uuid;
 
@@ -34,6 +35,13 @@ impl Default for LocalAuthService {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+/// DI factory — auto-registers `LocalAuthService` as a singleton.
+/// Tests can override via `SingletonScope::set()` before resolution.
+#[injectable_factory(scope = "singleton")]
+async fn create_local_auth_service() -> LocalAuthService {
+	LocalAuthService::new()
 }
 
 impl LocalAuthService {
