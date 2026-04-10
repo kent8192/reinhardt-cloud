@@ -9,9 +9,9 @@
 
 use std::sync::Arc;
 
+use reinhardt::OpenApiRouter;
 use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::test::APIClient;
-use reinhardt::OpenApiRouter;
 use rstest::fixture;
 
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -73,8 +73,7 @@ pub fn test_app() -> (APIClient, TestUrls) {
 
 	// Wrap with OpenApiRouter to serve /api/openapi.json, /api/docs, /api/redoc.
 	// In production this is done by the `runserver` command; tests must do it explicitly.
-	let handler = OpenApiRouter::wrap(server_router)
-		.expect("Failed to wrap with OpenApiRouter");
+	let handler = OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 	let client = APIClient::from_handler(handler);
 	(client, urls)
 }
