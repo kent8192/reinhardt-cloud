@@ -31,7 +31,7 @@ tests {
 }
 
 script:post-response {
-  const setCookie = res.headers["set-cookie"] || "";
+  const setCookie = res.getHeader("set-cookie") || "";
   const match = setCookie.match(/sessionid=([^;]+)/);
   if (match) {
     bru.setEnvVar("sessionId", match[1]);

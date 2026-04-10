@@ -113,11 +113,11 @@ impl NotificationConsumer {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
-							id: uuid::Uuid::new_v4().to_string(),
-							level: NotificationLevel::Critical,
-							title: "Authentication required".to_string(),
-							message: "You must be authenticated to subscribe".to_string(),
-							timestamp: String::new(),
+							id: String::new(),
+							level: NotificationLevel::Warning,
+							title: "Unauthorized".to_string(),
+							message: "Authentication required".to_string(),
+							timestamp: chrono::Utc::now().to_rfc3339(),
 						}),
 					};
 				}
