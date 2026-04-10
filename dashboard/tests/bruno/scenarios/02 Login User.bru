@@ -23,7 +23,8 @@ assert {
 
 tests {
   test("should login and return session cookie", function() {
-    const setCookie = res.getHeader("set-cookie");
+    const raw = res.getHeader("set-cookie");
+    const setCookie = Array.isArray(raw) ? raw.join("; ") : raw;
     expect(setCookie).to.be.a("string");
     expect(setCookie).to.include("sessionid=");
 
