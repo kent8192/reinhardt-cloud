@@ -89,6 +89,13 @@ async fn create_cookie_session_config() -> CookieSessionConfig {
 /// The `#[inject]` parameter resolves `UnifiedRouter` from the DI registry,
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
+// Workaround for kent8192/reinhardt-web#3450 (tracked in reinhardt-cloud#304)
+// Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
+//       (*router).clone()
+//   }
 #[routes]
 pub async fn routes(#[inject] router: Arc<UnifiedRouter>) -> UnifiedRouter {
 	Arc::try_unwrap(router).expect("UnifiedRouter has multiple owners after resolve")
@@ -104,6 +111,11 @@ pub async fn routes(#[inject] router: Arc<UnifiedRouter>) -> UnifiedRouter {
 async fn make_router(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
 	#[inject] session_config: Depends<CookieSessionConfig>,
+	// Workaround for kent8192/reinhardt-web#3450 (tracked in reinhardt-cloud#304)
+	// Remove this workaround when the upstream issue is resolved.
+	//
+	// Ideal implementation (without workaround):
+	//   #[inject] _ws_broadcaster: Depends<WsBroadcaster>,
 	#[inject] _ws_broadcaster: Arc<WsBroadcaster>,
 	#[inject] _local_auth_service: Depends<LocalAuthService>,
 ) -> UnifiedRouter {
