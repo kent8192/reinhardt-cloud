@@ -27,13 +27,10 @@ tests {
     const setCookie = res.getHeader("set-cookie");
     expect(setCookie).to.be.a("string");
     expect(setCookie).to.include("sessionid=");
-  });
-}
 
-script:post-response {
-  const setCookie = res.getHeader("set-cookie") || "";
-  const match = setCookie.match(/sessionid=([^;]+)/);
-  if (match) {
-    bru.setEnvVar("sessionId", match[1]);
-  }
+    const match = setCookie.match(/sessionid=([^;]+)/);
+    if (match) {
+      bru.setEnvVar("sessionId", match[1]);
+    }
+  });
 }
