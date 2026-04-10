@@ -6,41 +6,34 @@
 
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
-use reinhardt::test::fixtures::TestServerGuard;
-use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
+use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
+use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::routes;
+use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 
 // ============================================================================
 // Fixtures & Helpers
 // ============================================================================
 
 #[fixture]
-async fn test_app() -> (
+async fn db(
+	test_app: (APIClient, TestUrls),
+) -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
-	TestServerGuard,
 	APIClient,
+	TestUrls,
 ) {
-	unsafe {
-		std::env::set_var(
-			"REINHARDT_CLOUD_JWT_SECRET",
-			"test-secret-minimum-32-bytes-long!!",
-		);
-	}
+	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	let router = routes().into_server();
-	let server = test_server_guard(router).await;
-	let client = api_client_from_url(&server.url);
-	(container, conn, server, client)
+	(container, conn, client, urls)
 }
 
 async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
@@ -54,15 +47,23 @@ async fn register_user(client: &APIClient, username: &str, email: &str) -> Strin
 		.await
 		.expect("Register request failed");
 	assert_eq!(resp.status_code(), 201);
-	let body: serde_json::Value = resp.json().expect("Failed to parse JSON response");
-	body["token"].as_str().unwrap().to_string()
+	let set_cookie = resp
+		.header("Set-Cookie")
+		.expect("Response should have Set-Cookie header");
+	let session_id = set_cookie
+		.split(';')
+		.next()
+		.unwrap()
+		.strip_prefix("sessionid=")
+		.expect("Cookie should start with sessionid=");
+	session_id.to_string()
 }
 
-async fn authenticate_client(client: &APIClient, token: &str) {
+async fn authenticate_client(client: &APIClient, session_id: &str) {
 	client
-		.set_header("Authorization", format!("Bearer {token}"))
+		.set_header("Cookie", format!("sessionid={session_id}"))
 		.await
-		.expect("Failed to set Authorization header");
+		.expect("Failed to set Cookie header");
 }
 
 // ============================================================================
@@ -74,19 +75,19 @@ async fn authenticate_client(client: &APIClient, token: &str) {
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_full_user_journey(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
 		APIClient,
+		TestUrls,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, _server, client) = test_app.await;
-	let token = register_user(&client, "journeyuser", "journey@example.com").await;
-	authenticate_client(&client, &token).await;
+	let (_container, _conn, client, _urls) = db.await;
+	let session = register_user(&client, "journeyuser", "journey@example.com").await;
+	authenticate_client(&client, &session).await;
 
-	// Act — create cluster
+	// Act -- create cluster
 	let cluster_data = json!({
 		"name": "journey-cluster",
 		"api_url": "https://journey.k8s.local:6443"
@@ -99,7 +100,7 @@ async fn test_full_user_journey(
 	let cluster: serde_json::Value = cluster_resp.json().expect("Failed to parse cluster");
 	let cluster_id = cluster["id"].as_i64().expect("Cluster id should be i64");
 
-	// Act — create deployment
+	// Act -- create deployment
 	let deployment_data = json!({
 		"app_name": "journey-app",
 		"cluster_id": cluster_id,
@@ -112,7 +113,7 @@ async fn test_full_user_journey(
 	assert_eq!(deploy_resp.status_code(), 201);
 	let deployment: serde_json::Value = deploy_resp.json().expect("Failed to parse deployment");
 
-	// Assert — deployment fields match
+	// Assert -- deployment fields match
 	assert_eq!(deployment["app_name"], "journey-app");
 	assert_eq!(deployment["cluster_id"], cluster_id);
 	assert_eq!(
@@ -122,13 +123,13 @@ async fn test_full_user_journey(
 	assert_eq!(deployment["status"], "pending");
 	assert!(deployment["id"].is_number());
 
-	// Act — list deployments
+	// Act -- list deployments
 	let list_resp = client
 		.get("/api/deployments/")
 		.await
 		.expect("List deployments failed");
 
-	// Assert — deployment appears in list with correct fields
+	// Assert -- deployment appears in list with correct fields
 	assert_eq!(list_resp.status_code(), 200);
 	let body: serde_json::Value = list_resp.json().expect("Failed to parse list response");
 	let items = body["items"].as_array().expect("items should be an array");
@@ -145,19 +146,20 @@ async fn test_full_user_journey(
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
 async fn test_two_users_independent_workflows(
-	#[future] test_app: (
+	#[future] db: (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
 		APIClient,
+		TestUrls,
 	),
+	test_app: (APIClient, TestUrls),
 ) {
 	// Arrange
-	let (_container, _conn, server, client) = test_app.await;
+	let (_container, _conn, client, _urls) = db.await;
 
 	// --- User A ---
-	let token_a = register_user(&client, "user_a", "a@example.com").await;
-	authenticate_client(&client, &token_a).await;
+	let session_a = register_user(&client, "user_a", "a@example.com").await;
+	authenticate_client(&client, &session_a).await;
 
 	let cluster_a = json!({
 		"name": "cluster-a",
@@ -183,9 +185,9 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(resp.status_code(), 201);
 
 	// --- User B (new client to reset headers) ---
-	let client_b = api_client_from_url(&server.url);
-	let token_b = register_user(&client_b, "user_b", "b@example.com").await;
-	authenticate_client(&client_b, &token_b).await;
+	let (client_b, _) = test_app;
+	let session_b = register_user(&client_b, "user_b", "b@example.com").await;
+	authenticate_client(&client_b, &session_b).await;
 
 	let cluster_b = json!({
 		"name": "cluster-b",
@@ -210,8 +212,8 @@ async fn test_two_users_independent_workflows(
 		.expect("Create deployment B failed");
 	assert_eq!(resp.status_code(), 201);
 
-	// Assert — User A sees only their resources
-	authenticate_client(&client, &token_a).await;
+	// Assert -- User A sees only their resources
+	authenticate_client(&client, &session_a).await;
 	let list_a = client
 		.get("/api/clusters/")
 		.await
@@ -232,7 +234,7 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(dep_items_a.len(), 1);
 	assert_eq!(dep_items_a[0]["app_name"], "app-a");
 
-	// Assert — User B sees only their resources
+	// Assert -- User B sees only their resources
 	let list_b = client_b
 		.get("/api/clusters/")
 		.await

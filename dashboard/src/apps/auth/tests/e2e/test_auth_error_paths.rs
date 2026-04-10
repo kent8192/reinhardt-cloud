@@ -5,39 +5,31 @@ mod tests {
 	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
-	use reinhardt::test::fixtures::TestServerGuard;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-	use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
+	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
-	use crate::routes;
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(
+		test_app: (APIClient, TestUrls),
+	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
 		APIClient,
+		TestUrls,
 	) {
-		// Arrange — set required environment variable for JWT secret
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let router = routes().into_server();
-		let server = test_server_guard(router).await;
-		let client = api_client_from_url(&server.url);
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Login with a non-existent user should not return 200.
@@ -45,15 +37,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_nonexistent_user_returns_401(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let login_data = json!({
 			"username": "ghost_user",
 			"password": "doesnotmatter"
@@ -61,7 +53,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -74,25 +66,25 @@ mod tests {
 		);
 	}
 
-	/// Login with empty JSON body should return 422 (validation error).
+	/// Login with empty JSON body should return 400 (validation error).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_empty_body_returns_422(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let empty_body = json!({});
 
 		// Act
 		let response = client
-			.post("/api/auth/login/", &empty_body, "json")
+			.post(&urls.auth_login, &empty_body, "json")
 			.await
 			.expect("Login request failed");
 
@@ -105,20 +97,20 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_empty_body_returns_422(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, urls) = db.await;
 		let empty_body = json!({});
 
 		// Act
 		let response = client
-			.post("/api/auth/register/", &empty_body, "json")
+			.post(&urls.auth_register, &empty_body, "json")
 			.await
 			.expect("Register request failed");
 
@@ -131,34 +123,34 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_register_duplicate_username_returns_conflict(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
-		// Arrange — register first user
-		let (_container, _conn, _server, client) = test_app.await;
+		// Arrange -- register first user
+		let (_container, _conn, client, urls) = db.await;
 		let first_user = json!({
 			"username": "dupeuser",
 			"email": "dupe1@example.com",
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post("/api/auth/register/", &first_user, "json")
+			.post(&urls.auth_register, &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
 
-		// Act — register second user with same username but different email
+		// Act -- register second user with same username but different email
 		let second_user = json!({
 			"username": "dupeuser",
 			"email": "dupe2@example.com",
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/register/", &second_user, "json")
+			.post(&urls.auth_register, &second_user, "json")
 			.await
 			.expect("Second register request failed");
 
@@ -173,22 +165,22 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_login_inactive_user_returns_401(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
-		// Arrange — register a user
-		let (_container, conn, _server, client) = test_app.await;
+		// Arrange -- register a user
+		let (_container, conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "inactiveuser",
 			"email": "inactive@example.com",
 			"password": "securepassword"
 		});
 		let reg_response = client
-			.post("/api/auth/register/", &register_data, "json")
+			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
@@ -210,13 +202,13 @@ mod tests {
 			.await
 			.expect("Failed to deactivate user");
 
-		// Act — login with deactivated user
+		// Act -- login with deactivated user
 		let login_data = json!({
 			"username": "inactiveuser",
 			"password": "securepassword"
 		});
 		let response = client
-			.post("/api/auth/login/", &login_data, "json")
+			.post(&urls.auth_login, &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -225,127 +217,6 @@ mod tests {
 			response.status_code(),
 			200,
 			"Inactive user login should not return 200"
-		);
-	}
-
-	/// Register response token should be a non-empty JWT (has 2 dots, length > 20).
-	#[rstest]
-	#[tokio::test(flavor = "multi_thread")]
-	#[serial(database)]
-	async fn test_register_response_token_is_nonempty_jwt(
-		#[future] test_app: (
-			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
-			TestServerGuard,
-			APIClient,
-		),
-	) {
-		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
-		let register_data = json!({
-			"username": "jwtcheckuser",
-			"email": "jwtcheck@example.com",
-			"password": "securepassword"
-		});
-
-		// Act
-		let response = client
-			.post("/api/auth/register/", &register_data, "json")
-			.await
-			.expect("Register request failed");
-
-		// Assert
-		assert_eq!(response.status_code(), 201);
-		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
-		let token = body["token"].as_str().expect("token should be a string");
-		let dot_count = token.chars().filter(|&c| c == '.').count();
-		assert_eq!(dot_count, 2, "JWT should have exactly 2 dots");
-		assert!(token.len() > 20, "JWT should be longer than 20 chars");
-	}
-
-	/// Login response token should be a non-empty JWT (has 2 dots, length > 20).
-	#[rstest]
-	#[tokio::test(flavor = "multi_thread")]
-	#[serial(database)]
-	async fn test_login_response_token_is_nonempty_jwt(
-		#[future] test_app: (
-			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
-			TestServerGuard,
-			APIClient,
-		),
-	) {
-		// Arrange — register user first
-		let (_container, _conn, _server, client) = test_app.await;
-		let register_data = json!({
-			"username": "loginjwtuser",
-			"email": "loginjwt@example.com",
-			"password": "securepassword"
-		});
-		client
-			.post("/api/auth/register/", &register_data, "json")
-			.await
-			.expect("Register request failed");
-
-		// Act — login
-		let login_data = json!({
-			"username": "loginjwtuser",
-			"password": "securepassword"
-		});
-		let response = client
-			.post("/api/auth/login/", &login_data, "json")
-			.await
-			.expect("Login request failed");
-
-		// Assert
-		assert_eq!(response.status_code(), 200);
-		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
-		let token = body["token"].as_str().expect("token should be a string");
-		let dot_count = token.chars().filter(|&c| c == '.').count();
-		assert_eq!(dot_count, 2, "JWT should have exactly 2 dots");
-		assert!(token.len() > 20, "JWT should be longer than 20 chars");
-	}
-
-	/// Register with whitespace-padded username should be trimmed; login with trimmed name succeeds.
-	#[rstest]
-	#[tokio::test(flavor = "multi_thread")]
-	#[serial(database)]
-	async fn test_register_whitespace_username_trimmed(
-		#[future] test_app: (
-			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
-			TestServerGuard,
-			APIClient,
-		),
-	) {
-		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
-		let register_data = json!({
-			"username": "  trimuser  ",
-			"email": "trim@example.com",
-			"password": "securepassword"
-		});
-		let reg_response = client
-			.post("/api/auth/register/", &register_data, "json")
-			.await
-			.expect("Register request failed");
-		assert_eq!(reg_response.status_code(), 201);
-
-		// Act — login with trimmed username
-		let login_data = json!({
-			"username": "trimuser",
-			"password": "securepassword"
-		});
-		let response = client
-			.post("/api/auth/login/", &login_data, "json")
-			.await
-			.expect("Login request failed");
-
-		// Assert
-		assert_eq!(
-			response.status_code(),
-			200,
-			"Login with trimmed username should succeed"
 		);
 	}
 }

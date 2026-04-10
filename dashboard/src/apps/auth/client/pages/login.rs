@@ -32,11 +32,6 @@ pub fn login_page() -> Page {
 					..Default::default()
 				});
 			}
-
-			// Persist token to sessionStorage for subsequent server function calls
-			if let Some(ref token) = result.token {
-				reinhardt::pages::auth::set_jwt_token(token);
-			}
 		},
 		fields: {
 			username: CharField {

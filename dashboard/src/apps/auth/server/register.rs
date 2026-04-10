@@ -4,17 +4,18 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 use crate::shared::{AuthResponse, UserInfo};
 
-/// Create a new user account and return session token.
+/// Create a new user account and set session cookie.
 ///
 /// On the server side this creates a new user in the database with a
-/// hashed password, generates a JWT token, and returns both the token
-/// and the new user information. Returns an application error if the
-/// username or email already exists.
+/// hashed password, creates a Redis session, and sets an HTTP-only
+/// `sessionid` cookie. Returns an application error if the username
+/// or email already exists.
 #[server_fn]
 pub async fn register(
 	username: String,
 	email: String,
 	password: String,
+	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
 ) -> Result<AuthResponse, ServerFnError> {
 	use reinhardt::BaseUser;
 	use reinhardt::db::orm::Model;
@@ -39,7 +40,7 @@ pub async fn register(
 		ServerFnError::application("Internal server error")
 	})?;
 
-	// Attempt to create — database unique constraint prevents duplicates
+	// Attempt to create -- database unique constraint prevents duplicates
 	let created = match User::objects().create(&user).await {
 		Ok(user) => user,
 		Err(e) => {
@@ -57,15 +58,22 @@ pub async fn register(
 		}
 	};
 
-	let token = services::create_session_token(&created).map_err(|err| {
-		error!("Failed to create session token during registration: {err}");
+	let session_id = services::create_session(&created).await.map_err(|err| {
+		error!("Failed to create session during registration: {err}");
 		ServerFnError::application("Internal server error")
 	})?;
+
+	// Set session cookie via the SharedResponseCookies jar.
+	let is_debug = crate::config::settings::get_settings().core.debug;
+	let secure_flag = if is_debug { "" } else { "; Secure" };
+	let cookie = format!(
+		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
+	);
+	http_request.add_response_cookie(cookie);
 
 	let user_info = UserInfo::from(&created);
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),
-		token: Some(token),
 	})
 }

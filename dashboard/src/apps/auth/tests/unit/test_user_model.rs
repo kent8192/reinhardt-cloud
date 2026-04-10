@@ -105,9 +105,8 @@ mod tests {
 		let result = user.check_password("anypassword");
 
 		// Assert — with no hash, check_password should return Ok(false) or Err
-		match result {
-			Ok(valid) => assert!(!valid, "check_password with no hash should return false"),
-			Err(_) => {} // Also acceptable: error when no hash is set
+		if let Ok(valid) = result {
+			assert!(!valid, "check_password with no hash should return false");
 		}
 	}
 

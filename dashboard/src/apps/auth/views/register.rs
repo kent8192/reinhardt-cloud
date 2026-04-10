@@ -5,15 +5,16 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
-use reinhardt::{BaseUser, Json, JwtAuth, Response, StatusCode};
+use reinhardt::{BaseUser, Json, Response, StatusCode};
 use tracing::error;
 
-use super::utils::jwt_secret;
 use crate::apps::auth::models::User;
-use crate::apps::auth::serializers::{RegisterRequest, TokenResponse};
+use crate::apps::auth::serializers::RegisterRequest;
+use crate::apps::auth::services::session::create_session;
+use crate::shared::AuthResponse;
 
-/// Register new user, persist to database, and return JWT token.
-#[post("/auth/register/", name = "auth_register", pre_validate = true)]
+/// Register new user, persist to database, and create a session.
+#[post("/register/", name = "auth_register", pre_validate = true)]
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	// Create user with hashed password
 	let mut user = User::new(
@@ -31,7 +32,7 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		AppError::Internal("Internal server error".to_string())
 	})?;
 
-	// Attempt to create — database unique constraint prevents duplicates
+	// Attempt to create -- database unique constraint prevents duplicates
 	let created = match User::objects().create(&user).await {
 		Ok(user) => user,
 		Err(e) => {
@@ -55,23 +56,26 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		}
 	};
 
-	// Generate JWT with UUID as sub claim
-	let secret = jwt_secret()?;
-	let auth = JwtAuth::new(secret.as_bytes());
-	let token = auth
-		.generate_token(
-			created.id().to_string(),
-			created.get_username().to_string(),
-			created.is_staff,
-			created.is_superuser,
-		)
-		.map_err(|e| {
-			error!("JWT token generation failed during registration: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
+	// Create session in Redis
+	let session_id = create_session(&created).await.map_err(|e| {
+		error!("Session creation failed during registration: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
 
-	let resp = TokenResponse::bearer(token);
+	let resp = AuthResponse {
+		success: true,
+		user: Some(crate::shared::UserInfo::from(&created)),
+	};
+
+	// Set session cookie on the response
+	let is_debug = crate::config::settings::get_settings().core.debug;
+	let secure_flag = if is_debug { "" } else { "; Secure" };
+	let cookie = format!(
+		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
+	);
+
 	Ok(Response::new(StatusCode::CREATED)
 		.with_header("Content-Type", "application/json")
+		.with_header("Set-Cookie", &cookie)
 		.with_body(json::to_vec(&resp)?))
 }

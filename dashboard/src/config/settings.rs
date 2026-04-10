@@ -49,7 +49,8 @@ use std::path::PathBuf;
 /// - `[i18n]` → `I18nSettings`
 /// - `[static_files]` → `StaticSettings`
 /// - `[media]` → `MediaSettings`
-#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings)]
+/// - `[cors]` → `CorsSettings` (includes `allow_origins` used by `OriginGuardMiddleware`)
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
@@ -126,14 +127,14 @@ pub fn get_settings() -> ProjectSettings {
 	build_settings()
 }
 
-/// Get JWT secret from settings or environment.
+/// Get Redis URL from settings or environment.
 ///
 /// Priority (highest to lowest):
-/// 1. `jwt_secret` key in the active TOML settings file
-/// 2. `REINHARDT_CLOUD_JWT_SECRET` environment variable (fallback for CI/container overrides)
+/// 1. `redis_url` key in the active TOML settings file
+/// 2. `REINHARDT_CLOUD_REDIS_URL` environment variable (fallback for CI/container overrides)
 ///
-/// Returns `None` if the JWT secret is not configured in either source.
-pub fn get_jwt_secret() -> Option<String> {
+/// Returns `None` if the Redis URL is not configured in either source.
+pub fn get_redis_url() -> Option<String> {
 	// TOML settings take highest priority
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
@@ -146,7 +147,7 @@ pub fn get_jwt_secret() -> Option<String> {
 		.ok()
 		.and_then(|merged| {
 			merged
-				.get_raw("jwt_secret")
+				.get_raw("redis_url")
 				.and_then(|v| v.as_str())
 				.map(String::from)
 		});
@@ -156,7 +157,7 @@ pub fn get_jwt_secret() -> Option<String> {
 	}
 
 	// Fall back to env var for container/CI overrides
-	env::var("REINHARDT_CLOUD_JWT_SECRET").ok()
+	env::var("REINHARDT_CLOUD_REDIS_URL").ok()
 }
 
 #[cfg(test)]

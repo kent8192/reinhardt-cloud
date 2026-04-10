@@ -8,4 +8,4 @@ pub mod session;
 
 pub use credentials::verify_credentials;
 pub use local_auth::LocalAuthService;
-pub use session::{create_session_token, validate_raw_token};
+pub use session::{create_session, destroy_session, validate_session};

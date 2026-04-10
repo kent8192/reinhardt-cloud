@@ -4,7 +4,6 @@ pub mod change_password;
 pub mod login;
 pub mod profile;
 pub mod register;
-pub mod utils;
 
 pub use change_password::change_password;
 pub use login::login;

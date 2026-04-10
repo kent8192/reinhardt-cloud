@@ -18,7 +18,7 @@ use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeployment
 /// Returns 400 if the request body is empty (no fields provided).
 /// Returns 404 if the deployment does not exist or is not owned by the
 /// authenticated user.
-#[put("/deployments/{id}/", name = "deployment_update")]
+#[put("/{id}/", name = "deployment_update")]
 pub async fn update_deployment(
 	Path(id): Path<i64>,
 	Json(body): Json<UpdateDeploymentRequest>,

@@ -4,14 +4,18 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 use crate::shared::{AuthResponse, UserInfo};
 
-/// Authenticate user with credentials and return session token.
+/// Authenticate user with credentials and set session cookie.
 ///
 /// On the server side this verifies the username and password against
-/// the database, generates a JWT token, and returns both the token and
-/// the authenticated user information. The WASM client stores the token
-/// for use in subsequent authenticated server function calls.
+/// the database, creates a Redis session, and sets an HTTP-only
+/// `sessionid` cookie. The browser automatically sends this cookie
+/// on subsequent requests.
 #[server_fn]
-pub async fn login(username: String, password: String) -> Result<AuthResponse, ServerFnError> {
+pub async fn login(
+	username: String,
+	password: String,
+	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
 
 	use crate::apps::auth::services;
@@ -29,15 +33,24 @@ pub async fn login(username: String, password: String) -> Result<AuthResponse, S
 			ServerFnError::application("Invalid credentials")
 		})?;
 
-	let token = services::create_session_token(&user).map_err(|err| {
-		error!("Failed to create session token: {err}");
+	let session_id = services::create_session(&user).await.map_err(|err| {
+		error!("Failed to create session: {err}");
 		ServerFnError::application("Internal server error")
 	})?;
+
+	// Set session cookie via the SharedResponseCookies jar.
+	// The server_fn router reads SharedResponseCookies after the handler
+	// and applies them as Set-Cookie response headers.
+	let is_debug = crate::config::settings::get_settings().core.debug;
+	let secure_flag = if is_debug { "" } else { "; Secure" };
+	let cookie = format!(
+		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
+	);
+	http_request.add_response_cookie(cookie);
 
 	let user_info = UserInfo::from(&user);
 	Ok(AuthResponse {
 		success: true,
 		user: Some(user_info),
-		token: Some(token),
 	})
 }

@@ -27,19 +27,15 @@ impl From<&crate::apps::auth::models::User> for UserInfo {
 }
 
 /// Response from login/register server functions.
+///
+/// Authentication state is managed via HTTP-only session cookies set by
+/// the server. The client does not need to handle tokens explicitly.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthResponse {
 	/// Whether authentication was successful.
 	pub success: bool,
 	/// User information (present on success).
 	pub user: Option<UserInfo>,
-	/// Session token for subsequent authenticated requests.
-	///
-	/// The WASM client stores this token and includes it in future
-	/// server function calls. Cookie-based session management is not
-	/// available from within `#[server_fn]` handlers because the
-	/// framework constructs the HTTP response externally.
-	pub token: Option<String>,
 }
 
 #[cfg(test)]
@@ -76,7 +72,6 @@ mod tests {
 				username: "admin".to_string(),
 				email: "admin@example.com".to_string(),
 			}),
-			token: Some("jwt-token-abc".to_string()),
 		};
 
 		// Act
@@ -87,7 +82,6 @@ mod tests {
 		assert_eq!(roundtrip, response);
 		assert!(roundtrip.success);
 		assert!(roundtrip.user.is_some());
-		assert!(roundtrip.token.is_some());
 	}
 
 	#[rstest]
@@ -96,7 +90,6 @@ mod tests {
 		let response = AuthResponse {
 			success: false,
 			user: None,
-			token: None,
 		};
 
 		// Act
@@ -107,6 +100,5 @@ mod tests {
 		assert_eq!(roundtrip, response);
 		assert!(!roundtrip.success);
 		assert!(roundtrip.user.is_none());
-		assert!(roundtrip.token.is_none());
 	}
 }

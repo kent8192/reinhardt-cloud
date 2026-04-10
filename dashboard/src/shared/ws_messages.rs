@@ -14,8 +14,6 @@ pub enum WsMessage {
 	DeploymentStatus(DeploymentStatusPayload),
 	/// System-wide notification.
 	SystemNotification(SystemNotificationPayload),
-	/// Authentication result after `Authenticate` client message.
-	AuthResult(AuthResultPayload),
 	/// Acknowledgement for a log stream subscription request.
 	LogStreamAck(LogStreamAckPayload),
 	/// Real-time build log event.
@@ -100,13 +98,6 @@ pub enum NotificationLevel {
 	Critical,
 }
 
-/// Authentication result sent after a client `Authenticate` message.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct AuthResultPayload {
-	pub success: bool,
-	pub message: Option<String>,
-}
-
 /// Acknowledgement payload for log stream subscription requests.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LogStreamAckPayload {
@@ -118,8 +109,6 @@ pub struct LogStreamAckPayload {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", content = "payload")]
 pub enum WsClientMessage {
-	/// JWT authentication (must be sent as the first message).
-	Authenticate { token: String },
 	/// Subscribe to deployment status updates.
 	Subscribe { deployment_ids: Vec<String> },
 	/// Unsubscribe from deployment status updates.
@@ -187,22 +176,6 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_ws_client_message_authenticate_serializes() {
-		// Arrange
-		let msg = WsClientMessage::Authenticate {
-			token: "jwt-token".to_string(),
-		};
-
-		// Act
-		let json = serde_json::to_string(&msg).unwrap();
-		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-		// Assert
-		assert_eq!(parsed["type"], "Authenticate");
-		assert_eq!(parsed["payload"]["token"], "jwt-token");
-	}
-
-	#[rstest]
 	fn test_ws_client_message_subscribe_roundtrip() {
 		// Arrange
 		let msg = WsClientMessage::Subscribe {
@@ -220,24 +193,6 @@ mod tests {
 			}
 			_ => panic!("expected Subscribe"),
 		}
-	}
-
-	#[rstest]
-	fn test_ws_message_auth_result_serializes() {
-		// Arrange
-		let msg = WsMessage::AuthResult(AuthResultPayload {
-			success: false,
-			message: Some("Invalid token".to_string()),
-		});
-
-		// Act
-		let json = serde_json::to_string(&msg).unwrap();
-		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-		// Assert
-		assert_eq!(parsed["type"], "AuthResult");
-		assert_eq!(parsed["payload"]["success"], false);
-		assert_eq!(parsed["payload"]["message"], "Invalid token");
 	}
 
 	#[rstest]

@@ -4,40 +4,33 @@
 mod tests {
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
-	use reinhardt::test::fixtures::TestServerGuard;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-	use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
+	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::routes;
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(
+		test_app: (APIClient, TestUrls),
+	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
 		APIClient,
+		TestUrls,
 	) {
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let router = routes().into_server();
-		let server = test_server_guard(router).await;
-		let client = api_client_from_url(&server.url);
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
-	/// Helper: register a user and return the JWT token.
+	/// Helper: register a user and return the session cookie value.
 	async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
 		let data = json!({
 			"username": username,
@@ -49,16 +42,24 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(resp.status_code(), 201);
-		let body: serde_json::Value = resp.json().expect("Failed to parse register response");
-		body["token"].as_str().unwrap().to_string()
+		let set_cookie = resp
+			.header("Set-Cookie")
+			.expect("Response should have Set-Cookie header");
+		let session_id = set_cookie
+			.split(';')
+			.next()
+			.unwrap()
+			.strip_prefix("sessionid=")
+			.expect("Cookie should start with sessionid=");
+		session_id.to_string()
 	}
 
-	/// Helper: set Authorization header on client.
-	async fn authenticate_client(client: &APIClient, token: &str) {
+	/// Helper: set session cookie on client.
+	async fn authenticate_client(client: &APIClient, session_id: &str) {
 		client
-			.set_header("Authorization", format!("Bearer {token}"))
+			.set_header("Cookie", format!("sessionid={session_id}"))
 			.await
-			.expect("Failed to set Authorization header");
+			.expect("Failed to set Cookie header");
 	}
 
 	/// Helper: create a cluster and return its id.
@@ -96,23 +97,23 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_user_cannot_see_other_users_deployments(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
-		let token_a = register_user(&client, "user_a", "a@example.com").await;
-		authenticate_client(&client, &token_a).await;
+		let session_a = register_user(&client, "user_a", "a@example.com").await;
+		authenticate_client(&client, &session_a).await;
 		let cluster_id = create_cluster(&client).await;
 		create_deployment(&client, cluster_id).await;
 
-		let token_b = register_user(&client, "user_b", "b@example.com").await;
-		authenticate_client(&client, &token_b).await;
+		let session_b = register_user(&client, "user_b", "b@example.com").await;
+		authenticate_client(&client, &session_b).await;
 
 		// Act
 		let response = client
@@ -132,17 +133,17 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_create_deployment_nonexistent_cluster_404(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
-		let token = register_user(&client, "testuser", "test@example.com").await;
-		authenticate_client(&client, &token).await;
+		let (_container, _conn, client, _urls) = db.await;
+		let session = register_user(&client, "testuser", "test@example.com").await;
+		authenticate_client(&client, &session).await;
 
 		let data = json!({
 			"app_name": "my-app",
@@ -167,29 +168,29 @@ mod tests {
 		);
 	}
 
-	/// UserB cannot deploy to UserA's cluster — returns 404.
+	/// UserB cannot deploy to UserA's cluster -- returns 404.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_create_deployment_other_users_cluster_404(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
 		// UserA creates a cluster
-		let token_a = register_user(&client, "owner", "owner@example.com").await;
-		authenticate_client(&client, &token_a).await;
+		let session_a = register_user(&client, "owner", "owner@example.com").await;
+		authenticate_client(&client, &session_a).await;
 		let cluster_id = create_cluster(&client).await;
 
 		// UserB tries to deploy to it
-		let token_b = register_user(&client, "intruder", "intruder@example.com").await;
-		authenticate_client(&client, &token_b).await;
+		let session_b = register_user(&client, "intruder", "intruder@example.com").await;
+		authenticate_client(&client, &session_b).await;
 
 		let data = json!({
 			"app_name": "evil-app",
@@ -222,38 +223,35 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_deployment_ownership_decision_table(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 		#[case] cluster_exists: bool,
 		#[case] is_owner: bool,
 		#[case] expected_status: u16,
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 
 		let cluster_id = if cluster_exists {
 			// Create a cluster owned by user_a
-			let token_a = register_user(&client, "cluster_owner", "cowner@example.com").await;
-			authenticate_client(&client, &token_a).await;
+			let session_a = register_user(&client, "cluster_owner", "cowner@example.com").await;
+			authenticate_client(&client, &session_a).await;
 			let cid = create_cluster(&client).await;
 
-			if is_owner {
-				// Deploy as the same user who owns the cluster
-				// (already authenticated as cluster_owner)
-			} else {
+			if !is_owner {
 				// Deploy as a different user
-				let token_b = register_user(&client, "deployer", "deployer@example.com").await;
-				authenticate_client(&client, &token_b).await;
+				let session_b = register_user(&client, "deployer", "deployer@example.com").await;
+				authenticate_client(&client, &session_b).await;
 			}
 			cid
 		} else {
 			// Use a nonexistent cluster id
-			let token = register_user(&client, "solo_user", "solo@example.com").await;
-			authenticate_client(&client, &token).await;
+			let session = register_user(&client, "solo_user", "solo@example.com").await;
+			authenticate_client(&client, &session).await;
 			99999i64
 		};
 

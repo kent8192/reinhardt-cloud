@@ -17,7 +17,7 @@ use crate::apps::deployments::serializers::{DeploymentResponse, DeploymentStatus
 /// Accepts a status string. Returns the updated deployment.
 /// Returns 404 if the deployment does not exist or is not owned
 /// by the authenticated user.
-#[post("/deployments/{id}/status/", name = "deployment_status")]
+#[post("/{id}/status/", name = "deployment_status")]
 pub async fn deployment_status(
 	Path(id): Path<i64>,
 	Json(body): Json<DeploymentStatusRequest>,

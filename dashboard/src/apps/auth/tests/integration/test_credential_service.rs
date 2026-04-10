@@ -5,9 +5,8 @@ mod tests {
 	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
-	use reinhardt::test::fixtures::TestServerGuard;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, api_client_from_url};
-	use reinhardt::test::fixtures::{postgres_with_migrations_from_dir, test_server_guard};
+	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
@@ -15,30 +14,23 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::credentials::verify_credentials;
-	use crate::routes;
+	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
-	async fn test_app() -> (
+	async fn db(
+		test_app: (APIClient, TestUrls),
+	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
-		TestServerGuard,
 		APIClient,
+		TestUrls,
 	) {
-		// Arrange — set required environment variable for JWT secret
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-minimum-32-bytes-long!!",
-			);
-		}
+		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let router = routes().into_server();
-		let server = test_server_guard(router).await;
-		let client = api_client_from_url(&server.url);
-		(container, conn, server, client)
+		(container, conn, client, urls)
 	}
 
 	/// Helper: register a user via the API.
@@ -60,15 +52,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_valid_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(&client, "creduser", "cred@example.com", "securepassword").await;
 
 		// Act
@@ -84,15 +76,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_wrong_password(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"wrongpwuser",
@@ -116,15 +108,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_nonexistent_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, _client) = test_app.await;
+		let (_container, _conn, _client, _urls) = db.await;
 
 		// Act
 		let result = verify_credentials("ghost", "pw").await;
@@ -141,15 +133,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_inactive_user(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange — register user then deactivate via ORM
-		let (_container, conn, _server, client) = test_app.await;
+		let (_container, conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"inactivecred",
@@ -189,15 +181,15 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_verify_credentials_whitespace_trimmed(
-		#[future] test_app: (
+		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
-			TestServerGuard,
 			APIClient,
+			TestUrls,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, _server, client) = test_app.await;
+		let (_container, _conn, client, _urls) = db.await;
 		register_user(
 			&client,
 			"trimcreduser",

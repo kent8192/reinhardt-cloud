@@ -15,7 +15,7 @@ use crate::apps::clusters::serializers::ClusterResponse;
 /// Retrieve a single cluster by ID (authentication required).
 ///
 /// Returns 404 if the cluster does not exist or belongs to another user.
-#[get("/clusters/{id}/", name = "cluster_retrieve")]
+#[get("/{id}/", name = "cluster_retrieve")]
 pub async fn retrieve_cluster(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,

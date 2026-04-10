@@ -13,10 +13,11 @@ use uuid::Uuid;
 
 use reinhardt_cloud_proto::build as pb;
 
-use crate::apps::auth::services::session::validate_raw_token;
+use crate::apps::auth::services::session::validate_session;
 use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::shared::ws_messages::{
-	AuthResultPayload, BuildLogPayload, LogStreamAckPayload, WsClientMessage, WsMessage,
+	BuildLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
+	WsClientMessage, WsMessage,
 };
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
@@ -33,23 +34,20 @@ const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 /// Separates the synchronous parsing/validation phase from the async
 /// broadcaster interaction to keep unit tests simple.
 pub(crate) enum ParsedAction {
-	/// Authentication succeeded — register and send success response.
-	AuthSuccess {
-		user_id: String,
-		response: WsMessage,
-	},
-	/// Authentication failed — send error response.
-	AuthFailure { response: WsMessage },
 	/// Subscribe to deployments (requires auth).
 	Subscribe { deployment_ids: Vec<String> },
 	/// Unsubscribe from deployments.
 	Unsubscribe { deployment_ids: Vec<String> },
-	/// Unauthenticated subscribe attempt — send error response.
+	/// Unauthenticated request attempt — send error response.
 	Rejected { response: WsMessage },
 	/// Subscribe to build log events via the gRPC bridge.
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log events (placeholder — no gRPC backend yet).
 	SubscribeAppLogs { app_name: String },
+	/// Acknowledged log stream subscription — send ack and start/stop stream.
+	/// Currently unused; will be wired when build log streaming is connected to the match arm.
+	#[allow(dead_code)]
+	LogStreamAcknowledged { response: WsMessage },
 	/// Cancel any active log stream.
 	UnsubscribeLogs,
 }
@@ -94,27 +92,15 @@ impl NotificationConsumer {
 		msg: WsClientMessage,
 	) -> ParsedAction {
 		match msg {
-			WsClientMessage::Authenticate { token } => match validate_raw_token(&token) {
-				Some((uid, _username)) => ParsedAction::AuthSuccess {
-					user_id: uid,
-					response: WsMessage::AuthResult(AuthResultPayload {
-						success: true,
-						message: None,
-					}),
-				},
-				None => ParsedAction::AuthFailure {
-					response: WsMessage::AuthResult(AuthResultPayload {
-						success: false,
-						message: Some("Invalid or expired token".to_string()),
-					}),
-				},
-			},
 			WsClientMessage::Subscribe { deployment_ids } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
-						response: WsMessage::AuthResult(AuthResultPayload {
-							success: false,
-							message: Some("Authentication required".to_string()),
+						response: WsMessage::SystemNotification(SystemNotificationPayload {
+							id: uuid::Uuid::new_v4().to_string(),
+							level: NotificationLevel::Critical,
+							title: "Authentication required".to_string(),
+							message: "You must be authenticated to subscribe".to_string(),
+							timestamp: String::new(),
 						}),
 					};
 				}
@@ -126,9 +112,12 @@ impl NotificationConsumer {
 			WsClientMessage::SubscribeBuildLogs { build_id } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
-						response: WsMessage::AuthResult(AuthResultPayload {
-							success: false,
-							message: Some("Authentication required".to_string()),
+						response: WsMessage::SystemNotification(SystemNotificationPayload {
+							id: String::new(),
+							level: NotificationLevel::Warning,
+							title: "Unauthorized".to_string(),
+							message: "Authentication required".to_string(),
+							timestamp: chrono::Utc::now().to_rfc3339(),
 						}),
 					};
 				}
@@ -137,9 +126,12 @@ impl NotificationConsumer {
 			WsClientMessage::SubscribeAppLogs { app_name } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
-						response: WsMessage::AuthResult(AuthResultPayload {
-							success: false,
-							message: Some("Authentication required".to_string()),
+						response: WsMessage::SystemNotification(SystemNotificationPayload {
+							id: String::new(),
+							level: NotificationLevel::Warning,
+							title: "Unauthorized".to_string(),
+							message: "Authentication required".to_string(),
+							timestamp: chrono::Utc::now().to_rfc3339(),
 						}),
 					};
 				}
@@ -148,9 +140,12 @@ impl NotificationConsumer {
 			WsClientMessage::UnsubscribeLogs => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
-						response: WsMessage::AuthResult(AuthResultPayload {
-							success: false,
-							message: Some("Authentication required".to_string()),
+						response: WsMessage::SystemNotification(SystemNotificationPayload {
+							id: String::new(),
+							level: NotificationLevel::Warning,
+							title: "Unauthorized".to_string(),
+							message: "Authentication required".to_string(),
+							timestamp: chrono::Utc::now().to_rfc3339(),
 						}),
 					};
 				}
@@ -168,13 +163,39 @@ impl NotificationConsumer {
 	}
 }
 
+/// Extract a named cookie value from a `Cookie` header string.
+fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
+	cookie_header.split(';').find_map(|pair| {
+		let (key, value) = pair.trim().split_once('=')?;
+		if key.trim() == name {
+			Some(value.trim().to_string())
+		} else {
+			None
+		}
+	})
+}
+
 #[async_trait::async_trait]
 impl WebSocketConsumer for NotificationConsumer {
 	async fn on_connect(&self, context: &mut ConsumerContext) -> WebSocketResult<()> {
 		let connection_id = Uuid::new_v4().to_string();
 		context
 			.metadata
-			.insert(META_CONNECTION_ID.to_string(), connection_id);
+			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());
+
+		// Authenticate from session cookie in handshake headers
+		if let Some(cookie_header) = context.cookie_header()
+			&& let Some(session_id) = extract_cookie_value(cookie_header, "sessionid")
+			&& let Some((user_id, _username)) = validate_session(&session_id).await
+		{
+			context
+				.metadata
+				.insert(META_USER_ID.to_string(), user_id.clone());
+			self.broadcaster
+				.register_connection(&connection_id, &user_id, Arc::clone(&context.connection))
+				.await;
+		}
+
 		Ok(())
 	}
 
@@ -202,23 +223,8 @@ impl WebSocketConsumer for NotificationConsumer {
 		let action = Self::parse_client_message(user_id.as_deref(), client_msg);
 
 		match action {
-			ParsedAction::AuthSuccess {
-				user_id: uid,
-				response,
-			} => {
-				let _ = context.connection.send_json(&response).await;
-				context
-					.metadata
-					.insert(META_USER_ID.to_string(), uid.clone());
-
-				// Register the connection directly with the broadcaster.
-				// The Room will hold an Arc<WebSocketConnection> and broadcast
-				// to it without an intermediate forwarding task.
-				self.broadcaster
-					.register_connection(&connection_id, &uid, Arc::clone(&context.connection))
-					.await;
-			}
-			ParsedAction::AuthFailure { response } | ParsedAction::Rejected { response } => {
+			ParsedAction::Rejected { response }
+			| ParsedAction::LogStreamAcknowledged { response } => {
 				let _ = context.connection.send_json(&response).await;
 			}
 			ParsedAction::Subscribe { deployment_ids } => {
@@ -410,40 +416,6 @@ mod tests {
 	use super::*;
 	use crate::shared::ws_messages::WsClientMessage;
 	use rstest::rstest;
-	use serial_test::serial;
-
-	#[rstest]
-	#[serial(jwt)]
-	fn test_parse_authenticate_with_invalid_token_returns_failure() {
-		// Arrange
-		// SAFETY: Tests using this helper are serialized with #[serial(jwt)]
-		// to prevent concurrent environment variable mutation.
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-key-for-unit-tests-minimum-length-32",
-			);
-		}
-
-		let msg = WsClientMessage::Authenticate {
-			token: "totally-invalid-jwt-token".to_string(),
-		};
-
-		// Act
-		let action = NotificationConsumer::parse_client_message(None, msg);
-
-		// Assert
-		match action {
-			ParsedAction::AuthFailure { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert!(payload.message.is_some());
-				}
-				_ => panic!("expected AuthResult"),
-			},
-			_ => panic!("expected AuthFailure action"),
-		}
-	}
 
 	#[rstest]
 	fn test_parse_subscribe_without_auth_rejected() {
@@ -458,11 +430,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Critical);
+					assert_eq!(payload.title, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
@@ -545,36 +517,27 @@ mod tests {
 	}
 
 	#[rstest]
-	#[serial(jwt)]
-	fn test_parse_authenticate_empty_token() {
-		// Arrange
-		// SAFETY: Tests using this helper are serialized with #[serial(jwt)]
-		// to prevent concurrent environment variable mutation.
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_CLOUD_JWT_SECRET",
-				"test-secret-key-for-unit-tests-minimum-length-32",
-			);
-		}
+	fn test_extract_cookie_value_single() {
+		assert_eq!(
+			extract_cookie_value("sessionid=abc123", "sessionid"),
+			Some("abc123".to_string())
+		);
+	}
 
-		let msg = WsClientMessage::Authenticate {
-			token: "".to_string(),
-		};
+	#[rstest]
+	fn test_extract_cookie_value_multiple() {
+		assert_eq!(
+			extract_cookie_value("csrftoken=xyz; sessionid=abc123; other=val", "sessionid"),
+			Some("abc123".to_string())
+		);
+	}
 
-		// Act
-		let action = NotificationConsumer::parse_client_message(None, msg);
-
-		// Assert
-		match action {
-			ParsedAction::AuthFailure { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert!(payload.message.is_some());
-				}
-				_ => panic!("expected AuthResult"),
-			},
-			_ => panic!("expected AuthFailure action"),
-		}
+	#[rstest]
+	fn test_extract_cookie_value_missing() {
+		assert_eq!(
+			extract_cookie_value("csrftoken=xyz; other=val", "sessionid"),
+			None
+		);
 	}
 
 	#[rstest]
@@ -641,11 +604,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
@@ -683,11 +646,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}
@@ -716,11 +679,11 @@ mod tests {
 		// Assert
 		match action {
 			ParsedAction::Rejected { response } => match &response {
-				WsMessage::AuthResult(payload) => {
-					assert!(!payload.success);
-					assert_eq!(payload.message.as_deref(), Some("Authentication required"));
+				WsMessage::SystemNotification(payload) => {
+					assert_eq!(payload.level, NotificationLevel::Warning);
+					assert_eq!(payload.message, "Authentication required");
 				}
-				_ => panic!("expected AuthResult rejection"),
+				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
 		}

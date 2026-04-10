@@ -4,14 +4,23 @@
 //! including REST API endpoints and server function registrations
 //! for the WASM frontend.
 //!
+//! ## DI-based configuration
+//!
+//! `AllowedOrigins`, `CookieSessionConfig`, `WsBroadcaster`, and
+//! `LocalAuthService` are auto-registered as singletons via
+//! `#[injectable_factory]`. The router builder resolves them from the
+//! DI context at startup.
+//!
+//! ## WebSocket routes
+//!
 //! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt, which is async and independent of `UnifiedRouter`.
 //! See `init_websocket_routes()` below.
 
 use std::sync::Arc;
 
-use reinhardt::admin::{admin_routes_with_di_deferred, core::admin_static_routes};
-use reinhardt::di::{InjectionContext, SingletonScope};
+use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
+use reinhardt::di::{ContextLevel, Depends, get_di_context, injectable_factory};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -20,46 +29,110 @@ use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
-use crate::apps::auth::services::LocalAuthService;
-use crate::apps::realtime::WsBroadcaster;
+use crate::apps::auth::services::local_auth::LocalAuthService;
+use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
-use reinhardt::{JwtAuthMiddleware, SecurityMiddleware};
+use reinhardt::{
+	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
+	SecurityMiddleware,
+};
+
+// ── DI-registered singletons ────────────────────────────────────────
+
+/// Allowed origins for the `OriginGuardMiddleware`.
+///
+/// Tests can override by pre-registering in `SingletonScope`
+/// before the factory is invoked.
+#[derive(Clone)]
+pub(crate) struct AllowedOrigins(pub Vec<String>);
+
+/// DI factory — resolves allowed origins from settings.
+#[injectable_factory(scope = "singleton")]
+async fn create_allowed_origins() -> AllowedOrigins {
+	let settings = crate::config::settings::get_settings();
+	let mut origins = settings.cors.allow_origins.clone();
+	origins.retain(|o| o != "*");
+	if origins.is_empty() {
+		let port = std::env::var("PORT").unwrap_or("8000".to_string());
+		AllowedOrigins(vec![
+			format!("http://localhost:{port}"),
+			format!("http://127.0.0.1:{port}"),
+		])
+	} else {
+		AllowedOrigins(origins)
+	}
+}
+
+/// DI factory — builds `CookieSessionConfig` from settings.
+#[injectable_factory(scope = "singleton")]
+async fn create_cookie_session_config() -> CookieSessionConfig {
+	let settings = crate::config::settings::get_settings();
+	CookieSessionConfig {
+		cookie_name: "sessionid".to_string(),
+		sliding_ttl: std::time::Duration::from_secs(1800),
+		absolute_max: std::time::Duration::from_secs(86400),
+		secure: !settings.core.debug,
+		same_site: "Lax".to_string(),
+		skip_paths: vec![
+			"/api/auth/".to_string(),
+			"/api/openapi.json".to_string(),
+			"/api/docs".to_string(),
+			"/api/redoc".to_string(),
+		],
+	}
+}
+
+// ── Router construction ─────────────────────────────────────────────
+
+/// Entry point for the `#[routes]` macro (called by the framework).
+///
+/// The `#[inject]` parameter resolves `UnifiedRouter` from the DI registry,
+/// which triggers the `make_router` factory and all its transitive dependencies.
+/// The framework creates the `InjectionContext` automatically for async routes.
 #[routes]
-pub fn routes() -> UnifiedRouter {
-	let singleton_scope = Arc::new(SingletonScope::new());
-	let di_ctx = Arc::new(InjectionContext::builder(singleton_scope).build());
+pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
+	router
+		.try_unwrap()
+		.expect("UnifiedRouter has multiple owners after resolve")
+}
 
-	// Configure admin site with deferred DI registration.
-	// AdminSite is captured in DiRegistrationList and applied to the server's
-	// singleton scope during startup. AdminDatabase is lazily constructed from
-	// DatabaseConnection at first request.
+/// Build the application router by resolving dependencies from DI.
+///
+/// All singletons (`AllowedOrigins`, `CookieSessionConfig`,
+/// `WsBroadcaster`, `LocalAuthService`) are resolved from the
+/// DI registry. Tests can override any of them by pre-registering
+/// in the `SingletonScope` before calling this function.
+#[injectable_factory(scope = "transient")]
+async fn make_router(
+	#[inject] allowed_origins: Depends<AllowedOrigins>,
+	#[inject] session_config: Depends<CookieSessionConfig>,
+	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
+	#[inject] _local_auth_service: Depends<LocalAuthService>,
+) -> UnifiedRouter {
+	let di_ctx = get_di_context(ContextLevel::Root);
+
+	// Configure admin site with DI registration.
 	let admin_site = Arc::new(crate::config::admin::configure_admin());
-	let (admin_router, admin_di) = admin_routes_with_di_deferred(admin_site);
+	let (admin_router, admin_di) = admin_routes_with_di(admin_site);
 
-	// Register the WebSocket broadcaster as a singleton so that other
-	// services (e.g. deployment status updaters) can obtain it via DI
-	// and push events to connected clients.
-	// NOTE: Do not wrap in Arc — set_singleton() wraps internally,
-	// and double-wrapping causes TypeId mismatch during DI resolution.
-	di_ctx.set_singleton(WsBroadcaster::new());
-
-	// Register AuthService for trait-based authentication across REST and gRPC.
-	// NOTE: Register the concrete type directly — set_singleton() wraps in Arc
-	// internally, so passing Arc<dyn AuthService> would create Arc<Arc<...>>.
-	di_ctx.set_singleton(LocalAuthService::new());
-
-	let jwt_secret = crate::config::settings::get_jwt_secret()
-		.expect("JWT secret must be configured: set REINHARDT_CLOUD_JWT_SECRET env var or jwt_secret in settings TOML");
+	// Configure Redis-backed session backend
+	let redis_url = crate::config::settings::get_redis_url()
+		.expect("Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML");
+	let session_backend = Arc::new(
+		RedisSessionBackend::new_from_url(&redis_url)
+			.expect("Failed to create Redis session backend"),
+	);
 
 	UnifiedRouter::new()
 		// Admin panel
 		.mount("/admin/", admin_router)
 		.mount("/static/admin/", admin_static_routes())
+		.with_prefix("/api/")
 		.with_di_registrations(admin_di)
 		// REST API endpoints
-		.mount("/api/", crate::apps::auth::urls::url_patterns())
-		.mount("/api/", crate::apps::clusters::urls::url_patterns())
-		.mount("/api/", crate::apps::deployments::urls::url_patterns())
+		.mount("/auth/", crate::apps::auth::urls::url_patterns())
+		.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
+		.mount("/deployments/", crate::apps::deployments::urls::url_patterns())
 		.server(|s| {
 			s.server_fn(server::login::login::marker)
 				.server_fn(server::register::register::marker)
@@ -69,8 +142,14 @@ pub fn routes() -> UnifiedRouter {
 		.with_di_context(di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(JwtAuthMiddleware::from_secret(jwt_secret.as_bytes()))
+		.with_middleware(OriginGuardMiddleware::new(allowed_origins.0.clone()))
+		.with_middleware(CookieSessionAuthMiddleware::with_config(
+			session_backend,
+			(*session_config).clone(),
+		))
 }
+
+// ── WebSocket routes ────────────────────────────────────────────────
 
 /// Initialize WebSocket routes.
 ///
