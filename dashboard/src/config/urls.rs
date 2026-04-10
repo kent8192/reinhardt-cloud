@@ -20,9 +20,7 @@
 use std::sync::Arc;
 
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
-use reinhardt::di::{
-	ContextLevel, InjectionContext, SingletonScope, get_di_context, injectable_factory,
-};
+use reinhardt::di::{ContextLevel, Depends, get_di_context, injectable_factory};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -45,6 +43,7 @@ use reinhardt::{
 ///
 /// Tests can override by pre-registering in `SingletonScope`
 /// before the factory is invoked.
+#[derive(Clone)]
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
 /// DI factory — resolves allowed origins from settings.
@@ -87,15 +86,11 @@ async fn create_cookie_session_config() -> CookieSessionConfig {
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
-/// Resolves all DI-registered singletons and builds the router.
+/// The `#[inject]` parameter resolves `UnifiedRouter` from the DI registry,
+/// which triggers the `make_router` factory and all its transitive dependencies.
+/// The framework creates the `InjectionContext` automatically for async routes.
 #[routes]
-pub fn routes() -> UnifiedRouter {
-	let scope = Arc::new(SingletonScope::new());
-	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
-	let router: Arc<UnifiedRouter> = tokio::task::block_in_place(|| {
-		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<UnifiedRouter>())
-	})
-	.expect("Failed to resolve UnifiedRouter");
+pub async fn routes(#[inject] router: Arc<UnifiedRouter>) -> UnifiedRouter {
 	Arc::try_unwrap(router).expect("UnifiedRouter has multiple owners after resolve")
 }
 
@@ -107,10 +102,10 @@ pub fn routes() -> UnifiedRouter {
 /// in the `SingletonScope` before calling this function.
 #[injectable_factory(scope = "transient")]
 async fn make_router(
-	#[inject] allowed_origins: Arc<AllowedOrigins>,
-	#[inject] session_config: Arc<CookieSessionConfig>,
+	#[inject] allowed_origins: Depends<AllowedOrigins>,
+	#[inject] session_config: Depends<CookieSessionConfig>,
 	#[inject] _ws_broadcaster: Arc<WsBroadcaster>,
-	#[inject] _local_auth_service: Arc<LocalAuthService>,
+	#[inject] _local_auth_service: Depends<LocalAuthService>,
 ) -> UnifiedRouter {
 	let di_ctx = get_di_context(ContextLevel::Root);
 
