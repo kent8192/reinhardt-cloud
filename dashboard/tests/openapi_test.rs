@@ -4,8 +4,8 @@
 //! `/api/redoc`) are available and return valid content when the router
 //! is wrapped with `OpenApiRouter`.
 
-use reinhardt::{Handler, Request, StatusCode};
 use reinhardt::test::APIClient;
+use reinhardt::{Handler, Request, StatusCode};
 use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 use rstest::rstest;
 
