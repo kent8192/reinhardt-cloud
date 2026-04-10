@@ -54,9 +54,11 @@ pub fn test_app() -> (APIClient, TestUrls) {
 		.into_server();
 
 	let rev = |name: &str| -> String {
-		server_router
+		let url = server_router
 			.reverse(name, &[])
-			.unwrap_or_else(|| panic!("Route '{name}' not found in router"))
+			.unwrap_or_else(|| panic!("Route '{name}' not found in router"));
+		eprintln!("[test_app] reverse(\"{name}\") => \"{url}\"");
+		url
 	};
 
 	let urls = TestUrls {
