@@ -4,30 +4,32 @@
 //! `/api/redoc`) are available and return valid content when the router
 //! is wrapped with `OpenApiRouter`.
 
-use reinhardt::{Handler, OpenApiRouter, Request, StatusCode};
+use reinhardt::{Handler, Request, StatusCode};
+use reinhardt::test::APIClient;
+use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 use rstest::rstest;
 
-use reinhardt_cloud_dashboard::routes;
-
-/// Create a request and handle it through the OpenAPI-wrapped router.
-async fn openapi_get(path: &str) -> reinhardt::Response {
-	let router = routes().into_server();
-	let wrapped = OpenApiRouter::wrap(router).expect("Failed to wrap with OpenApiRouter");
+/// Create a request and handle it through the test app router.
+async fn openapi_get(client: &APIClient, path: &str) -> reinhardt::Response {
 	let request = Request::builder()
 		.uri(path)
+		.header("Origin", "http://testserver")
 		.build()
 		.expect("Failed to build request");
-	wrapped
+	client
 		.handle(request)
 		.await
 		.expect("Handler returned error")
 }
 
 #[rstest]
-#[tokio::test]
-async fn test_openapi_json_endpoint_returns_valid_spec() {
-	// Arrange & Act
-	let response = openapi_get("/api/openapi.json").await;
+#[tokio::test(flavor = "multi_thread")]
+async fn test_openapi_json_endpoint_returns_valid_spec(test_app: (APIClient, TestUrls)) {
+	// Arrange
+	let (client, _urls) = test_app;
+
+	// Act
+	let response = openapi_get(&client, "/api/openapi.json").await;
 
 	// Assert
 	assert_eq!(response.status, StatusCode::OK);
@@ -41,10 +43,13 @@ async fn test_openapi_json_endpoint_returns_valid_spec() {
 }
 
 #[rstest]
-#[tokio::test]
-async fn test_openapi_spec_contains_registered_schemas() {
-	// Arrange & Act
-	let response = openapi_get("/api/openapi.json").await;
+#[tokio::test(flavor = "multi_thread")]
+async fn test_openapi_spec_contains_registered_schemas(test_app: (APIClient, TestUrls)) {
+	// Arrange
+	let (client, _urls) = test_app;
+
+	// Act
+	let response = openapi_get(&client, "/api/openapi.json").await;
 
 	// Assert
 	let body = String::from_utf8(response.body.to_vec()).expect("Invalid UTF-8");
@@ -59,7 +64,7 @@ async fn test_openapi_spec_contains_registered_schemas() {
 		.map(|k| k.as_str())
 		.collect();
 
-	// Auth serializers
+	// Auth serializers (cookie-session auth — no TokenResponse)
 	assert!(
 		schema_keys.iter().any(|k| k.contains("LoginRequest")),
 		"LoginRequest schema missing. Available: {schema_keys:?}"
@@ -67,10 +72,6 @@ async fn test_openapi_spec_contains_registered_schemas() {
 	assert!(
 		schema_keys.iter().any(|k| k.contains("RegisterRequest")),
 		"RegisterRequest schema missing. Available: {schema_keys:?}"
-	);
-	assert!(
-		schema_keys.iter().any(|k| k.contains("TokenResponse")),
-		"TokenResponse schema missing. Available: {schema_keys:?}"
 	);
 
 	// Cluster serializers
@@ -99,10 +100,13 @@ async fn test_openapi_spec_contains_registered_schemas() {
 }
 
 #[rstest]
-#[tokio::test]
-async fn test_swagger_ui_endpoint() {
-	// Arrange & Act
-	let response = openapi_get("/api/docs").await;
+#[tokio::test(flavor = "multi_thread")]
+async fn test_swagger_ui_endpoint(test_app: (APIClient, TestUrls)) {
+	// Arrange
+	let (client, _urls) = test_app;
+
+	// Act
+	let response = openapi_get(&client, "/api/docs").await;
 
 	// Assert
 	assert_eq!(response.status, StatusCode::OK);
@@ -114,10 +118,13 @@ async fn test_swagger_ui_endpoint() {
 }
 
 #[rstest]
-#[tokio::test]
-async fn test_redoc_endpoint() {
-	// Arrange & Act
-	let response = openapi_get("/api/redoc").await;
+#[tokio::test(flavor = "multi_thread")]
+async fn test_redoc_endpoint(test_app: (APIClient, TestUrls)) {
+	// Arrange
+	let (client, _urls) = test_app;
+
+	// Act
+	let response = openapi_get(&client, "/api/redoc").await;
 
 	// Assert
 	assert_eq!(response.status, StatusCode::OK);
