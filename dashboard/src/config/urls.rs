@@ -8,8 +8,11 @@
 //!
 //! `AllowedOrigins`, `CookieSessionConfig`, `WsBroadcaster`, and
 //! `LocalAuthService` are auto-registered as singletons via
-//! `#[injectable_factory]`. The router builder resolves them from the
-//! DI context at startup.
+//! `#[injectable_factory]`. These are aggregated into
+//! `RouterInfrastructure` (a transient factory) together with the
+//! admin routes, DI context, and Redis session backend.
+//! The router builder resolves `RouterInfrastructure` from the
+//! DI registry at startup.
 //!
 //! ## WebSocket routes
 //!
@@ -19,8 +22,11 @@
 
 use std::sync::Arc;
 
+use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
-use reinhardt::di::{ContextLevel, Depends, get_di_context, injectable_factory};
+use reinhardt::di::{
+	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context, injectable_factory,
+};
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -82,6 +88,60 @@ async fn create_cookie_session_config() -> CookieSessionConfig {
 	}
 }
 
+// ── Router infrastructure ───────────────────────────────────────────
+
+/// Pre-built infrastructure components for the application router.
+///
+/// Groups the DI context, admin routes with DI registrations,
+/// session backend, and middleware configuration so they can be
+/// resolved as a single dependency by `make_router`.
+pub(crate) struct RouterInfrastructure {
+	pub di_ctx: Arc<InjectionContext>,
+	pub admin_router: ServerRouter,
+	pub admin_di: DiRegistrationList,
+	pub session_backend: Arc<RedisSessionBackend>,
+	pub allowed_origins: AllowedOrigins,
+	pub session_config: CookieSessionConfig,
+}
+
+/// DI factory — builds shared router infrastructure components.
+///
+/// Resolves `AllowedOrigins`, `CookieSessionConfig`, `WsBroadcaster`,
+/// and `LocalAuthService` from the DI registry, then constructs the
+/// DI context, admin site routes, and Redis session backend.
+/// `WsBroadcaster` and `LocalAuthService` are injected solely to
+/// trigger their singleton initialization.
+#[injectable_factory(scope = "transient")]
+async fn create_router_infrastructure(
+	#[inject] allowed_origins: Depends<AllowedOrigins>,
+	#[inject] session_config: Depends<CookieSessionConfig>,
+	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
+	#[inject] _local_auth_service: Depends<LocalAuthService>,
+) -> RouterInfrastructure {
+	let di_ctx = get_di_context(ContextLevel::Root);
+
+	// Configure admin site with DI registration.
+	let admin_site = Arc::new(crate::config::admin::configure_admin());
+	let (admin_router, admin_di) = admin_routes_with_di(admin_site);
+
+	// Configure Redis-backed session backend.
+	let redis_url = crate::config::settings::get_redis_url()
+		.expect("Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML");
+	let session_backend = Arc::new(
+		RedisSessionBackend::new_from_url(&redis_url)
+			.expect("Failed to create Redis session backend"),
+	);
+
+	RouterInfrastructure {
+		di_ctx,
+		admin_router,
+		admin_di,
+		session_backend,
+		allowed_origins: (*allowed_origins).clone(),
+		session_config: (*session_config).clone(),
+	}
+}
+
 // ── Router construction ─────────────────────────────────────────────
 
 /// Entry point for the `#[routes]` macro (called by the framework).
@@ -98,37 +158,22 @@ pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
 
 /// Build the application router by resolving dependencies from DI.
 ///
-/// All singletons (`AllowedOrigins`, `CookieSessionConfig`,
-/// `WsBroadcaster`, `LocalAuthService`) are resolved from the
-/// DI registry. Tests can override any of them by pre-registering
-/// in the `SingletonScope` before calling this function.
+/// Infrastructure components (`RouterInfrastructure`) are resolved
+/// transitively from the DI registry. Tests can override singletons
+/// like `AllowedOrigins` by pre-registering in the `SingletonScope`
+/// before calling this function.
 #[injectable_factory(scope = "transient")]
-async fn make_router(
-	#[inject] allowed_origins: Depends<AllowedOrigins>,
-	#[inject] session_config: Depends<CookieSessionConfig>,
-	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
-	#[inject] _local_auth_service: Depends<LocalAuthService>,
-) -> UnifiedRouter {
-	let di_ctx = get_di_context(ContextLevel::Root);
-
-	// Configure admin site with DI registration.
-	let admin_site = Arc::new(crate::config::admin::configure_admin());
-	let (admin_router, admin_di) = admin_routes_with_di(admin_site);
-
-	// Configure Redis-backed session backend
-	let redis_url = crate::config::settings::get_redis_url()
-		.expect("Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML");
-	let session_backend = Arc::new(
-		RedisSessionBackend::new_from_url(&redis_url)
-			.expect("Failed to create Redis session backend"),
-	);
+async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> UnifiedRouter {
+	let infra = infra
+		.try_unwrap()
+		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 
 	UnifiedRouter::new()
 		// Admin panel
-		.mount("/admin/", admin_router)
+		.mount("/admin/", infra.admin_router)
 		.mount("/static/admin/", admin_static_routes())
 		.with_prefix("/api/")
-		.with_di_registrations(admin_di)
+		.with_di_registrations(infra.admin_di)
 		// REST API endpoints
 		.mount("/auth/", crate::apps::auth::urls::url_patterns())
 		.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
@@ -139,13 +184,13 @@ async fn make_router(
 				.server_fn(server::logout::logout::marker)
 				.server_fn(server::me::me::marker)
 		})
-		.with_di_context(di_ctx)
+		.with_di_context(infra.di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(OriginGuardMiddleware::new(allowed_origins.0.clone()))
+		.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins.0))
 		.with_middleware(CookieSessionAuthMiddleware::with_config(
-			session_backend,
-			(*session_config).clone(),
+			infra.session_backend,
+			infra.session_config,
 		))
 }
 
