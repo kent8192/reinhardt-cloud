@@ -6,3 +6,4 @@ rustflags = ["-Wunreachable_pub"]
 # Enable all features to improve type checking in the editor
 [env]
 RUST_ANALYZER_CARGO_FEATURES = "all"
+REINHARDT_ENV = "ci"
