@@ -16,6 +16,8 @@ pub(crate) struct InfraSignals {
 	pub(crate) grpc: bool,
 	pub(crate) object_storage: bool,
 	pub(crate) sessions: bool,
+	pub(crate) pages: bool,
+	pub(crate) graphql: bool,
 }
 
 impl InfraSignals {
@@ -46,6 +48,8 @@ impl InfraSignals {
 			grpc: has("grpc"),
 			object_storage: has("storage") || has("static-files"),
 			sessions: has("sessions"),
+			pages: has("pages"),
+			graphql: has("graphql"),
 		}
 	}
 }
@@ -542,5 +546,42 @@ reinhardt-web = "0.1"
 		// String dependency has no features table, so extract_features_from_dep returns None
 		// and the dependency is not detected via the table-based path
 		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_pages_signal_detected() {
+		// Arrange
+		let features = vec!["pages".to_string()];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert!(signals.pages);
+	}
+
+	#[rstest]
+	fn test_graphql_signal_detected() {
+		// Arrange
+		let features = vec!["graphql".to_string()];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert!(signals.graphql);
+	}
+
+	#[rstest]
+	fn test_pages_and_graphql_default_false() {
+		// Arrange
+		let features: Vec<String> = vec![];
+
+		// Act
+		let signals = InfraSignals::from_features(&features);
+
+		// Assert
+		assert!(!signals.pages);
+		assert!(!signals.graphql);
 	}
 }

@@ -211,6 +211,8 @@ pub struct BuildSection {
 	pub dockerfile: Option<String>,
 	/// Build context directory
 	pub context: Option<String>,
+	/// Base image for runtime stage (default: debian:bookworm-slim)
+	pub base_image: Option<String>,
 	/// Additional build arguments
 	#[serde(default)]
 	pub build_args: BTreeMap<String, String>,
@@ -746,6 +748,7 @@ replicas = 1
 					registry: Some("ghcr.io/myorg".into()),
 					dockerfile: Some("Dockerfile".into()),
 					context: Some(".".into()),
+					base_image: None,
 					build_args: BTreeMap::from([("MODE".into(), "release".into())]),
 				}),
 				webhook: Some(WebhookTomlSection {

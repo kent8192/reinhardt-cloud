@@ -3,6 +3,7 @@
 mod client;
 mod commands;
 mod config;
+mod dockerfile_generator;
 mod feature_detector;
 mod settings_reader;
 mod toml_generator;
@@ -228,6 +229,27 @@ mod tests {
 	#[rstest]
 	fn test_parse_credentials_check_command() {
 		let args = vec!["reinhardt-cloud", "credentials", "check", "my-app"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_init_command_with_force() {
+		let args = vec!["reinhardt-cloud", "init", "--force"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_sync_command_with_force() {
+		let args = vec!["reinhardt-cloud", "sync", "--force"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_init_command_with_dir_and_force() {
+		let args = vec!["reinhardt-cloud", "init", "--dir", "/some/path", "--force"];
 		let cli = Cli::try_parse_from(args);
 		assert!(cli.is_ok());
 	}
