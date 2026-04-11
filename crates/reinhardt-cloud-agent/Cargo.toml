@@ -16,6 +16,7 @@ reinhardt-cloud-proto = { workspace = true }
 
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
+rustls = { workspace = true }
 tonic = "0.13"
 prost = "0.13"
 prost-types = "0.13"
