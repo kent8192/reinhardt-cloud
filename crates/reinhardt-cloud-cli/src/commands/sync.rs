@@ -39,12 +39,15 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
 	println!("Updated reinhardt-cloud.toml");
 
-	// Generate Dockerfile (sync always regenerates unless custom path is set)
+	// Generate Dockerfile
 	match dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force) {
 		SkipReason::CustomDockerfile => {
 			println!("Skipped Dockerfile (custom path set in [source.build])");
 		}
-		SkipReason::AlreadyExists | SkipReason::None => {
+		SkipReason::AlreadyExists => {
+			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
+		}
+		SkipReason::None => {
 			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
 			let dockerfile = dockerfile_generator::generate(&signals);
 			let dockerfile_path = project_dir.join("Dockerfile");

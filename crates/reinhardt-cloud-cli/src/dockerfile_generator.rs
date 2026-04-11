@@ -25,17 +25,23 @@ pub(crate) enum SkipReason {
 	AlreadyExists,
 }
 
+/// Returns `true` if the path refers to the default Dockerfile location.
+fn is_default_dockerfile_path(path: &str) -> bool {
+	matches!(path, "Dockerfile" | "./Dockerfile")
+}
+
 /// Check whether Dockerfile generation should be skipped.
 pub(crate) fn should_skip_dockerfile(
 	project_dir: &Path,
 	toml_config: &ReinhardtCloudToml,
 	force: bool,
 ) -> SkipReason {
-	// Check custom dockerfile path
+	// Check custom dockerfile path (skip default names)
 	if let Some(source) = &toml_config.source
 		&& let Some(build) = &source.build
 		&& let Some(df) = &build.dockerfile
 		&& !df.is_empty()
+		&& !is_default_dockerfile_path(df)
 	{
 		return SkipReason::CustomDockerfile;
 	}
@@ -293,6 +299,10 @@ mod tests {
 		let output = df.to_string();
 		assert!(output.contains("FROM gcr.io/distroless/cc-debian12 AS runtime"));
 		assert!(!output.contains("debian:bookworm-slim"));
+		// Custom image: no Debian-specific commands
+		assert!(!output.contains("apt-get"));
+		assert!(!output.contains("useradd"));
+		assert!(!output.contains("tini"));
 	}
 
 	// G12
@@ -405,7 +415,51 @@ mod tests {
 		);
 	}
 
-	// SK7
+	// SK7a
+	#[rstest]
+	fn no_skip_when_default_dockerfile_path() {
+		// Arrange
+		let dir = std::env::temp_dir();
+		let mut config = ReinhardtCloudToml::default();
+		config.source = Some(SourceSection {
+			repository: String::new(),
+			build: Some(BuildSection {
+				dockerfile: Some("Dockerfile".to_string()),
+				..Default::default()
+			}),
+			..Default::default()
+		});
+
+		// Act
+		let result = should_skip_dockerfile(&dir, &config, false);
+
+		// Assert
+		assert_eq!(result, SkipReason::None);
+	}
+
+	// SK7b
+	#[rstest]
+	fn no_skip_when_dot_slash_dockerfile_path() {
+		// Arrange
+		let dir = std::env::temp_dir();
+		let mut config = ReinhardtCloudToml::default();
+		config.source = Some(SourceSection {
+			repository: String::new(),
+			build: Some(BuildSection {
+				dockerfile: Some("./Dockerfile".to_string()),
+				..Default::default()
+			}),
+			..Default::default()
+		});
+
+		// Act
+		let result = should_skip_dockerfile(&dir, &config, false);
+
+		// Assert
+		assert_eq!(result, SkipReason::None);
+	}
+
+	// SK8
 	#[rstest]
 	fn build_section_missing() {
 		// Arrange

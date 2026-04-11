@@ -92,7 +92,11 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 
 /// Builds the "wasm" stage for compiling WebAssembly output.
 pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
-	let version = signals.wasm_bindgen_version.as_deref().unwrap_or("0.2.100");
+	// collect_signals guarantees wasm_bindgen_version is Some when pages is true.
+	let version = signals
+		.wasm_bindgen_version
+		.as_deref()
+		.expect("wasm_bindgen_version must be set when pages is enabled");
 
 	let app_name_underscored = signals.app_name.replace('-', "_");
 
@@ -127,28 +131,38 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 }
 
 /// Builds the "runtime" stage that produces the final container image.
+///
+/// When `base_image_override` is set, Debian-specific commands (`apt-get`,
+/// `useradd`, `tini`) are omitted because the custom image may not be
+/// Debian-based (e.g., distroless). The user is responsible for ensuring
+/// the custom image contains all required runtime dependencies.
 pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
+	let is_custom_image = signals.base_image_override.is_some();
 	let base_image = signals
 		.base_image_override
 		.clone()
 		.unwrap_or_else(|| DEFAULT_RUNTIME_IMAGE.to_string());
 
-	let pkgs = runtime_packages(signals).join(" ");
+	let mut instructions = Vec::new();
 
-	let mut instructions = vec![
-		Instruction::RunMulti(vec![
+	if !is_custom_image {
+		let pkgs = runtime_packages(signals).join(" ");
+		instructions.push(Instruction::RunMulti(vec![
 			"apt-get update".to_string(),
 			format!("apt-get install -y --no-install-recommends {pkgs}"),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
-		]),
-		Instruction::Run("useradd --create-home appuser".to_string()),
-		Instruction::Workdir("/app".to_string()),
-		Instruction::Copy {
-			from: Some("builder".to_string()),
-			src: format!("/app/target/release/{}", signals.app_name),
-			dst: "/app/".to_string(),
-		},
-	];
+		]));
+		instructions.push(Instruction::Run(
+			"useradd --create-home appuser".to_string(),
+		));
+	}
+
+	instructions.push(Instruction::Workdir("/app".to_string()));
+	instructions.push(Instruction::Copy {
+		from: Some("builder".to_string()),
+		src: format!("/app/target/release/{}", signals.app_name),
+		dst: "/app/".to_string(),
+	});
 
 	if signals.pages {
 		instructions.push(Instruction::Copy {
@@ -158,21 +172,39 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		});
 	}
 
-	instructions.push(Instruction::Run(
-		"chown -R appuser:appuser /app".to_string(),
-	));
-	instructions.push(Instruction::Comment("Run as non-root".to_string()));
-	instructions.push(Instruction::User("appuser".to_string()));
+	if is_custom_image {
+		// Custom image: use numeric UID (65534 = nobody) since useradd is
+		// unavailable on non-Debian images such as distroless.
+		instructions.push(Instruction::Comment("Run as non-root".to_string()));
+		instructions.push(Instruction::User("65534".to_string()));
+	} else {
+		instructions.push(Instruction::Run(
+			"chown -R appuser:appuser /app".to_string(),
+		));
+		instructions.push(Instruction::Comment("Run as non-root".to_string()));
+		instructions.push(Instruction::User("appuser".to_string()));
+	}
+
 	instructions.push(Instruction::Env(vec![(
 		"RUST_LOG".to_string(),
 		"info".to_string(),
 	)]));
 	instructions.push(Instruction::Expose(8000));
-	instructions.push(Instruction::Entrypoint(vec![
-		"tini".to_string(),
-		"--".to_string(),
-		format!("/app/{}", signals.app_name),
-	]));
+
+	if is_custom_image {
+		// Custom image: run binary directly without tini since it may not
+		// be available.
+		instructions.push(Instruction::Entrypoint(vec![format!(
+			"/app/{}",
+			signals.app_name
+		)]));
+	} else {
+		instructions.push(Instruction::Entrypoint(vec![
+			"tini".to_string(),
+			"--".to_string(),
+			format!("/app/{}", signals.app_name),
+		]));
+	}
 
 	Stage {
 		base_image,
@@ -361,6 +393,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(stage.base_image, "gcr.io/distroless/cc-debian12");
+		// Custom image: no apt-get, no useradd, no tini
+		assert!(!stage_contains_run(&stage, "apt-get"));
+		assert!(!stage_contains_run(&stage, "useradd"));
+		assert!(!stage_contains_run(&stage, "tini"));
 	}
 
 	// S12
@@ -444,6 +480,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(stage.base_image, "custom:latest");
-		assert!(stage_contains_run(&stage, "default-mysql-client-core"));
+		// Custom image: apt-get is skipped, so no mysql client package
+		assert!(!stage_contains_run(&stage, "apt-get"));
+		assert!(!stage_contains_run(&stage, "default-mysql-client-core"));
 	}
 }
