@@ -21,13 +21,16 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       (
-        contains(join(github.event.pull_request.labels.*.name, ','), 'breaking-change')
+        contains(github.event.pull_request.labels.*.name, 'breaking-change')
         || contains(github.event.pull_request.title, '!:')
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: kent8192/reinhardt-web/.github/actions/announce-breaking-change@main
+      # Pin to SHA after kent8192/reinhardt-web#3470 is merged.
+      # To update: gh api repos/kent8192/reinhardt-web/git/refs/heads/main --jq '.object.sha'
+      - uses: kent8192/reinhardt-web/.github/actions/announce-breaking-change@16a12640397aec6cbc3ee44bf1dcc512cc607ecd # main
         with:
           source-repo: reinhardt-cloud
           pr-number: ${{ github.event.pull_request.number }}
@@ -54,12 +57,13 @@ jobs:
             local pr_number="$1"
             echo "--- Processing PR #${pr_number} ---"
 
-            local pr_data
-            pr_data=$(gh pr view "$pr_number" --repo "$TARGET_REPO" \
-              --json title,body,url,mergedAt 2>&1) || {
-              echo "ERROR: Failed to fetch PR #${pr_number}: ${pr_data}"
+            local pr_data pr_err
+            if ! pr_data=$(gh pr view "$pr_number" --repo "$TARGET_REPO" \
+              --json title,body,url,mergedAt 2>/tmp/pr_err.txt); then
+              pr_err=$(cat /tmp/pr_err.txt)
+              echo "ERROR: Failed to fetch PR #${pr_number}: ${pr_err}"
               return 1
-            }
+            fi
 
             local pr_title pr_url merged_at
             pr_title=$(echo "$pr_data" | jq -r '.title')
@@ -128,6 +132,8 @@ jobs:
             sleep 2
           }
 
+          failures=0
+
           if [ "$INPUT_MODE" = "by-pr-number" ]; then
             if [ -z "$INPUT_PR_NUMBERS" ]; then
               echo "ERROR: pr-numbers is required for by-pr-number mode"
@@ -136,21 +142,33 @@ jobs:
             IFS=',' read -ra NUMBERS <<< "$INPUT_PR_NUMBERS"
             for num in "${NUMBERS[@]}"; do
               num=$(echo "$num" | xargs)
-              process_pr "$num" || true
+              process_pr "$num" || failures=$((failures + 1))
             done
 
           elif [ "$INPUT_MODE" = "all" ]; then
             echo "Scanning all merged PRs for breaking changes..."
-            gh pr list --repo "$TARGET_REPO" --state merged --limit 500 \
-              --json number,title,labels,body \
-              | jq -r '[.[] | select(
+            fail_file=$(mktemp)
+            echo 0 > "$fail_file"
+            gh api --paginate "repos/${TARGET_REPO}/pulls?state=closed&per_page=100" \
+              --jq '[.[] | select(.merged_at != null)] | .[].number' \
+              | while read -r candidate; do
+                pr_json=$(gh pr view "$candidate" --repo "$TARGET_REPO" \
+                  --json title,labels,body 2>/dev/null) || continue
+                is_breaking=$(echo "$pr_json" | jq -r '
                   ([.labels[].name] | any(. == "breaking-change")) or
                   (.title | test("!:")) or
                   (.body | test("\\[x\\] Breaking change"; "i"))
-                )] | sort_by(.number) | .[].number' \
-              | while read -r num; do
-                process_pr "$num" || true
+                ')
+                if [ "$is_breaking" = "true" ]; then
+                  process_pr "$candidate" || echo $(( $(cat "$fail_file") + 1 )) > "$fail_file"
+                fi
               done
+            failures=$(cat "$fail_file")
+            rm -f "$fail_file"
           fi
 
+          if [ "$failures" -gt 0 ]; then
+            echo "Backfill completed with ${failures} failure(s)."
+            exit 1
+          fi
           echo "Backfill complete."
