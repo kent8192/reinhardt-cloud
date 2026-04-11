@@ -172,21 +172,32 @@ fn build_reinhardt_app_crd(
 ///
 /// Pipes the YAML content to kubectl's stdin, which avoids temporary files and
 /// ensures both production and test code use the same kubectl invocation path.
+///
+/// When `capture_output` is false, stdout/stderr are inherited so kubectl output
+/// streams to the terminal in real-time. When true, output is captured and
+/// returned in error messages (useful for testing).
 async fn kubectl_apply(
 	yaml: &str,
 	namespace: &str,
 	cluster: Option<&str>,
+	capture_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = vec!["apply", "-f", "-", "-n", namespace];
 	if let Some(ctx) = cluster {
 		args.extend(["--context", ctx]);
 	}
 
+	let (stdout_cfg, stderr_cfg) = if capture_output {
+		(std::process::Stdio::piped(), std::process::Stdio::piped())
+	} else {
+		(std::process::Stdio::inherit(), std::process::Stdio::inherit())
+	};
+
 	let mut child = tokio::process::Command::new("kubectl")
 		.args(&args)
 		.stdin(std::process::Stdio::piped())
-		.stdout(std::process::Stdio::piped())
-		.stderr(std::process::Stdio::piped())
+		.stdout(stdout_cfg)
+		.stderr(stderr_cfg)
 		.spawn()
 		.map_err(|e| format!("failed to run kubectl (is it installed?): {e}"))?;
 
@@ -207,8 +218,6 @@ async fn kubectl_apply(
 		.map_err(|e| format!("failed to wait for kubectl: {e}"))?;
 
 	if output.status.success() {
-		let stdout = String::from_utf8_lossy(&output.stdout);
-		print!("{stdout}");
 		Ok(())
 	} else {
 		let stderr = String::from_utf8_lossy(&output.stderr);
@@ -302,7 +311,7 @@ pub(crate) async fn execute(
 	}
 
 	if args.direct {
-		kubectl_apply(&yaml, &args.namespace, args.cluster.as_deref()).await?;
+		kubectl_apply(&yaml, &args.namespace, args.cluster.as_deref(), false).await?;
 		println!(
 			"CRD applied directly to Kubernetes (namespace: {})",
 			args.namespace
@@ -624,7 +633,7 @@ features:
 
 		// Act: call kubectl_apply - kubectl is not available in CI,
 		// so we expect an error about kubectl not being found or apply failing.
-		let result = kubectl_apply(&yaml, "staging", None).await;
+		let result = kubectl_apply(&yaml, "staging", None, true).await;
 
 		// Assert: the function should return an error (kubectl not available in test env),
 		// but the error message should indicate kubectl execution, not YAML serialization.
@@ -644,7 +653,7 @@ features:
 		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act
-		let result = kubectl_apply(&yaml, "prod", Some("my-cluster")).await;
+		let result = kubectl_apply(&yaml, "prod", Some("my-cluster"), true).await;
 
 		// Assert: should fail with kubectl error, not a code-level error
 		assert!(result.is_err());
