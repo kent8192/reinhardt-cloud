@@ -43,6 +43,8 @@ enum Commands {
 	Sync(commands::sync::SyncArgs),
 	/// Manage Git and registry credentials
 	Credentials(commands::credentials::CredentialsArgs),
+	/// Manage CRD manifests (generate, inspect)
+	Crd(commands::crd::CrdArgs),
 }
 
 #[tokio::main]
@@ -61,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Commands::Init(args) => commands::init::execute(args).await,
 		Commands::Sync(args) => commands::sync::execute(args).await,
 		Commands::Credentials(args) => commands::credentials::execute(args).await,
+		Commands::Crd(args) => commands::crd::execute(args).await,
 	}
 }
 
@@ -229,6 +232,26 @@ mod tests {
 	#[rstest]
 	fn test_parse_credentials_check_command() {
 		let args = vec!["reinhardt-cloud", "credentials", "check", "my-app"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_crd_generate_command() {
+		let args = vec!["reinhardt-cloud", "crd", "generate"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_crd_generate_with_output() {
+		let args = vec![
+			"reinhardt-cloud",
+			"crd",
+			"generate",
+			"--output",
+			"/tmp/crd.yaml",
+		];
 		let cli = Cli::try_parse_from(args);
 		assert!(cli.is_ok());
 	}
