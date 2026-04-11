@@ -49,7 +49,6 @@ use reinhardt::{
 ///
 /// Tests can override by pre-registering in `SingletonScope`
 /// before the factory is invoked.
-#[derive(Clone)]
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
 /// DI factory — resolves allowed origins from settings.
@@ -100,7 +99,7 @@ pub(crate) struct RouterInfrastructure {
 	pub admin_router: ServerRouter,
 	pub admin_di: DiRegistrationList,
 	pub session_backend: Arc<RedisSessionBackend>,
-	pub allowed_origins: AllowedOrigins,
+	pub allowed_origins: Vec<String>,
 	pub session_config: CookieSessionConfig,
 }
 
@@ -137,7 +136,7 @@ async fn create_router_infrastructure(
 		admin_router,
 		admin_di,
 		session_backend,
-		allowed_origins: (*allowed_origins).clone(),
+		allowed_origins: allowed_origins.0.clone(),
 		session_config: (*session_config).clone(),
 	}
 }
@@ -187,7 +186,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> UnifiedR
 		.with_di_context(infra.di_ctx)
 		.with_middleware(SecurityMiddleware::new())
 		.with_middleware(CspPathMiddleware)
-		.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins.0))
+		.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
 		.with_middleware(CookieSessionAuthMiddleware::with_config(
 			infra.session_backend,
 			infra.session_config,
