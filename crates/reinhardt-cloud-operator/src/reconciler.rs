@@ -190,6 +190,31 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			pages_config.as_ref(),
 		)
 		.await?;
+	} else if let Some(host) = app
+		.spec
+		.services
+		.as_ref()
+		.and_then(|s| s.ingress_host.as_deref())
+	{
+		// Explicit ingress_host: create Ingress with host-based routing
+		// and include pages /static/ path if pages is enabled (fixes #97).
+		let port = resolve_app_port(&app);
+		let routes = vec![reinhardt_cloud_types::introspect::RouteMetadata {
+			path: "/".to_string(),
+			methods: vec![],
+			name: None,
+			namespace: None,
+		}];
+		reconcile_ingress_resource_with_host(
+			&app,
+			&ctx.client,
+			namespace,
+			&routes,
+			port,
+			Some(host),
+			pages_config.as_ref(),
+		)
+		.await?;
 	}
 
 	// Cache provisioning — explicit spec.cache takes precedence,
@@ -695,10 +720,10 @@ fn should_provision_mail(app: &ReinhardtApp) -> bool {
 fn resolve_ingress_config(
 	app: &ReinhardtApp,
 ) -> Option<(Vec<reinhardt_cloud_types::introspect::RouteMetadata>, u16)> {
-	// Explicit ingress_host in services spec is handled by the existing
-	// reconcile path (build_service/build_ingress from explicit fields).
-	// Here we only handle introspect-derived routes when no explicit
-	// services config provides an ingress host.
+	// Explicit ingress_host is handled by the else-if branch in the reconciler
+	// (reconcile_ingress_resource_with_host). Here we only handle
+	// introspect-derived routes when no explicit services config provides
+	// an ingress host.
 	let has_explicit_ingress = app
 		.spec
 		.services
@@ -852,6 +877,20 @@ async fn reconcile_ingress_resource(
 	port: u16,
 	pages_config: Option<&ResolvedPagesConfig>,
 ) -> Result<(), Error> {
+	reconcile_ingress_resource_with_host(app, client, namespace, routes, port, None, pages_config)
+		.await
+}
+
+/// Reconciles the `Ingress` resource via server-side apply, with an optional explicit host.
+async fn reconcile_ingress_resource_with_host(
+	app: &ReinhardtApp,
+	client: &Client,
+	namespace: &str,
+	routes: &[reinhardt_cloud_types::introspect::RouteMetadata],
+	port: u16,
+	host: Option<&str>,
+	pages_config: Option<&ResolvedPagesConfig>,
+) -> Result<(), Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
@@ -860,7 +899,7 @@ async fn reconcile_ingress_resource(
 		.introspect
 		.as_ref()
 		.map(|i| &i.features.infrastructure_signals);
-	let Some(desired) = build_ingress(app, routes, port, None, signals, pages_config)? else {
+	let Some(desired) = build_ingress(app, routes, port, host, signals, pages_config)? else {
 		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
 		return Ok(());
 	};
