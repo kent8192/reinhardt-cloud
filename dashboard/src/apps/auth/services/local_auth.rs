@@ -22,7 +22,6 @@ use crate::apps::auth::models::User;
 /// Uses the database for credential verification and user lookups,
 /// and `reinhardt_cloud_core::auth` for token operations (used by
 /// the gRPC layer).
-#[derive(Clone)]
 pub struct LocalAuthService;
 
 impl LocalAuthService {
