@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod apps;
 pub mod grpc;
+pub mod hooks;
 pub mod middleware;
 pub mod settings;
 pub mod test_helpers;
