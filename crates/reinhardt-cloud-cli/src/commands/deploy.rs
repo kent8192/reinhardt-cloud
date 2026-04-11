@@ -190,7 +190,10 @@ async fn kubectl_apply(
 	let (stdout_cfg, stderr_cfg) = if capture_output {
 		(std::process::Stdio::piped(), std::process::Stdio::piped())
 	} else {
-		(std::process::Stdio::inherit(), std::process::Stdio::inherit())
+		(
+			std::process::Stdio::inherit(),
+			std::process::Stdio::inherit(),
+		)
 	};
 
 	let mut child = tokio::process::Command::new("kubectl")
