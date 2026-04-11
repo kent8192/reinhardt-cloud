@@ -3,6 +3,7 @@
 use clap::Args;
 use std::path::PathBuf;
 use std::process::Command;
+use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
 use reinhardt_cloud_types::introspect::IntrospectOutput;
@@ -167,49 +168,59 @@ fn build_reinhardt_app_crd(
 	serde_yaml::Value::Mapping(root)
 }
 
-/// Applies a CRD YAML directly to Kubernetes using `kubectl apply`.
+/// Applies YAML content to Kubernetes via `kubectl apply -f -` using async I/O.
 ///
-/// Writes the CRD to a temporary file, invokes `kubectl apply -f <tempfile>`,
-/// and reports success or failure. The temporary file is cleaned up automatically
-/// when the `NamedTempFile` is dropped.
-// Used by tests to verify CRD YAML serialization and kubectl argument construction.
-#[cfg(test)]
-fn apply_crd_directly(
-	crd: &serde_yaml::Value,
+/// Pipes the YAML content to kubectl's stdin, which avoids temporary files and
+/// ensures both production and test code use the same kubectl invocation path.
+///
+/// When `capture_output` is false, stdout/stderr are inherited so kubectl output
+/// streams to the terminal in real-time. When true, output is captured and
+/// returned in error messages (useful for testing).
+async fn kubectl_apply(
+	yaml: &str,
 	namespace: &str,
 	cluster: Option<&str>,
+	capture_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	use std::io::Write;
-	let yaml = serde_yaml::to_string(crd)?;
-
-	let mut tmpfile = tempfile::NamedTempFile::new()
-		.map_err(|e| format!("Failed to create temporary file: {e}"))?;
-	tmpfile
-		.write_all(yaml.as_bytes())
-		.map_err(|e| format!("Failed to write CRD to temporary file: {e}"))?;
-	tmpfile
-		.flush()
-		.map_err(|e| format!("Failed to flush temporary file: {e}"))?;
-
-	let tmppath = tmpfile.path();
-
-	let mut cmd = Command::new("kubectl");
-	cmd.args(["apply", "-f"]);
-	cmd.arg(tmppath);
-	cmd.args(["-n", namespace]);
-
+	let mut args = vec!["apply", "-f", "-", "-n", namespace];
 	if let Some(ctx) = cluster {
-		cmd.args(["--context", ctx]);
+		args.extend(["--context", ctx]);
 	}
 
-	let output = cmd
-		.output()
-		.map_err(|e| format!("Failed to run kubectl (is it installed?): {e}"))?;
+	let (stdout_cfg, stderr_cfg) = if capture_output {
+		(std::process::Stdio::piped(), std::process::Stdio::piped())
+	} else {
+		(
+			std::process::Stdio::inherit(),
+			std::process::Stdio::inherit(),
+		)
+	};
+
+	let mut child = tokio::process::Command::new("kubectl")
+		.args(&args)
+		.stdin(std::process::Stdio::piped())
+		.stdout(stdout_cfg)
+		.stderr(stderr_cfg)
+		.spawn()
+		.map_err(|e| format!("failed to run kubectl (is it installed?): {e}"))?;
+
+	if let Some(mut stdin) = child.stdin.take() {
+		stdin
+			.write_all(yaml.as_bytes())
+			.await
+			.map_err(|e| format!("failed to write YAML to kubectl stdin: {e}"))?;
+		stdin
+			.shutdown()
+			.await
+			.map_err(|e| format!("failed to close kubectl stdin: {e}"))?;
+	}
+
+	let output = child
+		.wait_with_output()
+		.await
+		.map_err(|e| format!("failed to wait for kubectl: {e}"))?;
 
 	if output.status.success() {
-		let stdout = String::from_utf8_lossy(&output.stdout);
-		println!("Successfully applied CRD to Kubernetes:");
-		print!("{stdout}");
 		Ok(())
 	} else {
 		let stderr = String::from_utf8_lossy(&output.stderr);
@@ -303,35 +314,7 @@ pub(crate) async fn execute(
 	}
 
 	if args.direct {
-		// Direct mode: apply CRD via kubectl using async I/O
-		let mut child = tokio::process::Command::new("kubectl")
-			.args(["apply", "-f", "-", "-n", &args.namespace])
-			.stdin(std::process::Stdio::piped())
-			.stdout(std::process::Stdio::inherit())
-			.stderr(std::process::Stdio::inherit())
-			.spawn()
-			.map_err(|e| format!("failed to run kubectl: {e}"))?;
-
-		if let Some(mut stdin) = child.stdin.take() {
-			use tokio::io::AsyncWriteExt;
-			stdin
-				.write_all(yaml.as_bytes())
-				.await
-				.map_err(|e| format!("failed to write CRD to kubectl stdin: {e}"))?;
-			// Close stdin so kubectl sees EOF and proceeds.
-			stdin
-				.shutdown()
-				.await
-				.map_err(|e| format!("failed to close kubectl stdin: {e}"))?;
-		}
-
-		let exit_status = child
-			.wait()
-			.await
-			.map_err(|e| format!("failed to wait for kubectl: {e}"))?;
-		if !exit_status.success() {
-			return Err(format!("kubectl apply failed with status {exit_status}").into());
-		}
+		kubectl_apply(&yaml, &args.namespace, args.cluster.as_deref(), false).await?;
 		println!(
 			"CRD applied directly to Kubernetes (namespace: {})",
 			args.namespace
@@ -645,13 +628,15 @@ features:
 	}
 
 	#[rstest]
-	fn test_apply_crd_directly_writes_valid_yaml_to_tempfile() {
+	#[tokio::test]
+	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
 		let crd = build_reinhardt_app_crd("test-app", "staging", "test:v1", Some(2), None);
+		let yaml = serde_yaml::to_string(&crd).unwrap();
 
-		// Act: call apply_crd_directly - kubectl is not available in CI,
+		// Act: call kubectl_apply - kubectl is not available in CI,
 		// so we expect an error about kubectl not being found or apply failing.
-		let result = apply_crd_directly(&crd, "staging", None);
+		let result = kubectl_apply(&yaml, "staging", None, true).await;
 
 		// Assert: the function should return an error (kubectl not available in test env),
 		// but the error message should indicate kubectl execution, not YAML serialization.
@@ -664,12 +649,14 @@ features:
 	}
 
 	#[rstest]
-	fn test_apply_crd_directly_passes_cluster_context() {
+	#[tokio::test]
+	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
 		let crd = build_reinhardt_app_crd("ctx-app", "prod", "ctx:v1", Some(1), None);
+		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act
-		let result = apply_crd_directly(&crd, "prod", Some("my-cluster"));
+		let result = kubectl_apply(&yaml, "prod", Some("my-cluster"), true).await;
 
 		// Assert: should fail with kubectl error, not a code-level error
 		assert!(result.is_err());
