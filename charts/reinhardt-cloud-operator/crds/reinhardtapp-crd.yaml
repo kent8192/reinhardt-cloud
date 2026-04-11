@@ -1,0 +1,833 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: reinhardtapps.paas.reinhardt-cloud.dev
+spec:
+  group: paas.reinhardt-cloud.dev
+  names:
+    categories: []
+    kind: ReinhardtApp
+    plural: reinhardtapps
+    shortNames: []
+    singular: reinhardtapp
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .spec.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for ReinhardtAppSpec via `CustomResource`
+        properties:
+          spec:
+            description: Spec for the `ReinhardtApp` custom resource.
+            properties:
+              auth:
+                description: Authentication configuration
+                nullable: true
+                properties:
+                  jwt:
+                    default: false
+                    description: JWT authentication enabled
+                    type: boolean
+                  oauth:
+                    description: OAuth2 configuration
+                    nullable: true
+                    properties:
+                      credentials_secret:
+                        description: Secret name containing client_id and client_secret
+                        nullable: true
+                        type: string
+                      provider:
+                        description: OAuth provider name
+                        type: string
+                    required:
+                    - provider
+                    type: object
+                type: object
+              cache:
+                description: Cache configuration (Redis)
+                nullable: true
+                properties:
+                  backend:
+                    default: redis
+                    description: Cache backend type
+                    enum:
+                    - redis
+                    type: string
+                  instance_type:
+                    description: Instance type (platform-specific)
+                    nullable: true
+                    type: string
+                type: object
+              database:
+                description: Database infrastructure configuration
+                nullable: true
+                properties:
+                  engine:
+                    enum:
+                    - postgresql
+                    - mysql
+                    - sqlite
+                    type: string
+                  instance_class:
+                    description: |-
+                      Instance class (platform-specific, e.g., "db.t3.micro").
+                      Defaults to platform profile value if unset.
+                    nullable: true
+                    type: string
+                  storage_gb:
+                    description: Storage size in GB. Must be > 0.
+                    format: int32
+                    nullable: true
+                    type: integer
+                  version:
+                    description: Engine version (e.g., "16" for PostgreSQL).
+                    nullable: true
+                    type: string
+                required:
+                - engine
+                type: object
+              deletion_policy:
+                default: retain
+                description: Cloud resource deletion policy (defaults to Retain)
+                enum:
+                - retain
+                - delete
+                type: string
+              env:
+                additionalProperties:
+                  type: string
+                default: {}
+                description: Environment variables as key-value pairs
+                type: object
+              features:
+                default: []
+                description: Resolved reinhardt-web feature flags
+                items:
+                  type: string
+                type: array
+              health:
+                description: Health check configuration
+                nullable: true
+                properties:
+                  interval_seconds:
+                    description: Interval between health checks in seconds
+                    format: int32
+                    nullable: true
+                    type: integer
+                  path:
+                    description: HTTP path for health checks
+                    nullable: true
+                    type: string
+                  port:
+                    description: Port for health checks
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+              image:
+                description: Docker image to deploy
+                type: string
+              introspect:
+                description: |-
+                  Introspect metadata from `manage introspect` output.
+                  When present, the operator uses this to infer infrastructure requirements.
+                nullable: true
+                properties:
+                  app:
+                    default:
+                      name: ''
+                      version: ''
+                    description: Application metadata (name, version).
+                    properties:
+                      name:
+                        default: ''
+                        description: Application name.
+                        type: string
+                      version:
+                        default: ''
+                        description: Application version string.
+                        type: string
+                    type: object
+                  databases:
+                    default: []
+                    description: Database configurations discovered by introspection.
+                    items:
+                      description: A single database backend discovered by introspection.
+                      properties:
+                        alias:
+                          default: ''
+                          description: The alias used in settings (e.g., `"default"`).
+                          type: string
+                        engine:
+                          default: ''
+                          description: Database engine identifier (e.g., `"postgres"`).
+                          type: string
+                        tables:
+                          default: []
+                          description: Tables registered through this database backend.
+                          items:
+                            description: A database table discovered through introspection.
+                            properties:
+                              app:
+                                default: ''
+                                description: The application that owns this table.
+                                type: string
+                              name:
+                                default: ''
+                                description: Table name in the database.
+                                type: string
+                            type: object
+                          type: array
+                      type: object
+                    type: array
+                  features:
+                    default:
+                      declared: []
+                      infrastructure_signals:
+                        admin_panel: false
+                        background_worker: false
+                        graphql: false
+                        grpc: false
+                        i18n: false
+                        pages: false
+                        websocket: false
+                      resolved: []
+                    description: Feature declarations and infrastructure signals.
+                    properties:
+                      declared:
+                        default: []
+                        description: Features explicitly declared by the application.
+                        items:
+                          type: string
+                        type: array
+                      infrastructure_signals:
+                        default:
+                          admin_panel: false
+                          background_worker: false
+                          graphql: false
+                          grpc: false
+                          i18n: false
+                          pages: false
+                          websocket: false
+                        description: Infrastructure signals inferred from application code.
+                        properties:
+                          admin_panel:
+                            default: false
+                            description: Whether the application includes an admin panel.
+                            type: boolean
+                          background_worker:
+                            default: false
+                            description: Whether the application uses background workers.
+                            type: boolean
+                          cache:
+                            description: Cache backend identifier (e.g., `"redis"`).
+                            nullable: true
+                            type: string
+                          database:
+                            description: Database backend identifier (e.g., `"postgres"`).
+                            nullable: true
+                            type: string
+                          graphql:
+                            default: false
+                            description: Whether the application uses GraphQL.
+                            type: boolean
+                          grpc:
+                            default: false
+                            description: Whether the application exposes gRPC services.
+                            type: boolean
+                          i18n:
+                            default: false
+                            description: Whether internationalization (i18n) is enabled.
+                            type: boolean
+                          mail:
+                            description: Mail backend identifier (e.g., `"smtp"`).
+                            nullable: true
+                            type: string
+                          pages:
+                            default: false
+                            description: Whether the application uses reinhardt-pages (WASM frontend).
+                            type: boolean
+                          session_backend:
+                            description: Session backend identifier (e.g., `"redis"`, `"db"`).
+                            nullable: true
+                            type: string
+                          storage:
+                            description: Object storage backend identifier (e.g., `"s3"`).
+                            nullable: true
+                            type: string
+                          websocket:
+                            default: false
+                            description: Whether the application uses WebSocket connections.
+                            type: boolean
+                        type: object
+                      resolved:
+                        default: []
+                        description: Features resolved after dependency analysis.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  middleware:
+                    default: []
+                    description: Middleware stack configured in the application.
+                    items:
+                      description: A middleware entry in the application stack.
+                      properties:
+                        name:
+                          default: ''
+                          description: Short name of the middleware.
+                          type: string
+                        type_name:
+                          default: ''
+                          description: Fully-qualified type name.
+                          type: string
+                      type: object
+                    type: array
+                  routes:
+                    default: []
+                    description: URL routes registered in the application.
+                    items:
+                      description: A URL route registered in the application.
+                      properties:
+                        methods:
+                          default: []
+                          description: HTTP methods accepted by this route.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: Optional route name for reverse-URL lookups.
+                          nullable: true
+                          type: string
+                        namespace:
+                          description: Optional namespace grouping.
+                          nullable: true
+                          type: string
+                        path:
+                          default: ''
+                          description: URL path pattern (e.g., `/api/users/`).
+                          type: string
+                      type: object
+                    type: array
+                  settings:
+                    default:
+                      security:
+                        csrf_cookie_secure: false
+                        hsts_enabled: false
+                        session_cookie_secure: false
+                        ssl_redirect: false
+                      server:
+                        debug: false
+                        default_port: 8000
+                    description: Application settings (server, security).
+                    properties:
+                      security:
+                        default:
+                          csrf_cookie_secure: false
+                          hsts_enabled: false
+                          session_cookie_secure: false
+                          ssl_redirect: false
+                        description: Security-related settings.
+                        properties:
+                          csrf_cookie_secure:
+                            default: false
+                            description: Whether the CSRF cookie is marked Secure.
+                            type: boolean
+                          hsts_enabled:
+                            default: false
+                            description: Whether HSTS (HTTP Strict Transport Security) is enabled.
+                            type: boolean
+                          session_cookie_secure:
+                            default: false
+                            description: Whether the session cookie is marked Secure.
+                            type: boolean
+                          ssl_redirect:
+                            default: false
+                            description: Whether HTTP-to-HTTPS redirect is enabled.
+                            type: boolean
+                        type: object
+                      server:
+                        default:
+                          debug: false
+                          default_port: 8000
+                        description: Server configuration.
+                        properties:
+                          debug:
+                            default: false
+                            description: Whether the application runs in debug mode.
+                            type: boolean
+                          default_port:
+                            default: 8000
+                            description: Default listening port (defaults to 8000).
+                            format: uint16
+                            maximum: 65535.0
+                            minimum: 0.0
+                            type: integer
+                        type: object
+                    type: object
+                type: object
+              isolation:
+                description: Workload isolation and security configuration.
+                nullable: true
+                properties:
+                  level:
+                    default: None
+                    description: Desired isolation level.
+                    enum:
+                    - None
+                    - Sandbox
+                    - MicroVM
+                    type: string
+                  network:
+                    description: Network isolation policy.
+                    nullable: true
+                    properties:
+                      allow_egress:
+                        default: true
+                        description: |-
+                          Allow egress to external networks.
+                          Defaults to true.
+                        type: boolean
+                      block_metadata_service:
+                        default: true
+                        description: |-
+                          Block access to cloud metadata service (169.254.169.254).
+                          Defaults to true.
+                        type: boolean
+                      egress_allow_cidrs:
+                        default: []
+                        description: Allowed egress CIDR blocks (only effective when `allow_egress` is true).
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  runtime_class_override:
+                    description: |-
+                      Override the RuntimeClass name (advanced usage).
+                      Must be non-empty when specified.
+                    nullable: true
+                    type: string
+                type: object
+              mail:
+                description: Mail (SMTP) configuration
+                nullable: true
+                properties:
+                  credentials_secret:
+                    description: Secret name containing SMTP credentials
+                    nullable: true
+                    type: string
+                  smtp_host:
+                    description: SMTP host
+                    nullable: true
+                    type: string
+                  smtp_port:
+                    description: SMTP port (1-65535)
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+              pages:
+                description: |-
+                  reinhardt-pages frontend configuration.
+                  Auto-detected from introspect when not explicitly set.
+                nullable: true
+                properties:
+                  brotli:
+                    description: Enable Brotli compression. Defaults to true.
+                    nullable: true
+                    type: boolean
+                  cache_max_age:
+                    description: |-
+                      Cache-Control max-age for static assets (seconds).
+                      Defaults to 86400 (1 day).
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  gzip:
+                    description: Enable Gzip compression. Defaults to true.
+                    nullable: true
+                    type: boolean
+                  server_image:
+                    description: |-
+                      static-web-server container image.
+                      Defaults to `joseluisq/static-web-server:2-alpine`.
+                    nullable: true
+                    type: string
+                  server_resources:
+                    description: Resource requests/limits for the static-web-server sidecar.
+                    nullable: true
+                    properties:
+                      limits:
+                        additionalProperties:
+                          type: string
+                        default: {}
+                        description: 'Resource limits (e.g., `{"cpu": "100m", "memory": "64Mi"}`)'
+                        type: object
+                      requests:
+                        additionalProperties:
+                          type: string
+                        default: {}
+                        description: 'Resource requests (e.g., `{"cpu": "10m", "memory": "16Mi"}`)'
+                        type: object
+                    type: object
+                  static_root:
+                    description: |-
+                      Path inside the container where collectstatic outputs files.
+                      Defaults to `/app/staticfiles` (standard STATIC_ROOT).
+                    nullable: true
+                    type: string
+                  static_url:
+                    description: |-
+                      URL prefix for static files. Defaults to `/static/`.
+                      Must start and end with `/`.
+                    nullable: true
+                    type: string
+                type: object
+              replicas:
+                description: Number of desired replicas (defaults to 1)
+                format: int32
+                nullable: true
+                type: integer
+              scale:
+                description: Autoscaling configuration
+                nullable: true
+                properties:
+                  max_replicas:
+                    description: Maximum number of replicas
+                    format: int32
+                    nullable: true
+                    type: integer
+                  metric:
+                    description: Metric to scale on
+                    enum:
+                    - Cpu
+                    - Memory
+                    - Rps
+                    - null
+                    nullable: true
+                    type: string
+                  min_replicas:
+                    description: Minimum number of replicas
+                    format: int32
+                    nullable: true
+                    type: integer
+                  target_value:
+                    description: Target value for the scaling metric
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+              services:
+                description: Service exposure configuration
+                nullable: true
+                properties:
+                  ingress_host:
+                    description: Ingress hostname for external access
+                    nullable: true
+                    type: string
+                  port:
+                    description: Service port
+                    format: int32
+                    nullable: true
+                    type: integer
+                  target_port:
+                    description: Target port on the container
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+              source:
+                description: Git source and CI/CD pipeline configuration.
+                nullable: true
+                properties:
+                  branch:
+                    description: Branch to track (defaults to "main" at runtime).
+                    nullable: true
+                    type: string
+                  build:
+                    description: Container build configuration.
+                    nullable: true
+                    properties:
+                      build_args:
+                        additionalProperties:
+                          type: string
+                        default: {}
+                        description: Additional build arguments.
+                        type: object
+                      context:
+                        description: Build context directory.
+                        nullable: true
+                        type: string
+                      dockerfile:
+                        description: Dockerfile path relative to context.
+                        nullable: true
+                        type: string
+                      registry:
+                        description: Container registry URL.
+                        nullable: true
+                        type: string
+                    type: object
+                  credentials_secret:
+                    description: Secret name containing Git credentials.
+                    nullable: true
+                    type: string
+                  preview:
+                    description: Preview environment configuration.
+                    nullable: true
+                    properties:
+                      enabled:
+                        default: false
+                        description: Whether preview environments are enabled.
+                        type: boolean
+                      overrides:
+                        description: Resource overrides for preview deployments.
+                        nullable: true
+                        properties:
+                          cache:
+                            description: Whether to provision a cache for preview.
+                            nullable: true
+                            type: boolean
+                          database:
+                            description: Whether to provision a database for preview.
+                            nullable: true
+                            type: boolean
+                          replicas:
+                            description: Override replica count for preview.
+                            format: int32
+                            nullable: true
+                            type: integer
+                        type: object
+                      ttl:
+                        description: Time-to-live for preview environments (e.g., "72h", "7d").
+                        nullable: true
+                        type: string
+                      url_template:
+                        description: |-
+                          URL template for preview environments.
+                          Supports `{app}`, `{pr_number}`, and `{branch}` placeholders.
+                        nullable: true
+                        type: string
+                    type: object
+                  provider:
+                    description: Git hosting provider.
+                    enum:
+                    - github
+                    - gitlab
+                    - null
+                    nullable: true
+                    type: string
+                  repository:
+                    description: Git repository URL.
+                    type: string
+                  webhook:
+                    description: Webhook receiver configuration.
+                    nullable: true
+                    properties:
+                      enabled:
+                        default: false
+                        description: Whether webhook receiving is enabled.
+                        type: boolean
+                      events:
+                        default: []
+                        description: Events to listen for.
+                        items:
+                          description: Webhook event types that trigger pipeline actions.
+                          enum:
+                          - push
+                          - pull_request
+                          - tag
+                          type: string
+                        type: array
+                      secret_ref:
+                        description: Secret name containing the webhook signing secret.
+                        nullable: true
+                        type: string
+                    type: object
+                required:
+                - repository
+                type: object
+              storage:
+                description: Object storage configuration
+                nullable: true
+                properties:
+                  backend:
+                    description: Storage backend (inferred from platform if unset)
+                    enum:
+                    - s3
+                    - gcs
+                    - pvc
+                    - null
+                    nullable: true
+                    type: string
+                  bucket:
+                    description: Bucket/volume name
+                    nullable: true
+                    type: string
+                type: object
+              worker:
+                description: Background worker configuration
+                nullable: true
+                properties:
+                  command:
+                    description: Custom entrypoint command for worker
+                    items:
+                      type: string
+                    nullable: true
+                    type: array
+                  concurrency:
+                    description: Number of worker processes. Must be > 0.
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+            required:
+            - image
+            type: object
+          status:
+            description: Status of the `ReinhardtApp` custom resource.
+            nullable: true
+            properties:
+              cache:
+                description: Status of the provisioned cache sub-resource
+                nullable: true
+                properties:
+                  endpoint:
+                    nullable: true
+                    type: string
+                  phase:
+                    description: Phase of a sub-resource (database, cache, etc.)
+                    enum:
+                    - pending
+                    - provisioning
+                    - ready
+                    - failed
+                    type: string
+                required:
+                - phase
+                type: object
+              conditions:
+                description: Standard Kubernetes condition list
+                items:
+                  description: |-
+                    Standard Kubernetes-style condition for status reporting.
+
+                    Compatible with `k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition`
+                    but implements `JsonSchema` for CRD schema generation.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned (RFC 3339 format)
+                      nullable: true
+                      type: string
+                    message:
+                      description: Human-readable message
+                      type: string
+                    observedGeneration:
+                      description: The generation observed when this condition was set
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      description: Machine-readable reason for the condition
+                      type: string
+                    status:
+                      description: Status of the condition
+                      enum:
+                      - 'True'
+                      - 'False'
+                      - Unknown
+                      type: string
+                    type:
+                      description: Type of the condition
+                      enum:
+                      - Ready
+                      - Progressing
+                      - Degraded
+                      - DatabaseReady
+                      - CacheReady
+                      - WorkerReady
+                      - IngressReady
+                      type: string
+                  required:
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              database:
+                description: Status of the provisioned database sub-resource
+                nullable: true
+                properties:
+                  credentials_secret:
+                    description: Secret name containing credentials
+                    nullable: true
+                    type: string
+                  endpoint:
+                    description: Connection endpoint (host:port)
+                    nullable: true
+                    type: string
+                  phase:
+                    description: Provisioning phase
+                    enum:
+                    - pending
+                    - provisioning
+                    - ready
+                    - failed
+                    type: string
+                required:
+                - phase
+                type: object
+              observedGeneration:
+                description: The generation last observed by the controller
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Phase of the `ReinhardtApp` lifecycle.
+                enum:
+                - pending
+                - deploying
+                - running
+                - failed
+                - terminating
+                - provisioning
+                - degraded
+                nullable: true
+                type: string
+              readyReplicas:
+                description: Number of ready replicas
+                format: int32
+                nullable: true
+                type: integer
+              worker:
+                description: Status of the worker deployment sub-resource
+                nullable: true
+                properties:
+                  ready_replicas:
+                    format: int32
+                    nullable: true
+                    type: integer
+                type: object
+            type: object
+        required:
+        - spec
+        title: ReinhardtApp
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

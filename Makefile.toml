@@ -199,6 +199,25 @@ args = ["run", "--bin", "manage", "--", "migrate"]
 REINHARDT_ENV = "local"
 
 # ============================================================================
+# CRD Generation Tasks
+# ============================================================================
+
+[tasks.generate-crd]
+description = "Generate ReinhardtApp CRD YAML into Helm chart crds/ directory"
+command = "cargo"
+args = [
+	"run",
+	"--bin",
+	"reinhardt-cloud",
+	"--quiet",
+	"--",
+	"crd",
+	"generate",
+	"--output",
+	"charts/reinhardt-cloud-operator/crds/reinhardtapp-crd.yaml",
+]
+
+# ============================================================================
 # Combined Checks (run before PR)
 # ============================================================================
 
