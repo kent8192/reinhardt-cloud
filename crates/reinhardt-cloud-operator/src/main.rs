@@ -9,6 +9,11 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+	// Explicitly install rustls CryptoProvider (defense-in-depth, see #314)
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.ok();
+
 	fmt()
 		.with_env_filter(
 			EnvFilter::from_default_env().add_directive("reinhardt_cloud_operator=info".parse()?),

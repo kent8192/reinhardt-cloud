@@ -11,6 +11,7 @@ reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
+rustls = { workspace = true }
 tokio = { workspace = true }
 futures = "0.3"
 thiserror = { workspace = true }
