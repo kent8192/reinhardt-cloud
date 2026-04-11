@@ -28,9 +28,8 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      # Pin to SHA after kent8192/reinhardt-web#3470 is merged.
       # To update: gh api repos/kent8192/reinhardt-web/git/refs/heads/main --jq '.object.sha'
-      - uses: kent8192/reinhardt-web/.github/actions/announce-breaking-change@16a12640397aec6cbc3ee44bf1dcc512cc607ecd # main
+      - uses: kent8192/reinhardt-web/.github/actions/announce-breaking-change@b416ec37b72c4c50ecbbc897148783d386fdb8ea # main
         with:
           source-repo: reinhardt-cloud
           pr-number: ${{ github.event.pull_request.number }}
