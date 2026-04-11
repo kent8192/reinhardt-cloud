@@ -22,15 +22,14 @@
 
 use std::sync::Arc;
 
+use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 use reinhardt::di::{
-	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context,
-	injectable_factory,
+	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context, injectable_factory,
 };
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
-use reinhardt::ServerRouter;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
@@ -164,9 +163,7 @@ pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
 /// like `AllowedOrigins` by pre-registering in the `SingletonScope`
 /// before calling this function.
 #[injectable_factory(scope = "transient")]
-async fn make_router(
-	#[inject] infra: Depends<RouterInfrastructure>,
-) -> UnifiedRouter {
+async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> UnifiedRouter {
 	let infra = infra
 		.try_unwrap()
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
