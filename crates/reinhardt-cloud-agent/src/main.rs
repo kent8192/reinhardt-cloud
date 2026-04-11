@@ -63,6 +63,11 @@ fn timestamp_now() -> Option<Timestamp> {
 
 #[tokio::main]
 async fn main() {
+	// Explicitly install rustls CryptoProvider (defense-in-depth, see #314)
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.ok();
+
 	tracing_subscriber::fmt::init();
 
 	let args = Args::parse();
