@@ -558,10 +558,16 @@ mod tests {
 		let pages = crate::inference::pages::ResolvedPagesConfig::default();
 
 		// Act
-		let ingress =
-			build_ingress(&app, &routes, 8080, Some("my-app.example.com"), None, Some(&pages))
-				.unwrap()
-				.unwrap();
+		let ingress = build_ingress(
+			&app,
+			&routes,
+			8080,
+			Some("my-app.example.com"),
+			None,
+			Some(&pages),
+		)
+		.unwrap()
+		.unwrap();
 		let spec = ingress.spec.unwrap();
 		let rules = spec.rules.unwrap();
 		let paths = &rules[0].http.as_ref().unwrap().paths;
@@ -569,8 +575,18 @@ mod tests {
 		// Assert — host is set and /static/ path is present
 		assert_eq!(rules[0].host.as_deref(), Some("my-app.example.com"));
 		assert!(paths.iter().any(|p| p.path.as_deref() == Some("/static/")));
-		let static_path = paths.iter().find(|p| p.path.as_deref() == Some("/static/")).unwrap();
-		let svc_port = &static_path.backend.service.as_ref().unwrap().port.as_ref().unwrap();
+		let static_path = paths
+			.iter()
+			.find(|p| p.path.as_deref() == Some("/static/"))
+			.unwrap();
+		let svc_port = &static_path
+			.backend
+			.service
+			.as_ref()
+			.unwrap()
+			.port
+			.as_ref()
+			.unwrap();
 		assert_eq!(svc_port.number, Some(8080));
 	}
 }
