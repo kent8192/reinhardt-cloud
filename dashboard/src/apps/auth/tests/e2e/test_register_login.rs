@@ -1,12 +1,12 @@
 //! End-to-end tests for auth API endpoints.
 //!
 //! These tests require both a PostgreSQL database and a Redis instance.
-//! The login and register endpoints now use cookie-based sessions instead
-//! of JWT tokens. Responses return `AuthResponse` with `success` and `user`
-//! fields, and authentication is conveyed via `Set-Cookie: sessionid=...`.
+//! Registration now creates users as inactive (email verification required).
+//! Tests that need login activate the user directly via ORM.
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -16,6 +16,7 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
+	use crate::apps::auth::models::User;
 	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
@@ -35,11 +36,30 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Verify POST /api/auth/register/ creates a user and returns session cookie.
+	/// Helper: activate a user by username via ORM (bypasses email verification).
+	async fn activate_user(username: &str) {
+		let mut user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String(username.to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User not found");
+		user.is_active = true;
+		User::objects()
+			.update(&user)
+			.await
+			.expect("Failed to activate user");
+	}
+
+	/// Verify POST /api/auth/register/ creates a user (no session cookie).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_register_returns_session_cookie(
+	async fn test_register_creates_inactive_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -81,7 +101,7 @@ mod tests {
 			TestUrls,
 		),
 	) {
-		// Arrange -- register user first
+		// Arrange -- register and activate user
 		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "loginuser",
@@ -92,6 +112,7 @@ mod tests {
 			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
+		activate_user("loginuser").await;
 
 		// Act -- login with same credentials
 		let login_data = json!({
@@ -165,7 +186,7 @@ mod tests {
 			TestUrls,
 		),
 	) {
-		// Arrange -- register user first
+		// Arrange -- register and activate user
 		let (_container, _conn, client, urls) = db.await;
 		let register_data = json!({
 			"username": "failuser",
@@ -176,6 +197,7 @@ mod tests {
 			.post(&urls.auth_register, &register_data, "json")
 			.await
 			.expect("Register request failed");
+		activate_user("failuser").await;
 
 		// Act -- login with wrong password
 		let login_data = json!({
@@ -215,6 +237,7 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
+		activate_user("trimuser").await;
 
 		// Act -- login with trimmed username
 		let login_data = json!({
