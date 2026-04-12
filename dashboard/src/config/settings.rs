@@ -40,7 +40,7 @@
 
 use reinhardt::conf::settings::builder::SettingsBuilder;
 use reinhardt::conf::settings::profile::Profile;
-use reinhardt::conf::settings::sources::{LowPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::settings::sources::{EnvSource, TomlFileSource};
 use reinhardt::settings;
 use std::env;
 use std::path::PathBuf;
@@ -100,7 +100,7 @@ fn build_settings() -> ProjectSettings {
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
 		// Highest priority: Environment variables (for container/CI/test overrides)
-		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
+		.add_source(EnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
 		.expect("Failed to build settings")
 }

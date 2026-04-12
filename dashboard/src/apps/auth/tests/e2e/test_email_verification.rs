@@ -5,7 +5,6 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::mail::{SmtpBackend, SmtpConfig, SmtpSecurity};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::MailpitContainer;
