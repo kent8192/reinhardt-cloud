@@ -33,7 +33,7 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Helper: register a user via the API.
+	/// Helper: register a user via the API and activate via ORM.
 	async fn register_user(client: &APIClient, username: &str, email: &str, password: &str) {
 		let data = json!({
 			"username": username,
@@ -45,6 +45,23 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(response.status_code(), 201, "Registration should succeed");
+
+		// Activate user via ORM (registration creates inactive user)
+		let mut user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String(username.to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User not found");
+		user.is_active = true;
+		User::objects()
+			.update(&user)
+			.await
+			.expect("Failed to activate user");
 	}
 
 	/// verify_credentials with correct password returns Ok with matching username.

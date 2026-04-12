@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -11,6 +12,7 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
+	use crate::apps::auth::models::User;
 	use crate::config::test_helpers::{TestUrls, test_app};
 
 	#[fixture]
@@ -30,7 +32,7 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Helper: register a user and return the session cookie value.
+	/// Register a user, activate via ORM (bypassing email verification), then login.
 	async fn register_and_get_session(client: &APIClient) -> String {
 		let data = json!({
 			"username": "testuser",
@@ -42,9 +44,35 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(resp.status_code(), 201);
-		let set_cookie = resp
+
+		let mut user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String("testuser".to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User not found");
+		user.is_active = true;
+		User::objects()
+			.update(&user)
+			.await
+			.expect("Failed to activate user");
+
+		let login_data = json!({
+			"username": "testuser",
+			"password": "securepassword123"
+		});
+		let login_resp = client
+			.post("/api/auth/login/", &login_data, "json")
+			.await
+			.expect("Login request failed");
+		assert_eq!(login_resp.status_code(), 200);
+		let set_cookie = login_resp
 			.header("Set-Cookie")
-			.expect("Response should have Set-Cookie header");
+			.expect("Login response should have Set-Cookie header");
 		let session_id = set_cookie
 			.split(';')
 			.next()
