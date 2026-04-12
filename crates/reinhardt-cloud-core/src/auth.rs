@@ -59,7 +59,7 @@ mod tests {
 	#[rstest]
 	fn test_create_and_verify_token_roundtrip() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let username = "alice";
 
 		// Act
@@ -75,7 +75,7 @@ mod tests {
 	#[rstest]
 	fn test_verify_token_with_wrong_secret() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let token = create_token(user_id, "bob", TEST_SECRET, 24).unwrap();
 
 		// Act
@@ -88,7 +88,7 @@ mod tests {
 	#[rstest]
 	fn test_expired_token_is_rejected() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		// Create a token that expired 1 hour ago
 		let token = create_token(user_id, "charlie", TEST_SECRET, -1).unwrap();
 
@@ -102,7 +102,7 @@ mod tests {
 	#[rstest]
 	fn test_claims_contain_correct_fields() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let username = "dave";
 
 		// Act

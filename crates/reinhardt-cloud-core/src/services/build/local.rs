@@ -55,7 +55,7 @@ impl BuildService for LocalBuildService {
 		&self,
 		request: BuildRequest,
 	) -> Result<Pin<Box<dyn Stream<Item = Result<BuildEvent, ApiError>> + Send>>, ApiError> {
-		let build_id = Uuid::new_v4();
+		let build_id = Uuid::now_v7();
 		let cancel_token = CancellationToken::new();
 		let now = Utc::now();
 
@@ -180,7 +180,7 @@ async fn run_build_pipeline(
 	}
 
 	// Emit artifact ready
-	let digest = format!("sha256:{:x}", Uuid::new_v4().as_u128());
+	let digest = format!("sha256:{:x}", Uuid::now_v7().as_u128());
 	let _ = tx
 		.send(Ok(BuildEvent::ArtifactReady {
 			artifact_url: format!("{image}@{digest}"),
@@ -326,7 +326,7 @@ mod tests {
 		let service = LocalBuildService::new();
 
 		// Act
-		let result = service.get_build_status(Uuid::new_v4()).await;
+		let result = service.get_build_status(Uuid::now_v7()).await;
 
 		// Assert
 		assert!(result.is_err());

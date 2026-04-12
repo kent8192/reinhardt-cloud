@@ -50,7 +50,7 @@ async fn test_report_health_through_grpc() {
 	let (addr, _handle) = start_agent_server().await;
 	let mut client = connect_agent_client(addr).await;
 
-	let agent_id = Uuid::new_v4();
+	let agent_id = Uuid::now_v7();
 	let now = chrono::Utc::now();
 	let health_report = pb::AgentHealthReport {
 		agent_id: agent_id.to_string(),

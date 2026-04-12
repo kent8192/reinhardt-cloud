@@ -96,7 +96,7 @@ impl NotificationConsumer {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
-							id: uuid::Uuid::new_v4().to_string(),
+							id: uuid::Uuid::now_v7().to_string(),
 							level: NotificationLevel::Critical,
 							title: "Authentication required".to_string(),
 							message: "You must be authenticated to subscribe".to_string(),
@@ -178,7 +178,7 @@ fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 #[async_trait::async_trait]
 impl WebSocketConsumer for NotificationConsumer {
 	async fn on_connect(&self, context: &mut ConsumerContext) -> WebSocketResult<()> {
-		let connection_id = Uuid::new_v4().to_string();
+		let connection_id = Uuid::now_v7().to_string();
 		context
 			.metadata
 			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());

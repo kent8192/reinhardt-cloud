@@ -16,7 +16,7 @@ impl Cluster {
 	/// Creates a new active cluster with a generated UUID.
 	pub fn new(name: &str, api_url: &str) -> Self {
 		Self {
-			id: Uuid::new_v4(),
+			id: Uuid::now_v7(),
 			name: name.to_string(),
 			api_url: api_url.to_string(),
 			is_active: true,

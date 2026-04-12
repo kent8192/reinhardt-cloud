@@ -122,7 +122,7 @@ async fn test_build_status_during_execution(local_build_service: LocalBuildServi
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("status-during-{}", Uuid::new_v4()),
+		app_name: format!("status-during-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -163,7 +163,7 @@ async fn test_build_status_during_execution(local_build_service: LocalBuildServi
 async fn test_cancel_nonexistent_build_returns_not_found(local_build_service: LocalBuildService) {
 	// Arrange
 	let service = local_build_service;
-	let random_id = Uuid::new_v4();
+	let random_id = Uuid::now_v7();
 
 	// Act
 	let result = service.cancel_build(random_id).await;
@@ -188,7 +188,7 @@ async fn test_cancel_completed_build_returns_bad_request(local_build_service: Lo
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("cancel-completed-{}", Uuid::new_v4()),
+		app_name: format!("cancel-completed-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -204,7 +204,7 @@ async fn test_cancel_completed_build_returns_bad_request(local_build_service: Lo
 	// This test verifies the error path for a nonexistent build after
 	// completion. The actual "already completed" path requires internal
 	// build_id access which is private. The inline tests cover that case.
-	let random_id = Uuid::new_v4();
+	let random_id = Uuid::now_v7();
 	let result = service.cancel_build(random_id).await;
 
 	// Assert
@@ -226,7 +226,7 @@ async fn test_get_nonexistent_build_returns_not_found_with_details(
 ) {
 	// Arrange
 	let service = local_build_service;
-	let random_id = Uuid::new_v4();
+	let random_id = Uuid::now_v7();
 
 	// Act
 	let result = service.get_build_status(random_id).await;
@@ -298,7 +298,7 @@ async fn test_build_state_idempotent_after_completion(local_build_service: Local
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("idempotent-{}", Uuid::new_v4()),
+		app_name: format!("idempotent-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -331,7 +331,7 @@ async fn test_usecase_concurrent_builds(local_build_service: LocalBuildService) 
 	let service = local_build_service;
 	let requests: Vec<BuildRequest> = (0..3)
 		.map(|i| BuildRequest {
-			app_name: format!("concurrent-app-{i}-{}", Uuid::new_v4()),
+			app_name: format!("concurrent-app-{i}-{}", Uuid::now_v7()),
 			image: format!("registry.example.com/app-{i}:latest"),
 			env_vars: vec![],
 			dockerfile: None,
@@ -388,7 +388,7 @@ async fn test_build_with_all_optional_fields(local_build_service: LocalBuildServ
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("full-opts-{}", Uuid::new_v4()),
+		app_name: format!("full-opts-{}", Uuid::now_v7()),
 		image: "registry.example.com/full:v2".to_string(),
 		env_vars: vec![
 			EnvVar {
@@ -509,7 +509,7 @@ async fn test_build_cancel_state_decision_table(
 	if build_exists {
 		// Start a build and cancel while running
 		let request = BuildRequest {
-			app_name: format!("decision-{}", Uuid::new_v4()),
+			app_name: format!("decision-{}", Uuid::now_v7()),
 			image: "registry.example.com/test:v1".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
@@ -525,7 +525,7 @@ async fn test_build_cancel_state_decision_table(
 
 	if expect_not_found {
 		// Act
-		let random_id = Uuid::new_v4();
+		let random_id = Uuid::now_v7();
 		let result = service.cancel_build(random_id).await;
 
 		// Assert

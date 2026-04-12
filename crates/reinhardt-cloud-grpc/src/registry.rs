@@ -187,7 +187,7 @@ mod tests {
 	fn test_register_and_list() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let info = test_agent_info(id);
 
 		// Act
@@ -203,7 +203,7 @@ mod tests {
 	fn test_unregister() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 
 		// Act
@@ -217,7 +217,7 @@ mod tests {
 	fn test_heartbeat_keeps_agent_healthy() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 
 		// Act
@@ -232,7 +232,7 @@ mod tests {
 	async fn test_send_command() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let mut rx = registry.register(test_agent_info(id));
 
 		// Act
@@ -250,7 +250,7 @@ mod tests {
 	fn test_update_health() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 		let health = AgentHealth {
 			agent_id: id,
@@ -274,7 +274,7 @@ mod tests {
 	async fn test_send_command_to_nonexistent_agent() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let cmd = AgentCommand::Restart {
 			app_name: "web".to_string(),
 		};
@@ -292,7 +292,7 @@ mod tests {
 	async fn test_send_command_channel_closed() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let rx = registry.register(test_agent_info(id));
 		drop(rx); // close the receiver side
 
@@ -312,7 +312,7 @@ mod tests {
 	fn test_get_health_nonexistent_agent() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 
 		// Act
 		let result = registry.get_health(&id);
@@ -325,7 +325,7 @@ mod tests {
 	fn test_is_healthy_nonexistent_agent() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 
 		// Act
 		let result = registry.is_healthy(&id);
@@ -338,7 +338,7 @@ mod tests {
 	fn test_register_same_agent_twice() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx1 = registry.register(test_agent_info(id));
 
 		// Act — register same agent_id again
@@ -355,8 +355,8 @@ mod tests {
 	fn test_unregister_nonexistent_agent() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
-		let other = Uuid::new_v4();
+		let id = Uuid::now_v7();
+		let other = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 
 		// Act — unregister a non-existent agent
@@ -370,7 +370,7 @@ mod tests {
 	fn test_heartbeat_nonexistent_agent() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 
 		// Act — heartbeat for non-existent agent
 		registry.heartbeat(&id);
@@ -384,7 +384,7 @@ mod tests {
 	async fn test_agent_lifecycle_full() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let mut rx = registry.register(test_agent_info(id));
 
 		// Act — heartbeat
@@ -427,7 +427,7 @@ mod tests {
 	fn test_evict_stale_agents() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 
 		// Set heartbeat to 2 minutes ago (well past 90s threshold)
@@ -447,7 +447,7 @@ mod tests {
 	fn test_is_healthy_heartbeat_boundary() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id = Uuid::new_v4();
+		let id = Uuid::now_v7();
 		let _rx = registry.register(test_agent_info(id));
 
 		// Just under 90s ago -> healthy
@@ -477,9 +477,9 @@ mod tests {
 	async fn test_multiple_agents_independent_channels() {
 		// Arrange
 		let registry = AgentRegistry::new();
-		let id1 = Uuid::new_v4();
-		let id2 = Uuid::new_v4();
-		let id3 = Uuid::new_v4();
+		let id1 = Uuid::now_v7();
+		let id2 = Uuid::now_v7();
+		let id3 = Uuid::now_v7();
 		let mut rx1 = registry.register(test_agent_info(id1));
 		let mut rx2 = registry.register(test_agent_info(id2));
 		let mut rx3 = registry.register(test_agent_info(id3));
@@ -542,7 +542,7 @@ mod tests {
 		for _ in 0..10 {
 			let reg = registry.clone();
 			handles.push(tokio::spawn(async move {
-				let id = Uuid::new_v4();
+				let id = Uuid::now_v7();
 				let _rx = reg.register(AgentInfo {
 					agent_id: id,
 					cluster_name: "test".to_string(),

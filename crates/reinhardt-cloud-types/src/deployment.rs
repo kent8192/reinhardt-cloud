@@ -26,7 +26,7 @@ impl Deployment {
 	/// Creates a new deployment in `Pending` status.
 	pub fn new(app_name: &str, cluster_id: Uuid, image: &str) -> Self {
 		Self {
-			id: Uuid::new_v4(),
+			id: Uuid::now_v7(),
 			app_name: app_name.to_string(),
 			cluster_id,
 			status: DeploymentStatus::Pending,
@@ -51,7 +51,7 @@ mod tests {
 	#[rstest]
 	fn test_deployment_new_defaults_to_pending() {
 		// Arrange
-		let cluster_id = Uuid::new_v4();
+		let cluster_id = Uuid::now_v7();
 
 		// Act
 		let deploy = Deployment::new("my-app", cluster_id, "my-app:latest");
@@ -70,7 +70,7 @@ mod tests {
 	#[case(DeploymentStatus::Succeeded, true)]
 	fn test_is_terminal(#[case] status: DeploymentStatus, #[case] expected: bool) {
 		// Arrange
-		let mut deploy = Deployment::new("app", Uuid::new_v4(), "img:v1");
+		let mut deploy = Deployment::new("app", Uuid::now_v7(), "img:v1");
 
 		// Act
 		deploy.status = status;

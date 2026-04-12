@@ -169,7 +169,7 @@ mod tests {
 	fn test_build_status_serde_roundtrip() {
 		// Arrange
 		let status = BuildStatus {
-			build_id: Uuid::new_v4(),
+			build_id: Uuid::now_v7(),
 			app_name: "test-app".to_string(),
 			phase: BuildPhase::Pushing,
 			completed: false,
@@ -212,7 +212,7 @@ mod tests {
 	fn test_build_status_completed_with_failure() {
 		// Arrange
 		let status = BuildStatus {
-			build_id: Uuid::new_v4(),
+			build_id: Uuid::now_v7(),
 			app_name: "failing-app".to_string(),
 			phase: BuildPhase::Finalizing,
 			completed: true,

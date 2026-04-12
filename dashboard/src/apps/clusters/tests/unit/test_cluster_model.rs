@@ -10,7 +10,7 @@ mod tests {
 	#[rstest]
 	fn test_cluster_new_sets_fields() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let name = "production".to_string();
 		let api_url = "https://k8s.example.com:6443".to_string();
 
@@ -27,7 +27,7 @@ mod tests {
 	#[rstest]
 	fn test_cluster_new_id_is_none() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 
 		// Act
 		let cluster = Cluster::new(
@@ -46,7 +46,7 @@ mod tests {
 	#[case(false)]
 	fn test_cluster_is_active_flag(#[case] active: bool) {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 
 		// Act
 		let cluster = Cluster::new(
@@ -64,7 +64,7 @@ mod tests {
 	fn test_cluster_serialization_roundtrip() {
 		// Arrange
 		let cluster = Cluster::new(
-			Uuid::new_v4(),
+			Uuid::now_v7(),
 			"roundtrip".to_string(),
 			"https://k8s.example.com:6443".to_string(),
 			true,
