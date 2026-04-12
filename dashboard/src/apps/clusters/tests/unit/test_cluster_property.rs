@@ -18,7 +18,7 @@ mod tests {
 		) {
 			// Arrange
 			let cluster = Cluster::new(
-				Uuid::new_v4(),
+				Uuid::now_v7(),
 				name.clone(),
 				api_url.clone(),
 				is_active,

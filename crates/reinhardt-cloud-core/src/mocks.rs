@@ -33,7 +33,7 @@ impl MockAuthService {
 	/// Create a new mock with default success responses.
 	pub fn new() -> Self {
 		let default_claims = Claims {
-			sub: Uuid::new_v4().to_string(),
+			sub: Uuid::now_v7().to_string(),
 			username: "test-user".to_string(),
 			exp: chrono::Utc::now().timestamp() + 86400,
 			iat: chrono::Utc::now().timestamp(),
@@ -99,7 +99,7 @@ impl MockBuildService {
 	/// Create a new mock with default success responses.
 	pub fn new() -> Self {
 		let default_status = BuildStatus {
-			build_id: Uuid::new_v4(),
+			build_id: Uuid::now_v7(),
 			app_name: "test-app".to_string(),
 			phase: reinhardt_cloud_types::build::BuildPhase::Building,
 			completed: false,
@@ -346,7 +346,7 @@ mod tests {
 	async fn test_mock_cluster_agent_service() {
 		// Arrange
 		let service = MockClusterAgentService::new();
-		let agent_id = Uuid::new_v4();
+		let agent_id = Uuid::now_v7();
 
 		// Act
 		let health = service.get_agent_health(agent_id).await.unwrap();

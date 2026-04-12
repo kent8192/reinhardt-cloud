@@ -71,7 +71,7 @@ async fn main() {
 	tracing_subscriber::fmt::init();
 
 	let args = Args::parse();
-	let agent_id = Uuid::new_v4();
+	let agent_id = Uuid::now_v7();
 
 	info!(
 		agent_id = %agent_id,
