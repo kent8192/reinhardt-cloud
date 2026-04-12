@@ -4,10 +4,12 @@
 //! accepted by protected cluster endpoints, and that invalid session
 //! cookies are correctly rejected.
 
+use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+use reinhardt_cloud_dashboard::apps::auth::models::User;
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
@@ -36,7 +38,8 @@ async fn db(
 	(container, conn, client, urls)
 }
 
-async fn register_and_get_session(client: &APIClient, urls: &TestUrls) -> String {
+/// Register a user, activate via ORM (bypassing email verification), then login.
+async fn register_activate_and_login(client: &APIClient, urls: &TestUrls) -> String {
 	let register_data = json!({
 		"username": "testuser",
 		"email": "test@example.com",
@@ -47,9 +50,37 @@ async fn register_and_get_session(client: &APIClient, urls: &TestUrls) -> String
 		.await
 		.expect("Register request failed");
 	assert_eq!(resp.status_code(), 201);
-	let set_cookie = resp
+
+	// Activate user via ORM (registration creates inactive user)
+	let mut user = User::objects()
+		.filter(
+			User::field_username(),
+			FilterOperator::Eq,
+			FilterValue::String("testuser".to_string()),
+		)
+		.first()
+		.await
+		.expect("Failed to query user")
+		.expect("User not found");
+	user.is_active = true;
+	User::objects()
+		.update(&user)
+		.await
+		.expect("Failed to activate user");
+
+	// Login to obtain session cookie
+	let login_data = json!({
+		"username": "testuser",
+		"password": "securepassword123"
+	});
+	let login_resp = client
+		.post(&urls.auth_login, &login_data, "json")
+		.await
+		.expect("Login request failed");
+	assert_eq!(login_resp.status_code(), 200);
+	let set_cookie = login_resp
 		.header("Set-Cookie")
-		.expect("Response should have Set-Cookie header");
+		.expect("Login response should have Set-Cookie header");
 	let session_id = set_cookie
 		.split(';')
 		.next()
@@ -84,7 +115,7 @@ async fn test_register_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let session = register_and_get_session(&client, &urls).await;
+	let session = register_activate_and_login(&client, &urls).await;
 	authenticate_client(&client, &session).await;
 
 	// Act
@@ -115,7 +146,7 @@ async fn test_login_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let _register_session = register_and_get_session(&client, &urls).await;
+	let _register_session = register_activate_and_login(&client, &urls).await;
 
 	// Login with the same credentials
 	let login_data = json!({
@@ -166,7 +197,7 @@ async fn test_register_and_login_sessions_same_resources(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let register_session = register_and_get_session(&client, &urls).await;
+	let register_session = register_activate_and_login(&client, &urls).await;
 
 	// Create a cluster with the register session
 	authenticate_client(&client, &register_session).await;

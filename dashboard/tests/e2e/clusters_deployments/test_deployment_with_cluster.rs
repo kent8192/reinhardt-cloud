@@ -3,10 +3,12 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
+use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+use reinhardt_cloud_dashboard::apps::auth::models::User;
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
@@ -36,7 +38,7 @@ async fn db(
 	(container, conn, client, urls)
 }
 
-/// Helper: register a test user and return the session cookie value.
+/// Register a user, activate via ORM (bypassing email verification), then login.
 async fn register_and_get_session(client: &APIClient) -> String {
 	let register_data = json!({
 		"username": "testuser",
@@ -48,9 +50,37 @@ async fn register_and_get_session(client: &APIClient) -> String {
 		.await
 		.expect("Register request failed");
 	assert_eq!(resp.status_code(), 201);
-	let set_cookie = resp
+
+	// Activate user via ORM (registration creates inactive user)
+	let mut user = User::objects()
+		.filter(
+			User::field_username(),
+			FilterOperator::Eq,
+			FilterValue::String("testuser".to_string()),
+		)
+		.first()
+		.await
+		.expect("Failed to query user")
+		.expect("User not found");
+	user.is_active = true;
+	User::objects()
+		.update(&user)
+		.await
+		.expect("Failed to activate user");
+
+	// Login to obtain session cookie
+	let login_data = json!({
+		"username": "testuser",
+		"password": "securepassword123"
+	});
+	let login_resp = client
+		.post("/api/auth/login/", &login_data, "json")
+		.await
+		.expect("Login request failed");
+	assert_eq!(login_resp.status_code(), 200);
+	let set_cookie = login_resp
 		.header("Set-Cookie")
-		.expect("Response should have Set-Cookie header");
+		.expect("Login response should have Set-Cookie header");
 	let session_id = set_cookie
 		.split(';')
 		.next()

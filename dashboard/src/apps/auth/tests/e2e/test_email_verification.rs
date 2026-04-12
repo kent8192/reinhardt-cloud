@@ -119,8 +119,11 @@ mod tests {
 		let mailpit = mailpit.await;
 		delete_all_messages(&mailpit).await;
 
-		// Configure the SMTP backend to point at Mailpit
-		std::env::set_var("REINHARDT_CLOUD_BASE_URL", "http://localhost:8000");
+		// Configure the base URL to point at the test server.
+		// SAFETY: Called in a serial test before any parallel tasks read this var.
+		unsafe {
+			std::env::set_var("REINHARDT_CLOUD_BASE_URL", "http://localhost:8000");
+		}
 
 		let register_data = json!({
 			"username": "verifyuser",
