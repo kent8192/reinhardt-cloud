@@ -48,7 +48,7 @@ serde_yaml = "0.9"
 toml = "0.9"
 
 # Types
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1.7", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Error handling
@@ -85,12 +85,13 @@ tokio-test = "0.4"
 proptest = "1"
 reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
-# Workaround for kent8192/reinhardt-web#3478 (tracked in reinhardt-cloud#312)
-# Remove this workaround when the upstream issue is resolved.
+# Workaround for kent8192/reinhardt-web#3496 (tracked in reinhardt-cloud#328)
+# Blocked on reinhardt-web#3515 (Injectable bound for factory return types)
+# which prevents updating to reinhardt-web >= 5d9ef22a where url-resolver
+# feature was removed (PR #3513).
 #
 # Ideal implementation (without workaround):
-#   No [workspace.lints.rust] section needed — upstream macros should wrap
-#   cfg-gated code with #[allow(unexpected_cfgs)].
+#   No [workspace.lints.rust] section needed.
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("url-resolver"))'] }
 
