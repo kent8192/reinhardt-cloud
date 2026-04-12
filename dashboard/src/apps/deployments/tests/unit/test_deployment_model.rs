@@ -11,7 +11,7 @@ mod tests {
 	#[rstest]
 	fn test_deployment_new_sets_fields() {
 		// Arrange
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let app_name = "my-app".to_string();
 		let cluster_id = 42i64;
 		let status = "pending".to_string();
@@ -39,7 +39,7 @@ mod tests {
 	fn test_deployment_new_id_is_none() {
 		// Arrange & Act
 		let deployment = Deployment::new(
-			Uuid::new_v4(),
+			Uuid::now_v7(),
 			"app".to_string(),
 			1,
 			"pending".to_string(),
@@ -59,7 +59,7 @@ mod tests {
 	fn test_deployment_status_values(#[case] status: &str) {
 		// Arrange & Act
 		let deployment = Deployment::new(
-			Uuid::new_v4(),
+			Uuid::now_v7(),
 			"app".to_string(),
 			1,
 			status.to_string(),
@@ -75,7 +75,7 @@ mod tests {
 	fn test_deployment_serialization_roundtrip() {
 		// Arrange
 		let mut deployment = Deployment::new(
-			Uuid::new_v4(),
+			Uuid::now_v7(),
 			"roundtrip-app".to_string(),
 			99,
 			"running".to_string(),

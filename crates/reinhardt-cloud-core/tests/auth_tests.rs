@@ -19,7 +19,7 @@ const TEST_SECRET: &[u8] = b"test-secret-key-for-jwt-signing";
 #[rstest]
 fn test_verify_wrong_secret_returns_invalid_signature() {
 	// Arrange
-	let user_id = Uuid::new_v4();
+	let user_id = Uuid::now_v7();
 	let token = create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 
 	// Act
@@ -36,7 +36,7 @@ fn test_verify_wrong_secret_returns_invalid_signature() {
 #[rstest]
 fn test_expired_token_returns_expired_error() {
 	// Arrange
-	let user_id = Uuid::new_v4();
+	let user_id = Uuid::now_v7();
 	// Create a token that expired 1 hour ago
 	let token = create_token(user_id, "bob", TEST_SECRET, -1).unwrap();
 
@@ -82,7 +82,7 @@ fn test_verify_empty_token() {
 #[rstest]
 fn test_auth_token_with_zero_expiry() {
 	// Arrange
-	let user_id = Uuid::new_v4();
+	let user_id = Uuid::now_v7();
 
 	// Act — create a token with 0 hours expiry (expires at creation time)
 	let token = create_token(user_id, "zero-expiry", TEST_SECRET, 0).unwrap();
@@ -101,7 +101,7 @@ fn test_auth_token_with_zero_expiry() {
 #[rstest]
 fn test_usecase_token_lifecycle() {
 	// Arrange
-	let user_id = Uuid::new_v4();
+	let user_id = Uuid::now_v7();
 	let username = "lifecycle-user";
 
 	// Act — create -> verify -> check claims

@@ -38,7 +38,7 @@ pub fn local_build_service() -> LocalBuildService {
 #[fixture]
 pub fn build_request() -> BuildRequest {
 	BuildRequest {
-		app_name: format!("test-app-{}", Uuid::new_v4()),
+		app_name: format!("test-app-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:latest".to_string(),
 		env_vars: vec![],
 		dockerfile: None,

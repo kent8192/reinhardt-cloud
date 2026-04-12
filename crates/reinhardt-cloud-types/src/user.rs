@@ -16,7 +16,7 @@ impl User {
 	/// Creates a new user with a generated UUID.
 	pub fn new(username: &str, email: &str, password_hash: &str) -> Self {
 		Self {
-			id: Uuid::new_v4(),
+			id: Uuid::now_v7(),
 			username: username.to_string(),
 			email: email.to_string(),
 			password_hash: password_hash.to_string(),

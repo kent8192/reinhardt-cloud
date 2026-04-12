@@ -111,7 +111,7 @@ mod tests {
 	fn test_agent_info_serde_roundtrip() {
 		// Arrange
 		let info = AgentInfo {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			cluster_name: "prod-us-east".to_string(),
 			node_name: "node-01".to_string(),
 			version: "0.1.0".to_string(),
@@ -162,7 +162,7 @@ mod tests {
 	fn test_agent_event_variants_serde_roundtrip() {
 		// Arrange
 		let now = Utc::now();
-		let agent_id = Uuid::new_v4();
+		let agent_id = Uuid::now_v7();
 		let events = vec![
 			AgentEvent::Connected {
 				agent_id,
@@ -204,7 +204,7 @@ mod tests {
 	fn test_agent_health_serde_roundtrip() {
 		// Arrange
 		let health = AgentHealth {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			healthy: true,
 			cpu_usage_percent: 45.2,
 			memory_usage_percent: 67.8,
@@ -227,7 +227,7 @@ mod tests {
 	fn test_agent_health_cpu_zero() {
 		// Arrange
 		let health = AgentHealth {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			healthy: true,
 			cpu_usage_percent: 0.0,
 			memory_usage_percent: 50.0,
@@ -247,7 +247,7 @@ mod tests {
 	fn test_agent_health_cpu_hundred() {
 		// Arrange
 		let health = AgentHealth {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			healthy: false,
 			cpu_usage_percent: 100.0,
 			memory_usage_percent: 99.0,
@@ -311,7 +311,7 @@ mod tests {
 	fn test_agent_info_empty_version() {
 		// Arrange
 		let info = AgentInfo {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			cluster_name: "test-cluster".to_string(),
 			node_name: "node-01".to_string(),
 			version: "".to_string(),
@@ -336,7 +336,7 @@ mod tests {
 	fn test_agent_health_percentage_boundaries(#[case] cpu: f64) {
 		// Arrange
 		let health = AgentHealth {
-			agent_id: Uuid::new_v4(),
+			agent_id: Uuid::now_v7(),
 			healthy: true,
 			cpu_usage_percent: cpu,
 			memory_usage_percent: 50.0,
