@@ -28,8 +28,21 @@ pub struct TestUrls {
 	pub auth_login: String,
 	pub auth_profile: String,
 	pub auth_change_password: String,
+	pub auth_forgot_password: String,
 	pub cluster_list: String,
 	pub deployment_list: String,
+}
+
+impl TestUrls {
+	/// Build the verify-email URL for a given token.
+	pub fn auth_verify_email(&self, token: &str) -> String {
+		format!("/api/auth/verify-email/{token}/")
+	}
+
+	/// Build the reset-password URL for a given token.
+	pub fn auth_reset_password(&self, token: &str) -> String {
+		format!("/api/auth/reset-password/{token}/")
+	}
 }
 
 /// Build the dashboard router via DI and return an in-process test client
@@ -67,6 +80,7 @@ pub fn test_app() -> (APIClient, TestUrls) {
 		auth_login: rev("auth_login"),
 		auth_profile: rev("auth_profile"),
 		auth_change_password: rev("auth_change_password"),
+		auth_forgot_password: rev("auth_forgot_password"),
 		cluster_list: rev("cluster_list"),
 		deployment_list: rev("deployment_list"),
 	};
