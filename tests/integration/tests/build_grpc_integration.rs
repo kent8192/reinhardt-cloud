@@ -139,7 +139,7 @@ async fn test_cancel_nonexistent_build_through_grpc() {
 	// Act -- CancelBuild with a valid UUID that does not correspond to any build
 	let result = client
 		.cancel_build(pb::CancelBuildRequest {
-			build_id: uuid::Uuid::new_v4().to_string(),
+			build_id: uuid::Uuid::now_v7().to_string(),
 		})
 		.await;
 
@@ -165,7 +165,7 @@ async fn test_get_build_status_unknown_build() {
 	// Act -- GetBuildStatus with a valid UUID that does not exist
 	let result = client
 		.get_build_status(pb::GetBuildStatusRequest {
-			build_id: uuid::Uuid::new_v4().to_string(),
+			build_id: uuid::Uuid::now_v7().to_string(),
 		})
 		.await;
 

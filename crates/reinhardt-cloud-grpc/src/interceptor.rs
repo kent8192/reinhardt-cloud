@@ -81,7 +81,7 @@ mod tests {
 	fn test_validate_valid_token() {
 		// Arrange
 		let interceptor = JwtInterceptor::new(TEST_SECRET);
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 
 		// Act
@@ -109,7 +109,7 @@ mod tests {
 	fn test_validate_wrong_secret() {
 		// Arrange
 		let interceptor = JwtInterceptor::new(b"different-secret");
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let token = auth::create_token(user_id, "bob", TEST_SECRET, 24).unwrap();
 
 		// Act
@@ -123,7 +123,7 @@ mod tests {
 	fn test_validate_expired_token() {
 		// Arrange
 		let interceptor = JwtInterceptor::new(TEST_SECRET);
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let token = auth::create_token(user_id, "charlie", TEST_SECRET, -1).unwrap();
 
 		// Act
@@ -151,7 +151,7 @@ mod tests {
 	fn test_interceptor_call_malformed_bearer() {
 		// Arrange
 		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 		let mut req = Request::new(());
 		// Use "Token" prefix instead of "Bearer"
@@ -187,7 +187,7 @@ mod tests {
 	fn test_interceptor_reusable_across_calls() {
 		// Arrange
 		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		let valid_token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 
 		// Act — first call: valid token
@@ -222,7 +222,7 @@ mod tests {
 	fn test_interceptor_empty_secret() {
 		// Arrange — empty secret
 		let interceptor = JwtInterceptor::new(&[]);
-		let user_id = Uuid::new_v4();
+		let user_id = Uuid::now_v7();
 		// Token created with the original secret won't match empty secret
 		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
 

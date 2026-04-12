@@ -6,7 +6,7 @@
 //!
 //! ## DI-based configuration
 //!
-//! `AllowedOrigins`, `CookieSessionConfig`, `WsBroadcaster`, and
+//! `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`, and
 //! `LocalAuthService` are auto-registered as singletons via
 //! `#[injectable_factory]`. These are aggregated into
 //! `RouterInfrastructure` (a transient factory) together with the
@@ -68,11 +68,19 @@ async fn create_allowed_origins() -> AllowedOrigins {
 	}
 }
 
-/// DI factory — builds `CookieSessionConfig` from settings.
+/// Application-specific cookie session configuration.
+///
+/// Wraps the framework's `CookieSessionConfig` to comply with the
+/// DI pseudo orphan rule (kent8192/reinhardt-web#3468). Factories
+/// must not return framework-managed types directly.
+#[derive(Debug)]
+pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
+
+/// DI factory — builds `DashboardSessionConfig` from settings.
 #[injectable_factory(scope = "singleton")]
-async fn create_cookie_session_config() -> CookieSessionConfig {
+async fn create_cookie_session_config() -> DashboardSessionConfig {
 	let settings = crate::config::settings::get_settings();
-	CookieSessionConfig {
+	DashboardSessionConfig(CookieSessionConfig {
 		cookie_name: "sessionid".to_string(),
 		sliding_ttl: std::time::Duration::from_secs(1800),
 		absolute_max: std::time::Duration::from_secs(86400),
@@ -84,7 +92,7 @@ async fn create_cookie_session_config() -> CookieSessionConfig {
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
 		],
-	}
+	})
 }
 
 // ── Router infrastructure ───────────────────────────────────────────
@@ -105,7 +113,7 @@ pub(crate) struct RouterInfrastructure {
 
 /// DI factory — builds shared router infrastructure components.
 ///
-/// Resolves `AllowedOrigins`, `CookieSessionConfig`, `WsBroadcaster`,
+/// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
 /// and `LocalAuthService` from the DI registry, then constructs the
 /// DI context, admin site routes, and Redis session backend.
 /// `WsBroadcaster` and `LocalAuthService` are injected solely to
@@ -113,7 +121,7 @@ pub(crate) struct RouterInfrastructure {
 #[injectable_factory(scope = "transient")]
 async fn create_router_infrastructure(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
-	#[inject] session_config: Depends<CookieSessionConfig>,
+	#[inject] session_config: Depends<DashboardSessionConfig>,
 	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
 	#[inject] _local_auth_service: Depends<LocalAuthService>,
 ) -> RouterInfrastructure {
@@ -137,22 +145,31 @@ async fn create_router_infrastructure(
 		admin_di,
 		session_backend,
 		allowed_origins: allowed_origins.0.clone(),
-		session_config: (*session_config).clone(),
+		session_config: session_config.0.clone(),
 	}
 }
 
 // ── Router construction ─────────────────────────────────────────────
 
+/// Application-specific router wrapper.
+///
+/// Wraps the framework's `UnifiedRouter` to comply with the DI pseudo
+/// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
+/// point unwraps this to return the inner `UnifiedRouter` to the framework.
+#[derive(Debug)]
+pub(crate) struct DashboardRouter(pub UnifiedRouter);
+
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
-/// The `#[inject]` parameter resolves `UnifiedRouter` from the DI registry,
+/// The `#[inject]` parameter resolves `DashboardRouter` from the DI registry,
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
 #[routes]
-pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
+pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
-		.expect("UnifiedRouter has multiple owners after resolve")
+		.expect("DashboardRouter has multiple owners after resolve")
+		.0
 }
 
 /// Build the application router by resolving dependencies from DI.
@@ -162,35 +179,37 @@ pub async fn routes(#[inject] router: Depends<UnifiedRouter>) -> UnifiedRouter {
 /// like `AllowedOrigins` by pre-registering in the `SingletonScope`
 /// before calling this function.
 #[injectable_factory(scope = "transient")]
-async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> UnifiedRouter {
+async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> DashboardRouter {
 	let infra = infra
 		.try_unwrap()
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 
-	UnifiedRouter::new()
-		// Admin panel
-		.mount("/admin/", infra.admin_router)
-		.mount("/static/admin/", admin_static_routes())
-		.with_prefix("/api/")
-		.with_di_registrations(infra.admin_di)
-		// REST API endpoints
-		.mount("/auth/", crate::apps::auth::urls::url_patterns())
-		.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
-		.mount("/deployments/", crate::apps::deployments::urls::url_patterns())
-		.server(|s| {
-			s.server_fn(server::login::login::marker)
-				.server_fn(server::register::register::marker)
-				.server_fn(server::logout::logout::marker)
-				.server_fn(server::me::me::marker)
-		})
-		.with_di_context(infra.di_ctx)
-		.with_middleware(SecurityMiddleware::new())
-		.with_middleware(CspPathMiddleware)
-		.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
-		.with_middleware(CookieSessionAuthMiddleware::with_config(
-			infra.session_backend,
-			infra.session_config,
-		))
+	DashboardRouter(
+		UnifiedRouter::new()
+			// Admin panel
+			.mount("/admin/", infra.admin_router)
+			.mount("/static/admin/", admin_static_routes())
+			.with_prefix("/api/")
+			.with_di_registrations(infra.admin_di)
+			// REST API endpoints
+			.mount("/auth/", crate::apps::auth::urls::url_patterns())
+			.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
+			.mount("/deployments/", crate::apps::deployments::urls::url_patterns())
+			.server(|s| {
+				s.server_fn(server::login::login::marker)
+					.server_fn(server::register::register::marker)
+					.server_fn(server::logout::logout::marker)
+					.server_fn(server::me::me::marker)
+			})
+			.with_di_context(infra.di_ctx)
+			.with_middleware(SecurityMiddleware::new())
+			.with_middleware(CspPathMiddleware)
+			.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
+			.with_middleware(CookieSessionAuthMiddleware::with_config(
+				infra.session_backend,
+				infra.session_config,
+			)),
+	)
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

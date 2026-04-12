@@ -311,7 +311,7 @@ mod tests {
 	fn test_proto_event_to_domain_connected() {
 		// Arrange
 		let ts = fixed_timestamp();
-		let agent_id = Uuid::new_v4();
+		let agent_id = Uuid::now_v7();
 		let proto = pb::AgentEvent {
 			event: Some(pb::agent_event::Event::Connected(pb::AgentConnected {
 				agent_id: agent_id.to_string(),
@@ -377,7 +377,7 @@ mod tests {
 	fn test_proto_event_to_domain_heartbeat() {
 		// Arrange
 		let ts = fixed_timestamp();
-		let agent_id = Uuid::new_v4();
+		let agent_id = Uuid::now_v7();
 		let proto = pb::AgentEvent {
 			event: Some(pb::agent_event::Event::Heartbeat(pb::AgentHeartbeat {
 				agent_id: agent_id.to_string(),
