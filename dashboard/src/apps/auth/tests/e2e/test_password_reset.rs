@@ -7,9 +7,9 @@
 mod tests {
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
+	use reinhardt::test::MailpitContainer;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt::test::MailpitContainer;
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
@@ -58,8 +58,7 @@ mod tests {
 		TestUrls,
 	) {
 		let (client, urls) = test_app;
-		let migrations_dir =
-			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
@@ -125,10 +124,7 @@ mod tests {
 		let token = &rest[..end];
 
 		let verify_url = urls.auth_verify_email(token);
-		client
-			.get(&verify_url)
-			.await
-			.expect("Verify failed");
+		client.get(&verify_url).await.expect("Verify failed");
 	}
 
 	/// Forgot-password sends email for existing active user.
@@ -149,7 +145,12 @@ mod tests {
 		let mailpit = mailpit.await;
 
 		register_and_verify_user(
-			&client, &urls, &mailpit, "resetuser", "reset@example.com", "oldpassword",
+			&client,
+			&urls,
+			&mailpit,
+			"resetuser",
+			"reset@example.com",
+			"oldpassword",
 		)
 		.await;
 		delete_all_messages(&mailpit).await;

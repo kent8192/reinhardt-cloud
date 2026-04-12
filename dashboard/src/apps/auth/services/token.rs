@@ -115,32 +115,26 @@ pub fn verify_token(
 	password_hash: &str,
 	secret_key: &str,
 ) -> Result<Uuid, TokenError> {
-	let (payload_b64, sig_b64) = token
-		.split_once('.')
-		.ok_or(TokenError::MalformedToken)?;
+	let (payload_b64, sig_b64) = token.split_once('.').ok_or(TokenError::MalformedToken)?;
 
 	// Verify HMAC signature in constant time
 	let expected_sig = compute_hmac(secret_key, payload_b64);
-	let provided_sig =
-		base64url_decode(sig_b64).map_err(|_| TokenError::MalformedToken)?;
+	let provided_sig = base64url_decode(sig_b64).map_err(|_| TokenError::MalformedToken)?;
 
 	if expected_sig.ct_eq(&provided_sig).unwrap_u8() != 1 {
 		return Err(TokenError::InvalidSignature);
 	}
 
 	// Decode and parse payload
-	let payload_bytes =
-		base64url_decode(payload_b64).map_err(|_| TokenError::MalformedToken)?;
-	let payload =
-		String::from_utf8(payload_bytes).map_err(|_| TokenError::MalformedToken)?;
+	let payload_bytes = base64url_decode(payload_b64).map_err(|_| TokenError::MalformedToken)?;
+	let payload = String::from_utf8(payload_bytes).map_err(|_| TokenError::MalformedToken)?;
 
 	let parts: Vec<&str> = payload.split('|').collect();
 	if parts.len() != 4 {
 		return Err(TokenError::MalformedToken);
 	}
 
-	let purpose = TokenPurpose::from_str(parts[0])
-		.ok_or(TokenError::MalformedToken)?;
+	let purpose = TokenPurpose::from_str(parts[0]).ok_or(TokenError::MalformedToken)?;
 	if purpose != expected_purpose {
 		return Err(TokenError::PurposeMismatch);
 	}
@@ -178,8 +172,8 @@ fn password_hash_prefix(hash: &str) -> String {
 }
 
 fn compute_hmac(secret_key: &str, data: &str) -> Vec<u8> {
-	let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
-		.expect("HMAC accepts any key length");
+	let mut mac =
+		HmacSha256::new_from_slice(secret_key.as_bytes()).expect("HMAC accepts any key length");
 	mac.update(data.as_bytes());
 	mac.finalize().into_bytes().to_vec()
 }
@@ -207,7 +201,7 @@ pub(crate) fn base64url_decode(data: &str) -> Result<Vec<u8>, ()> {
 		}
 	}
 	// Add padding
-	while standard.len() % 4 != 0 {
+	while !standard.len().is_multiple_of(4) {
 		standard.push('=');
 	}
 	base64_decode(&standard).map_err(|_| ())
@@ -216,14 +210,11 @@ pub(crate) fn base64url_decode(data: &str) -> Result<Vec<u8>, ()> {
 // Minimal base64 encode/decode without external crate dependency.
 
 fn base64_encode_no_pad(data: &[u8]) -> String {
-	const CHARS: &[u8] =
-		b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let mut out = String::new();
 	let mut i = 0;
 	while i + 2 < data.len() {
-		let n = ((data[i] as u32) << 16)
-			| ((data[i + 1] as u32) << 8)
-			| (data[i + 2] as u32);
+		let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);
 		out.push(CHARS[(n >> 18 & 0x3F) as usize] as char);
 		out.push(CHARS[(n >> 12 & 0x3F) as usize] as char);
 		out.push(CHARS[(n >> 6 & 0x3F) as usize] as char);
@@ -292,18 +283,8 @@ mod tests {
 		let user_id = Uuid::new_v4();
 
 		// Act
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			TEST_SECRET,
-		);
-		let result = verify_token(
-			&token,
-			TokenPurpose::EmailVerification,
-			"",
-			TEST_SECRET,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", TEST_SECRET);
+		let result = verify_token(&token, TokenPurpose::EmailVerification, "", TEST_SECRET);
 
 		// Assert
 		assert_eq!(result, Ok(user_id));
@@ -337,20 +318,10 @@ mod tests {
 	fn test_wrong_purpose_returns_error() {
 		// Arrange
 		let user_id = Uuid::new_v4();
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			TEST_SECRET,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", TEST_SECRET);
 
 		// Act
-		let result = verify_token(
-			&token,
-			TokenPurpose::PasswordReset,
-			"",
-			TEST_SECRET,
-		);
+		let result = verify_token(&token, TokenPurpose::PasswordReset, "", TEST_SECRET);
 
 		// Assert
 		assert_eq!(result, Err(TokenError::PurposeMismatch));
@@ -360,21 +331,11 @@ mod tests {
 	fn test_tampered_token_returns_error() {
 		// Arrange
 		let user_id = Uuid::new_v4();
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			TEST_SECRET,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", TEST_SECRET);
 
 		// Act — tamper with the payload portion
 		let tampered = format!("X{}", &token[1..]);
-		let result = verify_token(
-			&tampered,
-			TokenPurpose::EmailVerification,
-			"",
-			TEST_SECRET,
-		);
+		let result = verify_token(&tampered, TokenPurpose::EmailVerification, "", TEST_SECRET);
 
 		// Assert
 		assert_eq!(result, Err(TokenError::InvalidSignature));
@@ -384,12 +345,7 @@ mod tests {
 	fn test_wrong_secret_key_returns_error() {
 		// Arrange
 		let user_id = Uuid::new_v4();
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			TEST_SECRET,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", TEST_SECRET);
 
 		// Act
 		let result = verify_token(
@@ -409,20 +365,10 @@ mod tests {
 		let user_id = Uuid::new_v4();
 		let old_hash = "$argon2id$v=19$old-hash-value";
 		let new_hash = "$argon2id$v=19$new-hash-value";
-		let token = generate_token(
-			TokenPurpose::PasswordReset,
-			&user_id,
-			old_hash,
-			TEST_SECRET,
-		);
+		let token = generate_token(TokenPurpose::PasswordReset, &user_id, old_hash, TEST_SECRET);
 
 		// Act — verify with the new password hash
-		let result = verify_token(
-			&token,
-			TokenPurpose::PasswordReset,
-			new_hash,
-			TEST_SECRET,
-		);
+		let result = verify_token(&token, TokenPurpose::PasswordReset, new_hash, TEST_SECRET);
 
 		// Assert
 		assert_eq!(result, Err(TokenError::InvalidSignature));

@@ -8,9 +8,9 @@ mod tests {
 	use reinhardt::mail::{SmtpBackend, SmtpConfig, SmtpSecurity};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
+	use reinhardt::test::MailpitContainer;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt::test::MailpitContainer;
 	use rstest::*;
 	use serde_json::json;
 	use serial_test::serial;
@@ -59,8 +59,7 @@ mod tests {
 		TestUrls,
 	) {
 		let (client, urls) = test_app;
-		let migrations_dir =
-			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
@@ -70,7 +69,9 @@ mod tests {
 	/// Helper: fetch messages from Mailpit HTTP API.
 	async fn fetch_messages(mailpit: &MailpitContainer) -> Vec<MailpitMessageSummary> {
 		let url = format!("{}/api/v1/messages", mailpit.http_url());
-		let resp = reqwest::get(&url).await.expect("Failed to fetch Mailpit messages");
+		let resp = reqwest::get(&url)
+			.await
+			.expect("Failed to fetch Mailpit messages");
 		let data: MessagesResponse = resp.json().await.expect("Failed to parse Mailpit response");
 		data.messages
 	}
@@ -96,7 +97,7 @@ mod tests {
 		let marker = "/api/auth/verify-email/";
 		let start = text.find(marker)? + marker.len();
 		let rest = &text[start..];
-		let end = rest.find('/')? ;
+		let end = rest.find('/')?;
 		Some(rest[..end].to_string())
 	}
 
@@ -148,7 +149,10 @@ mod tests {
 		// Extract token from email body
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_verify_token(&text);
-		assert!(token.is_some(), "Verification token not found in email body");
+		assert!(
+			token.is_some(),
+			"Verification token not found in email body"
+		);
 	}
 
 	/// Verify-email endpoint activates an inactive user.
@@ -193,8 +197,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(verify_response.status_code(), 200);
-		let body: serde_json::Value =
-			verify_response.json().expect("Failed to parse response");
+		let body: serde_json::Value = verify_response.json().expect("Failed to parse response");
 		assert_eq!(body["success"], true);
 
 		// Login should now succeed

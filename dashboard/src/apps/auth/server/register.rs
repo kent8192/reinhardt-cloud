@@ -93,7 +93,10 @@ pub async fn register(
 	)
 	.await
 	{
-		error!("Failed to send verification email to {}: {e}", created.email);
+		error!(
+			"Failed to send verification email to {}: {e}",
+			created.email
+		);
 	} else {
 		info!("Verification email sent to {}", created.email);
 	}

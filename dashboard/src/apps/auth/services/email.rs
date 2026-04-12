@@ -16,22 +16,17 @@ pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
 		SmtpSecurity::None
 	};
 
-	let mut config = SmtpConfig::new(&email.host, email.port)
-		.with_security(security);
+	let mut config = SmtpConfig::new(&email.host, email.port).with_security(security);
 
-	if let (Some(username), Some(password)) =
-		(&email.username, &email.password)
-	{
+	if let (Some(username), Some(password)) = (&email.username, &email.password) {
 		config = config.with_credentials(username.clone(), password.clone());
 	}
 
 	if let Some(timeout_secs) = email.timeout {
-		config = config
-			.with_timeout(std::time::Duration::from_secs(timeout_secs));
+		config = config.with_timeout(std::time::Duration::from_secs(timeout_secs));
 	}
 
-	let backend =
-		SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
+	let backend = SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
 	Ok(Box::new(backend))
 }
 
@@ -41,8 +36,7 @@ pub fn get_email_backend_with_config(
 	port: u16,
 ) -> Result<Box<dyn EmailBackend>, String> {
 	let config = SmtpConfig::new(host, port).with_security(SmtpSecurity::None);
-	let backend =
-		SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
+	let backend = SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
 	Ok(Box::new(backend))
 }
 
@@ -56,10 +50,7 @@ pub async fn send_verification_email(
 ) -> Result<(), String> {
 	let mut ctx = TemplateContext::new();
 	ctx.insert("username".to_string(), username.into());
-	ctx.insert(
-		"verification_url".to_string(),
-		verification_url.into(),
-	);
+	ctx.insert("verification_url".to_string(), verification_url.into());
 
 	let email = TemplateEmailBuilder::new()
 		.from(from_email)

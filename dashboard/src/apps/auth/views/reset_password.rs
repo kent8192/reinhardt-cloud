@@ -25,7 +25,10 @@ pub async fn reset_password(
 	Path(token_str): Path<String>,
 	body: Json<ResetPasswordRequest>,
 ) -> ViewResult<Response> {
-	let secret_key = crate::config::settings::get_settings().core.secret_key.clone();
+	let secret_key = crate::config::settings::get_settings()
+		.core
+		.secret_key
+		.clone();
 
 	// Extract user_id from token payload without full HMAC verification,
 	// because we need the user's password_hash for full token verification.
@@ -48,13 +51,16 @@ pub async fn reset_password(
 
 	// Verify token with actual password hash
 	let password_hash = user.password_hash.as_deref().unwrap_or("");
-	verify_token(&token_str, TokenPurpose::PasswordReset, password_hash, &secret_key)
-		.map_err(|e| match e {
-			TokenError::Expired => {
-				AppError::Validation("Reset link has expired".to_string())
-			}
-			_ => AppError::Validation("Invalid or expired reset link".to_string()),
-		})?;
+	verify_token(
+		&token_str,
+		TokenPurpose::PasswordReset,
+		password_hash,
+		&secret_key,
+	)
+	.map_err(|e| match e {
+		TokenError::Expired => AppError::Validation("Reset link has expired".to_string()),
+		_ => AppError::Validation("Invalid or expired reset link".to_string()),
+	})?;
 
 	// Set new password
 	let mut updated = user;

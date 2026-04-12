@@ -20,15 +20,19 @@ use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token}
 /// if the user is already active (idempotent).
 #[get("/verify-email/{token}/", name = "auth_verify_email")]
 pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
-	let secret_key = crate::config::settings::get_settings().core.secret_key.clone();
+	let secret_key = crate::config::settings::get_settings()
+		.core
+		.secret_key
+		.clone();
 
-	let user_id = verify_token(&token, TokenPurpose::EmailVerification, "", &secret_key)
-		.map_err(|e| match e {
+	let user_id = verify_token(&token, TokenPurpose::EmailVerification, "", &secret_key).map_err(
+		|e| match e {
 			TokenError::Expired => {
 				AppError::Validation("Verification link has expired".to_string())
 			}
 			_ => AppError::Validation("Invalid verification link".to_string()),
-		})?;
+		},
+	)?;
 
 	let user = User::objects()
 		.filter(

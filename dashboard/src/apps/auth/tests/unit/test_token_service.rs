@@ -15,7 +15,10 @@ mod tests {
 	};
 
 	fn test_secret() -> String {
-		crate::config::settings::get_settings().core.secret_key.clone()
+		crate::config::settings::get_settings()
+			.core
+			.secret_key
+			.clone()
 	}
 
 	#[rstest]
@@ -25,18 +28,8 @@ mod tests {
 		let secret = test_secret();
 
 		// Act
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			&secret,
-		);
-		let result = verify_token(
-			&token,
-			TokenPurpose::EmailVerification,
-			"",
-			&secret,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", &secret);
+		let result = verify_token(&token, TokenPurpose::EmailVerification, "", &secret);
 
 		// Assert
 		assert_eq!(result, Ok(user_id));
@@ -50,18 +43,8 @@ mod tests {
 		let hash = "$argon2id$v=19$m=19456,t=2,p=1$some-salt$some-hash";
 
 		// Act
-		let token = generate_token(
-			TokenPurpose::PasswordReset,
-			&user_id,
-			hash,
-			&secret,
-		);
-		let result = verify_token(
-			&token,
-			TokenPurpose::PasswordReset,
-			hash,
-			&secret,
-		);
+		let token = generate_token(TokenPurpose::PasswordReset, &user_id, hash, &secret);
+		let result = verify_token(&token, TokenPurpose::PasswordReset, hash, &secret);
 
 		// Assert
 		assert_eq!(result, Ok(user_id));
@@ -72,20 +55,10 @@ mod tests {
 		// Arrange
 		let user_id = Uuid::new_v4();
 		let secret = test_secret();
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&user_id,
-			"",
-			&secret,
-		);
+		let token = generate_token(TokenPurpose::EmailVerification, &user_id, "", &secret);
 
 		// Act
-		let result = verify_token(
-			&token,
-			TokenPurpose::PasswordReset,
-			"",
-			&secret,
-		);
+		let result = verify_token(&token, TokenPurpose::PasswordReset, "", &secret);
 
 		// Assert
 		assert_eq!(result, Err(TokenError::PurposeMismatch));
