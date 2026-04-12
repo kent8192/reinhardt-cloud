@@ -363,8 +363,8 @@ mod tests {
 	fn test_password_change_invalidates_reset_token() {
 		// Arrange
 		let user_id = Uuid::new_v4();
-		let old_hash = "$argon2id$v=19$old-hash-value";
-		let new_hash = "$argon2id$v=19$new-hash-value";
+		let old_hash = "old_hash_abcdefghijklmnop";
+		let new_hash = "new_hash_abcdefghijklmnop";
 		let token = generate_token(TokenPurpose::PasswordReset, &user_id, old_hash, TEST_SECRET);
 
 		// Act — verify with the new password hash

@@ -179,6 +179,14 @@ mod tests {
 		let mailpit = mailpit.await;
 		delete_all_messages(&mailpit).await;
 
+		// SAFETY: Called in a serial test before any parallel tasks read this var.
+		unsafe {
+			std::env::set_var("REINHARDT_CLOUD_BASE_URL", "http://localhost:8000");
+			std::env::set_var("REINHARDT_EMAIL__BACKEND", "smtp");
+			std::env::set_var("REINHARDT_EMAIL__HOST", "127.0.0.1");
+			std::env::set_var("REINHARDT_EMAIL__PORT", mailpit.smtp_port().to_string());
+		}
+
 		let register_data = json!({
 			"username": "activateuser",
 			"email": "activate@example.com",
@@ -274,6 +282,14 @@ mod tests {
 		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		delete_all_messages(&mailpit).await;
+
+		// SAFETY: Called in a serial test before any parallel tasks read this var.
+		unsafe {
+			std::env::set_var("REINHARDT_CLOUD_BASE_URL", "http://localhost:8000");
+			std::env::set_var("REINHARDT_EMAIL__BACKEND", "smtp");
+			std::env::set_var("REINHARDT_EMAIL__HOST", "127.0.0.1");
+			std::env::set_var("REINHARDT_EMAIL__PORT", mailpit.smtp_port().to_string());
+		}
 
 		let register_data = json!({
 			"username": "doubleuser",
