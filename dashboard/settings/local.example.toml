@@ -40,3 +40,8 @@ name = "reinhardt_cloud_dev"
 user = "postgres"
 password = { secret = "CHANGE-ME" }
 options = {}
+
+[cors]
+# Allowed origins for OriginGuardMiddleware (exact match, no wildcards).
+# OriginGuard filters out "*" — use explicit URLs.
+allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
