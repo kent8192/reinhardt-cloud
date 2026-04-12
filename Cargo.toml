@@ -48,7 +48,7 @@ serde_yaml = "0.9"
 toml = "0.9"
 
 # Types
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1.7", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Error handling
@@ -84,15 +84,6 @@ rstest = "0.26"
 tokio-test = "0.4"
 proptest = "1"
 reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
-
-# Workaround for kent8192/reinhardt-web#3478 (tracked in reinhardt-cloud#312)
-# Remove this workaround when the upstream issue is resolved.
-#
-# Ideal implementation (without workaround):
-#   No [workspace.lints.rust] section needed — upstream macros should wrap
-#   cfg-gated code with #[allow(unexpected_cfgs)].
-[workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("url-resolver"))'] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"
