@@ -14,10 +14,13 @@
 //! ## Priority Order
 //!
 //! Settings are merged with the following priority (highest to lowest):
-//! 1. Environment-specific TOML file (e.g., `production.toml`)
-//! 2. Base TOML file (`base.toml`)
-//! 3. Environment variables with `REINHARDT_` prefix
+//! 1. Environment variables with `REINHARDT_` prefix
+//! 2. Environment-specific TOML file (e.g., `production.toml`)
+//! 3. Base TOML file (`base.toml`)
 //! 4. Default values
+//!
+//! Environment variables have the highest priority following the
+//! [12-factor app](https://12factor.net/config) convention.
 //!
 //! ## Settings Directory Resolution
 //!
@@ -77,23 +80,27 @@ fn profile_name() -> String {
 ///
 /// Sources are merged in priority order (lowest to highest):
 /// 1. Default values (CoreSettings provides its own defaults via serde)
-/// 2. Environment variables with `REINHARDT_` prefix
-/// 3. Base TOML file (`base.toml`)
-/// 4. Environment-specific TOML file (e.g., `local.toml`)
+/// 2. Base TOML file (`base.toml`)
+/// 3. Environment-specific TOML file (e.g., `local.toml`)
+/// 4. Environment variables with `REINHARDT_` prefix
+///
+/// Environment variables have the highest priority following the
+/// [12-factor app](https://12factor.net/config) convention, allowing
+/// runtime overrides for container, CI, and test environments.
 fn build_settings() -> ProjectSettings {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 
 	SettingsBuilder::new()
 		.profile(Profile::parse(&profile_str))
-		// Low priority: Environment variables (for container/CI overrides)
-		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
-		// Medium priority: Base TOML file
+		// Low priority: Base TOML file
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		// Highest priority: Environment-specific TOML file
+		// Medium priority: Environment-specific TOML file
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
+		// Highest priority: Environment variables (for container/CI/test overrides)
+		.add_source(LowPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
 		.expect("Failed to build settings")
 }

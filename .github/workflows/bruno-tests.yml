@@ -112,6 +112,17 @@ jobs:
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
           REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
 
+      - name: Seed active test user for login scenarios
+        run: |
+          # Register the test user via API (created as inactive)
+          curl -sf -X POST http://localhost:8000/api/auth/register/ \
+            -H "Content-Type: application/json" \
+            -d '{"username":"testuser","email":"test@ci.dev","password":"testpassword"}'
+          # Activate the user directly in the database so login tests work
+          # (email verification cannot be performed in Bruno CI tests)
+          PGPASSWORD=postgres psql -h localhost -U postgres reinhardt_cloud_ci \
+            -c "UPDATE auth_users SET is_active = true WHERE username = 'testuser'"
+
       - name: Run Bruno scenario tests
         working-directory: dashboard/tests/bruno
         run: bru run scenarios --env CI --bail
