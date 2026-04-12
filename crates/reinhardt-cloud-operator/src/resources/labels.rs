@@ -72,7 +72,7 @@ pub(crate) fn standard_labels(
 		(
 			"paas.reinhardt-cloud.dev/owner".to_string(),
 			format!(
-				"{}/{}",
+				"{}.{}",
 				app.namespace().unwrap_or_else(|| "<unknown>".to_string()),
 				app.name_any()
 			),
@@ -126,7 +126,7 @@ mod tests {
 		assert_eq!(labels.get("app.kubernetes.io/instance").unwrap(), "my-app");
 		assert_eq!(
 			labels.get("paas.reinhardt-cloud.dev/owner").unwrap(),
-			"default/my-app"
+			"default.my-app"
 		);
 	}
 
