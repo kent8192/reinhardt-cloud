@@ -165,13 +165,6 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
 #[routes]
-// Workaround for kent8192/reinhardt-web#3498 (tracked in reinhardt-cloud#329)
-// Remove this workaround when the upstream issue is resolved.
-//
-// Ideal implementation (without workaround):
-//   #[routes]
-//   pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
-#[allow(private_interfaces)]
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
