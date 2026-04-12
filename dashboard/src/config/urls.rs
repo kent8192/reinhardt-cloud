@@ -157,7 +157,7 @@ async fn create_router_infrastructure(
 /// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
 /// point unwraps this to return the inner `UnifiedRouter` to the framework.
 #[derive(Debug)]
-pub(crate) struct DashboardRouter(pub UnifiedRouter);
+pub struct DashboardRouter(pub UnifiedRouter);
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
