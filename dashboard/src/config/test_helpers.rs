@@ -14,9 +14,7 @@ use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::test::APIClient;
 use rstest::fixture;
 
-use reinhardt::urls::prelude::UnifiedRouter;
-
-use crate::config::urls::AllowedOrigins;
+use crate::config::urls::{AllowedOrigins, DashboardRouter};
 
 /// Pre-resolved URL paths for test use.
 ///
@@ -38,7 +36,7 @@ pub struct TestUrls {
 /// `AllowedOrigins` is pre-registered with `"http://testserver"` so the
 /// `OriginGuardMiddleware` accepts requests from `APIClient::from_handler`.
 /// All other singletons (`WsBroadcaster`, `LocalAuthService`,
-/// `CookieSessionConfig`) are resolved lazily via their
+/// `DashboardSessionConfig`) are resolved lazily via their
 /// `#[injectable_factory]` registrations.
 #[fixture]
 pub fn test_app() -> (APIClient, TestUrls) {
@@ -46,12 +44,13 @@ pub fn test_app() -> (APIClient, TestUrls) {
 	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	let router: Arc<UnifiedRouter> = tokio::task::block_in_place(|| {
-		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<UnifiedRouter>())
+	let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
 	})
-	.expect("Failed to resolve UnifiedRouter");
+	.expect("Failed to resolve DashboardRouter");
 	let server_router = Arc::try_unwrap(router)
-		.expect("UnifiedRouter has multiple owners after resolve")
+		.expect("DashboardRouter has multiple owners after resolve")
+		.0
 		.into_server();
 
 	let rev = |name: &str| -> String {
