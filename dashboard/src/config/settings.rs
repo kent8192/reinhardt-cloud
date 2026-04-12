@@ -50,7 +50,8 @@ use std::path::PathBuf;
 /// - `[static_files]` → `StaticSettings`
 /// - `[media]` → `MediaSettings`
 /// - `[cors]` → `CorsSettings` (includes `allow_origins` used by `OriginGuardMiddleware`)
-#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings)]
+/// - `[email]` → `EmailSettings` (SMTP backend configuration for transactional emails)
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
