@@ -12,16 +12,15 @@ use reinhardt::mail::{EmailBackend, SmtpBackend, SmtpConfig, SmtpSecurity};
 pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
 	// Direct env var override for testing — the settings system cannot
 	// map REINHARDT_EMAIL__* to nested email.* keys.
-	if std::env::var("REINHARDT_EMAIL__BACKEND").as_deref() == Ok("smtp") {
-		if let (Ok(host), Ok(port_str)) = (
+	if std::env::var("REINHARDT_EMAIL__BACKEND").as_deref() == Ok("smtp")
+		&& let (Ok(host), Ok(port_str)) = (
 			std::env::var("REINHARDT_EMAIL__HOST"),
 			std::env::var("REINHARDT_EMAIL__PORT"),
 		) {
-			let port: u16 = port_str
-				.parse()
-				.map_err(|e| format!("Invalid REINHARDT_EMAIL__PORT: {e}"))?;
-			return get_email_backend_with_config(&host, port);
-		}
+		let port: u16 = port_str
+			.parse()
+			.map_err(|e| format!("Invalid REINHARDT_EMAIL__PORT: {e}"))?;
+		return get_email_backend_with_config(&host, port);
 	}
 
 	let settings = crate::config::settings::get_settings();
