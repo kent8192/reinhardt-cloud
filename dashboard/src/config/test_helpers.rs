@@ -8,12 +8,18 @@
 //! so tests are robust against path changes as long as route names stay the same.
 
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use reinhardt::OpenApiRouter;
+use reinhardt::RedisSessionBackend;
 use reinhardt::di::{InjectionContext, SingletonScope};
+use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
+use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use rstest::fixture;
+use uuid::Uuid;
 
+use crate::apps::auth::models::User;
 use crate::config::urls::{AllowedOrigins, DashboardRouter};
 
 /// Pre-resolved URL paths for test use.
@@ -75,4 +81,100 @@ pub fn test_app() -> (APIClient, TestUrls) {
 	let handler = OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 	let client = APIClient::from_handler(handler);
 	(client, urls)
+}
+
+/// Redis-backed session backend for force-login in tests.
+///
+/// Connects to the same Redis instance used by the application middleware,
+/// so sessions saved here are visible to `CookieSessionAuthMiddleware`.
+#[fixture]
+pub fn session_backend() -> Arc<dyn AsyncSessionBackend> {
+	let redis_url = crate::config::settings::get_redis_url()
+		.expect("Redis URL must be configured for session tests");
+	Arc::new(
+		RedisSessionBackend::new_from_url(&redis_url)
+			.expect("Failed to create Redis session backend"),
+	)
+}
+
+/// Create a test user in the database and force-login on the client.
+///
+/// Creates the user via ORM, then calls [`force_login`] to establish
+/// a session. Use this for initial user setup. For switching back to
+/// an already-created user, use [`force_login`] directly.
+///
+/// Workaround for kent8192/reinhardt-web#3542 (tracked in reinhardt-cloud#342)
+/// Remove this workaround when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   client.auth()
+///       .session(&user, session_backend.clone())
+///       .apply().await
+///       .expect("Failed to force login");
+pub async fn force_login_user(
+	client: &APIClient,
+	conn: &Arc<DatabaseConnection>,
+	session_backend: &Arc<dyn AsyncSessionBackend>,
+	username: &str,
+	email: &str,
+) -> User {
+	use reinhardt::db::orm::Model;
+
+	let user = User::new(
+		username.to_string(),
+		email.to_string(),
+		String::new(),
+		String::new(),
+		None,
+		true,
+		false,
+		false,
+	);
+	let user = User::objects()
+		.create_with_conn(conn, &user)
+		.await
+		.expect("Failed to create test user");
+
+	force_login(client, session_backend, &user).await;
+	user
+}
+
+/// Force-login an existing user on the client.
+///
+/// Creates a new session in the Redis backend for the given user and sets
+/// the `sessionid` cookie. Use this to switch the client to a different
+/// user without creating a new database record.
+pub async fn force_login(
+	client: &APIClient,
+	session_backend: &Arc<dyn AsyncSessionBackend>,
+	user: &User,
+) {
+	let session_id = Uuid::now_v7().to_string();
+	let now = SystemTime::now();
+	let mut session = SessionData {
+		id: session_id.clone(),
+		data: std::collections::HashMap::new(),
+		created_at: now,
+		last_accessed: now,
+		expires_at: now + Duration::from_secs(1800),
+	};
+	session
+		.set("user_id".to_string(), user.id.to_string())
+		.expect("Failed to set user_id in session");
+	session
+		.set("is_staff".to_string(), user.is_staff)
+		.expect("Failed to set is_staff in session");
+	session
+		.set("is_superuser".to_string(), user.is_superuser)
+		.expect("Failed to set is_superuser in session");
+
+	session_backend
+		.save(&session)
+		.await
+		.expect("Failed to save session to Redis");
+
+	client
+		.set_header("Cookie", format!("sessionid={session_id}"))
+		.await
+		.expect("Failed to set session cookie on client");
 }
