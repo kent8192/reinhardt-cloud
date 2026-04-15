@@ -87,6 +87,13 @@ pub fn test_app() -> (APIClient, TestUrls) {
 ///
 /// Connects to the same Redis instance used by the application middleware,
 /// so sessions saved here are visible to `CookieSessionAuthMiddleware`.
+///
+/// Workaround for kent8192/reinhardt-web#3660 (tracked in reinhardt-cloud#344)
+/// Remove this workaround when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   No explicit `session_backend` fixture needed — `client.auth().session()`
+///   resolves the session backend from the DI context automatically.
 #[fixture]
 pub fn session_backend() -> Arc<dyn AsyncSessionBackend> {
 	let redis_url = crate::config::settings::get_redis_url()
@@ -103,10 +110,11 @@ pub fn session_backend() -> Arc<dyn AsyncSessionBackend> {
 /// a session. Use this for initial user setup. For switching back to
 /// an already-created user, use [`force_login`] directly.
 ///
-/// Workaround for kent8192/reinhardt-web#3542 (tracked in reinhardt-cloud#342)
+/// Workaround for kent8192/reinhardt-web#3660 (tracked in reinhardt-cloud#344)
 /// Remove this workaround when the upstream issue is resolved.
 ///
 /// Ideal implementation (without workaround):
+///   let user = User::objects().create_with_conn(conn, &user).await?;
 ///   client.auth()
 ///       .session(&user, session_backend.clone())
 ///       .apply().await
@@ -144,6 +152,15 @@ pub async fn force_login_user(
 /// Creates a new session in the Redis backend for the given user and sets
 /// the `sessionid` cookie. Use this to switch the client to a different
 /// user without creating a new database record.
+///
+/// Workaround for kent8192/reinhardt-web#3660 (tracked in reinhardt-cloud#344)
+/// Remove this workaround when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   client.auth()
+///       .session(user, session_backend.clone())
+///       .apply().await
+///       .expect("Failed to force login");
 pub async fn force_login(
 	client: &APIClient,
 	session_backend: &Arc<dyn AsyncSessionBackend>,
