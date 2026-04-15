@@ -161,14 +161,19 @@ pub fn verify_token(
 	Ok(user_id)
 }
 
-/// Extract first 8 characters of the password hash as a prefix.
-/// This is sufficient to detect password changes without leaking
-/// the full hash in the token payload.
+/// Extract a short fingerprint from the password hash output.
+///
+/// Uses the last 16 characters of the hash string, which correspond to the
+/// tail of the Argon2id hash output and are unique per password. The first 8
+/// characters of an Argon2id hash are always `$argon2i` (the algorithm
+/// identifier), so taking a prefix would fail to detect password changes.
 fn password_hash_prefix(hash: &str) -> String {
 	if hash.is_empty() {
 		return String::new();
 	}
-	hash.chars().take(8).collect()
+	let chars: Vec<char> = hash.chars().collect();
+	let start = chars.len().saturating_sub(16);
+	chars[start..].iter().collect()
 }
 
 fn compute_hmac(secret_key: &str, data: &str) -> Vec<u8> {
@@ -363,8 +368,8 @@ mod tests {
 	fn test_password_change_invalidates_reset_token() {
 		// Arrange
 		let user_id = Uuid::new_v4();
-		let old_hash = "old_hash_abcdefghijklmnop";
-		let new_hash = "new_hash_abcdefghijklmnop";
+		let old_hash = "$argon2id$v=19$m=19456,t=2,p=1$oldsaltvalue$oldoutputhashABCD";
+		let new_hash = "$argon2id$v=19$m=19456,t=2,p=1$newsaltvalue$newoutputhashEFGH";
 		let token = generate_token(TokenPurpose::PasswordReset, &user_id, old_hash, TEST_SECRET);
 
 		// Act — verify with the new password hash
