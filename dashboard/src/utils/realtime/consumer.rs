@@ -14,7 +14,7 @@ use uuid::Uuid;
 use reinhardt_cloud_proto::build as pb;
 
 use crate::apps::auth::services::session::validate_session;
-use crate::apps::realtime::broadcaster::WsBroadcaster;
+use crate::utils::realtime::broadcaster::WsBroadcaster;
 use crate::shared::ws_messages::{
 	BuildLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
 	WsClientMessage, WsMessage,

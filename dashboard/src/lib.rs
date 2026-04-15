@@ -21,6 +21,7 @@ pub mod client;
 #[cfg(native)]
 pub mod config;
 pub mod shared;
+pub mod utils;
 
 // Re-export commonly used items
 #[cfg(native)]
