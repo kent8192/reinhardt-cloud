@@ -3,6 +3,7 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
+use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -12,7 +13,9 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
+use reinhardt_cloud_dashboard::config::test_helpers::{
+	TestUrls, force_login_user, session_backend, test_app,
+};
 
 // ============================================================================
 // Test Fixtures
@@ -22,50 +25,20 @@ use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 #[fixture]
 async fn db(
 	test_app: (APIClient, TestUrls),
+	session_backend: Arc<dyn AsyncSessionBackend>,
 ) -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
 	TestUrls,
+	Arc<dyn AsyncSessionBackend>,
 ) {
 	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	(container, conn, client, urls)
-}
-
-/// Helper: register a test user and return the session cookie value.
-async fn register_and_get_session(client: &APIClient) -> String {
-	let register_data = json!({
-		"username": "testuser",
-		"email": "test@example.com",
-		"password": "securepassword123"
-	});
-	let resp = client
-		.post("/api/auth/register/", &register_data, "json")
-		.await
-		.expect("Register request failed");
-	assert_eq!(resp.status_code(), 201);
-	let set_cookie = resp
-		.header("Set-Cookie")
-		.expect("Response should have Set-Cookie header");
-	let session_id = set_cookie
-		.split(';')
-		.next()
-		.unwrap()
-		.strip_prefix("sessionid=")
-		.expect("Cookie should start with sessionid=");
-	session_id.to_string()
-}
-
-/// Helper: set session cookie on client.
-async fn authenticate_client(client: &APIClient, session_id: &str) {
-	client
-		.set_header("Cookie", format!("sessionid={session_id}"))
-		.await
-		.expect("Failed to set Cookie header");
+	(container, conn, client, urls, session_backend)
 }
 
 // ============================================================================
@@ -82,12 +55,12 @@ async fn test_create_deployment_with_cluster(
 		Arc<DatabaseConnection>,
 		APIClient,
 		TestUrls,
+		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, client, _urls) = db.await;
-	let session = register_and_get_session(&client).await;
-	authenticate_client(&client, &session).await;
+	let (_container, conn, client, _urls, backend) = db.await;
+	force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
 
 	// Act -- create a cluster first (deployment requires cluster_id)
 	let cluster_data = json!({
