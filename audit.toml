@@ -54,4 +54,12 @@ ignore = [
 	# rustls-webpki: vulnerability (solution: upgrade to >=0.103.10)
 	# Transitive: rustls -> rustls-webpki
 	"RUSTSEC-2026-0049",
+
+	# aws-lc-sys: vulnerability
+	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0098",
+
+	# aws-lc-sys: vulnerability
+	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
+	"RUSTSEC-2026-0099",
 ]

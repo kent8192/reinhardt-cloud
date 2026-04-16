@@ -36,8 +36,8 @@ use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
 use crate::apps::auth::services::local_auth::LocalAuthService;
-use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
+use crate::utils::realtime::broadcaster::WsBroadcaster;
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
 	SecurityMiddleware,
@@ -170,6 +170,7 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 // Ideal implementation (without workaround):
 //   #[routes]  (non-standalone; url_prelude generation enabled)
 #[routes(standalone)]
+#[allow(private_interfaces)] // DashboardRouter is pub(crate) by design; #[routes] macro requires pub fn
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
