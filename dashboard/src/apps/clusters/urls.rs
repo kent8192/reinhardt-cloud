@@ -1,10 +1,12 @@
 //! URL configuration for clusters app.
 
 use reinhardt::ServerRouter;
+use reinhardt::url_patterns;
 
 use crate::apps::clusters::views;
 
 /// Returns the URL patterns for cluster endpoints.
+#[url_patterns(app = "clusters")]
 pub fn url_patterns() -> ServerRouter {
 	ServerRouter::new()
 		.endpoint(views::list_clusters)
