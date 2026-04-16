@@ -1,11 +1,10 @@
 //! View functions for auth endpoints.
 
-pub mod change_password;
-pub mod login;
-pub mod profile;
-pub mod register;
+use reinhardt::define_views;
 
-pub use change_password::change_password;
-pub use login::login;
-pub use profile::{profile, profile_update};
-pub use register::register;
+define_views! {
+	pub mod change_password;
+	pub mod login;
+	pub mod profile;
+	pub mod register;
+}
