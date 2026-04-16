@@ -12,17 +12,17 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{TestUrls, force_login_user, session_backend, test_app};
+	use crate::config::test_helpers::{ResolvedUrls, force_login_user, session_backend, test_app};
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, TestUrls),
+		test_app: (APIClient, ResolvedUrls),
 		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	) {
 		let (client, urls) = test_app;
@@ -72,7 +72,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -107,7 +107,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -147,7 +147,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -196,7 +196,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 		#[case] cluster_exists: bool,
