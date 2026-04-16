@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   id-token: write
-  pull-requests: read
+  pull-requests: write
   security-events: write
 
 concurrency:
@@ -193,6 +193,15 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
+  public-api-diff:
+    name: Public API Diff
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/public-api-diff.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
   bruno-tests:
     name: Bruno API Tests
     needs: [fmt, clippy, determine-runner, check-branch-status]
@@ -246,6 +255,7 @@ jobs:
       - coverage
       - terraform-check
       - cross-platform-check
+      - public-api-diff
     steps:
       - name: Verify all required checks passed
         env:
@@ -261,6 +271,7 @@ jobs:
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
           CROSS_PLATFORM_RESULT: ${{ needs.cross-platform-check.result }}
+          PUBLIC_API_DIFF_RESULT: ${{ needs.public-api-diff.result }}
         run: |
           # If PR has merge conflicts, all jobs are expected to be skipped
           if [[ "$HAS_CONFLICTS" == "true" ]]; then
@@ -294,6 +305,7 @@ jobs:
             "coverage:$COVERAGE_RESULT"
             "terraform-check:$TERRAFORM_CHECK_RESULT"
             "cross-platform-check:$CROSS_PLATFORM_RESULT"
+            "public-api-diff:$PUBLIC_API_DIFF_RESULT"
           )
           for entry in "${selectively_skippable[@]}"; do
             name="${entry%%:*}"

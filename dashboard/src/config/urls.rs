@@ -36,8 +36,8 @@ use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
 use crate::apps::auth::services::local_auth::LocalAuthService;
-use crate::apps::realtime::broadcaster::WsBroadcaster;
 use crate::config::middleware::CspPathMiddleware;
+use crate::utils::realtime::broadcaster::WsBroadcaster;
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
 	SecurityMiddleware,
@@ -164,7 +164,13 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 /// The `#[inject]` parameter resolves `DashboardRouter` from the DI registry,
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
-#[routes]
+// Workaround for kent8192/reinhardt-web#3662 (tracked in reinhardt-cloud#345)
+// Remove this workaround when the upstream issue is resolved.
+//
+// Ideal implementation (without workaround):
+//   #[routes]  (non-standalone; url_prelude generation enabled)
+#[routes(standalone)]
+#[allow(private_interfaces)] // DashboardRouter is pub(crate) by design; #[routes] macro requires pub fn
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
