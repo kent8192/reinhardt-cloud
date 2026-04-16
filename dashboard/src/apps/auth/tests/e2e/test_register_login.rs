@@ -118,6 +118,10 @@ mod tests {
 	}
 
 	/// Verify POST /api/auth/register/ creates an inactive user (requires Mailpit).
+	///
+	/// Asserts the new inactive-by-default contract: the response does not
+	/// establish a session (no `sessionid` cookie) and the persisted user
+	/// has `is_active = false` until the verification link is used.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -147,12 +151,35 @@ mod tests {
 			.await
 			.expect("Register request failed");
 
-		// Assert
+		// Assert — 201 with no session cookie
 		assert_eq!(response.status_code(), 201);
+		let set_cookie = response.header("Set-Cookie");
+		assert!(
+			set_cookie.is_none_or(|v| !v.contains("sessionid=")),
+			"Registration must not establish a session; got Set-Cookie: {set_cookie:?}"
+		);
+
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
 		assert_eq!(body["success"], true);
 		assert!(body["user"].is_object());
-		assert!(body["user"]["username"].is_string());
+		assert_eq!(body["user"]["username"], "newuser");
+
+		// Assert — user persisted as inactive until email verification
+		use reinhardt::db::orm::{FilterOperator, FilterValue};
+		let user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String("newuser".to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User should exist after successful registration");
+		assert!(
+			!user.is_active(),
+			"Newly registered user must be inactive until email verification"
+		);
 	}
 
 	/// Verify POST /api/auth/login/ authenticates against DB and returns session cookie.
