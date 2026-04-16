@@ -25,6 +25,12 @@ pub async fn reset_password(
 	Path(token_str): Path<String>,
 	body: Json<ResetPasswordRequest>,
 ) -> ViewResult<Response> {
+	// Manual validation — pre_validate cannot be used because Path<String>
+	// does not implement Validate.
+	use reinhardt::Validate;
+	body.validate()
+		.map_err(|e| AppError::Validation(format!("Invalid request: {e}")))?;
+
 	let secret_key = crate::config::settings::get_settings()
 		.core
 		.secret_key
