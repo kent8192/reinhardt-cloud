@@ -164,7 +164,13 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 /// The `#[inject]` parameter resolves `DashboardRouter` from the DI registry,
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
-#[routes]
+// Workaround for kent8192/reinhardt-web#3709 (tracked in reinhardt-cloud#352)
+// #[export_endpoints] requires nightly Rust features, preventing URL resolver
+// generation. Using standalone mode to skip url_prelude generation.
+//
+// Ideal implementation (without workaround):
+//   #[routes]
+#[routes(standalone)]
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
