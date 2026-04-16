@@ -34,11 +34,10 @@ pub async fn reset_password(
 	// hitting the database. Full verification (password_hash prefix) happens
 	// after loading the user, but this rejects malformed/tampered/expired
 	// tokens cheaply without a DB query.
-	let user_id = validate_token_before_db(&token_str, &secret_key)
-		.map_err(|e| match e {
-			TokenError::Expired => AppError::Validation("Reset link has expired".to_string()),
-			_ => AppError::Validation("Invalid or expired reset link".to_string()),
-		})?;
+	let user_id = validate_token_before_db(&token_str, &secret_key).map_err(|e| match e {
+		TokenError::Expired => AppError::Validation("Reset link has expired".to_string()),
+		_ => AppError::Validation("Invalid or expired reset link".to_string()),
+	})?;
 
 	let user = User::objects()
 		.filter(
@@ -95,18 +94,14 @@ pub async fn reset_password(
 ///
 /// This does NOT verify the password_hash prefix (that requires the user
 /// record), but it rejects invalid/tampered/expired tokens cheaply.
-fn validate_token_before_db(
-	token_str: &str,
-	secret_key: &str,
-) -> Result<uuid::Uuid, TokenError> {
+fn validate_token_before_db(token_str: &str, secret_key: &str) -> Result<uuid::Uuid, TokenError> {
 	let (payload_b64, sig_b64) = token_str
 		.split_once('.')
 		.ok_or(TokenError::MalformedToken)?;
 
 	// Verify HMAC signature (constant-time)
 	let expected_sig = token::compute_hmac_for_validation(secret_key, payload_b64);
-	let provided_sig =
-		token::base64url_decode(sig_b64).map_err(|_| TokenError::MalformedToken)?;
+	let provided_sig = token::base64url_decode(sig_b64).map_err(|_| TokenError::MalformedToken)?;
 	if subtle::ConstantTimeEq::ct_eq(expected_sig.as_slice(), provided_sig.as_slice()).unwrap_u8()
 		!= 1
 	{
