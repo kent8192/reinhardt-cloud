@@ -2,13 +2,13 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+	use reinhardt::BaseUser;
+	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 	use rstest::*;
-	use serde_json::json;
 	use serial_test::serial;
 	use std::sync::Arc;
 
@@ -33,35 +33,24 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Helper: register a user via the API and activate via ORM.
-	async fn register_user(client: &APIClient, username: &str, email: &str, password: &str) {
-		let data = json!({
-			"username": username,
-			"email": email,
-			"password": password,
-		});
-		let response = client
-			.post("/api/auth/register/", &data, "json")
-			.await
-			.expect("Register request failed");
-		assert_eq!(response.status_code(), 201, "Registration should succeed");
-
-		// Activate user via ORM (registration creates inactive user)
-		let mut user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String(username.to_string()),
-			)
-			.first()
-			.await
-			.expect("Failed to query user")
-			.expect("User not found");
-		user.is_active = true;
+	/// Helper: create a user directly via ORM (bypasses register endpoint and email).
+	async fn create_test_user(username: &str, email: &str, password: &str, active: bool) {
+		let mut user = User::new(
+			username.to_string(),
+			email.to_lowercase(),
+			String::new(),
+			String::new(),
+			None,
+			active,
+			false,
+			false,
+		);
+		user.set_password(password)
+			.expect("Password hashing failed");
 		User::objects()
-			.update(&user)
+			.create(&user)
 			.await
-			.expect("Failed to activate user");
+			.expect("Failed to create user");
 	}
 
 	/// verify_credentials with correct password returns Ok with matching username.
@@ -77,8 +66,8 @@ mod tests {
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		register_user(&client, "creduser", "cred@example.com", "securepassword").await;
+		let (_container, _conn, _client, _urls) = db.await;
+		create_test_user("creduser", "cred@example.com", "securepassword", true).await;
 
 		// Act
 		let result = verify_credentials("creduser", "securepassword").await;
@@ -101,12 +90,12 @@ mod tests {
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		register_user(
-			&client,
+		let (_container, _conn, _client, _urls) = db.await;
+		create_test_user(
 			"wrongpwuser",
 			"wrongpw@example.com",
 			"correctpassword",
+			true,
 		)
 		.await;
 
@@ -157,31 +146,15 @@ mod tests {
 			TestUrls,
 		),
 	) {
-		// Arrange — register user then deactivate via ORM
-		let (_container, conn, client, _urls) = db.await;
-		register_user(
-			&client,
+		// Arrange — create inactive user via ORM
+		let (_container, _conn, _client, _urls) = db.await;
+		create_test_user(
 			"inactivecred",
 			"inactivecred@example.com",
 			"securepassword",
+			false,
 		)
 		.await;
-
-		let mut user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String("inactivecred".to_string()),
-			)
-			.first_with_db(&conn)
-			.await
-			.expect("Failed to query user")
-			.expect("User should exist after registration");
-		user.is_active = false;
-		User::objects()
-			.update_with_conn(&conn, &user)
-			.await
-			.expect("Failed to deactivate user");
 
 		// Act
 		let result = verify_credentials("inactivecred", "securepassword").await;
@@ -206,12 +179,12 @@ mod tests {
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		register_user(
-			&client,
+		let (_container, _conn, _client, _urls) = db.await;
+		create_test_user(
 			"trimcreduser",
 			"trimcred@example.com",
 			"securepassword",
+			true,
 		)
 		.await;
 

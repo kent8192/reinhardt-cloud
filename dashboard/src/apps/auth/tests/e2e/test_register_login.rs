@@ -1,14 +1,16 @@
 //! End-to-end tests for auth API endpoints.
 //!
 //! These tests require both a PostgreSQL database and a Redis instance.
-//! Registration now creates users as inactive (email verification required).
-//! Tests that need login activate the user directly via ORM.
+//! Tests that only need login create users directly via ORM (bypassing email).
+//! Tests that exercise the register endpoint require Mailpit for SMTP.
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+	use reinhardt::BaseUser;
+	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
+	use reinhardt::test::MailpitContainer;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
 	use rstest::*;
@@ -36,26 +38,86 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Helper: activate a user by username via ORM (bypasses email verification).
-	async fn activate_user(username: &str) {
-		let mut user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String(username.to_string()),
-			)
-			.first()
-			.await
-			.expect("Failed to query user")
-			.expect("User not found");
-		user.is_active = true;
-		User::objects()
-			.update(&user)
-			.await
-			.expect("Failed to activate user");
+	/// rstest fixture: Mailpit container for SMTP testing.
+	#[fixture]
+	async fn mailpit() -> MailpitContainer {
+		MailpitContainer::new().await
 	}
 
-	/// Verify POST /api/auth/register/ creates a user (no session cookie).
+	/// Set env vars for Mailpit SMTP and return a guard that restores them.
+	fn set_mailpit_env(mailpit: &MailpitContainer) -> EnvGuard {
+		let vars = vec![
+			(
+				"REINHARDT_CLOUD_BASE_URL",
+				Some("http://localhost:8000".to_string()),
+			),
+			("REINHARDT_EMAIL__BACKEND", Some("smtp".to_string())),
+			("REINHARDT_EMAIL__HOST", Some("127.0.0.1".to_string())),
+			(
+				"REINHARDT_EMAIL__PORT",
+				Some(mailpit.smtp_port().to_string()),
+			),
+		];
+		EnvGuard::set(vars)
+	}
+
+	/// RAII guard that restores environment variables on drop.
+	struct EnvGuard {
+		saved: Vec<(String, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(vars: Vec<(&str, Option<String>)>) -> Self {
+			let mut saved = Vec::new();
+			for (key, new_val) in &vars {
+				saved.push((key.to_string(), std::env::var(key).ok()));
+				// SAFETY: called in a serial test before any parallel tasks read these vars.
+				unsafe {
+					match new_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, old_val) in &self.saved {
+				// SAFETY: restoring env vars in serial test teardown.
+				unsafe {
+					match old_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
+
+	/// Helper: create a user directly via ORM (bypasses register endpoint and email).
+	async fn create_test_user(username: &str, email: &str, password: &str, active: bool) {
+		let mut user = User::new(
+			username.to_string(),
+			email.to_lowercase(),
+			String::new(),
+			String::new(),
+			None,
+			active,
+			false,
+			false,
+		);
+		user.set_password(password)
+			.expect("Password hashing failed");
+		User::objects()
+			.create(&user)
+			.await
+			.expect("Failed to create user");
+	}
+
+	/// Verify POST /api/auth/register/ creates an inactive user (requires Mailpit).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -66,9 +128,13 @@ mod tests {
 			APIClient,
 			TestUrls,
 		),
+		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
 		let (_container, _conn, client, urls) = db.await;
+		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
+
 		let register_data = json!({
 			"username": "newuser",
 			"email": "newuser@example.com",
@@ -101,18 +167,9 @@ mod tests {
 			TestUrls,
 		),
 	) {
-		// Arrange -- register and activate user
+		// Arrange -- create active user via ORM
 		let (_container, _conn, client, urls) = db.await;
-		let register_data = json!({
-			"username": "loginuser",
-			"email": "login@example.com",
-			"password": "testpassword"
-		});
-		client
-			.post(&urls.auth_register, &register_data, "json")
-			.await
-			.expect("Register request failed");
-		activate_user("loginuser").await;
+		create_test_user("loginuser", "login@example.com", "testpassword", true).await;
 
 		// Act -- login with same credentials
 		let login_data = json!({
@@ -131,7 +188,7 @@ mod tests {
 		assert!(body["user"].is_object());
 	}
 
-	/// Verify duplicate email registration returns 409 with email-specific message.
+	/// Verify duplicate email registration returns 409 with email-specific message (requires Mailpit).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -142,9 +199,13 @@ mod tests {
 			APIClient,
 			TestUrls,
 		),
+		#[future] mailpit: MailpitContainer,
 	) {
-		// Arrange -- register first user
+		// Arrange -- register first user (needs Mailpit for email sending)
 		let (_container, _conn, client, urls) = db.await;
+		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
+
 		let first_user = json!({
 			"username": "emailuser1",
 			"email": "test@example.com",
@@ -186,18 +247,9 @@ mod tests {
 			TestUrls,
 		),
 	) {
-		// Arrange -- register and activate user
+		// Arrange -- create active user via ORM
 		let (_container, _conn, client, urls) = db.await;
-		let register_data = json!({
-			"username": "failuser",
-			"email": "fail@example.com",
-			"password": "correctpassword"
-		});
-		client
-			.post(&urls.auth_register, &register_data, "json")
-			.await
-			.expect("Register request failed");
-		activate_user("failuser").await;
+		create_test_user("failuser", "fail@example.com", "correctpassword", true).await;
 
 		// Act -- login with wrong password
 		let login_data = json!({
@@ -224,9 +276,13 @@ mod tests {
 			APIClient,
 			TestUrls,
 		),
+		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
 		let (_container, _conn, client, urls) = db.await;
+		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
+
 		let register_data = json!({
 			"username": "  trimuser  ",
 			"email": "trim@example.com",
@@ -237,7 +293,24 @@ mod tests {
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
-		activate_user("trimuser").await;
+
+		// Activate user via ORM (registration creates inactive user)
+		use reinhardt::db::orm::{FilterOperator, FilterValue};
+		let mut user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String("trimuser".to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User not found");
+		user.is_active = true;
+		User::objects()
+			.update(&user)
+			.await
+			.expect("Failed to activate user");
 
 		// Act -- login with trimmed username
 		let login_data = json!({
