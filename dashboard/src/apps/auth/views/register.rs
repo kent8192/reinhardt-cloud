@@ -14,7 +14,7 @@ use crate::apps::auth::services::session::create_session;
 use crate::shared::AuthResponse;
 
 /// Register new user, persist to database, and create a session.
-#[post("/register/", name = "auth_register", pre_validate = true)]
+#[post("/register/", name = "register", pre_validate = true)]
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	// Create user with hashed password
 	let mut user = User::new(

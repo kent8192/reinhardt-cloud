@@ -13,7 +13,7 @@ use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::{ProfileResponse, UpdateProfileRequest};
 
 /// Return the authenticated user's profile.
-#[get("/profile/", name = "auth_profile")]
+#[get("/profile/", name = "profile")]
 pub async fn profile(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
@@ -43,7 +43,7 @@ pub async fn profile(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response
 /// Note: Email changes currently do not require re-authentication or email
 /// verification. This should be enhanced with a confirmation flow in a
 /// future iteration to prevent unauthorized email takeover.
-#[patch("/profile/", name = "auth_profile_update", pre_validate = true)]
+#[patch("/profile/", name = "profile_update", pre_validate = true)]
 pub async fn profile_update(
 	body: Json<UpdateProfileRequest>,
 	#[inject] AuthInfo(state): AuthInfo,

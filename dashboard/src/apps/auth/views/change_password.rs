@@ -25,7 +25,7 @@ struct MessageResponse {
 /// setting the new password.
 #[post(
 	"/change-password/",
-	name = "auth_change_password",
+	name = "change_password",
 	pre_validate = true
 )]
 pub async fn change_password(

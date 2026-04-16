@@ -197,7 +197,8 @@ impl From<Cluster> for ClusterResponse {
 - Use `pre_validate = true` in endpoint macros to enable automatic request validation:
 
 ```rust
-#[post("/auth/login/", name = "auth_login", pre_validate = true)]
+// Route name is scoped by `#[url_patterns(app = "auth")]` to `auth:login`.
+#[post("/login/", name = "login", pre_validate = true)]
 pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> { ... }
 ```
 

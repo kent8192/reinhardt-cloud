@@ -16,7 +16,7 @@ use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentR
 /// Create a new deployment (authentication required).
 ///
 /// Sets the deployment owner to the authenticated user.
-#[post("/", name = "deployment_create")]
+#[post("/", name = "create")]
 pub async fn create_deployment(
 	Json(body): Json<CreateDeploymentRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
