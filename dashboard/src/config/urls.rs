@@ -164,7 +164,7 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 /// The `#[inject]` parameter resolves `DashboardRouter` from the DI registry,
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
-#[routes]
+#[routes(standalone)]
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()
