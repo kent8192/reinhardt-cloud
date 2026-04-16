@@ -63,3 +63,8 @@ allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
 host = "localhost"
 port = 1025
 from_email = "noreply@reinhardt-cloud.dev"
+use_ssl = false
+use_tls = false
+# username = ""
+# password = { secret = "CHANGE-ME" }
+# timeout = 30
