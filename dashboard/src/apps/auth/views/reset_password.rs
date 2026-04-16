@@ -123,8 +123,9 @@ fn validate_token_before_db(token_str: &str, secret_key: &str) -> Result<uuid::U
 		return Err(TokenError::MalformedToken);
 	}
 
-	// Verify purpose
-	if parts[0] != "pr" {
+	// Verify purpose — reuse TokenPurpose encoding to avoid drift if the
+	// discriminator changes.
+	if parts[0] != TokenPurpose::PasswordReset.as_str() {
 		return Err(TokenError::PurposeMismatch);
 	}
 

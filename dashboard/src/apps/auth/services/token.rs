@@ -20,7 +20,7 @@ pub enum TokenPurpose {
 }
 
 impl TokenPurpose {
-	fn as_str(self) -> &'static str {
+	pub(crate) fn as_str(self) -> &'static str {
 		match self {
 			Self::EmailVerification => "ev",
 			Self::PasswordReset => "pr",
