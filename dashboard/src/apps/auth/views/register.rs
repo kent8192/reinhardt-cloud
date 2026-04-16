@@ -30,7 +30,7 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	// Create user as inactive — requires email verification to activate
 	let mut user = User::new(
 		body.username.trim().to_string(),
-		body.email.trim().to_string(),
+		body.email.trim().to_lowercase(),
 		String::new(),
 		String::new(),
 		None,
@@ -98,9 +98,16 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 			"Failed to send verification email to {}: {e}",
 			created.email
 		);
-	} else {
-		info!("Verification email sent to {}", created.email);
+		// Roll back user creation to avoid stranding an inactive account
+		// with no way to receive the activation link.
+		if let Err(del_err) = User::objects().delete(created.id).await {
+			error!("Failed to roll back user after email failure: {del_err}");
+		}
+		return Err(AppError::Internal(
+			"Registration failed — please try again later".to_string(),
+		));
 	}
+	info!("Verification email sent to {}", created.email);
 
 	let resp = AuthResponse {
 		success: true,

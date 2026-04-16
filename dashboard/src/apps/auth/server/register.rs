@@ -35,7 +35,7 @@ pub async fn register(
 	// Create user as inactive — requires email verification to activate
 	let mut user = User::new(
 		username.trim().to_string(),
-		email.trim().to_string(),
+		email.trim().to_lowercase(),
 		String::new(),
 		String::new(),
 		None,
@@ -97,9 +97,15 @@ pub async fn register(
 			"Failed to send verification email to {}: {e}",
 			created.email
 		);
-	} else {
-		info!("Verification email sent to {}", created.email);
+		// Roll back user creation to avoid stranding an inactive account
+		if let Err(del_err) = User::objects().delete(created.id).await {
+			error!("Failed to roll back user after email failure: {del_err}");
+		}
+		return Err(ServerFnError::application(
+			"Registration failed — please try again later",
+		));
 	}
+	info!("Verification email sent to {}", created.email);
 
 	// No session cookie — user must verify email first
 	let user_info = UserInfo::from(&created);

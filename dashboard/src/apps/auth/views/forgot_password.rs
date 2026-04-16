@@ -3,12 +3,11 @@
 //! Accepts an email and sends a password reset link. Always returns 200
 //! regardless of whether the email exists (prevents user enumeration).
 
-use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
 use reinhardt::{BaseUser, Json, Response, StatusCode, post};
-use tracing::{error, info, warn};
+use tracing::{debug, error};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::ForgotPasswordRequest;
@@ -57,24 +56,29 @@ pub async fn forgot_password(body: Json<ForgotPasswordRequest>) -> ViewResult<Re
 				.unwrap_or_else(|_| format!("http://localhost:{port}"));
 			let reset_url = format!("{base_url}/api/auth/reset-password/{token}/");
 
-			let backend = get_email_backend().map_err(|e| {
-				error!("Failed to create email backend: {e}");
-				AppError::Internal("Internal server error".to_string())
-			})?;
-
-			if let Err(e) =
-				send_password_reset_email(&email, &reset_url, backend.as_ref(), &from_email).await
-			{
-				error!("Failed to send password reset email to {email}: {e}");
-			} else {
-				info!("Password reset email sent to {email}");
+			// Log and fall through on backend error to preserve anti-enumeration
+			// guarantee (returning 500 only for active users leaks user existence).
+			match get_email_backend() {
+				Ok(backend) => {
+					if let Err(e) =
+						send_password_reset_email(&email, &reset_url, backend.as_ref(), &from_email)
+							.await
+					{
+						error!("Failed to send password reset email: {e}");
+					} else {
+						debug!("Password reset email sent");
+					}
+				}
+				Err(e) => {
+					error!("Failed to create email backend: {e}");
+				}
 			}
 		}
 		Ok(Some(_)) => {
-			warn!("Password reset requested for inactive user: {email}");
+			debug!("Password reset requested for inactive account");
 		}
 		Ok(None) => {
-			info!("Password reset requested for non-existent email: {email}");
+			debug!("Password reset requested for non-existent account");
 		}
 		Err(e) => {
 			error!("Database error during password reset lookup: {e}");

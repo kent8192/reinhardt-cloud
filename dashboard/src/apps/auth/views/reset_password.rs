@@ -30,10 +30,15 @@ pub async fn reset_password(
 		.secret_key
 		.clone();
 
-	// Extract user_id from token payload without full HMAC verification,
-	// because we need the user's password_hash for full token verification.
-	let user_id = extract_user_id_from_token(&token_str)
-		.map_err(|_| AppError::Validation("Invalid or expired reset link".to_string()))?;
+	// Validate token structure, HMAC signature, purpose, and expiry BEFORE
+	// hitting the database. Full verification (password_hash prefix) happens
+	// after loading the user, but this rejects malformed/tampered/expired
+	// tokens cheaply without a DB query.
+	let user_id = validate_token_before_db(&token_str, &secret_key)
+		.map_err(|e| match e {
+			TokenError::Expired => AppError::Validation("Reset link has expired".to_string()),
+			_ => AppError::Validation("Invalid or expired reset link".to_string()),
+		})?;
 
 	let user = User::objects()
 		.filter(
@@ -85,21 +90,55 @@ pub async fn reset_password(
 		.with_body(json::to_vec(&resp)?))
 }
 
-/// Extract user_id from token payload without full HMAC verification.
+/// Validate token structure, HMAC signature, purpose, and expiry before
+/// hitting the database. Returns the embedded user_id on success.
 ///
-/// This is needed because we need the user_id to load the user's
-/// password_hash, which is required for full token verification.
-fn extract_user_id_from_token(token_str: &str) -> Result<uuid::Uuid, ()> {
-	let (payload_b64, _sig_b64) = token_str.split_once('.').ok_or(())?;
+/// This does NOT verify the password_hash prefix (that requires the user
+/// record), but it rejects invalid/tampered/expired tokens cheaply.
+fn validate_token_before_db(
+	token_str: &str,
+	secret_key: &str,
+) -> Result<uuid::Uuid, TokenError> {
+	let (payload_b64, sig_b64) = token_str
+		.split_once('.')
+		.ok_or(TokenError::MalformedToken)?;
 
-	// Decode payload
-	let payload_bytes = token::base64url_decode(payload_b64)?;
-	let payload = String::from_utf8(payload_bytes).map_err(|_| ())?;
-
-	let parts: Vec<&str> = payload.split('|').collect();
-	if parts.len() != 4 {
-		return Err(());
+	// Verify HMAC signature (constant-time)
+	let expected_sig = token::compute_hmac_for_validation(secret_key, payload_b64);
+	let provided_sig =
+		token::base64url_decode(sig_b64).map_err(|_| TokenError::MalformedToken)?;
+	if subtle::ConstantTimeEq::ct_eq(expected_sig.as_slice(), provided_sig.as_slice()).unwrap_u8()
+		!= 1
+	{
+		return Err(TokenError::InvalidSignature);
 	}
 
-	parts[1].parse::<uuid::Uuid>().map_err(|_| ())
+	// Decode and parse payload
+	let payload_bytes =
+		token::base64url_decode(payload_b64).map_err(|_| TokenError::MalformedToken)?;
+	let payload = String::from_utf8(payload_bytes).map_err(|_| TokenError::MalformedToken)?;
+	let parts: Vec<&str> = payload.split('|').collect();
+	if parts.len() != 4 {
+		return Err(TokenError::MalformedToken);
+	}
+
+	// Verify purpose
+	if parts[0] != "pr" {
+		return Err(TokenError::PurposeMismatch);
+	}
+
+	// Parse user_id
+	let user_id = parts[1]
+		.parse::<uuid::Uuid>()
+		.map_err(|_| TokenError::MalformedToken)?;
+
+	// Check expiry
+	let expiry_ts = parts[2]
+		.parse::<i64>()
+		.map_err(|_| TokenError::MalformedToken)?;
+	if chrono::Utc::now().timestamp() > expiry_ts {
+		return Err(TokenError::Expired);
+	}
+
+	Ok(user_id)
 }

@@ -58,8 +58,8 @@ root = "media"
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
 
 [email]
-# Email backend: "smtp", "console", "file", "memory"
-backend = "console"
+# SMTP backend configuration for transactional emails.
+# For testing, override via REINHARDT_EMAIL__* env vars to point at Mailpit.
 host = "localhost"
 port = 1025
 from_email = "noreply@reinhardt-cloud.dev"

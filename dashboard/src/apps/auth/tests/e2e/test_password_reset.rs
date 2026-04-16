@@ -84,6 +84,81 @@ mod tests {
 		reqwest::Client::new().delete(&url).send().await.ok();
 	}
 
+	/// Poll Mailpit until at least `expected` messages arrive, with timeout.
+	async fn poll_messages(
+		mailpit: &MailpitContainer,
+		expected: usize,
+		timeout: Duration,
+	) -> Vec<MailpitMessageSummary> {
+		let deadline = tokio::time::Instant::now() + timeout;
+		loop {
+			let messages = fetch_messages(mailpit).await;
+			if messages.len() >= expected {
+				return messages;
+			}
+			if tokio::time::Instant::now() >= deadline {
+				panic!(
+					"Timed out waiting for {expected} Mailpit message(s) (got {})",
+					messages.len()
+				);
+			}
+			tokio::time::sleep(Duration::from_millis(100)).await;
+		}
+	}
+
+	/// Set env vars for Mailpit SMTP and return a guard that restores them.
+	fn set_mailpit_env(mailpit: &MailpitContainer) -> EnvGuard {
+		let vars = vec![
+			(
+				"REINHARDT_CLOUD_BASE_URL",
+				Some("http://localhost:8000".to_string()),
+			),
+			("REINHARDT_EMAIL__BACKEND", Some("smtp".to_string())),
+			("REINHARDT_EMAIL__HOST", Some("127.0.0.1".to_string())),
+			(
+				"REINHARDT_EMAIL__PORT",
+				Some(mailpit.smtp_port().to_string()),
+			),
+		];
+		EnvGuard::set(vars)
+	}
+
+	/// RAII guard that restores environment variables on drop.
+	struct EnvGuard {
+		saved: Vec<(String, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(vars: Vec<(&str, Option<String>)>) -> Self {
+			let mut saved = Vec::new();
+			for (key, new_val) in &vars {
+				saved.push((key.to_string(), std::env::var(key).ok()));
+				// SAFETY: called in a serial test before any parallel tasks read these vars.
+				unsafe {
+					match new_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, old_val) in &self.saved {
+				// SAFETY: restoring env vars in serial test teardown.
+				unsafe {
+					match old_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
+
 	/// Extract reset token from password reset email body.
 	fn extract_reset_token(text: &str) -> Option<String> {
 		let marker = "/api/auth/reset-password/";
@@ -94,6 +169,8 @@ mod tests {
 	}
 
 	/// Helper: register and verify a user (active user ready for testing).
+	///
+	/// The caller must have already called `set_mailpit_env()`.
 	async fn register_and_verify_user(
 		client: &APIClient,
 		urls: &TestUrls,
@@ -103,14 +180,6 @@ mod tests {
 		password: &str,
 	) {
 		delete_all_messages(mailpit).await;
-
-		// SAFETY: Called in a serial test before any parallel tasks read this var.
-		unsafe {
-			std::env::set_var("REINHARDT_CLOUD_BASE_URL", "http://localhost:8000");
-			std::env::set_var("REINHARDT_EMAIL__BACKEND", "smtp");
-			std::env::set_var("REINHARDT_EMAIL__HOST", "127.0.0.1");
-			std::env::set_var("REINHARDT_EMAIL__PORT", mailpit.smtp_port().to_string());
-		}
 
 		let data = json!({
 			"username": username,
@@ -122,8 +191,7 @@ mod tests {
 			.await
 			.expect("Register failed");
 
-		tokio::time::sleep(Duration::from_millis(500)).await;
-		let messages = fetch_messages(mailpit).await;
+		let messages = poll_messages(mailpit, 1, Duration::from_secs(5)).await;
 		let text = fetch_message_text(mailpit, &messages[0].id).await;
 
 		let marker = "/api/auth/verify-email/";
@@ -152,6 +220,7 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
 
 		register_and_verify_user(
 			&client,
@@ -174,8 +243,7 @@ mod tests {
 		// Assert
 		assert_eq!(response.status_code(), 200);
 
-		tokio::time::sleep(Duration::from_millis(500)).await;
-		let messages = fetch_messages(&mailpit).await;
+		let messages = poll_messages(&mailpit, 1, Duration::from_secs(5)).await;
 		assert_eq!(messages.len(), 1, "Expected one reset email");
 
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
@@ -227,6 +295,7 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
 
 		register_and_verify_user(
 			&client,
@@ -246,8 +315,7 @@ mod tests {
 			.await
 			.expect("Forgot-password failed");
 
-		tokio::time::sleep(Duration::from_millis(500)).await;
-		let messages = fetch_messages(&mailpit).await;
+		let messages = poll_messages(&mailpit, 1, Duration::from_secs(5)).await;
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_reset_token(&text).expect("Token not found");
 
@@ -301,6 +369,7 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
 
 		register_and_verify_user(
 			&client,
@@ -319,8 +388,7 @@ mod tests {
 			.await
 			.expect("Forgot-password failed");
 
-		tokio::time::sleep(Duration::from_millis(500)).await;
-		let messages = fetch_messages(&mailpit).await;
+		let messages = poll_messages(&mailpit, 1, Duration::from_secs(5)).await;
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_reset_token(&text).expect("Token not found");
 
