@@ -85,14 +85,13 @@ tokio-test = "0.4"
 proptest = "1"
 reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
-# Workaround for kent8192/reinhardt-web#3700, kent8192/reinhardt-web#3662
-# #[server_fn] macro emits cfg(feature = "msw") and #[routes] macro emits
-# cfg(feature = "client-router") in consuming crates.
+# Workaround for kent8192/reinhardt-web#3710 (tracked in reinhardt-cloud#353)
+# #[routes] macro emits cfg(feature = "client-router") in consuming crates.
 #
 # Ideal implementation (without workaround):
 #   No [workspace.lints.rust] section needed.
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("msw", "client-router"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("client-router"))'] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"
