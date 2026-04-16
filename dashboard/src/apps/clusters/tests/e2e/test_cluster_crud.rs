@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+	use reinhardt::middleware::session::AsyncSessionBackend;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -12,84 +12,25 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::{TestUrls, test_app};
+	use crate::config::test_helpers::{TestUrls, force_login_user, session_backend, test_app};
 
 	#[fixture]
 	async fn db(
 		test_app: (APIClient, TestUrls),
+		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
 		TestUrls,
+		Arc<dyn AsyncSessionBackend>,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		(container, conn, client, urls)
-	}
-
-	/// Register a user, activate via ORM (bypassing email verification), then login.
-	async fn register_and_get_session(client: &APIClient) -> String {
-		let register_data = json!({
-			"username": "testuser",
-			"email": "test@example.com",
-			"password": "securepassword123"
-		});
-		let resp = client
-			.post("/api/auth/register/", &register_data, "json")
-			.await
-			.expect("Register request failed");
-		assert_eq!(resp.status_code(), 201);
-
-		// Activate user via ORM (bypassing email verification)
-		let mut user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String("testuser".to_string()),
-			)
-			.first()
-			.await
-			.expect("Failed to query user")
-			.expect("User not found");
-		user.is_active = true;
-		User::objects()
-			.update(&user)
-			.await
-			.expect("Failed to activate user");
-
-		// Login to obtain session cookie
-		let login_data = json!({
-			"username": "testuser",
-			"password": "securepassword123"
-		});
-		let login_resp = client
-			.post("/api/auth/login/", &login_data, "json")
-			.await
-			.expect("Login request failed");
-		assert_eq!(login_resp.status_code(), 200);
-		let set_cookie = login_resp
-			.header("Set-Cookie")
-			.expect("Login response should have Set-Cookie header");
-		let session_id = set_cookie
-			.split(';')
-			.next()
-			.unwrap()
-			.strip_prefix("sessionid=")
-			.expect("Cookie should start with sessionid=");
-		session_id.to_string()
-	}
-
-	/// Helper: set session cookie on client.
-	async fn authenticate_client(client: &APIClient, session_id: &str) {
-		client
-			.set_header("Cookie", format!("sessionid={session_id}"))
-			.await
-			.expect("Failed to set Cookie header");
+		(container, conn, client, urls, session_backend)
 	}
 
 	/// Verify unauthenticated GET /api/clusters/ returns 401.
@@ -102,10 +43,11 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
+		let (_container, _conn, client, _urls, _backend) = db.await;
 
 		// Act
 		let response = client
@@ -127,12 +69,12 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		let session = register_and_get_session(&client).await;
-		authenticate_client(&client, &session).await;
+		let (_container, conn, client, _urls, backend) = db.await;
+		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
 
 		// Act
 		let response = client
@@ -159,12 +101,12 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		let session = register_and_get_session(&client).await;
-		authenticate_client(&client, &session).await;
+		let (_container, conn, client, _urls, backend) = db.await;
+		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
 
 		let cluster_data = json!({
 			"name": "production-cluster",
