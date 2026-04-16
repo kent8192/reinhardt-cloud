@@ -85,15 +85,13 @@ tokio-test = "0.4"
 proptest = "1"
 reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
-# Workaround for kent8192/reinhardt-web#3496 (tracked in reinhardt-cloud#328)
-# Blocked on reinhardt-web#3515 (Injectable bound for factory return types)
-# which prevents updating to reinhardt-web >= 5d9ef22a where url-resolver
-# feature was removed (PR #3513).
+# Workaround for kent8192/reinhardt-web#3673
+# server_fn macro emits cfg(feature = "msw") in consuming crates.
 #
 # Ideal implementation (without workaround):
 #   No [workspace.lints.rust] section needed.
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("url-resolver"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("msw"))'] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"

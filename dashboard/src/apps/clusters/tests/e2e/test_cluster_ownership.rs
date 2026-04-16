@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::middleware::session::AsyncSessionBackend;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -11,56 +12,27 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{TestUrls, test_app};
+	use crate::config::test_helpers::{
+		TestUrls, force_login, force_login_user, session_backend, test_app,
+	};
 
 	#[fixture]
 	async fn db(
 		test_app: (APIClient, TestUrls),
+		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
 		TestUrls,
+		Arc<dyn AsyncSessionBackend>,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		(container, conn, client, urls)
-	}
-
-	/// Helper: register a user and return the session cookie value.
-	async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
-		let data = json!({
-			"username": username,
-			"email": email,
-			"password": "securepassword123"
-		});
-		let resp = client
-			.post("/api/auth/register/", &data, "json")
-			.await
-			.expect("Register request failed");
-		assert_eq!(resp.status_code(), 201);
-		// Extract session cookie from Set-Cookie header
-		let set_cookie = resp
-			.header("Set-Cookie")
-			.expect("Response should have Set-Cookie header");
-		let session_id = set_cookie
-			.split(';')
-			.next()
-			.unwrap()
-			.strip_prefix("sessionid=")
-			.expect("Cookie should start with sessionid=");
-		session_id.to_string()
-	}
-
-	/// Helper: set session cookie on client.
-	async fn authenticate_client(client: &APIClient, session_id: &str) {
-		client
-			.set_header("Cookie", format!("sessionid={session_id}"))
-			.await
-			.expect("Failed to set Cookie header");
+		(container, conn, client, urls, session_backend)
 	}
 
 	/// Helper: create a cluster and return its response body.
@@ -87,17 +59,16 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
+		let (_container, conn, client, _urls, backend) = db.await;
 
-		let session_a = register_user(&client, "user_a", "a@example.com").await;
-		authenticate_client(&client, &session_a).await;
+		force_login_user(&client, &conn, &backend, "owner_a", "a@example.com").await;
 		create_cluster(&client, "cluster-a").await;
 
-		let session_b = register_user(&client, "user_b", "b@example.com").await;
-		authenticate_client(&client, &session_b).await;
+		force_login_user(&client, &conn, &backend, "owner_b", "b@example.com").await;
 
 		// Act
 		let response = client
@@ -122,18 +93,17 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
+		let (_container, conn, client, _urls, backend) = db.await;
 
-		let session_a = register_user(&client, "user_a", "a@example.com").await;
-		authenticate_client(&client, &session_a).await;
+		let user_a = force_login_user(&client, &conn, &backend, "owner_a", "a@example.com").await;
 		create_cluster(&client, "cluster-a1").await;
 		create_cluster(&client, "cluster-a2").await;
 
-		let session_b = register_user(&client, "user_b", "b@example.com").await;
-		authenticate_client(&client, &session_b).await;
+		force_login_user(&client, &conn, &backend, "owner_b", "b@example.com").await;
 		create_cluster(&client, "cluster-b1").await;
 
 		// Act -- UserB lists clusters
@@ -152,8 +122,8 @@ mod tests {
 		assert_eq!(items_b.len(), 1);
 		assert_eq!(items_b[0]["name"], "cluster-b1");
 
-		// Act -- switch to UserA
-		authenticate_client(&client, &session_a).await;
+		// Act -- switch back to UserA
+		force_login(&client, &backend, &user_a).await;
 		let resp_a = client
 			.get("/api/clusters/")
 			.await
@@ -179,10 +149,11 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
+		let (_container, _conn, client, _urls, _backend) = db.await;
 
 		// Act
 		let response = client
@@ -204,11 +175,18 @@ mod tests {
 			Arc<DatabaseConnection>,
 			APIClient,
 			TestUrls,
+			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
 		// Arrange
-		let (_container, _conn, client, _urls) = db.await;
-		authenticate_client(&client, "invalid-session-id-gibberish").await;
+		let (_container, _conn, client, _urls, _backend) = db.await;
+		client
+			.set_header(
+				"Cookie",
+				"sessionid=invalid-session-id-gibberish".to_string(),
+			)
+			.await
+			.expect("Failed to set Cookie header");
 
 		// Act
 		let response = client

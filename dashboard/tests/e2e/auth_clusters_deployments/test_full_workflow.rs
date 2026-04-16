@@ -4,6 +4,7 @@
 //! deployment -> list deployments, and ensures two independent users
 //! have complete resource isolation.
 
+use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -13,57 +14,31 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
+use reinhardt_cloud_dashboard::config::test_helpers::{
+	TestUrls, force_login_user, session_backend, test_app,
+};
 
 // ============================================================================
-// Fixtures & Helpers
+// Fixtures
 // ============================================================================
 
 #[fixture]
 async fn db(
 	test_app: (APIClient, TestUrls),
+	session_backend: Arc<dyn AsyncSessionBackend>,
 ) -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
 	TestUrls,
+	Arc<dyn AsyncSessionBackend>,
 ) {
 	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations");
-	(container, conn, client, urls)
-}
-
-async fn register_user(client: &APIClient, username: &str, email: &str) -> String {
-	let data = json!({
-		"username": username,
-		"email": email,
-		"password": "securepassword123"
-	});
-	let resp = client
-		.post("/api/auth/register/", &data, "json")
-		.await
-		.expect("Register request failed");
-	assert_eq!(resp.status_code(), 201);
-	let set_cookie = resp
-		.header("Set-Cookie")
-		.expect("Response should have Set-Cookie header");
-	let session_id = set_cookie
-		.split(';')
-		.next()
-		.unwrap()
-		.strip_prefix("sessionid=")
-		.expect("Cookie should start with sessionid=");
-	session_id.to_string()
-}
-
-async fn authenticate_client(client: &APIClient, session_id: &str) {
-	client
-		.set_header("Cookie", format!("sessionid={session_id}"))
-		.await
-		.expect("Failed to set Cookie header");
+	(container, conn, client, urls, session_backend)
 }
 
 // ============================================================================
@@ -80,12 +55,19 @@ async fn test_full_user_journey(
 		Arc<DatabaseConnection>,
 		APIClient,
 		TestUrls,
+		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
 	// Arrange
-	let (_container, _conn, client, _urls) = db.await;
-	let session = register_user(&client, "journeyuser", "journey@example.com").await;
-	authenticate_client(&client, &session).await;
+	let (_container, conn, client, _urls, backend) = db.await;
+	force_login_user(
+		&client,
+		&conn,
+		&backend,
+		"journeyuser",
+		"journey@example.com",
+	)
+	.await;
 
 	// Act -- create cluster
 	let cluster_data = json!({
@@ -151,15 +133,15 @@ async fn test_two_users_independent_workflows(
 		Arc<DatabaseConnection>,
 		APIClient,
 		TestUrls,
+		Arc<dyn AsyncSessionBackend>,
 	),
 	test_app: (APIClient, TestUrls),
 ) {
 	// Arrange
-	let (_container, _conn, client, _urls) = db.await;
+	let (_container, conn, client, _urls, backend) = db.await;
 
 	// --- User A ---
-	let session_a = register_user(&client, "user_a", "a@example.com").await;
-	authenticate_client(&client, &session_a).await;
+	force_login_user(&client, &conn, &backend, "user_a", "a@example.com").await;
 
 	let cluster_a = json!({
 		"name": "cluster-a",
@@ -186,8 +168,7 @@ async fn test_two_users_independent_workflows(
 
 	// --- User B (new client to reset headers) ---
 	let (client_b, _) = test_app;
-	let session_b = register_user(&client_b, "user_b", "b@example.com").await;
-	authenticate_client(&client_b, &session_b).await;
+	force_login_user(&client_b, &conn, &backend, "user_b", "b@example.com").await;
 
 	let cluster_b = json!({
 		"name": "cluster-b",
@@ -213,7 +194,6 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(resp.status_code(), 201);
 
 	// Assert -- User A sees only their resources
-	authenticate_client(&client, &session_a).await;
 	let list_a = client
 		.get("/api/clusters/")
 		.await
