@@ -85,8 +85,9 @@ tokio-test = "0.4"
 proptest = "1"
 reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
 
-# Workaround for kent8192/reinhardt-web#3673
-# server_fn macro emits cfg(feature = "msw") in consuming crates.
+# Workaround for kent8192/reinhardt-web#3700
+# #[server_fn] macro still emits cfg(feature = "msw") in consuming crates
+# after #3692 fix. Original issue: kent8192/reinhardt-web#3673.
 #
 # Ideal implementation (without workaround):
 #   No [workspace.lints.rust] section needed.
