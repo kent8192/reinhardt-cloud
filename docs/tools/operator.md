@@ -491,3 +491,446 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 > issues, restore from the YAML backup created in step 1 of the upgrade procedure, then manually
 > re-apply the previous CRD manifest. Consult the release notes for the affected version before
 > proceeding.
+
+### Operations
+
+#### Monitoring
+
+The operator does **not** emit custom Prometheus metrics today. This is tracked in
+[#366](https://github.com/kent8192/reinhardt-cloud/issues/366). Until that work lands, platform
+operators have the following signals available:
+
+- **Kubernetes Deployment metrics** — `kube-state-metrics` scrapes all Deployments including the
+  operator's own Deployment in `reinhardt-cloud-system`. These metrics are available with no extra
+  configuration on clusters running kube-state-metrics.
+
+- **Controller-runtime metrics** — The operator binary does not wire up any in-process Prometheus
+  server, OpenTelemetry exporter, or `tokio-metrics` endpoint (verified: no matches for
+  `prometheus::`, `opentelemetry`, or `tokio_metrics` in
+  `crates/reinhardt-cloud-operator/`). No scrape target is exposed on any port.
+
+- **Log-derived alerts** — Until #366 lands, the recommended approach is to alert on structured log
+  patterns (see [Logging](#logging) below).
+
+A representative PromQL expression to check that the operator pod is healthy:
+
+```promql
+kube_pod_status_ready{
+  namespace="reinhardt-cloud-system",
+  condition="true"
+} == 1
+```
+
+Pair this with `kube_deployment_status_replicas_available` for a complete operator-health rule.
+
+#### Logging
+
+The operator uses the [`tracing`](https://docs.rs/tracing) crate throughout. Logging is configured
+at start-up via `tracing_subscriber::fmt` with an `EnvFilter`.
+
+**Log level control**
+
+The env var `RUST_LOG` controls the level. The default directive is
+`reinhardt_cloud_operator=info` (set in `values.yaml` under `operator.env.RUST_LOG`). Override at
+deploy time with:
+
+```bash
+helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --reuse-values \
+  --set operator.env.RUST_LOG=debug
+```
+
+**Log format**
+
+The subscriber is initialised with `tracing_subscriber::fmt` using its default text format (human-
+readable, timestamped lines to stdout). No JSON structured-logging mode is wired up in the current
+binary.
+
+**Representative log messages**
+
+The reconciler emits messages like the following at `INFO` level. The namespace and resource name
+appear as inline format arguments rather than as typed tracing fields:
+
+```
+INFO Reconciling ReinhardtApp default/my-app
+INFO Reconciled ConfigMap default/my-app-settings
+INFO Created JWT Secret default/my-app-jwt
+INFO Created DB credentials Secret default/my-app-db
+INFO Reconciled Deployment default/my-app
+INFO Reconciled Service default/my-app
+INFO Reconciled cache resources for my-app
+INFO Reconciled worker deployment for my-app
+```
+
+At `WARN` level: `Controller loop terminated, shutting down` (emitted when the main
+`reconciler::run` future returns).
+
+To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
+
+#### Tracing
+
+No OpenTelemetry exporter is wired up in the binary today. Distributed trace context is not
+propagated. Platform operators who require distributed traces should open an enhancement request
+against the `reinhardt-cloud` repository. Until that work lands, log-based correlation (namespace +
+resource name present in every log line) is the recommended approach.
+
+#### Scaling
+
+The operator is designed to run as a **single replica**. Leader election is not implemented
+(verified: no matches for `leader_election`, `leaderelection`, or `LeaseLock` in
+`crates/reinhardt-cloud-operator/src/`). Running multiple replicas causes duplicate reconcile
+loops and race conditions on status patches.
+
+Keep `replicaCount` at `1` in `values.yaml` (the shipped default):
+
+```yaml
+replicaCount: 1
+```
+
+Do not increase this value unless leader election has been implemented.
+
+#### Disaster recovery
+
+When the operator pod is unavailable:
+
+- **Existing workloads continue running.** Kubernetes does not stop application pods because the
+  operator is absent. `ReinhardtApp`-managed Deployments, Services, and other resources persist
+  in the API server.
+- **New creates and updates queue up.** The Kubernetes API server accepts `ReinhardtApp` writes
+  normally. The operator processes them when it comes back online.
+- **Finalizer-protected deletes hang.** Any `kubectl delete reinhardtapp` that triggers the
+  `paas.reinhardt-cloud.dev/cleanup` finalizer will not complete until the operator is back and
+  runs the `Cleanup` finalizer event.
+
+**Recovery procedure:**
+
+No persistent state is stored outside the cluster. Recovery is a standard Helm operation:
+
+```bash
+# Revert the Helm release to the previous revision if the upgrade caused the outage:
+helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
+
+# Or reinstall from source:
+helm upgrade --install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  -f charts/reinhardt-cloud-operator/values-<platform>.yaml
+
+# Verify the pod comes up:
+kubectl rollout status deployment/reinhardt-cloud-operator \
+  -n reinhardt-cloud-system --timeout=120s
+```
+
+---
+
+### Security
+
+#### RBAC footprint
+
+The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
+values. The base rules (always present, regardless of platform or features) are:
+
+| apiGroups | resources | verbs |
+|-----------|-----------|-------|
+| `paas.reinhardt-cloud.dev` | `reinhardtapps` | get, list, watch, create, update, patch, delete |
+| `paas.reinhardt-cloud.dev` | `reinhardtapps/status` | get, update, patch |
+| `paas.reinhardt-cloud.dev` | `reinhardtapps/finalizers` | update |
+| `apps` | `deployments` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `services`, `configmaps`, `secrets` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `events` | create, patch |
+| `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `namespaces` | get, patch |
+
+Additional rules rendered when specific features or platforms are active:
+
+| Condition | apiGroups | resources | verbs |
+|-----------|-----------|-----------|-------|
+| `features.database` + `platform: onpremise` | `apps` | `statefulsets` | get, list, watch, create, update, patch, delete |
+| `features.database` + `platform: onpremise` | `""` | `persistentvolumeclaims` | get, list, watch, create, update, patch, delete |
+| `features.database` + `platform: aws` | `rds.services.k8s.aws` | `dbinstances` | get, list, watch, create, update, patch, delete |
+| `features.database` + `platform: gcp` | `sql.cnrm.cloud.google.com` | `sqlinstances`, `sqldatabases`, `sqlusers` | get, list, watch, create, update, patch, delete |
+| `features.cache` + `platform: onpremise` | `apps` | `statefulsets` | get, list, watch, create, update, patch, delete |
+| `features.cache` + `platform: aws` | `elasticache.services.k8s.aws` | `replicationgroups` | get, list, watch, create, update, patch, delete |
+| `features.cache` + `platform: gcp` | `redis.cnrm.cloud.google.com` | `redisinstances` | get, list, watch, create, update, patch, delete |
+| `features.ingress` | `networking.k8s.io` | `ingresses` | get, list, watch, create, update, patch, delete |
+| `features.autoscaling` | `autoscaling` | `horizontalpodautoscalers` | get, list, watch, create, update, patch, delete |
+
+**Wildcard verdict: wildcard-free.** Every rule names specific resource types and specific verb
+sets. No `"*"` appears in any `apiGroups`, `resources`, or `verbs` field. This is consistent with
+project guideline RB-1 (least-privilege RBAC).
+
+#### ServiceAccount
+
+The operator's `ServiceAccount` is created by the chart when `serviceAccount.create: true` (the
+default). The name defaults to the Helm release fullname and can be overridden via
+`serviceAccount.name`.
+
+Cloud-provider workload identity annotations are applied per overlay:
+
+| Platform | Annotation |
+|----------|-----------|
+| AWS (EKS IRSA) | `eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/reinhardt-cloud-operator` |
+| GCP (Workload Identity) | `iam.gke.io/gcp-service-account: reinhardt-cloud-operator@<project-id>.iam.gserviceaccount.com` |
+| On-premise | No annotations (local kubeconfig or in-cluster service account token) |
+
+Use `serviceAccount.annotations` in your overlay file to set the correct annotation for your
+environment.
+
+#### NetworkPolicy recommendation
+
+The operator binary does not listen on any TCP port (verified: no `TcpListener`, `bind`, or
+`serve` calls in `crates/reinhardt-cloud-operator/src/main.rs`). It only makes outbound calls to
+the Kubernetes API server.
+
+A minimal `NetworkPolicy` for the operator pod:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reinhardt-cloud-operator-egress
+  namespace: reinhardt-cloud-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: reinhardt-cloud-operator
+  policyTypes:
+    - Egress
+    - Ingress
+  ingress: []          # no inbound traffic required
+  egress:
+    - ports:
+        - port: 443    # kube-apiserver HTTPS
+          protocol: TCP
+        - port: 6443   # kube-apiserver alt port (some distros)
+          protocol: TCP
+```
+
+Adjust the `egress.ports` list to match your cluster's API server port. On EKS/GKE the API
+server is typically on port 443.
+
+#### Pod security
+
+The chart configures hardened security contexts out of the box:
+
+| Setting | Value |
+|---------|-------|
+| `podSecurityContext.runAsNonRoot` | `true` |
+| `podSecurityContext.runAsUser` | `1000` |
+| `securityContext.allowPrivilegeEscalation` | `false` |
+| `securityContext.readOnlyRootFilesystem` | `true` |
+
+No capabilities are added. The operator process runs as UID 1000 with a read-only root filesystem.
+
+#### Secrets
+
+The operator does not consume long-lived static credentials. Cloud API access is delegated to the
+node's workload identity (IRSA on AWS, Workload Identity on GCP) via `serviceAccount.annotations`.
+No bearer tokens or cloud-provider secrets are mounted into the pod by the chart.
+
+Application-level secrets (JWT keys, database credentials) are created by the reconciler as
+Kubernetes `Secret` objects within the application's namespace and are never written to disk on the
+operator node.
+
+---
+
+### Troubleshooting
+
+This section maps common failure modes to the `Error` variants in
+`crates/reinhardt-cloud-operator/src/error.rs` and to observable symptoms.
+
+#### Operator pod not Ready
+
+**Symptom:** `kubectl get pods -n reinhardt-cloud-system` shows the operator pod in `Pending`,
+`CrashLoopBackOff`, or `ImagePullBackOff`.
+
+**Cause:** Image pull failure or cluster resource constraints; not directly an `Error` variant.
+
+**Diagnose:**
+```bash
+kubectl describe pod -n reinhardt-cloud-system \
+  -l app.kubernetes.io/name=reinhardt-cloud-operator
+kubectl get events -n reinhardt-cloud-system --sort-by='.lastTimestamp'
+```
+
+**Fix:** Verify `image.repository` and `image.tag` in your values overlay. For private registries
+confirm `imagePullSecrets` is set. For on-premise, the default
+`registry.internal/reinhardt-cloud/reinhardt-cloud-operator` must be reachable.
+
+---
+
+#### Kubernetes API errors (`Error::Kube`)
+
+**Symptom:** Operator logs contain `Kubernetes API error: <kube::Error details>`. The reconcile
+loop retries every 30 seconds (fixed interval — no exponential backoff; tracked in
+[#365](https://github.com/kent8192/reinhardt-cloud/issues/365)).
+
+**Cause:** `Error::Kube(#[from] kube::Error)` — the API server returned an error (connection
+refused, 401 Unauthorized, 403 Forbidden, 429 Too Many Requests, etc.).
+
+**Diagnose:**
+```bash
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
+  | grep "Kubernetes API error"
+kubectl auth can-i --list \
+  --as=system:serviceaccount:reinhardt-cloud-system:<sa-name>
+```
+
+**Fix:** Verify the ClusterRole and ClusterRoleBinding are present:
+```bash
+kubectl get clusterrole,clusterrolebinding \
+  -l app.kubernetes.io/name=reinhardt-cloud-operator
+```
+If missing, re-apply with `helm upgrade` (the chart manages these resources).
+
+---
+
+#### CRD validation error at apply time
+
+**Symptom:** `kubectl apply -f reinhardtapp.yaml` returns a 422 Unprocessable Entity with a
+validation message, or the operator logs `serialization error: ...`.
+
+**Cause:** `Error::Serialization(#[from] serde_json::Error)` — the resource spec failed JSON
+serialization inside the operator, or the applied manifest does not match the CRD schema.
+
+**Diagnose:**
+```bash
+kubectl explain reinhardtapp.spec
+kubectl get reinhardtapp <name> -n <ns> -o yaml | kubectl apply --dry-run=server -f -
+```
+
+**Fix:** Correct the field values in your manifest. The `spec.image` field is required; all other
+top-level spec fields are optional. Ensure you are using API version
+`paas.reinhardt-cloud.dev/v1alpha2`.
+
+---
+
+#### Resource missing namespace (`Error::MissingNamespace`)
+
+**Symptom:** Operator logs contain `resource <name> has no namespace`.
+
+**Cause:** `Error::MissingNamespace(String)` — the `ReinhardtApp` was applied without a namespace
+(e.g., `kubectl apply` at cluster scope without `-n`).
+
+**Diagnose:**
+```bash
+kubectl get reinhardtapp -A
+```
+
+**Fix:** `ReinhardtApp` is a namespaced resource. Always apply with an explicit namespace:
+```bash
+kubectl apply -f app.yaml -n <your-namespace>
+```
+
+---
+
+#### Owner reference failure (`Error::OwnerReference`)
+
+**Symptom:** Operator logs contain `failed to compute owner reference for <name>`. Child resources
+(Deployment, Service, etc.) are created but not garbage-collected when the `ReinhardtApp` is
+deleted.
+
+**Cause:** `Error::OwnerReference(String)` — the operator could not build a valid
+`ownerReference` block for a generated resource.
+
+**Diagnose:**
+```bash
+kubectl describe reinhardtapp <name> -n <ns>
+kubectl get deployment <name> -n <ns> -o jsonpath='{.metadata.ownerReferences}'
+```
+
+**Fix:** This is likely a transient error. The 30-second requeue will retry. If the condition
+persists across multiple reconcile cycles, check that the `ReinhardtApp` resource has a populated
+`metadata.uid` (it will not if you applied an incomplete manifest).
+
+---
+
+#### Invalid port in spec (`Error::InvalidPort`)
+
+**Symptom:** Operator logs contain `invalid port <N> for field '<field>': must be between 1 and
+65535`. The `ReinhardtApp` status shows `Degraded`.
+
+**Cause:** `Error::InvalidPort { field, port }` — a port value in `spec.services` or another
+port-bearing field is outside the valid range.
+
+**Diagnose:**
+```bash
+kubectl describe reinhardtapp <name> -n <ns>
+```
+
+**Fix:** Correct the port value in your `ReinhardtApp` manifest and re-apply.
+
+---
+
+#### Secret generation failure (`Error::SecretGeneration`)
+
+**Symptom:** Operator logs contain `secret generation failed: <detail>`. JWT or database credential
+`Secret` objects are absent from the namespace.
+
+**Cause:** `Error::SecretGeneration(String)` — the operator encountered an error while generating
+cryptographic material (JWT keys) or assembling the database credentials `Secret`.
+
+**Diagnose:**
+```bash
+kubectl get secrets -n <ns> | grep -E '<name>-jwt|<name>-db'
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
+  | grep "secret generation failed"
+```
+
+**Fix:** The 30-second requeue retries secret creation automatically. If the error persists,
+check that `spec.auth.jwt` (if set) has a valid configuration and that the operator `ServiceAccount`
+has permission to create `Secret` objects in the target namespace (see RBAC footprint above).
+
+---
+
+#### Finalizer-stuck delete
+
+**Symptom:** `kubectl delete reinhardtapp <name>` hangs. The resource shows
+`deletionTimestamp` in its metadata but the finalizer
+`paas.reinhardt-cloud.dev/cleanup` is not removed.
+
+**Cause:** `Error::Finalizer(Box<dyn Error + Send + Sync>)` — the cleanup path in the finalizer
+returned an error, or the operator is not running.
+
+**Diagnose:**
+```bash
+kubectl get reinhardtapp <name> -n <ns> \
+  -o jsonpath='{.metadata.finalizers}'
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
+  | grep "finalizer error"
+```
+
+**Fix:** Ensure the operator pod is running. The requeue fires every 30 seconds; the cleanup
+reconcile will complete on the next successful run. If you need to force-remove the resource
+(data loss risk), manually patch out the finalizer:
+```bash
+kubectl patch reinhardtapp <name> -n <ns> \
+  -p '{"metadata":{"finalizers":[]}}' --type=merge
+```
+This bypasses cleanup — use only as a last resort.
+
+---
+
+#### Persistent 30-second requeue loop
+
+**Symptom:** Operator logs repeat the same reconcile attempt every ~30 seconds for a particular
+`ReinhardtApp`. The resource never reaches `Ready`.
+
+**Cause:** Any `Error` variant — `error_policy` in `reconciler.rs` returns a fixed
+`Action::requeue(Duration::from_secs(30))` for every error. There is no exponential backoff. This
+is tracked in [#365](https://github.com/kent8192/reinhardt-cloud/issues/365). A common trigger is
+upstream API rate limiting (e.g., ACK rate limits on AWS RDS CRs) or a temporarily unavailable
+dependency.
+
+**Diagnose:**
+```bash
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
+  --since=5m | grep -E "error|Error"
+kubectl describe reinhardtapp <name> -n <ns>
+```
+
+**Fix:** Identify the specific error from the logs and address the root cause (fix the spec,
+restore connectivity, wait for rate limits to clear). The operator will resume normal reconciliation
+once the error resolves. If the loop is caused by an ACK or Config Connector resource not being
+available, verify those controllers are installed and healthy in your cluster.
