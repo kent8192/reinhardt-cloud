@@ -14,16 +14,16 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::credentials::verify_credentials;
-	use crate::config::test_helpers::{TestUrls, test_app};
+	use crate::config::test_helpers::{ResolvedUrls, test_app};
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, TestUrls),
+		test_app: (APIClient, ResolvedUrls),
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -56,7 +56,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange
@@ -80,7 +80,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange
@@ -112,7 +112,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange
@@ -137,7 +137,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange — register user then deactivate via ORM
@@ -185,7 +185,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange

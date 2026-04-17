@@ -16,7 +16,7 @@ use crate::apps::deployments::serializers::DeploymentResponse;
 ///
 /// Returns 404 if the deployment does not exist or is not owned by the
 /// authenticated user.
-#[get("/{id}/", name = "deployment_retrieve")]
+#[get("/{id}/", name = "retrieve")]
 pub async fn retrieve_deployment(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,

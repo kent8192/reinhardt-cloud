@@ -14,7 +14,7 @@ use crate::apps::clusters::models::Cluster;
 ///
 /// Returns 204 No Content on success.
 /// Returns 404 if the cluster does not exist or belongs to another user.
-#[delete("/{id}/", name = "cluster_delete")]
+#[delete("/{id}/", name = "delete")]
 pub async fn delete_cluster(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
