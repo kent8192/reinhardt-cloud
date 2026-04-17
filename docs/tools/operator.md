@@ -264,3 +264,230 @@ This section is intentionally brief; deep design lives outside this file.
   — set `RUST_LOG` (via `operator.env.RUST_LOG` in values) to adjust verbosity. The default directive
   is `reinhardt_cloud_operator=info`. Structured log fields include namespace, app name, and the
   specific resource being reconciled (e.g. `"Reconciled Deployment {namespace}/{name}"`).
+
+## For Platform Operators
+
+This section is the primary entry point for platform operators responsible for installing, configuring,
+and upgrading Reinhardt Cloud. It covers [Installation](#installation) and [Upgrade](#upgrade).
+Operations, security hardening, and troubleshooting are covered in the next section.
+
+### Installation
+
+#### Prerequisites
+
+- **kubectl** 1.27+ (must be on `$PATH` for `--direct` deploys and fallback status queries)
+- **Helm** 3.12+ (chart uses Helm 3 APIs; `helm install --create-namespace` is required for the
+  `reinhardt-cloud-system` namespace)
+- **Kubernetes cluster**: the chart does not declare a `kubeVersion` field; it has been tested against
+  Kubernetes 1.27 and later. Earlier versions may work but are not validated.
+
+Required cluster capabilities:
+
+- CRD creation permissions (the chart installs `reinhardtapps.paas.reinhardt-cloud.dev`)
+- An ingress controller matching `defaults.ingress.class` in the overlay you choose (`nginx` for
+  on-premise, `alb` for AWS, `gce` for GCP) — required only when `features.ingress: true`
+- Cilium CNI — required only when `isolation.networkPolicy.enabled: true` (the default for all
+  overlays)
+
+Optional capabilities (omit if the relevant feature flag is disabled):
+
+- **AWS ACK controllers** for `rds.services.k8s.aws` and `elasticache.services.k8s.aws` — required
+  when `platform: aws` and `features.database: true` or `features.cache: true`
+- **GCP Config Connector** for `sql.cnrm.cloud.google.com` and `redis.cnrm.cloud.google.com` —
+  required when `platform: gcp` and `features.database: true` or `features.cache: true`
+- **Kata Containers** or **gVisor** runtime classes — required when
+  `isolation.runtimeClasses.kata.enabled: true` or `isolation.runtimeClasses.gvisor.enabled: true`
+  (both enabled by default in the AWS and GCP overlays)
+
+> No cert-manager or Prometheus Operator integration is shipped in the current chart. Those keys do
+> not exist in `values.yaml` and should not be configured. Custom metrics are tracked at
+> [#366](https://github.com/kent8192/reinhardt-cloud/issues/366).
+
+#### Install from source (current recommended path)
+
+A Helm repository index has not been published yet. Install directly from the repository.
+
+**On-premise:**
+
+```bash
+git clone https://github.com/kent8192/reinhardt-cloud.git
+cd reinhardt-cloud
+helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --create-namespace \
+  -f charts/reinhardt-cloud-operator/values-onprem.yaml
+```
+
+**AWS (EKS):**
+
+Before installing, replace the placeholder values in `values-aws.yaml` with your account and region:
+
+- `image.repository`: replace `<account-id>` and `<region>` with your ECR registry coordinates
+- `serviceAccount.annotations.eks.amazonaws.com/role-arn`: replace `<account-id>` with the IAM role
+  ARN for the operator's IRSA binding
+
+```bash
+git clone https://github.com/kent8192/reinhardt-cloud.git
+cd reinhardt-cloud
+helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --create-namespace \
+  -f charts/reinhardt-cloud-operator/values-aws.yaml
+```
+
+**GCP (GKE):**
+
+Before installing, replace the placeholder values in `values-gcp.yaml` with your project and region:
+
+- `image.repository`: replace `<region>`, `<project-id>`, and path as appropriate
+- `serviceAccount.annotations.iam.gke.io/gcp-service-account`: replace `<project-id>` with your GCP
+  project ID
+
+```bash
+git clone https://github.com/kent8192/reinhardt-cloud.git
+cd reinhardt-cloud
+helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --create-namespace \
+  -f charts/reinhardt-cloud-operator/values-gcp.yaml
+```
+
+#### Install from Helm repository (future — not yet available)
+
+A dedicated Helm chart repository has not been published at the time this document was written. Once
+a chart repository is published, a `helm repo add` workflow will replace the source-based install
+described above. This section will be updated when a chart repository is published.
+
+#### Post-install validation
+
+After installation completes, verify the operator is running:
+
+```bash
+# Confirm the operator pod is Running
+kubectl get pods -n reinhardt-cloud-system
+
+# Expected output (name suffix varies):
+# NAME                                          READY   STATUS    RESTARTS   AGE
+# reinhardt-cloud-operator-<hash>   1/1     Running   0          30s
+
+# Check operator startup logs
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator
+
+# Confirm the CRD was installed
+kubectl get crd | grep reinhardt
+# Expected output:
+# reinhardtapps.paas.reinhardt-cloud.dev   <timestamp>
+
+# Confirm the ClusterRole and ClusterRoleBinding were created
+kubectl get clusterrole reinhardt-cloud-operator
+kubectl get clusterrolebinding reinhardt-cloud-operator
+```
+
+If the pod does not reach `Running` within 60 seconds, inspect events:
+
+```bash
+kubectl describe pod -n reinhardt-cloud-system -l app.kubernetes.io/name=reinhardt-cloud-operator
+```
+
+#### Configuration cookbook
+
+The table below lists common configuration scenarios. Each `--set` path maps directly to a key in
+`values.yaml`; the [Reference — `values.yaml` keys](#reference) section above provides the full key
+list and default values.
+
+| Scenario | Values override |
+|---|---|
+| Change log verbosity to `debug` | `--set operator.env.RUST_LOG=reinhardt_cloud_operator=debug` |
+| Enable cache feature | `--set features.cache=true` |
+| Enable ingress feature | `--set features.ingress=true` |
+| Disable network policy enforcement | `--set isolation.networkPolicy.enabled=false` |
+| Override isolation level to `None` | `--set isolation.defaultLevel=None` |
+| Set PostgreSQL version (on-prem) | `--set defaults.database.engine_version.postgresql=15` |
+| Increase database storage (on-prem) | `--set defaults.database.storage_gb=50` |
+| Change on-prem storage class | `--set defaults.storage.class=longhorn` |
+| Change on-prem ingress class | `--set defaults.ingress.class=traefik` |
+| Pass extra environment variables to the operator | `--set operator.extraEnv.MY_VAR=value` |
+| Use a custom operator replica count | `--set replicaCount=2` |
+
+> `features.database` is `true` by default. If your cluster does not have the required database
+> controllers for the configured platform, set `features.database=false` until the controllers are
+> installed.
+>
+> Custom metrics (`serviceMonitor`, Prometheus scraping) are not yet available. Operator telemetry
+> is currently log-only; see [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for
+> tracking.
+
+### Upgrade
+
+#### Compatibility matrix
+
+| Operator version | Minimum CLI version | CRD version | Notes |
+|---|---|---|---|
+| 0.1.x | 0.1.x | `paas.reinhardt-cloud.dev/v1alpha2` | Initial release series. All 0.x.x releases may contain breaking changes; read the [release notes](https://github.com/kent8192/reinhardt-cloud/releases) before upgrading. |
+
+The chart version and appVersion are both `0.1.0`. There is no published chart repository yet, so
+upgrades are performed by pulling the latest source and re-running `helm upgrade` (see below).
+
+#### Upgrade steps
+
+1. **Back up existing `ReinhardtApp` resources** before any upgrade:
+
+   ```bash
+   kubectl get reinhardtapp -A -o yaml > reinhardtapp-backup-$(date +%Y%m%d).yaml
+   ```
+
+2. **Pull the latest chart source:**
+
+   ```bash
+   cd reinhardt-cloud
+   git fetch origin
+   git pull origin main
+   ```
+
+3. **Apply the updated CRDs** from the chart (Helm does not upgrade CRDs automatically on
+   `helm upgrade`):
+
+   ```bash
+   kubectl apply -f charts/reinhardt-cloud-operator/crds/
+   ```
+
+4. **Run `helm upgrade`** with the same overlay used at install time. Substitute the correct
+   `-f` flag for your platform:
+
+   ```bash
+   # On-premise
+   helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+     --namespace reinhardt-cloud-system \
+     -f charts/reinhardt-cloud-operator/values-onprem.yaml
+
+   # AWS
+   helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+     --namespace reinhardt-cloud-system \
+     -f charts/reinhardt-cloud-operator/values-aws.yaml
+
+   # GCP
+   helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+     --namespace reinhardt-cloud-system \
+     -f charts/reinhardt-cloud-operator/values-gcp.yaml
+   ```
+
+5. **Watch the rollout:**
+
+   ```bash
+   kubectl rollout status deployment/reinhardt-cloud-operator \
+     -n reinhardt-cloud-system --timeout=120s
+   ```
+
+#### Rolling back
+
+To revert the Helm release to the previous revision:
+
+```bash
+helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
+```
+
+> **CRD schema rollbacks are not supported.** `helm rollback` reverts the Helm release but does not
+> downgrade CRD schemas already applied to the cluster. If a CRD schema change causes compatibility
+> issues, restore from the YAML backup created in step 1 of the upgrade procedure, then manually
+> re-apply the previous CRD manifest. Consult the release notes for the affected version before
+> proceeding.
