@@ -18,7 +18,9 @@ use super::security::context::{build_container_security_context, build_pod_secur
 use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
-use crate::inference::env_vars::{build_system_env_vars, merge_env_vars};
+use crate::inference::env_vars::{
+	build_database_env_vars_from_secret, build_system_env_vars, merge_env_vars,
+};
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
@@ -47,9 +49,15 @@ pub(crate) fn build_deployment(
 
 	let owner_ref = owner_reference(app)?;
 
-	// Build merged environment variables (system + user overrides)
-	let system_vars = build_system_env_vars();
-	let merged_env = merge_env_vars(&system_vars, &app.spec.env);
+	// Build merged environment variables (system + database + user overrides).
+	// When the app declares an explicit database, inject connection env vars
+	// that reference the credentials Secret provisioned by the reconciler's
+	// database-inference branch.
+	let mut auto_vars = build_system_env_vars();
+	if app.spec.database.is_some() {
+		auto_vars.extend(build_database_env_vars_from_secret(app, platform));
+	}
+	let merged_env = merge_env_vars(&auto_vars, &app.spec.env);
 
 	// Settings ConfigMap volume and mount
 	let mut volumes = vec![Volume {

@@ -4,9 +4,10 @@
 //! based on the target platform: on-premise uses StatefulSets with PVCs,
 //! AWS uses ACK `DynamicObject`, and GCP uses Config Connector `DynamicObject`.
 //!
-//! This module is consumed by the reconciler when database provisioning is
-//! integrated into the reconciliation loop (future work).
-#![allow(dead_code)]
+//! This module is consumed by the reconciler's explicit-database branch:
+//! when `spec.database` is set, the reconciler calls
+//! `infer_database_resources` and applies the returned resources via
+//! server-side apply.
 
 use std::collections::BTreeMap;
 
