@@ -575,3 +575,206 @@ spec:
 
 - **`Failed to write CRD to <path>: ...`** — The output path or its parent directory could not be written to. Check disk space and permissions, or omit `--output` to write to stdout and redirect manually.
 - **CRD rejected by `kubectl apply`** — The cluster may already have a `reinhardtapps` CRD from an older CLI version. Use `kubectl replace -f -` or `kubectl apply --server-side -f -` to force an update. Review the diff before replacing in production.
+
+## Troubleshooting (cross-command)
+
+This section covers issues that span multiple commands or affect the CLI as a whole.
+
+### Cannot reach API server
+
+**Symptoms**: `deploy`, `status`, and `login` fail with connection errors like `failed to deploy via API: ...`, `Dashboard API unreachable`, or `login failed: ...`.
+
+**Diagnosis**:
+
+1. Check the configured API server URL:
+   ```bash
+   echo $REINHARDT_CLOUD_API_URL
+   ```
+   If unset, the default is `http://localhost:8000`.
+
+2. Verify the dashboard is running:
+   ```bash
+   curl http://localhost:8000/healthz
+   ```
+   or with a custom server:
+   ```bash
+   curl "$REINHARDT_CLOUD_API_URL/healthz"
+   ```
+
+3. If using `--direct` mode (kubectl), confirm cluster connectivity:
+   ```bash
+   kubectl cluster-info
+   kubectl auth can-i create reinhardtapps
+   ```
+
+**Resolution**:
+- Ensure `REINHARDT_CLOUD_API_URL` is set to the correct dashboard address (e.g. `http://dashboard.example.com:8000` in production).
+- Start the dashboard: `dashboard/manage runserver` (or via `docker run`, `kubectl port-forward`, etc.).
+- For `--direct` mode, verify `kubectl` is configured and can reach the cluster.
+
+### `reinhardt-cloud.toml` parse errors
+
+**Symptoms**: `init` or `sync` fail with messages like `Failed to parse reinhardt-cloud.toml: ...`, or `deploy` reports missing required fields.
+
+**Common causes**:
+1. **Tabs in values**: TOML forbids tab characters in strings. Use spaces instead:
+   ```toml
+   # ❌ Wrong
+   app.name = "my-app\twith-tabs"
+   # ✅ Correct
+   app.name = "my-app with-spaces"
+   ```
+
+2. **Type mismatch**: A field expects an integer or boolean but received a string:
+   ```toml
+   # ❌ Wrong
+   replicas = "3"  # string instead of integer
+   # ✅ Correct
+   replicas = 3    # integer
+   ```
+
+3. **Missing required fields**: `[app]` section must have `name` and `image`:
+   ```toml
+   [app]
+   name = "my-app"
+   image = "my-app:latest"
+   ```
+
+**Resolution**:
+- Inspect the error message — it typically includes the field name and line number.
+- Compare your `reinhardt-cloud.toml` against the TOML schema (see Appendix D).
+- Run `init --force` to regenerate the file from scratch if it becomes corrupted.
+- See `crates/reinhardt-cloud-cli/src/config.rs` and `crates/reinhardt-cloud-cli/src/toml_generator.rs` for the authoritative schema.
+
+### Image registry authentication
+
+**Symptoms**: `deploy` succeeds but the operator fails to pull the image with `imagePullBackOff` or `ErrImagePull` errors.
+
+**Diagnosis**:
+```bash
+# Check if the Secret exists
+reinhardt-cloud credentials check <app-name> --namespace <ns>
+
+# Inspect the Secret directly
+kubectl get secret <app-name>-git-credentials -n <ns> -o yaml
+```
+
+**Resolution**:
+1. Create or update the credential Secret:
+   ```bash
+   reinhardt-cloud credentials set <provider> \
+     --registry-auth ~/.docker/config.json \
+     --namespace <ns>
+   ```
+
+2. Ensure the `ReinhardtApp` spec references the correct Secret name (see your `reinhardt-cloud.toml` `[source]` section).
+
+3. For more detail, see the [credentials section](#reinhardt-cloud-credentials) above.
+
+### CLI vs server version mismatch
+
+**Symptoms**: `deploy` or `status` output differs from what you expect; the operator is at a different version than the CLI.
+
+**Diagnosis**:
+
+Check CLI version:
+```bash
+reinhardt-cloud --version
+```
+
+Check operator version (if exposed):
+```bash
+kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator | grep -i version
+```
+
+Check CRD storage version:
+```bash
+kubectl get crd reinhardtapps.paas.reinhardt-cloud.dev -o jsonpath='{.spec.versions[?(@.storage==true)].name}'
+```
+
+**Resolution**:
+- Upgrade the CLI to match the operator version, or vice versa. See `docs/operator.md#upgrade` for the operator-side compatibility matrix and upgrade procedure.
+- If the CRD storage version differs from the CLI's hardcoded `v1alpha2`, consult [#367](https://github.com/kent8192/reinhardt-cloud/issues/367) for multi-version support status and workarounds.
+- Test with `deploy --dry-run` to validate that the generated CRD matches your cluster's expectations.
+
+---
+
+## Appendix A: Flag matrix
+
+This table lists all flags accepted by each command.
+
+| Command | Flags |
+|---------|-------|
+| `init` | `--dir`, `--force` |
+| `sync` | `--dir`, `--force` |
+| `deploy` | `--name`, `--image`, `--replicas`, `--dir`, `--namespace`, `--cluster`, `--dry-run`, `--direct`, `--introspect-only` |
+| `status` | `--name`, `--namespace`, `--cluster` |
+| `login` | `--username` |
+| `credentials set` | `--git-token`, `--registry-auth`, `--webhook-secret`, `--api-token`, `--secret-name`, `--namespace` |
+| `credentials check` | `--namespace` |
+| `crd generate` | `--output` |
+
+Global flags (apply to all commands):
+- `--server <URL>` — Override the API server URL (environment variable: `REINHARDT_CLOUD_API_URL`)
+
+---
+
+## Appendix B: Exit codes
+
+The CLI uses a simple exit code scheme:
+
+- **Exit 0** — Command succeeded (returned `Ok(())`).
+- **Exit 1** — Command failed (returned `Err(...)`).
+
+There is no distinction between different error categories (user error, transport error, server error) in the exit code. Consult the error message printed to stderr for details.
+
+All error handling flows through Rust's standard `Result<(), Box<dyn Error>>` return from the async main function. No `process::exit` or `ExitCode` is called directly in the codebase.
+
+---
+
+## Appendix C: Environment variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `REINHARDT_CLOUD_API_URL` | Dashboard API server URL (e.g., `http://localhost:8000` or `https://api.reinhardt-cloud.dev`). Used by `deploy`, `status`, and `login` commands. | `http://localhost:8000` |
+| `KUBECONFIG` | Path to kubeconfig file. Used by `deploy --direct`, `status` (kubectl fallback), and `credentials` commands to locate cluster credentials. | `~/.kube/config` (or in-cluster service account if running inside a pod) |
+
+---
+
+## Appendix D: Project config schema
+
+This appendix shows the structure of `reinhardt-cloud.toml`, the per-project configuration file that drives `init`, `sync`, and `deploy`.
+
+`reinhardt-cloud.toml` is not the same as `~/.config/reinhardt-cloud/credentials.json` (which stores authentication tokens) — it is generated in your project root and checked into version control.
+
+**Minimal example**:
+
+```toml
+[app]
+name = "my-app"
+image = "registry.example.com/my-app:latest"
+
+[database]
+engine = "postgresql"
+storage_gb = 20
+
+[deployment]
+replicas = 3
+
+[service]
+port = 8000
+```
+
+**Field notes**:
+- `[app]` — Required. `name` and `image` are required fields.
+- `[database]` — Optional. If present, `engine` (e.g. `"postgresql"`, `"mysql"`) and storage configuration drive the operator's database resource generation.
+- `[deployment]` — Optional. Controls replica count and resource requests/limits.
+- `[service]` — Optional. Configures ports and ingress exposure.
+- Other sections like `[source]`, `[health]`, `[isolation]` — Optional, context-specific.
+
+For the complete and current field list, refer to:
+- `crates/reinhardt-cloud-cli/src/toml_generator.rs` — where the config is generated during `init` and `sync`.
+- `crates/reinhardt-cloud-types/src/reinhardt_cloud_toml.rs` — the schema definition.
+
+The config is generated by analyzing your Reinhardt project's `Cargo.toml`, `Cargo.lock`, and `settings/base.toml` — there is no manual schema file to read. Run `init` on a sample project to see what is produced, then customize as needed.
+
