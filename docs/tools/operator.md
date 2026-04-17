@@ -934,3 +934,131 @@ kubectl describe reinhardtapp <name> -n <ns>
 restore connectivity, wait for rate limits to clear). The operator will resume normal reconciliation
 once the error resolves. If the loop is caused by an ACK or Config Connector resource not being
 available, verify those controllers are installed and healthy in your cluster.
+
+## For App Developers
+
+### What the operator does to my app
+
+When you create a `ReinhardtApp` resource, the operator translates your declarative specification into concrete Kubernetes infrastructure: a Deployment runs your application container, optional child resources include a Service for networking, Ingress for external access, a StatefulSet for the database (if provisioned via the cluster), Deployments for cache and background workers, and a ServiceAccount for storage access. The operator also manages cloud infrastructure—cloud-managed databases, storage buckets, and secrets—based on the feature flags and configuration in your spec. To preview what the operator will create, use the CLI's `deploy --dry-run` command or `crd generate` workflow to see the Kubernetes manifests before applying them.
+
+### What I cannot do without Platform Ops
+
+- Modify operator values.yaml (e.g., default isolation level, resource quotas, chart-wide image registries)
+- Add or remove CRD versions (API evolution and backward compatibility)
+- Grant new RBAC permissions to the operator's service account
+- Alter chart-wide defaults such as database storage class or cache image
+- Change the operator configuration or reconciliation interval
+
+Contact your platform team for any of these changes.
+
+### Support-question pre-checklist
+
+Before opening a support ticket, gather diagnostics using these commands:
+
+```bash
+# Check app deployment status
+reinhardt-cloud status --name <app>
+
+# View the complete ReinhardtApp resource
+kubectl get reinhardtapp <app> -o yaml
+
+# Inspect the generated Deployment
+kubectl get deployment <app> -o yaml
+
+# See events for the app (sorted by timestamp)
+kubectl get events --field-selector involvedObject.name=<app> --sort-by=.lastTimestamp
+```
+
+---
+
+## Appendix A: Reconcile state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: ReinhardtApp created
+    Pending --> Reconciling: operator picks it up
+    Reconciling --> Ready: child resources applied, status updated
+    Reconciling --> Degraded: reconcile error (transient)
+    Degraded --> Reconciling: 30s requeue
+    Ready --> Reconciling: spec changed or status drift detected
+    Ready --> Deleting: finalizer triggered
+    Deleting --> [*]
+```
+
+**Mental Model:** The reconciliation process cycles through states based on the operator's internal logic. The diagram shows the conceptual flow that the reconciler implements. In practice, the CRD status uses standard Kubernetes conditions (Ready, Progressing, Degraded) rather than a single `phase` field—this diagram is a simplified mental model to understand how reconciliation proceeds, not a literal mapping to status fields. The operator continuously watches for changes and updates conditions accordingly.
+
+---
+
+## Appendix B: CRD field reference
+
+**Kind:** `ReinhardtApp`  
+**Group/Version:** `paas.reinhardt-cloud.dev/v1alpha2`  
+**Full Schema:** See `charts/reinhardt-cloud-operator/crds/paas.reinhardt-cloud.dev_reinhardtapps.yaml`
+
+### Spec Top-Level Fields
+
+| Field | Purpose |
+|-------|---------|
+| `image` | Docker image to deploy (required, e.g. `myapp:latest`) |
+| `replicas` | Number of desired replicas (defaults to 1) |
+| `resources` | Resource requests and limits for the app container |
+| `env` | Environment variables as key-value pairs |
+| `features` | Resolved Reinhardt feature flags |
+| `health` | HTTP health check configuration (path, port, interval) |
+| `auth` | Authentication configuration (JWT, OAuth2) |
+| `database` | Database infrastructure (engine, version, storage, instance class) |
+| `cache` | Cache configuration (Redis backend and instance type) |
+| `mail` | Mail/SMTP configuration (host, port, credentials) |
+| `pages` | Static frontend configuration (compression, caching, resources) |
+| `services` | Service exposure (port, target port, Ingress hostname) |
+| `scale` | Autoscaling configuration (min/max replicas, metric, target value) |
+| `worker` | Background worker configuration (command, concurrency) |
+| `storage` | Object storage configuration (backend, bucket name) |
+| `source` | Git source and CI/CD pipeline (repository, branch, build, webhook, preview) |
+| `isolation` | Workload isolation and security (level, network policy, runtime class) |
+| `deletion_policy` | Cloud resource deletion policy (retain or delete) |
+| `introspect` | Introspection metadata from `manage introspect` output (auto-populated by CLI) |
+
+### Status Top-Level Fields
+
+| Field | Purpose |
+|-------|---------|
+| `conditions` | Standard Kubernetes condition list (Ready, Progressing, Degraded, DatabaseReady, CacheReady, WorkerReady, IngressReady) |
+| `observedGeneration` | The generation last observed by the controller |
+| `phase` | Lifecycle phase (pending, deploying, running, failed, terminating, provisioning, degraded) |
+| `readyReplicas` | Number of ready replicas in the Deployment |
+| `database` | Status of the provisioned database sub-resource (phase, endpoint, credentials_secret) |
+| `cache` | Status of the provisioned cache sub-resource (phase, endpoint) |
+| `worker` | Status of the worker deployment sub-resource (ready_replicas) |
+
+---
+
+## Appendix C: Error catalog
+
+The reconciler can encounter the following error types:
+
+| Variant | Typical Trigger | User-Visible Message |
+|---------|-----------------|----------------------|
+| `Kube` | Transient Kubernetes API errors | Wrapped `kube::Error` from the kube-rs library |
+| `Serialization` | CRD validation failed or JSON encoding error | `serde_json::Error` with details |
+| `Finalizer` | Finalizer management failed during cleanup | Finalizer error with context |
+| `MissingNamespace` | ReinhardtApp has no namespace (unusual) | "Missing namespace in metadata" |
+| `OwnerReference` | Failed to set owner reference on child resource | Error details with resource name |
+| `InvalidPort` | Port number outside valid range (1-65535) | "Invalid port: X" or "Port out of range" |
+| `SecretGeneration` | Failed to generate or manage credentials secret | Error details with secret name |
+
+**Dead-Code Variants:** The following error variants exist in the type definition but are not actively reached in the current reconciler implementation and will not appear in logs:
+
+- `MissingField` — Would be raised if a required CRD field is absent (spec validation prevents this)
+- `DatabaseProvisioning` — Placeholder for future database provisioning errors
+- `PlatformControllerMissing` — Placeholder for missing ACK/Config Connector controllers
+- `CredentialsMissing` — Placeholder for missing cloud credentials
+- `BuildFailed` — Placeholder for container build failures
+
+These variants are marked `#[allow(dead_code)]` and may be activated in future releases as features expand.
+
+---
+
+## Appendix D: Metrics catalog
+
+The Reinhardt Cloud operator does not emit custom Prometheus metrics at this time. See [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for planned metrics support. Indirect signals are available through kube-state-metrics on the operator Deployment (restart count, pod status), pod resource usage, and condition status on the ReinhardtApp resource itself.
