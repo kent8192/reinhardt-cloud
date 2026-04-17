@@ -130,12 +130,15 @@ jobs:
 
       - name: Seed active test user for login scenarios
         run: |
-          # Register the test user via API (created as inactive)
+          # Register the test user via API (created as inactive).
+          # The `Origin` header is required to pass `OriginGuardMiddleware`,
+          # which rejects state-changing requests from unrecognised origins.
           curl -sf -X POST http://localhost:8000/api/auth/register/ \
             -H "Content-Type: application/json" \
+            -H "Origin: http://localhost:8000" \
             -d '{"username":"testuser","email":"test@ci.dev","password":"testpassword"}'
           # Activate the user directly in the database so login tests work
-          # (email verification cannot be performed in Bruno CI tests)
+          # (email verification cannot be performed in Bruno CI tests).
           PGPASSWORD=postgres psql -h localhost -U postgres reinhardt_cloud_ci \
             -c "UPDATE auth_users SET is_active = true WHERE username = 'testuser'"
 
