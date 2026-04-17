@@ -218,22 +218,24 @@ Known limitations.
 ## Known limitations
 
 These are the gaps between the documented layout and a fully wired
-Dashboard → Agent → Operator path. Each has a tracking Issue; links will be
-populated when those Issues are filed (see the PR description).
+Dashboard → Agent → Operator path. Each has a tracking Issue:
 
 1. **Dashboard gRPC uses `MockClusterAgentService`**
    (`dashboard/src/config/grpc.rs` line `49`). Streams from a live Agent
    terminate at the mock; deploy commands issued through the Dashboard do
-   not reach the Agent's `handle_command` loop.
+   not reach the Agent's `handle_command` loop. Tracked in
+   kent8192/reinhardt-cloud#360.
 2. **No Agent Dockerfile.** The Agent runs on the host against the
    cluster's API server. Full in-cluster testing requires an image.
+   Tracked in kent8192/reinhardt-cloud#358.
 3. **No Agent Helm chart.** `charts/` contains only the Operator chart;
    there is no production-shaped `reinhardt-cloud-agent` chart.
+   Tracked in kent8192/reinhardt-cloud#359.
 4. **No `AUTH_TOKEN` issuance on cluster registration.**
    `dashboard/src/apps/clusters/views/create_cluster.rs` does not emit an
    Agent bearer token. `AUTH_TOKEN` must currently be minted manually using
    the JWT secret that `crates/reinhardt-cloud-grpc/src/interceptor.rs`
-   validates against.
+   validates against. Tracked in kent8192/reinhardt-cloud#361.
 
 Until each item is resolved, treat the "Dashboard-mediated deploy" scenario
 (section 8c) as a partial smoke test: HTTP path only.
