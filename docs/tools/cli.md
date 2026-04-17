@@ -693,7 +693,7 @@ kubectl get crd reinhardtapps.paas.reinhardt-cloud.dev -o jsonpath='{.spec.versi
 ```
 
 **Resolution**:
-- Upgrade the CLI to match the operator version, or vice versa. See `docs/operator.md#upgrade` for the operator-side compatibility matrix and upgrade procedure.
+- Upgrade the CLI to match the operator version, or vice versa. See [`docs/tools/operator.md#upgrade`](operator.md#upgrade) for the operator-side compatibility matrix and upgrade procedure.
 - If the CRD storage version differs from the CLI's hardcoded `v1alpha2`, consult [#367](https://github.com/kent8192/reinhardt-cloud/issues/367) for multi-version support status and workarounds.
 - Test with `deploy --dry-run` to validate that the generated CRD matches your cluster's expectations.
 
