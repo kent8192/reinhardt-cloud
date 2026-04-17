@@ -13,18 +13,18 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::config::test_helpers::{
-		TestUrls, force_login, force_login_user, session_backend, test_app,
+		ResolvedUrls, force_login, force_login_user, session_backend, test_app,
 	};
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, TestUrls),
+		test_app: (APIClient, ResolvedUrls),
 		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	) {
 		let (client, urls) = test_app;
@@ -58,7 +58,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -92,7 +92,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -148,7 +148,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -174,7 +174,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {

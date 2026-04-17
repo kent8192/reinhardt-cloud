@@ -15,7 +15,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	TestUrls, force_login_user, session_backend, test_app,
+	ResolvedUrls, force_login_user, session_backend, test_app,
 };
 
 // ============================================================================
@@ -24,13 +24,13 @@ use reinhardt_cloud_dashboard::config::test_helpers::{
 
 #[fixture]
 async fn db(
-	test_app: (APIClient, TestUrls),
+	test_app: (APIClient, ResolvedUrls),
 	session_backend: Arc<dyn AsyncSessionBackend>,
 ) -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	TestUrls,
+	ResolvedUrls,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	let (client, urls) = test_app;
@@ -54,7 +54,7 @@ async fn test_full_user_journey(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
@@ -132,10 +132,10 @@ async fn test_two_users_independent_workflows(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	),
-	test_app: (APIClient, TestUrls),
+	test_app: (APIClient, ResolvedUrls),
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;

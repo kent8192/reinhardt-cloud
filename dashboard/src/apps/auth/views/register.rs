@@ -21,7 +21,7 @@ use crate::shared::AuthResponse;
 ///
 /// Creates the user as inactive (`is_active = false`) and sends a
 /// verification email. No session is created until the email is verified.
-#[post("/register/", name = "auth_register", pre_validate = true)]
+#[post("/register/", name = "register", pre_validate = true)]
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let settings = crate::config::settings::get_settings();
 	let secret_key = settings.core.secret_key.clone();

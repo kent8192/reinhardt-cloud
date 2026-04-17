@@ -18,7 +18,7 @@ use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token}
 ///
 /// On success, sets `is_active = true` for the user. Returns 200 even
 /// if the user is already active (idempotent).
-#[get("/verify-email/{token}/", name = "auth_verify_email")]
+#[get("/verify-email/{token}/", name = "verify_email")]
 pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
 	let secret_key = crate::config::settings::get_settings()
 		.core

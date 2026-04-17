@@ -21,7 +21,7 @@ use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 /// Always returns 200 with a generic message to prevent user enumeration.
 #[post(
 	"/forgot-password/",
-	name = "auth_forgot_password",
+	name = "forgot_password",
 	pre_validate = true
 )]
 pub async fn forgot_password(body: Json<ForgotPasswordRequest>) -> ViewResult<Response> {

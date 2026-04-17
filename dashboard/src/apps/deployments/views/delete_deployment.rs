@@ -14,7 +14,7 @@ use crate::apps::deployments::models::Deployment;
 ///
 /// Returns 204 No Content on success, 404 if the deployment does not exist or
 /// is not owned by the authenticated user.
-#[delete("/{id}/", name = "deployment_delete")]
+#[delete("/{id}/", name = "delete")]
 pub async fn delete_deployment(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,

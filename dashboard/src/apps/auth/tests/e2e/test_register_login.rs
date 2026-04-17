@@ -19,16 +19,16 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::{TestUrls, test_app};
+	use crate::config::test_helpers::{ResolvedUrls, test_app};
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, TestUrls),
+		test_app: (APIClient, ResolvedUrls),
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -130,7 +130,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -147,7 +147,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.auth_register, &register_data, "json")
+			.post(&urls.auth().register(), &register_data, "json")
 			.await
 			.expect("Register request failed");
 
@@ -191,7 +191,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -204,7 +204,7 @@ mod tests {
 			"password": "testpassword"
 		});
 		let response = client
-			.post(&urls.auth_login, &login_data, "json")
+			.post(&urls.auth().login(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -224,7 +224,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -239,7 +239,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post(&urls.auth_register, &first_user, "json")
+			.post(&urls.auth().register(), &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -251,7 +251,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.auth_register, &second_user, "json")
+			.post(&urls.auth().register(), &second_user, "json")
 			.await
 			.expect("Second register request failed");
 
@@ -271,7 +271,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -284,7 +284,7 @@ mod tests {
 			"password": "wrongpassword"
 		});
 		let response = client
-			.post(&urls.auth_login, &login_data, "json")
+			.post(&urls.auth().login(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -301,7 +301,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			TestUrls,
+			ResolvedUrls,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -316,7 +316,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let reg_response = client
-			.post(&urls.auth_register, &register_data, "json")
+			.post(&urls.auth().register(), &register_data, "json")
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
@@ -345,7 +345,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.auth_login, &login_data, "json")
+			.post(&urls.auth().login(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 

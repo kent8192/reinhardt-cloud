@@ -157,7 +157,7 @@ async fn create_router_infrastructure(
 /// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
 /// point unwraps this to return the inner `UnifiedRouter` to the framework.
 #[derive(Debug)]
-pub struct DashboardRouter(pub UnifiedRouter);
+pub(crate) struct DashboardRouter(pub UnifiedRouter);
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
@@ -165,6 +165,7 @@ pub struct DashboardRouter(pub UnifiedRouter);
 /// which triggers the `make_router` factory and all its transitive dependencies.
 /// The framework creates the `InjectionContext` automatically for async routes.
 #[routes]
+#[allow(private_interfaces)] // DashboardRouter is pub(crate) by design; #[routes] macro requires pub fn
 pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
 	router
 		.try_unwrap()

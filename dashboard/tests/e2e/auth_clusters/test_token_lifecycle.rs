@@ -17,7 +17,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
+use reinhardt_cloud_dashboard::config::test_helpers::{ResolvedUrls, test_app};
 
 // ============================================================================
 // Fixtures & Helpers
@@ -25,12 +25,12 @@ use reinhardt_cloud_dashboard::config::test_helpers::{TestUrls, test_app};
 
 #[fixture]
 async fn db(
-	test_app: (APIClient, TestUrls),
+	test_app: (APIClient, ResolvedUrls),
 ) -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	TestUrls,
+	ResolvedUrls,
 ) {
 	let (client, urls) = test_app;
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -41,7 +41,7 @@ async fn db(
 }
 
 /// Create a user via ORM, then login to obtain a session cookie.
-async fn create_user_and_login(client: &APIClient, urls: &TestUrls) -> String {
+async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> String {
 	// Create active user via ORM (bypasses register endpoint and email)
 	let mut user = User::new(
 		"testuser".to_string(),
@@ -66,7 +66,7 @@ async fn create_user_and_login(client: &APIClient, urls: &TestUrls) -> String {
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.auth_login, &login_data, "json")
+		.post(&urls.auth().login(), &login_data, "json")
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -102,7 +102,7 @@ async fn test_register_session_works_for_cluster_creation(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	),
 ) {
 	// Arrange
@@ -116,7 +116,7 @@ async fn test_register_session_works_for_cluster_creation(
 		"api_url": "https://register.k8s.local:6443"
 	});
 	let resp = client
-		.post(&urls.cluster_list, &cluster_data, "json")
+		.post(&urls.clusters().list(), &cluster_data, "json")
 		.await
 		.expect("Create cluster request failed");
 
@@ -133,7 +133,7 @@ async fn test_login_session_works_for_cluster_creation(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	),
 ) {
 	// Arrange
@@ -146,7 +146,7 @@ async fn test_login_session_works_for_cluster_creation(
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.auth_login, &login_data, "json")
+		.post(&urls.auth().login(), &login_data, "json")
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -167,7 +167,7 @@ async fn test_login_session_works_for_cluster_creation(
 		"api_url": "https://login.k8s.local:6443"
 	});
 	let resp = client
-		.post(&urls.cluster_list, &cluster_data, "json")
+		.post(&urls.clusters().list(), &cluster_data, "json")
 		.await
 		.expect("Create cluster request failed");
 
@@ -184,7 +184,7 @@ async fn test_register_and_login_sessions_same_resources(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	),
 ) {
 	// Arrange
@@ -198,7 +198,7 @@ async fn test_register_and_login_sessions_same_resources(
 		"api_url": "https://shared.k8s.local:6443"
 	});
 	let create_resp = client
-		.post(&urls.cluster_list, &cluster_data, "json")
+		.post(&urls.clusters().list(), &cluster_data, "json")
 		.await
 		.expect("Create cluster failed");
 	assert_eq!(create_resp.status_code(), 201);
@@ -209,7 +209,7 @@ async fn test_register_and_login_sessions_same_resources(
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.auth_login, &login_data, "json")
+		.post(&urls.auth().login(), &login_data, "json")
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -226,7 +226,7 @@ async fn test_register_and_login_sessions_same_resources(
 	// Act -- list clusters with the login session
 	authenticate_client(&client, login_session).await;
 	let list_resp = client
-		.get(&urls.cluster_list)
+		.get(&urls.clusters().list())
 		.await
 		.expect("List clusters failed");
 
@@ -247,7 +247,7 @@ async fn test_invalid_session_rejected_at_resource_endpoint(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		TestUrls,
+		ResolvedUrls,
 	),
 ) {
 	// Arrange
@@ -256,7 +256,7 @@ async fn test_invalid_session_rejected_at_resource_endpoint(
 
 	// Act
 	let resp = client
-		.get(&urls.cluster_list)
+		.get(&urls.clusters().list())
 		.await
 		.expect("Request failed");
 

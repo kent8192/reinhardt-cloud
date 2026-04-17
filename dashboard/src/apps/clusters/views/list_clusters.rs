@@ -17,7 +17,7 @@ use crate::apps::clusters::serializers::ClusterResponse;
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
-#[get("/", name = "cluster_list")]
+#[get("/", name = "list")]
 pub async fn list_clusters(
 	Query(params): Query<PaginationParams>,
 	#[inject] AuthInfo(state): AuthInfo,
