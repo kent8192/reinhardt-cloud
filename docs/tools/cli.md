@@ -287,3 +287,291 @@ The `crd` command reference (covered in a later section of this guide) explains 
 - **`failed to deploy via API: ...`** — The platform API returned an error or was unreachable. Check that `REINHARDT_CLOUD_API_URL` is set correctly and the dashboard (`manage`) binary is running. The default is `http://localhost:8000`.
 - **`manage introspect failed: ...` warning, then deploy continues** — `deploy` treats introspect failure as non-fatal. If the deploy then fails with `--name is required`, run `reinhardt-cloud deploy --introspect-only` to diagnose the introspect error separately before retrying.
 - **`replicas value N exceeds i32::MAX`** — The `--replicas` value is larger than `2147483647`. Use a sane replica count.
+
+---
+
+### reinhardt-cloud status
+
+Check the deployment status of a `ReinhardtApp` resource.
+
+**Synopsis**
+
+```
+reinhardt-cloud status [OPTIONS]
+```
+
+**Flags**
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--name` | `-n` | `string` | `"default-app"` | Application name to check |
+| `--namespace` | | `string` | `"default"` | Kubernetes namespace |
+| `--cluster` | | `string` | _(none)_ | Kubernetes context name (passed as `--context` to `kubectl`) |
+
+**Behavior**
+
+`status` tries the platform dashboard API first. If the API is unreachable (connection refused or timeout — transport-level errors only), it falls back to `kubectl get reinhardtapp <name> -n <namespace> -o json` and renders the result locally. Other API errors (4xx, 5xx) are returned directly without falling back.
+
+Output shape (kubectl fallback path):
+
+```
+Application:  <name>
+Namespace:    <namespace>
+Image:        <image>
+Replicas:     <spec.replicas>
+Ready:        <status.readyReplicas>/<spec.replicas>
+Status:       <Ready|Progressing|Degraded|Unknown>
+
+Conditions:
+  [+] Ready: True — All replicas are ready
+  [-] Progressing: False
+```
+
+Status label derivation (priority order):
+
+1. `Ready` — condition type `Ready` with status `True`
+2. `Degraded` — condition type `Degraded` with status `True`
+3. `Progressing` — condition type `Progressing` with status `True`
+4. `Unknown` — none of the above matched, or no status reported yet
+
+When the dashboard API path succeeds, the raw JSON from the API response is printed to stdout instead of the formatted output above.
+
+**Example**
+
+```bash
+# Check status of "my-app" in the "production" namespace
+reinhardt-cloud status --name my-app --namespace production
+
+# Check on a specific cluster context
+reinhardt-cloud status --name my-app --cluster staging-context
+```
+
+> **For App Developers**: Use `status` immediately after `deploy` to confirm the rollout reached `Ready`. The `Ready: N/N` line tells you how many replicas are up. If the status stays `Progressing` for more than a few minutes, inspect the pod logs or check `kubectl describe reinhardtapp <name>` for event details.
+
+> **For Platform Operators**: `status` is a lightweight read-only command that works without cluster credentials when the dashboard API is reachable. Compare its output with `kubectl get reinhardtapp -A` to verify the CLI and the operator agree on the current state. If they diverge, the dashboard API may be serving stale cache — restart the `manage` process.
+
+**Troubleshooting**
+
+- **`kubectl get reinhardtapp failed: Error from server (NotFound): ...`** — The application name or namespace is wrong, or the resource has not been deployed yet. Verify with `kubectl get reinhardtapp -A`.
+- **`Dashboard API unreachable, falling back to kubectl...`** — The `manage` process is not running or `REINHARDT_CLOUD_API_URL` points to an unreachable address. Either start `manage` or ensure `kubectl` is configured for the target cluster.
+- **`failed to run kubectl: ...`** — `kubectl` is not on `PATH`. Install `kubectl` when using the `status` command without a running dashboard API.
+
+---
+
+### reinhardt-cloud login
+
+Authenticate with the Reinhardt Cloud platform and save credentials locally.
+
+**Synopsis**
+
+```
+reinhardt-cloud login --username <USERNAME>
+```
+
+**Flags**
+
+| Flag | Short | Type | Required | Description |
+|------|-------|------|----------|-------------|
+| `--username` | `-u` | `string` | Yes | Username for authentication |
+
+The password is read interactively via a hidden prompt written to stderr (so it does not appear in shell history or interfere with stdout capture). There is no `--password` flag; the password cannot be passed as a CLI argument.
+
+**Behavior**
+
+1. Prompts for password on stderr (`Password: `).
+2. Sends credentials to the platform API (`/auth/login` or equivalent).
+3. On success, saves the returned JWT token to the credentials file (`~/.config/reinhardt-cloud/credentials` or the platform-default path shown in the success message).
+4. Prints the JWT token to stdout so callers can capture it (e.g. `TOKEN=$(reinhardt-cloud login --username alice)`). The success message is on stderr and does not pollute the captured value.
+
+> **Security note**: The credentials file is currently written using the process umask and is not automatically restricted to the owner. On shared hosts (multi-user Linux, some CI runners with a shared user home) other local users may be able to read it. After your first login, run:
+> ```bash
+> chmod 600 ~/.config/reinhardt-cloud/credentials*
+> ```
+> This will be tightened to owner-only permissions (`0600`) in a future release.
+
+**Example**
+
+```bash
+# Interactive login
+reinhardt-cloud login --username alice
+
+# Capture the token for use in scripts
+TOKEN=$(reinhardt-cloud login --username alice 2>/dev/null)
+```
+
+**CI pattern**
+
+`login` always prompts interactively for the password; it does not read from an environment variable or stdin. For non-interactive CI use, pipe the password via a here-string or use a wrapper:
+
+```bash
+# Pipe password from a secret variable (CI)
+echo "$REINHARDT_PASSWORD" | reinhardt-cloud login --username ci-bot
+# Note: some shells echo stdin to tty even for piped input; verify your CI
+# runner's behavior and prefer a credential helper if available.
+```
+
+**Troubleshooting**
+
+- **`login failed: ...`** — Invalid username or password, or the platform API is unreachable. Verify `REINHARDT_CLOUD_API_URL` is set and the `manage` process is running.
+- **`password must not be empty`** — An empty password was entered at the prompt. Re-run and enter a non-empty password.
+- **Token expiry** — The CLI does not currently perform automatic token refresh. If API calls start failing with authentication errors after a period of inactivity, re-run `reinhardt-cloud login` to obtain a fresh token.
+
+---
+
+### reinhardt-cloud credentials
+
+> **Note**: This command was previously undocumented. It is the supported path for managing Git provider and container registry credentials stored as Kubernetes Secrets. Use it to grant the operator access to private repositories and registries.
+
+Manage Git and registry credential Secrets in the cluster.
+
+**Synopsis**
+
+```
+reinhardt-cloud credentials <SUBCOMMAND>
+```
+
+**Subcommands**
+
+#### credentials set
+
+Create or update a credential Secret via server-side apply.
+
+```
+reinhardt-cloud credentials set <PROVIDER> [OPTIONS]
+```
+
+| Argument / Flag | Type | Required | Default | Description |
+|-----------------|------|----------|---------|-------------|
+| `PROVIDER` (positional) | `string` | Yes | — | Git provider identifier (e.g. `github`, `gitlab`). Not validated against an enum; any string is accepted. The value is used as the `reinhardt.dev/provider` label and as the default Secret name prefix (`<provider>-git-credentials`). |
+| `--git-token` | `string` | No* | — | Personal access token or OAuth token for Git operations |
+| `--registry-auth` | `path` | No* | — | Path to a Docker config JSON file containing registry auth |
+| `--webhook-secret` | `string` | No* | — | HMAC secret for validating webhook payloads |
+| `--api-token` | `string` | No* | — | Provider API token (e.g. for creating deploy keys) |
+| `--secret-name` | `string` | No | `<provider>-git-credentials` | Override the Kubernetes Secret name |
+| `--namespace` | `string` | No | `"default"` | Kubernetes namespace for the Secret |
+
+\* At least one of `--git-token`, `--registry-auth`, `--webhook-secret`, or `--api-token` must be provided.
+
+The Secret is created with label `reinhardt.dev/credential-type=git` and `reinhardt.dev/provider=<PROVIDER>`. All credential values are stored as `stringData` keys: `git-token`, `registry-auth`, `webhook-secret`, `api-token`.
+
+**Example**
+
+```bash
+# Store a GitHub personal access token
+reinhardt-cloud credentials set github --git-token ghp_xxxx --namespace my-namespace
+
+# Store both a git token and a registry auth file
+reinhardt-cloud credentials set gitlab \
+  --git-token glpat-xxxx \
+  --registry-auth ~/.docker/config.json \
+  --namespace production
+
+# Override the Secret name
+reinhardt-cloud credentials set github \
+  --git-token ghp_xxxx \
+  --secret-name my-app-github-creds
+```
+
+#### credentials check
+
+Check whether a credential Secret exists for an application.
+
+```
+reinhardt-cloud credentials check <APP_NAME> [OPTIONS]
+```
+
+| Argument / Flag | Type | Required | Default | Description |
+|-----------------|------|----------|---------|-------------|
+| `APP_NAME` (positional) | `string` | Yes | — | Application name. Looks for the Secret named `<APP_NAME>-git-credentials`. |
+| `--namespace` | `string` | No | `"default"` | Kubernetes namespace to look in |
+
+Prints whether the Secret exists, whether a provider label is present, and a summary of which credential key groups are populated (e.g. `configured (data + stringData)`). Credential values are never printed.
+
+**Example**
+
+```bash
+reinhardt-cloud credentials check my-app --namespace production
+```
+
+**Security note**: The same credential file permission caveat described in the [`login`](#reinhardt-cloud-login) section applies here. After writing any credentials, run `chmod 600 ~/.config/reinhardt-cloud/credentials*` on shared hosts.
+
+> **For App Developers**: Use `credentials set` once during initial setup to give the operator access to your private repository. Use `credentials check` to confirm the Secret is present before filing a support request about failed pulls.
+
+> **For Platform Operators**: The Secret is applied with `PatchParams::apply("reinhardt-cloud-cli").force()` (server-side apply with force). This means re-running `credentials set` is safe and idempotent — it will update existing Secrets without conflict. Ensure the service account running the CLI has `create` and `patch` RBAC on `secrets` in the target namespace.
+
+**Troubleshooting**
+
+- **`At least one credential flag must be provided`** — Run `credentials set` with at least one of `--git-token`, `--registry-auth`, `--webhook-secret`, or `--api-token`.
+- **`Failed to read registry-auth file ...`** — The path given to `--registry-auth` does not exist or is not readable. Check the path and permissions.
+- **`No credentials secret found in namespace '...'`** — The expected Secret `<app-name>-git-credentials` does not exist. Run `credentials set` first.
+
+---
+
+### reinhardt-cloud crd
+
+> **Note**: This command was previously undocumented. Its primary use is in GitOps workflows where the `ReinhardtApp` CRD schema must be committed to a GitOps repository (ArgoCD, Flux) or applied to a cluster before any `ReinhardtApp` resources are created.
+
+Generate and manage the `ReinhardtApp` Custom Resource Definition schema.
+
+**Synopsis**
+
+```
+reinhardt-cloud crd <SUBCOMMAND>
+```
+
+**Subcommands**
+
+#### crd generate
+
+Generate the `ReinhardtApp` CRD YAML from the compiled Rust type definition.
+
+```
+reinhardt-cloud crd generate [OPTIONS]
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--output` | `-o` | `path` | _(stdout)_ | Write output to a file instead of stdout. Parent directories are created automatically. |
+
+When `--output` is omitted, the YAML is written to stdout. When `--output` is provided, the YAML is written to the given path and a confirmation message is printed to stderr (so stdout capture is unaffected).
+
+**Example: GitOps workflow**
+
+```bash
+# Generate the CRD and commit it to a GitOps repository
+reinhardt-cloud crd generate > gitops-repo/crds/reinhardtapp.yaml
+git -C gitops-repo add crds/reinhardtapp.yaml
+git -C gitops-repo commit -m "chore: update ReinhardtApp CRD schema"
+
+# Write to a file directly
+reinhardt-cloud crd generate --output deploy/crds/reinhardtapp.yaml
+
+# Apply directly to the cluster (bootstrap or upgrade)
+reinhardt-cloud crd generate | kubectl apply -f -
+```
+
+**Output shape**
+
+The generated YAML is a standard Kubernetes `CustomResourceDefinition` object:
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: reinhardtapps.paas.reinhardt-cloud.dev
+spec:
+  group: paas.reinhardt-cloud.dev
+  names:
+    kind: ReinhardtApp
+    ...
+  versions:
+    - name: v1alpha2
+      ...
+```
+
+> **For Platform Operators**: The `apiVersion` embedded in generated `ReinhardtApp` manifests (produced by `deploy --dry-run` and the operator itself) is currently hardcoded to `paas.reinhardt-cloud.dev/v1alpha2`. This is an active design area — see [#367](https://github.com/kent8192/reinhardt-cloud/issues/367) for the ongoing discussion on multi-version support. If your cluster serves a different storage version, re-generate and re-apply the CRD after each CLI upgrade. Long-lived GitOps repositories that pin the CRD YAML should monitor #367 and update when the storage version changes.
+
+**Troubleshooting**
+
+- **`Failed to write CRD to <path>: ...`** — The output path or its parent directory could not be written to. Check disk space and permissions, or omit `--output` to write to stdout and redirect manually.
+- **CRD rejected by `kubectl apply`** — The cluster may already have a `reinhardtapps` CRD from an older CLI version. Use `kubectl replace -f -` or `kubectl apply --server-side -f -` to force an update. Review the diff before replacing in production.
