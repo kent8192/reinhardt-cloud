@@ -1,0 +1,266 @@
+# reinhardt-cloud-operator
+
+> **Last verified**: commit `84d08ad` on 2026-04-18
+> **Source of truth**: this file. `crates/reinhardt-cloud-operator/README.md` is a summary.
+> **Audience**: primarily Platform Operators; App-Developer notes live in a dedicated section near the bottom.
+
+## Overview
+
+`reinhardt-cloud-operator` is a Kubernetes operator that watches `ReinhardtApp` custom resources and
+reconciles them into the standard Kubernetes workloads that run an application. When a `ReinhardtApp`
+is created or updated, the operator computes the desired infrastructure — Deployment, Service, ConfigMap,
+database StatefulSet or cloud-managed DB object, Ingress, cache Deployment, worker Deployment, build Job,
+and so on — and applies each resource to the cluster via server-side apply. It maintains a finalizer
+(`paas.reinhardt-cloud.dev/cleanup`) so that externally-provisioned resources are cleaned up when a
+`ReinhardtApp` is deleted.
+
+The operator runs as a single Deployment in the `reinhardt-cloud-system` namespace (by default) and
+processes `ReinhardtApp` objects across all namespaces. Its only runtime inputs are the in-cluster
+service account credentials, the `RUST_LOG` environment variable, and the platform and feature values
+baked in at Helm install time via `PlatformConfig`. There are no operator-specific CLI flags; all
+tuning is done through Helm values at deploy time.
+
+### Placement in the architecture
+
+```mermaid
+flowchart LR
+    CLI[reinhardt-cloud CLI] --> API[Platform API / kube-apiserver]
+    Dashboard --> API
+    API -->|ReinhardtApp CRD| Operator
+    Operator -->|Deployment, Service, Ingress, ...| Workloads
+    Operator -->|status updates| API
+```
+
+The CLI and Dashboard submit `ReinhardtApp` objects (either directly via `kubectl apply` or via the
+Dashboard's API layer) to the kube-apiserver. The operator's controller loop watches these objects
+and reconciles the desired state into concrete Kubernetes resources. Status fields and conditions are
+written back to the `ReinhardtApp` object so the CLI and Dashboard can surface current state to users.
+
+### Supported environments
+
+- **Kubernetes**: no `kubeVersion` constraint in `Chart.yaml`; tested against mainstream releases.
+- **Cloud overlays**: `values-aws.yaml` (EKS / ACK / ALB), `values-gcp.yaml` (GKE / Config Connector / GCE ingress), `values-onprem.yaml` (bare-metal / private registry).
+- **Default overlay**: `values.yaml` is set to `platform: onpremise` and serves as the base for all environments.
+
+### Relationship with `reinhardt-cloud-agent`
+
+The operator runs inside the target cluster and watches `ReinhardtApp` CRDs declaratively; it does
+not communicate with any external control plane. The agent (documented in `agent.md`) is a separate
+process that connects a cluster to an external control plane and handles deploy/rollback/scale commands
+imperatively. The operator alone is sufficient for single-cluster deployments driven by the CLI or a
+GitOps tool such as ArgoCD or Flux.
+
+---
+
+## Reference
+
+### Helm chart
+
+- **Chart**: `charts/reinhardt-cloud-operator`
+- **Values**: canonical defaults in `charts/reinhardt-cloud-operator/values.yaml`. Per-environment overlays: `values-aws.yaml`, `values-gcp.yaml`, `values-onprem.yaml`.
+- **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0`. The chart version and app version are kept in sync; both advance together on each release.
+
+> **Caveat**: the shipped `values.yaml` currently has sparse or absent explanatory comments for most
+> keys. Until that is enriched, use the table below for the shape and read the in-file keys alongside
+> this reference. Tracking: to be filed (#TBD-values-doc-enrichment).
+
+Top-level value keys (from `values.yaml`):
+
+| Key path | Purpose | Default |
+|---|---|---|
+| `replicaCount` | Number of operator Deployment replicas | `1` |
+| `image.repository` | Operator container image repository | `reinhardt-cloud-operator` |
+| `image.pullPolicy` | Image pull policy | `IfNotPresent` |
+| `image.tag` | Image tag; empty string uses the chart's `appVersion` | `""` |
+| `imagePullSecrets` | List of pull-secret references | `[]` |
+| `namespace` | Kubernetes namespace the operator is installed into | `reinhardt-cloud-system` |
+| `platform` | Target platform (`onpremise` / `aws` / `gcp`); drives `PlatformConfig` and RBAC rules | `onpremise` |
+| `features.database` | Enable database inference and RBAC rules | `true` |
+| `features.cache` | Enable Redis cache inference | `false` |
+| `features.ingress` | Enable Ingress inference and RBAC rules | `false` |
+| `features.autoscaling` | Enable HPA inference and RBAC rules | `false` |
+| `features.storage` | Enable cloud storage ServiceAccount | `false` |
+| `features.worker` | Enable background-worker Deployment inference | `false` |
+| `serviceAccount.create` | Create a ServiceAccount for the operator | `true` |
+| `serviceAccount.annotations` | Annotations on the ServiceAccount (e.g. IRSA / Workload Identity) | `{}` |
+| `serviceAccount.name` | Override ServiceAccount name; empty uses the Helm release name | `""` |
+| `operator.args` | Command-line arguments passed to the operator binary | `["run"]` |
+| `operator.env.RUST_LOG` | Log filter directive; see `tracing_subscriber` docs | `info` |
+| `operator.extraEnv` | Additional environment variables (map) | `{}` |
+| `podSecurityContext.runAsNonRoot` | Run pod as non-root | `true` |
+| `podSecurityContext.runAsUser` | UID for the operator process | `1000` |
+| `securityContext.allowPrivilegeEscalation` | Container privilege escalation | `false` |
+| `securityContext.readOnlyRootFilesystem` | Read-only root filesystem | `true` |
+| `resources.requests.cpu` | CPU request for the operator container | `100m` |
+| `resources.requests.memory` | Memory request | `128Mi` |
+| `resources.limits.cpu` | CPU limit | `500m` |
+| `resources.limits.memory` | Memory limit | `256Mi` |
+| `nodeSelector` | Node selector map | `{}` |
+| `tolerations` | Toleration list | `[]` |
+| `affinity` | Affinity map | `{}` |
+| `defaults.database.storage_gb` | Default PVC size (GiB) for on-premise PostgreSQL StatefulSet | `20` |
+| `defaults.database.storage_class` | Default StorageClass for database PVC | `local-path` |
+| `defaults.database.engine_version.postgresql` | Default PostgreSQL engine version string | `"16"` |
+| `defaults.database.engine_version.mysql` | Default MySQL engine version string | `"8.0"` |
+| `defaults.cache.storage_gb` | Default cache storage size (GiB) | `1` |
+| `defaults.cache.storage_class` | Default StorageClass for cache PVC | `local-path` |
+| `defaults.resources.requests.cpu` | Default CPU request for app workloads | `100m` |
+| `defaults.resources.requests.memory` | Default memory request for app workloads | `128Mi` |
+| `defaults.resources.limits.cpu` | Default CPU limit for app workloads | `1000m` |
+| `defaults.resources.limits.memory` | Default memory limit for app workloads | `1Gi` |
+| `defaults.storage.class` | Default StorageClass for storage volumes | `local-path` |
+| `defaults.ingress.class` | Default IngressClass name | `nginx` |
+| `defaults.ingress.annotations` | Default annotations added to generated Ingress objects | `kubernetes.io/ingress.class: nginx` |
+| `isolation.defaultLevel` | Default workload isolation level (`None` / `Sandbox`) applied when `ReinhardtApp.spec.isolation.level` is unset | `"None"` |
+| `isolation.runtimeClasses.kata.enabled` | Deploy the Kata Containers RuntimeClass | `false` |
+| `isolation.runtimeClasses.kata.handler` | Runtime handler name for Kata | `kata-clh` |
+| `isolation.runtimeClasses.kata.overhead.memory` | Memory overhead for Kata pods | `160Mi` |
+| `isolation.runtimeClasses.kata.overhead.cpu` | CPU overhead for Kata pods | `250m` |
+| `isolation.runtimeClasses.gvisor.enabled` | Deploy the gVisor RuntimeClass | `false` |
+| `isolation.networkPolicy.enabled` | Enable NetworkPolicy generation for tenants | `true` |
+| `isolation.networkPolicy.provider` | CNI provider used for NetworkPolicy (`cilium`, etc.) | `cilium` |
+| `isolation.networkPolicy.blockMetadataService` | Block cloud metadata service egress in NetworkPolicy | `true` |
+| `isolation.networkPolicy.defaultEgressAllow` | Default egress CIDR allow list | `["0.0.0.0/0"]` |
+| `isolation.podSecurityStandards.enabled` | Label namespaces for Pod Security Standards enforcement | `true` |
+| `isolation.podSecurityStandards.enforceLevel` | PSS enforce level (`privileged` / `baseline` / `restricted`) | `restricted` |
+| `isolation.seccomp.enabled` | Apply seccomp profile to operator pods | `true` |
+| `isolation.seccomp.profile` | Seccomp profile name | `RuntimeDefault` |
+| `isolation.resourceLimits.enabled` | Create LimitRange for noisy-neighbor protection | `true` |
+| `isolation.resourceLimits.defaults.requests.cpu` | Default CPU request in LimitRange | `100m` |
+| `isolation.resourceLimits.defaults.requests.memory` | Default memory request in LimitRange | `128Mi` |
+| `isolation.resourceLimits.defaults.limits.cpu` | Default CPU limit in LimitRange | `"2"` |
+| `isolation.resourceLimits.defaults.limits.memory` | Default memory limit in LimitRange | `2Gi` |
+| `isolation.resourceLimits.max.cpu` | Maximum CPU limit enforced by LimitRange | `"4"` |
+| `isolation.resourceLimits.max.memory` | Maximum memory limit enforced by LimitRange | `4Gi` |
+
+Environment overlay differences:
+
+| Overlay | Purpose | Notable overrides |
+|---|---|---|
+| `values-aws.yaml` | EKS deployment with IRSA, ACK-backed databases, ALB ingress, and Kata/Cilium sandboxing | `platform: aws`, `serviceAccount.annotations` (IRSA role ARN), `defaults.ingress.class: alb`, `isolation.defaultLevel: Sandbox` |
+| `values-gcp.yaml` | GKE deployment with Workload Identity, Config Connector databases, GCE ingress. gVisor disabled (GKE manages it natively). | `platform: gcp`, `serviceAccount.annotations` (GSA email), `defaults.ingress.class: gce`, `isolation.runtimeClasses.gvisor.enabled: false` |
+| `values-onprem.yaml` | Private/bare-metal deployment with internal registry and control-plane node tolerance | `platform: onpremise`, `image.repository: registry.internal/...`, `image.pullPolicy: Always`, `imagePullSecrets`, `tolerations` for control-plane nodes |
+
+Common override scenarios:
+
+| Scenario | Flag or values snippet |
+|---|---|
+| Install into a custom namespace | `--namespace my-ns --set namespace=my-ns` |
+| Increase operator log verbosity | `--set operator.env.RUST_LOG=reinhardt_cloud_operator=debug` |
+| Enable ingress feature | `--set features.ingress=true` |
+| Enable autoscaling (HPA) | `--set features.autoscaling=true` |
+| Set default app CPU limit | `--set defaults.resources.limits.cpu=500m` |
+| Attach IRSA role (AWS) | `--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::123456789012:role/my-role` |
+| Disable network policy generation | `--set isolation.networkPolicy.enabled=false` |
+| Relax pod security standards to baseline | `--set isolation.podSecurityStandards.enforceLevel=baseline` |
+
+### CRDs managed
+
+From `charts/reinhardt-cloud-operator/crds/`:
+
+#### `ReinhardtApp` (`reinhardtapp-crd.yaml`)
+
+- **Kind**: `ReinhardtApp`
+- **Group / version**: `paas.reinhardt-cloud.dev/v1alpha2`
+- **Scope**: Namespaced
+- **Served**: `true` — **Storage**: `true` (sole served/stored version as of this audit)
+- **Short name**: `reinhardtapp` (plural: `reinhardtapps`)
+- **Purpose**: Declares a PaaS application workload. The operator reconciles this object into a set of
+  Kubernetes resources appropriate for the target platform.
+
+**Top-level `spec` fields** (refer to the CRD YAML at `crds/reinhardtapp-crd.yaml` for the exhaustive schema):
+
+| Field | Required | Summary |
+|---|---|---|
+| `image` | yes | Docker image reference to deploy |
+| `replicas` | no | Desired replica count |
+| `auth` | no | JWT and OAuth2 authentication configuration |
+| `cache` | no | Redis cache configuration (requires `features.cache: true`) |
+| `database` | no | Database engine, version, and storage settings |
+| `deletion_policy` | no | `Retain` (default) or `Delete` — controls cleanup of managed infra on deletion |
+| `env` | no | Environment variables injected into the app container |
+| `features` | no | List of feature flag strings from the Cargo introspection output |
+| `health` | no | Liveness and readiness probe configuration |
+| `introspect` | no | Full `IntrospectOutput` subtree (set automatically by `reinhardt-cloud deploy`) |
+| `isolation` | no | Per-app isolation overrides (`level`, `runtimeClass`, `networkPolicy`) |
+| `mail` | no | SMTP credentials secret reference |
+| `pages` | no | Static-site configuration for reinhardt-pages apps |
+| `scale` | no | HPA configuration (min/max replicas, metrics) |
+| `services` | no | Ingress host and extra port configuration |
+| `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
+| `storage` | no | Cloud object storage bucket and storage class |
+| `worker` | no | Background-worker process configuration |
+
+**`status` fields**:
+
+| Field | Type | Description |
+|---|---|---|
+| `phase` | `AppPhase` | Top-level application lifecycle phase. Values: `pending`, `provisioning`, `deploying`, `running`, `degraded`, `failed`, `terminating` |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types: `Ready`, `Progressing`, `Degraded` |
+| `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
+| `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
+| `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
+| `observedGeneration` | int64 | Last generation observed by the controller |
+
+Note: the served/storage version matrix may change release-to-release. The upcoming
+`reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at
+[#367](https://github.com/kent8192/reinhardt-cloud/issues/367).
+
+### RBAC
+
+From `charts/reinhardt-cloud-operator/templates/clusterrole.yaml`:
+
+The operator uses a **ClusterRole** (cluster-scoped) bound to its ServiceAccount. The role is templated
+and expands or contracts based on `platform` and `features.*` values at install time. No wildcard (`*`)
+permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
+
+**Always-present rules (all platforms and feature configurations)**:
+
+| API group | Resources | Verbs |
+|---|---|---|
+| `paas.reinhardt-cloud.dev` | `reinhardtapps` | get, list, watch, create, update, patch, delete |
+| `paas.reinhardt-cloud.dev` | `reinhardtapps/status` | get, update, patch |
+| `paas.reinhardt-cloud.dev` | `reinhardtapps/finalizers` | update |
+| `apps` | `deployments` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `services`, `configmaps`, `secrets` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `events` | create, patch |
+| `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
+| `""` (core) | `namespaces` | get, patch |
+
+**Feature-conditional rules**:
+
+| Condition | API group | Resources | Verbs |
+|---|---|---|---|
+| `features.database=true`, `platform=onpremise` | `apps` | `statefulsets` | get, list, watch, create, update, patch, delete |
+| `features.database=true`, `platform=onpremise` | `""` (core) | `persistentvolumeclaims` | get, list, watch, create, update, patch, delete |
+| `features.database=true`, `platform=aws` | `rds.services.k8s.aws` | `dbinstances` | get, list, watch, create, update, patch, delete |
+| `features.database=true`, `platform=gcp` | `sql.cnrm.cloud.google.com` | `sqlinstances`, `sqldatabases`, `sqlusers` | get, list, watch, create, update, patch, delete |
+| `features.cache=true`, `platform=onpremise` | `apps` | `statefulsets` | get, list, watch, create, update, patch, delete |
+| `features.cache=true`, `platform=aws` | `elasticache.services.k8s.aws` | `replicationgroups` | get, list, watch, create, update, patch, delete |
+| `features.cache=true`, `platform=gcp` | `redis.cnrm.cloud.google.com` | `redisinstances` | get, list, watch, create, update, patch, delete |
+| `features.ingress=true` | `networking.k8s.io` | `ingresses` | get, list, watch, create, update, patch, delete |
+| `features.autoscaling=true` | `autoscaling` | `horizontalpodautoscalers` | get, list, watch, create, update, patch, delete |
+
+ServiceAccount: name is resolved by the `reinhardt-cloud-operator.serviceAccountName` helper in
+`_helpers.tpl` — defaults to the Helm release name, or `values.serviceAccount.name` if set.
+
+### Controller internals (shallow — Reference only)
+
+This section is intentionally brief; deep design lives outside this file.
+
+- **Reconcile entry point**: `crates/reinhardt-cloud-operator/src/reconciler.rs` —
+  `pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error>`.
+  The context carries a `kube::Client` and a `PlatformConfig` derived from Helm values.
+- **Inference**: `crates/reinhardt-cloud-operator/src/inference/` maps Cargo features found in the
+  `ReinhardtApp` spec to infra requests. Sub-modules cover `configmap`, `database`, `env_vars`,
+  `pages`, `platform`, and `secrets`; `database` selects between on-premise StatefulSets and
+  cloud-provider DynamicObjects depending on the platform.
+- **Requeue strategy**: currently a fixed `Action::requeue(Duration::from_secs(30))` regardless of
+  error kind. Exponential backoff is tracked at
+  [#365](https://github.com/kent8192/reinhardt-cloud/issues/365).
+- **Observability**: no custom Prometheus metrics are emitted today
+  ([#366](https://github.com/kent8192/reinhardt-cloud/issues/366)). Logs use the `tracing` ecosystem
+  — set `RUST_LOG` (via `operator.env.RUST_LOG` in values) to adjust verbosity. The default directive
+  is `reinhardt_cloud_operator=info`. Structured log fields include namespace, app name, and the
+  specific resource being reconciled (e.g. `"Reconciled Deployment {namespace}/{name}"`).
