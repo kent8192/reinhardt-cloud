@@ -62,7 +62,7 @@ GitOps tool such as ArgoCD or Flux.
 
 > **Caveat**: the shipped `values.yaml` currently has sparse or absent explanatory comments for most
 > keys. Until that is enriched, use the table below for the shape and read the in-file keys alongside
-> this reference. Tracking: to be filed (#TBD-values-doc-enrichment).
+> this reference. Tracking: [#368](https://github.com/kent8192/reinhardt-cloud/issues/368).
 
 Top-level value keys (from `values.yaml`):
 
