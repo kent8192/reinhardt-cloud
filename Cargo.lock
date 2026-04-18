@@ -3658,10 +3658,13 @@ dependencies = [
  "nom 8.0.0",
  "percent-encoding",
  "quoted_printable",
+ "rustls",
  "socket2 0.6.3",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "url",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -5924,7 +5927,9 @@ dependencies = [
  "hmac 0.12.1",
  "inventory",
  "js-sys",
+ "lettre",
  "proptest",
+ "rand 0.9.3",
  "reinhardt-cloud-core",
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-k8s",
