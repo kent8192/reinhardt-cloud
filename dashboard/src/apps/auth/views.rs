@@ -7,4 +7,5 @@ define_views! {
 	pub mod login;
 	pub mod profile;
 	pub mod register;
+	pub mod verify_email;
 }
