@@ -39,15 +39,21 @@ All subcommands accept these shared inputs:
 Resolution order for the effective API server URL (highest priority first):
 
 1. `--server <URL>` CLI flag
-2. `~/.config/reinhardt-cloud/config.toml` (`api_url` key)
+2. `<platform config dir>/reinhardt-cloud/config.toml` (`api_url` key)
 3. `REINHARDT_CLOUD_API_URL` environment variable
 4. Built-in default: `http://localhost:8000`
 
-> `~/.config/reinhardt-cloud/config.toml` is loaded at startup via `CliConfig::from_file`. A missing file is silently ignored; a malformed file prints a warning to stderr and the CLI continues with `CliConfig::default()`.
+The platform config dir is resolved by [`dirs::config_dir()`](https://docs.rs/dirs/latest/dirs/fn.config_dir.html):
+
+- **Linux / XDG**: `~/.config/reinhardt-cloud/`
+- **macOS**: `~/Library/Application Support/reinhardt-cloud/`
+- **Windows**: `%APPDATA%\reinhardt-cloud\`
+
+> `<platform config dir>/reinhardt-cloud/config.toml` is loaded at startup via `CliConfig::from_file`. A missing file is silently ignored; a malformed file prints a warning to stderr and the CLI continues with `CliConfig::default()`.
 
 ### Credential auto-load
 
-After resolving the API URL, the CLI calls `load_token()` and, when credentials exist at `~/.config/reinhardt-cloud/credentials.json`, attaches the stored JWT to the HTTP client via `ReinhardtCloudClient::with_token`. Authenticated subcommands (`deploy`, `status`) automatically send `Authorization: Bearer <token>` on every request — no manual re-login is required between invocations. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
+After resolving the API URL, the CLI calls `load_token()` and, when credentials exist at `<platform config dir>/reinhardt-cloud/credentials.json`, attaches the stored JWT to the HTTP client via `ReinhardtCloudClient::with_token`. Authenticated subcommands (`deploy`, `status`) automatically send `Authorization: Bearer <token>` on every request — no manual re-login is required between invocations. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
 
 ### Exit codes
 
@@ -383,14 +389,14 @@ The password is read interactively via a hidden prompt written to stderr (so it 
 
 1. Prompts for password on stderr (`Password: `).
 2. Sends credentials to the platform API (`/auth/login` or equivalent).
-3. On success, saves the returned JWT token to the credentials file (`~/.config/reinhardt-cloud/credentials` or the platform-default path shown in the success message).
+3. On success, saves the returned JWT token to the credentials file (`<platform config dir>/reinhardt-cloud/credentials.json`, where the platform config dir is platform-dependent — see [Configuration Discovery](#configuration-discovery)).
 4. Prints the JWT token to stdout so callers can capture it (e.g. `TOKEN=$(reinhardt-cloud login --username alice)`). The success message is on stderr and does not pollute the captured value.
 
-> **Security note**: The credentials file is currently written using the process umask and is not automatically restricted to the owner. On shared hosts (multi-user Linux, some CI runners with a shared user home) other local users may be able to read it. After your first login, run:
+> **Security note**: The credentials file is currently written using the process umask and is not automatically restricted to the owner. On shared hosts (multi-user Linux, some CI runners with a shared user home) other local users may be able to read it. After your first login, run (Unix only):
 > ```bash
-> chmod 600 ~/.config/reinhardt-cloud/credentials*
+> chmod 600 "<platform config dir>/reinhardt-cloud/credentials"*
 > ```
-> This will be tightened to owner-only permissions (`0600`) in a future release.
+> Replace `<platform config dir>` with the platform-specific path (e.g. `~/.config` on Linux or `~/Library/Application Support` on macOS). This will be tightened to owner-only permissions (`0600`) in a future release.
 
 **Example**
 

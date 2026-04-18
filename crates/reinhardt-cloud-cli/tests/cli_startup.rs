@@ -30,6 +30,7 @@ fn test_cli_runs_with_missing_config_file() {
 }
 
 #[rstest]
+#[cfg(not(windows))]
 fn test_cli_loads_api_url_from_config_file() {
 	// Arrange: create config.toml with a distinctive api_url the CLI must pick
 	// up. `status --name nonexistent` will try to reach it and fail, but the
