@@ -1,12 +1,17 @@
+# On-premise overlay: matches the values.yaml baseline platform, pinned for clarity.
 platform: onpremise
 
 image:
+  # Internal/private registry hosting the operator image for air-gapped clusters.
   repository: registry.internal/reinhardt-cloud/reinhardt-cloud-operator
+  # Always pull to pick up retagged images in the internal registry.
   pullPolicy: Always
 
+# Credentials for the internal registry (not needed for the public image in values.yaml).
 imagePullSecrets:
   - name: internal-registry-secret
 
+# Allow scheduling on control-plane nodes for small on-prem clusters.
 tolerations:
   - key: "node-role.kubernetes.io/control-plane"
     operator: "Exists"
