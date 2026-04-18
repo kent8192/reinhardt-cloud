@@ -2,10 +2,6 @@ use super::dockerfile::{Instruction, Stage};
 
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
-// Reserved fields (cache, session_backend, graphql) are populated by
-// collect_signals and will be consumed when corresponding Dockerfile
-// optimizations are added.
-#[allow(dead_code)]
 pub(crate) struct DockerfileSignals {
 	pub(crate) app_name: String,
 	pub(crate) rust_version: String,
@@ -21,7 +17,13 @@ pub(crate) struct DockerfileSignals {
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
 
-/// Determines the runtime packages needed based on the database signal.
+/// Determines the runtime packages needed based on the database, cache, and
+/// session-backend signals.
+///
+/// `graphql` does not affect runtime packages on its own — the GraphQL server
+/// is statically linked into the application binary. It is consumed here only
+/// to avoid a dead-field warning and to document that future runtime tooling
+/// (e.g. a graphql-cli probe) may read it.
 fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
 	let mut pkgs = vec!["ca-certificates", "tini"];
 
@@ -30,6 +32,27 @@ fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
 		Some("mysql") => pkgs.push("default-mysql-client-core"),
 		_ => {}
 	}
+
+	// Cache client tooling — currently only redis is supported. `redis-tools`
+	// provides `redis-cli`, useful for runtime diagnostics and liveness probes.
+	if signals.cache.as_deref() == Some("redis") {
+		pkgs.push("redis-tools");
+	}
+
+	// Session backend client tooling. De-duplicated against the cache entry
+	// so `redis-tools` is not added twice when both signals resolve to redis.
+	match signals.session_backend.as_deref() {
+		Some("redis") => {
+			if !pkgs.contains(&"redis-tools") {
+				pkgs.push("redis-tools");
+			}
+		}
+		Some("memcached") => pkgs.push("libmemcached-tools"),
+		_ => {}
+	}
+
+	// Acknowledge the graphql signal; no runtime package changes today.
+	let _ = signals.graphql;
 
 	pkgs
 }
@@ -466,6 +489,82 @@ mod tests {
 		// Assert
 		assert!(stage_contains_run(&stage, "protobuf-compiler"));
 		assert!(stage_contains_run(&stage, "cargo build --release"));
+	}
+
+	// S19
+	#[rstest]
+	fn runtime_stage_with_redis_cache(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.cache = Some("redis".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_contains_run(&stage, "redis-tools"));
+	}
+
+	// S20
+	#[rstest]
+	fn runtime_stage_with_redis_session_backend(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.session_backend = Some("redis".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_contains_run(&stage, "redis-tools"));
+	}
+
+	// S21
+	#[rstest]
+	fn runtime_stage_with_memcached_session_backend(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.session_backend = Some("memcached".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_contains_run(&stage, "libmemcached-tools"));
+	}
+
+	// S22 — redis cache + redis session_backend must not duplicate the package.
+	#[rstest]
+	fn runtime_stage_redis_cache_and_session_no_dup(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.cache = Some("redis".to_string());
+		minimal_signals.session_backend = Some("redis".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert: only one apt install line, and it must not list redis-tools twice.
+		let install_line = stage.instructions.iter().find_map(|inst| match inst {
+			Instruction::RunMulti(cmds) => cmds
+				.iter()
+				.find(|c| c.contains("apt-get install"))
+				.cloned(),
+			_ => None,
+		});
+		let line = install_line.expect("expected apt-get install line");
+		assert_eq!(line.matches("redis-tools").count(), 1, "line was: {line}");
+	}
+
+	// S23 — redis-tools must not appear under a custom (non-Debian) base image.
+	#[rstest]
+	fn runtime_stage_redis_cache_with_override_skips_apt(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.cache = Some("redis".to_string());
+		minimal_signals.base_image_override = Some("custom:latest".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(!stage_contains_run(&stage, "apt-get"));
+		assert!(!stage_contains_run(&stage, "redis-tools"));
 	}
 
 	// S18
