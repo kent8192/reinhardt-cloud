@@ -411,6 +411,18 @@ async fn resolve_deploy_api_version(
 		return Ok(explicit.to_string());
 	}
 
+	// Known limitation: when no --cluster context is given, kube::Client::try_default()
+	// picks up the active kubeconfig context, which may differ from the cluster that
+	// kubectl will target when the apply runs. To guarantee both discovery and apply
+	// hit the same cluster, pass --cluster explicitly.
+	if cluster_context.is_none() {
+		eprintln!(
+			"Warning: --direct is set without --cluster; apiVersion discovery uses the \
+			 default kubeconfig context, which may differ from the kubectl apply target. \
+			 Pass --cluster to pin both discovery and apply to the same cluster."
+		);
+	}
+
 	let kube_client_result = match cluster_context {
 		Some(context) => {
 			let opts = kube::config::KubeConfigOptions {
@@ -426,10 +438,7 @@ async fn resolve_deploy_api_version(
 	};
 
 	let kube_client = kube_client_result.map_err(|e| -> Box<dyn std::error::Error> {
-		format!(
-			"failed to build Kubernetes client for apiVersion discovery: {e} (pass --api-version <group/version> to skip cluster discovery when running without a kubeconfig or in-cluster config)"
-		)
-		.into()
+		format!("failed to build Kubernetes client for apiVersion discovery: {e} (pass --api-version <group/version> to skip cluster discovery when running without a kubeconfig or in-cluster config)").into()
 	})?;
 
 	resolve_api_version(&kube_client, None).await
