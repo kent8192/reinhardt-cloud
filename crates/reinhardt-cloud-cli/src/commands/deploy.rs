@@ -233,6 +233,15 @@ pub(crate) async fn execute(
 	args: &DeployArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	let span = tracing::info_span!(
+		"cli.deploy",
+		otel.kind = "client",
+		api.version = env!("CARGO_PKG_VERSION"),
+		app.name = args.name.as_deref().unwrap_or(""),
+		app.namespace = %args.namespace,
+	);
+	let _enter = span.enter();
+
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect

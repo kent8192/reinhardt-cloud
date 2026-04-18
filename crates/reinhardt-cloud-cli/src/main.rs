@@ -49,6 +49,13 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// Initialize OpenTelemetry tracing. The guard must live for the duration of
+	// `main` so the OTLP span exporter is flushed on shutdown. When
+	// `OTEL_EXPORTER_OTLP_ENDPOINT` is unset the path is effectively zero-cost.
+	let _tracing_guard = reinhardt_cloud_telemetry::init_tracing(
+		reinhardt_cloud_telemetry::TracingConfig::from_env("reinhardt-cloud-cli", false),
+	)?;
+
 	let cli = Cli::parse();
 	let config = CliConfig::default();
 

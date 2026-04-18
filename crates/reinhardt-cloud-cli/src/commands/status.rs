@@ -156,6 +156,16 @@ pub(crate) async fn execute(
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	let app_name = args.name.as_deref().unwrap_or("default-app");
+
+	let span = tracing::info_span!(
+		"cli.status",
+		otel.kind = "client",
+		api.version = env!("CARGO_PKG_VERSION"),
+		app.name = app_name,
+		app.namespace = %args.namespace,
+	);
+	let _enter = span.enter();
+
 	println!("Checking status of {app_name}...\n");
 
 	// Try the dashboard API first

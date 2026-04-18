@@ -5945,6 +5945,7 @@ dependencies = [
  "dirs",
  "k8s-openapi",
  "kube",
+ "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "reqwest 0.12.28",
  "rpassword",
