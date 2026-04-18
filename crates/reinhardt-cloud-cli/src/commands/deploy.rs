@@ -52,9 +52,29 @@ pub(crate) struct DeployArgs {
 	/// Override the `ReinhardtApp` apiVersion (e.g. `paas.reinhardt-cloud.dev/v1`).
 	///
 	/// When unset and `--direct` is used, the CLI queries the cluster's CRD
-	/// and selects the served storage version automatically.
-	#[arg(long)]
+	/// and selects the served storage version automatically. The value MUST
+	/// be a fully-qualified `group/version` — short forms like `v1` are
+	/// rejected so we never produce manifests with a missing API group.
+	#[arg(long, value_parser = validate_api_version)]
 	pub api_version: Option<String>,
+}
+
+/// Reject `--api-version` values that are not fully-qualified
+/// `group/version` strings (e.g. `paas.reinhardt-cloud.dev/v1`). Short
+/// forms like `v1` would silently produce manifests missing the API group,
+/// which the cluster then rejects with an opaque error far from the cause.
+fn validate_api_version(value: &str) -> Result<String, String> {
+	let mut parts = value.split('/');
+	let group = parts.next().unwrap_or_default();
+	let version = parts.next().unwrap_or_default();
+
+	if group.is_empty() || version.is_empty() || parts.next().is_some() {
+		return Err(format!(
+			"invalid value for --api-version: expected fully-qualified group/version (for example `paas.reinhardt-cloud.dev/v1`), got `{value}`"
+		));
+	}
+
+	Ok(value.to_string())
 }
 
 /// Reads reinhardt-cloud.toml from the project directory if it exists.
@@ -303,28 +323,12 @@ pub(crate) async fn execute(
 	// stays compatible with whatever served version the operator exposes.
 	// Otherwise (API-mode deploys, dry-run), fall back to the compile-time
 	// default because no cluster is contacted.
-	let api_version = if args.direct {
-		match kube::Client::try_default().await {
-			Ok(kube_client) => {
-				resolve_api_version(&kube_client, args.api_version.as_deref()).await?
-			}
-			Err(e) => match args.api_version.clone() {
-				Some(explicit) => explicit,
-				None => {
-					return Err(format!(
-						"failed to build Kubernetes client for apiVersion discovery: {e} \
-						 (pass --api-version <group/version> to skip cluster discovery \
-						 when running without a kubeconfig or in-cluster config)"
-					)
-					.into());
-				}
-			},
-		}
-	} else {
-		args.api_version
-			.clone()
-			.unwrap_or_else(|| COMPILE_TIME_DEFAULT.to_string())
-	};
+	let api_version = resolve_deploy_api_version(
+		args.direct,
+		args.api_version.as_deref(),
+		args.cluster.as_deref(),
+	)
+	.await?;
 
 	// Step 5: Build CRD
 	let crd = build_reinhardt_app_crd(
@@ -375,6 +379,60 @@ pub(crate) async fn execute(
 	}
 
 	Ok(())
+}
+
+/// Decide which apiVersion to embed in the generated `ReinhardtApp` CRD.
+///
+/// Selection priority:
+/// 1. Non-`--direct` invocations never contact a cluster, so an explicit
+///    override (or the compile-time default) is used directly. This keeps
+///    dry-runs and API-mode deploys offline.
+/// 2. `--direct` with an explicit `--api-version` short-circuits cluster
+///    discovery — the user has already pinned the version they want.
+/// 3. `--direct` without an override builds a kube `Client` honoring the
+///    `--cluster` (kubeconfig context) flag so discovery and the later
+///    `kubectl --context` apply target the *same* cluster, then queries
+///    the live CRD via `resolve_api_version`.
+///
+/// Extracted from `execute` so the selection logic is testable without
+/// requiring a live kubeconfig or cluster.
+async fn resolve_deploy_api_version(
+	direct: bool,
+	explicit_api_version: Option<&str>,
+	cluster_context: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>> {
+	if !direct {
+		return Ok(explicit_api_version
+			.map(str::to_owned)
+			.unwrap_or_else(|| COMPILE_TIME_DEFAULT.to_string()));
+	}
+
+	if let Some(explicit) = explicit_api_version {
+		return Ok(explicit.to_string());
+	}
+
+	let kube_client_result = match cluster_context {
+		Some(context) => {
+			let opts = kube::config::KubeConfigOptions {
+				context: Some(context.to_string()),
+				..Default::default()
+			};
+			match kube::Config::from_kubeconfig(&opts).await {
+				Ok(config) => kube::Client::try_from(config),
+				Err(e) => Err(e.into()),
+			}
+		}
+		None => kube::Client::try_default().await,
+	};
+
+	let kube_client = kube_client_result.map_err(|e| -> Box<dyn std::error::Error> {
+		format!(
+			"failed to build Kubernetes client for apiVersion discovery: {e} (pass --api-version <group/version> to skip cluster discovery when running without a kubeconfig or in-cluster config)"
+		)
+		.into()
+	})?;
+
+	resolve_api_version(&kube_client, None).await
 }
 
 #[cfg(test)]
@@ -726,5 +784,76 @@ features:
 			err.contains("kubectl") || err.contains("apply"),
 			"expected kubectl-related error, got: {err}"
 		);
+	}
+
+	#[rstest]
+	#[case("paas.reinhardt-cloud.dev/v1")]
+	#[case("paas.reinhardt-cloud.dev/v1alpha2")]
+	fn test_validate_api_version_accepts_fully_qualified(#[case] value: &str) {
+		// Act
+		let result = validate_api_version(value);
+
+		// Assert
+		assert_eq!(result.as_deref(), Ok(value));
+	}
+
+	#[rstest]
+	#[case("v1")]
+	#[case("/v1")]
+	#[case("paas.reinhardt-cloud.dev/")]
+	#[case("paas.reinhardt-cloud.dev/v1/extra")]
+	#[case("")]
+	fn test_validate_api_version_rejects_malformed(#[case] value: &str) {
+		// Act
+		let result = validate_api_version(value);
+
+		// Assert
+		assert!(
+			result.is_err(),
+			"expected `{value}` to be rejected as malformed, got Ok"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_non_direct_uses_override() {
+		// Arrange / Act
+		let resolved = resolve_deploy_api_version(
+			false,
+			Some("paas.reinhardt-cloud.dev/v9"),
+			None,
+		)
+		.await
+		.expect("non-direct override path must not contact a cluster");
+
+		// Assert
+		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_non_direct_falls_back_to_compile_default() {
+		// Arrange / Act
+		let resolved = resolve_deploy_api_version(false, None, None)
+			.await
+			.expect("non-direct path with no override must use compile-time default");
+
+		// Assert
+		assert_eq!(resolved, COMPILE_TIME_DEFAULT);
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_direct_with_override_short_circuits() {
+		// Arrange: pass a cluster context that almost certainly does not
+		// resolve in the test environment. If the override path is honored,
+		// no kubeconfig lookup happens and the override is returned verbatim.
+		let resolved = resolve_deploy_api_version(
+			true,
+			Some("paas.reinhardt-cloud.dev/v9"),
+			Some("nonexistent-context-for-testing"),
+		)
+		.await
+		.expect("direct + explicit override must short-circuit cluster discovery");
+
+		// Assert
+		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
 	}
 }

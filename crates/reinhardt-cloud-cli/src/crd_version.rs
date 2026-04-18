@@ -61,8 +61,12 @@ pub(crate) async fn resolve_api_version(
 		.map(|v| v.name.as_str())
 		.collect();
 
+	// Strip the group prefix without allocating on every call. `split_once`
+	// returns `None` for malformed inputs, in which case we fall back to the
+	// raw string so the warning still surfaces a meaningful comparison.
 	let compile_default_version = COMPILE_TIME_DEFAULT
-		.strip_prefix(&format!("{CRD_GROUP}/"))
+		.split_once('/')
+		.map(|(_, version)| version)
 		.unwrap_or(COMPILE_TIME_DEFAULT);
 	if !served.contains(&compile_default_version) {
 		eprintln!(
