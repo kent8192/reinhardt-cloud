@@ -12,6 +12,6 @@ mod schema;
 
 pub use log_service::{
 	LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy,
-	in_memory::InMemoryLogService,
+	in_memory::InMemoryLogService, loki::LokiLogService,
 };
 pub use schema::{LogFields, LogLevel, LogRecord};
