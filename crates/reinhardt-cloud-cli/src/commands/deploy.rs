@@ -525,13 +525,15 @@ async fn resolve_deploy_api_version(
 	}
 
 	// Known limitation: when no --cluster context is given, kube::Client::try_default()
-	// picks up the active kubeconfig context, which may differ from the cluster that
-	// kubectl will target when the apply runs. To guarantee both discovery and apply
-	// hit the same cluster, pass --cluster explicitly.
+	// uses inferred Kubernetes configuration (for example, in-cluster config or the
+	// current kubeconfig context), which may differ from the cluster that kubectl
+	// will target when the apply runs. To guarantee both discovery and apply hit
+	// the same cluster, pass --cluster explicitly.
 	if cluster_context.is_none() {
 		eprintln!(
-			"Warning: --direct is set without --cluster; apiVersion discovery uses the \
-			 default kubeconfig context, which may differ from the kubectl apply target. \
+			"Warning: --direct is set without --cluster; apiVersion discovery uses \
+			 inferred Kubernetes config (for example, in-cluster config or the current \
+			 kubeconfig context), which may differ from the kubectl apply target. \
 			 Pass --cluster to pin both discovery and apply to the same cluster."
 		);
 	}
