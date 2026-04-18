@@ -16,9 +16,11 @@ use crate::shared::ws_messages::{AppLogPayload, BuildLogPayload};
 use crate::client::components::toast::html_escape;
 
 /// Maximum number of log lines retained in the DOM buffer.
+#[cfg(any(wasm, test))]
 const MAX_LINES: usize = 1000;
 
 /// DOM id of the log viewer container.
+#[cfg(wasm)]
 const CONTAINER_ID: &str = "log-viewer";
 
 /// Render the log viewer container (empty; lines appended dynamically).

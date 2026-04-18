@@ -17,6 +17,7 @@ use crate::shared::ws_messages::ClusterHealthPayload;
 use crate::client::components::toast::html_escape;
 
 /// DOM id of the cluster health container.
+#[cfg(wasm)]
 const CONTAINER_ID: &str = "cluster-health";
 
 /// Render the cluster health container (empty; rows added dynamically).
