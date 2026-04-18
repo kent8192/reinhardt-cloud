@@ -1,3 +1,4 @@
+# GCP overlay: selects GCP PlatformConfig and RBAC rules on top of values.yaml.
 platform: gcp
 
 image:
@@ -13,7 +14,9 @@ nodeSelector:
 
 defaults:
   database:
+    # Cloud SQL instance tier for provisioned databases (GCP-specific).
     instance_class: db-f1-micro
+    # Smaller default than values.yaml baseline; GCP minimum billable disk is 10 GiB.
     storage_gb: 10
     availability: ZONAL
     engine_version:
@@ -30,13 +33,16 @@ defaults:
       cpu: 500m
       memory: 512Mi
   storage:
+    # GKE default ReadWriteOnce StorageClass (overrides local-path).
     class: standard-rwo
   ingress:
+    # GCE L7 load balancer IngressClass (overrides nginx).
     class: gce
     annotations:
       kubernetes.io/ingress.class: gce
 
 isolation:
+  # Stronger default than values.yaml: GKE supports sandbox runtimes natively.
   defaultLevel: "Sandbox"
   runtimeClasses:
     kata:

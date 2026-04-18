@@ -60,10 +60,6 @@ GitOps tool such as ArgoCD or Flux.
 - **Values**: canonical defaults in `charts/reinhardt-cloud-operator/values.yaml`. Per-environment overlays: `values-aws.yaml`, `values-gcp.yaml`, `values-onprem.yaml`.
 - **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0`. The chart version and app version are kept in sync; both advance together on each release.
 
-> **Caveat**: the shipped `values.yaml` currently has sparse or absent explanatory comments for most
-> keys. Until that is enriched, use the table below for the shape and read the in-file keys alongside
-> this reference. Tracking: [#368](https://github.com/kent8192/reinhardt-cloud/issues/368).
-
 Top-level value keys (from `values.yaml`):
 
 | Key path | Purpose | Default |
