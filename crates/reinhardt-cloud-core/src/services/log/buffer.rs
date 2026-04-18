@@ -107,6 +107,11 @@ pub fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
 	{
 		return false;
 	}
+	if let Some(deployment_id) = &filter.deployment_id
+		&& entry.source != *deployment_id
+	{
+		return false;
+	}
 	true
 }
 
