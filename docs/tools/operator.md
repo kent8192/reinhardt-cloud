@@ -109,7 +109,7 @@ Common top-level value keys (summarized from `values.yaml`):
 | `defaults.storage.class` | Default StorageClass for storage volumes | `local-path` |
 | `defaults.ingress.class` | Default IngressClass name | `nginx` |
 | `defaults.ingress.annotations` | Default annotations added to generated Ingress objects | `kubernetes.io/ingress.class: nginx` |
-| `isolation.defaultLevel` | Default workload isolation level (`None` / `Sandbox`) applied when `ReinhardtApp.spec.isolation.level` is unset | `"None"` |
+| `isolation.defaultLevel` | Default workload isolation level (`None` / `Sandbox` / `MicroVM`) applied when `ReinhardtApp.spec.isolation.level` is unset | `"None"` |
 | `isolation.runtimeClasses.kata.enabled` | Deploy the Kata Containers RuntimeClass | `false` |
 | `isolation.runtimeClasses.kata.handler` | Runtime handler name for Kata | `kata-clh` |
 | `isolation.runtimeClasses.kata.overhead.memory` | Memory overhead for Kata pods | `160Mi` |
