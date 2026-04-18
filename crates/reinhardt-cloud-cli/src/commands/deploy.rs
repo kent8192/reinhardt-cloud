@@ -74,6 +74,21 @@ fn validate_api_version(value: &str) -> Result<String, String> {
 		));
 	}
 
+	// Reject segments that are whitespace-only or contain embedded whitespace
+	// (e.g. "  /v1" or "group/v 1"). Such values pass the emptiness check but
+	// would silently produce malformed apiVersion strings.
+	let group_trimmed = group.trim();
+	let version_trimmed = version.trim();
+	if group_trimmed.is_empty()
+		|| version_trimmed.is_empty()
+		|| group.contains(char::is_whitespace)
+		|| version.contains(char::is_whitespace)
+	{
+		return Err(format!(
+			"invalid value for --api-version: group and version must not contain whitespace, got `{value}`"
+		));
+	}
+
 	Ok(value.to_string())
 }
 
@@ -812,6 +827,13 @@ features:
 	#[case("paas.reinhardt-cloud.dev/")]
 	#[case("paas.reinhardt-cloud.dev/v1/extra")]
 	#[case("")]
+	// Whitespace-only segments must also be rejected.
+	#[case("  /v1")]
+	#[case("paas.reinhardt-cloud.dev/  ")]
+	#[case("  /  ")]
+	// Internal whitespace within a segment is also invalid.
+	#[case("paas reinhardt-cloud.dev/v1")]
+	#[case("paas.reinhardt-cloud.dev/v 1")]
 	fn test_validate_api_version_rejects_malformed(#[case] value: &str) {
 		// Act
 		let result = validate_api_version(value);

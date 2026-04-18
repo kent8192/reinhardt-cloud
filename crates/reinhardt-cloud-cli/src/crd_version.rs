@@ -109,16 +109,28 @@ pub(crate) fn pick_best_version(crd: &CustomResourceDefinition) -> Option<String
 		return Some(storage.to_string());
 	}
 
-	let mut candidates = served;
-	candidates.sort_by(|a, b| version_rank(b).cmp(&version_rank(a)));
-	Some(candidates[0].to_string())
+	// Use max_by_key to avoid re-parsing on every comparison; the string
+	// tiebreaker (lexicographic) guarantees a deterministic winner when two
+	// versions share the same numeric rank (e.g. two unknown-suffix strings).
+	served
+		.into_iter()
+		.max_by_key(|v| (version_rank(v), v.to_string()))
+		.map(str::to_string)
 }
 
 /// Assigns a numeric rank to a Kubernetes API version string.
 ///
-/// Higher ranks represent more stable versions. Ordering:
-/// `v<N>` > `v<N>beta<M>` > `v<N>alpha<M>`. Unknown formats get the
-/// lowest rank so they do not accidentally win over recognized versions.
+/// Higher ranks represent more stable versions. Stability tier takes
+/// priority over major version number, so `v1` outranks `v2alpha1`.
+/// Ordering: `v<N>` > `v<N>beta<M>` > `v<N>alpha<M>`. Unknown formats
+/// get the lowest rank so they do not accidentally win over recognized
+/// versions.
+///
+/// Rank layout (tier + major*1000 + minor):
+/// - Stable  (no suffix): 2_000_000 + major*1000 + 0
+/// - Beta   (vNbetaM):    1_000_000 + major*1000 + minor
+/// - Alpha  (vNalphaM):   0         + major*1000 + minor
+/// - Unknown:             0 (raw, no major multiplier)
 fn version_rank(version: &str) -> u32 {
 	// Strip leading 'v'.
 	let Some(rest) = version.strip_prefix('v') else {
@@ -134,20 +146,19 @@ fn version_rank(version: &str) -> u32 {
 	};
 	let suffix = &rest[major_end..];
 
-	// Base rank: stable versions get the highest band.
-	let base = major * 1_000_000;
-
 	if suffix.is_empty() {
-		// Stable: vN
-		base + 900_000
-	} else if let Some(minor) = suffix.strip_prefix("beta") {
-		let m = minor.parse::<u32>().unwrap_or(0);
-		base + 500_000 + m
-	} else if let Some(minor) = suffix.strip_prefix("alpha") {
-		let m = minor.parse::<u32>().unwrap_or(0);
-		base + 100_000 + m
+		// Stable: vN — tier 2_000_000
+		2_000_000 + major * 1_000
+	} else if let Some(minor_str) = suffix.strip_prefix("beta") {
+		let minor = minor_str.parse::<u32>().unwrap_or(0);
+		// Beta: vNbetaM — tier 1_000_000
+		1_000_000 + major * 1_000 + minor
+	} else if let Some(minor_str) = suffix.strip_prefix("alpha") {
+		let minor = minor_str.parse::<u32>().unwrap_or(0);
+		// Alpha: vNalphaM — tier 0
+		major * 1_000 + minor
 	} else {
-		// Unknown suffix (e.g., `v2foo`): return the lowest rank so non-standard
+		// Unknown suffix (e.g., `v2foo`): return 0 so non-standard
 		// versions never outrank recognized ones, even across major versions.
 		0
 	}
@@ -165,6 +176,9 @@ mod tests {
 	#[case("v1alpha2", "v1alpha1")]
 	#[case("v2", "v1")]
 	#[case("v1beta2", "v1beta1")]
+	// Stability tier must beat a higher major number:
+	// v1 (stable) must outrank v2alpha1 even though 2 > 1.
+	#[case("v1", "v2alpha1")]
 	fn test_version_rank_orders_stable_above_pre_release(
 		#[case] higher: &str,
 		#[case] lower: &str,
