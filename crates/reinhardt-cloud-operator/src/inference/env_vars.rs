@@ -43,8 +43,17 @@ pub(crate) fn build_database_env_vars_from_secret(
 		Platform::Aws | Platform::Gcp => (format!("{app_name}-db"), 5432),
 	};
 
-	let db_name = format!("{}_db", app_name.replace('-', "_"));
-	let db_user = app_name.replace('-', "_");
+	// Both identifiers use replace('-', "_") to produce valid SQL identifiers,
+	// matching the convention used by infer_database_resources in inference/database.rs.
+	let sanitized_name = app_name.replace('-', "_");
+	let db_name = format!("{sanitized_name}_db");
+	let db_user = sanitized_name;
+
+	// DATABASE_URL provides a single-connection-string alternative to the
+	// individual REINHARDT_DATABASE_* vars. The password is embedded via
+	// $(REINHARDT_DATABASE_PASSWORD), which is resolved by the kubelet at
+	// pod start after all env vars are evaluated.
+	let database_url = format!("postgres://{db_user}:$(REINHARDT_DATABASE_PASSWORD)@{host}:{port}/{db_name}");
 
 	vec![
 		env_var("REINHARDT_DATABASE_HOST", &host),
@@ -63,6 +72,7 @@ pub(crate) fn build_database_env_vars_from_secret(
 				..Default::default()
 			}),
 		},
+		env_var("DATABASE_URL", &database_url),
 	]
 }
 
@@ -202,6 +212,25 @@ mod tests {
 			.find(|v| v.name == "REINHARDT_DATABASE_USER")
 			.unwrap();
 		assert_eq!(user.value.as_deref(), Some("my_app"));
+	}
+
+	#[rstest]
+	fn build_database_env_vars_from_secret_includes_database_url() {
+		// Arrange
+		let app = make_app_with_db("my-app");
+
+		// Act
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise);
+
+		// Assert — DATABASE_URL must be present and contain the connection params
+		let url_var = vars
+			.iter()
+			.find(|v| v.name == "DATABASE_URL")
+			.expect("DATABASE_URL env var must be present");
+		let url = url_var.value.as_deref().expect("DATABASE_URL must have a value");
+		assert!(url.starts_with("postgres://"), "DATABASE_URL must use postgres:// scheme");
+		assert!(url.contains("my-app-db"), "DATABASE_URL must include the host");
+		assert!(url.contains("my_app_db"), "DATABASE_URL must include the db name");
 	}
 
 	#[rstest]

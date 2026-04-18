@@ -50,11 +50,21 @@ pub(crate) fn build_deployment(
 	let owner_ref = owner_reference(app)?;
 
 	// Build merged environment variables (system + database + user overrides).
-	// When the app declares an explicit database, inject connection env vars
-	// that reference the credentials Secret provisioned by the reconciler's
-	// database-inference branch.
+	// Inject database connection env vars when a database will be provisioned,
+	// either via an explicit spec.database field or via introspect-derived
+	// infrastructure signals (requires_postgresql).
+	let needs_db_env = app.spec.database.is_some()
+		|| app
+			.spec
+			.introspect
+			.as_ref()
+			.is_some_and(|i| {
+				reinhardt_cloud_core::inference::requires_postgresql(
+					&i.features.infrastructure_signals,
+				)
+			});
 	let mut auto_vars = build_system_env_vars();
-	if app.spec.database.is_some() {
+	if needs_db_env {
 		auto_vars.extend(build_database_env_vars_from_secret(app, platform));
 	}
 	let merged_env = merge_env_vars(&auto_vars, &app.spec.env);
@@ -76,8 +86,8 @@ pub(crate) fn build_deployment(
 		..Default::default()
 	}];
 
-	// Init container for database migrations when database is configured
-	let mut init_containers: Vec<Container> = if app.spec.database.is_some() {
+	// Init container for database migrations when database will be provisioned
+	let mut init_containers: Vec<Container> = if needs_db_env {
 		vec![Container {
 			name: "migrate".to_string(),
 			image: Some(app.spec.image.clone()),

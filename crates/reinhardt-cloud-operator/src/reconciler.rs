@@ -184,6 +184,9 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				DatabaseResource::Pvc(pvc) => {
 					apply_pvc(&ctx.client, namespace, *pvc).await?;
 				}
+				DatabaseResource::Service(svc) => {
+					apply_db_service(&ctx.client, namespace, svc).await?;
+				}
 				DatabaseResource::ConfigMap(cm) => {
 					apply_configmap(&ctx.client, namespace, cm).await?;
 				}
@@ -945,12 +948,32 @@ async fn apply_configmap(client: &Client, namespace: &str, cm: ConfigMap) -> Res
 	Ok(())
 }
 
+/// Apply an inferred database `Service` via server-side apply.
+async fn apply_db_service(client: &Client, namespace: &str, svc: Service) -> Result<(), Error> {
+	let name = svc
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("Service missing name".into()))?;
+	let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&svc))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred DB Service {namespace}/{name}");
+	Ok(())
+}
+
 /// Create a database credentials `Secret` only when missing.
 ///
 /// Unlike other database resources, the credentials Secret embeds a
 /// freshly generated random password; reapplying it would rotate the
 /// password on every reconcile cycle and break existing consumers.
 /// We therefore create it once and leave subsequent reconciles as no-ops.
+///
+/// `AlreadyExists` (HTTP 409) is treated as success to handle races between
+/// concurrent reconcile cycles or external controllers that may create the
+/// Secret between our get-then-create calls.
 async fn apply_db_secret_if_absent(
 	client: &Client,
 	namespace: &str,
@@ -966,11 +989,19 @@ async fn apply_db_secret_if_absent(
 		info!("Inferred DB Secret {namespace}/{name} already exists, skipping");
 		return Ok(());
 	}
-	api.create(&PostParams::default(), &secret)
-		.await
-		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
-	info!("Created inferred DB Secret {namespace}/{name}");
-	Ok(())
+	match api.create(&PostParams::default(), &secret).await {
+		Ok(_) => {
+			info!("Created inferred DB Secret {namespace}/{name}");
+			Ok(())
+		}
+		// AlreadyExists means another reconcile or controller beat us to it —
+		// treat as success since the desired state is already achieved.
+		Err(kube::Error::Api(ref status)) if status.code == 409 => {
+			info!("Inferred DB Secret {namespace}/{name} was created concurrently, skipping");
+			Ok(())
+		}
+		Err(e) => Err(Error::Kube(e)),
+	}
 }
 
 /// Apply a cloud-provider `DynamicObject` (ACK / Config Connector CRDs)

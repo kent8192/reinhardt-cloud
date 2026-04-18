@@ -14,10 +14,11 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
 	ConfigMap, Container, ContainerPort, PersistentVolumeClaim, PersistentVolumeClaimSpec, PodSpec,
-	PodTemplateSpec, Secret, VolumeMount,
+	PodTemplateSpec, Secret, Service, ServicePort, ServiceSpec, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
 use kube::api::{DynamicObject, TypeMeta};
 use reinhardt_cloud_types::crd::{DatabaseEngine, DatabaseSpec, ReinhardtApp};
@@ -110,6 +111,8 @@ pub(crate) enum DatabaseResource {
 	StatefulSet(Box<StatefulSet>),
 	/// A PersistentVolumeClaim for database storage (on-premise).
 	Pvc(Box<PersistentVolumeClaim>),
+	/// A Service exposing the database within the cluster (on-premise).
+	Service(Service),
 	/// A ConfigMap for database initialisation scripts.
 	ConfigMap(ConfigMap),
 	/// A Secret containing database credentials.
@@ -153,8 +156,13 @@ fn build_onprem_postgres(
 	db: &DatabaseSpec,
 	storage_gb: i32,
 ) -> Vec<DatabaseResource> {
-	let db_name = format!("{app_name}_db");
-	let db_user = app_name.replace('-', "_");
+	// Both identifiers use replace('-', "_") to produce valid SQL identifiers.
+	// env_vars.rs derives REINHARDT_DATABASE_NAME and REINHARDT_DATABASE_USER
+	// using the same convention, ensuring the injected connection env vars
+	// match the credentials created here.
+	let sanitized_name = app_name.replace('-', "_");
+	let db_name = format!("{sanitized_name}_db");
+	let db_user = sanitized_name.clone();
 	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(app_name);
@@ -230,6 +238,33 @@ fn build_onprem_postgres(
 		..Default::default()
 	};
 
+	// Headless Service exposing the database within the cluster.
+	// The Service name matches the host used by build_database_env_vars_from_secret
+	// so that the injected REINHARDT_DATABASE_HOST resolves correctly.
+	let service = Service {
+		metadata: ObjectMeta {
+			name: Some(format!("{app_name}-db")),
+			namespace: Some(namespace.to_string()),
+			labels: Some(labels.clone()),
+			..Default::default()
+		},
+		spec: Some(ServiceSpec {
+			type_: Some("ClusterIP".to_string()),
+			selector: Some(BTreeMap::from([(
+				"app.kubernetes.io/name".to_string(),
+				format!("{app_name}-db"),
+			)])),
+			ports: Some(vec![ServicePort {
+				port: 5432,
+				target_port: Some(IntOrString::Int(5432)),
+				name: Some("postgres".to_string()),
+				..Default::default()
+			}]),
+			..Default::default()
+		}),
+		..Default::default()
+	};
+
 	// Init ConfigMap with database creation SQL
 	let init_sql = format!(
 		"CREATE DATABASE {db_name};\n\
@@ -253,6 +288,7 @@ fn build_onprem_postgres(
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
 		DatabaseResource::Pvc(Box::new(pvc)),
+		DatabaseResource::Service(service),
 		DatabaseResource::ConfigMap(config_map),
 		DatabaseResource::Secret(secret),
 	]
@@ -504,7 +540,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn onprem_generates_four_resources() {
+	fn onprem_generates_five_resources() {
 		// Arrange
 		let db_spec = DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -519,11 +555,12 @@ mod tests {
 		let resources = infer_database_resources(&app, &platform);
 
 		// Assert
-		assert_eq!(resources.len(), 4);
+		assert_eq!(resources.len(), 5);
 		assert!(matches!(&resources[0], DatabaseResource::StatefulSet(..)));
 		assert!(matches!(&resources[1], DatabaseResource::Pvc(..)));
-		assert!(matches!(&resources[2], DatabaseResource::ConfigMap(_)));
-		assert!(matches!(&resources[3], DatabaseResource::Secret(_)));
+		assert!(matches!(&resources[2], DatabaseResource::Service(_)));
+		assert!(matches!(&resources[3], DatabaseResource::ConfigMap(_)));
+		assert!(matches!(&resources[4], DatabaseResource::Secret(_)));
 	}
 
 	#[rstest]
@@ -775,6 +812,35 @@ mod tests {
 			assert_eq!(requests["storage"].0, "100Gi");
 		} else {
 			panic!("Expected PVC as second resource");
+		}
+	}
+
+	#[rstest]
+	fn onprem_service_exposes_postgres_port() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		if let DatabaseResource::Service(svc) = &resources[2] {
+			assert_eq!(svc.metadata.name.as_deref(), Some("myapp-db"));
+			let spec = svc.spec.as_ref().unwrap();
+			let port = &spec.ports.as_ref().unwrap()[0];
+			assert_eq!(port.port, 5432);
+			// Selector must match the StatefulSet pod label
+			let selector = spec.selector.as_ref().unwrap();
+			assert_eq!(selector.get("app.kubernetes.io/name").map(String::as_str), Some("myapp-db"));
+		} else {
+			panic!("Expected Service as third resource");
 		}
 	}
 
