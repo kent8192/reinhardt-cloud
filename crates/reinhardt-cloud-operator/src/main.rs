@@ -80,7 +80,9 @@ fn init_tracing() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-	#[test]
+	use rstest::rstest;
+
+	#[rstest]
 	fn json_mode_detection_respects_env_value() {
 		// Arrange
 		let value = "json";
@@ -92,17 +94,17 @@ mod tests {
 		assert!(is_json);
 	}
 
-	#[test]
-	fn json_mode_detection_rejects_other_values() {
-		// Arrange
-		let cases = ["text", "plain", "", "JSONL", "jsonp"];
+	#[rstest]
+	#[case("text")]
+	#[case("plain")]
+	#[case("")]
+	#[case("JSONL")]
+	#[case("jsonp")]
+	fn json_mode_detection_rejects_other_values(#[case] value: &str) {
+		// Act
+		let is_json = value.eq_ignore_ascii_case("json");
 
-		// Act + Assert
-		for value in cases {
-			assert!(
-				!value.eq_ignore_ascii_case("json"),
-				"value {value:?} should not select JSON mode"
-			);
-		}
+		// Assert
+		assert!(!is_json, "value {value:?} should not select JSON mode");
 	}
 }
