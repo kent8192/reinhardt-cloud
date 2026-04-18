@@ -6,6 +6,7 @@ use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
+use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
 use reinhardt_cloud_types::introspect::IntrospectOutput;
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
@@ -47,6 +48,13 @@ pub(crate) struct DeployArgs {
 	/// Target cluster name
 	#[arg(long)]
 	pub cluster: Option<String>,
+
+	/// Override the `ReinhardtApp` apiVersion (e.g. `paas.reinhardt-cloud.dev/v1`).
+	///
+	/// When unset and `--direct` is used, the CLI queries the cluster's CRD
+	/// and selects the served storage version automatically.
+	#[arg(long)]
+	pub api_version: Option<String>,
 }
 
 /// Reads reinhardt-cloud.toml from the project directory if it exists.
@@ -117,6 +125,7 @@ fn build_reinhardt_app_crd(
 	image: &str,
 	replicas: Option<i32>,
 	introspect: Option<IntrospectOutput>,
+	api_version: &str,
 ) -> serde_yaml::Value {
 	let mut spec = serde_yaml::Mapping::new();
 	spec.insert(
@@ -150,7 +159,7 @@ fn build_reinhardt_app_crd(
 	let mut root = serde_yaml::Mapping::new();
 	root.insert(
 		serde_yaml::Value::String("apiVersion".to_string()),
-		serde_yaml::Value::String("paas.reinhardt-cloud.dev/v1alpha2".to_string()),
+		serde_yaml::Value::String(api_version.to_string()),
 	);
 	root.insert(
 		serde_yaml::Value::String("kind".to_string()),
@@ -288,16 +297,44 @@ pub(crate) async fn execute(
 		println!("Using configuration from reinhardt-cloud.toml");
 	}
 
-	// Step 4: Build CRD
+	// Step 4: Resolve apiVersion.
+	//
+	// For `--direct` deploys, query the target cluster's CRD so the CLI
+	// stays compatible with whatever served version the operator exposes.
+	// Otherwise (API-mode deploys, dry-run), fall back to the compile-time
+	// default because no cluster is contacted.
+	let api_version = if args.direct {
+		match kube::Client::try_default().await {
+			Ok(kube_client) => {
+				resolve_api_version(&kube_client, args.api_version.as_deref()).await?
+			}
+			Err(e) => match args.api_version.clone() {
+				Some(explicit) => explicit,
+				None => {
+					return Err(format!(
+						"failed to build Kubernetes client for apiVersion discovery: {e}"
+					)
+					.into());
+				}
+			},
+		}
+	} else {
+		args.api_version
+			.clone()
+			.unwrap_or_else(|| COMPILE_TIME_DEFAULT.to_string())
+	};
+
+	// Step 5: Build CRD
 	let crd = build_reinhardt_app_crd(
 		&app_name,
 		&args.namespace,
 		&image,
 		Some(replicas_i32),
 		introspect,
+		&api_version,
 	);
 
-	// Step 5: Output or apply
+	// Step 6: Output or apply
 	if args.dry_run {
 		let yaml = serde_yaml::to_string(&crd)?;
 		println!("{yaml}");
@@ -532,6 +569,7 @@ features:
 			"my-app:v1",
 			Some(3),
 			Some(introspect),
+			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 
 		// Assert
@@ -588,7 +626,14 @@ features:
 	#[rstest]
 	fn test_build_reinhardt_app_crd_without_introspect() {
 		// Arrange & Act
-		let crd = build_reinhardt_app_crd("simple-app", "default", "simple:latest", Some(1), None);
+		let crd = build_reinhardt_app_crd(
+			"simple-app",
+			"default",
+			"simple:latest",
+			Some(1),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 
 		// Assert
 		let mapping = crd.as_mapping().expect("CRD should be a mapping");
@@ -631,7 +676,14 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
-		let crd = build_reinhardt_app_crd("test-app", "staging", "test:v1", Some(2), None);
+		let crd = build_reinhardt_app_crd(
+			"test-app",
+			"staging",
+			"test:v1",
+			Some(2),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act: call kubectl_apply - kubectl is not available in CI,
@@ -652,7 +704,14 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
-		let crd = build_reinhardt_app_crd("ctx-app", "prod", "ctx:v1", Some(1), None);
+		let crd = build_reinhardt_app_crd(
+			"ctx-app",
+			"prod",
+			"ctx:v1",
+			Some(1),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act
