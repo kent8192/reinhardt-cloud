@@ -53,19 +53,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	// Load config from ~/.config/reinhardt-cloud/config.toml when present.
 	// Any IO/parse failure falls back to defaults so the CLI still runs.
+	// `try_exists` distinguishes "file is genuinely absent" (silent default)
+	// from "we could not even check" (e.g. permission denied) — the latter
+	// is surfaced as a warning so misconfiguration is not hidden.
 	let config_path = dirs::config_dir().map(|d| d.join("reinhardt-cloud").join("config.toml"));
 	let config = match config_path.as_deref() {
-		Some(path) if path.exists() => match CliConfig::from_file(path) {
-			Ok(cfg) => cfg,
+		Some(path) => match path.try_exists() {
+			Ok(true) => match CliConfig::from_file(path) {
+				Ok(cfg) => cfg,
+				Err(e) => {
+					eprintln!(
+						"Warning: failed to load {}: {e}. Using defaults.",
+						path.display()
+					);
+					CliConfig::default()
+				}
+			},
+			Ok(false) => CliConfig::default(),
 			Err(e) => {
 				eprintln!(
-					"Warning: failed to load {}: {e}. Using defaults.",
+					"Warning: failed to access {}: {e}. Using defaults.",
 					path.display()
 				);
 				CliConfig::default()
 			}
 		},
-		_ => CliConfig::default(),
+		None => CliConfig::default(),
 	};
 
 	let default_url = config.api_url();
