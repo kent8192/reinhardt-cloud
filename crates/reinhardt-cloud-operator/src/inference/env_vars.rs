@@ -76,7 +76,8 @@ pub(crate) fn build_database_env_vars_from_secret(
 	// individual REINHARDT_DATABASE_* vars. The password is embedded via
 	// $(REINHARDT_DATABASE_PASSWORD), which is resolved by the kubelet at
 	// pod start after all env vars are evaluated.
-	let database_url = format!("postgres://{db_user}:$(REINHARDT_DATABASE_PASSWORD)@{host}:{port}/{db_name}");
+	let database_url =
+		format!("postgres://{db_user}:$(REINHARDT_DATABASE_PASSWORD)@{host}:{port}/{db_name}");
 
 	vec![
 		env_var("REINHARDT_DATABASE_HOST", &host),
@@ -250,10 +251,22 @@ mod tests {
 			.iter()
 			.find(|v| v.name == "DATABASE_URL")
 			.expect("DATABASE_URL env var must be present");
-		let url = url_var.value.as_deref().expect("DATABASE_URL must have a value");
-		assert!(url.starts_with("postgres://"), "DATABASE_URL must use postgres:// scheme");
-		assert!(url.contains("my-app-db"), "DATABASE_URL must include the host");
-		assert!(url.contains("my_app_db"), "DATABASE_URL must include the db name");
+		let url = url_var
+			.value
+			.as_deref()
+			.expect("DATABASE_URL must have a value");
+		assert!(
+			url.starts_with("postgres://"),
+			"DATABASE_URL must use postgres:// scheme"
+		);
+		assert!(
+			url.contains("my-app-db"),
+			"DATABASE_URL must include the host"
+		);
+		assert!(
+			url.contains("my_app_db"),
+			"DATABASE_URL must include the db name"
+		);
 	}
 
 	#[rstest]

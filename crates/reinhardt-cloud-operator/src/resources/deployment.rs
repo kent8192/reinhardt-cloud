@@ -63,15 +63,9 @@ pub(crate) fn build_deployment(
 	// override connection parameters — but plaintext credentials in spec.env are discouraged.
 	let app_name = app.name_any();
 	let explicit_db = app.spec.database.is_some();
-	let introspect_db = app
-		.spec
-		.introspect
-		.as_ref()
-		.is_some_and(|i| {
-			reinhardt_cloud_core::inference::requires_postgresql(
-				&i.features.infrastructure_signals,
-			)
-		});
+	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
+	});
 	let needs_db_env = explicit_db || introspect_db;
 	let mut auto_vars = build_system_env_vars();
 	if needs_db_env {
