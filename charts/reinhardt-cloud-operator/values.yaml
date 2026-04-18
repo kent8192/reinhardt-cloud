@@ -47,6 +47,22 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+metrics:
+  # Enable the Prometheus /metrics endpoint exposed by the operator.
+  enabled: false
+  # Port on which the operator serves /metrics. The operator container
+  # always listens on this port when metrics are enabled.
+  port: 9090
+  service:
+    type: ClusterIP
+    annotations: {}
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs to be installed.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
