@@ -631,8 +631,6 @@ operator pod restarts never block on log-ingest.
 - `LokiLogService` — read-oriented stub pointing at a Loki instance (writes are expected to flow
   through the DaemonSet above).
 
-The dashboard (Issue #371) will consume `LogService.tail` for live log streaming.
-
 #### Distributed Tracing
 
 The operator exports OpenTelemetry spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.

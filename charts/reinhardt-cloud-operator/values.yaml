@@ -171,5 +171,5 @@ tracing:
   # OTel sampler argument. Maps to OTEL_TRACES_SAMPLER_ARG when non-empty.
   # For parentbased_traceidratio this is the head-sampling ratio (0.0–1.0).
   samplerArg: "0.1"
-  # Service name reported in spans. Defaults to the Helm release name when empty.
+  # Service name reported in spans. Defaults to "reinhardt-cloud-operator".
   serviceName: "reinhardt-cloud-operator"

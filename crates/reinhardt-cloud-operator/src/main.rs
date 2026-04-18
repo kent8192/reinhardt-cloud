@@ -64,8 +64,9 @@ async fn main() -> anyhow::Result<()> {
 ///
 /// Delegates to [`reinhardt_cloud_telemetry::init_tracing`], which honors
 /// standard OTel env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`,
-/// `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`) and installs a zero-cost
-/// noop exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset.
+/// `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`). When
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no OTLP exporter is installed and
+/// no OpenTelemetry layer is attached.
 ///
 /// The JSON log format is selected by `REINHARDT_LOG_FORMAT=json` (see
 /// [`LOG_FORMAT_ENV`]); otherwise a human-readable formatter is used.

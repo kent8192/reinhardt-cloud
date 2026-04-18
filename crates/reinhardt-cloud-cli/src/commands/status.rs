@@ -155,6 +155,7 @@ pub(crate) async fn execute(
 	args: &StatusArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	use tracing::Instrument;
 	eprintln!("Target: {}", client.base_url());
 	let app_name = args.name.as_deref().unwrap_or("default-app");
 
@@ -165,8 +166,14 @@ pub(crate) async fn execute(
 		app.name = app_name,
 		app.namespace = %args.namespace,
 	);
-	let _enter = span.enter();
+	execute_inner(app_name, args, client).instrument(span).await
+}
 
+async fn execute_inner(
+	app_name: &str,
+	args: &StatusArgs,
+	client: &ReinhardtCloudClient,
+) -> Result<(), Box<dyn std::error::Error>> {
 	println!("Checking status of {app_name}...\n");
 
 	// Try the dashboard API first
