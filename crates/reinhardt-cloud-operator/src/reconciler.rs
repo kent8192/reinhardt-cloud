@@ -26,8 +26,6 @@ use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
-use k8s_openapi::api::core::v1::PersistentVolumeClaim;
-use kube::api::DynamicObject;
 use crate::resources::credentials;
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
@@ -39,6 +37,8 @@ use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
 };
+use k8s_openapi::api::core::v1::PersistentVolumeClaim;
+use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
 use reinhardt_cloud_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
@@ -894,11 +894,7 @@ async fn reconcile_migration_job_resource(
 }
 
 /// Apply a database `StatefulSet` via server-side apply.
-async fn apply_statefulset(
-	client: &Client,
-	namespace: &str,
-	ss: StatefulSet,
-) -> Result<(), Error> {
+async fn apply_statefulset(client: &Client, namespace: &str, ss: StatefulSet) -> Result<(), Error> {
 	let name = ss
 		.metadata
 		.name
@@ -966,12 +962,7 @@ async fn apply_db_secret_if_absent(
 		.clone()
 		.ok_or_else(|| Error::DatabaseProvisioning("Secret missing name".into()))?;
 	let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
-	if api
-		.get_opt(&name)
-		.await
-		.map_err(Error::Kube)?
-		.is_some()
-	{
+	if api.get_opt(&name).await.map_err(Error::Kube)?.is_some() {
 		info!("Inferred DB Secret {namespace}/{name} already exists, skipping");
 		return Ok(());
 	}
@@ -984,11 +975,7 @@ async fn apply_db_secret_if_absent(
 
 /// Apply a cloud-provider `DynamicObject` (ACK / Config Connector CRDs)
 /// via server-side apply.
-async fn apply_dynamic(
-	client: &Client,
-	namespace: &str,
-	obj: DynamicObject,
-) -> Result<(), Error> {
+async fn apply_dynamic(client: &Client, namespace: &str, obj: DynamicObject) -> Result<(), Error> {
 	let name = obj
 		.metadata
 		.name
