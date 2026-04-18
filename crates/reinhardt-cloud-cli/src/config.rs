@@ -5,9 +5,6 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Errors from configuration loading.
-// allow(dead_code): Returned by from_file(); will be used when CLI loads
-// reinhardt-cloud.toml configuration on startup.
-#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
 	#[error("failed to read config file: {0}")]
@@ -17,7 +14,7 @@ pub(crate) enum ConfigError {
 	ParseError(#[from] toml::de::Error),
 }
 
-/// CLI-specific configuration (read from `reinhardt-cloud.toml` or environment).
+/// CLI-specific configuration (read from `config.toml` or environment).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
@@ -27,9 +24,7 @@ pub(crate) struct CliConfig {
 }
 
 impl CliConfig {
-	/// Loads configuration from a `reinhardt-cloud.toml` file.
-	// allow(dead_code): Will be called when CLI implements config file loading.
-	#[allow(dead_code)]
+	/// Loads configuration from a `config.toml` file.
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
 		let content = std::fs::read_to_string(path)?;
 		let config: CliConfig = toml::from_str(&content)?;
@@ -69,12 +64,17 @@ pub(crate) fn credentials_path() -> PathBuf {
 	credentials_dir().join("credentials.json")
 }
 
+/// Returns the path to the reinhardt-cloud CLI configuration file.
+///
+/// Defaults to `~/.config/reinhardt-cloud/config.toml` on most platforms,
+/// falling back to `./reinhardt-cloud/config.toml`.
+pub(crate) fn config_path() -> PathBuf {
+	credentials_dir().join("config.toml")
+}
+
 /// Loads stored credentials from the credentials file.
 ///
 /// Returns `Ok(None)` if the file does not exist.
-// allow(dead_code): Will be called when deploy/status commands load stored
-// authentication tokens (PR10: client auth integration).
-#[allow(dead_code)]
 pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
 	let path = credentials_path();
 	if !path.exists() {
@@ -189,6 +189,57 @@ mod tests {
 
 		// Assert
 		assert!(dir.ends_with("reinhardt-cloud"));
+	}
+
+	#[rstest]
+	fn test_config_path_uses_reinhardt_cloud_dir() {
+		// Arrange & Act
+		let path = config_path();
+
+		// Assert
+		assert!(path.ends_with("reinhardt-cloud/config.toml"));
+	}
+
+	#[rstest]
+	fn test_from_file_parses_valid_toml() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.toml");
+		std::fs::write(
+			&path,
+			r#"
+api_url = "http://staging.example.com:8080"
+app_name = "myapp"
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let config = CliConfig::from_file(&path).expect("valid TOML should parse");
+
+		// Assert
+		assert_eq!(
+			config.api_url.as_deref(),
+			Some("http://staging.example.com:8080")
+		);
+		assert_eq!(config.app_name.as_deref(), Some("myapp"));
+	}
+
+	#[rstest]
+	fn test_from_file_returns_parse_error_on_malformed_toml() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.toml");
+		std::fs::write(&path, "this = is = not = toml").unwrap();
+
+		// Act
+		let result = CliConfig::from_file(&path);
+
+		// Assert
+		assert!(
+			matches!(result, Err(ConfigError::ParseError(_))),
+			"expected ParseError, got {result:?}"
+		);
 	}
 
 	#[rstest]

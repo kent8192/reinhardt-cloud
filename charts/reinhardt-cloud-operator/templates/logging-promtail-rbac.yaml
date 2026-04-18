@@ -1,0 +1,41 @@
+{{- if .Values.logging.loki.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+---
+# Namespace-scoped Role instead of ClusterRole: the scrape_config's
+# relabel_configs already filter to .Release.Namespace, so cluster-wide pod
+# discovery is unnecessary. Least-privilege: only the release namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+rules:
+  # Promtail uses kubernetes_sd_configs (role: pod) to discover operator pods.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+    namespace: {{ .Release.Namespace }}
+{{- end }}
