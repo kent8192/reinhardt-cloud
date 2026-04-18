@@ -75,9 +75,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut client = ReinhardtCloudClient::new(base_url)?;
 
 	// Attach stored credentials when available. Absence is not fatal because
-	// commands like `login` and `init` run before credentials exist.
-	if let Some(creds) = config::load_token()? {
-		client = client.with_token(creds.token);
+	// commands like `login` and `init` run before credentials exist. A
+	// malformed or unreadable credentials file is also treated as non-fatal
+	// (warning only) so first-run and CI scenarios are not blocked.
+	match config::load_token() {
+		Ok(Some(creds)) => {
+			client = client.with_token(creds.token);
+		}
+		Ok(None) => {}
+		Err(err) => {
+			eprintln!(
+				"warning: failed to load credentials: {err}. Continuing without authentication."
+			);
+		}
 	}
 
 	match &cli.command {

@@ -89,18 +89,19 @@ fn synthesize_infra_signals(detected: &DetectedInfraSignals) -> IntrospectInfraS
 ///
 /// Uses `feature_detector::detect_project` for app identity and feature
 /// signals, and `settings_reader::read_database_config` for the default
-/// database configuration. Returns `None` when neither source is available.
+/// database configuration. Returns `None` when `detect_project` fails
+/// (e.g., no `Cargo.toml` found); a missing database config is not
+/// sufficient to return `None` — app identity must be resolvable.
 fn synthesize_introspect_from_project(dir: &std::path::Path) -> Option<IntrospectOutput> {
 	let project = detect_project(dir).ok()?;
 	let db_config: Option<DatabaseConfig> = read_database_config(dir);
 
 	if let Some(ref cfg) = db_config {
-		// Surface the concrete connection target so operators can verify
-		// the inference before the CRD hits the cluster. host/port/name
-		// are not part of IntrospectOutput but are useful diagnostics.
+		// Log only the engine type; host, port, and name are omitted to
+		// avoid leaking connection details into shared CI logs.
 		eprintln!(
-			"  database: engine={} host={} port={} name={}",
-			cfg.engine, cfg.host, cfg.port, cfg.name
+			"  using inferred database configuration (engine={})",
+			cfg.engine
 		);
 	}
 

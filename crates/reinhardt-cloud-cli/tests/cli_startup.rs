@@ -36,10 +36,14 @@ fn test_cli_loads_api_url_from_config_file() {
 	// resolved URL surfaces either in the `Target:` banner (stdout) or in the
 	// connect-refused error from reqwest (stderr).
 	let home = tempfile::tempdir().unwrap();
-	// Cover both platform conventions so the test is OS-independent:
+	// Write config.toml into the two directory layouts that `dirs::config_dir()`
+	// can return on Unix-like platforms:
 	// - Linux / XDG: $XDG_CONFIG_HOME/reinhardt-cloud/
 	// - macOS:       $HOME/Library/Application Support/reinhardt-cloud/
-	// - Windows:     %APPDATA%/reinhardt-cloud/ (dirs uses RoamingAppData)
+	//
+	// Windows (%APPDATA%\reinhardt-cloud) is not covered here because
+	// `dirs::config_dir()` returns a Windows-only path that cannot be
+	// portably faked via HOME/XDG_CONFIG_HOME on non-Windows platforms.
 	let xdg_dir = home.path().join(".config").join("reinhardt-cloud");
 	let macos_dir = home
 		.path()

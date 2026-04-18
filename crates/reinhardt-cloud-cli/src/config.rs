@@ -14,7 +14,7 @@ pub(crate) enum ConfigError {
 	ParseError(#[from] toml::de::Error),
 }
 
-/// CLI-specific configuration (read from `reinhardt-cloud.toml` or environment).
+/// CLI-specific configuration (read from `config.toml` or environment).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
 	/// API server base URL
@@ -24,7 +24,7 @@ pub(crate) struct CliConfig {
 }
 
 impl CliConfig {
-	/// Loads configuration from a `reinhardt-cloud.toml` file.
+	/// Loads configuration from a `config.toml` file.
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
 		let content = std::fs::read_to_string(path)?;
 		let config: CliConfig = toml::from_str(&content)?;
