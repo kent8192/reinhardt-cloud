@@ -946,13 +946,9 @@ features:
 	#[tokio::test]
 	async fn test_resolve_deploy_api_version_non_direct_uses_override() {
 		// Arrange / Act
-		let resolved = resolve_deploy_api_version(
-			false,
-			Some("paas.reinhardt-cloud.dev/v9"),
-			None,
-		)
-		.await
-		.expect("non-direct override path must not contact a cluster");
+		let resolved = resolve_deploy_api_version(false, Some("paas.reinhardt-cloud.dev/v9"), None)
+			.await
+			.expect("non-direct override path must not contact a cluster");
 
 		// Assert
 		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");

@@ -35,7 +35,10 @@ pub fn log_entry_to_record(entry: &LogEntry) -> LogRecord {
 	let ts = entry
 		.timestamp
 		.as_ref()
-		.and_then(|t| Utc.timestamp_opt(t.seconds, t.nanos.clamp(0, 999_999_999) as u32).single())
+		.and_then(|t| {
+			Utc.timestamp_opt(t.seconds, t.nanos.clamp(0, 999_999_999) as u32)
+				.single()
+		})
 		.unwrap_or_else(Utc::now);
 	let level = proto_to_level(ProtoLogLevel::try_from(entry.level).unwrap_or(ProtoLogLevel::Info));
 	let fields = entry
