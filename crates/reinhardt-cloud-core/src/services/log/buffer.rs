@@ -108,7 +108,7 @@ pub fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
 		return false;
 	}
 	if let Some(deployment_id) = &filter.deployment_id
-		&& entry.source != *deployment_id
+		&& entry.source.as_str() != deployment_id.as_str()
 	{
 		return false;
 	}
@@ -241,6 +241,31 @@ mod tests {
 		// Assert
 		assert_eq!(result.len(), 1);
 		assert!(result[0].message.contains("timeout"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_filter_by_deployment_id() {
+		// Arrange
+		let buffer = LogBuffer::new(100);
+		buffer
+			.push(vec![
+				make_entry("deploy-a", LogLevel::Info, "from a"),
+				make_entry("deploy-b", LogLevel::Info, "from b"),
+				make_entry("deploy-a", LogLevel::Error, "from a again"),
+			])
+			.await;
+
+		// Act
+		let filter = LogFilter {
+			deployment_id: Some("deploy-a".to_string()),
+			..Default::default()
+		};
+		let result = buffer.query(&filter).await;
+
+		// Assert — only entries whose source matches the deployment_id are included
+		assert_eq!(result.len(), 2);
+		assert!(result.iter().all(|e| e.source == "deploy-a"));
 	}
 
 	#[rstest]

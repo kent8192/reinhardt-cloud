@@ -31,6 +31,9 @@ message LogFilter {
   optional google.protobuf.Timestamp since = 3;
   optional google.protobuf.Timestamp until = 4;
   optional string search = 5;
+  // Tag 6 has not been used for any prior field in this message (verified
+  // against the full git history of this file). No `reserved` declaration is
+  // required here.
   optional string deployment_id = 6;
 }
 
