@@ -542,10 +542,9 @@ mod tests {
 
 		// Assert: only one apt install line, and it must not list redis-tools twice.
 		let install_line = stage.instructions.iter().find_map(|inst| match inst {
-			Instruction::RunMulti(cmds) => cmds
-				.iter()
-				.find(|c| c.contains("apt-get install"))
-				.cloned(),
+			Instruction::RunMulti(cmds) => {
+				cmds.iter().find(|c| c.contains("apt-get install")).cloned()
+			}
 			_ => None,
 		});
 		let line = install_line.expect("expected apt-get install line");
