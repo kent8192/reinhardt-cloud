@@ -379,9 +379,11 @@ impl WebSocketConsumer for NotificationConsumer {
 										} else {
 											0
 										};
-										chrono::DateTime::<chrono::Utc>::from_timestamp(t.seconds, nanos)
-											.map(|dt| dt.to_rfc3339())
-											.unwrap_or_default()
+										chrono::DateTime::<chrono::Utc>::from_timestamp(
+											t.seconds, nanos,
+										)
+										.map(|dt| dt.to_rfc3339())
+										.unwrap_or_default()
 									})
 									.unwrap_or_default();
 

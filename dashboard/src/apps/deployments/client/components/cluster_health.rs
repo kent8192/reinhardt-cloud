@@ -91,8 +91,8 @@ pub fn update(payload: ClusterHealthPayload) {
 /// to ensure the result is a valid HTML id token (spaces are not allowed and
 /// slashes are not valid in unquoted CSS id selectors).
 pub fn row_id(cluster_name: &str, agent_id: &str) -> String {
-	let cluster = cluster_name.replace(' ', "-").replace('/', "-");
-	let agent = agent_id.replace(' ', "-").replace('/', "-");
+	let cluster = cluster_name.replace([' ', '/'], "-");
+	let agent = agent_id.replace([' ', '/'], "-");
 	format!("cluster-health-{cluster}-{agent}")
 }
 
