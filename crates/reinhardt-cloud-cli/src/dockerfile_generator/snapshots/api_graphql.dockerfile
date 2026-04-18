@@ -6,6 +6,7 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM rust:1.94.1-bookworm AS builder
+# GraphQL feature detected (async-graphql, build-pure)
 RUN cargo install cargo-chef
 WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json

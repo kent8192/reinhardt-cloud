@@ -2,10 +2,6 @@ use super::dockerfile::{Instruction, Stage};
 
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
-// Reserved fields (cache, session_backend, graphql) are populated by
-// collect_signals and will be consumed when corresponding Dockerfile
-// optimizations are added.
-#[allow(dead_code)]
 pub(crate) struct DockerfileSignals {
 	pub(crate) app_name: String,
 	pub(crate) rust_version: String,
@@ -63,6 +59,15 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 			"apt-get install -y protobuf-compiler".to_string(),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
 		]));
+	}
+
+	// GraphQL currently requires no extra build-time dependency (async-graphql
+	// is pure Rust), so the signal is only recorded in the generated image as
+	// a build-time hint; future work may emit schema-generation steps here.
+	if signals.graphql {
+		instructions.push(Instruction::Comment(
+			"GraphQL feature detected (async-graphql, build-pure)".to_string(),
+		));
 	}
 
 	instructions.push(Instruction::Run("cargo install cargo-chef".to_string()));
@@ -185,10 +190,14 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		instructions.push(Instruction::User("appuser".to_string()));
 	}
 
-	instructions.push(Instruction::Env(vec![(
-		"RUST_LOG".to_string(),
-		"info".to_string(),
-	)]));
+	let mut env_pairs = vec![("RUST_LOG".to_string(), "info".to_string())];
+	if let Some(backend) = signals.cache.as_deref() {
+		env_pairs.push(("REINHARDT_CACHE_BACKEND".to_string(), backend.to_string()));
+	}
+	if let Some(backend) = signals.session_backend.as_deref() {
+		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
+	}
+	instructions.push(Instruction::Env(env_pairs));
 	instructions.push(Instruction::Expose(8000));
 
 	if is_custom_image {

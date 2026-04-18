@@ -9,6 +9,7 @@ FROM rust:1.94.1-bookworm AS builder
 RUN apt-get update && \
     apt-get install -y protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
+# GraphQL feature detected (async-graphql, build-pure)
 RUN cargo install cargo-chef
 WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json
