@@ -45,3 +45,43 @@ implementations:
 
 The dashboard (Issue #371) will consume `LogService.tail` for live log
 streaming.
+
+## Distributed Tracing
+
+The operator exports OpenTelemetry spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Via the Helm chart this is controlled by `tracing.enabled=true` and `tracing.endpoint`.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset (tracing disabled) | OTLP gRPC endpoint |
+| `OTEL_SERVICE_NAME` | `reinhardt-cloud-operator` | Service name in spans |
+| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | Sampler strategy |
+| `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Sampling ratio (0.0–1.0) |
+
+### Span names
+
+| Span | Description |
+|------|-------------|
+| `operator.reconcile` | Root span per `ReinhardtApp` reconcile pass |
+
+Span attributes: `resource.kind`, `resource.namespace`, `resource.name`, `reconcile_id`.
+
+### CRD annotation contract
+
+When a caller sets annotation `reinhardt.io/traceparent` on a `ReinhardtApp`, the operator reads it as the parent context and stitches its `operator.reconcile` span into the caller's distributed trace.
+
+Writing the annotation back is deferred to avoid patch-loop reconcile storms.
+
+### Trace-to-log correlation
+
+When running with `REINHARDT_LOG_FORMAT=json`, structured log lines include `trace_id` and `span_id` fields sourced from the active OTel span. Filter logs by `trace_id` in Loki/Grafana to correlate logs with traces.
+
+### Managed Pod trace propagation
+
+The operator injects the following env vars into each managed Pod's container spec:
+- `TRACEPARENT` — W3C trace context header from the active reconcile span.
+- `OTEL_PROPAGATORS=tracecontext` — instructs OTel SDKs to read `TRACEPARENT`.
+- `OTEL_SERVICE_NAME` — the app name.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's env when set.
