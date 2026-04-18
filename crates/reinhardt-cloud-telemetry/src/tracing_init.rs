@@ -7,7 +7,7 @@
 mod layer;
 mod manual;
 
-pub use layer::TraceContextLogLayer;
+pub use layer::{TraceContextExtension, TraceContextLogLayer};
 pub use manual::{TraceContext, current_trace_context};
 
 use std::env;
