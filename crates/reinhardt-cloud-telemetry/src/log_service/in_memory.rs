@@ -124,8 +124,8 @@ impl LogService for InMemoryLogService {
 		// `chrono::Duration::from_std` fails for TTL values that exceed
 		// `i64::MAX` nanoseconds (~292 years). Treat that as "no TTL cutoff"
 		// by clamping to `chrono::Duration::MAX` rather than panicking.
-		let chrono_ttl = chrono::Duration::from_std(self.policy.ttl)
-			.unwrap_or(chrono::Duration::MAX);
+		let chrono_ttl =
+			chrono::Duration::from_std(self.policy.ttl).unwrap_or(chrono::Duration::MAX);
 		let cutoff = Utc::now() - chrono_ttl;
 		let buf = self.buffer.lock().await;
 		let filtered: Vec<_> = buf
