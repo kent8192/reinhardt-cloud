@@ -76,9 +76,7 @@ impl LettreSmtpSender {
 				.map_err(|e| MailerError::Config(format!("smtps relay: {e}")))?,
 			"smtp" => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&parsed.host),
 			other => {
-				return Err(MailerError::Config(format!(
-					"unsupported scheme: {other}"
-				)));
+				return Err(MailerError::Config(format!("unsupported scheme: {other}")));
 			}
 		};
 		if let Some(port) = parsed.port {
@@ -214,7 +212,9 @@ impl ParsedSmtpUrl {
 			None => (hostport.to_string(), None),
 		};
 		if host.is_empty() {
-			return Err(MailerError::Config("MAIL_SMTP_URL missing host".to_string()));
+			return Err(MailerError::Config(
+				"MAIL_SMTP_URL missing host".to_string(),
+			));
 		}
 		Ok(Self {
 			scheme: scheme.to_string(),

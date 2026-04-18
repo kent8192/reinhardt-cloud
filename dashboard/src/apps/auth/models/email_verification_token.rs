@@ -18,10 +18,7 @@ use uuid::Uuid;
 /// - `consumed_at` marks single-use semantics; once set, the token cannot be
 ///   reused even within the validity window.
 #[derive(Default, Serialize, Deserialize)]
-#[model(
-	app_label = "auth",
-	table_name = "auth_email_verification_tokens"
-)]
+#[model(app_label = "auth", table_name = "auth_email_verification_tokens")]
 pub struct EmailVerificationToken {
 	/// Primary key (None for auto-increment on insert).
 	#[field(primary_key = true)]
