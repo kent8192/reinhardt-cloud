@@ -229,3 +229,17 @@ dependencies = [
 	"test",
 	"doc",
 ]
+
+[tasks.test-logging]
+description = "Runs the reinhardt-cloud-telemetry crate tests plus any integration-level log tests."
+env = { RUST_LOG = "reinhardt_cloud_telemetry=debug" }
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"-p",
+	"reinhardt-cloud-telemetry",
+	"--all-features",
+]
+# Expand to spin up Loki via TestContainers once the LokiLogService read path
+# is finalized; see the Loki stub in crates/reinhardt-cloud-telemetry/src/log_service/loki.rs.

@@ -1,13 +1,17 @@
 //! Session lifecycle tests across auth and cluster endpoints.
 //!
-//! Verifies that session cookies obtained via register and login are both
-//! accepted by protected cluster endpoints, and that invalid session
-//! cookies are correctly rejected.
+//! Verifies that session cookies obtained via login are accepted by
+//! protected cluster endpoints, and that invalid session cookies are
+//! correctly rejected. Users are created directly via ORM to avoid
+//! requiring an SMTP server.
 
+use reinhardt::BaseUser;
+use reinhardt::db::orm::Model;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+use reinhardt_cloud_dashboard::apps::auth::models::User;
 use rstest::*;
 use serde_json::json;
 use serial_test::serial;
@@ -36,20 +40,39 @@ async fn db(
 	(container, conn, client, urls)
 }
 
-async fn register_and_get_session(client: &APIClient, urls: &ResolvedUrls) -> String {
-	let register_data = json!({
+/// Create a user via ORM, then login to obtain a session cookie.
+async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> String {
+	// Create active user via ORM (bypasses register endpoint and email)
+	let mut user = User::new(
+		"testuser".to_string(),
+		"test@example.com".to_lowercase(),
+		String::new(),
+		String::new(),
+		None,
+		true,
+		false,
+		false,
+	);
+	user.set_password("securepassword123")
+		.expect("Password hashing failed");
+	User::objects()
+		.create(&user)
+		.await
+		.expect("Failed to create user");
+
+	// Login to obtain session cookie
+	let login_data = json!({
 		"username": "testuser",
-		"email": "test@example.com",
 		"password": "securepassword123"
 	});
-	let resp = client
-		.post(&urls.auth().register(), &register_data, "json")
+	let login_resp = client
+		.post(&urls.auth().login(), &login_data, "json")
 		.await
-		.expect("Register request failed");
-	assert_eq!(resp.status_code(), 201);
-	let set_cookie = resp
+		.expect("Login request failed");
+	assert_eq!(login_resp.status_code(), 200);
+	let set_cookie = login_resp
 		.header("Set-Cookie")
-		.expect("Response should have Set-Cookie header");
+		.expect("Login response should have Set-Cookie header");
 	let session_id = set_cookie
 		.split(';')
 		.next()
@@ -70,7 +93,7 @@ async fn authenticate_client(client: &APIClient, session_id: &str) {
 // Tests
 // ============================================================================
 
-/// Register session is accepted by the cluster creation endpoint.
+/// Login session is accepted by the cluster creation endpoint.
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
@@ -84,7 +107,7 @@ async fn test_register_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let session = register_and_get_session(&client, &urls).await;
+	let session = create_user_and_login(&client, &urls).await;
 	authenticate_client(&client, &session).await;
 
 	// Act
@@ -115,7 +138,7 @@ async fn test_login_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let _register_session = register_and_get_session(&client, &urls).await;
+	let _first_session = create_user_and_login(&client, &urls).await;
 
 	// Login with the same credentials
 	let login_data = json!({
@@ -152,7 +175,7 @@ async fn test_login_session_works_for_cluster_creation(
 	assert_eq!(resp.status_code(), 201);
 }
 
-/// Register and login sessions both give access to the same resources.
+/// Both sessions give access to the same resources.
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
 #[serial(database)]
@@ -166,10 +189,10 @@ async fn test_register_and_login_sessions_same_resources(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let register_session = register_and_get_session(&client, &urls).await;
+	let first_session = create_user_and_login(&client, &urls).await;
 
-	// Create a cluster with the register session
-	authenticate_client(&client, &register_session).await;
+	// Create a cluster with the first session
+	authenticate_client(&client, &first_session).await;
 	let cluster_data = json!({
 		"name": "shared-cluster",
 		"api_url": "https://shared.k8s.local:6443"
@@ -207,7 +230,7 @@ async fn test_register_and_login_sessions_same_resources(
 		.await
 		.expect("List clusters failed");
 
-	// Assert -- the cluster created with register session is visible
+	// Assert -- the cluster created with first session is visible
 	assert_eq!(list_resp.status_code(), 200);
 	let body: serde_json::Value = list_resp.json().expect("Failed to parse list response");
 	let items = body["items"].as_array().expect("items should be an array");
