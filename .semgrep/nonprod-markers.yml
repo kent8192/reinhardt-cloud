@@ -101,8 +101,7 @@ rules:
     languages: [generic]
     severity: ERROR
     paths:
-      include:
-        - "**/*.rs"
+      <<: *standard-paths
       exclude:
         - "**/tests/**"
         - "**/benches/**"
