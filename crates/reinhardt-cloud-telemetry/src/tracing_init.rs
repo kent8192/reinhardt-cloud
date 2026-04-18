@@ -1,8 +1,10 @@
 //! OpenTelemetry-backed tracing initialization for reinhardt-cloud.
 //!
 //! When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no OTLP exporter is installed;
-//! the `TraceContextLogLayer` is still active to populate `trace_id`/`span_id`
-//! fields in structured logs.
+//! `TraceContextLogLayer` is still active and stores trace context in span
+//! extensions for use by custom formatters. Standard `tracing_subscriber::fmt`
+//! layers do not emit span extensions, so `trace_id`/`span_id` are not
+//! automatically included in log output.
 
 mod layer;
 mod manual;
@@ -192,7 +194,10 @@ pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitEr
 		opentelemetry_sdk::propagation::TraceContextPropagator::new(),
 	);
 
-	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+	// Scope the default to reinhardt_cloud crates to avoid elevating log noise
+	// from third-party dependencies when RUST_LOG is unset.
+	let filter = EnvFilter::try_from_default_env()
+		.unwrap_or_else(|_| EnvFilter::new("reinhardt_cloud=info"));
 
 	// Build the fmt layer unboxed; boxing happens against the final
 	// subscriber type in each branch below.
@@ -237,6 +242,7 @@ pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitEr
 				base.with(
 					tracing_subscriber::fmt::layer()
 						.json()
+						.flatten_event(true)
 						.with_current_span(true)
 						.with_span_list(false),
 				)
@@ -261,6 +267,7 @@ pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitEr
 				base.with(
 					tracing_subscriber::fmt::layer()
 						.json()
+						.flatten_event(true)
 						.with_current_span(true)
 						.with_span_list(false),
 				)
