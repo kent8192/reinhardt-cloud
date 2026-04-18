@@ -21,7 +21,9 @@ const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 ///
 /// The proto `PaginationRequest.page_size` field is declared as `uint64`,
 /// which compiles to `u64` in the generated Rust types, so no cast is needed.
-const LOGS_PAGE_SIZE: u64 = 200;
+/// Capped at 100 to match the server-side `MAX_PAGE_SIZE` limit in
+/// `reinhardt-cloud-core/src/pagination.rs`.
+const LOGS_PAGE_SIZE: u64 = 100;
 
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
@@ -105,6 +107,10 @@ pub async fn deployment_logs(
 			AppError::Internal("Log service unavailable".to_string())
 		})?;
 
+	// Filter by app_name (the log source field). Note: log isolation is by
+	// app_name, not by deployment id or owner; cross-tenant leakage is possible
+	// if two users share the same app_name. A stricter filter (e.g. by a
+	// globally unique deployment UUID) is tracked in issue #390.
 	let request = log_pb::ListLogsRequest {
 		filter: Some(log_pb::LogFilter {
 			source: Some(deployment.app_name.clone()),

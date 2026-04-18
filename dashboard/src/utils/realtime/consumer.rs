@@ -466,14 +466,6 @@ impl WebSocketConsumer for NotificationConsumer {
 							}
 						};
 
-					// Send positive acknowledgement only after a successful
-					// gRPC connection.
-					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-						acknowledged: true,
-						message: format!("Subscribed to app logs for {app}"),
-					});
-					let _ = conn.send_json(&ack).await;
-
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
 							source: Some(app.clone()),
@@ -481,8 +473,11 @@ impl WebSocketConsumer for NotificationConsumer {
 						}),
 					};
 
-					let response = match client.tail_logs(request).await {
-						Ok(r) => r,
+					// Send positive acknowledgement only after tail_logs succeeds,
+					// so the client is never misled by a success ack followed by a
+					// failure ack when the RPC itself fails.
+					let mut stream = match client.tail_logs(request).await {
+						Ok(r) => r.into_inner(),
 						Err(e) => {
 							tracing::warn!(
 								app_name = %app,
@@ -499,7 +494,11 @@ impl WebSocketConsumer for NotificationConsumer {
 						}
 					};
 
-					let mut stream = response.into_inner();
+					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
+						acknowledged: true,
+						message: format!("Subscribed to app logs for {app}"),
+					});
+					let _ = conn.send_json(&ack).await;
 
 					loop {
 						match stream.message().await {
