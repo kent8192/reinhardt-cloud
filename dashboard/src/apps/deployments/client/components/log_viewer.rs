@@ -81,10 +81,14 @@ fn append_line(timestamp: &str, source: &str, level: &str, message: &str) {
 	let _ = container.append_child(&line);
 
 	// Enforce the line cap by removing oldest children.
+	// `first_element_child()` returns `Element`, but `remove_child` expects
+	// a `Node`. The `Deref` impl on `Element` does not expose `AsRef<Node>`,
+	// so we use `Into::<web_sys::Node>::into` to convert explicitly.
 	while container.child_element_count() as usize > MAX_LINES
 		&& let Some(first) = container.first_element_child()
 	{
-		let _ = container.remove_child(&first);
+		let node: web_sys::Node = first.into();
+		let _ = container.remove_child(&node);
 	}
 }
 

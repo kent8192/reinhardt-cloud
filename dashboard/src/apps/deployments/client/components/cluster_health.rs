@@ -86,8 +86,14 @@ pub fn update(payload: ClusterHealthPayload) {
 }
 
 /// Compute a stable DOM id for a (cluster, agent) pair.
+///
+/// Spaces and slashes in `cluster_name` or `agent_id` are replaced with `-`
+/// to ensure the result is a valid HTML id token (spaces are not allowed and
+/// slashes are not valid in unquoted CSS id selectors).
 pub fn row_id(cluster_name: &str, agent_id: &str) -> String {
-	format!("cluster-health-{cluster_name}-{agent_id}")
+	let cluster = cluster_name.replace(' ', "-").replace('/', "-");
+	let agent = agent_id.replace(' ', "-").replace('/', "-");
+	format!("cluster-health-{cluster}-{agent}")
 }
 
 // Non-WASM stub so server-side callers (and unit tests) can compile.
@@ -117,5 +123,22 @@ mod tests {
 
 		// Assert
 		assert_ne!(a, b);
+	}
+
+	#[rstest]
+	fn test_row_id_normalizes_spaces() {
+		// Spaces in cluster names or agent IDs must be replaced with `-` to
+		// produce a valid HTML id token.
+		let id = row_id("prod east", "agent 1");
+
+		assert_eq!(id, "cluster-health-prod-east-agent-1");
+	}
+
+	#[rstest]
+	fn test_row_id_normalizes_slashes() {
+		// Slashes are not valid in unquoted CSS id selectors.
+		let id = row_id("ns/cluster", "region/agent");
+
+		assert_eq!(id, "cluster-health-ns-cluster-region-agent");
 	}
 }

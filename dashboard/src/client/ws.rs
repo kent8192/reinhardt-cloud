@@ -169,6 +169,9 @@ fn handle_ws_message(msg: WsMessage) {
 		// LogStreamAck is surfaced via the connection layer; no DOM update
 		// is required for it today.
 		WsMessage::LogStreamAck(_) => {}
+		// Exhaustive matching is intentional: adding a new `WsMessage`
+		// variant without handling it here will cause a compile-time error,
+		// ensuring no server messages are silently ignored on the client.
 	}
 }
 
