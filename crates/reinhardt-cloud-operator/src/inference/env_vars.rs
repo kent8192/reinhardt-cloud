@@ -111,7 +111,7 @@ pub(crate) fn build_database_env_vars_from_secret(
 ///
 /// Variables injected:
 /// * `TRACEPARENT` — W3C `traceparent` of the current reconcile span (omitted
-///   when there is no active sampled span).
+///   when the current span context is not valid).
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `app_name`.
 /// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
