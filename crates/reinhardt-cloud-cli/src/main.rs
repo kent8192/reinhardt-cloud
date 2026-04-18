@@ -50,11 +50,35 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
-	let config = CliConfig::default();
+
+	// Load config from the platform config directory when present; fall back
+	// to CliConfig::default() on missing-file or parse errors so `--help` and
+	// first-run commands still function without any on-disk state.
+	let config_file = config::config_path();
+	let config = if config_file.exists() {
+		match CliConfig::from_file(&config_file) {
+			Ok(loaded) => loaded,
+			Err(err) => {
+				eprintln!(
+					"warning: failed to load {}: {err}. Using defaults.",
+					config_file.display()
+				);
+				CliConfig::default()
+			}
+		}
+	} else {
+		CliConfig::default()
+	};
 
 	let default_url = config.api_url();
 	let base_url = cli.server.as_deref().unwrap_or(&default_url);
-	let client = ReinhardtCloudClient::new(base_url)?;
+	let mut client = ReinhardtCloudClient::new(base_url)?;
+
+	// Attach stored credentials when available. Absence is not fatal because
+	// commands like `login` and `init` run before credentials exist.
+	if let Some(creds) = config::load_token()? {
+		client = client.with_token(creds.token);
+	}
 
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
