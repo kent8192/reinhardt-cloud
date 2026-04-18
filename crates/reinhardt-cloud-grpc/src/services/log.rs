@@ -102,6 +102,7 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 				.map(|t| proto_timestamp_to_chrono(Some(t)))
 				.transpose()?,
 			search: f.search.clone(),
+			deployment_id: f.deployment_id.clone(),
 		}),
 		None => Ok(LogFilter::default()),
 	}
@@ -357,6 +358,7 @@ mod tests {
 			since: Some(to_proto_ts(since)),
 			until: Some(to_proto_ts(until)),
 			search: Some("error".to_string()),
+			deployment_id: Some("deploy-abc".to_string()),
 		});
 
 		// Act
@@ -368,6 +370,7 @@ mod tests {
 		assert_eq!(domain.since, Some(since));
 		assert_eq!(domain.until, Some(until));
 		assert_eq!(domain.search, Some("error".to_string()));
+		assert_eq!(domain.deployment_id, Some("deploy-abc".to_string()));
 	}
 
 	// --- Filter with None -> default ---
@@ -386,6 +389,7 @@ mod tests {
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());
 		assert!(domain.search.is_none());
+		assert!(domain.deployment_id.is_none());
 	}
 
 	// --- Filter with Some(empty LogFilter) -> all fields None ---
@@ -399,6 +403,7 @@ mod tests {
 			since: None,
 			until: None,
 			search: None,
+			deployment_id: None,
 		});
 
 		// Act
@@ -410,6 +415,7 @@ mod tests {
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());
 		assert!(domain.search.is_none());
+		assert!(domain.deployment_id.is_none());
 	}
 
 	// --- Invalid metadata_json -> metadata=None ---
