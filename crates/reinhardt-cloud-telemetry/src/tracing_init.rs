@@ -81,7 +81,10 @@ enum TracingGuardInner {
 impl std::fmt::Debug for TracingGuard {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match &self.inner {
-			TracingGuardInner::Noop => f.debug_struct("TracingGuard").field("otel", &false).finish(),
+			TracingGuardInner::Noop => f
+				.debug_struct("TracingGuard")
+				.field("otel", &false)
+				.finish(),
 			TracingGuardInner::WithProvider(_) => {
 				f.debug_struct("TracingGuard").field("otel", &true).finish()
 			}
@@ -134,9 +137,8 @@ pub fn init_tracing(config: TracingConfig) -> anyhow::Result<TracingGuard> {
 				.with_attributes([KeyValue::new("service.name", config.service_name.clone())])
 				.build();
 
-			let sampler = Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-				config.sample_ratio,
-			)));
+			let sampler =
+				Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.sample_ratio)));
 
 			let provider = SdkTracerProvider::builder()
 				.with_batch_exporter(exporter)
