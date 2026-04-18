@@ -1,8 +1,9 @@
 //! Log schema types (see design doc §3).
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
+/// Severity of a log record. Ordered from least to most severe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
@@ -13,6 +14,7 @@ pub enum LogLevel {
 	Error,
 }
 
+/// Optional correlation and resource fields attached to a [`LogRecord`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogFields {
 	pub reconcile_id: Option<String>,
@@ -25,10 +27,13 @@ pub struct LogFields {
 	pub span_id: Option<String>,
 }
 
+/// A structured log record produced by reinhardt-cloud components.
+///
+/// The [`LogFields`] are flattened into the serialized representation so
+/// that consumers (Loki, JSON log processors) see a flat key/value shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogRecord {
-	#[serde(with = "time::serde::rfc3339")]
-	pub ts: OffsetDateTime,
+	pub ts: DateTime<Utc>,
 	pub level: LogLevel,
 	pub msg: String,
 	#[serde(flatten)]
@@ -36,9 +41,10 @@ pub struct LogRecord {
 }
 
 impl LogRecord {
+	/// Construct a new record timestamped at `Utc::now()` with no correlation fields.
 	pub fn new(level: LogLevel, msg: impl Into<String>) -> Self {
 		Self {
-			ts: OffsetDateTime::now_utc(),
+			ts: Utc::now(),
 			level,
 			msg: msg.into(),
 			fields: LogFields::default(),
@@ -77,7 +83,6 @@ mod tests {
 		let parsed: LogRecord = serde_json::from_str(&json).unwrap();
 
 		// Assert
-		assert_eq!(parsed.level, LogLevel::Error);
-		assert_eq!(parsed.msg, "boom");
+		assert_eq!(parsed, original);
 	}
 }

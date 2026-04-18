@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-time = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

@@ -6057,10 +6057,10 @@ dependencies = [
 name = "reinhardt-cloud-telemetry"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "rstest",
  "serde",
  "serde_json",
- "time",
 ]
 
 [[package]]

@@ -78,12 +78,6 @@ reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
 reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc" }
 reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry" }
 
-# Time handling (RFC3339 timestamps for log records)
-time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
-
-# Temporary files (testing)
-tempfile = "3"
-
 # Cryptography / encoding
 rand = "0.9"
 
