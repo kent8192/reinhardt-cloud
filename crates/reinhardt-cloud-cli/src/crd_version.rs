@@ -44,10 +44,14 @@ pub(crate) async fn resolve_api_version(
 	}
 
 	let crds: Api<CustomResourceDefinition> = Api::all(client.clone());
-	let crd = crds
-		.get(CRD_NAME)
-		.await
-		.map_err(|e| format!("failed to fetch CRD {CRD_NAME} from cluster: {e}"))?;
+	let crd = crds.get(CRD_NAME).await.map_err(|e| {
+		std::io::Error::other(format!("failed to fetch CRD {CRD_NAME} from cluster: {e}"))
+	})?;
+
+	let chosen = pick_best_version(&crd)
+		.ok_or_else(|| std::io::Error::other(format!("CRD {CRD_NAME} has no served versions")))?;
+
+	let resolved = format!("{CRD_GROUP}/{chosen}");
 
 	let served: Vec<&str> = crd
 		.spec
@@ -56,28 +60,6 @@ pub(crate) async fn resolve_api_version(
 		.filter(|v| v.served)
 		.map(|v| v.name.as_str())
 		.collect();
-
-	if served.is_empty() {
-		return Err(format!("CRD {CRD_NAME} has no served versions").into());
-	}
-
-	// Prefer the storage version when available.
-	let storage_version = crd
-		.spec
-		.versions
-		.iter()
-		.find(|v| v.served && v.storage)
-		.map(|v| v.name.as_str());
-
-	let chosen = if let Some(storage) = storage_version {
-		storage.to_string()
-	} else {
-		let mut candidates: Vec<&str> = served.clone();
-		candidates.sort_by(|a, b| version_rank(b).cmp(&version_rank(a)));
-		candidates[0].to_string()
-	};
-
-	let resolved = format!("{CRD_GROUP}/{chosen}");
 
 	let compile_default_version = COMPILE_TIME_DEFAULT
 		.strip_prefix(&format!("{CRD_GROUP}/"))
@@ -89,6 +71,43 @@ pub(crate) async fn resolve_api_version(
 	}
 
 	Ok(resolved)
+}
+
+/// Selects the best served version name from a CRD spec.
+///
+/// Selection rules:
+/// 1. If a version is both `served: true` and `storage: true`, return it.
+/// 2. Otherwise, return the highest-ranking version by `version_rank`.
+/// 3. Returns `None` when no served versions exist.
+///
+/// This is the shared core used by both production code
+/// (`resolve_api_version`) and tests, so they cannot drift apart.
+pub(crate) fn pick_best_version(crd: &CustomResourceDefinition) -> Option<String> {
+	let served: Vec<&str> = crd
+		.spec
+		.versions
+		.iter()
+		.filter(|v| v.served)
+		.map(|v| v.name.as_str())
+		.collect();
+
+	if served.is_empty() {
+		return None;
+	}
+
+	if let Some(storage) = crd
+		.spec
+		.versions
+		.iter()
+		.find(|v| v.served && v.storage)
+		.map(|v| v.name.as_str())
+	{
+		return Some(storage.to_string());
+	}
+
+	let mut candidates = served;
+	candidates.sort_by(|a, b| version_rank(b).cmp(&version_rank(a)));
+	Some(candidates[0].to_string())
 }
 
 /// Assigns a numeric rank to a Kubernetes API version string.
@@ -124,7 +143,9 @@ fn version_rank(version: &str) -> u32 {
 		let m = minor.parse::<u32>().unwrap_or(0);
 		base + 100_000 + m
 	} else {
-		base
+		// Unknown suffix (e.g., `v2foo`): return the lowest rank so non-standard
+		// versions never outrank recognized ones, even across major versions.
+		0
 	}
 }
 
@@ -162,6 +183,23 @@ mod tests {
 		assert!(unknown < v1alpha1);
 	}
 
+	#[rstest]
+	#[case("v2foo", "v1")]
+	#[case("v2foo", "v1alpha1")]
+	#[case("v99bogus", "v1")]
+	fn test_version_rank_unknown_suffix_ranks_below_known(
+		#[case] unknown: &str,
+		#[case] known: &str,
+	) {
+		// Act
+		let u = version_rank(unknown);
+		let k = version_rank(known);
+
+		// Assert: non-standard suffixes must never outrank recognized versions,
+		// even when their major number is higher.
+		assert!(u < k, "expected {unknown} < {known}, got {u} vs {k}");
+	}
+
 	/// Builds a `CustomResourceDefinition` from a JSON spec for tests.
 	fn make_crd(versions: serde_json::Value) -> CustomResourceDefinition {
 		let doc = serde_json::json!({
@@ -183,36 +221,12 @@ mod tests {
 		serde_json::from_value(doc).expect("valid CRD fixture")
 	}
 
-	/// Helper: run the non-client-hitting portions of `resolve_api_version`
-	/// against a synthetic CRD, mirroring the logic under test.
+	/// Test wrapper around the production `pick_best_version` function.
+	///
+	/// Tests exercise the exact same selection logic used by
+	/// `resolve_api_version`, so they cannot drift from production code.
 	fn resolve_from_crd(crd: &CustomResourceDefinition) -> Result<String, String> {
-		let served: Vec<&str> = crd
-			.spec
-			.versions
-			.iter()
-			.filter(|v| v.served)
-			.map(|v| v.name.as_str())
-			.collect();
-
-		if served.is_empty() {
-			return Err("no served versions".to_string());
-		}
-
-		let storage_version = crd
-			.spec
-			.versions
-			.iter()
-			.find(|v| v.served && v.storage)
-			.map(|v| v.name.as_str());
-
-		let chosen = if let Some(storage) = storage_version {
-			storage.to_string()
-		} else {
-			let mut candidates: Vec<&str> = served.clone();
-			candidates.sort_by(|a, b| version_rank(b).cmp(&version_rank(a)));
-			candidates[0].to_string()
-		};
-
+		let chosen = pick_best_version(crd).ok_or_else(|| "no served versions".to_string())?;
 		Ok(format!("{CRD_GROUP}/{chosen}"))
 	}
 

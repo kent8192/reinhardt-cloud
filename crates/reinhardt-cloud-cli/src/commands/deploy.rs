@@ -312,7 +312,9 @@ pub(crate) async fn execute(
 				Some(explicit) => explicit,
 				None => {
 					return Err(format!(
-						"failed to build Kubernetes client for apiVersion discovery: {e}"
+						"failed to build Kubernetes client for apiVersion discovery: {e} \
+						 (pass --api-version <group/version> to skip cluster discovery \
+						 when running without a kubeconfig or in-cluster config)"
 					)
 					.into());
 				}
