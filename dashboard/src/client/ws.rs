@@ -26,6 +26,8 @@ use crate::shared::ws_messages::{
 use super::components::status_badge;
 #[cfg(wasm)]
 use super::components::toast::show_toast;
+#[cfg(wasm)]
+use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 
 #[cfg(wasm)]
 thread_local! {
@@ -161,9 +163,12 @@ fn handle_ws_message(msg: WsMessage) {
 		WsMessage::SystemNotification(payload) => {
 			show_toast(&payload.level, &payload.title, &payload.message);
 		}
-		// Log and cluster health messages are handled by dedicated UI
-		// components (not yet implemented); ignore them here.
-		_ => {}
+		WsMessage::AppLog(payload) => log_viewer::append(payload),
+		WsMessage::BuildLog(payload) => log_viewer::append_build(payload),
+		WsMessage::ClusterHealth(payload) => cluster_health::update(payload),
+		// LogStreamAck is surfaced via the connection layer; no DOM update
+		// is required for it today.
+		WsMessage::LogStreamAck(_) => {}
 	}
 }
 
