@@ -10,4 +10,5 @@ define_views! {
 	pub mod register;
 	pub mod reset_password;
 	pub mod verify_email;
+	pub mod verify_email_change;
 }
