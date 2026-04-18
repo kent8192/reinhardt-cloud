@@ -24,6 +24,7 @@ anyhow = { workspace = true }
 rand = { workspace = true }
 base64 = "0.22"
 dashmap = "6"
+prometheus = "0.14"
 
 [dev-dependencies]
 rstest = { workspace = true }

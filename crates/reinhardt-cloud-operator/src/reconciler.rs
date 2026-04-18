@@ -23,6 +23,7 @@ use tracing::{error, info, warn};
 use dashmap::DashMap;
 
 use crate::error::{BackoffClass, Error, backoff_class};
+use crate::metrics::Metrics;
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
@@ -54,6 +55,8 @@ pub(crate) struct Context {
 	// defaults when inferring resource specifications.
 	#[allow(dead_code)]
 	pub platform: PlatformConfig,
+	/// Prometheus metrics shared with the exporter task.
+	pub metrics: Arc<Metrics>,
 	/// Per-object consecutive-failure counter used to drive exponential
 	/// backoff in `error_policy`. Key is `(namespace, name)`.
 	pub backoff_state: Arc<DashMap<(String, String), u32>>,
@@ -94,6 +97,7 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 
 	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
 	let key = backoff_key(&obj);
+	let start = std::time::Instant::now();
 
 	let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
 		match event {
@@ -104,11 +108,28 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 	.await
 	.map_err(|e| Error::Finalizer(Box::new(e)));
 
-	// Successful reconcile resets the backoff counter for this object so
-	// that the next failure starts from the base delay rather than an
-	// accumulated exponent.
-	if result.is_ok() {
-		ctx.backoff_state.remove(&key);
+	let elapsed = start.elapsed().as_secs_f64();
+	match &result {
+		Ok(_) => {
+			// Successful reconcile resets the backoff counter for this object.
+			ctx.backoff_state.remove(&key);
+			ctx.metrics
+				.reconcile_total
+				.with_label_values(&["success"])
+				.inc();
+			ctx.metrics
+				.reconcile_duration
+				.with_label_values(&["success"])
+				.observe(elapsed);
+		}
+		Err(err) => {
+			let label = backoff_class(err).as_metric_label();
+			ctx.metrics.reconcile_total.with_label_values(&[label]).inc();
+			ctx.metrics
+				.reconcile_duration
+				.with_label_values(&[label])
+				.observe(elapsed);
+		}
 	}
 
 	result
@@ -1325,6 +1346,10 @@ pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Conte
 	error!("Reconciliation error: {error}");
 
 	let class = backoff_class(error);
+	ctx.metrics
+		.requeue_total
+		.with_label_values(&[class.as_metric_label()])
+		.inc();
 
 	match class {
 		BackoffClass::Permanent => {
@@ -1354,7 +1379,7 @@ pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Conte
 }
 
 /// Starts the operator controller loop.
-pub(crate) async fn run(client: Client) {
+pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let apps: Api<ReinhardtApp> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
@@ -1366,6 +1391,7 @@ pub(crate) async fn run(client: Client) {
 	let context = Arc::new(Context {
 		client,
 		platform,
+		metrics,
 		backoff_state: Arc::new(DashMap::new()),
 	});
 
@@ -1708,6 +1734,7 @@ mod tests {
 		Arc::new(Context {
 			client: dummy_client(),
 			platform: PlatformConfig::onprem_defaults(),
+			metrics: Metrics::new(),
 			backoff_state: Arc::new(DashMap::new()),
 		})
 	}

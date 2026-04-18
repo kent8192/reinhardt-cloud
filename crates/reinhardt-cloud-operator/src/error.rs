@@ -83,9 +83,6 @@ pub(crate) enum BackoffClass {
 
 impl BackoffClass {
 	/// Short label used for metric/log cardinality.
-	// Consumed by the Prometheus metrics exporter (see metrics module);
-	// kept pub(crate) so the exporter can label counters consistently.
-	#[allow(dead_code)]
 	pub(crate) fn as_metric_label(self) -> &'static str {
 		match self {
 			BackoffClass::Transient => "transient",
