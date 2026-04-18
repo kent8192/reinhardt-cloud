@@ -58,3 +58,8 @@ name = "reinhardt_cloud_ci"
 user = "postgres"
 password = { secret = "postgres" }
 options = {}
+
+[email]
+host = "localhost"
+port = 1025
+from_email = "noreply@reinhardt-cloud.dev"
