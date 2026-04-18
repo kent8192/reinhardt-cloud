@@ -18,7 +18,8 @@ use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
-use tracing::{error, info, warn};
+use tracing::{Instrument, error, info, warn};
+use uuid::Uuid;
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
@@ -56,23 +57,35 @@ pub(crate) struct Context {
 
 /// Main reconciliation entry point.
 pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
-	let name = obj.name_any();
-	let namespace = obj
-		.namespace()
-		.filter(|ns| !ns.is_empty())
-		.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
-	info!("Reconciling ReinhardtApp {namespace}/{name}");
+	let span = tracing::info_span!(
+		"operator.reconcile",
+		otel.kind = "internal",
+		resource.kind = "ReinhardtApp",
+		resource.namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
+		resource.name = %obj.name_any(),
+		reconcile_id = %Uuid::new_v4(),
+	);
+	async move {
+		let name = obj.name_any();
+		let namespace = obj
+			.namespace()
+			.filter(|ns| !ns.is_empty())
+			.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
+		info!("Reconciling ReinhardtApp {namespace}/{name}");
 
-	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+		let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
 
-	finalizer(&api, FINALIZER_NAME, obj, |event| async {
-		match event {
-			FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
-			FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
-		}
-	})
+		finalizer(&api, FINALIZER_NAME, obj, |event| async {
+			match event {
+				FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
+				FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
+			}
+		})
+		.await
+		.map_err(|e| Error::Finalizer(Box::new(e)))
+	}
+	.instrument(span)
 	.await
-	.map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 /// Apply the desired state for a `ReinhardtApp`.
