@@ -18,6 +18,17 @@ data:
       - job_name: reinhardt-cloud-operator
         kubernetes_sd_configs:
           - role: pod
+        pipeline_stages:
+          - match:
+              selector: '{pod=~".+"}'
+              stages:
+                - json:
+                    expressions:
+                      level: level
+                      reconcile_id: reconcile_id
+                      resource_name: resource_name
+                - labels:
+                    level:
         relabel_configs:
           - source_labels: [__meta_kubernetes_namespace]
             regex: {{ .Release.Namespace }}
