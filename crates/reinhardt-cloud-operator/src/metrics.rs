@@ -11,15 +11,32 @@
 //! - `reinhardt_cloud_operator_reconcile_duration_seconds{result}` —
 //!   histogram of reconciliation durations.
 //! - `reinhardt_cloud_operator_requeue_total{reason}` — number of requeues
-//!   issued by the error policy, labeled by backoff class.
+//!   issued by the error policy, labeled by backoff class. Only branches
+//!   that actually return `Action::requeue(...)` increment this counter;
+//!   `Permanent` errors return `Action::await_change()` and do not bump
+//!   the counter.
 //! - `reinhardt_cloud_operator_managed_apps{phase}` — gauge of `ReinhardtApp`
 //!   objects currently tracked by the reconciler, labeled by phase.
+//!   Incremented when a new phase is observed during status update and
+//!   decremented when the object is cleaned up or transitions to a
+//!   different phase.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use prometheus::{
 	CounterVec, Encoder, GaugeVec, HistogramVec, Opts, Registry, TextEncoder, histogram_opts,
 };
+use tokio::sync::Semaphore;
+
+/// Maximum number of concurrent `/metrics` connections served by the
+/// exporter. Prometheus scrapes are serialized per target, so a small cap
+/// is sufficient and prevents slowloris-style FD/task exhaustion.
+const MAX_CONCURRENT_METRICS_CONNECTIONS: usize = 32;
+
+/// Upper bound on how long the exporter waits for a single request-read
+/// or response-write step before giving up.
+const METRICS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Metrics container shared with the reconciler via the `Context`.
 pub(crate) struct Metrics {
@@ -132,6 +149,11 @@ pub(crate) fn spawn_exporter(
 		};
 		tracing::info!("Metrics exporter listening on http://{bind}/metrics");
 
+		// Cap concurrent scrape connections to defend against slowloris
+		// and runaway task/FD usage. Prometheus scrapes are serialized per
+		// target, so this limit does not block legitimate traffic.
+		let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_METRICS_CONNECTIONS));
+
 		loop {
 			let (socket, _) = match listener.accept().await {
 				Ok(s) => s,
@@ -140,11 +162,26 @@ pub(crate) fn spawn_exporter(
 					continue;
 				}
 			};
+			// Try to acquire a slot without blocking the accept loop. If
+			// no slot is available, drop the connection immediately.
+			let permit = match Arc::clone(&sem).try_acquire_owned() {
+				Ok(p) => p,
+				Err(_) => {
+					tracing::warn!(
+						"metrics exporter at capacity ({MAX_CONCURRENT_METRICS_CONNECTIONS}), dropping connection"
+					);
+					drop(socket);
+					continue;
+				}
+			};
+			// Disable Nagle so small response buffers flush promptly.
+			let _ = socket.set_nodelay(true);
 			let metrics = Arc::clone(&metrics);
 			tokio::spawn(async move {
 				if let Err(err) = handle_connection(socket, metrics).await {
 					tracing::debug!("metrics connection closed with error: {err}");
 				}
+				drop(permit);
 			});
 		}
 	})
@@ -156,34 +193,56 @@ async fn handle_connection(
 ) -> std::io::Result<()> {
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-	// Read a small request header (we only need the request line).
+	// Read a small request header (we only need the request line). The
+	// read is bounded by `METRICS_IO_TIMEOUT` so a client that holds the
+	// connection open without sending bytes (slowloris) cannot pin a
+	// worker task indefinitely.
 	let mut buf = [0u8; 1024];
-	let n = socket.read(&mut buf).await?;
+	let n = match tokio::time::timeout(METRICS_IO_TIMEOUT, socket.read(&mut buf)).await {
+		Ok(res) => res?,
+		Err(_) => {
+			// Read timed out; close the connection without replying.
+			let _ = socket.shutdown().await;
+			return Ok(());
+		}
+	};
 	if n == 0 {
 		return Ok(());
 	}
 	let head = &buf[..n];
+	// Reject requests whose request line did not fit in our buffer — the
+	// header is intentionally small, and oversized requests are treated
+	// as hostile and closed early.
+	if n == buf.len() && !head.contains(&b'\n') {
+		return Ok(());
+	}
 	let is_metrics = head.starts_with(b"GET /metrics");
 
-	if is_metrics {
-		let body = metrics.encode();
-		let header = format!(
-			"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-			body.len()
-		);
-		socket.write_all(header.as_bytes()).await?;
-		socket.write_all(&body).await?;
-	} else {
-		let msg = b"not found";
-		let header = format!(
-			"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-			msg.len()
-		);
-		socket.write_all(header.as_bytes()).await?;
-		socket.write_all(msg).await?;
+	let write_fut = async {
+		if is_metrics {
+			let body = metrics.encode();
+			let header = format!(
+				"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+				body.len()
+			);
+			socket.write_all(header.as_bytes()).await?;
+			socket.write_all(&body).await?;
+		} else {
+			let msg = b"not found";
+			let header = format!(
+				"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+				msg.len()
+			);
+			socket.write_all(header.as_bytes()).await?;
+			socket.write_all(msg).await?;
+		}
+		socket.shutdown().await?;
+		Ok::<(), std::io::Error>(())
+	};
+	match tokio::time::timeout(METRICS_IO_TIMEOUT, write_fut).await {
+		Ok(res) => res,
+		Err(_) => Ok(()),
 	}
-	socket.shutdown().await?;
-	Ok(())
 }
 
 #[cfg(test)]
