@@ -18,30 +18,53 @@ use super::platform::Platform;
 /// Non-secret values (host, port, db name, user) are derived from
 /// conventions shared with `infer_database_resources`:
 /// - Secret name: `{app_name}-db-credentials` (keys `username` / `password`)
-/// - Host / port / db name / user: derived from the platform and the
-///   naming convention used by the inference module. These are
-///   deterministic identifiers (not credentials), so embedding them
-///   as plain values is safe.
+/// - Host / port / db name / user: derived from `db_host` and the naming
+///   convention used by the inference module. These are deterministic
+///   identifiers (not credentials), so embedding them as plain values is safe.
 ///
-/// The caller is responsible for ensuring `app.spec.database` is `Some`.
+/// The caller is responsible for ensuring a PostgreSQL database will be
+/// provisioned for this app and that the corresponding credentials Secret
+/// (`{app_name}-db-credentials`) will exist.
+///
+/// The `db_host` parameter must be the DNS name of the Service that exposes
+/// the database:
+/// - For the explicit `spec.database` path: `"{app_name}-db"` (the headless
+///   Service created by `infer_database_resources`).
+/// - For the introspect-provisioned path: `"{app_name}-postgresql"` (the
+///   Service created by `reconcile_db_service_resource`).
 pub(crate) fn build_database_env_vars_from_secret(
 	app: &ReinhardtApp,
 	platform: &Platform,
+	db_host: &str,
 ) -> Vec<EnvVar> {
 	let app_name = app.name_any();
 	let secret_name = format!("{app_name}-db-credentials");
 
-	// Host/port/db-name/user follow the conventions used by
-	// `infer_database_resources`. For on-premise, the database runs as
-	// an in-cluster StatefulSet exposed via a headless Service named
-	// `{app}-db` on the standard PostgreSQL port 5432. For cloud
-	// platforms, the endpoint is populated by the CRD status once the
-	// managed instance becomes Ready; until then the host is left as a
-	// placeholder that the application can override via `spec.env`.
-	let (host, port) = match platform {
-		Platform::Onpremise => (format!("{app_name}-db"), 5432),
-		Platform::Aws | Platform::Gcp => (format!("{app_name}-db"), 5432),
+	// Port follows the standard PostgreSQL convention. For cloud platforms
+	// (AWS RDS, GCP CloudSQL), the db_host must be supplied by the caller
+	// based on the managed instance endpoint; until cloud endpoint resolution
+	// is implemented, the host should be overridden via `spec.env.DATABASE_URL`.
+	//
+	// NOTE: For Platform::Aws and Platform::Gcp, cloud-managed database
+	// endpoints are not yet resolved automatically. The db_host passed here
+	// is a best-effort placeholder. Apps on cloud platforms that require
+	// the correct RDS/CloudSQL endpoint should override DATABASE_URL via
+	// `spec.env` until automatic cloud endpoint resolution is implemented.
+	let port = match platform {
+		Platform::Onpremise => 5432,
+		Platform::Aws | Platform::Gcp => {
+			tracing::warn!(
+				app = %app_name,
+				"Cloud-managed database endpoint resolution is not yet implemented. \
+				 DATABASE_URL and REINHARDT_DATABASE_HOST will use the placeholder host \
+				 '{}'. Override via spec.env.DATABASE_URL until cloud endpoint \
+				 resolution is supported.",
+				db_host
+			);
+			5432
+		}
 	};
+	let host = db_host.to_string();
 
 	// Both identifiers use replace('-', "_") to produce valid SQL identifiers,
 	// matching the convention used by infer_database_resources in inference/database.rs.
@@ -160,7 +183,7 @@ mod tests {
 		let app = make_app_with_db("myapp");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise);
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "myapp-db");
 
 		// Assert — password is injected via SecretKeyRef, never inlined
 		let password_var = vars
@@ -186,7 +209,7 @@ mod tests {
 		let app = make_app_with_db("my-app");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise);
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
 
 		// Assert — non-secret identifiers are safe as plain values
 		let host = vars
@@ -220,7 +243,7 @@ mod tests {
 		let app = make_app_with_db("my-app");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise);
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
 
 		// Assert — DATABASE_URL must be present and contain the connection params
 		let url_var = vars

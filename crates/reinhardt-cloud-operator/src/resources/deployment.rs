@@ -53,19 +53,34 @@ pub(crate) fn build_deployment(
 	// Inject database connection env vars when a database will be provisioned,
 	// either via an explicit spec.database field or via introspect-derived
 	// infrastructure signals (requires_postgresql).
-	let needs_db_env = app.spec.database.is_some()
-		|| app
-			.spec
-			.introspect
-			.as_ref()
-			.is_some_and(|i| {
-				reinhardt_cloud_core::inference::requires_postgresql(
-					&i.features.infrastructure_signals,
-				)
-			});
+	//
+	// The DB host differs between the two provisioning paths:
+	// - Explicit spec.database: "{app_name}-db" (headless Service from infer_database_resources)
+	// - Introspect path: "{app_name}-postgresql" (Service from reconcile_db_service_resource)
+	//
+	// Note: user-provided spec.env values take priority over auto-generated DB env vars
+	// (including REINHARDT_DATABASE_PASSWORD). This is intentional — users may need to
+	// override connection parameters — but plaintext credentials in spec.env are discouraged.
+	let app_name = app.name_any();
+	let explicit_db = app.spec.database.is_some();
+	let introspect_db = app
+		.spec
+		.introspect
+		.as_ref()
+		.is_some_and(|i| {
+			reinhardt_cloud_core::inference::requires_postgresql(
+				&i.features.infrastructure_signals,
+			)
+		});
+	let needs_db_env = explicit_db || introspect_db;
 	let mut auto_vars = build_system_env_vars();
 	if needs_db_env {
-		auto_vars.extend(build_database_env_vars_from_secret(app, platform));
+		let db_host = if explicit_db {
+			format!("{app_name}-db")
+		} else {
+			format!("{app_name}-postgresql")
+		};
+		auto_vars.extend(build_database_env_vars_from_secret(app, platform, &db_host));
 	}
 	let merged_env = merge_env_vars(&auto_vars, &app.spec.env);
 

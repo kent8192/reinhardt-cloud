@@ -180,7 +180,7 @@ fn build_onprem_postgres(
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([(
 					"app.kubernetes.io/name".to_string(),
-					format!("{app_name}-db"),
+					app_name.to_string(),
 				)])),
 				..Default::default()
 			},
@@ -188,7 +188,7 @@ fn build_onprem_postgres(
 				metadata: Some(ObjectMeta {
 					labels: Some(BTreeMap::from([(
 						"app.kubernetes.io/name".to_string(),
-						format!("{app_name}-db"),
+						app_name.to_string(),
 					)])),
 					..Default::default()
 				}),
@@ -241,6 +241,8 @@ fn build_onprem_postgres(
 	// Headless Service exposing the database within the cluster.
 	// The Service name matches the host used by build_database_env_vars_from_secret
 	// so that the injected REINHARDT_DATABASE_HOST resolves correctly.
+	// cluster_ip = "None" makes this a headless Service so that DNS resolves
+	// directly to the pod IP (required for StatefulSet clients).
 	let service = Service {
 		metadata: ObjectMeta {
 			name: Some(format!("{app_name}-db")),
@@ -250,9 +252,10 @@ fn build_onprem_postgres(
 		},
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
+			cluster_ip: Some("None".to_string()),
 			selector: Some(BTreeMap::from([(
 				"app.kubernetes.io/name".to_string(),
-				format!("{app_name}-db"),
+				app_name.to_string(),
 			)])),
 			ports: Some(vec![ServicePort {
 				port: 5432,
@@ -836,9 +839,9 @@ mod tests {
 			let spec = svc.spec.as_ref().unwrap();
 			let port = &spec.ports.as_ref().unwrap()[0];
 			assert_eq!(port.port, 5432);
-			// Selector must match the StatefulSet pod label
+			// Selector must match the StatefulSet pod label (app_name, not app_name-db)
 			let selector = spec.selector.as_ref().unwrap();
-			assert_eq!(selector.get("app.kubernetes.io/name").map(String::as_str), Some("myapp-db"));
+			assert_eq!(selector.get("app.kubernetes.io/name").map(String::as_str), Some("myapp"));
 		} else {
 			panic!("Expected Service as third resource");
 		}

@@ -5,7 +5,6 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
@@ -25,7 +24,7 @@ use crate::inference::configmap::build_settings_configmap;
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::inference::secrets::build_jwt_secret;
 use crate::resources::credentials;
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
@@ -112,32 +111,13 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		}
 	}
 
-	// Create DB credentials Secret if database is configured (preserve existing credentials)
-	if app.spec.database.is_some() {
-		let db_secret_name = format!("{name}-db-credentials");
-		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
-		if secret_api
-			.get_opt(&db_secret_name)
-			.await
-			.map_err(Error::Kube)?
-			.is_none()
-		{
-			let password_bytes: [u8; 16] = rand::random();
-			let password_str =
-				base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(password_bytes);
-			let db_secret = build_db_credentials_secret(
-				&name,
-				namespace,
-				&format!("{name}_user"),
-				&password_str,
-			);
-			secret_api
-				.create(&PostParams::default(), &db_secret)
-				.await
-				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
-			info!("Created DB credentials Secret {namespace}/{db_secret_name}");
-		}
-	}
+	// DB credentials Secret for the explicit-database path is created by
+	// `infer_database_resources` (called below in the `app.spec.database.is_some()`
+	// branch) via `apply_db_secret_if_absent`. Generating it here with a
+	// different username (`{name}_user` vs. the sanitized `{name_sanitized}` used
+	// by the inference module) caused a convention conflict: the early Secret was
+	// created first, then `apply_db_secret_if_absent` silently skipped it, leaving
+	// the credentials mismatched with the init-SQL in the ConfigMap.
 
 	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
 	let pages_config = resolve_pages_config(&app);
@@ -1827,8 +1807,8 @@ mod tests {
 		// Assert
 		assert_eq!(
 			resources.len(),
-			4,
-			"on-prem inference must emit StatefulSet + PVC + ConfigMap + Secret"
+			5,
+			"on-prem inference must emit StatefulSet + PVC + Service + ConfigMap + Secret"
 		);
 	}
 
