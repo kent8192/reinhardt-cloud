@@ -31,6 +31,12 @@ spec:
           env:
             - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
+            {{- if .Values.metrics.enabled }}
+            - name: REINHARDT_CLOUD_METRICS_ENABLED
+              value: "true"
+            - name: REINHARDT_CLOUD_METRICS_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.metrics.port) | quote }}
+            {{- end }}
             {{- range $key, $value := .Values.operator.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
