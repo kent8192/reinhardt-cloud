@@ -4,9 +4,6 @@ use std::path::Path;
 
 /// Infrastructure signals inferred from reinhardt-web feature flags
 #[derive(Debug, Clone, Default)]
-// Reserved for future feature management commands (zero-config CLI will
-// read these fields when generating deployment manifests).
-#[allow(dead_code)]
 pub(crate) struct InfraSignals {
 	pub(crate) database: Option<String>,
 	pub(crate) jwt: bool,

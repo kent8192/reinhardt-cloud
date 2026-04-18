@@ -7,7 +7,12 @@ use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
 use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
-use reinhardt_cloud_types::introspect::IntrospectOutput;
+use crate::feature_detector::{InfraSignals as DetectedInfraSignals, detect_project};
+use crate::settings_reader::{DatabaseConfig, read_database_config};
+use reinhardt_cloud_types::introspect::{
+	AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals as IntrospectInfraSignals,
+	IntrospectOutput,
+};
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
 /// Deploy an application.
@@ -90,6 +95,84 @@ fn validate_api_version(value: &str) -> Result<String, String> {
 	}
 
 	Ok(value.to_string())
+}
+
+/// Converts CLI-detected InfraSignals into the IntrospectOutput shape.
+///
+/// This is the zero-config inference path (Refs #372): when the management
+/// server is not reachable, we still want the deploy pipeline to receive a
+/// best-effort `IntrospectOutput` synthesized from local project state.
+///
+/// All fields of `DetectedInfraSignals` are read here so the struct remains
+/// a stable contract — add new mappings in lockstep when new signals land.
+fn synthesize_infra_signals(detected: &DetectedInfraSignals) -> IntrospectInfraSignals {
+	IntrospectInfraSignals {
+		database: detected.database.clone(),
+		cache: detected.cache.clone(),
+		websocket: detected.websocket,
+		background_worker: detected.background_worker,
+		grpc: detected.grpc,
+		storage: detected.object_storage.then(|| "local".to_string()),
+		mail: None,
+		// Map the `sessions` boolean to a backend hint so downstream can tell
+		// sessions are enabled; default to "db" because that matches the
+		// reinhardt-web built-in session backend shipped without configuration.
+		session_backend: detected.sessions.then(|| "db".to_string()),
+		graphql: detected.graphql,
+		admin_panel: false,
+		i18n: false,
+		pages: detected.pages,
+	}
+	// Note: `detected.jwt` is intentionally not surfaced here because the
+	// IntrospectOutput schema has no JWT-specific field. JWT usage affects
+	// RBAC manifests generated later, which is outside the zero-config path.
+}
+
+/// Builds a synthetic `IntrospectOutput` from a project directory.
+///
+/// Uses `feature_detector::detect_project` for app identity and feature
+/// signals, and `settings_reader::read_database_config` for the default
+/// database configuration. Returns `None` when `detect_project` fails
+/// (e.g., no `Cargo.toml` found); a missing database config is not
+/// sufficient to return `None` — app identity must be resolvable.
+fn synthesize_introspect_from_project(dir: &std::path::Path) -> Option<IntrospectOutput> {
+	let project = detect_project(dir).ok()?;
+	let db_config: Option<DatabaseConfig> = read_database_config(dir);
+
+	if let Some(ref cfg) = db_config {
+		// Log only the engine type; host, port, and name are omitted to
+		// avoid leaking connection details into shared CI logs.
+		eprintln!(
+			"  using inferred database configuration (engine={})",
+			cfg.engine
+		);
+	}
+
+	let databases = db_config
+		.map(|cfg| {
+			vec![DatabaseMetadata {
+				alias: "default".to_string(),
+				engine: cfg.engine,
+				tables: Vec::new(),
+			}]
+		})
+		.unwrap_or_default();
+
+	Some(IntrospectOutput {
+		app: AppMetadata {
+			name: project.name,
+			version: project.version,
+		},
+		databases,
+		routes: Vec::new(),
+		middleware: Vec::new(),
+		settings: Default::default(),
+		features: FeaturesMetadata {
+			declared: project.features.clone(),
+			resolved: project.features,
+			infrastructure_signals: synthesize_infra_signals(&project.signals),
+		},
+	})
 }
 
 /// Reads reinhardt-cloud.toml from the project directory if it exists.
@@ -277,6 +360,7 @@ pub(crate) async fn execute(
 	args: &DeployArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	eprintln!("Target: {}", client.base_url());
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
@@ -293,8 +377,22 @@ pub(crate) async fn execute(
 				return Err(e.into());
 			}
 			eprintln!("Warning: manage introspect failed: {e}");
-			eprintln!("Deploying with minimal configuration.");
-			None
+			// Zero-config fallback (Refs #372): when `manage introspect` is
+			// unavailable, infer project metadata from Cargo.toml feature
+			// flags and settings/base.toml so deploy still produces a usable
+			// CRD before the management server is reachable.
+			match synthesize_introspect_from_project(&project_dir) {
+				Some(synthesized) => {
+					eprintln!(
+						"Using zero-config inference from Cargo.toml and settings/base.toml."
+					);
+					Some(synthesized)
+				}
+				None => {
+					eprintln!("Deploying with minimal configuration.");
+					None
+				}
+			}
 		}
 	};
 

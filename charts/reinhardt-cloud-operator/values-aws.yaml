@@ -1,3 +1,4 @@
+# AWS overlay: selects AWS PlatformConfig and RBAC rules on top of values.yaml.
 platform: aws
 
 image:
@@ -13,7 +14,9 @@ nodeSelector:
 
 defaults:
   database:
+    # RDS instance class for provisioned databases (AWS-specific).
     instance_class: db.t3.micro
+    # Default storage size in GiB; matches values.yaml baseline.
     storage_gb: 20
     multi_az: false
     engine_version:
@@ -30,14 +33,17 @@ defaults:
       cpu: 500m
       memory: 512Mi
   storage:
+    # AWS EBS gp3 StorageClass (overrides the on-prem local-path default).
     class: gp3
   ingress:
+    # AWS Load Balancer Controller ALB IngressClass (overrides nginx).
     class: alb
     annotations:
       kubernetes.io/ingress.class: alb
       alb.ingress.kubernetes.io/scheme: internet-facing
 
 isolation:
+  # Stronger default than values.yaml: AWS EKS supports sandbox runtimes.
   defaultLevel: "Sandbox"
   runtimeClasses:
     kata:

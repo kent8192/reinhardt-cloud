@@ -60,6 +60,7 @@ proptest! {
 			since: None,
 			until: None,
 			search: filter_search,
+			deployment_id: None,
 		};
 
 		// Act
