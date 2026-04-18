@@ -2,10 +2,6 @@ use super::dockerfile::{Instruction, Stage};
 
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
-// Reserved fields (cache, session_backend, graphql) are populated by
-// collect_signals and will be consumed when corresponding Dockerfile
-// optimizations are added.
-#[allow(dead_code)]
 pub(crate) struct DockerfileSignals {
 	pub(crate) app_name: String,
 	pub(crate) rust_version: String,
@@ -29,6 +25,12 @@ fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
 		Some("postgresql") | Some("cockroachdb") => pkgs.push("libpq5"),
 		Some("mysql") => pkgs.push("default-mysql-client-core"),
 		_ => {}
+	}
+
+	// Ship redis-tools when a Redis cache backend is configured so `redis-cli`
+	// is available inside the container for probes and diagnostics.
+	if signals.cache.as_deref() == Some("redis") {
+		pkgs.push("redis-tools");
 	}
 
 	pkgs
@@ -65,6 +67,15 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 		]));
 	}
 
+	// When the graphql signal is set, propagate the feature to both cargo-chef
+	// dependency caching and the final build so the resulting binary includes
+	// GraphQL schema code generation.
+	let feature_args = if signals.graphql {
+		" --features graphql"
+	} else {
+		""
+	};
+
 	instructions.push(Instruction::Run("cargo install cargo-chef".to_string()));
 	instructions.push(Instruction::Workdir("/app".to_string()));
 	instructions.push(Instruction::Copy {
@@ -72,15 +83,17 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 		src: "/app/recipe.json".to_string(),
 		dst: "recipe.json".to_string(),
 	});
-	instructions.push(Instruction::Run(
-		"cargo chef cook --release --recipe-path recipe.json".to_string(),
-	));
+	instructions.push(Instruction::Run(format!(
+		"cargo chef cook --release{feature_args} --recipe-path recipe.json"
+	)));
 	instructions.push(Instruction::Copy {
 		from: None,
 		src: ".".to_string(),
 		dst: ".".to_string(),
 	});
-	instructions.push(Instruction::Run("cargo build --release".to_string()));
+	instructions.push(Instruction::Run(format!(
+		"cargo build --release{feature_args}"
+	)));
 
 	Stage {
 		base_image: format!("rust:{}-bookworm", signals.rust_version),
@@ -185,10 +198,14 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		instructions.push(Instruction::User("appuser".to_string()));
 	}
 
-	instructions.push(Instruction::Env(vec![(
-		"RUST_LOG".to_string(),
-		"info".to_string(),
-	)]));
+	let mut env_pairs = vec![("RUST_LOG".to_string(), "info".to_string())];
+	if let Some(backend) = signals.session_backend.as_deref() {
+		env_pairs.push((
+			"REINHARDT_SESSION_BACKEND".to_string(),
+			backend.to_string(),
+		));
+	}
+	instructions.push(Instruction::Env(env_pairs));
 	instructions.push(Instruction::Expose(8000));
 
 	if is_custom_image {
@@ -466,6 +483,103 @@ mod tests {
 		// Assert
 		assert!(stage_contains_run(&stage, "protobuf-compiler"));
 		assert!(stage_contains_run(&stage, "cargo build --release"));
+	}
+
+	fn stage_env_value(stage: &Stage, key: &str) -> Option<String> {
+		stage.instructions.iter().find_map(|inst| match inst {
+			Instruction::Env(pairs) => pairs
+				.iter()
+				.find(|(k, _)| k == key)
+				.map(|(_, v)| v.clone()),
+			_ => None,
+		})
+	}
+
+	// S19 (Refs #372): redis cache installs redis-tools in runtime
+	#[rstest]
+	fn runtime_stage_installs_redis_tools_when_cache_redis(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.cache = Some("redis".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "redis-tools"),
+			"expected redis-tools in runtime packages for cache=redis"
+		);
+	}
+
+	// S20 (Refs #372): redis cache not installed when cache is not redis
+	#[rstest]
+	fn runtime_stage_no_redis_tools_when_cache_absent(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(!stage_contains_run(&stage, "redis-tools"));
+	}
+
+	// S21 (Refs #372): session_backend is propagated as runtime env
+	#[rstest]
+	fn runtime_stage_sets_session_backend_env(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.session_backend = Some("redis".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert_eq!(
+			stage_env_value(&stage, "REINHARDT_SESSION_BACKEND").as_deref(),
+			Some("redis")
+		);
+	}
+
+	// S22 (Refs #372): no session_backend env when signal is absent
+	#[rstest]
+	fn runtime_stage_no_session_backend_env_when_absent(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_env_value(&stage, "REINHARDT_SESSION_BACKEND").is_none());
+	}
+
+	// S23 (Refs #372): graphql feature is passed to cargo build
+	#[rstest]
+	fn builder_stage_enables_graphql_feature_when_graphql_set(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.graphql = true;
+
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert: both cargo-chef caching and the final build must carry the
+		// graphql feature so the compiled binary includes GraphQL code.
+		assert!(
+			stage_contains_run(&stage, "cargo build --release --features graphql"),
+			"expected graphql feature in cargo build"
+		);
+		assert!(
+			stage_contains_run(&stage, "cargo chef cook --release --features graphql"),
+			"expected graphql feature in cargo chef cook"
+		);
+	}
+
+	// S24 (Refs #372): graphql feature is NOT passed when signal is absent
+	#[rstest]
+	fn builder_stage_no_graphql_feature_when_absent(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(!stage_contains_run(&stage, "--features graphql"));
 	}
 
 	// S18
