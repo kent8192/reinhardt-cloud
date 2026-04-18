@@ -165,16 +165,16 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 					apply_pvc(&ctx.client, namespace, *pvc).await?;
 				}
 				DatabaseResource::Service(svc) => {
-					apply_db_service(&ctx.client, namespace, svc).await?;
+					apply_db_service(&ctx.client, namespace, *svc).await?;
 				}
 				DatabaseResource::ConfigMap(cm) => {
-					apply_configmap(&ctx.client, namespace, cm).await?;
+					apply_configmap(&ctx.client, namespace, *cm).await?;
 				}
 				DatabaseResource::Secret(sec) => {
-					apply_db_secret_if_absent(&ctx.client, namespace, sec).await?;
+					apply_db_secret_if_absent(&ctx.client, namespace, *sec).await?;
 				}
 				DatabaseResource::Dynamic(obj) => {
-					apply_dynamic(&ctx.client, namespace, obj).await?;
+					apply_dynamic(&ctx.client, namespace, *obj).await?;
 				}
 			}
 		}

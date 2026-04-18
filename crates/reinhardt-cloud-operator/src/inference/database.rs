@@ -112,13 +112,13 @@ pub(crate) enum DatabaseResource {
 	/// A PersistentVolumeClaim for database storage (on-premise).
 	Pvc(Box<PersistentVolumeClaim>),
 	/// A Service exposing the database within the cluster (on-premise).
-	Service(Service),
+	Service(Box<Service>),
 	/// A ConfigMap for database initialisation scripts.
-	ConfigMap(ConfigMap),
+	ConfigMap(Box<ConfigMap>),
 	/// A Secret containing database credentials.
-	Secret(Secret),
+	Secret(Box<Secret>),
 	/// A dynamic object for cloud provider CRDs (ACK, Config Connector).
-	Dynamic(DynamicObject),
+	Dynamic(Box<DynamicObject>),
 }
 
 /// Infer database resources based on the app spec and the target platform.
@@ -291,9 +291,9 @@ fn build_onprem_postgres(
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
 		DatabaseResource::Pvc(Box::new(pvc)),
-		DatabaseResource::Service(service),
-		DatabaseResource::ConfigMap(config_map),
-		DatabaseResource::Secret(secret),
+		DatabaseResource::Service(Box::new(service)),
+		DatabaseResource::ConfigMap(Box::new(config_map)),
+		DatabaseResource::Secret(Box::new(secret)),
 	]
 }
 
@@ -358,8 +358,8 @@ fn build_aws_rds(
 	let secret = build_db_credentials_secret(app_name, namespace, &master_username, &password);
 
 	vec![
-		DatabaseResource::Dynamic(db_instance),
-		DatabaseResource::Secret(secret),
+		DatabaseResource::Dynamic(Box::new(db_instance)),
+		DatabaseResource::Secret(Box::new(secret)),
 	]
 }
 
@@ -469,10 +469,10 @@ fn build_gcp_cloud_sql(
 	let secret = build_db_credentials_secret(app_name, namespace, &sanitized_user, &password);
 
 	vec![
-		DatabaseResource::Dynamic(sql_instance),
-		DatabaseResource::Dynamic(sql_database),
-		DatabaseResource::Dynamic(sql_user),
-		DatabaseResource::Secret(secret),
+		DatabaseResource::Dynamic(Box::new(sql_instance)),
+		DatabaseResource::Dynamic(Box::new(sql_database)),
+		DatabaseResource::Dynamic(Box::new(sql_user)),
+		DatabaseResource::Secret(Box::new(secret)),
 	]
 }
 
@@ -841,7 +841,10 @@ mod tests {
 			assert_eq!(port.port, 5432);
 			// Selector must match the StatefulSet pod label (app_name, not app_name-db)
 			let selector = spec.selector.as_ref().unwrap();
-			assert_eq!(selector.get("app.kubernetes.io/name").map(String::as_str), Some("myapp"));
+			assert_eq!(
+				selector.get("app.kubernetes.io/name").map(String::as_str),
+				Some("myapp")
+			);
 		} else {
 			panic!("Expected Service as third resource");
 		}
