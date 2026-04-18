@@ -4,6 +4,7 @@ use std::path::Path;
 
 /// Database configuration extracted from settings
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // fields reserved for future deploy command database URL construction
 pub(crate) struct DatabaseConfig {
 	pub(crate) engine: String,
 	pub(crate) host: String,
