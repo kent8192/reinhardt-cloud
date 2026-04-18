@@ -56,3 +56,15 @@ root = "media"
 # Allowed origins for OriginGuardMiddleware (exact match, no wildcards).
 # OriginGuard filters out "*" — use explicit URLs.
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+[email]
+# SMTP backend configuration for transactional emails.
+# For testing, override via REINHARDT_EMAIL__* env vars to point at Mailpit.
+host = "localhost"
+port = 1025
+from_email = "noreply@reinhardt-cloud.dev"
+use_ssl = false
+use_tls = false
+# username = ""
+# password = { secret = "CHANGE-ME" }
+# timeout = 30

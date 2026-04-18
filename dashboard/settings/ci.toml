@@ -66,3 +66,8 @@ root = "media"
 
 [cors]
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+[email]
+host = "localhost"
+port = 1025
+from_email = "noreply@reinhardt-cloud.dev"
