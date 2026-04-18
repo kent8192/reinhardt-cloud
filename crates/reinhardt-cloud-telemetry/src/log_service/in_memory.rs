@@ -1,7 +1,7 @@
 //! In-memory `LogService` backed by a `tokio::broadcast` channel + ring buffer.
 //!
 //! Honors [`RetentionPolicy`]: `capacity` caps the ring buffer, `ttl` bounds
-//! record lifetime in `list` queries. Defaults: `capacity = 1000`,
+//! record lifetime in `list` queries. Defaults: `capacity = Some(1000)`,
 //! `ttl = 1 hour`.
 
 use crate::{
@@ -11,8 +11,8 @@ use crate::{
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::{BoxStream, StreamExt};
-use std::{collections::VecDeque, sync::Mutex, time::Duration};
-use tokio::sync::broadcast;
+use std::{collections::VecDeque, time::Duration};
+use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::BroadcastStream;
 
 /// In-process `LogService` backed by a bounded ring buffer and a
@@ -26,19 +26,20 @@ pub struct InMemoryLogService {
 impl InMemoryLogService {
 	/// Create a service with the given retention policy.
 	pub fn new(policy: RetentionPolicy) -> Self {
-		let (tx, _) = broadcast::channel(policy.capacity.max(16));
-		Self {
-			buffer: Mutex::new(VecDeque::with_capacity(policy.capacity)),
-			tx,
-			policy,
-		}
+		let broadcast_cap = policy.capacity.map_or(64, |c| c.max(16));
+		let (tx, _) = broadcast::channel(broadcast_cap);
+		let buffer = match policy.capacity {
+			Some(cap) => Mutex::new(VecDeque::with_capacity(cap)),
+			None => Mutex::new(VecDeque::new()),
+		};
+		Self { buffer, tx, policy }
 	}
 }
 
 impl Default for InMemoryLogService {
 	fn default() -> Self {
 		Self::new(RetentionPolicy {
-			capacity: 1000,
+			capacity: Some(1000),
 			ttl: Duration::from_secs(3600),
 		})
 	}
@@ -61,7 +62,7 @@ fn matches(record: &LogRecord, filter: &LogFilter) -> bool {
 		return false;
 	}
 	if let Some(min) = filter.min_level
-		&& (record.level as u8) < (min as u8)
+		&& record.level < min
 	{
 		return false;
 	}
@@ -71,11 +72,24 @@ fn matches(record: &LogRecord, filter: &LogFilter) -> bool {
 #[async_trait]
 impl LogService for InMemoryLogService {
 	async fn ingest(&self, record: LogRecord) -> Result<(), LogServiceError> {
-		let mut buf = self.buffer.lock().expect("buffer mutex poisoned");
-		if buf.len() == self.policy.capacity {
-			buf.pop_front();
+		match self.policy.capacity {
+			// capacity = Some(0): broadcast only, do not buffer
+			Some(0) => {
+				let _ = self.tx.send(record);
+				return Ok(());
+			}
+			Some(cap) => {
+				let mut buf = self.buffer.lock().await;
+				while buf.len() >= cap {
+					buf.pop_front();
+				}
+				buf.push_back(record.clone());
+			}
+			// capacity = None: unbounded buffer
+			None => {
+				self.buffer.lock().await.push_back(record.clone());
+			}
 		}
-		buf.push_back(record.clone());
 		// send is best-effort; no subscribers is fine.
 		let _ = self.tx.send(record);
 		Ok(())
@@ -107,10 +121,13 @@ impl LogService for InMemoryLogService {
 		filter: LogFilter,
 		page: Pagination,
 	) -> Result<Vec<LogRecord>, LogServiceError> {
-		let cutoff = Utc::now()
-			- chrono::Duration::from_std(self.policy.ttl)
-				.expect("retention TTL must be within chrono::Duration range");
-		let buf = self.buffer.lock().expect("buffer mutex poisoned");
+		// `chrono::Duration::from_std` fails for TTL values that exceed
+		// `i64::MAX` nanoseconds (~292 years). Treat that as "no TTL cutoff"
+		// by clamping to `chrono::Duration::MAX` rather than panicking.
+		let chrono_ttl = chrono::Duration::from_std(self.policy.ttl)
+			.unwrap_or(chrono::Duration::MAX);
+		let cutoff = Utc::now() - chrono_ttl;
+		let buf = self.buffer.lock().await;
 		let filtered: Vec<_> = buf
 			.iter()
 			.filter(|r| r.ts >= cutoff && matches(r, &filter))
@@ -161,7 +178,7 @@ mod tests {
 	async fn capacity_bounds_the_ring_buffer() {
 		// Arrange
 		let svc = InMemoryLogService::new(RetentionPolicy {
-			capacity: 2,
+			capacity: Some(2),
 			ttl: Duration::from_secs(60),
 		});
 

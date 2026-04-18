@@ -162,32 +162,25 @@ C4Container
 
 ## CLI Reference
 
+For the complete guide — every command, flag, example, persona-specific note, and troubleshooting entry — see [`docs/tools/cli.md`](docs/tools/cli.md).
+
+Summary:
+
 ```
 reinhardt-cloud [--server <URL>] <command>
 ```
 
-| Command | Description | Key Flags |
-|---|---|---|
-| `init` | Generate `reinhardt-cloud.toml` from project analysis | `--dir` |
-| `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state | `--dir` |
-| `deploy` | Build CRD and deploy to platform | `--name`, `--image`, `--replicas`, `--dir`, `--dry-run`, `--direct`, `--introspect-only`, `--namespace`, `--cluster` |
-| `status` | Check deployment status | `--name` |
-| `login` | Authenticate with the platform | `--username` |
+| Command | Description |
+|---|---|
+| `init` | Generate `reinhardt-cloud.toml` from project analysis |
+| `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
+| `deploy` | Build the `ReinhardtApp` CRD and apply it |
+| `status` | Check deployment status |
+| `login` | Authenticate with the platform |
+| `credentials` | Manage Git and container-registry credentials |
+| `crd` | Generate CRD manifests for GitOps workflows |
 
-**Global flag:** `--server <URL>` overrides the default API server endpoint.
-
-### Deploy workflow example
-
-```bash
-# Preview what will be deployed (outputs YAML)
-reinhardt-cloud deploy --dry-run --name myapp --image myapp:v1 --replicas 3
-
-# Deploy directly to Kubernetes (skip control plane)
-reinhardt-cloud deploy --direct --namespace production
-
-# Only run introspection (no deploy)
-reinhardt-cloud deploy --introspect-only
-```
+See [`docs/tools/cli.md`](docs/tools/cli.md) for flags, subcommand details, examples, and troubleshooting.
 
 ## CRD Reference
 
@@ -413,6 +406,8 @@ CUSTOM_VAR = "custom_value"
 - Rust (2024 Edition)
 - Docker (required for TestContainers — not Podman)
 - cargo-make, cargo-nextest
+
+For a step-by-step local stack bootstrap (cluster + Dashboard + Operator + Agent + end-to-end deploy), see [`docs/development/LOCAL_E2E_TESTING.md`](docs/development/LOCAL_E2E_TESTING.md).
 
 ### Commands
 

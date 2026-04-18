@@ -77,6 +77,7 @@ fn init_tracing() -> anyhow::Result<reinhardt_cloud_telemetry::TracingGuard> {
 	let config =
 		reinhardt_cloud_telemetry::TracingConfig::from_env("reinhardt-cloud-operator", json_logs);
 	reinhardt_cloud_telemetry::init_tracing(config).map_err(anyhow::Error::from)
+
 }
 
 #[cfg(test)]

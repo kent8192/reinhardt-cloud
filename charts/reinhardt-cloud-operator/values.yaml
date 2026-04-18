@@ -9,14 +9,21 @@ imagePullSecrets: []
 
 namespace: reinhardt-cloud-system
 
+# Target platform driving PlatformConfig and RBAC rules (onpremise | aws | gcp).
 platform: onpremise
 
 features:
+  # Enable database inference and RBAC for managed database resources.
   database: true
+  # Enable cache (Redis) inference and reconciliation.
   cache: false
+  # Enable ingress resource inference and reconciliation.
   ingress: false
+  # Enable horizontal autoscaling (HPA) support.
   autoscaling: false
+  # Enable persistent storage (PVC) inference and reconciliation.
   storage: false
+  # Enable background worker (Deployment) inference and reconciliation.
   worker: false
 
 serviceAccount:
@@ -25,6 +32,7 @@ serviceAccount:
   name: ""
 
 operator:
+  # Command-line arguments passed to the operator binary entrypoint.
   args:
     - run
   env:
@@ -48,6 +56,13 @@ logging:
       limits:
         cpu: 200m
         memory: 128Mi
+    # Promtail requires read access to /var/log/pods on the host node.
+    # On most distributions this requires running as root (uid 0).
+    # Override this when your cluster enforces non-root Pod Security Standards
+    # and the node log directory is readable by a non-root group.
+    podSecurityContext:
+      runAsUser: 0
+      runAsGroup: 0
 
 podSecurityContext:
   runAsNonRoot: true
@@ -71,10 +86,19 @@ affinity: {}
 
 defaults:
   database:
+    # Default persistent storage size for managed databases, in GiB.
     storage_gb: 20
     storage_class: local-path
     engine_version:
+      # Default PostgreSQL version used when a tenant does not override it; use
+      # the format expected by the selected platform/overlay (for example, on-prem
+      # uses a major version like "16", AWS uses a minor version like "16.3", and
+      # GCP requires an engine identifier such as POSTGRES_16).
       postgresql: "16"
+      # Default MySQL version used when a tenant does not override it; use the
+      # format expected by the selected platform/overlay (for example, on-prem
+      # uses "8.0", AWS may require a specific minor version, and GCP may require
+      # a provider-specific engine identifier).
       mysql: "8.0"
   cache:
     storage_gb: 1
@@ -89,11 +113,13 @@ defaults:
   storage:
     class: local-path
   ingress:
+    # Default IngressClass name used when a tenant does not override it.
     class: nginx
     annotations:
       kubernetes.io/ingress.class: nginx
 
 isolation:
+  # Default tenant isolation level (None | Sandbox | MicroVM).
   defaultLevel: "None"
   runtimeClasses:
     kata:
@@ -105,13 +131,18 @@ isolation:
     gvisor:
       enabled: false
   networkPolicy:
+    # Enable generation of NetworkPolicy resources per tenant.
     enabled: true
+    # CNI provider used to enforce NetworkPolicy (cilium | calico).
     provider: cilium
+    # Block tenant pod access to cloud metadata services (169.254.169.254).
     blockMetadataService: true
+    # Default egress CIDRs allowed when no explicit policy is provided.
     defaultEgressAllow:
       - "0.0.0.0/0"
   podSecurityStandards:
     enabled: true
+    # Pod Security Standard level enforced on tenant namespaces (privileged | baseline | restricted).
     enforceLevel: restricted
   seccomp:
     enabled: true
@@ -125,6 +156,7 @@ isolation:
       limits:
         cpu: "2"
         memory: 2Gi
+    # Hard upper bounds a tenant workload may request for CPU and memory.
     max:
       cpu: "4"
       memory: 4Gi

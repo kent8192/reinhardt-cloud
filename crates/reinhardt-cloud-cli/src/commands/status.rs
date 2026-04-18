@@ -155,6 +155,7 @@ pub(crate) async fn execute(
 	args: &StatusArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	eprintln!("Target: {}", client.base_url());
 	let app_name = args.name.as_deref().unwrap_or("default-app");
 
 	let span = tracing::info_span!(

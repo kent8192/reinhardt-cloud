@@ -19,8 +19,7 @@ spec:
     spec:
       serviceAccountName: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
       securityContext:
-        runAsUser: 0
-        runAsGroup: 0
+        {{- toYaml .Values.logging.loki.podSecurityContext | nindent 8 }}
       tolerations:
         - effect: NoSchedule
           operator: Exists

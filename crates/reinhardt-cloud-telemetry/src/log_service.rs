@@ -44,9 +44,13 @@ impl Default for Pagination {
 ///
 /// Surfaced to consumers so the dashboard's ring-buffer contract (see #371)
 /// stays consistent with the backend's actual retention.
+///
+/// `capacity` is `None` when the ring buffer is unbounded. `Some(0)` disables
+/// buffering entirely (records are forwarded to live-tail subscribers but not
+/// stored).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetentionPolicy {
-	pub capacity: usize,
+	pub capacity: Option<usize>,
 	pub ttl: Duration,
 }
 

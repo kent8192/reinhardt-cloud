@@ -80,7 +80,7 @@ impl LogService for LokiLogService {
 	fn retention_policy(&self) -> RetentionPolicy {
 		// Mirrors Loki's default server-side retention (7 days).
 		RetentionPolicy {
-			capacity: usize::MAX,
+			capacity: None,
 			ttl: Duration::from_secs(60 * 60 * 24 * 7),
 		}
 	}
