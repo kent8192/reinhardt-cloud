@@ -82,7 +82,7 @@ pub(crate) async fn resolve_api_version(
 	let compile_default_version = COMPILE_TIME_DEFAULT
 		.strip_prefix(&format!("{CRD_GROUP}/"))
 		.unwrap_or(COMPILE_TIME_DEFAULT);
-	if !served.iter().any(|v| *v == compile_default_version) {
+	if !served.contains(&compile_default_version) {
 		eprintln!(
 			"Warning: compiled-in default {COMPILE_TIME_DEFAULT} is not served by the cluster; using {resolved} instead"
 		);
