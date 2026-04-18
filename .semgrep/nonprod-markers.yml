@@ -93,7 +93,7 @@ rules:
       # [ \t]* (zero-or-more) catches both "// let" and "//let" styles.
       - pattern-regex: "(?m)^[ \\t]*//[ \\t]*(?:let(?:\\s+mut)?\\s+[A-Za-z_]|fn\\s+[A-Za-z_]\\w*\\s*[(<]|pub(?:\\s*\\([^)]*\\))?\\s+fn\\s+[A-Za-z_]|impl(?:\\s*<|\\s+[A-Za-z_])|use\\s+(?:crate|super|self|[A-Za-z_]\\w*)::|if\\s+[A-Za-z_(]|match\\s+[A-Za-z_(]|return(?:\\s+[^\\n]*)?;|struct\\s+[A-Za-z_]\\w*\\s*[{<(]|enum\\s+[A-Za-z_]\\w*\\s*[{<]|println!\\s*\\(|eprintln!\\s*\\(|dbg!\\s*\\(|assert(?:_eq|_ne)?!\\s*\\()"
       # Exclude "Ideal implementation (without workaround):" code blocks: those comments
-      # use 3+ spaces of indentation after // and are mandated by COMMON_CODE_STYLE.md.
+      # use 3+ spaces of indentation after // per CLAUDE.md's "Workaround Comments" section.
       - pattern-not-regex: "^[ \\t]*//[ \\t]{3,}"
     message: >-
       Commented-out code detected. Remove dead code before merging; use
@@ -110,13 +110,10 @@ rules:
         - "**/test_*.rs"
         - "**/reinhardt-test/**"
         - "**/reinhardt-testkit/**"
-        # Systematic FP: proxy doc blocks mix /// and // for code examples,
-        # making // let/fn lines indistinguishable from commented-out code at the regex level.
-        - "**/reinhardt-urls/src/proxy/**"
-        # Systematic FP: main lib.rs facade file contains many // ```rust,no_run doc code blocks
+        # Systematic FP: lib.rs crate roots contain many // ```rust,no_run doc code blocks
         # where each example line starts with "// let/use" — indistinguishable from dead code
         # at the regex level without multi-line context (not available in generic mode).
-        - "src/lib.rs"
+        - "**/src/lib.rs"
         # Systematic FP: tutorial/example code intentionally uses commented code to show
         # planned API usage patterns.
         - "examples/**"
