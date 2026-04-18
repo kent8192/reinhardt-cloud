@@ -200,10 +200,7 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 
 	let mut env_pairs = vec![("RUST_LOG".to_string(), "info".to_string())];
 	if let Some(backend) = signals.session_backend.as_deref() {
-		env_pairs.push((
-			"REINHARDT_SESSION_BACKEND".to_string(),
-			backend.to_string(),
-		));
+		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
 	}
 	instructions.push(Instruction::Env(env_pairs));
 	instructions.push(Instruction::Expose(8000));
@@ -487,19 +484,14 @@ mod tests {
 
 	fn stage_env_value(stage: &Stage, key: &str) -> Option<String> {
 		stage.instructions.iter().find_map(|inst| match inst {
-			Instruction::Env(pairs) => pairs
-				.iter()
-				.find(|(k, _)| k == key)
-				.map(|(_, v)| v.clone()),
+			Instruction::Env(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()),
 			_ => None,
 		})
 	}
 
 	// S19 (Refs #372): redis cache installs redis-tools in runtime
 	#[rstest]
-	fn runtime_stage_installs_redis_tools_when_cache_redis(
-		mut minimal_signals: DockerfileSignals,
-	) {
+	fn runtime_stage_installs_redis_tools_when_cache_redis(mut minimal_signals: DockerfileSignals) {
 		// Arrange
 		minimal_signals.cache = Some("redis".to_string());
 
