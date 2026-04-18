@@ -4,8 +4,11 @@ use std::path::Path;
 
 /// Infrastructure signals inferred from reinhardt-web feature flags
 #[derive(Debug, Clone, Default)]
-// Reserved for future feature management commands (zero-config CLI will
-// read these fields when generating deployment manifests).
+// allow(dead_code) on `websocket` and `sessions`: both flags are populated
+// from Cargo features so future deploy-side manifest generation (ingress
+// session affinity, sidecar configuration) can read them without re-parsing
+// Cargo.toml. They are intentionally tracked despite having no current
+// consumer in the Dockerfile or reinhardt-cloud.toml generator.
 #[allow(dead_code)]
 pub(crate) struct InfraSignals {
 	pub(crate) database: Option<String>,

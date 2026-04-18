@@ -4,8 +4,10 @@ use std::path::Path;
 
 /// Database configuration extracted from settings
 #[derive(Debug, Clone, Default)]
-// Reserved for future deploy command integration that will read
-// database settings to generate Kubernetes resource manifests.
+// allow(dead_code) on host/port/name: parsed from settings/base.toml so future
+// deploy-side manifest generation can surface them, but ReinhardtCloudToml's
+// DatabaseSection currently exposes only `engine`. Keep the fields populated
+// to avoid round-trip data loss when the schema gains host/port/name.
 #[allow(dead_code)]
 pub(crate) struct DatabaseConfig {
 	pub(crate) engine: String,
