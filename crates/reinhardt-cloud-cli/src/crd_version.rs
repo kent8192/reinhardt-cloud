@@ -311,6 +311,11 @@ mod tests {
 	#[rstest]
 	#[tokio::test]
 	async fn test_override_short_circuits_without_client_call() {
+		// kube-rs uses rustls internally; install a provider so client
+		// construction succeeds in test binaries where no provider is
+		// selected by feature flags alone.
+		let _ = rustls::crypto::ring::default_provider().install_default();
+
 		// Arrange: build a Client pointed at an unreachable URL; if the
 		// override path accidentally contacts it, the test will fail.
 		let config = kube::Config::new("http://127.0.0.1:1".parse().unwrap());
