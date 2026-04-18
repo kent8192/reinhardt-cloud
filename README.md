@@ -407,6 +407,8 @@ CUSTOM_VAR = "custom_value"
 - Docker (required for TestContainers — not Podman)
 - cargo-make, cargo-nextest
 
+For a step-by-step local stack bootstrap (cluster + Dashboard + Operator + Agent + end-to-end deploy), see [`docs/development/LOCAL_E2E_TESTING.md`](docs/development/LOCAL_E2E_TESTING.md).
+
 ### Commands
 
 ```bash
