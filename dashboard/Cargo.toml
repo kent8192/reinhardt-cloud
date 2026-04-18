@@ -29,11 +29,14 @@ reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
 reinhardt-cloud-grpc = { workspace = true }
+prost-types = { workspace = true }
 tokio = { workspace = true }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 subtle = "2"
+url = "2"
+percent-encoding = "2"
 tonic = "0.13"
 tonic-reflection = "0.13"
 tracing = { workspace = true }
@@ -43,6 +46,8 @@ chrono = { workspace = true }
 ctor = "0.6"
 inventory = "0.3"
 async-trait = "0.1"
+rand = { workspace = true }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls", "hostname"] }
 rstest = { workspace = true }
 
 # WASM client: reinhardt with pages features only

@@ -18,7 +18,9 @@ use super::security::context::{build_container_security_context, build_pod_secur
 use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
-use crate::inference::env_vars::{build_otel_env_vars, build_system_env_vars, merge_env_vars};
+use crate::inference::env_vars::{
+	build_database_env_vars_from_secret, build_otel_env_vars, build_system_env_vars, merge_env_vars,
+};
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
@@ -47,13 +49,38 @@ pub(crate) fn build_deployment(
 
 	let owner_ref = owner_reference(app)?;
 
-	// Build merged environment variables (system + user overrides + OTel)
-	let system_vars = build_system_env_vars();
-	let mut merged_env = merge_env_vars(&system_vars, &app.spec.env);
+	// Build merged environment variables (system + database + user overrides + OTel).
+	// Inject database connection env vars when a database will be provisioned,
+	// either via an explicit spec.database field or via introspect-derived
+	// infrastructure signals (requires_postgresql).
+	//
+	// The DB host differs between the two provisioning paths:
+	// - Explicit spec.database: "{app_name}-db" (headless Service from infer_database_resources)
+	// - Introspect path: "{app_name}-postgresql" (Service from reconcile_db_service_resource)
+	//
+	// Note: user-provided spec.env values take priority over auto-generated DB env vars
+	// (including REINHARDT_DATABASE_PASSWORD). This is intentional — users may need to
+	// override connection parameters — but plaintext credentials in spec.env are discouraged.
+	let app_name = app.name_any();
+	let explicit_db = app.spec.database.is_some();
+	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
+	});
+	let needs_db_env = explicit_db || introspect_db;
+	let mut auto_vars = build_system_env_vars();
+	if needs_db_env {
+		let db_host = if explicit_db {
+			format!("{app_name}-db")
+		} else {
+			format!("{app_name}-postgresql")
+		};
+		auto_vars.extend(build_database_env_vars_from_secret(app, platform, &db_host));
+	}
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
 	// Append OTel variables after user-supplied vars. OTel vars are skipped
 	// when a user-supplied var with the same name already exists — user-supplied
 	// env vars take precedence over operator-injected OTel defaults.
-	let otel_vars = build_otel_env_vars(&app.name_any());
+	let otel_vars = build_otel_env_vars(&app_name);
 	for v in otel_vars {
 		if !merged_env.iter().any(|e| e.name == v.name) {
 			merged_env.push(v);
@@ -77,8 +104,8 @@ pub(crate) fn build_deployment(
 		..Default::default()
 	}];
 
-	// Init container for database migrations when database is configured
-	let mut init_containers: Vec<Container> = if app.spec.database.is_some() {
+	// Init container for database migrations when database will be provisioned
+	let mut init_containers: Vec<Container> = if needs_db_env {
 		vec![Container {
 			name: "migrate".to_string(),
 			image: Some(app.spec.image.clone()),

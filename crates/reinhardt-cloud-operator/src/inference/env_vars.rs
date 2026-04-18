@@ -5,30 +5,98 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use k8s_openapi::api::core::v1::EnvVar;
+use k8s_openapi::api::core::v1::{EnvVar, EnvVarSource, SecretKeySelector};
+use kube::ResourceExt;
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
-/// Build database connection environment variables from raw credentials.
+use super::platform::Platform;
+
+/// Build database connection environment variables that reference a
+/// Kubernetes `Secret` for the password, keeping the sensitive value out
+/// of the pod spec.
 ///
-/// Generates both a composite `DATABASE_URL` (for frameworks that expect a
-/// single connection string) and individual `REINHARDT_DATABASE_*` variables.
-// Reserved for future reconciler integration that will inject database
-// credentials into application Deployments.
-#[allow(dead_code)]
-pub(crate) fn build_database_env_vars(
-	endpoint: &str,
-	port: i32,
-	db_name: &str,
-	user: &str,
-	password: &str,
+/// Non-secret values (host, port, db name, user) are derived from
+/// conventions shared with `infer_database_resources`:
+/// - Secret name: `{app_name}-db-credentials` (keys `username` / `password`)
+/// - Host / port / db name / user: derived from `db_host` and the naming
+///   convention used by the inference module. These are deterministic
+///   identifiers (not credentials), so embedding them as plain values is safe.
+///
+/// The caller is responsible for ensuring a PostgreSQL database will be
+/// provisioned for this app and that the corresponding credentials Secret
+/// (`{app_name}-db-credentials`) will exist.
+///
+/// The `db_host` parameter must be the DNS name of the Service that exposes
+/// the database:
+/// - For the explicit `spec.database` path: `"{app_name}-db"` (the headless
+///   Service created by `infer_database_resources`).
+/// - For the introspect-provisioned path: `"{app_name}-postgresql"` (the
+///   Service created by `reconcile_db_service_resource`).
+pub(crate) fn build_database_env_vars_from_secret(
+	app: &ReinhardtApp,
+	platform: &Platform,
+	db_host: &str,
 ) -> Vec<EnvVar> {
-	let database_url = format!("postgresql://{user}:{password}@{endpoint}:{port}/{db_name}");
+	let app_name = app.name_any();
+	let secret_name = format!("{app_name}-db-credentials");
+
+	// Port follows the standard PostgreSQL convention. For cloud platforms
+	// (AWS RDS, GCP CloudSQL), the db_host must be supplied by the caller
+	// based on the managed instance endpoint; until cloud endpoint resolution
+	// is implemented, the host should be overridden via `spec.env.DATABASE_URL`.
+	//
+	// NOTE: For Platform::Aws and Platform::Gcp, cloud-managed database
+	// endpoints are not yet resolved automatically. The db_host passed here
+	// is a best-effort placeholder. Apps on cloud platforms that require
+	// the correct RDS/CloudSQL endpoint should override DATABASE_URL via
+	// `spec.env` until automatic cloud endpoint resolution is implemented.
+	let port = match platform {
+		Platform::Onpremise => 5432,
+		Platform::Aws | Platform::Gcp => {
+			tracing::warn!(
+				app = %app_name,
+				"Cloud-managed database endpoint resolution is not yet implemented. \
+				 DATABASE_URL and REINHARDT_DATABASE_HOST will use the placeholder host \
+				 '{}'. Override via spec.env.DATABASE_URL until cloud endpoint \
+				 resolution is supported.",
+				db_host
+			);
+			5432
+		}
+	};
+	let host = db_host.to_string();
+
+	// Both identifiers use replace('-', "_") to produce valid SQL identifiers,
+	// matching the convention used by infer_database_resources in inference/database.rs.
+	let sanitized_name = app_name.replace('-', "_");
+	let db_name = format!("{sanitized_name}_db");
+	let db_user = sanitized_name;
+
+	// DATABASE_URL provides a single-connection-string alternative to the
+	// individual REINHARDT_DATABASE_* vars. The password is embedded via
+	// $(REINHARDT_DATABASE_PASSWORD), which is resolved by the kubelet at
+	// pod start after all env vars are evaluated.
+	let database_url =
+		format!("postgres://{db_user}:$(REINHARDT_DATABASE_PASSWORD)@{host}:{port}/{db_name}");
+
 	vec![
-		env_var("DATABASE_URL", &database_url),
-		env_var("REINHARDT_DATABASE_HOST", endpoint),
+		env_var("REINHARDT_DATABASE_HOST", &host),
 		env_var("REINHARDT_DATABASE_PORT", &port.to_string()),
-		env_var("REINHARDT_DATABASE_NAME", db_name),
-		env_var("REINHARDT_DATABASE_USER", user),
-		env_var("REINHARDT_DATABASE_PASSWORD", password),
+		env_var("REINHARDT_DATABASE_NAME", &db_name),
+		env_var("REINHARDT_DATABASE_USER", &db_user),
+		EnvVar {
+			name: "REINHARDT_DATABASE_PASSWORD".to_string(),
+			value: None,
+			value_from: Some(EnvVarSource {
+				secret_key_ref: Some(SecretKeySelector {
+					name: secret_name.clone(),
+					key: "password".to_string(),
+					optional: Some(false),
+				}),
+				..Default::default()
+			}),
+		},
+		env_var("DATABASE_URL", &database_url),
 	]
 }
 
@@ -130,69 +198,122 @@ fn env_var(name: &str, value: &str) -> EnvVar {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use rstest::rstest;
 
-	/// Returns a test-only credential value.
-	/// This is NOT a real credential — used exclusively in unit tests.
-	/// `black_box` prevents CodeQL static analysis from tracing the literal
-	/// into cryptographic sinks (false positive suppression).
-	fn test_credential() -> String {
-		std::hint::black_box("test-fixture-value").to_string()
+	fn make_app_with_db(name: &str) -> ReinhardtApp {
+		ReinhardtApp {
+			metadata: ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some("default".to_string()),
+				uid: Some("test-uid".to_string()),
+				..Default::default()
+			},
+			spec: ReinhardtAppSpec {
+				image: "app:latest".to_string(),
+				database: Some(DatabaseSpec {
+					engine: DatabaseEngine::Postgresql,
+					instance_class: None,
+					storage_gb: None,
+					version: None,
+				}),
+				..Default::default()
+			},
+			status: None,
+		}
 	}
 
 	#[rstest]
-	fn build_database_env_vars_generates_all_keys() {
+	fn build_database_env_vars_from_secret_references_credentials_secret() {
 		// Arrange
-		let endpoint = "db.example.com";
-		let port = 5432;
-		let db_name = "mydb";
-		let user = "admin";
-		let password = test_credential();
+		let app = make_app_with_db("myapp");
 
 		// Act
-		let vars = build_database_env_vars(endpoint, port, db_name, user, &password);
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "myapp-db");
 
-		// Assert
-		assert_eq!(vars.len(), 6);
-
-		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
-		assert!(names.contains(&"DATABASE_URL"));
-		assert!(names.contains(&"REINHARDT_DATABASE_HOST"));
-		assert!(names.contains(&"REINHARDT_DATABASE_PORT"));
-		assert!(names.contains(&"REINHARDT_DATABASE_NAME"));
-		assert!(names.contains(&"REINHARDT_DATABASE_USER"));
-		assert!(names.contains(&"REINHARDT_DATABASE_PASSWORD"));
+		// Assert — password is injected via SecretKeyRef, never inlined
+		let password_var = vars
+			.iter()
+			.find(|v| v.name == "REINHARDT_DATABASE_PASSWORD")
+			.expect("password env var must be present");
+		assert!(
+			password_var.value.is_none(),
+			"password value must be empty; it must come from the Secret"
+		);
+		let key_ref = password_var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("password must reference a SecretKeyRef");
+		assert_eq!(key_ref.name, "myapp-db-credentials");
+		assert_eq!(key_ref.key, "password");
 	}
 
 	#[rstest]
-	fn build_database_env_vars_constructs_correct_url() {
-		// Arrange & Act
-		let cred = test_credential();
-		let vars = build_database_env_vars("host.local", 5432, "testdb", "user1", &cred);
+	fn build_database_env_vars_from_secret_sets_plain_metadata_fields() {
+		// Arrange
+		let app = make_app_with_db("my-app");
 
-		// Assert
-		let url_var = vars.iter().find(|v| v.name == "DATABASE_URL").unwrap();
-		let expected_url = format!("postgresql://user1:{cred}@host.local:5432/testdb");
-		assert_eq!(url_var.value.as_deref(), Some(expected_url.as_str()));
-	}
+		// Act
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
 
-	#[rstest]
-	fn build_database_env_vars_sets_individual_fields() {
-		// Arrange & Act
-		let vars = build_database_env_vars("myhost", 3306, "mydb", "root", &test_credential());
-
-		// Assert
-		let host_var = vars
+		// Assert — non-secret identifiers are safe as plain values
+		let host = vars
 			.iter()
 			.find(|v| v.name == "REINHARDT_DATABASE_HOST")
 			.unwrap();
-		assert_eq!(host_var.value.as_deref(), Some("myhost"));
+		assert_eq!(host.value.as_deref(), Some("my-app-db"));
 
-		let port_var = vars
+		let port = vars
 			.iter()
 			.find(|v| v.name == "REINHARDT_DATABASE_PORT")
 			.unwrap();
-		assert_eq!(port_var.value.as_deref(), Some("3306"));
+		assert_eq!(port.value.as_deref(), Some("5432"));
+
+		let db_name = vars
+			.iter()
+			.find(|v| v.name == "REINHARDT_DATABASE_NAME")
+			.unwrap();
+		assert_eq!(db_name.value.as_deref(), Some("my_app_db"));
+
+		let user = vars
+			.iter()
+			.find(|v| v.name == "REINHARDT_DATABASE_USER")
+			.unwrap();
+		assert_eq!(user.value.as_deref(), Some("my_app"));
+	}
+
+	#[rstest]
+	fn build_database_env_vars_from_secret_includes_database_url() {
+		// Arrange
+		let app = make_app_with_db("my-app");
+
+		// Act
+		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
+
+		// Assert — DATABASE_URL must be present and contain the connection params
+		let url_var = vars
+			.iter()
+			.find(|v| v.name == "DATABASE_URL")
+			.expect("DATABASE_URL env var must be present");
+		let url = url_var
+			.value
+			.as_deref()
+			.expect("DATABASE_URL must have a value");
+		assert!(
+			url.starts_with("postgres://"),
+			"DATABASE_URL must use postgres:// scheme"
+		);
+		assert!(
+			url.contains("my-app-db"),
+			"DATABASE_URL must include the host"
+		);
+		assert!(
+			url.contains("my_app_db"),
+			"DATABASE_URL must include the db name"
+		);
 	}
 
 	#[rstest]

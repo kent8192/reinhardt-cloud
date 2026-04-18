@@ -4,7 +4,9 @@ use std::path::Path;
 
 /// Database configuration extracted from settings
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)] // fields reserved for future deploy command database URL construction
+// Reserved for future deploy command integration that will read
+// database settings to generate Kubernetes resource manifests.
+#[allow(dead_code)]
 pub(crate) struct DatabaseConfig {
 	pub(crate) engine: String,
 	pub(crate) host: String,
