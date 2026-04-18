@@ -19,11 +19,11 @@ features:
   cache: false
   # Enable ingress resource inference and reconciliation.
   ingress: false
-  # Enable horizontal autoscaling (HPA / KEDA ScaledObject) support.
+  # Enable horizontal autoscaling (HPA) support.
   autoscaling: false
   # Enable persistent storage (PVC) inference and reconciliation.
   storage: false
-  # Enable background worker (Job / CronJob) inference and reconciliation.
+  # Enable background worker (Deployment) inference and reconciliation.
   worker: false
 
 serviceAccount:
@@ -65,9 +65,15 @@ defaults:
     storage_gb: 20
     storage_class: local-path
     engine_version:
-      # Default PostgreSQL major version used when a tenant does not override it.
+      # Default PostgreSQL version used when a tenant does not override it; use
+      # the format expected by the selected platform/overlay (for example, on-prem
+      # uses a major version like "16", AWS uses a minor version like "16.3", and
+      # GCP requires an engine identifier such as POSTGRES_16).
       postgresql: "16"
-      # Default MySQL version used when a tenant does not override it.
+      # Default MySQL version used when a tenant does not override it; use the
+      # format expected by the selected platform/overlay (for example, on-prem
+      # uses "8.0", AWS may require a specific minor version, and GCP may require
+      # a provider-specific engine identifier).
       mysql: "8.0"
   cache:
     storage_gb: 1
@@ -88,7 +94,7 @@ defaults:
       kubernetes.io/ingress.class: nginx
 
 isolation:
-  # Default tenant isolation level (None | Sandbox | Strict).
+  # Default tenant isolation level (None | Sandbox | MicroVM).
   defaultLevel: "None"
   runtimeClasses:
     kata:
