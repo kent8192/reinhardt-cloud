@@ -4,6 +4,12 @@
 //! `source`, `message`, and an optional `metadata_json` string. The richer
 //! [`LogFields`] (reconcile_id, resource_*, trace_id, ...) are serialised
 //! into `metadata_json` as a JSON object so they survive a round-trip.
+//!
+//! ## Data loss notes
+//! - The proto `source` field has no analogue in [`LogRecord`] and is dropped
+//!   in both directions (written as empty, ignored on reverse).
+//! - `LogLevel::Trace` maps to `ProtoLogLevel::Debug`; the original level is
+//!   not recoverable on roundtrip.
 
 use crate::schema::{LogFields, LogLevel, LogRecord};
 use chrono::{TimeZone, Utc};
@@ -120,17 +126,46 @@ mod tests {
 	}
 
 	#[rstest]
-	fn timestamp_preserves_seconds() {
+	fn timestamp_preserves_nanoseconds() {
 		// Arrange
-		let original = LogRecord::new(LogLevel::Info, "ts-check");
-		let seconds_before = original.ts.timestamp();
+		let ts = chrono::DateTime::<Utc>::from_timestamp(1_700_000_000, 123_456_789).unwrap();
+		let rec = LogRecord {
+			ts,
+			level: LogLevel::Info,
+			msg: "ns-check".into(),
+			fields: Default::default(),
+		};
 
 		// Act
-		let entry = log_record_to_entry(&original);
+		let entry = log_record_to_entry(&rec);
 		let back = log_entry_to_record(&entry);
 
 		// Assert
-		assert_eq!(back.ts.timestamp(), seconds_before);
+		assert_eq!(back.ts.timestamp(), 1_700_000_000);
+		assert_eq!(back.ts.timestamp_subsec_nanos(), 123_456_789);
+	}
+
+	#[rstest]
+	fn all_fields_roundtrip_through_proto() {
+		// Arrange
+		let mut rec = LogRecord::new(LogLevel::Warn, "every field");
+		rec.fields.reconcile_id = Some("r".into());
+		rec.fields.deployment_id = Some("d".into());
+		rec.fields.resource_kind = Some("ReinhardtApp".into());
+		rec.fields.resource_namespace = Some("ns".into());
+		rec.fields.resource_name = Some("app1".into());
+		rec.fields.phase = Some("apply".into());
+		rec.fields.correlation_id = Some("corr".into());
+		rec.fields.trace_id = Some("t".into());
+		rec.fields.span_id = Some("s".into());
+		let original_fields = rec.fields.clone();
+
+		// Act
+		let entry = log_record_to_entry(&rec);
+		let back = log_entry_to_record(&entry);
+
+		// Assert
+		assert_eq!(back.fields, original_fields);
 	}
 
 	#[rstest]

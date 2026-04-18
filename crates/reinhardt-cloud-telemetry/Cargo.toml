@@ -17,7 +17,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 reqwest = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
-prost-types = "0.13"
+prost-types = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
