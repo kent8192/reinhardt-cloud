@@ -4,4 +4,4 @@ pub mod request;
 pub mod response;
 
 pub use request::{CreateDeploymentRequest, DeploymentStatusRequest, UpdateDeploymentRequest};
-pub use response::{DeploymentLogsResponse, DeploymentResponse};
+pub use response::{DeploymentLogsResponse, DeploymentResponse, LogEntry};
