@@ -40,11 +40,27 @@ async fn main() -> anyhow::Result<()> {
 		.ok()
 		.is_some_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "True"));
 	if metrics_enabled || metrics_addr.is_some() {
-		let bind: SocketAddr = metrics_addr
-			.as_deref()
-			.and_then(|v| v.parse().ok())
-			.unwrap_or_else(|| "0.0.0.0:9090".parse().expect("static bind address"));
-		metrics::spawn_exporter(operator_metrics.clone(), bind);
+		// When `REINHARDT_CLOUD_METRICS_ADDR` is present but unparsable, do
+		// NOT silently fall back to `0.0.0.0:9090` — that could expose the
+		// exporter on all interfaces or collide with another listener while
+		// hiding a configuration mistake. Refuse to start the exporter and
+		// surface the error so the operator (or its operator) can fix the
+		// supplied value.
+		let bind: Option<SocketAddr> = match metrics_addr.as_deref() {
+			Some(raw) => match raw.parse::<SocketAddr>() {
+				Ok(addr) => Some(addr),
+				Err(err) => {
+					tracing::error!(
+						"Invalid REINHARDT_CLOUD_METRICS_ADDR={raw:?}: {err}; metrics exporter disabled"
+					);
+					None
+				}
+			},
+			None => Some("0.0.0.0:9090".parse().expect("static bind address")),
+		};
+		if let Some(bind) = bind {
+			metrics::spawn_exporter(operator_metrics.clone(), bind);
+		}
 	} else {
 		tracing::info!(
 			"Prometheus metrics exporter disabled (set REINHARDT_CLOUD_METRICS_ENABLED=true or REINHARDT_CLOUD_METRICS_ADDR to enable)"

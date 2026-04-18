@@ -1323,14 +1323,7 @@ async fn update_status(
 	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
 	let typed_status = build_status(app, ready, ready_replicas);
 
-	// Keep the `managed_apps{phase}` gauge in sync with the phase we are
-	// about to write to the status sub-resource. Decrement the previous
-	// phase gauge (if any) before incrementing the new one so the sum
-	// across phases stays equal to the number of tracked objects.
-	if let Some(phase) = &typed_status.phase {
-		update_managed_apps_gauge(ctx, app, phase_label(phase));
-	}
-
+	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
@@ -1340,6 +1333,14 @@ async fn update_status(
 	)
 	.await
 	.map_err(Error::Kube)?;
+
+	// Update the `managed_apps{phase}` gauge only after the status patch
+	// has been persisted. Otherwise a failed patch could leave the gauge
+	// reflecting a phase transition that never actually took effect, and
+	// the next reconcile may not correct it cleanly.
+	if let Some(label) = phase_label_for_gauge {
+		update_managed_apps_gauge(ctx, app, label);
+	}
 
 	Ok(())
 }

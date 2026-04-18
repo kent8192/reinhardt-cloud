@@ -216,7 +216,11 @@ async fn handle_connection(
 	if n == buf.len() && !head.contains(&b'\n') {
 		return Ok(());
 	}
-	let is_metrics = head.starts_with(b"GET /metrics");
+	// Match the request line exactly so siblings such as `GET /metricsfoo`
+	// or `GET /metrics_admin` are NOT served metrics. Accept either an
+	// HTTP-version separator (`GET /metrics HTTP/1.1`) or a query string
+	// (`GET /metrics?...`).
+	let is_metrics = head.starts_with(b"GET /metrics ") || head.starts_with(b"GET /metrics?");
 
 	let write_fut = async {
 		if is_metrics {
@@ -264,7 +268,12 @@ mod tests {
 			.requeue_total
 			.with_label_values(&["transient"])
 			.inc();
-		metrics.managed_apps.with_label_values(&["Ready"]).set(3.0);
+		// Use a phase value that the reconciler actually emits via `phase_label`
+		// (see reconciler.rs) so this test reflects production label cardinality.
+		metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.set(3.0);
 		let body = metrics.encode();
 
 		// Assert: encoded output contains the metric names.
@@ -272,5 +281,27 @@ mod tests {
 		assert!(text.contains("reinhardt_cloud_operator_reconcile_total"));
 		assert!(text.contains("reinhardt_cloud_operator_requeue_total"));
 		assert!(text.contains("reinhardt_cloud_operator_managed_apps"));
+	}
+
+	/// Reproduces the path-matching behavior used in `handle_connection`
+	/// so the strictness can be regression-tested without spinning up a
+	/// real `TcpListener`.
+	fn matches_metrics_path(request_line: &[u8]) -> bool {
+		request_line.starts_with(b"GET /metrics ") || request_line.starts_with(b"GET /metrics?")
+	}
+
+	#[rstest]
+	#[case(b"GET /metrics HTTP/1.1\r\n", true)]
+	#[case(b"GET /metrics?debug=1 HTTP/1.1\r\n", true)]
+	#[case(b"GET /metricsfoo HTTP/1.1\r\n", false)]
+	#[case(b"GET /metrics_admin HTTP/1.1\r\n", false)]
+	#[case(b"GET /healthz HTTP/1.1\r\n", false)]
+	#[case(b"POST /metrics HTTP/1.1\r\n", false)]
+	fn metrics_path_matches_strictly(#[case] line: &[u8], #[case] expected: bool) {
+		// Act
+		let actual = matches_metrics_path(line);
+
+		// Assert
+		assert_eq!(actual, expected);
 	}
 }
