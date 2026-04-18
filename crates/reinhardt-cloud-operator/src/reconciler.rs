@@ -20,7 +20,9 @@ use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
 use tracing::{error, info, warn};
 
-use crate::error::Error;
+use dashmap::DashMap;
+
+use crate::error::{BackoffClass, Error, backoff_class};
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
@@ -52,6 +54,33 @@ pub(crate) struct Context {
 	// defaults when inferring resource specifications.
 	#[allow(dead_code)]
 	pub platform: PlatformConfig,
+	/// Per-object consecutive-failure counter used to drive exponential
+	/// backoff in `error_policy`. Key is `(namespace, name)`.
+	pub backoff_state: Arc<DashMap<(String, String), u32>>,
+}
+
+/// Base backoff duration for transient Kube API errors.
+const BACKOFF_BASE_TRANSIENT_SECS: u64 = 30;
+/// Base backoff duration for dependency-not-ready (404/409) errors.
+const BACKOFF_BASE_DEPENDENCY_SECS: u64 = 60;
+/// Upper bound for any backoff so we keep reconciling within 10 minutes.
+const BACKOFF_MAX_SECS: u64 = 600;
+
+/// Compute an exponential backoff capped at `BACKOFF_MAX_SECS`.
+///
+/// `attempt` is the zero-based consecutive-failure count observed by the
+/// error policy. The formula is `base * 2^attempt`, saturating to avoid
+/// overflow on pathological values.
+fn compute_backoff(base_secs: u64, attempt: u32) -> Duration {
+	// saturating shift to avoid overflow when attempt is very large
+	let factor = 1u64.checked_shl(attempt.min(20)).unwrap_or(u64::MAX);
+	let secs = base_secs.saturating_mul(factor).min(BACKOFF_MAX_SECS);
+	Duration::from_secs(secs)
+}
+
+/// Build a stable key for the backoff map from an object's namespace+name.
+fn backoff_key(obj: &ReinhardtApp) -> (String, String) {
+	(obj.namespace().unwrap_or_default(), obj.name_any())
 }
 
 /// Main reconciliation entry point.
@@ -64,15 +93,25 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 	info!("Reconciling ReinhardtApp {namespace}/{name}");
 
 	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+	let key = backoff_key(&obj);
 
-	finalizer(&api, FINALIZER_NAME, obj, |event| async {
+	let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
 		match event {
 			FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
 			FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
 		}
 	})
 	.await
-	.map_err(|e| Error::Finalizer(Box::new(e)))
+	.map_err(|e| Error::Finalizer(Box::new(e)));
+
+	// Successful reconcile resets the backoff counter for this object so
+	// that the next failure starts from the base delay rather than an
+	// accumulated exponent.
+	if result.is_ok() {
+		ctx.backoff_state.remove(&key);
+	}
+
+	result
 }
 
 /// Apply the desired state for a `ReinhardtApp`.
@@ -1275,10 +1314,43 @@ fn should_update_transition_time(
 	!matches!(existing_status, Some(existing) if existing == new_status)
 }
 
-/// Error policy: requeue after 30 seconds on transient failure.
-pub(crate) fn error_policy(_obj: Arc<ReinhardtApp>, error: &Error, _ctx: Arc<Context>) -> Action {
+/// Error policy: classify the error and select an exponential backoff
+/// duration based on the number of consecutive failures for this object.
+///
+/// - `Permanent` errors (invalid spec) return `Action::await_change()` —
+///   retrying does not help until the user fixes the resource.
+/// - `Transient` errors use a 30s base; `DependencyNotReady` uses a 60s
+///   base. Both double on each successive failure and cap at 10 minutes.
+pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Context>) -> Action {
 	error!("Reconciliation error: {error}");
-	Action::requeue(Duration::from_secs(30))
+
+	let class = backoff_class(error);
+
+	match class {
+		BackoffClass::Permanent => {
+			// Drop any stored attempt count; a permanent error will not be
+			// retried until the user changes the spec.
+			ctx.backoff_state.remove(&backoff_key(&obj));
+			Action::await_change()
+		}
+		BackoffClass::Transient | BackoffClass::DependencyNotReady => {
+			let key = backoff_key(&obj);
+			// Atomically bump the attempt counter. Using `DashMap::entry`
+			// avoids a read+write race between concurrent error_policy calls.
+			let attempt = {
+				let mut entry = ctx.backoff_state.entry(key).or_insert(0);
+				*entry = entry.saturating_add(1);
+				*entry
+			};
+			let base = if class == BackoffClass::DependencyNotReady {
+				BACKOFF_BASE_DEPENDENCY_SECS
+			} else {
+				BACKOFF_BASE_TRANSIENT_SECS
+			};
+			// Use attempt-1 so the first failure requeues at `base` seconds.
+			Action::requeue(compute_backoff(base, attempt.saturating_sub(1)))
+		}
+	}
 }
 
 /// Starts the operator controller loop.
@@ -1291,7 +1363,11 @@ pub(crate) async fn run(client: Client) {
 	let limit_ranges: Api<LimitRange> = Api::all(client.clone());
 
 	let platform = PlatformConfig::from_env();
-	let context = Arc::new(Context { client, platform });
+	let context = Arc::new(Context {
+		client,
+		platform,
+		backoff_state: Arc::new(DashMap::new()),
+	});
 
 	Controller::new(apps, watcher::Config::default())
 		.owns(
@@ -1625,23 +1701,87 @@ mod tests {
 
 	// ── error_policy tests ───────────────────────────────────────────
 
+	/// Build a `Context` for error-policy tests with isolated metrics and
+	/// an empty backoff map. Using fresh metrics avoids cross-test
+	/// contamination of counters.
+	fn test_context() -> Arc<Context> {
+		Arc::new(Context {
+			client: dummy_client(),
+			platform: PlatformConfig::onprem_defaults(),
+			backoff_state: Arc::new(DashMap::new()),
+		})
+	}
+
 	#[rstest]
 	#[tokio::test]
-	async fn test_error_policy_returns_requeue_action() {
+	async fn test_error_policy_transient_returns_base_requeue_on_first_failure() {
 		// Arrange
 		let app = Arc::new(make_test_app("error-app"));
 		let error = Error::MissingNamespace("error-app".to_string());
-		let ctx = Arc::new(Context {
-			client: dummy_client(),
-			platform: PlatformConfig::onprem_defaults(),
-		});
+		let ctx = test_context();
 
 		// Act
 		let action = error_policy(app, &error, ctx);
 
-		// Assert — error_policy must return a 30-second requeue
+		// Assert — first transient failure uses the 30s base backoff.
 		let expected = Action::requeue(Duration::from_secs(30));
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_transient_doubles_on_successive_failures() {
+		// Arrange
+		let app = Arc::new(make_test_app("flaky-app"));
+		let ctx = test_context();
+
+		// Act — three successive failures for the same object.
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		let action = error_policy(app, &Error::MissingNamespace("x".into()), ctx);
+
+		// Assert — third failure requeues at 30 * 2^2 = 120s.
+		let expected = Action::requeue(Duration::from_secs(120));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_permanent_awaits_change() {
+		// Arrange
+		let app = Arc::new(make_test_app("bad-spec"));
+		let error = Error::InvalidPort {
+			field: "port",
+			port: 70_000,
+		};
+		let ctx = test_context();
+
+		// Act
+		let action = error_policy(app, &error, ctx);
+
+		// Assert — permanent errors do not requeue.
+		let expected = Action::await_change();
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	#[rstest]
+	fn test_compute_backoff_caps_at_max() {
+		// Assert: large attempt counts saturate to BACKOFF_MAX_SECS.
+		assert_eq!(
+			compute_backoff(30, 30),
+			Duration::from_secs(BACKOFF_MAX_SECS)
+		);
+		assert_eq!(compute_backoff(30, 0), Duration::from_secs(30));
+		assert_eq!(compute_backoff(30, 1), Duration::from_secs(60));
+		assert_eq!(compute_backoff(30, 2), Duration::from_secs(120));
 	}
 
 	// ── introspect-aware decision logic tests ───────────────────────
