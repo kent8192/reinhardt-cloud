@@ -56,6 +56,13 @@ logging:
       limits:
         cpu: 200m
         memory: 128Mi
+    # Promtail requires read access to /var/log/pods on the host node.
+    # On most distributions this requires running as root (uid 0).
+    # Override this when your cluster enforces non-root Pod Security Standards
+    # and the node log directory is readable by a non-root group.
+    podSecurityContext:
+      runAsUser: 0
+      runAsGroup: 0
 
 podSecurityContext:
   runAsNonRoot: true

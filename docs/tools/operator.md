@@ -560,20 +560,34 @@ helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
 
 **Structured log schema**
 
-Each JSON line conforms to the `LogRecord` schema exposed by the
-[`reinhardt-cloud-telemetry`](../../crates/reinhardt-cloud-telemetry) crate:
+The operator uses `tracing_subscriber`'s JSON formatter (`flatten_event(true)`),
+so the emitted JSON shape differs slightly from the
+[`LogRecord`](../../crates/reinhardt-cloud-telemetry) canonical model used by
+downstream telemetry components.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `ts` | RFC3339 UTC | Event timestamp |
-| `level` | `trace` / `debug` / `info` / `warn` / `error` | Log level |
-| `msg` | string | Message body |
+Emitted fields per line:
+
+| Emitted key | Type | Description |
+|-------------|------|-------------|
+| `timestamp` | RFC3339 UTC | Event timestamp |
+| `level` | `TRACE` / `DEBUG` / `INFO` / `WARN` / `ERROR` | Log level |
+| `message` | string | Message body (flattened by `flatten_event`) |
+| `target` | string | Rust module path that emitted the event |
 | `reconcile_id` | string, optional | Correlates all logs within a single reconcile pass |
 | `deployment_id` | string, optional | Managed `ReinhardtApp` deployment identifier |
 | `resource_kind` / `resource_namespace` / `resource_name` | string, optional | Target Kubernetes resource |
 | `phase` | string, optional | Reconcile phase (e.g. `apply`, `finalize`) |
-| `correlation_id` | string, optional | Cross-component correlation (CLI -> operator) |
+| `correlation_id` | string, optional | Cross-component correlation (CLI → operator) |
 | `trace_id` / `span_id` | string, optional | Populated automatically once Phase 3 (Issue #374) lands |
+
+When mapping operator output into the `LogRecord` model, apply this field translation:
+
+| `LogRecord` field | Read from emitted JSON |
+|-------------------|------------------------|
+| `ts` | `timestamp` |
+| `level` | `level` |
+| `msg` | `message` |
+| `reconcile_id` / `deployment_id` / etc. | same key (top-level, flattened) |
 
 **Representative log messages**
 
