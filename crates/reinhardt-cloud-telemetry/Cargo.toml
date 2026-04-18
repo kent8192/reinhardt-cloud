@@ -16,6 +16,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 reqwest = { workspace = true }
+reinhardt-cloud-proto = { workspace = true }
+prost-types = "0.13"
 
 [dev-dependencies]
 rstest = { workspace = true }

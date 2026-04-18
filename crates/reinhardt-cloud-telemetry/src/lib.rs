@@ -8,10 +8,12 @@
 //! - Tracing / OTel integration (Issue #374).
 
 mod log_service;
+mod proto_convert;
 mod schema;
 
 pub use log_service::{
 	LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy,
 	in_memory::InMemoryLogService, loki::LokiLogService,
 };
+pub use proto_convert::{log_entry_to_record, log_record_to_entry};
 pub use schema::{LogFields, LogLevel, LogRecord};
