@@ -162,7 +162,7 @@ pub(crate) async fn execute(
 	let span = tracing::info_span!(
 		"cli.status",
 		otel.kind = "client",
-		api.version = env!("CARGO_PKG_VERSION"),
+		cli.version = env!("CARGO_PKG_VERSION"),
 		app.name = app_name,
 		app.namespace = %args.namespace,
 	);
