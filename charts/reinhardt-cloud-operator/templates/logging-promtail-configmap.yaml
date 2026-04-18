@@ -1,0 +1,30 @@
+{{- if .Values.logging.loki.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /run/promtail/positions.yaml
+    clients:
+      - url: {{ .Values.logging.loki.endpoint }}/loki/api/v1/push
+    scrape_configs:
+      - job_name: reinhardt-cloud-operator
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: {{ .Release.Namespace }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            regex: {{ .Release.Name }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+{{- end }}

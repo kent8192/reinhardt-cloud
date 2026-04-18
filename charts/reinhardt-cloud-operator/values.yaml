@@ -31,6 +31,24 @@ operator:
     RUST_LOG: info
   extraEnv: {}
 
+logging:
+  # Output format for operator logs. "text" (default) is human-readable;
+  # "json" emits one structured JSON object per line for log aggregators.
+  format: text
+  loki:
+    # When true, deploys a Promtail DaemonSet that tails operator pods and
+    # forwards logs to the configured Loki endpoint.
+    enabled: false
+    endpoint: "http://loki.monitoring.svc.cluster.local:3100"
+    promtailImage: "grafana/promtail:2.9.0"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000

@@ -1,0 +1,36 @@
+{{- if .Values.logging.loki.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+rules:
+  # Promtail uses kubernetes_sd_configs (role: pod) to discover operator pods.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+  labels:
+    {{- include "reinhardt-cloud-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
+    namespace: {{ .Release.Namespace }}
+{{- end }}
