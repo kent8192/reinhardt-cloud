@@ -2,7 +2,18 @@
 //!
 //! Tracks pending email-change requests. The plaintext token is never
 //! persisted — only the SHA-256 hash (hex-encoded, 64 chars) is stored.
-//! Verification compares hashes using a constant-time equality check.
+//!
+//! Verification security model:
+//! The verification endpoint hashes the submitted plaintext and looks up the
+//! resulting hash in the database using an equality filter. Because the lookup
+//! is by exact hash match (not by scanning a candidate list), timing depends on
+//! the uniform index lookup rather than on token position in a list. A
+//! constant-time comparison at the application layer would add no additional
+//! security here: the token hash is globally unique (UNIQUE constraint), so
+//! there is at most one candidate row, and the timing of a DB index lookup does
+//! not reveal anything useful to an attacker. Application-level constant-time
+//! comparison would only be relevant if we were scanning multiple rows in
+//! memory — which we do not.
 
 use chrono::{DateTime, Utc};
 use reinhardt::prelude::*;

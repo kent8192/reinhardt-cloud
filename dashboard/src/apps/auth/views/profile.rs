@@ -5,7 +5,7 @@ use rand::TryRngCore;
 use rand::rngs::OsRng;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::{Filter, FilterOperator, FilterValue, Model};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Response, StatusCode};
 use reinhardt::{get, patch};
@@ -105,41 +105,66 @@ pub async fn profile_update(
 		}
 	}
 
-	// Persist non-email changes immediately.
+	// Determine whether an email change is pending before deciding the response shape.
+	// The two operations — updating non-email fields and issuing the email verification
+	// — are intentionally separate so that a mailer failure does not roll back name
+	// changes that the user successfully submitted.  The response body communicates
+	// both outcomes independently so the client can display targeted feedback:
+	//   - no email field in request    → 200, `email_verification: null`
+	//   - email change requested       → 202, `email_verification: { "status": "verification_sent" }`
+	//   - verification email failed    → 200, `email_verification: { "status": "failed" }` (profile still updated)
+	//   - no-op (same email submitted) → 200, `email_verification: null`
+	//
+	// Returning 202 when a verification email is dispatched signals to the client that
+	// the action is accepted but not yet complete, consistent with the PR contract.
+	if email_change_requested.is_none() {
+		// Fast path: no email change, just persist and return.
+		let updated = User::objects().update(&user).await.map_err(|e| {
+			error!("Failed to update user profile: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
+		let resp = serde_json::json!({
+			"profile": ProfileResponse::from(updated),
+			"email_verification": serde_json::Value::Null,
+		});
+		return Ok(Response::new(StatusCode::OK)
+			.with_header("Content-Type", "application/json")
+			.with_body(json::to_vec(&resp)?));
+	}
+
+	// Persist non-email fields first. A failure here aborts before any email
+	// is sent, keeping the operation atomic from the caller's perspective.
 	let updated = User::objects().update(&user).await.map_err(|e| {
 		error!("Failed to update user profile: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;
 
-	// Always return 200 with the updated profile. The non-email fields are
-	// already persisted; an email-change request is reported via the
-	// `email_verification` field so the client can distinguish:
-	//   - null  : no email change was requested
-	//   - "sent" : verification email dispatched
-	//   - "failed" : DB row was created but message delivery failed; the
-	//                client may surface a "resend" affordance. Returning a
-	//                non-2xx here would imply the *profile* update itself
-	//                failed, which is not what happened.
-	let email_verification = if let Some(pending_email) = email_change_requested {
-		match issue_email_verification(&updated, &pending_email).await {
-			Ok(()) => Some("sent"),
-			Err(EmailVerificationError::Send(e)) => {
-				error!("Email verification dispatch failed: {e}");
-				Some("failed")
-			}
-			Err(EmailVerificationError::App(e)) => return Err(e),
+	let pending_email = email_change_requested.expect("checked is_none above");
+	match issue_email_verification(&updated, &pending_email).await {
+		Ok(()) => {
+			let resp = serde_json::json!({
+				"profile": ProfileResponse::from(updated),
+				"email_verification": { "status": "verification_sent" },
+			});
+			Ok(Response::new(StatusCode::ACCEPTED)
+				.with_header("Content-Type", "application/json")
+				.with_body(json::to_vec(&resp)?))
 		}
-	} else {
-		None
-	};
-
-	let resp = serde_json::json!({
-		"profile": ProfileResponse::from(updated),
-		"email_verification": email_verification,
-	});
-	Ok(Response::new(StatusCode::OK)
-		.with_header("Content-Type", "application/json")
-		.with_body(json::to_vec(&resp)?))
+		Err(EmailVerificationError::Send(e)) => {
+			// Profile fields were already persisted. Mail delivery failure is
+			// logged but not surfaced as a 5xx so the client knows the profile
+			// part succeeded and can offer a "resend" affordance.
+			error!("Email verification dispatch failed: {e}");
+			let resp = serde_json::json!({
+				"profile": ProfileResponse::from(updated),
+				"email_verification": { "status": "failed" },
+			});
+			Ok(Response::new(StatusCode::OK)
+				.with_header("Content-Type", "application/json")
+				.with_body(json::to_vec(&resp)?))
+		}
+		Err(EmailVerificationError::App(e)) => Err(e),
+	}
 }
 
 /// Distinguishes "could not even create the verification token" from
@@ -165,24 +190,32 @@ async fn issue_email_verification(
 	pending_email: &str,
 ) -> Result<(), EmailVerificationError> {
 	// Invalidate existing unconsumed tokens for this user by deleting them.
-	// A single-row-at-a-time delete loop keeps us compatible with the ORM's
-	// primary-key-based delete API.
+	// The query filters consumed_at IS NULL at the DB layer so it only
+	// touches rows that are still pending — consumed rows are left intact for
+	// audit purposes. Filtering at the DB layer also allows the partial index
+	// on (user_id) WHERE consumed_at IS NULL (from migration 0004) to be used,
+	// avoiding a full table scan as the token table grows.
 	let prior = EmailVerificationToken::objects()
 		.filter(
 			EmailVerificationToken::field_user_id(),
 			FilterOperator::Eq,
 			FilterValue::String(user.id.to_string()),
 		)
+		.filter(Filter::new(
+			EmailVerificationToken::field_consumed_at(),
+			FilterOperator::IsNull,
+			FilterValue::Null,
+		))
 		.all()
 		.await
 		.map_err(|e| {
 			error!("Failed to list existing verification tokens: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?;
+	// Delete all unconsumed prior tokens. The loop iterates every row returned
+	// (no early exit) so that all stale tokens are always cleaned up regardless
+	// of delete errors on earlier rows.
 	for t in prior {
-		if t.consumed_at.is_some() {
-			continue;
-		}
 		if let Some(id) = t.id
 			&& let Err(e) = EmailVerificationToken::objects().delete(id).await {
 				error!("Failed to delete stale verification token {id}: {e}");
