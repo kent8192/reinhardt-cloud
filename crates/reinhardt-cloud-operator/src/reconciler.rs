@@ -23,11 +23,11 @@ use tracing::{error, info, warn};
 use dashmap::DashMap;
 
 use crate::error::{BackoffClass, Error, backoff_class};
-use crate::metrics::Metrics;
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
@@ -124,7 +124,10 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 		}
 		Err(err) => {
 			let label = backoff_class(err).as_metric_label();
-			ctx.metrics.reconcile_total.with_label_values(&[label]).inc();
+			ctx.metrics
+				.reconcile_total
+				.with_label_values(&[label])
+				.inc();
 			ctx.metrics
 				.reconcile_duration
 				.with_label_values(&[label])

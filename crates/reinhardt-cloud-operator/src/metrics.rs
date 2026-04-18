@@ -18,8 +18,7 @@
 use std::sync::Arc;
 
 use prometheus::{
-	CounterVec, Encoder, GaugeVec, HistogramVec, Opts, Registry, TextEncoder,
-	histogram_opts,
+	CounterVec, Encoder, GaugeVec, HistogramVec, Opts, Registry, TextEncoder, histogram_opts,
 };
 
 /// Metrics container shared with the reconciler via the `Context`.
@@ -198,7 +197,10 @@ mod tests {
 		let metrics = Metrics::new();
 
 		// Act
-		metrics.reconcile_total.with_label_values(&["success"]).inc();
+		metrics
+			.reconcile_total
+			.with_label_values(&["success"])
+			.inc();
 		metrics
 			.requeue_total
 			.with_label_values(&["transient"])
