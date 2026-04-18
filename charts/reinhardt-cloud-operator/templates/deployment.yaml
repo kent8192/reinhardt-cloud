@@ -45,9 +45,11 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.tracing.endpoint | quote }}
             - name: OTEL_TRACES_SAMPLER
-              value: parentbased_traceidratio
+              value: {{ .Values.tracing.sampler | quote }}
+            {{- if .Values.tracing.samplerArg }}
             - name: OTEL_TRACES_SAMPLER_ARG
-              value: {{ .Values.tracing.sampler | splitList "=" | last | quote }}
+              value: {{ .Values.tracing.samplerArg | quote }}
+            {{- end }}
             - name: OTEL_SERVICE_NAME
               value: {{ .Values.tracing.serviceName | default .Release.Name | quote }}
             {{- end }}

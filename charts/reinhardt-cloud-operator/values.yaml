@@ -166,7 +166,10 @@ tracing:
   enabled: false
   # OTLP gRPC endpoint receiving spans.
   endpoint: "http://otel-collector.monitoring.svc.cluster.local:4317"
-  # OTel sampler expression. See OTEL_TRACES_SAMPLER env-var spec.
-  sampler: "parentbased_traceidratio=0.1"
+  # OTel sampler kind. Maps directly to OTEL_TRACES_SAMPLER. See OTel spec for valid values.
+  sampler: "parentbased_traceidratio"
+  # OTel sampler argument. Maps to OTEL_TRACES_SAMPLER_ARG when non-empty.
+  # For parentbased_traceidratio this is the head-sampling ratio (0.0–1.0).
+  samplerArg: "0.1"
   # Service name reported in spans. Defaults to the Helm release name when empty.
   serviceName: "reinhardt-cloud-operator"

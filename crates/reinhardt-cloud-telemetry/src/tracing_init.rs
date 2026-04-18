@@ -1,8 +1,8 @@
 //! OpenTelemetry-backed tracing initialization for reinhardt-cloud.
 //!
-//! Zero overhead when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset: the OTel layer
-//! is omitted entirely and the subscriber stack contains only the env filter
-//! and the JSON/text fmt layer.
+//! When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no OTLP exporter is installed;
+//! the `TraceContextLogLayer` is still active to populate `trace_id`/`span_id`
+//! fields in structured logs.
 
 mod layer;
 mod manual;

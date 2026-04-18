@@ -50,9 +50,9 @@ pub(crate) fn build_deployment(
 	// Build merged environment variables (system + user overrides + OTel)
 	let system_vars = build_system_env_vars();
 	let mut merged_env = merge_env_vars(&system_vars, &app.spec.env);
-	// Append OTel variables last so they are not overridden by user-supplied
-	// vars with the same name; user vars still take priority for everything
-	// else via merge_env_vars above.
+	// Append OTel variables after user-supplied vars. OTel vars are skipped
+	// when a user-supplied var with the same name already exists — user-supplied
+	// env vars take precedence over operator-injected OTel defaults.
 	let otel_vars = build_otel_env_vars(&app.name_any());
 	for v in otel_vars {
 		if !merged_env.iter().any(|e| e.name == v.name) {
