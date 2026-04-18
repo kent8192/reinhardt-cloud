@@ -68,9 +68,9 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 	let span = tracing::info_span!(
 		"operator.reconcile",
 		otel.kind = "internal",
-		resource.kind = "ReinhardtApp",
-		resource.namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
-		resource.name = %obj.name_any(),
+		resource_kind = "ReinhardtApp",
+		resource_namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
+		resource_name = %obj.name_any(),
 		reconcile_id = %Uuid::new_v4(),
 	);
 
