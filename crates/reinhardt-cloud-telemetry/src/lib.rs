@@ -10,6 +10,7 @@
 mod log_service;
 mod proto_convert;
 mod schema;
+mod tracing_init;
 
 pub use log_service::{
 	LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy,
@@ -17,3 +18,7 @@ pub use log_service::{
 };
 pub use proto_convert::{log_entry_to_record, log_record_to_entry};
 pub use schema::{LogFields, LogLevel, LogRecord};
+pub use tracing_init::{
+	TraceContext, TraceContextLogLayer, TracingConfig, TracingGuard, current_trace_context,
+	init_tracing,
+};
