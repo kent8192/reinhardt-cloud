@@ -61,7 +61,7 @@ fn matches(record: &LogRecord, filter: &LogFilter) -> bool {
 		return false;
 	}
 	if let Some(min) = filter.min_level
-		&& (record.level as u8) < (min as u8)
+		&& record.level < min
 	{
 		return false;
 	}
@@ -72,6 +72,11 @@ fn matches(record: &LogRecord, filter: &LogFilter) -> bool {
 impl LogService for InMemoryLogService {
 	async fn ingest(&self, record: LogRecord) -> Result<(), LogServiceError> {
 		let mut buf = self.buffer.lock().expect("buffer mutex poisoned");
+		// A capacity of 0 means the ring buffer is disabled: discard immediately.
+		if self.policy.capacity == 0 {
+			let _ = self.tx.send(record);
+			return Ok(());
+		}
 		if buf.len() == self.policy.capacity {
 			buf.pop_front();
 		}
@@ -107,9 +112,12 @@ impl LogService for InMemoryLogService {
 		filter: LogFilter,
 		page: Pagination,
 	) -> Result<Vec<LogRecord>, LogServiceError> {
-		let cutoff = Utc::now()
-			- chrono::Duration::from_std(self.policy.ttl)
-				.expect("retention TTL must be within chrono::Duration range");
+		// `chrono::Duration::from_std` fails for TTL values that exceed
+		// `i64::MAX` nanoseconds (~292 years). Treat that as "no TTL cutoff"
+		// by clamping to `chrono::Duration::MAX` rather than panicking.
+		let chrono_ttl = chrono::Duration::from_std(self.policy.ttl)
+			.unwrap_or(chrono::Duration::MAX);
+		let cutoff = Utc::now() - chrono_ttl;
 		let buf = self.buffer.lock().expect("buffer mutex poisoned");
 		let filtered: Vec<_> = buf
 			.iter()

@@ -4,7 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Severity of a log record. Ordered from least to most severe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The declaration order (Trace < Debug < Info < Warn < Error) defines the
+/// total ordering used for level-based filtering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
 	Trace,
@@ -17,14 +20,23 @@ pub enum LogLevel {
 /// Optional correlation and resource fields attached to a [`LogRecord`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogFields {
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub reconcile_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub resource_kind: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub resource_namespace: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub resource_name: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub phase: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub correlation_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub deployment_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub trace_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub span_id: Option<String>,
 }
 

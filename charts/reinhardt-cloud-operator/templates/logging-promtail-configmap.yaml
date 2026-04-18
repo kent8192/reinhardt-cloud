@@ -38,4 +38,11 @@ data:
             action: keep
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+          # Set __path__ so Promtail knows which log files to read.
+          # Without this relabeling rule, kubernetes_sd_configs does not
+          # automatically resolve the log file path and Promtail will not
+          # tail any logs.
+          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            target_label: __path__
+            replacement: /var/log/pods/*$1/$2/*.log
 {{- end }}

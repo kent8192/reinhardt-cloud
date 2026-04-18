@@ -84,6 +84,20 @@ fn init_tracing() -> anyhow::Result<()> {
 	let format = resolve_log_format(|key| std::env::var(key).ok());
 	match format {
 		LogFormat::Json => {
+			// tracing_subscriber's JSON formatter emits the timestamp as
+			// "timestamp" and the message as "fields.message" (or "message"
+			// with flatten_event). These differ from the LogRecord schema
+			// which uses "ts" and "msg" respectively.
+			//
+			// Field mapping (tracing → LogRecord schema):
+			//   "timestamp"          → "ts"
+			//   "fields.message"     → "msg"  (flattened to "message" here)
+			//
+			// The Promtail pipeline_stages.json block in the Helm chart
+			// extracts "level" / "reconcile_id" / "resource_name" directly
+			// from the event fields, which are emitted under their own names
+			// by flatten_event(true). Consumers reading persisted JSON should
+			// apply the mapping above when deserializing into LogRecord.
 			fmt()
 				.json()
 				.flatten_event(true)
