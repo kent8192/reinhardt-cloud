@@ -6054,6 +6054,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reinhardt-cloud-telemetry"
+version = "0.1.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "reinhardt-cloud-types"
 version = "0.1.0"
 dependencies = [

@@ -7,6 +7,7 @@ members = [
 	"crates/reinhardt-cloud-k8s",
 	"crates/reinhardt-cloud-proto",
 	"crates/reinhardt-cloud-grpc",
+	"crates/reinhardt-cloud-telemetry",
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
@@ -75,6 +76,13 @@ reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
 reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
 reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc" }
+reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry" }
+
+# Time handling (RFC3339 timestamps for log records)
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+
+# Temporary files (testing)
+tempfile = "3"
 
 # Cryptography / encoding
 rand = "0.9"
