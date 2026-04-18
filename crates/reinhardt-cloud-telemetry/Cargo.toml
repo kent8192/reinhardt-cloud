@@ -28,6 +28,7 @@ tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+serial_test = "3.2"
 
 [lints]
 workspace = true

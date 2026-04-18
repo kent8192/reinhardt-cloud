@@ -15,18 +15,68 @@ use std::time::Duration;
 
 use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{ExporterBuildError, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::util::TryInitError;
 
 const OTLP_ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
 const SERVICE_NAME_ENV: &str = "OTEL_SERVICE_NAME";
-const SAMPLER_ENV: &str = "OTEL_TRACES_SAMPLER_ARG";
-const DEFAULT_SAMPLE_RATIO: f64 = 0.1;
+const SAMPLER_ENV: &str = "OTEL_TRACES_SAMPLER";
+const SAMPLER_ARG_ENV: &str = "OTEL_TRACES_SAMPLER_ARG";
+/// Default head-sampling ratio applied when `OTEL_TRACES_SAMPLER_ARG` is unset
+/// or the selected sampler does not require an argument.
+pub const DEFAULT_SAMPLE_RATIO: f64 = 0.1;
 const EXPORTER_TIMEOUT_SECS: u64 = 5;
 const TRACER_NAME: &str = "reinhardt-cloud";
+
+/// Errors returned by [`init_tracing`].
+#[derive(Debug, thiserror::Error)]
+pub enum TracingInitError {
+	/// The OTLP span exporter failed to build (invalid endpoint, transport setup, ...).
+	#[error("failed to build OTLP span exporter: {0}")]
+	ExporterBuild(#[source] ExporterBuildError),
+	/// Installing the tracing subscriber failed (typically: a global subscriber is already set).
+	#[error("failed to install tracing subscriber: {0}")]
+	SubscriberInstall(#[source] TryInitError),
+}
+
+/// Sampler strategy selected via `OTEL_TRACES_SAMPLER`.
+///
+/// Matches the variants defined by the OpenTelemetry specification. Values not
+/// listed here fall back to [`SamplerKind::ParentBasedTraceIdRatio`] (the default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SamplerKind {
+	/// Sample every span.
+	AlwaysOn,
+	/// Drop every span.
+	AlwaysOff,
+	/// Sample based purely on a trace-ID ratio (no parent consultation).
+	TraceIdRatio,
+	/// Honor parent sampling decision; fall back to trace-ID ratio for roots.
+	#[default]
+	ParentBasedTraceIdRatio,
+	/// Honor parent sampling decision; always sample roots.
+	ParentBasedAlwaysOn,
+	/// Honor parent sampling decision; never sample roots.
+	ParentBasedAlwaysOff,
+}
+
+impl SamplerKind {
+	fn from_env_value(raw: &str) -> Option<Self> {
+		match raw.trim().to_ascii_lowercase().as_str() {
+			"always_on" => Some(Self::AlwaysOn),
+			"always_off" => Some(Self::AlwaysOff),
+			"traceidratio" => Some(Self::TraceIdRatio),
+			"parentbased_traceidratio" => Some(Self::ParentBasedTraceIdRatio),
+			"parentbased_always_on" => Some(Self::ParentBasedAlwaysOn),
+			"parentbased_always_off" => Some(Self::ParentBasedAlwaysOff),
+			_ => None,
+		}
+	}
+}
 
 /// Runtime-configurable tracing setup.
 #[derive(Debug, Clone)]
@@ -35,7 +85,11 @@ pub struct TracingConfig {
 	pub service_name: String,
 	/// OTLP gRPC endpoint (e.g. `http://otel-collector:4317`). `None` disables OTel export.
 	pub otlp_endpoint: Option<String>,
-	/// Head-sampling ratio in the range `[0.0, 1.0]`.
+	/// Sampler strategy, parsed from `OTEL_TRACES_SAMPLER`.
+	pub sampler_kind: SamplerKind,
+	/// Head-sampling ratio in the range `[0.0, 1.0]`, parsed from `OTEL_TRACES_SAMPLER_ARG`.
+	///
+	/// Only consulted for ratio-based samplers.
 	pub sample_ratio: f64,
 	/// Emit JSON-formatted logs on stdout when `true`; text-formatted otherwise.
 	pub json_logs: bool,
@@ -43,6 +97,9 @@ pub struct TracingConfig {
 
 impl TracingConfig {
 	/// Build a `TracingConfig` from standard OTel environment variables.
+	///
+	/// Honors `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+	/// `OTEL_TRACES_SAMPLER`, and `OTEL_TRACES_SAMPLER_ARG`.
 	pub fn from_env(default_service: &str, json_logs: bool) -> Self {
 		Self {
 			service_name: env::var(SERVICE_NAME_ENV)
@@ -50,7 +107,11 @@ impl TracingConfig {
 				.filter(|s| !s.is_empty())
 				.unwrap_or_else(|| default_service.to_string()),
 			otlp_endpoint: env::var(OTLP_ENDPOINT_ENV).ok().filter(|s| !s.is_empty()),
-			sample_ratio: env::var(SAMPLER_ENV)
+			sampler_kind: env::var(SAMPLER_ENV)
+				.ok()
+				.and_then(|raw| SamplerKind::from_env_value(&raw))
+				.unwrap_or_default(),
+			sample_ratio: env::var(SAMPLER_ARG_ENV)
 				.ok()
 				.and_then(|raw| parse_ratio(&raw))
 				.unwrap_or(DEFAULT_SAMPLE_RATIO),
@@ -66,6 +127,19 @@ fn parse_ratio(raw: &str) -> Option<f64> {
 		.parse::<f64>()
 		.ok()
 		.filter(|v| (0.0..=1.0).contains(v))
+}
+
+fn build_sampler(kind: SamplerKind, ratio: f64) -> Sampler {
+	match kind {
+		SamplerKind::AlwaysOn => Sampler::AlwaysOn,
+		SamplerKind::AlwaysOff => Sampler::AlwaysOff,
+		SamplerKind::TraceIdRatio => Sampler::TraceIdRatioBased(ratio),
+		SamplerKind::ParentBasedTraceIdRatio => {
+			Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(ratio)))
+		}
+		SamplerKind::ParentBasedAlwaysOn => Sampler::ParentBased(Box::new(Sampler::AlwaysOn)),
+		SamplerKind::ParentBasedAlwaysOff => Sampler::ParentBased(Box::new(Sampler::AlwaysOff)),
+	}
 }
 
 /// Guard that flushes pending spans on drop.
@@ -106,23 +180,17 @@ impl Drop for TracingGuard {
 /// Returns a [`TracingGuard`] that flushes pending spans when dropped. When
 /// `config.otlp_endpoint` is `None`, no OpenTelemetry layer is attached and
 /// the subscriber stack contains only the env filter and an fmt layer.
-pub fn init_tracing(config: TracingConfig) -> anyhow::Result<TracingGuard> {
+///
+/// # Errors
+///
+/// - [`TracingInitError::ExporterBuild`] if constructing the OTLP exporter fails.
+/// - [`TracingInitError::SubscriberInstall`] if installing the global subscriber fails.
+pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitError> {
 	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-	let fmt_layer = if config.json_logs {
-		tracing_subscriber::fmt::layer()
-			.json()
-			.with_current_span(true)
-			.with_span_list(false)
-			.boxed()
-	} else {
-		tracing_subscriber::fmt::layer().boxed()
-	};
-
-	let registry = tracing_subscriber::registry()
-		.with(filter)
-		.with(TraceContextLogLayer::new())
-		.with(fmt_layer);
+	// Build the fmt layer unboxed; boxing happens against the final
+	// subscriber type in each branch below.
+	let json_logs = config.json_logs;
 
 	match &config.otlp_endpoint {
 		Some(endpoint) => {
@@ -131,14 +199,13 @@ pub fn init_tracing(config: TracingConfig) -> anyhow::Result<TracingGuard> {
 				.with_endpoint(endpoint)
 				.with_timeout(Duration::from_secs(EXPORTER_TIMEOUT_SECS))
 				.build()
-				.map_err(|e| anyhow::anyhow!("failed to build OTLP span exporter: {e}"))?;
+				.map_err(TracingInitError::ExporterBuild)?;
 
 			let resource = Resource::builder_empty()
 				.with_attributes([KeyValue::new("service.name", config.service_name.clone())])
 				.build();
 
-			let sampler =
-				Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.sample_ratio)));
+			let sampler = build_sampler(config.sampler_kind, config.sample_ratio);
 
 			let provider = SdkTracerProvider::builder()
 				.with_batch_exporter(exporter)
@@ -152,19 +219,52 @@ pub fn init_tracing(config: TracingConfig) -> anyhow::Result<TracingGuard> {
 			let tracer = provider.tracer(TRACER_NAME);
 			let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-			registry
+			// Layer ordering: env filter first, then the OTel layer (so it
+			// attaches OtelData before TraceContextLogLayer reads it), then
+			// our enrichment layer, then the fmt layer that consumes both.
+			let base = tracing_subscriber::registry()
+				.with(filter)
 				.with(otel_layer)
+				.with(TraceContextLogLayer::new());
+
+			if json_logs {
+				base.with(
+					tracing_subscriber::fmt::layer()
+						.json()
+						.with_current_span(true)
+						.with_span_list(false),
+				)
 				.try_init()
-				.map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
+				.map_err(TracingInitError::SubscriberInstall)?;
+			} else {
+				base.with(tracing_subscriber::fmt::layer())
+					.try_init()
+					.map_err(TracingInitError::SubscriberInstall)?;
+			}
 
 			Ok(TracingGuard {
 				inner: TracingGuardInner::WithProvider(provider),
 			})
 		}
 		None => {
-			registry
+			let base = tracing_subscriber::registry()
+				.with(filter)
+				.with(TraceContextLogLayer::new());
+
+			if json_logs {
+				base.with(
+					tracing_subscriber::fmt::layer()
+						.json()
+						.with_current_span(true)
+						.with_span_list(false),
+				)
 				.try_init()
-				.map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
+				.map_err(TracingInitError::SubscriberInstall)?;
+			} else {
+				base.with(tracing_subscriber::fmt::layer())
+					.try_init()
+					.map_err(TracingInitError::SubscriberInstall)?;
+			}
 			Ok(TracingGuard {
 				inner: TracingGuardInner::Noop,
 			})
@@ -176,6 +276,7 @@ pub fn init_tracing(config: TracingConfig) -> anyhow::Result<TracingGuard> {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serial_test::serial;
 
 	#[rstest]
 	fn parse_ratio_accepts_bare_float() {
@@ -199,13 +300,70 @@ mod tests {
 	}
 
 	#[rstest]
-	fn tracing_config_from_env_uses_default_service() {
-		// Arrange / Act
+	#[case("always_on", SamplerKind::AlwaysOn)]
+	#[case("always_off", SamplerKind::AlwaysOff)]
+	#[case("traceidratio", SamplerKind::TraceIdRatio)]
+	#[case("parentbased_traceidratio", SamplerKind::ParentBasedTraceIdRatio)]
+	#[case("parentbased_always_on", SamplerKind::ParentBasedAlwaysOn)]
+	#[case("parentbased_always_off", SamplerKind::ParentBasedAlwaysOff)]
+	#[case("PARENTBASED_TRACEIDRATIO", SamplerKind::ParentBasedTraceIdRatio)]
+	fn sampler_kind_parses_known_values(#[case] raw: &str, #[case] expected: SamplerKind) {
+		assert_eq!(SamplerKind::from_env_value(raw), Some(expected));
+	}
+
+	#[rstest]
+	fn sampler_kind_rejects_unknown() {
+		assert_eq!(SamplerKind::from_env_value("nope"), None);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn tracing_config_from_env_uses_defaults_when_unset() {
+		// Arrange: strip any OTEL env vars the host shell may carry.
+		// SAFETY: Test is serialized on the `env` group; no other thread
+		// reads/writes these variables concurrently.
+		unsafe {
+			std::env::remove_var(SERVICE_NAME_ENV);
+			std::env::remove_var(OTLP_ENDPOINT_ENV);
+			std::env::remove_var(SAMPLER_ENV);
+			std::env::remove_var(SAMPLER_ARG_ENV);
+		}
+
+		// Act
 		let cfg = TracingConfig::from_env("test-service", false);
 
-		// Assert: service_name is populated and json_logs propagates.
-		assert!(!cfg.service_name.is_empty());
+		// Assert
+		assert_eq!(cfg.service_name, "test-service");
+		assert_eq!(cfg.otlp_endpoint, None);
+		assert_eq!(cfg.sampler_kind, SamplerKind::ParentBasedTraceIdRatio);
+		assert_eq!(cfg.sample_ratio, DEFAULT_SAMPLE_RATIO);
 		assert!(!cfg.json_logs);
-		assert!((0.0..=1.0).contains(&cfg.sample_ratio));
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn tracing_config_from_env_reads_sampler_vars() {
+		// Arrange
+		// SAFETY: Test is serialized on the `env` group.
+		unsafe {
+			std::env::set_var(SAMPLER_ENV, "traceidratio");
+			std::env::set_var(SAMPLER_ARG_ENV, "0.25");
+			std::env::remove_var(SERVICE_NAME_ENV);
+			std::env::remove_var(OTLP_ENDPOINT_ENV);
+		}
+
+		// Act
+		let cfg = TracingConfig::from_env("svc", false);
+
+		// Assert
+		assert_eq!(cfg.sampler_kind, SamplerKind::TraceIdRatio);
+		assert_eq!(cfg.sample_ratio, 0.25);
+
+		// Cleanup.
+		// SAFETY: Test is serialized on the `env` group.
+		unsafe {
+			std::env::remove_var(SAMPLER_ENV);
+			std::env::remove_var(SAMPLER_ARG_ENV);
+		}
 	}
 }

@@ -1,14 +1,22 @@
 //! Tracing subscriber layer bridging OpenTelemetry span context to log records.
 //!
-//! On span creation, this layer reads the active OpenTelemetry context via
-//! [`tracing_opentelemetry::OpenTelemetrySpanExt::context`] and stores the
-//! resulting 32-hex `trace_id` and 16-hex `span_id` as a span extension so
-//! downstream fmt layers / log enrichers can correlate logs with traces.
+//! On the first `enter` of a span, this layer reads the `OtelData` extension
+//! populated by `tracing_opentelemetry::OpenTelemetryLayer` and caches the
+//! resulting 32-hex `trace_id` and 16-hex `span_id` as a
+//! [`TraceContextExtension`] on the span so downstream fmt layers / log
+//! enrichers can correlate logs with traces.
+//!
+//! # Layer ordering requirement
+//!
+//! This layer depends on `tracing_opentelemetry::OpenTelemetryLayer` having
+//! transitioned its `OtelData` extension into the `Context` state by the time
+//! our `on_enter` runs. That happens inside the OTel layer's own `on_enter`.
+//! `tracing-subscriber` invokes per-span callbacks in layer registration
+//! order (inner first), so the OTel layer MUST be registered BEFORE
+//! `TraceContextLogLayer` in the `Registry::with(...)` chain.
 
-use opentelemetry::trace::TraceContextExt;
-use tracing::span::Attributes;
-use tracing::{Id, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::Id;
+use tracing_opentelemetry::OtelData;
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
@@ -38,31 +46,32 @@ impl<S> Layer<S> for TraceContextLogLayer
 where
 	S: tracing::Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-	fn on_new_span(&self, _attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+	fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
 		let Some(span_ref) = ctx.span(id) else {
 			return;
 		};
 
-		// Read the OTel context bound to this tracing span by the
-		// `tracing-opentelemetry` layer (if installed).
-		let tracing_span = Span::current();
-		let otel_cx = tracing_span.context();
-		let otel_span = otel_cx.span();
-		let span_ctx = otel_span.span_context();
-
-		if !span_ctx.is_valid() {
+		// On the first `enter`, `OpenTelemetryLayer::on_enter` (which ran
+		// immediately before us because it was registered first) has moved
+		// `OtelData` from its `Builder` state into `Context` state. That is
+		// the earliest point at which `OtelData::trace_id()` and `span_id()`
+		// return `Some`.
+		let mut extensions = span_ref.extensions_mut();
+		if extensions.get_mut::<TraceContextExtension>().is_some() {
 			return;
 		}
 
-		let extension = TraceContextExtension {
-			trace_id: span_ctx.trace_id().to_string(),
-			span_id: span_ctx.span_id().to_string(),
+		let Some(otel_data) = extensions.get_mut::<OtelData>() else {
+			return;
+		};
+		let (Some(trace_id), Some(span_id)) = (otel_data.trace_id(), otel_data.span_id()) else {
+			return;
 		};
 
-		let mut extensions = span_ref.extensions_mut();
-		if extensions.get_mut::<TraceContextExtension>().is_none() {
-			extensions.insert(extension);
-		}
+		extensions.insert(TraceContextExtension {
+			trace_id: trace_id.to_string(),
+			span_id: span_id.to_string(),
+		});
 	}
 }
 
@@ -85,28 +94,5 @@ mod tests {
 
 		// Assert: completes without panic. Without a real OTel provider the
 		// layer simply skips enrichment (no extension inserted).
-	}
-
-	#[rstest]
-	fn new_constructs_default() {
-		// Arrange / Act
-		let a = TraceContextLogLayer::new();
-		let b = TraceContextLogLayer;
-
-		// Assert
-		assert_eq!(format!("{a:?}"), format!("{b:?}"));
-	}
-
-	// NOTE: A test asserting that the extension is populated requires a fully
-	// initialized `SdkTracerProvider` + `tracing_opentelemetry::layer()`; we
-	// exercise that integration path in the operator's test suite rather than
-	// here, because `init_tracing` sets a global tracer provider which would
-	// interfere with other tests in this crate.
-	#[allow(dead_code)] // kept for documentation of the intended invariant
-	fn _trace_context_extension_shape() -> TraceContextExtension {
-		TraceContextExtension {
-			trace_id: "00000000000000000000000000000001".to_string(),
-			span_id: "0000000000000001".to_string(),
-		}
 	}
 }

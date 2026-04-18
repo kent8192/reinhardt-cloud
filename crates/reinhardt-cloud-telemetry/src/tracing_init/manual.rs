@@ -38,8 +38,10 @@ pub fn current_trace_context() -> Option<TraceContext> {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serial_test::serial;
 
 	#[rstest]
+	#[serial(global_tracing)]
 	fn returns_none_outside_any_span() {
 		// Arrange: no subscriber, no OTel provider, no active span.
 		// Act
