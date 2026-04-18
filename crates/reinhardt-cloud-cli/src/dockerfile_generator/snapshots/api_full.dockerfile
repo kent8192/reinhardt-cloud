@@ -12,9 +12,9 @@ RUN apt-get update && \
 RUN cargo install cargo-chef
 WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --features graphql --recipe-path recipe.json
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --features graphql
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
