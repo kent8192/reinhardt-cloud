@@ -1,10 +1,15 @@
-//! Tracing subscriber layer bridging OpenTelemetry span context to log records.
+//! Tracing subscriber layer that captures OpenTelemetry span context into span extensions.
 //!
 //! On the first `enter` of a span, this layer reads the `OtelData` extension
-//! populated by `tracing_opentelemetry::OpenTelemetryLayer` and caches the
+//! populated by `tracing_opentelemetry::OpenTelemetryLayer` and stores the
 //! resulting 32-hex `trace_id` and 16-hex `span_id` as a
-//! [`TraceContextExtension`] on the span so downstream fmt layers / log
-//! enrichers can correlate logs with traces.
+//! [`TraceContextExtension`] on the span.
+//!
+//! **Limitation:** `tracing_subscriber::fmt` does not emit span extensions into
+//! log output. This layer makes `TraceContextExtension` available to custom
+//! formatters or other layers that explicitly read span extensions. Standard
+//! `fmt` layers (including the JSON formatter) will not include `trace_id` or
+//! `span_id` from this extension in their log output.
 //!
 //! # Layer ordering requirement
 //!
@@ -30,8 +35,12 @@ pub struct TraceContextExtension {
 	pub span_id: String,
 }
 
-/// Layer that enriches tracing spans with OpenTelemetry trace/span IDs so they
-/// can be embedded in structured log output.
+/// Layer that captures OpenTelemetry trace/span IDs into span extensions.
+///
+/// The captured [`TraceContextExtension`] is accessible to custom formatters
+/// or other layers that read span extensions. Standard `tracing_subscriber::fmt`
+/// layers do not emit extensions, so `trace_id`/`span_id` will not appear
+/// in their log output directly from this layer.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TraceContextLogLayer;
 
