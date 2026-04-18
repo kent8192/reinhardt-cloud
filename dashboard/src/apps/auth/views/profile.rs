@@ -148,11 +148,10 @@ async fn issue_email_verification(user: &User, pending_email: &str) -> Result<()
 		if t.consumed_at.is_some() {
 			continue;
 		}
-		if let Some(id) = t.id {
-			if let Err(e) = EmailVerificationToken::objects().delete(id).await {
+		if let Some(id) = t.id
+			&& let Err(e) = EmailVerificationToken::objects().delete(id).await {
 				error!("Failed to delete stale verification token {id}: {e}");
 			}
-		}
 	}
 
 	// 32 bytes of cryptographic randomness from the OS.
