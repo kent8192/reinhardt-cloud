@@ -112,6 +112,7 @@ pub(crate) fn collect_signals(
 		cache: signals.cache.clone(),
 		session_backend: None, // Only available via introspect at deploy time
 		base_image_override,
+		tracing: signals.tracing,
 	})
 }
 
@@ -149,6 +150,7 @@ mod tests {
 			cache: None,
 			session_backend: None,
 			base_image_override: None,
+			tracing: false,
 		}
 	}
 

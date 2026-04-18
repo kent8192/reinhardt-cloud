@@ -17,6 +17,12 @@ pub(crate) struct DockerfileSignals {
 	pub(crate) cache: Option<String>,
 	pub(crate) session_backend: Option<String>,
 	pub(crate) base_image_override: Option<String>,
+	/// When true, emits OTEL environment variables in the runtime stage so
+	/// the application is pre-configured to export traces to the cluster's
+	/// OpenTelemetry Collector. The specific service name is intentionally
+	/// left as a placeholder ("app") because the real name is injected at
+	/// Pod launch time via the Kubernetes Downward API.
+	pub(crate) tracing: bool,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
@@ -189,6 +195,26 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		"RUST_LOG".to_string(),
 		"info".to_string(),
 	)]));
+
+	if signals.tracing {
+		// Emit OTEL environment variables so the runtime image is pre-wired
+		// to the cluster's OpenTelemetry Collector. OTEL_SERVICE_NAME is set
+		// to the placeholder "app"; the real service name is injected at Pod
+		// launch time via the Kubernetes Downward API.
+		instructions.push(Instruction::Env(vec![(
+			"OTEL_PROPAGATORS".to_string(),
+			"tracecontext".to_string(),
+		)]));
+		instructions.push(Instruction::Env(vec![(
+			"OTEL_SERVICE_NAME".to_string(),
+			"app".to_string(),
+		)]));
+		instructions.push(Instruction::Env(vec![(
+			"OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
+			"http://otel-collector.monitoring.svc.cluster.local:4317".to_string(),
+		)]));
+	}
+
 	instructions.push(Instruction::Expose(8000));
 
 	if is_custom_image {
@@ -232,6 +258,7 @@ mod tests {
 			cache: None,
 			session_backend: None,
 			base_image_override: None,
+			tracing: false,
 		}
 	}
 
@@ -483,5 +510,58 @@ mod tests {
 		// Custom image: apt-get is skipped, so no mysql client package
 		assert!(!stage_contains_run(&stage, "apt-get"));
 		assert!(!stage_contains_run(&stage, "default-mysql-client-core"));
+	}
+
+	fn stage_contains_env(stage: &Stage, key: &str, value: &str) -> bool {
+		stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Env(pairs)
+					if pairs.iter().any(|(k, v)| k == key && v == value)
+			)
+		})
+	}
+
+	// S19
+	#[rstest]
+	fn tracing_enabled_emits_otel_env(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.tracing = true;
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_contains_env(
+			&stage,
+			"OTEL_PROPAGATORS",
+			"tracecontext"
+		));
+		assert!(stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
+		assert!(stage_contains_env(
+			&stage,
+			"OTEL_EXPORTER_OTLP_ENDPOINT",
+			"http://otel-collector.monitoring.svc.cluster.local:4317"
+		));
+	}
+
+	// S20
+	#[rstest]
+	fn tracing_disabled_omits_otel_env(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(!stage_contains_env(
+			&stage,
+			"OTEL_PROPAGATORS",
+			"tracecontext"
+		));
+		assert!(!stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
+		assert!(!stage_contains_env(
+			&stage,
+			"OTEL_EXPORTER_OTLP_ENDPOINT",
+			"http://otel-collector.monitoring.svc.cluster.local:4317"
+		));
 	}
 }
