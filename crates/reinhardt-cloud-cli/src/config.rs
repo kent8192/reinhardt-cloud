@@ -5,9 +5,6 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Errors from configuration loading.
-// allow(dead_code): Returned by from_file(); will be used when CLI loads
-// reinhardt-cloud.toml configuration on startup.
-#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
 	#[error("failed to read config file: {0}")]
@@ -28,8 +25,6 @@ pub(crate) struct CliConfig {
 
 impl CliConfig {
 	/// Loads configuration from a `reinhardt-cloud.toml` file.
-	// allow(dead_code): Will be called when CLI implements config file loading.
-	#[allow(dead_code)]
 	pub(crate) fn from_file(path: &Path) -> Result<Self, ConfigError> {
 		let content = std::fs::read_to_string(path)?;
 		let config: CliConfig = toml::from_str(&content)?;
@@ -72,9 +67,6 @@ pub(crate) fn credentials_path() -> PathBuf {
 /// Loads stored credentials from the credentials file.
 ///
 /// Returns `Ok(None)` if the file does not exist.
-// allow(dead_code): Will be called when deploy/status commands load stored
-// authentication tokens (PR10: client auth integration).
-#[allow(dead_code)]
 pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
 	let path = credentials_path();
 	if !path.exists() {

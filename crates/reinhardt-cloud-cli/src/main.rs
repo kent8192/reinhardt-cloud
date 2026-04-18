@@ -11,7 +11,7 @@ mod toml_generator;
 use clap::{Parser, Subcommand};
 
 use crate::client::ReinhardtCloudClient;
-use crate::config::CliConfig;
+use crate::config::{CliConfig, load_token};
 
 /// Reinhardt Cloud PaaS command-line interface.
 #[derive(Debug, Parser)]
@@ -50,11 +50,39 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
-	let config = CliConfig::default();
+
+	// Load config from ~/.config/reinhardt-cloud/config.toml when present.
+	// Any IO/parse failure falls back to defaults so the CLI still runs.
+	let config_path = dirs::config_dir().map(|d| d.join("reinhardt-cloud").join("config.toml"));
+	let config = match config_path.as_deref() {
+		Some(path) if path.exists() => match CliConfig::from_file(path) {
+			Ok(cfg) => cfg,
+			Err(e) => {
+				eprintln!(
+					"Warning: failed to load {}: {e}. Using defaults.",
+					path.display()
+				);
+				CliConfig::default()
+			}
+		},
+		_ => CliConfig::default(),
+	};
 
 	let default_url = config.api_url();
 	let base_url = cli.server.as_deref().unwrap_or(&default_url);
-	let client = ReinhardtCloudClient::new(base_url)?;
+	let mut client = ReinhardtCloudClient::new(base_url)?;
+
+	// Attach stored credentials if present. Missing credentials are silent;
+	// only parse/IO errors warn the user.
+	match load_token() {
+		Ok(Some(creds)) => {
+			client = client.with_token(creds.token);
+		}
+		Ok(None) => {}
+		Err(e) => {
+			eprintln!("Warning: failed to load credentials: {e}. Continuing unauthenticated.");
+		}
+	}
 
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,

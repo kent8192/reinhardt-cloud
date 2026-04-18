@@ -233,6 +233,8 @@ pub(crate) async fn execute(
 	args: &DeployArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	eprintln!("Target: {}", client.base_url());
+
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
