@@ -651,7 +651,7 @@ Via the Helm chart this is controlled by `tracing.enabled=true` and `tracing.end
 |------|-------------|
 | `operator.reconcile` | Root span per `ReinhardtApp` reconcile pass |
 
-Span attributes: `resource.kind`, `resource.namespace`, `resource.name`, `reconcile_id`.
+Span attributes: `resource_kind`, `resource_namespace`, `resource_name`, `reconcile_id`.
 
 ##### CRD annotation contract
 
@@ -661,7 +661,7 @@ Writing the annotation back is deferred to avoid patch-loop reconcile storms.
 
 ##### Trace-to-log correlation
 
-When running with `REINHARDT_LOG_FORMAT=json`, structured log lines include `trace_id` and `span_id` fields sourced from the active OTel span. Filter logs by `trace_id` in Loki/Grafana to correlate logs with traces.
+When running with `REINHARDT_LOG_FORMAT=json`, the operator preserves trace context on the active OTel span during reconciliation, but the current JSON log formatter setup does not guarantee that `trace_id` and `span_id` are emitted as top-level log fields. If end-to-end log/trace correlation is required, verify formatter support before relying on filtering logs by `trace_id` in Loki/Grafana.
 
 ##### Managed Pod trace propagation
 
