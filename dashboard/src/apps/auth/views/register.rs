@@ -1,4 +1,7 @@
 //! Register view for auth app.
+//!
+//! Creates a new user with `is_active = false` and sends a verification
+//! email. The user must verify their email before they can log in.
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
@@ -6,24 +9,32 @@ use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, Response, StatusCode};
-use tracing::error;
+use tracing::{error, info};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::RegisterRequest;
-use crate::apps::auth::services::session::create_session;
+use crate::apps::auth::services::email::{get_email_backend, send_verification_email};
+use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 use crate::shared::AuthResponse;
 
-/// Register new user, persist to database, and create a session.
+/// Register new user with email verification required.
+///
+/// Creates the user as inactive (`is_active = false`) and sends a
+/// verification email. No session is created until the email is verified.
 #[post("/register/", name = "register", pre_validate = true)]
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
-	// Create user with hashed password
+	let settings = crate::config::settings::get_settings();
+	let secret_key = settings.core.secret_key.clone();
+	let from_email = settings.email.from_email.clone();
+
+	// Create user as inactive — requires email verification to activate
 	let mut user = User::new(
 		body.username.trim().to_string(),
-		body.email.trim().to_string(),
+		body.email.trim().to_lowercase(),
 		String::new(),
 		String::new(),
 		None,
-		true,
+		false,
 		false,
 		false,
 	);
@@ -56,26 +67,55 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		}
 	};
 
-	// Create session in Redis
-	let session_id = create_session(&created).await.map_err(|e| {
-		error!("Session creation failed during registration: {e}");
+	// Generate verification token and send email
+	let token = generate_token(
+		TokenPurpose::EmailVerification,
+		&created.id,
+		"",
+		&secret_key,
+	);
+
+	let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+	let base_url = std::env::var("REINHARDT_CLOUD_BASE_URL")
+		.unwrap_or_else(|_| format!("http://localhost:{port}"));
+	let verification_url = format!("{base_url}/api/auth/verify-email/{token}/");
+
+	let backend = get_email_backend().map_err(|e| {
+		error!("Failed to create email backend: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;
+
+	if let Err(e) = send_verification_email(
+		&created.email,
+		&created.username,
+		&verification_url,
+		backend.as_ref(),
+		&from_email,
+	)
+	.await
+	{
+		error!(
+			"Failed to send verification email to {}: {e}",
+			created.email
+		);
+		// Roll back user creation to avoid stranding an inactive account
+		// with no way to receive the activation link.
+		if let Err(del_err) = User::objects().delete(created.id).await {
+			error!("Failed to roll back user after email failure: {del_err}");
+		}
+		return Err(AppError::Internal(
+			"Registration failed — please try again later".to_string(),
+		));
+	}
+	info!("Verification email sent to {}", created.email);
 
 	let resp = AuthResponse {
 		success: true,
 		user: Some(crate::shared::UserInfo::from(&created)),
 	};
 
-	// Set session cookie on the response
-	let is_debug = crate::config::settings::get_settings().core.debug;
-	let secure_flag = if is_debug { "" } else { "; Secure" };
-	let cookie = format!(
-		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
-	);
-
+	// No session cookie — user must verify email first
 	Ok(Response::new(StatusCode::CREATED)
 		.with_header("Content-Type", "application/json")
-		.with_header("Set-Cookie", &cookie)
 		.with_body(json::to_vec(&resp)?))
 }
