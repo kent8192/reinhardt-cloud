@@ -6,7 +6,10 @@ use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
-use reinhardt_cloud_types::introspect::IntrospectOutput;
+use crate::feature_detector::{ProjectMetadata, detect_project};
+use reinhardt_cloud_types::introspect::{
+	AppMetadata, FeaturesMetadata, InfraSignals as IntroInfraSignals, IntrospectOutput,
+};
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
 /// Deploy an application.
@@ -69,6 +72,46 @@ fn read_reinhardt_cloud_toml(dir: &std::path::Path) -> Result<Option<ReinhardtCl
 /// Parses YAML output from `manage introspect` into an `IntrospectOutput`.
 fn parse_introspect_output(yaml: &str) -> Result<IntrospectOutput, String> {
 	serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse introspect YAML: {e}"))
+}
+
+/// Synthesizes a minimal [`IntrospectOutput`] from feature-detector signals.
+///
+/// Used as a fallback when `manage introspect` fails (e.g. cargo cannot build
+/// the target project). Populates only the fields that map 1-to-1 from
+/// `Cargo.toml`-derived signals; tables, routes, and middleware remain empty
+/// because static inspection cannot discover them.
+fn introspect_from_metadata(metadata: &ProjectMetadata) -> IntrospectOutput {
+	let signals = &metadata.signals;
+	IntrospectOutput {
+		app: AppMetadata {
+			name: metadata.name.clone(),
+			version: metadata.version.clone(),
+		},
+		features: FeaturesMetadata {
+			declared: metadata.features.clone(),
+			resolved: metadata.features.clone(),
+			infrastructure_signals: IntroInfraSignals {
+				database: signals.database.clone(),
+				cache: signals.cache.clone(),
+				websocket: signals.websocket,
+				background_worker: signals.background_worker,
+				grpc: signals.grpc,
+				storage: if signals.object_storage {
+					Some("s3".to_string())
+				} else {
+					None
+				},
+				session_backend: if signals.sessions {
+					Some("db".to_string())
+				} else {
+					None
+				},
+				graphql: signals.graphql,
+				..Default::default()
+			},
+		},
+		..Default::default()
+	}
 }
 
 /// Runs `manage introspect --format yaml` and returns stdout.
@@ -251,8 +294,24 @@ pub(crate) async fn execute(
 				return Err(e.into());
 			}
 			eprintln!("Warning: manage introspect failed: {e}");
-			eprintln!("Deploying with minimal configuration.");
-			None
+			// Fall back to static feature-detector signals so the deploy still
+			// carries database/cache/session-backend hints from Cargo.toml.
+			match detect_project(&project_dir) {
+				Ok(metadata) => {
+					eprintln!(
+						"Falling back to Cargo.toml-derived infrastructure signals \
+						 (no runtime introspection available)."
+					);
+					Some(introspect_from_metadata(&metadata))
+				}
+				Err(detect_err) => {
+					eprintln!(
+						"Could not derive signals from Cargo.toml ({detect_err}); \
+						 deploying with minimal configuration."
+					);
+					None
+				}
+			}
 		}
 	};
 
