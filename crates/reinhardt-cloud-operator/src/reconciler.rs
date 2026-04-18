@@ -60,6 +60,10 @@ pub(crate) struct Context {
 	/// Per-object consecutive-failure counter used to drive exponential
 	/// backoff in `error_policy`. Key is `(namespace, name)`.
 	pub backoff_state: Arc<DashMap<(String, String), u32>>,
+	/// Last observed phase label per object, used to keep the
+	/// `managed_apps{phase}` gauge in sync as objects transition between
+	/// phases and when they are deleted. Key is `(namespace, name)`.
+	pub phase_state: Arc<DashMap<(String, String), String>>,
 }
 
 /// Base backoff duration for transient Kube API errors.
@@ -549,7 +553,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	let ready = ready_replicas >= desired_replicas;
 
 	// Update status sub-resource
-	update_status(&app, &ctx.client, namespace, ready, ready_replicas).await?;
+	update_status(&app, ctx, namespace, ready, ready_replicas).await?;
 
 	Ok(Action::await_change())
 }
@@ -662,6 +666,10 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 				.await?;
 		}
 	}
+
+	// Decrement the `managed_apps` gauge for the phase this object was
+	// last observed in, so the gauge reflects only live objects.
+	drop_managed_apps_gauge(ctx, &app);
 
 	Ok(Action::await_change())
 }
@@ -1307,13 +1315,22 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 /// changes, preventing unnecessary tight reconcile loops.
 async fn update_status(
 	app: &ReinhardtApp,
-	client: &Client,
+	ctx: &Context,
 	namespace: &str,
 	ready: bool,
 	ready_replicas: i32,
 ) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
 	let typed_status = build_status(app, ready, ready_replicas);
+
+	// Keep the `managed_apps{phase}` gauge in sync with the phase we are
+	// about to write to the status sub-resource. Decrement the previous
+	// phase gauge (if any) before incrementing the new one so the sum
+	// across phases stays equal to the number of tracked objects.
+	if let Some(phase) = &typed_status.phase {
+		update_managed_apps_gauge(ctx, app, phase_label(phase));
+	}
+
 	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
@@ -1325,6 +1342,54 @@ async fn update_status(
 	.map_err(Error::Kube)?;
 
 	Ok(())
+}
+
+/// Map an `AppPhase` to the stable label value used by the
+/// `managed_apps{phase=...}` gauge. Kept as a free function so new
+/// phases must be added explicitly and cannot drift from the CRD enum.
+fn phase_label(phase: &AppPhase) -> &'static str {
+	match phase {
+		AppPhase::Pending => "Pending",
+		AppPhase::Provisioning => "Provisioning",
+		AppPhase::Deploying => "Deploying",
+		AppPhase::Running => "Running",
+		AppPhase::Degraded => "Degraded",
+		AppPhase::Failed => "Failed",
+		AppPhase::Terminating => "Terminating",
+	}
+}
+
+/// Update the `managed_apps{phase}` gauge for a single object.
+///
+/// Decrements the previous phase bucket (if any) before incrementing the
+/// new bucket, so totals across phases remain consistent even when an
+/// app transitions between phases across reconciliations.
+fn update_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp, new_phase: &str) {
+	let key = backoff_key(app);
+	let previous = ctx.phase_state.insert(key, new_phase.to_string());
+	let changed = previous.as_deref() != Some(new_phase);
+	if let Some(prev) = previous.as_deref()
+		&& changed
+	{
+		ctx.metrics.managed_apps.with_label_values(&[prev]).dec();
+	}
+	if changed {
+		ctx.metrics
+			.managed_apps
+			.with_label_values(&[new_phase])
+			.inc();
+	}
+}
+
+/// Decrement the `managed_apps` gauge for the phase this object was
+/// last observed in, if any. Called when the object is being cleaned up.
+fn drop_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp) {
+	if let Some((_, prev)) = ctx.phase_state.remove(&backoff_key(app)) {
+		ctx.metrics
+			.managed_apps
+			.with_label_values(&[prev.as_str()])
+			.dec();
+	}
 }
 
 /// Determines whether `lastTransitionTime` should be updated.
@@ -1349,15 +1414,13 @@ pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Conte
 	error!("Reconciliation error: {error}");
 
 	let class = backoff_class(error);
-	ctx.metrics
-		.requeue_total
-		.with_label_values(&[class.as_metric_label()])
-		.inc();
 
 	match class {
 		BackoffClass::Permanent => {
 			// Drop any stored attempt count; a permanent error will not be
-			// retried until the user changes the spec.
+			// retried until the user changes the spec. `requeue_total` is
+			// intentionally NOT incremented here because `await_change()`
+			// does not produce a requeue.
 			ctx.backoff_state.remove(&backoff_key(&obj));
 			Action::await_change()
 		}
@@ -1375,6 +1438,12 @@ pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Conte
 			} else {
 				BACKOFF_BASE_TRANSIENT_SECS
 			};
+			// Record a requeue only on branches that actually issue
+			// `Action::requeue(...)`, so the metric reflects real requeues.
+			ctx.metrics
+				.requeue_total
+				.with_label_values(&[class.as_metric_label()])
+				.inc();
 			// Use attempt-1 so the first failure requeues at `base` seconds.
 			Action::requeue(compute_backoff(base, attempt.saturating_sub(1)))
 		}
@@ -1396,6 +1465,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 		platform,
 		metrics,
 		backoff_state: Arc::new(DashMap::new()),
+		phase_state: Arc::new(DashMap::new()),
 	});
 
 	Controller::new(apps, watcher::Config::default())
@@ -1739,6 +1809,7 @@ mod tests {
 			platform: PlatformConfig::onprem_defaults(),
 			metrics: Metrics::new(),
 			backoff_state: Arc::new(DashMap::new()),
+			phase_state: Arc::new(DashMap::new()),
 		})
 	}
 
@@ -1795,11 +1866,19 @@ mod tests {
 		let ctx = test_context();
 
 		// Act
-		let action = error_policy(app, &error, ctx);
+		let action = error_policy(app, &error, ctx.clone());
 
 		// Assert — permanent errors do not requeue.
 		let expected = Action::await_change();
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+		// Assert — `requeue_total{reason="permanent"}` is NOT incremented
+		// because `Action::await_change()` does not issue a requeue.
+		let permanent_requeues = ctx
+			.metrics
+			.requeue_total
+			.with_label_values(&["permanent"])
+			.get();
+		assert_eq!(permanent_requeues, 0.0);
 	}
 
 	#[rstest]
