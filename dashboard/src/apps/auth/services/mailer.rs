@@ -36,8 +36,15 @@ pub trait EmailSender: Send + Sync {
 ///
 /// Configuration is read lazily from environment:
 /// - `MAIL_FROM` — the envelope `From:` mailbox (e.g. `Reinhardt <noreply@example.com>`).
-/// - `MAIL_SMTP_URL` — connection string, e.g. `smtp://user:pass@host:587`
-///   or `smtps://user:pass@host:465`. Credentials are optional.
+/// - `MAIL_SMTP_URL` — connection string. Supported schemes:
+///   - `smtps://user:pass@host:465` — implicit TLS (recommended).
+///   - `smtp+insecure://user:pass@host:25` — cleartext, NO TLS. Intended
+///     **only** for local development against MailHog/MailCatcher and
+///     similar; never use against a remote relay or in production.
+///
+/// The bare `smtp://` scheme is rejected because it tends to be picked
+/// accidentally for a "default" connection and silently transports
+/// credentials in cleartext.
 pub struct LettreSmtpSender {
 	transport: OnceLock<AsyncSmtpTransport<Tokio1Executor>>,
 	from: OnceLock<Mailbox>,
@@ -74,7 +81,21 @@ impl LettreSmtpSender {
 		let mut builder = match parsed.scheme.as_str() {
 			"smtps" => AsyncSmtpTransport::<Tokio1Executor>::relay(&parsed.host)
 				.map_err(|e| MailerError::Config(format!("smtps relay: {e}")))?,
-			"smtp" => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&parsed.host),
+			// Bare `smtp://` is intentionally rejected: defaulting to it
+			// makes it trivial to transport credentials in cleartext by
+			// accident. Operators that genuinely need an unencrypted
+			// transport (local MailHog/MailCatcher in dev) must opt in via
+			// the explicit `smtp+insecure://` scheme below.
+			"smtp" => {
+				return Err(MailerError::Config(
+					"`smtp://` is not allowed; use `smtps://` for production or \
+					 `smtp+insecure://` for local development against MailHog/MailCatcher"
+						.to_string(),
+				));
+			}
+			"smtp+insecure" => {
+				AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&parsed.host)
+			}
 			other => {
 				return Err(MailerError::Config(format!("unsupported scheme: {other}")));
 			}
@@ -172,9 +193,12 @@ pub fn default_sender() -> std::sync::Arc<dyn EmailSender> {
 		.clone()
 }
 
-/// Minimal SMTP URL parser — avoids pulling in the `url` crate.
+/// Parsed SMTP URL components used by the transport builder.
 ///
-/// Accepts: `scheme://[user[:pass]@]host[:port][/]`.
+/// Backed by the `url` crate's RFC 3986 parser so we correctly handle:
+/// - bracketed IPv6 hosts (`[::1]:587`),
+/// - percent-encoded credentials (`user%40example.com:p%40ss`),
+/// - missing port / missing credentials.
 struct ParsedSmtpUrl {
 	scheme: String,
 	host: String,
@@ -184,43 +208,52 @@ struct ParsedSmtpUrl {
 
 impl ParsedSmtpUrl {
 	fn parse(input: &str) -> Result<Self, MailerError> {
-		let (scheme, rest) = input
-			.split_once("://")
-			.ok_or_else(|| MailerError::Config("MAIL_SMTP_URL missing scheme".to_string()))?;
-		let rest = rest.trim_end_matches('/');
-		let (authority, _path) = match rest.find('/') {
-			Some(i) => (&rest[..i], &rest[i..]),
-			None => (rest, ""),
-		};
-		let (credentials, hostport) = match authority.rsplit_once('@') {
-			Some((creds, hp)) => {
-				let (u, p) = match creds.split_once(':') {
-					Some((u, p)) => (u.to_string(), p.to_string()),
-					None => (creds.to_string(), String::new()),
-				};
-				(Some((u, p)), hp)
-			}
-			None => (None, authority),
-		};
-		let (host, port) = match hostport.rsplit_once(':') {
-			Some((h, p)) => {
-				let port: u16 = p
-					.parse()
-					.map_err(|e| MailerError::Config(format!("invalid port: {e}")))?;
-				(h.to_string(), Some(port))
-			}
-			None => (hostport.to_string(), None),
-		};
+		// `url::Url` requires that custom schemes follow the same authority
+		// rules as known ones; the SMTP-style schemes we accept always do.
+		let parsed = url::Url::parse(input)
+			.map_err(|e| MailerError::Config(format!("invalid MAIL_SMTP_URL: {e}")))?;
+
+		let scheme = parsed.scheme().to_string();
+
+		// `Url::host_str` strips the IPv6 brackets, which is the format
+		// `lettre`'s `relay`/`builder_dangerous` expect for the hostname
+		// portion.
+		let host = parsed
+			.host_str()
+			.ok_or_else(|| MailerError::Config("MAIL_SMTP_URL missing host".to_string()))?
+			.to_string();
 		if host.is_empty() {
 			return Err(MailerError::Config(
 				"MAIL_SMTP_URL missing host".to_string(),
 			));
 		}
+
+		let port = parsed.port();
+
+		let credentials = match parsed.username() {
+			"" => None,
+			user => {
+				let user = percent_decode(user)?;
+				let pass = percent_decode(parsed.password().unwrap_or(""))?;
+				Some((user, pass))
+			}
+		};
+
 		Ok(Self {
-			scheme: scheme.to_string(),
+			scheme,
 			host,
 			port,
 			credentials,
 		})
 	}
+}
+
+/// Percent-decode a URL-encoded credential field as UTF-8. Returns a config
+/// error if the bytes are not valid UTF-8 (mailer credentials are always
+/// text, so a decode failure indicates a malformed URL).
+fn percent_decode(input: &str) -> Result<String, MailerError> {
+	percent_encoding::percent_decode_str(input)
+		.decode_utf8()
+		.map(|c| c.into_owned())
+		.map_err(|e| MailerError::Config(format!("invalid percent-encoding in credentials: {e}")))
 }

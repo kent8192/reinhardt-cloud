@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::apps::auth::models::{EmailVerificationToken, User};
 use crate::apps::auth::serializers::{ProfileResponse, UpdateProfileRequest};
-use crate::apps::auth::services::mailer;
+use crate::apps::auth::services::mailer::{self, MailerError};
 
 /// Return the authenticated user's profile.
 #[get("/profile/", name = "profile")]
@@ -111,24 +111,59 @@ pub async fn profile_update(
 		AppError::Internal("Internal server error".to_string())
 	})?;
 
-	if let Some(pending_email) = email_change_requested {
-		issue_email_verification(&updated, &pending_email).await?;
-		let resp = serde_json::json!({ "status": "verification_sent" });
-		return Ok(Response::new(StatusCode::ACCEPTED)
-			.with_header("Content-Type", "application/json")
-			.with_body(json::to_vec(&resp)?));
-	}
+	// Always return 200 with the updated profile. The non-email fields are
+	// already persisted; an email-change request is reported via the
+	// `email_verification` field so the client can distinguish:
+	//   - null  : no email change was requested
+	//   - "sent" : verification email dispatched
+	//   - "failed" : DB row was created but message delivery failed; the
+	//                client may surface a "resend" affordance. Returning a
+	//                non-2xx here would imply the *profile* update itself
+	//                failed, which is not what happened.
+	let email_verification = if let Some(pending_email) = email_change_requested {
+		match issue_email_verification(&updated, &pending_email).await {
+			Ok(()) => Some("sent"),
+			Err(EmailVerificationError::Send(e)) => {
+				error!("Email verification dispatch failed: {e}");
+				Some("failed")
+			}
+			Err(EmailVerificationError::App(e)) => return Err(e),
+		}
+	} else {
+		None
+	};
 
-	let resp = ProfileResponse::from(updated);
+	let resp = serde_json::json!({
+		"profile": ProfileResponse::from(updated),
+		"email_verification": email_verification,
+	});
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")
 		.with_body(json::to_vec(&resp)?))
 }
 
+/// Distinguishes "could not even create the verification token" from
+/// "token created but mail send failed". The former propagates as a real
+/// error (DB problems, RNG failure) and aborts the whole request; the
+/// latter degrades to a partial-success response per the contract above.
+enum EmailVerificationError {
+	App(AppError),
+	Send(MailerError),
+}
+
+impl From<AppError> for EmailVerificationError {
+	fn from(value: AppError) -> Self {
+		Self::App(value)
+	}
+}
+
 /// Generate and dispatch an email-verification token for a pending email
 /// change. Invalidates any prior unconsumed tokens for the user before
 /// inserting the new row.
-async fn issue_email_verification(user: &User, pending_email: &str) -> Result<(), AppError> {
+async fn issue_email_verification(
+	user: &User,
+	pending_email: &str,
+) -> Result<(), EmailVerificationError> {
 	// Invalidate existing unconsumed tokens for this user by deleting them.
 	// A single-row-at-a-time delete loop keeps us compatible with the ORM's
 	// primary-key-based delete API.
@@ -183,9 +218,28 @@ async fn issue_email_verification(user: &User, pending_email: &str) -> Result<()
 			AppError::Internal("Internal server error".to_string())
 		})?;
 
-	let base_url = std::env::var("PUBLIC_BASE_URL").unwrap_or_default();
+	// PUBLIC_BASE_URL must be set to a non-empty absolute origin. An empty
+	// value would silently emit a relative path, which produces broken
+	// verification links once delivered (clients have no base to resolve
+	// against). Treat that as a configuration error so it surfaces in logs
+	// rather than as silent failure in user inboxes.
+	let base_url = std::env::var("PUBLIC_BASE_URL")
+		.ok()
+		.map(|v| v.trim().trim_end_matches('/').to_string())
+		.filter(|v| !v.is_empty())
+		.ok_or_else(|| {
+			error!("PUBLIC_BASE_URL is not configured; cannot build verification link");
+			AppError::Internal("Server is missing PUBLIC_BASE_URL configuration".to_string())
+		})?;
+	// Token is delivered in the URL fragment (`#...`). Fragments are NOT
+	// transmitted to the server, so they do not appear in access logs,
+	// proxies, browser history, or `Referer` headers, mitigating the
+	// classic "token in query string" leak. The dashboard's
+	// `/auth/confirm-email` page is responsible for parsing the fragment in
+	// JavaScript and POSTing it to the `/api/auth/verify-email-change/`
+	// endpoint.
 	let url = format!(
-		"{base_url}/auth/verify-email/?user_id={}&token={}",
+		"{base_url}/auth/confirm-email#user_id={}&token={}",
 		user.id, token_plain
 	);
 	let body = format!(
@@ -196,15 +250,9 @@ async fn issue_email_verification(user: &User, pending_email: &str) -> Result<()
 	);
 
 	let sender = mailer::default_sender();
-	if let Err(e) = sender
+	sender
 		.send(pending_email, "Confirm your email change", &body)
 		.await
-	{
-		// Token remains in the DB even if delivery fails; the user may retry.
-		error!("Failed to send email verification message: {e}");
-		return Err(AppError::Internal(
-			"Failed to send verification email".to_string(),
-		));
-	}
+		.map_err(EmailVerificationError::Send)?;
 	Ok(())
 }

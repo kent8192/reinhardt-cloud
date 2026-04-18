@@ -80,12 +80,26 @@ pub fn migration() -> Migration {
 				interleave_in_parent: None,
 				partition: None,
 			},
-			// Composite index to accelerate lookups for a user's unconsumed tokens.
-			Operation::AddConstraint {
+			// Partial index to accelerate the per-user "is there an active
+			// pending token?" lookup performed when issuing a new token
+			// (which invalidates priors). The lookup by `token_hash` is
+			// already covered by the column-level UNIQUE constraint, so no
+			// additional index is needed for verify-time lookups.
+			//
+			// We deliberately do NOT add a UNIQUE on (user_id, token_hash):
+			// `token_hash` is already globally unique, so a second uniqueness
+			// rule would be redundant. A non-unique partial index over
+			// unconsumed rows is what actually matches the query pattern.
+			Operation::CreateIndex {
 				table: "auth_email_verification_tokens".to_string(),
-				constraint_sql:
-					"CONSTRAINT auth_evt_user_consumed_idx UNIQUE (user_id, token_hash)"
-						.to_string(),
+				columns: vec!["user_id".to_string()],
+				unique: false,
+				index_type: None,
+				where_clause: Some("consumed_at IS NULL".to_string()),
+				concurrently: false,
+				expressions: None,
+				mysql_options: None,
+				operator_class: None,
 			},
 		],
 		dependencies: vec![("auth".to_string(), "0003_initial".to_string())],

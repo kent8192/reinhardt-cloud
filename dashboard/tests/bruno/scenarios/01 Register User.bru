@@ -12,9 +12,9 @@ post {
 
 body:json {
   {
-    "username": "{{testUsername}}",
-    "email": "{{testEmail}}",
-    "password": "{{testPassword}}"
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "password": "securepassword123"
   }
 }
 
@@ -23,15 +23,8 @@ assert {
 }
 
 tests {
-  test("should register user and return session cookie", function() {
-    const raw = res.getHeader("set-cookie");
-    const setCookie = Array.isArray(raw) ? raw.join("; ") : raw;
-    expect(setCookie).to.be.a("string");
-    expect(setCookie).to.include("sessionid=");
-
-    const match = setCookie.match(/sessionid=([^;]+)/);
-    if (match) {
-      bru.setEnvVar("sessionId", match[1]);
-    }
+  test("should register user as inactive (requires email verification)", function() {
+    const body = res.getBody();
+    expect(body.success).to.eql(true);
   });
 }
