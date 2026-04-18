@@ -39,10 +39,15 @@ All subcommands accept these shared inputs:
 Resolution order for the effective API server URL (highest priority first):
 
 1. `--server <URL>` CLI flag
-2. `REINHARDT_CLOUD_API_URL` environment variable
-3. Built-in default: `http://localhost:8000`
+2. `reinhardt-cloud.toml` in the current directory (`api_url` key)
+3. `REINHARDT_CLOUD_API_URL` environment variable
+4. Built-in default: `http://localhost:8000`
 
-> **No config file is loaded today.** `CliConfig::from_file` exists in source but is marked `#[allow(dead_code)]` — the CLI always starts from `CliConfig::default()`, which resolves the URL from env or the built-in default only. Disk-based CLI config (`~/.config/reinhardt-cloud/config.toml`) is planned but not yet active. Tracked at [#364](https://github.com/kent8192/reinhardt-cloud/issues/364).
+> `reinhardt-cloud.toml` is loaded from the current working directory at startup via `CliConfig::from_file`. A missing file is silently ignored; a malformed file prints a warning to stderr and the CLI continues with `CliConfig::default()`. Disk-based CLI config at `~/.config/reinhardt-cloud/config.toml` is still unimplemented (tracked at [#364](https://github.com/kent8192/reinhardt-cloud/issues/364)).
+
+### Credential auto-load
+
+After resolving the API URL, the CLI calls `load_token()` and, when credentials exist at `~/.config/reinhardt-cloud/credentials.json`, attaches the stored JWT to the HTTP client via `ReinhardtCloudClient::with_token`. Authenticated subcommands (`deploy`, `status`) automatically send `Authorization: Bearer <token>` on every request — no manual re-login is required between invocations. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
 
 ### Exit codes
 
