@@ -430,29 +430,27 @@ impl WebSocketConsumer for NotificationConsumer {
 				let handle_ref = Arc::clone(&self.log_stream_handle);
 
 				let handle = tokio::spawn(async move {
-					let mut client = match log_pb::log_service_client::LogServiceClient::connect(
-						endpoint,
-					)
-					.await
-					{
-						Ok(c) => c,
-						Err(e) => {
-							tracing::warn!(
-								app_name = %app,
-								error = %e,
-								"Failed to connect to gRPC LogService for app log streaming",
-							);
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!(
-									"Failed to connect to log service for {app}: {e}"
-								),
-							});
-							let _ = conn.send_json(&err_msg).await;
-							*handle_ref.lock().await = None;
-							return;
-						}
-					};
+					let mut client =
+						match log_pb::log_service_client::LogServiceClient::connect(endpoint).await
+						{
+							Ok(c) => c,
+							Err(e) => {
+								tracing::warn!(
+									app_name = %app,
+									error = %e,
+									"Failed to connect to gRPC LogService for app log streaming",
+								);
+								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+									acknowledged: false,
+									message: format!(
+										"Failed to connect to log service for {app}: {e}"
+									),
+								});
+								let _ = conn.send_json(&err_msg).await;
+								*handle_ref.lock().await = None;
+								return;
+							}
+						};
 
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {

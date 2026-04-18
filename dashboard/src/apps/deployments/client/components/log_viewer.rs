@@ -35,7 +35,12 @@ pub fn log_viewer_container() -> Page {
 /// Append an application log line to the viewer.
 #[cfg(wasm)]
 pub fn append(payload: AppLogPayload) {
-	append_line(&payload.timestamp, &payload.source, &payload.level, &payload.message);
+	append_line(
+		&payload.timestamp,
+		&payload.source,
+		&payload.level,
+		&payload.message,
+	);
 }
 
 /// Append a build log line to the viewer.

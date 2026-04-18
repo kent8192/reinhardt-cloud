@@ -70,7 +70,11 @@ pub fn update(payload: ClusterHealthPayload) {
 	let cluster = html_escape(&payload.cluster_name);
 	let agent = html_escape(&payload.agent_id);
 	let ts = html_escape(&payload.timestamp);
-	let status = if payload.healthy { "healthy" } else { "unhealthy" };
+	let status = if payload.healthy {
+		"healthy"
+	} else {
+		"unhealthy"
+	};
 	let cpu = format!("{:.1}", payload.cpu_usage_percent);
 	let mem = format!("{:.1}", payload.memory_usage_percent);
 	let pods = payload.pod_count;
