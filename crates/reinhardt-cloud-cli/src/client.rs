@@ -48,21 +48,15 @@ impl ReinhardtCloudClient {
 
 	/// Sets the authentication token.
 	///
-	/// Will be called from the main entry point once token persistence is
-	/// implemented; currently exercised only from tests.
-	// allow(dead_code): used in tests; production use pending token persistence
-	#[allow(dead_code)]
+	/// Called by the CLI entry point after loading persisted credentials so
+	/// authenticated endpoints receive the `Authorization: Bearer` header.
 	pub(crate) fn with_token(mut self, token: String) -> Self {
 		self.token = Some(token);
 		self
 	}
 
 	/// Returns the base URL as a string (without trailing slash).
-	///
-	/// Used in tests; will be used for user-facing URL display once status
-	/// and deploy commands print the target server.
-	// allow(dead_code): used in tests; production use pending CLI output improvements
-	#[allow(dead_code)]
+	#[cfg(test)]
 	pub(crate) fn base_url(&self) -> &str {
 		self.base_url.as_str().trim_end_matches('/')
 	}

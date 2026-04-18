@@ -8,10 +8,12 @@ mod feature_detector;
 mod settings_reader;
 mod toml_generator;
 
+use std::path::Path;
+
 use clap::{Parser, Subcommand};
 
 use crate::client::ReinhardtCloudClient;
-use crate::config::CliConfig;
+use crate::config::{CliConfig, ConfigError, load_token};
 
 /// Reinhardt Cloud PaaS command-line interface.
 #[derive(Debug, Parser)]
@@ -47,14 +49,46 @@ enum Commands {
 	Crd(commands::crd::CrdArgs),
 }
 
+/// Loads `reinhardt-cloud.toml` from the current directory, falling back to
+/// defaults when missing. Parse errors are reported on stderr but do not abort
+/// startup so that CLI subcommands remain usable when the workspace file is
+/// malformed.
+fn load_cli_config(path: &Path) -> CliConfig {
+	match CliConfig::from_file(path) {
+		Ok(config) => config,
+		Err(ConfigError::ReadError(err)) if err.kind() == std::io::ErrorKind::NotFound => {
+			CliConfig::default()
+		}
+		Err(err) => {
+			eprintln!(
+				"Warning: failed to load {}: {err}. Using defaults.",
+				path.display()
+			);
+			CliConfig::default()
+		}
+	}
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
-	let config = CliConfig::default();
+	let config = load_cli_config(Path::new("reinhardt-cloud.toml"));
 
 	let default_url = config.api_url();
 	let base_url = cli.server.as_deref().unwrap_or(&default_url);
-	let client = ReinhardtCloudClient::new(base_url)?;
+	let mut client = ReinhardtCloudClient::new(base_url)?;
+
+	// Auto-attach persisted credentials so authenticated subcommands (deploy,
+	// status) reuse the token saved by `reinhardt-cloud login`.
+	match load_token() {
+		Ok(Some(creds)) => {
+			client = client.with_token(creds.token);
+		}
+		Ok(None) => {}
+		Err(err) => {
+			eprintln!("Warning: failed to load stored credentials: {err}");
+		}
+	}
 
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
