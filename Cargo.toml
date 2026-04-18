@@ -71,6 +71,12 @@ jsonwebtoken = "9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# OpenTelemetry (tracing)
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.32"
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 schemars = "1"
