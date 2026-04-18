@@ -186,6 +186,12 @@ impl Drop for TracingGuard {
 /// - [`TracingInitError::ExporterBuild`] if constructing the OTLP exporter fails.
 /// - [`TracingInitError::SubscriberInstall`] if installing the global subscriber fails.
 pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitError> {
+	// Install the W3C TraceContext propagator globally so that traceparent
+	// headers can be extracted and injected across process boundaries.
+	opentelemetry::global::set_text_map_propagator(
+		opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+	);
+
 	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
 	// Build the fmt layer unboxed; boxing happens against the final

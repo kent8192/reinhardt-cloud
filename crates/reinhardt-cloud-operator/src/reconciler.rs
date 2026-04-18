@@ -19,6 +19,7 @@ use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
 use tracing::{Instrument, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -44,6 +45,14 @@ use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
+/// Annotation key on a `ReinhardtApp` that carries an incoming W3C `traceparent`
+/// for distributed-trace propagation into the reconcile span.
+///
+/// Writing the value back to the CRD is intentionally deferred: a patch-loop
+/// risk exists if the operator itself writes the annotation and immediately
+/// re-triggers reconciliation. The value is consumed read-only here.
+const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
+
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
 	/// Kubernetes API client.
@@ -65,6 +74,21 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 		resource.name = %obj.name_any(),
 		reconcile_id = %Uuid::new_v4(),
 	);
+
+	// If the CRD carries a `reinhardt.io/traceparent` annotation, stitch this
+	// reconcile span into the caller's distributed trace. Writing the value
+	// back to the annotation is intentionally deferred: patching it here would
+	// re-trigger reconciliation and create a patch loop.
+	if let Some(tp) = obj
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|a| a.get(TRACEPARENT_ANNOTATION))
+	{
+		let parent_cx = reinhardt_cloud_telemetry::context_from_traceparent(tp);
+		let _ = span.set_parent(parent_cx);
+	}
+
 	async move {
 		let name = obj.name_any();
 		let namespace = obj

@@ -6104,6 +6104,7 @@ dependencies = [
  "http-body-util",
  "k8s-openapi",
  "kube",
+ "opentelemetry",
  "rand 0.9.3",
  "reinhardt-cloud-core",
  "reinhardt-cloud-telemetry",
@@ -6117,6 +6118,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "tracing-opentelemetry",
  "uuid",
 ]
 
