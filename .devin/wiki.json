@@ -1,0 +1,92 @@
+{
+  "repo_notes": [
+    {
+      "content": "Reinhardt Cloud is a Kubernetes-native PaaS for deploying Reinhardt web applications with zero infrastructure configuration. It follows a three-plane architecture: CLI Plane (reinhardt-cloud-cli analyzes Reinhardt projects and generates CRDs), Control Plane (dashboard REST API built on reinhardt-web for project management), and Operator Plane (reinhardt-cloud-operator reconciles ReinhardtApp CRDs into Kubernetes resources; reinhardt-cloud-agent maintains bidirectional gRPC streaming with the control plane).",
+      "author": "Maintainer"
+    },
+    {
+      "content": "Key architectural layers: 1) CLI Plane (reinhardt-cloud-cli): runs `manage introspect` to detect project features, generates reinhardt-cloud.toml and ReinhardtApp CRDs, communicates with control plane or deploys directly to Kubernetes. 2) Control Plane (dashboard): Reinhardt-web REST API, user auth, project/deployment management, PostgreSQL backend. 3) Operator Plane (reinhardt-cloud-operator + reinhardt-cloud-agent): operator reconciles CRDs into Deployments/Services/StatefulSets/HPA; agent relays commands and streams logs via gRPC.",
+      "author": "Architect"
+    },
+    {
+      "content": "The crates/ directory contains 8 workspace members: reinhardt-cloud-types (shared domain types and CRD definitions), reinhardt-cloud-core (business logic, plugin system, auth), reinhardt-cloud-proto (protobuf definitions for 4 gRPC services), reinhardt-cloud-k8s (Kubernetes client helpers), reinhardt-cloud-grpc (gRPC server/client implementations), reinhardt-cloud-operator (Kubernetes controller binary), reinhardt-cloud-cli (developer CLI binary), reinhardt-cloud-agent (cluster agent binary). The dashboard/ directory contains the control plane web application.",
+      "author": "Maintainer"
+    },
+    {
+      "content": "ReinhardtApp (apiVersion: paas.reinhardt-cloud.dev/v1alpha2) is the central CRD and single source of truth bridging all three planes. reinhardt-cloud.toml provides a human-readable 1:1 mapping to the CRD spec. The CRD spec covers: image, replicas, database (PostgreSQL/MySQL), cache (Redis), auth (JWT/OAuth), storage (S3/GCS/PVC), mail (SMTP), worker processes, scaling (HPA with CPU/memory/RPS metrics), health probes, services/ingress, pages (WASM+SSR), isolation (gVisor/Kata/PSS), and deletion policy (Retain/Delete).",
+      "author": "Architect"
+    }
+  ],
+  "pages": [
+    {
+      "title": "Architecture Overview",
+      "purpose": "Explain the three-plane architecture (CLI Plane, Control Plane, Operator Plane), the overall data flow from developer CLI command to running Kubernetes workload, and how ReinhardtApp CRD acts as the central abstraction bridging all planes.",
+      "parent": null
+    },
+    {
+      "title": "CLI Plane",
+      "purpose": "Document reinhardt-cloud-cli: the init/sync/deploy/status/login commands, how `manage introspect` detects Reinhardt project features, the TOML-to-CRD generation workflow, --dry-run and --direct flags, and credential storage.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Control Plane",
+      "purpose": "Document the dashboard application: REST API endpoints, user authentication flow, project and deployment management, PostgreSQL schema, gRPC relay to cluster agents, and how the control plane orchestrates multi-cluster deployments.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Operator Plane",
+      "purpose": "Document the operator and agent binaries: how reinhardt-cloud-operator watches ReinhardtApp CRDs and reconciles them, how reinhardt-cloud-agent establishes bidirectional gRPC streaming with the control plane, and how they collaborate for cluster lifecycle management.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "ReinhardtApp CRD",
+      "purpose": "Complete reference for the ReinhardtApp custom resource (v1alpha2): full spec field documentation (image, replicas, database, cache, auth, storage, mail, worker, scale, health, services, pages, isolation, deletion_policy), status conditions (Ready, Progressing, Degraded, DatabaseReady, CacheReady, WorkerReady, IngressReady), and example manifests.",
+      "parent": null
+    },
+    {
+      "title": "CRD Type System",
+      "purpose": "Document the reinhardt-cloud-types crate: all CRD spec modules (crd/database.rs, crd/cache.rs, crd/auth.rs, crd/worker.rs, crd/storage.rs, crd/mail.rs, crd/pages.rs, crd/isolation.rs, crd/status.rs, crd/enums.rs), domain entities (deployment.rs, build.rs, log.rs, user.rs), introspect output types, and validation rules.",
+      "parent": "ReinhardtApp CRD"
+    },
+    {
+      "title": "TOML Configuration",
+      "purpose": "Document the reinhardt-cloud.toml schema: all sections ([app], [database], [cache], [auth], [storage], [mail], [worker], [scale], [health], [services], [pages], [isolation]), default values, validation rules, and example configurations for common deployment patterns.",
+      "parent": "ReinhardtApp CRD"
+    },
+    {
+      "title": "Reconciliation Logic",
+      "purpose": "Document how reinhardt-cloud-operator reconciles ReinhardtApp CRDs: the reconcile loop entry point, resource builders for each infrastructure component (Deployment, Service, StatefulSet, Ingress, HPA, NetworkPolicy), idempotent server-side apply strategy, finalizer handling for cleanup on deletion, and error recovery with Action::requeue vs Action::await_change.",
+      "parent": null
+    },
+    {
+      "title": "Status & Conditions",
+      "purpose": "Document the status management system: standard condition types (Ready, Progressing, Degraded, DatabaseReady, CacheReady, WorkerReady, IngressReady), observedGeneration tracking, readyReplicas reporting, lastTransitionTime update rules, and how kubectl surfaces these conditions.",
+      "parent": "Reconciliation Logic"
+    },
+    {
+      "title": "gRPC Services",
+      "purpose": "Document the four gRPC services defined in reinhardt-cloud-proto: AgentService (bidirectional streaming for cluster commands and events), BuildService (build lifecycle and log streaming), LogService (pod log ingestion and tailing), and PluginService (Crossplane Composition Functions pattern for extensibility). Include proto file locations and streaming patterns.",
+      "parent": null
+    },
+    {
+      "title": "Security & Isolation",
+      "purpose": "Document the security architecture: Pod Security Standards enforcement, RBAC least-privilege design (operator ClusterRole, namespace-scoped roles), network policies (Cilium), seccomp profiles, runtime class isolation (gVisor, Kata Containers), metadata service blocking, and IsolationSpec configuration options.",
+      "parent": null
+    },
+    {
+      "title": "CLI Reference",
+      "purpose": "Comprehensive command reference for reinhardt-cloud-cli: `reinhardt-cloud init` (generate TOML from project analysis), `reinhardt-cloud sync` (re-synchronize config), `reinhardt-cloud deploy` (with --dry-run, --direct, --introspect-only flags), `reinhardt-cloud status`, and `reinhardt-cloud login`. Include flag descriptions and usage examples.",
+      "parent": null
+    },
+    {
+      "title": "Installation Guide",
+      "purpose": "Document how to install and operate Reinhardt Cloud: Helm chart installation (base values, AWS-specific, GCP-specific, on-premises), prerequisites (Kubernetes version, RBAC requirements, optional dependencies like KEDA for autoscaling), CLI installation, and initial cluster setup.",
+      "parent": null
+    },
+    {
+      "title": "Testing Guide",
+      "purpose": "Document the testing approach: rstest for parameterized tests, proptest for property-based testing, TestContainers for integration tests requiring real databases and Kubernetes API, the tests/ integration crate structure, reinhardt-test utilities, and the serial_test usage for tests requiring isolation.",
+      "parent": null
+    }
+  ]
+}
