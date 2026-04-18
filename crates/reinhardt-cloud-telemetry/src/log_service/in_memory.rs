@@ -55,6 +55,11 @@ fn matches(record: &LogRecord, filter: &LogFilter) -> bool {
 	{
 		return false;
 	}
+	if let Some(ref did) = filter.deployment_id
+		&& record.fields.deployment_id.as_ref() != Some(did)
+	{
+		return false;
+	}
 	if let Some(min) = filter.min_level
 		&& (record.level as u8) < (min as u8)
 	{
@@ -76,6 +81,8 @@ impl LogService for InMemoryLogService {
 		Ok(())
 	}
 
+	/// Subscribers that lag behind the broadcast capacity will silently drop
+	/// records (`BroadcastStream::Err(Lagged)` is filtered out).
 	async fn tail(
 		&self,
 		filter: LogFilter,
@@ -101,7 +108,8 @@ impl LogService for InMemoryLogService {
 		page: Pagination,
 	) -> Result<Vec<LogRecord>, LogServiceError> {
 		let cutoff = Utc::now()
-			- chrono::Duration::from_std(self.policy.ttl).unwrap_or(chrono::Duration::MAX);
+			- chrono::Duration::from_std(self.policy.ttl)
+				.expect("retention TTL must be within chrono::Duration range");
 		let buf = self.buffer.lock().expect("buffer mutex poisoned");
 		let filtered: Vec<_> = buf
 			.iter()
@@ -189,6 +197,30 @@ mod tests {
 		// Act
 		let filter = LogFilter {
 			reconcile_id: Some("X".into()),
+			..Default::default()
+		};
+		let listed = svc.list(filter, Pagination::default()).await.unwrap();
+
+		// Assert
+		assert_eq!(listed.len(), 1);
+		assert_eq!(listed[0].msg, "a");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn filter_by_deployment_id_narrows_results() {
+		// Arrange
+		let svc = InMemoryLogService::default();
+		let mut a = rec(LogLevel::Info, "a");
+		a.fields.deployment_id = Some("dep-1".into());
+		let mut b = rec(LogLevel::Info, "b");
+		b.fields.deployment_id = Some("dep-2".into());
+		svc.ingest(a).await.unwrap();
+		svc.ingest(b).await.unwrap();
+
+		// Act
+		let filter = LogFilter {
+			deployment_id: Some("dep-1".into()),
 			..Default::default()
 		};
 		let listed = svc.list(filter, Pagination::default()).await.unwrap();

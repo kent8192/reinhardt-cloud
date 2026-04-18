@@ -23,6 +23,7 @@ pub struct LogFields {
 	pub resource_name: Option<String>,
 	pub phase: Option<String>,
 	pub correlation_id: Option<String>,
+	pub deployment_id: Option<String>,
 	pub trace_id: Option<String>,
 	pub span_id: Option<String>,
 }
