@@ -109,12 +109,12 @@ pub(crate) fn pick_best_version(crd: &CustomResourceDefinition) -> Option<String
 		return Some(storage.to_string());
 	}
 
-	// Use max_by_key to avoid re-parsing on every comparison; the string
-	// tiebreaker (lexicographic) guarantees a deterministic winner when two
-	// versions share the same numeric rank (e.g. two unknown-suffix strings).
+	// Use max_by_key to avoid re-parsing on every comparison; compare the
+	// &str directly as a tie-breaker to avoid allocating a String for every
+	// candidate when two versions share the same numeric rank.
 	served
 		.into_iter()
-		.max_by_key(|v| (version_rank(v), v.to_string()))
+		.max_by_key(|v| (version_rank(v), *v))
 		.map(str::to_string)
 }
 
