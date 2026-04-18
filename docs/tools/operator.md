@@ -541,9 +541,53 @@ helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
 
 **Log format**
 
-The subscriber is initialised with `tracing_subscriber::fmt` using its default text format (human-
-readable, timestamped lines to stdout). No JSON structured-logging mode is wired up in the current
-binary.
+The operator supports two log formats controlled by `logging.format` in the Helm chart (or the
+`REINHARDT_LOG_FORMAT` environment variable):
+
+- **text** (default): human-readable, timestamped lines to stdout — suitable for development and
+  direct `kubectl logs` inspection.
+- **json**: structured JSON output, one record per line — suitable for log aggregation pipelines
+  (Loki, Elasticsearch, etc.).
+
+Enable JSON structured logging at deploy time:
+
+```bash
+helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --reuse-values \
+  --set logging.format=json
+```
+
+**Structured log schema**
+
+The operator uses `tracing_subscriber`'s JSON formatter (`flatten_event(true)`),
+so the emitted JSON shape differs slightly from the
+[`LogRecord`](../../crates/reinhardt-cloud-telemetry) canonical model used by
+downstream telemetry components.
+
+Emitted fields per line:
+
+| Emitted key | Type | Description |
+|-------------|------|-------------|
+| `timestamp` | RFC3339 UTC | Event timestamp |
+| `level` | `TRACE` / `DEBUG` / `INFO` / `WARN` / `ERROR` | Log level |
+| `message` | string | Message body (flattened by `flatten_event`) |
+| `target` | string | Rust module path that emitted the event |
+| `reconcile_id` | string, optional | Correlates all logs within a single reconcile pass |
+| `deployment_id` | string, optional | Managed `ReinhardtApp` deployment identifier |
+| `resource_kind` / `resource_namespace` / `resource_name` | string, optional | Target Kubernetes resource |
+| `phase` | string, optional | Reconcile phase (e.g. `apply`, `finalize`) |
+| `correlation_id` | string, optional | Cross-component correlation (CLI → operator) |
+| `trace_id` / `span_id` | string, optional | Populated automatically once Phase 3 (Issue #374) lands |
+
+When mapping operator output into the `LogRecord` model, apply this field translation:
+
+| `LogRecord` field | Read from emitted JSON |
+|-------------------|------------------------|
+| `ts` | `timestamp` |
+| `level` | `level` |
+| `msg` | `message` |
+| `reconcile_id` / `deployment_id` / etc. | same key (top-level, flattened) |
 
 **Representative log messages**
 
@@ -565,6 +609,26 @@ At `WARN` level: `Controller loop terminated, shutting down` (emitted when the m
 `reconciler::run` future returns).
 
 To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
+
+**Shipping logs to Loki**
+
+Set `logging.loki.enabled=true` in the Helm chart to deploy a Promtail DaemonSet that tails
+operator pods and forwards logs to `logging.loki.endpoint` (default
+`http://loki.monitoring.svc.cluster.local:3100`).
+
+The operator pod does **not** embed a Loki client — the write path is out-of-process so that
+operator pod restarts never block on log-ingest.
+
+**Programmatic access**
+
+`reinhardt-cloud-telemetry` exposes the `LogService` trait with two implementations:
+
+- `InMemoryLogService` — bounded ring buffer + broadcast fan-out for live tail. Default: 1000
+  records, 1-hour TTL.
+- `LokiLogService` — read-oriented stub pointing at a Loki instance (writes are expected to flow
+  through the DaemonSet above).
+
+The dashboard (Issue #371) will consume `LogService.tail` for live log streaming.
 
 #### Tracing
 

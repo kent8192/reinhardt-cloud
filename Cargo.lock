@@ -6030,6 +6030,7 @@ dependencies = [
  "kube",
  "rand 0.9.3",
  "reinhardt-cloud-core",
+ "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "rstest",
  "rustls",
@@ -6052,6 +6053,24 @@ dependencies = [
  "rstest",
  "tonic 0.13.1",
  "tonic-build 0.13.1",
+]
+
+[[package]]
+name = "reinhardt-cloud-telemetry"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "prost-types 0.13.5",
+ "reinhardt-cloud-proto",
+ "reqwest 0.12.28",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -8936,6 +8955,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8945,12 +8974,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

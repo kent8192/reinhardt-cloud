@@ -7,6 +7,7 @@ members = [
 	"crates/reinhardt-cloud-k8s",
 	"crates/reinhardt-cloud-proto",
 	"crates/reinhardt-cloud-grpc",
+	"crates/reinhardt-cloud-telemetry",
 	# Binary crates
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
@@ -26,6 +27,7 @@ repository = "https://github.com/kent8192/reinhardt-cloud"
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Kubernetes
 kube = { version = "3.0.1", features = ["runtime", "derive", "rustls-tls"] }
@@ -55,12 +57,19 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 anyhow = "1"
 
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# Protobuf
+prost-types = "0.13"
+
 # JWT
 jsonwebtoken = "9"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -75,6 +84,7 @@ reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
 reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto" }
 reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc" }
+reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry" }
 
 # Cryptography / encoding
 rand = "0.9"
