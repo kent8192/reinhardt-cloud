@@ -53,6 +53,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Mailpit captures SMTP so registration's verification-email step
+      # succeeds without needing a real mail server. The Bruno scenarios
+      # don't assert email contents; Mailpit just needs to accept SMTP.
+      mailpit:
+        image: axllent/mailpit:v1.20
+        ports:
+          - 1025:1025
+          - 8025:8025
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: 'true'
+          MP_SMTP_AUTH_ALLOW_INSECURE: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -111,6 +122,25 @@ jobs:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
           REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
+          # Point registration at the Mailpit SMTP service so the verification
+          # email step succeeds without a real mail server.
+          REINHARDT_EMAIL__BACKEND: smtp
+          REINHARDT_EMAIL__HOST: localhost
+          REINHARDT_EMAIL__PORT: "1025"
+
+      - name: Seed active test user for login scenarios
+        run: |
+          # Register the test user via API (created as inactive).
+          # The `Origin` header is required to pass `OriginGuardMiddleware`,
+          # which rejects state-changing requests from unrecognised origins.
+          curl -sf -X POST http://localhost:8000/api/auth/register/ \
+            -H "Content-Type: application/json" \
+            -H "Origin: http://localhost:8000" \
+            -d '{"username":"testuser","email":"test@ci.dev","password":"testpassword"}'
+          # Activate the user directly in the database so login tests work
+          # (email verification cannot be performed in Bruno CI tests).
+          PGPASSWORD=postgres psql -h localhost -U postgres reinhardt_cloud_ci \
+            -c "UPDATE auth_users SET is_active = true WHERE username = 'testuser'"
 
       - name: Run Bruno scenario tests
         working-directory: dashboard/tests/bruno

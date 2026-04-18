@@ -31,6 +31,8 @@ spec:
           env:
             - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
+            - name: REINHARDT_LOG_FORMAT
+              value: {{ .Values.logging.format | quote }}
             {{- range $key, $value := .Values.operator.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
