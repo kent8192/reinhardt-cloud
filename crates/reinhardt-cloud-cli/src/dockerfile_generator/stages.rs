@@ -212,9 +212,15 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 
 	if signals.tracing {
 		// Emit OTEL environment variables so the runtime image is pre-wired
-		// to the cluster's OpenTelemetry Collector. OTEL_SERVICE_NAME is set
-		// to the placeholder "app"; the real service name is injected at Pod
-		// launch time via the Kubernetes Downward API.
+		// for trace propagation. OTEL_SERVICE_NAME is set to the placeholder
+		// "app"; the real service name is injected at Pod launch time via the
+		// operator.
+		//
+		// OTEL_EXPORTER_OTLP_ENDPOINT is intentionally omitted here: the
+		// operator injects it at Pod launch time when tracing is enabled (see
+		// inference/env_vars.rs). Hard-coding the endpoint in the Dockerfile
+		// would break apps when the operator-side tracing is disabled or the
+		// endpoint differs from the baked-in value.
 		instructions.push(Instruction::Env(vec![(
 			"OTEL_PROPAGATORS".to_string(),
 			"tracecontext".to_string(),
@@ -222,10 +228,6 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		instructions.push(Instruction::Env(vec![(
 			"OTEL_SERVICE_NAME".to_string(),
 			"app".to_string(),
-		)]));
-		instructions.push(Instruction::Env(vec![(
-			"OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
-			"http://otel-collector.monitoring.svc.cluster.local:4317".to_string(),
 		)]));
 	}
 
