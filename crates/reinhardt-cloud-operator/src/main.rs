@@ -14,6 +14,28 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// value — or unset — selects the default human-readable format.
 const LOG_FORMAT_ENV: &str = "REINHARDT_LOG_FORMAT";
 
+/// Log output format selected at startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogFormat {
+	Text,
+	Json,
+}
+
+/// Resolve the log format from an env-var reader.
+///
+/// Accepts any case-insensitive variant of `"json"`; anything else (including
+/// unset) selects [`LogFormat::Text`]. Leading/trailing ASCII whitespace is
+/// tolerated.
+fn resolve_log_format<F>(env: F) -> LogFormat
+where
+	F: FnOnce(&str) -> Option<String>,
+{
+	match env(LOG_FORMAT_ENV) {
+		Some(raw) if raw.trim().eq_ignore_ascii_case("json") => LogFormat::Json,
+		_ => LogFormat::Text,
+	}
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
 	// Explicitly install rustls CryptoProvider (defense-in-depth, see #314)
@@ -59,20 +81,20 @@ fn init_tracing() -> anyhow::Result<()> {
 	let env_filter =
 		EnvFilter::from_default_env().add_directive("reinhardt_cloud_operator=info".parse()?);
 
-	let json_mode = std::env::var(LOG_FORMAT_ENV)
-		.map(|v| v.eq_ignore_ascii_case("json"))
-		.unwrap_or(false);
-
-	if json_mode {
-		fmt()
-			.json()
-			.flatten_event(true)
-			.with_current_span(true)
-			.with_span_list(false)
-			.with_env_filter(env_filter)
-			.init();
-	} else {
-		fmt().with_env_filter(env_filter).init();
+	let format = resolve_log_format(|key| std::env::var(key).ok());
+	match format {
+		LogFormat::Json => {
+			fmt()
+				.json()
+				.flatten_event(true)
+				.with_current_span(true)
+				.with_span_list(false)
+				.with_env_filter(env_filter)
+				.init();
+		}
+		LogFormat::Text => {
+			fmt().with_env_filter(env_filter).init();
+		}
 	}
 
 	Ok(())
@@ -80,31 +102,72 @@ fn init_tracing() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+	use super::*;
 	use rstest::rstest;
 
+	fn env_with<'a>(key: &'a str, value: Option<&'a str>) -> impl Fn(&str) -> Option<String> + 'a {
+		move |requested| {
+			if requested == key {
+				value.map(str::to_owned)
+			} else {
+				None
+			}
+		}
+	}
+
 	#[rstest]
-	fn json_mode_detection_respects_env_value() {
+	fn resolve_json_when_env_is_json_literal() {
 		// Arrange
-		let value = "json";
+		let env = env_with(LOG_FORMAT_ENV, Some("json"));
 
 		// Act
-		let is_json = value.eq_ignore_ascii_case("json");
+		let format = resolve_log_format(env);
 
 		// Assert
-		assert!(is_json);
+		assert_eq!(format, LogFormat::Json);
+	}
+
+	#[rstest]
+	#[case("JSON")]
+	#[case("Json")]
+	#[case("  json  ")]
+	#[case("json\n")]
+	fn resolve_json_tolerates_case_and_whitespace(#[case] raw: &str) {
+		// Arrange
+		let env = env_with(LOG_FORMAT_ENV, Some(raw));
+
+		// Act
+		let format = resolve_log_format(env);
+
+		// Assert
+		assert_eq!(format, LogFormat::Json, "raw = {raw:?}");
 	}
 
 	#[rstest]
 	#[case("text")]
 	#[case("plain")]
 	#[case("")]
-	#[case("JSONL")]
-	#[case("jsonp")]
-	fn json_mode_detection_rejects_other_values(#[case] value: &str) {
+	#[case("jsonl")]
+	fn resolve_text_when_env_is_not_json(#[case] raw: &str) {
+		// Arrange
+		let env = env_with(LOG_FORMAT_ENV, Some(raw));
+
 		// Act
-		let is_json = value.eq_ignore_ascii_case("json");
+		let format = resolve_log_format(env);
 
 		// Assert
-		assert!(!is_json, "value {value:?} should not select JSON mode");
+		assert_eq!(format, LogFormat::Text, "raw = {raw:?}");
+	}
+
+	#[rstest]
+	fn resolve_text_when_env_is_unset() {
+		// Arrange
+		let env = env_with(LOG_FORMAT_ENV, None);
+
+		// Act
+		let format = resolve_log_format(env);
+
+		// Assert
+		assert_eq!(format, LogFormat::Text);
 	}
 }
