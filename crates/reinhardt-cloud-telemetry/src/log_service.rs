@@ -1,6 +1,7 @@
 //! [`LogService`] trait and shared types.
 //!
-//! Implementations live in `in_memory` (Task 4) and `loki` (Task 5).
+//! See `in_memory` for the default dev backend and `loki` for the
+//! Loki-backed backend.
 
 pub(crate) mod in_memory;
 pub(crate) mod loki;
@@ -24,7 +25,7 @@ pub struct LogFilter {
 }
 
 /// Pagination window for [`LogService::list`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pagination {
 	pub offset: usize,
 	pub limit: usize,

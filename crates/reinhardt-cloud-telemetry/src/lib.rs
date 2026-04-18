@@ -10,5 +10,8 @@
 mod log_service;
 mod schema;
 
-pub use log_service::{LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy};
+pub use log_service::{
+	LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy,
+	in_memory::InMemoryLogService,
+};
 pub use schema::{LogFields, LogLevel, LogRecord};

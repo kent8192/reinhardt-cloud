@@ -27,6 +27,7 @@ repository = "https://github.com/kent8192/reinhardt-cloud"
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Kubernetes
 kube = { version = "3.0.1", features = ["runtime", "derive", "rustls-tls"] }
