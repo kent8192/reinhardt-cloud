@@ -2,11 +2,17 @@
 
 use std::path::Path;
 
-/// Database configuration extracted from settings
+/// Database configuration extracted from settings.
+///
+/// Only `engine` feeds the CRD today; `host`, `port`, and `name` are parsed so
+/// tests can validate full TOML round-trips and so future deploy modes (e.g.
+/// external-managed databases) can read them without reparsing the file.
 #[derive(Debug, Clone, Default)]
-// Reserved for future deploy command integration that will read
-// database settings to generate Kubernetes resource manifests.
-#[allow(dead_code)]
+#[allow(
+	dead_code,
+	reason = "host/port/name are populated from settings/base.toml for completeness; \
+	         engine is the only field consumed by toml_generator today."
+)]
 pub(crate) struct DatabaseConfig {
 	pub(crate) engine: String,
 	pub(crate) host: String,
