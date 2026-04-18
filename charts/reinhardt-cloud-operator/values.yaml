@@ -128,3 +128,13 @@ isolation:
     max:
       cpu: "4"
       memory: 4Gi
+
+tracing:
+  # Enable OTLP trace export from the operator.
+  enabled: false
+  # OTLP gRPC endpoint receiving spans.
+  endpoint: "http://otel-collector.monitoring.svc.cluster.local:4317"
+  # OTel sampler expression. See OTEL_TRACES_SAMPLER env-var spec.
+  sampler: "parentbased_traceidratio=0.1"
+  # Service name reported in spans. Defaults to the Helm release name when empty.
+  serviceName: "reinhardt-cloud-operator"
