@@ -68,11 +68,9 @@ fn layer_attaches_trace_context_extension_to_span() {
 	});
 
 	// Assert: CaptureLayer saw a TraceContextExtension with valid hex IDs.
-	let ext = captured
-		.lock()
-		.unwrap()
-		.take()
-		.expect("TraceContextExtension must be attached to span extensions by TraceContextLogLayer");
+	let ext = captured.lock().unwrap().take().expect(
+		"TraceContextExtension must be attached to span extensions by TraceContextLogLayer",
+	);
 
 	assert_eq!(
 		ext.trace_id.len(),
@@ -86,6 +84,10 @@ fn layer_attaches_trace_context_extension_to_span() {
 		"span_id must be 16-char hex (got {:?})",
 		ext.span_id
 	);
-	assert_ne!(ext.trace_id, "0".repeat(32), "trace_id must not be all zeros");
+	assert_ne!(
+		ext.trace_id,
+		"0".repeat(32),
+		"trace_id must not be all zeros"
+	);
 	assert_ne!(ext.span_id, "0".repeat(16), "span_id must not be all zeros");
 }
