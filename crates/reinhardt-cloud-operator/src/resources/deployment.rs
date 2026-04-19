@@ -19,7 +19,7 @@ use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
 use crate::inference::env_vars::{
-	build_database_env_vars_from_secret, build_system_env_vars, merge_env_vars,
+	build_database_env_vars_from_secret, build_otel_env_vars, build_system_env_vars, merge_env_vars,
 };
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
@@ -49,7 +49,7 @@ pub(crate) fn build_deployment(
 
 	let owner_ref = owner_reference(app)?;
 
-	// Build merged environment variables (system + database + user overrides).
+	// Build merged environment variables (system + database + user overrides + OTel).
 	// Inject database connection env vars when a database will be provisioned,
 	// either via an explicit spec.database field or via introspect-derived
 	// infrastructure signals (requires_postgresql).
@@ -76,7 +76,16 @@ pub(crate) fn build_deployment(
 		};
 		auto_vars.extend(build_database_env_vars_from_secret(app, platform, &db_host));
 	}
-	let merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	// Append OTel variables after user-supplied vars. OTel vars are skipped
+	// when a user-supplied var with the same name already exists — user-supplied
+	// env vars take precedence over operator-injected OTel defaults.
+	let otel_vars = build_otel_env_vars(&app_name);
+	for v in otel_vars {
+		if !merged_env.iter().any(|e| e.name == v.name) {
+			merged_env.push(v);
+		}
+	}
 
 	// Settings ConfigMap volume and mount
 	let mut volumes = vec![Volume {

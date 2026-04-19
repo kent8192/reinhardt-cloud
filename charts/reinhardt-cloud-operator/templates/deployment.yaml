@@ -47,6 +47,18 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if .Values.tracing.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.endpoint | quote }}
+            - name: OTEL_TRACES_SAMPLER
+              value: {{ .Values.tracing.sampler | quote }}
+            {{- if .Values.tracing.samplerArg }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.tracing.samplerArg | quote }}
+            {{- end }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.tracing.serviceName | default .Release.Name | quote }}
+            {{- end }}
           {{- if .Values.metrics.enabled }}
           ports:
             - name: metrics

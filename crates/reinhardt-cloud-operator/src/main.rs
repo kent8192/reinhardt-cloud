@@ -9,7 +9,6 @@ mod resources;
 use std::net::SocketAddr;
 
 use reinhardt_cloud_telemetry::{InMemoryLogService, LogService};
-use tracing_subscriber::{EnvFilter, fmt};
 
 /// Environment variable that selects the log output format.
 ///
@@ -46,9 +45,9 @@ async fn main() -> anyhow::Result<()> {
 		.install_default()
 		.ok();
 
-	init_tracing()?;
-
-	tracing::info!("Starting reinhardt-cloud operator");
+	// Keep the tracing guard alive for the entire program so the OTLP span
+	// exporter is flushed on shutdown.
+	let _tracing_guard = init_tracing()?;
 
 	let operator_metrics = metrics::Metrics::new();
 
@@ -102,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
 	);
 	tracing::info!(
 		log_schema = "reinhardt-cloud-telemetry/v1",
-		"Structured log schema available; enable JSON format via {}=json",
+		"Starting reinhardt-cloud operator; enable JSON logs via {}=json",
 		LOG_FORMAT_ENV
 	);
 
@@ -116,47 +115,24 @@ async fn main() -> anyhow::Result<()> {
 	Ok(())
 }
 
-/// Initialize the global `tracing` subscriber.
+/// Initialize OpenTelemetry tracing and the global `tracing` subscriber.
 ///
-/// Selects the JSON formatter when `REINHARDT_LOG_FORMAT=json` is set
-/// (case-insensitive); otherwise falls back to the default human-readable
-/// formatter. The `RUST_LOG` env var still drives level filtering in both
-/// modes.
-fn init_tracing() -> anyhow::Result<()> {
-	let env_filter =
-		EnvFilter::from_default_env().add_directive("reinhardt_cloud_operator=info".parse()?);
-
-	let format = resolve_log_format(|key| std::env::var(key).ok());
-	match format {
-		LogFormat::Json => {
-			// tracing_subscriber's JSON formatter emits the timestamp as
-			// "timestamp" and the message as "fields.message" (or "message"
-			// with flatten_event). These differ from the LogRecord schema
-			// which uses "ts" and "msg" respectively.
-			//
-			// Field mapping (tracing → LogRecord schema):
-			//   "timestamp"          → "ts"
-			//   "fields.message"     → "msg"  (flattened to "message" here)
-			//
-			// The Promtail pipeline_stages.json block in the Helm chart
-			// extracts "level" / "reconcile_id" / "resource_name" directly
-			// from the event fields, which are emitted under their own names
-			// by flatten_event(true). Consumers reading persisted JSON should
-			// apply the mapping above when deserializing into LogRecord.
-			fmt()
-				.json()
-				.flatten_event(true)
-				.with_current_span(true)
-				.with_span_list(false)
-				.with_env_filter(env_filter)
-				.init();
-		}
-		LogFormat::Text => {
-			fmt().with_env_filter(env_filter).init();
-		}
-	}
-
-	Ok(())
+/// Delegates to [`reinhardt_cloud_telemetry::init_tracing`], which honors
+/// standard OTel env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`,
+/// `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`). When
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no OTLP exporter is installed and
+/// no OpenTelemetry layer is attached.
+///
+/// The JSON log format is selected by `REINHARDT_LOG_FORMAT=json` (see
+/// [`LOG_FORMAT_ENV`]); otherwise a human-readable formatter is used.
+fn init_tracing() -> anyhow::Result<reinhardt_cloud_telemetry::TracingGuard> {
+	let json_logs = matches!(
+		resolve_log_format(|key| std::env::var(key).ok()),
+		LogFormat::Json
+	);
+	let config =
+		reinhardt_cloud_telemetry::TracingConfig::from_env("reinhardt-cloud-operator", json_logs);
+	reinhardt_cloud_telemetry::init_tracing(config).map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]

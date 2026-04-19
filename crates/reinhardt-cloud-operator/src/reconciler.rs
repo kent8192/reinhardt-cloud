@@ -17,7 +17,9 @@ use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
-use tracing::{error, info, warn};
+use tracing::{Instrument, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use uuid::Uuid;
 
 use dashmap::DashMap;
 
@@ -47,6 +49,14 @@ use reinhardt_cloud_types::crd::{AppCondition, AppPhase, ReinhardtApp, Reinhardt
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
+
+/// Annotation key on a `ReinhardtApp` that carries an incoming W3C `traceparent`
+/// for distributed-trace propagation into the reconcile span.
+///
+/// Writing the value back to the CRD is intentionally deferred: a patch-loop
+/// risk exists if the operator itself writes the annotation and immediately
+/// re-triggers reconciliation. The value is consumed read-only here.
+const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
@@ -91,54 +101,82 @@ fn backoff_key(obj: &ReinhardtApp) -> (String, String) {
 
 /// Main reconciliation entry point.
 pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
-	let name = obj.name_any();
-	let namespace = obj
-		.namespace()
-		.filter(|ns| !ns.is_empty())
-		.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
-	info!("Reconciling ReinhardtApp {namespace}/{name}");
+	let span = tracing::info_span!(
+		"operator.reconcile",
+		otel.kind = "internal",
+		resource_kind = "ReinhardtApp",
+		resource_namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
+		resource_name = %obj.name_any(),
+		reconcile_id = %Uuid::new_v4(),
+	);
 
-	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+	// If the CRD carries a `reinhardt.io/traceparent` annotation, stitch this
+	// reconcile span into the caller's distributed trace. Writing the value
+	// back to the annotation is intentionally deferred: patching it here would
+	// re-trigger reconciliation and create a patch loop.
+	if let Some(tp) = obj
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|a| a.get(TRACEPARENT_ANNOTATION))
+	{
+		let parent_cx = reinhardt_cloud_telemetry::context_from_traceparent(tp);
+		let _ = span.set_parent(parent_cx);
+	}
+
 	let key = backoff_key(&obj);
 	let start = std::time::Instant::now();
 
-	let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
-		match event {
-			FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
-			FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
-		}
-	})
-	.await
-	.map_err(|e| Error::Finalizer(Box::new(e)));
+	async move {
+		let name = obj.name_any();
+		let namespace = obj
+			.namespace()
+			.filter(|ns| !ns.is_empty())
+			.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
+		info!("Reconciling ReinhardtApp {namespace}/{name}");
 
-	let elapsed = start.elapsed().as_secs_f64();
-	match &result {
-		Ok(_) => {
-			// Successful reconcile resets the backoff counter for this object.
-			ctx.backoff_state.remove(&key);
-			ctx.metrics
-				.reconcile_total
-				.with_label_values(&["success"])
-				.inc();
-			ctx.metrics
-				.reconcile_duration
-				.with_label_values(&["success"])
-				.observe(elapsed);
+		let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+
+		let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
+			match event {
+				FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
+				FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
+			}
+		})
+		.await
+		.map_err(|e| Error::Finalizer(Box::new(e)));
+
+		let elapsed = start.elapsed().as_secs_f64();
+		match &result {
+			Ok(_) => {
+				// Successful reconcile resets the backoff counter for this object.
+				ctx.backoff_state.remove(&key);
+				ctx.metrics
+					.reconcile_total
+					.with_label_values(&["success"])
+					.inc();
+				ctx.metrics
+					.reconcile_duration
+					.with_label_values(&["success"])
+					.observe(elapsed);
+			}
+			Err(err) => {
+				let label = backoff_class(err).as_metric_label();
+				ctx.metrics
+					.reconcile_total
+					.with_label_values(&[label])
+					.inc();
+				ctx.metrics
+					.reconcile_duration
+					.with_label_values(&[label])
+					.observe(elapsed);
+			}
 		}
-		Err(err) => {
-			let label = backoff_class(err).as_metric_label();
-			ctx.metrics
-				.reconcile_total
-				.with_label_values(&[label])
-				.inc();
-			ctx.metrics
-				.reconcile_duration
-				.with_label_values(&[label])
-				.observe(elapsed);
-		}
+
+		result
 	}
-
-	result
+	.instrument(span)
+	.await
 }
 
 /// Apply the desired state for a `ReinhardtApp`.

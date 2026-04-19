@@ -363,6 +363,21 @@ pub(crate) async fn execute(
 	args: &DeployArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	use tracing::Instrument;
+	let span = tracing::info_span!(
+		"cli.deploy",
+		otel.kind = "client",
+		cli.version = env!("CARGO_PKG_VERSION"),
+		app.name = args.name.as_deref().unwrap_or(""),
+		app.namespace = %args.namespace,
+	);
+	execute_inner(args, client).instrument(span).await
+}
+
+async fn execute_inner(
+	args: &DeployArgs,
+	client: &ReinhardtCloudClient,
+) -> Result<(), Box<dyn std::error::Error>> {
 	eprintln!("Target: {}", client.base_url());
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 

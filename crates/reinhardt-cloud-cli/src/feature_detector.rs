@@ -15,6 +15,7 @@ pub(crate) struct InfraSignals {
 	pub(crate) sessions: bool,
 	pub(crate) pages: bool,
 	pub(crate) graphql: bool,
+	pub(crate) tracing: bool,
 }
 
 impl InfraSignals {
@@ -47,6 +48,7 @@ impl InfraSignals {
 			sessions: has("sessions"),
 			pages: has("pages"),
 			graphql: has("graphql"),
+			tracing: has("telemetry-tracing"),
 		}
 	}
 }

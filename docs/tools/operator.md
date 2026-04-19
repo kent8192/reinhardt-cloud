@@ -608,6 +608,9 @@ INFO Reconciled worker deployment for my-app
 At `WARN` level: `Controller loop terminated, shutting down` (emitted when the main
 `reconciler::run` future returns).
 
+The dashboard (Issue #371) will consume `LogService.tail` for live log
+streaming.
+
 To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
 
 **Shipping logs to Loki**
@@ -628,14 +631,45 @@ operator pod restarts never block on log-ingest.
 - `LokiLogService` — read-oriented stub pointing at a Loki instance (writes are expected to flow
   through the DaemonSet above).
 
-The dashboard (Issue #371) will consume `LogService.tail` for live log streaming.
+#### Distributed Tracing
 
-#### Tracing
+The operator exports OpenTelemetry spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Via the Helm chart this is controlled by `tracing.enabled=true` and `tracing.endpoint`.
 
-No OpenTelemetry exporter is wired up in the binary today. Distributed trace context is not
-propagated. Platform operators who require distributed traces should open an enhancement request
-against the `reinhardt-cloud` repository. Until that work lands, log-based correlation (namespace +
-resource name present in every log line) is the recommended approach.
+##### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset (tracing disabled) | OTLP gRPC endpoint |
+| `OTEL_SERVICE_NAME` | `reinhardt-cloud-operator` | Service name in spans |
+| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | Sampler strategy |
+| `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Sampling ratio (0.0–1.0) |
+
+##### Span names
+
+| Span | Description |
+|------|-------------|
+| `operator.reconcile` | Root span per `ReinhardtApp` reconcile pass |
+
+Span attributes: `resource_kind`, `resource_namespace`, `resource_name`, `reconcile_id`.
+
+##### CRD annotation contract
+
+When a caller sets annotation `reinhardt.io/traceparent` on a `ReinhardtApp`, the operator reads it as the parent context and stitches its `operator.reconcile` span into the caller's distributed trace.
+
+Writing the annotation back is deferred to avoid patch-loop reconcile storms.
+
+##### Trace-to-log correlation
+
+When running with `REINHARDT_LOG_FORMAT=json`, the operator preserves trace context on the active OTel span during reconciliation, but the current JSON log formatter setup does not guarantee that `trace_id` and `span_id` are emitted as top-level log fields. If end-to-end log/trace correlation is required, verify formatter support before relying on filtering logs by `trace_id` in Loki/Grafana.
+
+##### Managed Pod trace propagation
+
+The operator injects the following env vars into each managed Pod's container spec:
+- `TRACEPARENT` — W3C trace context header from the active reconcile span.
+- `OTEL_PROPAGATORS=tracecontext` — instructs OTel SDKs to read `TRACEPARENT`.
+- `OTEL_SERVICE_NAME` — the app name.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's env when set.
 
 #### Scaling
 
@@ -1124,3 +1158,4 @@ These variants are marked `#[allow(dead_code)]` and may be activated in future r
 ## Appendix D: Metrics catalog
 
 The Reinhardt Cloud operator does not emit custom Prometheus metrics at this time. See [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for planned metrics support. Indirect signals are available through kube-state-metrics on the operator Deployment (restart count, pod status), pod resource usage, and condition status on the ReinhardtApp resource itself.
+
