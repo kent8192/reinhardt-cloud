@@ -197,12 +197,11 @@ pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitEr
 
 	// Scope the default to reinhardt_cloud crates to avoid elevating log noise
 	// from third-party dependencies when RUST_LOG is unset.
-	let filter = EnvFilter::try_from_default_env()
-		.unwrap_or_else(|_| {
-			EnvFilter::new(
-				"warn,reinhardt_cloud_operator=info,reinhardt_cloud_cli=info,reinhardt_cloud_telemetry=info",
-			)
-		});
+	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+		EnvFilter::new(
+			"warn,reinhardt_cloud_operator=info,reinhardt_cloud_cli=info,reinhardt_cloud_telemetry=info",
+		)
+	});
 
 	// Build the fmt layer unboxed; boxing happens against the final
 	// subscriber type in each branch below.
