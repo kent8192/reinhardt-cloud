@@ -10,7 +10,6 @@ use std::net::SocketAddr;
 
 use reinhardt_cloud_telemetry::{InMemoryLogService, LogService};
 
-
 /// Environment variable that selects the log output format.
 ///
 /// Accepted values: `json` (structured JSON, one object per line). Any other
