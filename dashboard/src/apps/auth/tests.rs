@@ -8,6 +8,7 @@ pub mod e2e {
 }
 pub mod unit {
 	pub mod test_auth_property;
+	pub mod test_email_verification;
 	pub mod test_jwt;
 	pub mod test_serializer_validation;
 	pub mod test_session_service;

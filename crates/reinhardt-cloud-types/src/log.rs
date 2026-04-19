@@ -40,6 +40,8 @@ pub struct LogFilter {
 	pub until: Option<DateTime<Utc>>,
 	/// Text search within the message field.
 	pub search: Option<String>,
+	/// Filter by deployment identifier.
+	pub deployment_id: Option<String>,
 }
 
 #[cfg(test)]
@@ -103,6 +105,7 @@ mod tests {
 			since: Some(Utc::now()),
 			until: None,
 			search: Some("error".to_string()),
+			deployment_id: None,
 		};
 
 		// Act
@@ -126,6 +129,7 @@ mod tests {
 		assert!(filter.since.is_none());
 		assert!(filter.until.is_none());
 		assert!(filter.search.is_none());
+		assert!(filter.deployment_id.is_none());
 	}
 
 	#[rstest]
@@ -212,6 +216,7 @@ mod tests {
 			since: Some(now),
 			until: Some(past),
 			search: None,
+			deployment_id: None,
 		};
 
 		// Act
@@ -251,6 +256,7 @@ mod tests {
 			since: None,
 			until: None,
 			search: search.map(String::from),
+			deployment_id: None,
 		};
 
 		// Act

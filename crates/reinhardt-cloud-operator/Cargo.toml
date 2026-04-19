@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-telemetry = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 rustls = { workspace = true }

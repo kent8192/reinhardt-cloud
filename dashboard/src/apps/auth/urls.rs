@@ -17,4 +17,5 @@ pub fn url_patterns() -> ServerRouter {
 		.endpoint(views::profile)
 		.endpoint(views::profile_update)
 		.endpoint(views::change_password)
+		.endpoint(views::verify_email_change)
 }

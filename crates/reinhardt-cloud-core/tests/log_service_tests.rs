@@ -352,6 +352,7 @@ async fn test_filter_combined_all_fields(log_buffer: Arc<LogBuffer>) {
 		since: Some(now - Duration::seconds(1)),
 		until: Some(now + Duration::seconds(1)),
 		search: Some("database".to_string()),
+		deployment_id: None,
 	};
 
 	// Act

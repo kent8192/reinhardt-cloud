@@ -235,20 +235,43 @@ impl LogService for MockLogService {
 
 	async fn tail_logs(
 		&self,
-		_filter: LogFilter,
+		filter: LogFilter,
 	) -> Result<Pin<Box<dyn Stream<Item = Result<LogEntry, ApiError>> + Send>>, ApiError> {
-		let entries: Vec<Result<LogEntry, ApiError>> = vec![];
-		Ok(Box::pin(tokio_stream::iter(entries)))
+		// MockLogService has no live stream; apply deployment_id filter to
+		// the accumulated buffer so tests can exercise the filter path.
+		// Filter while holding the lock so non-matching entries are not cloned.
+		let logs = self.logs.lock().await;
+		let filtered: Vec<Result<LogEntry, ApiError>> = logs
+			.iter()
+			.filter(|e| match &filter.deployment_id {
+				Some(id) => e.source.as_str() == id.as_str(),
+				None => true,
+			})
+			.cloned()
+			.map(Ok)
+			.collect();
+		drop(logs);
+		Ok(Box::pin(tokio_stream::iter(filtered)))
 	}
 
 	async fn list_logs(
 		&self,
-		_filter: LogFilter,
+		filter: LogFilter,
 		pagination: PaginationParams,
 	) -> Result<PaginatedResponse<LogEntry>, ApiError> {
-		let logs = self.logs.lock().await.clone();
-		let total = logs.len() as u64;
-		Ok(PaginatedResponse::new(logs, total, &pagination))
+		// Filter while holding the lock so non-matching entries are not cloned.
+		let logs = self.logs.lock().await;
+		let filtered: Vec<LogEntry> = logs
+			.iter()
+			.filter(|e| match &filter.deployment_id {
+				Some(id) => e.source.as_str() == id.as_str(),
+				None => true,
+			})
+			.cloned()
+			.collect();
+		drop(logs);
+		let total = filtered.len() as u64;
+		Ok(PaginatedResponse::new(filtered, total, &pagination))
 	}
 }
 

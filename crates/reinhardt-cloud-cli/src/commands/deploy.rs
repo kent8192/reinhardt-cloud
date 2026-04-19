@@ -6,7 +6,13 @@ use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
-use reinhardt_cloud_types::introspect::IntrospectOutput;
+use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
+use crate::feature_detector::{InfraSignals as DetectedInfraSignals, detect_project};
+use crate::settings_reader::{DatabaseConfig, read_database_config};
+use reinhardt_cloud_types::introspect::{
+	AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals as IntrospectInfraSignals,
+	IntrospectOutput,
+};
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
 /// Deploy an application.
@@ -47,6 +53,129 @@ pub(crate) struct DeployArgs {
 	/// Target cluster name
 	#[arg(long)]
 	pub cluster: Option<String>,
+
+	/// Override the apiVersion field in the generated `ReinhardtApp` manifest
+	/// (e.g. `paas.reinhardt-cloud.dev/v1`). Only meaningful in `--direct`
+	/// mode (where the manifest is applied to the cluster) or with `--dry-run`
+	/// (where the manifest is printed for review). In API mode without
+	/// `--direct`, the deploy call does not transmit a CRD manifest, so this
+	/// flag has no effect. When unset and `--direct` is used, the CLI queries
+	/// the cluster's CRD and selects the served storage version automatically.
+	/// The value MUST be a fully-qualified `group/version` — short forms like
+	/// `v1` are rejected so we never produce manifests with a missing API group.
+	#[arg(long, value_parser = validate_api_version)]
+	pub api_version: Option<String>,
+}
+
+/// Reject `--api-version` values that are not fully-qualified
+/// `group/version` strings (e.g. `paas.reinhardt-cloud.dev/v1`). Short
+/// forms like `v1` would silently produce manifests missing the API group,
+/// which the cluster then rejects with an opaque error far from the cause.
+fn validate_api_version(value: &str) -> Result<String, String> {
+	let mut parts = value.split('/');
+	let group = parts.next().unwrap_or_default();
+	let version = parts.next().unwrap_or_default();
+
+	if group.is_empty() || version.is_empty() || parts.next().is_some() {
+		return Err(format!(
+			"invalid value for --api-version: expected fully-qualified group/version (for example `paas.reinhardt-cloud.dev/v1`), got `{value}`"
+		));
+	}
+
+	// Reject segments that are whitespace-only or contain embedded whitespace
+	// (e.g. "  /v1" or "group/v 1"). Such values pass the emptiness check but
+	// would silently produce malformed apiVersion strings.
+	let group_trimmed = group.trim();
+	let version_trimmed = version.trim();
+	if group_trimmed.is_empty()
+		|| version_trimmed.is_empty()
+		|| group.contains(char::is_whitespace)
+		|| version.contains(char::is_whitespace)
+	{
+		return Err(format!(
+			"invalid value for --api-version: group and version must not contain whitespace, got `{value}`"
+		));
+	}
+
+	Ok(value.to_string())
+}
+
+/// Converts CLI-detected InfraSignals into the IntrospectOutput shape.
+///
+/// This is the zero-config inference path (Refs #372): when the management
+/// server is not reachable, we still want the deploy pipeline to receive a
+/// best-effort `IntrospectOutput` synthesized from local project state.
+///
+/// All fields of `DetectedInfraSignals` are read here so the struct remains
+/// a stable contract — add new mappings in lockstep when new signals land.
+fn synthesize_infra_signals(detected: &DetectedInfraSignals) -> IntrospectInfraSignals {
+	IntrospectInfraSignals {
+		database: detected.database.clone(),
+		cache: detected.cache.clone(),
+		websocket: detected.websocket,
+		background_worker: detected.background_worker,
+		grpc: detected.grpc,
+		storage: detected.object_storage.then(|| "local".to_string()),
+		mail: None,
+		// Map the `sessions` boolean to a backend hint so downstream can tell
+		// sessions are enabled; default to "db" because that matches the
+		// reinhardt-web built-in session backend shipped without configuration.
+		session_backend: detected.sessions.then(|| "db".to_string()),
+		graphql: detected.graphql,
+		admin_panel: false,
+		i18n: false,
+		pages: detected.pages,
+	}
+	// Note: `detected.jwt` is intentionally not surfaced here because the
+	// IntrospectOutput schema has no JWT-specific field. JWT usage affects
+	// RBAC manifests generated later, which is outside the zero-config path.
+}
+
+/// Builds a synthetic `IntrospectOutput` from a project directory.
+///
+/// Uses `feature_detector::detect_project` for app identity and feature
+/// signals, and `settings_reader::read_database_config` for the default
+/// database configuration. Returns `None` when `detect_project` fails
+/// (e.g., no `Cargo.toml` found); a missing database config is not
+/// sufficient to return `None` — app identity must be resolvable.
+fn synthesize_introspect_from_project(dir: &std::path::Path) -> Option<IntrospectOutput> {
+	let project = detect_project(dir).ok()?;
+	let db_config: Option<DatabaseConfig> = read_database_config(dir);
+
+	if let Some(ref cfg) = db_config {
+		// Log only the engine type; host, port, and name are omitted to
+		// avoid leaking connection details into shared CI logs.
+		eprintln!(
+			"  using inferred database configuration (engine={})",
+			cfg.engine
+		);
+	}
+
+	let databases = db_config
+		.map(|cfg| {
+			vec![DatabaseMetadata {
+				alias: "default".to_string(),
+				engine: cfg.engine,
+				tables: Vec::new(),
+			}]
+		})
+		.unwrap_or_default();
+
+	Some(IntrospectOutput {
+		app: AppMetadata {
+			name: project.name,
+			version: project.version,
+		},
+		databases,
+		routes: Vec::new(),
+		middleware: Vec::new(),
+		settings: Default::default(),
+		features: FeaturesMetadata {
+			declared: project.features.clone(),
+			resolved: project.features,
+			infrastructure_signals: synthesize_infra_signals(&project.signals),
+		},
+	})
 }
 
 /// Reads reinhardt-cloud.toml from the project directory if it exists.
@@ -117,6 +246,7 @@ fn build_reinhardt_app_crd(
 	image: &str,
 	replicas: Option<i32>,
 	introspect: Option<IntrospectOutput>,
+	api_version: &str,
 ) -> serde_yaml::Value {
 	let mut spec = serde_yaml::Mapping::new();
 	spec.insert(
@@ -150,7 +280,7 @@ fn build_reinhardt_app_crd(
 	let mut root = serde_yaml::Mapping::new();
 	root.insert(
 		serde_yaml::Value::String("apiVersion".to_string()),
-		serde_yaml::Value::String("paas.reinhardt-cloud.dev/v1alpha2".to_string()),
+		serde_yaml::Value::String(api_version.to_string()),
 	);
 	root.insert(
 		serde_yaml::Value::String("kind".to_string()),
@@ -233,6 +363,7 @@ pub(crate) async fn execute(
 	args: &DeployArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+	eprintln!("Target: {}", client.base_url());
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
@@ -249,8 +380,22 @@ pub(crate) async fn execute(
 				return Err(e.into());
 			}
 			eprintln!("Warning: manage introspect failed: {e}");
-			eprintln!("Deploying with minimal configuration.");
-			None
+			// Zero-config fallback (Refs #372): when `manage introspect` is
+			// unavailable, infer project metadata from Cargo.toml feature
+			// flags and settings/base.toml so deploy still produces a usable
+			// CRD before the management server is reachable.
+			match synthesize_introspect_from_project(&project_dir) {
+				Some(synthesized) => {
+					eprintln!(
+						"Using zero-config inference from Cargo.toml and settings/base.toml."
+					);
+					Some(synthesized)
+				}
+				None => {
+					eprintln!("Deploying with minimal configuration.");
+					None
+				}
+			}
 		}
 	};
 
@@ -288,16 +433,34 @@ pub(crate) async fn execute(
 		println!("Using configuration from reinhardt-cloud.toml");
 	}
 
-	// Step 4: Build CRD
+	// Step 4: Resolve apiVersion.
+	//
+	// For `--direct` deploys, query the target cluster's CRD so the CLI
+	// stays compatible with whatever served version the operator exposes.
+	// Otherwise (API-mode deploys, dry-run), fall back to the compile-time
+	// default because no cluster is contacted.
+	//
+	// `--dry-run` must not contact the cluster even when `--direct` is set;
+	// treat dry-run as non-direct for version discovery so the preview stays
+	// fully offline.
+	let api_version = resolve_deploy_api_version(
+		args.direct && !args.dry_run,
+		args.api_version.as_deref(),
+		args.cluster.as_deref(),
+	)
+	.await?;
+
+	// Step 5: Build CRD
 	let crd = build_reinhardt_app_crd(
 		&app_name,
 		&args.namespace,
 		&image,
 		Some(replicas_i32),
 		introspect,
+		&api_version,
 	);
 
-	// Step 5: Output or apply
+	// Step 6: Output or apply
 	if args.dry_run {
 		let yaml = serde_yaml::to_string(&crd)?;
 		println!("{yaml}");
@@ -336,6 +499,71 @@ pub(crate) async fn execute(
 	}
 
 	Ok(())
+}
+
+/// Decide which apiVersion to embed in the generated `ReinhardtApp` CRD.
+///
+/// Selection priority:
+/// 1. Non-`--direct` invocations never contact a cluster, so an explicit
+///    override (or the compile-time default) is used directly. This keeps
+///    dry-runs and API-mode deploys offline.
+/// 2. `--direct` with an explicit `--api-version` short-circuits cluster
+///    discovery — the user has already pinned the version they want.
+/// 3. `--direct` without an override builds a kube `Client` honoring the
+///    `--cluster` (kubeconfig context) flag so discovery and the later
+///    `kubectl --context` apply target the *same* cluster, then queries
+///    the live CRD via `resolve_api_version`.
+///
+/// Extracted from `execute` so the selection logic is testable without
+/// requiring a live kubeconfig or cluster.
+async fn resolve_deploy_api_version(
+	direct: bool,
+	explicit_api_version: Option<&str>,
+	cluster_context: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>> {
+	if !direct {
+		return Ok(explicit_api_version
+			.map(str::to_owned)
+			.unwrap_or_else(|| COMPILE_TIME_DEFAULT.to_string()));
+	}
+
+	if let Some(explicit) = explicit_api_version {
+		return Ok(explicit.to_string());
+	}
+
+	// Known limitation: when no --cluster context is given, kube::Client::try_default()
+	// uses inferred Kubernetes configuration (for example, in-cluster config or the
+	// current kubeconfig context), which may differ from the cluster that kubectl
+	// will target when the apply runs. To guarantee both discovery and apply hit
+	// the same cluster, pass --cluster explicitly.
+	if cluster_context.is_none() {
+		eprintln!(
+			"Warning: --direct is set without --cluster; apiVersion discovery uses \
+			 inferred Kubernetes config (for example, in-cluster config or the current \
+			 kubeconfig context), which may differ from the kubectl apply target. \
+			 Pass --cluster to pin both discovery and apply to the same cluster."
+		);
+	}
+
+	let kube_client_result = match cluster_context {
+		Some(context) => {
+			let opts = kube::config::KubeConfigOptions {
+				context: Some(context.to_string()),
+				..Default::default()
+			};
+			match kube::Config::from_kubeconfig(&opts).await {
+				Ok(config) => kube::Client::try_from(config),
+				Err(e) => Err(e.into()),
+			}
+		}
+		None => kube::Client::try_default().await,
+	};
+
+	let kube_client = kube_client_result.map_err(|e| -> Box<dyn std::error::Error> {
+		format!("failed to build Kubernetes client for apiVersion discovery: {e} (pass --api-version <group/version> to skip cluster discovery when running without a kubeconfig or in-cluster config)").into()
+	})?;
+
+	resolve_api_version(&kube_client, None).await
 }
 
 #[cfg(test)]
@@ -532,6 +760,7 @@ features:
 			"my-app:v1",
 			Some(3),
 			Some(introspect),
+			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 
 		// Assert
@@ -588,7 +817,14 @@ features:
 	#[rstest]
 	fn test_build_reinhardt_app_crd_without_introspect() {
 		// Arrange & Act
-		let crd = build_reinhardt_app_crd("simple-app", "default", "simple:latest", Some(1), None);
+		let crd = build_reinhardt_app_crd(
+			"simple-app",
+			"default",
+			"simple:latest",
+			Some(1),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 
 		// Assert
 		let mapping = crd.as_mapping().expect("CRD should be a mapping");
@@ -631,7 +867,14 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
-		let crd = build_reinhardt_app_crd("test-app", "staging", "test:v1", Some(2), None);
+		let crd = build_reinhardt_app_crd(
+			"test-app",
+			"staging",
+			"test:v1",
+			Some(2),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act: call kubectl_apply - kubectl is not available in CI,
@@ -652,7 +895,14 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
-		let crd = build_reinhardt_app_crd("ctx-app", "prod", "ctx:v1", Some(1), None);
+		let crd = build_reinhardt_app_crd(
+			"ctx-app",
+			"prod",
+			"ctx:v1",
+			Some(1),
+			None,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
 
 		// Act
@@ -665,5 +915,79 @@ features:
 			err.contains("kubectl") || err.contains("apply"),
 			"expected kubectl-related error, got: {err}"
 		);
+	}
+
+	#[rstest]
+	#[case("paas.reinhardt-cloud.dev/v1")]
+	#[case("paas.reinhardt-cloud.dev/v1alpha2")]
+	fn test_validate_api_version_accepts_fully_qualified(#[case] value: &str) {
+		// Act
+		let result = validate_api_version(value);
+
+		// Assert
+		assert_eq!(result.as_deref(), Ok(value));
+	}
+
+	#[rstest]
+	#[case("v1")]
+	#[case("/v1")]
+	#[case("paas.reinhardt-cloud.dev/")]
+	#[case("paas.reinhardt-cloud.dev/v1/extra")]
+	#[case("")]
+	// Whitespace-only segments must also be rejected.
+	#[case("  /v1")]
+	#[case("paas.reinhardt-cloud.dev/  ")]
+	#[case("  /  ")]
+	// Internal whitespace within a segment is also invalid.
+	#[case("paas reinhardt-cloud.dev/v1")]
+	#[case("paas.reinhardt-cloud.dev/v 1")]
+	fn test_validate_api_version_rejects_malformed(#[case] value: &str) {
+		// Act
+		let result = validate_api_version(value);
+
+		// Assert
+		assert!(
+			result.is_err(),
+			"expected `{value}` to be rejected as malformed, got Ok"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_non_direct_uses_override() {
+		// Arrange / Act
+		let resolved = resolve_deploy_api_version(false, Some("paas.reinhardt-cloud.dev/v9"), None)
+			.await
+			.expect("non-direct override path must not contact a cluster");
+
+		// Assert
+		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_non_direct_falls_back_to_compile_default() {
+		// Arrange / Act
+		let resolved = resolve_deploy_api_version(false, None, None)
+			.await
+			.expect("non-direct path with no override must use compile-time default");
+
+		// Assert
+		assert_eq!(resolved, COMPILE_TIME_DEFAULT);
+	}
+
+	#[tokio::test]
+	async fn test_resolve_deploy_api_version_direct_with_override_short_circuits() {
+		// Arrange: pass a cluster context that almost certainly does not
+		// resolve in the test environment. If the override path is honored,
+		// no kubeconfig lookup happens and the override is returned verbatim.
+		let resolved = resolve_deploy_api_version(
+			true,
+			Some("paas.reinhardt-cloud.dev/v9"),
+			Some("nonexistent-context-for-testing"),
+		)
+		.await
+		.expect("direct + explicit override must short-circuit cluster discovery");
+
+		// Assert
+		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
 	}
 }

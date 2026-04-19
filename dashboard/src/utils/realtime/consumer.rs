@@ -12,11 +12,12 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use reinhardt_cloud_proto::build as pb;
+use reinhardt_cloud_proto::log as log_pb;
 
 use crate::apps::auth::services::session::validate_session;
 use crate::shared::ws_messages::{
-	BuildLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
-	WsClientMessage, WsMessage,
+	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
+	SystemNotificationPayload, WsClientMessage, WsMessage,
 };
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
@@ -42,7 +43,7 @@ pub(crate) enum ParsedAction {
 	Rejected { response: WsMessage },
 	/// Subscribe to build log events via the gRPC bridge.
 	SubscribeBuildLogs { build_id: String },
-	/// Subscribe to application log events (placeholder — no gRPC backend yet).
+	/// Subscribe to application log events via the gRPC `LogService` bridge.
 	SubscribeAppLogs { app_name: String },
 	/// Acknowledged log stream subscription — send ack and start/stop stream.
 	/// Currently unused; will be wired when build log streaming is connected to the match arm.
@@ -55,6 +56,47 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
+}
+
+/// Convert a proto `LogLevel` enum value to its lowercase string form.
+fn proto_log_level_str(level: i32) -> &'static str {
+	match log_pb::LogLevel::try_from(level) {
+		Ok(log_pb::LogLevel::Debug) => "debug",
+		Ok(log_pb::LogLevel::Warn) => "warn",
+		Ok(log_pb::LogLevel::Error) => "error",
+		_ => "info",
+	}
+}
+
+/// Convert a proto `LogEntry` into the dashboard's `AppLogPayload`.
+///
+/// Out-of-range or negative `nanos` values are clamped to 0; invalid
+/// timestamps produce an empty RFC3339 string rather than a panic.
+fn proto_entry_to_app_log(entry: &log_pb::LogEntry) -> AppLogPayload {
+	let timestamp = entry
+		.timestamp
+		.map(|t| {
+			let nanos = if (0..=999_999_999).contains(&t.nanos) {
+				t.nanos as u32
+			} else {
+				0
+			};
+			chrono::DateTime::<chrono::Utc>::from_timestamp(t.seconds, nanos)
+				.map(|dt| dt.to_rfc3339())
+				.unwrap_or_default()
+		})
+		.unwrap_or_default();
+
+	AppLogPayload {
+		source: entry.source.clone(),
+		level: proto_log_level_str(entry.level).to_string(),
+		message: entry.message.clone(),
+		timestamp,
+		metadata: entry
+			.metadata_json
+			.as_ref()
+			.and_then(|s| serde_json::from_str(s).ok()),
+	}
 }
 
 /// WebSocket consumer that authenticates users, manages deployment
@@ -245,20 +287,22 @@ impl WebSocketConsumer for NotificationConsumer {
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
-				// Send acknowledgement immediately.
-				let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-					acknowledged: true,
-					message: format!("Subscribed to build logs for {build_id}"),
-				});
-				let _ = context.connection.send_json(&ack).await;
-
 				// Spawn a background task that connects to the gRPC
 				// BuildService and forwards log entries as WebSocket messages.
+				// The positive acknowledgement is sent only after the gRPC
+				// connection is established, so the client is not misled when
+				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
 				let bid = build_id.clone();
 				let endpoint = grpc_endpoint();
 
 				let handle_ref = Arc::clone(&self.log_stream_handle);
+
+				// Acquire the lock before spawning so that the task cannot
+				// clear the handle before we store it (fixes the race where a
+				// very fast task completion sets handle_ref to None before
+				// the outer code sets it to Some(handle)).
+				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
 					let mut client =
@@ -284,6 +328,14 @@ impl WebSocketConsumer for NotificationConsumer {
 								return;
 							}
 						};
+
+					// Send positive acknowledgement only after a successful
+					// gRPC connection — avoids a contradictory ack/nack pair.
+					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
+						acknowledged: true,
+						message: format!("Subscribed to build logs for {bid}"),
+					});
+					let _ = conn.send_json(&ack).await;
 
 					let request = pb::StreamBuildLogsRequest {
 						build_id: bid.clone(),
@@ -327,9 +379,11 @@ impl WebSocketConsumer for NotificationConsumer {
 										} else {
 											0
 										};
-										chrono::DateTime::from_timestamp(t.seconds, nanos)
-											.map(|dt| dt.to_rfc3339())
-											.unwrap_or_default()
+										chrono::DateTime::<chrono::Utc>::from_timestamp(
+											t.seconds, nanos,
+										)
+										.map(|dt| dt.to_rfc3339())
+										.unwrap_or_default()
 									})
 									.unwrap_or_default();
 
@@ -364,24 +418,118 @@ impl WebSocketConsumer for NotificationConsumer {
 					*handle_ref.lock().await = None;
 				});
 
-				// Store the streaming task handle directly so that
-				// cancel_log_stream() aborts the actual gRPC stream task.
-				*self.log_stream_handle.lock().await = Some(handle);
+				// Store the handle while still holding the lock so that a
+				// fast-finishing task cannot set the handle to None before
+				// we write Some(handle).
+				*handle_guard = Some(handle);
+				drop(handle_guard);
 			}
 			ParsedAction::SubscribeAppLogs { app_name } => {
-				// Cancel any previous log stream before acknowledging.
+				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
-				// App log streaming is not yet available in the gRPC proto.
-				// Send an acknowledgement so the client knows the request was
-				// received and can display a placeholder.
-				let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-					acknowledged: true,
-					message: format!(
-						"App log streaming for '{app_name}' acknowledged (not yet available)"
-					),
+				// Spawn a background task that connects to the gRPC
+				// LogService and forwards tailed log entries as WebSocket
+				// messages.
+				// The positive acknowledgement is sent only after the gRPC
+				// connection is established, so the client is not misled when
+				// the connection subsequently fails.
+				let conn = Arc::clone(&context.connection);
+				let app = app_name.clone();
+				let endpoint = grpc_endpoint();
+				let handle_ref = Arc::clone(&self.log_stream_handle);
+
+				// Acquire the lock before spawning to prevent the race where
+				// the task clears the handle before we store it.
+				let mut handle_guard = self.log_stream_handle.lock().await;
+
+				let handle = tokio::spawn(async move {
+					let mut client =
+						match log_pb::log_service_client::LogServiceClient::connect(endpoint).await
+						{
+							Ok(c) => c,
+							Err(e) => {
+								tracing::warn!(
+									app_name = %app,
+									error = %e,
+									"Failed to connect to gRPC LogService for app log streaming",
+								);
+								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+									acknowledged: false,
+									message: format!(
+										"Failed to connect to log service for {app}: {e}"
+									),
+								});
+								let _ = conn.send_json(&err_msg).await;
+								*handle_ref.lock().await = None;
+								return;
+							}
+						};
+
+					let request = log_pb::TailLogsRequest {
+						filter: Some(log_pb::LogFilter {
+							source: Some(app.clone()),
+							..Default::default()
+						}),
+					};
+
+					// Send positive acknowledgement only after tail_logs succeeds,
+					// so the client is never misled by a success ack followed by a
+					// failure ack when the RPC itself fails.
+					let mut stream = match client.tail_logs(request).await {
+						Ok(r) => r.into_inner(),
+						Err(e) => {
+							tracing::warn!(
+								app_name = %app,
+								error = %e,
+								"gRPC TailLogs call failed",
+							);
+							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+								acknowledged: false,
+								message: format!("App log stream failed for {app}: {e}"),
+							});
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+
+					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
+						acknowledged: true,
+						message: format!("Subscribed to app logs for {app}"),
+					});
+					let _ = conn.send_json(&ack).await;
+
+					loop {
+						match stream.message().await {
+							Ok(Some(entry)) => {
+								let ws_msg = WsMessage::AppLog(proto_entry_to_app_log(&entry));
+								if conn.send_json(&ws_msg).await.is_err() {
+									// Connection closed — stop streaming.
+									break;
+								}
+							}
+							Ok(None) => break,
+							Err(e) => {
+								tracing::warn!(
+									app_name = %app,
+									error = %e,
+									"Error receiving app log from gRPC stream",
+								);
+								break;
+							}
+						}
+					}
+
+					// Clear the stale handle when the stream exits normally.
+					*handle_ref.lock().await = None;
 				});
-				let _ = context.connection.send_json(&ack).await;
+
+				// Store the handle while still holding the lock so that a
+				// fast-finishing task cannot set the handle to None before
+				// we write Some(handle).
+				*handle_guard = Some(handle);
+				drop(handle_guard);
 			}
 			ParsedAction::UnsubscribeLogs => {
 				self.cancel_log_stream().await;

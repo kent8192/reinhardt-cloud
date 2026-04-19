@@ -15,9 +15,6 @@ pub(crate) enum Platform {
 }
 
 /// Platform-specific configuration loaded from Helm values.
-// Reserved for future reconciler integration that will use platform
-// config to provision infrastructure resources.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct PlatformConfig {
 	pub platform: Platform,
@@ -25,20 +22,18 @@ pub(crate) struct PlatformConfig {
 }
 
 /// Aggregated platform defaults for all resource categories.
-// Reserved for future reconciler integration that will apply these
-// defaults when provisioning database, cache, and container resources.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct PlatformDefaults {
 	pub database: DatabaseDefaults,
+	// `cache` is populated for completeness but not yet consumed by the
+	// reconciler; cache inference is tracked separately from database
+	// inference and will be wired in a follow-up.
+	#[allow(dead_code)]
 	pub cache: CacheDefaults,
 	pub resources: ResourceDefaults,
 }
 
 /// Database provisioning defaults.
-// Reserved for future reconciler integration that will use these
-// values to provision cloud or on-premise database instances.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct DatabaseDefaults {
 	pub instance_class: String,
@@ -47,18 +42,14 @@ pub(crate) struct DatabaseDefaults {
 }
 
 /// Cache provisioning defaults.
-// Reserved for future reconciler integration that will use these
-// values to provision cloud or on-premise cache instances.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct CacheDefaults {
+	// Consumed once cache inference is wired into the reconciler.
+	#[allow(dead_code)]
 	pub instance_type: String,
 }
 
 /// Container resource request/limit defaults.
-// Reserved for future reconciler integration that will apply these
-// values as container resource requests and limits.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct ResourceDefaults {
 	pub cpu_request: String,
