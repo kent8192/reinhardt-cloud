@@ -29,6 +29,7 @@ reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
 reinhardt-cloud-grpc = { workspace = true }
+prost-types = { workspace = true }
 tokio = { workspace = true }
 hmac = "0.12"
 sha2 = "0.10"
