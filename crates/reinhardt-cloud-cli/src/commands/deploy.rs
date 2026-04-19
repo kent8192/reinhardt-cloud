@@ -54,12 +54,15 @@ pub(crate) struct DeployArgs {
 	#[arg(long)]
 	pub cluster: Option<String>,
 
-	/// Override the `ReinhardtApp` apiVersion (e.g. `paas.reinhardt-cloud.dev/v1`).
-	///
-	/// When unset and `--direct` is used, the CLI queries the cluster's CRD
-	/// and selects the served storage version automatically. The value MUST
-	/// be a fully-qualified `group/version` — short forms like `v1` are
-	/// rejected so we never produce manifests with a missing API group.
+	/// Override the apiVersion field in the generated `ReinhardtApp` manifest
+	/// (e.g. `paas.reinhardt-cloud.dev/v1`). Only meaningful in `--direct`
+	/// mode (where the manifest is applied to the cluster) or with `--dry-run`
+	/// (where the manifest is printed for review). In API mode without
+	/// `--direct`, the deploy call does not transmit a CRD manifest, so this
+	/// flag has no effect. When unset and `--direct` is used, the CLI queries
+	/// the cluster's CRD and selects the served storage version automatically.
+	/// The value MUST be a fully-qualified `group/version` — short forms like
+	/// `v1` are rejected so we never produce manifests with a missing API group.
 	#[arg(long, value_parser = validate_api_version)]
 	pub api_version: Option<String>,
 }
@@ -436,8 +439,12 @@ pub(crate) async fn execute(
 	// stays compatible with whatever served version the operator exposes.
 	// Otherwise (API-mode deploys, dry-run), fall back to the compile-time
 	// default because no cluster is contacted.
+	//
+	// `--dry-run` must not contact the cluster even when `--direct` is set;
+	// treat dry-run as non-direct for version discovery so the preview stays
+	// fully offline.
 	let api_version = resolve_deploy_api_version(
-		args.direct,
+		args.direct && !args.dry_run,
 		args.api_version.as_deref(),
 		args.cluster.as_deref(),
 	)
