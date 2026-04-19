@@ -111,7 +111,10 @@ pub(crate) fn build_database_env_vars_from_secret(
 ///
 /// Variables injected:
 /// * `TRACEPARENT` — W3C `traceparent` of the current reconcile span (omitted
-///   when the current span context is not valid).
+///   when the current span context is not valid). Note: OTel SDKs do not read
+///   `TRACEPARENT` automatically; the application must bootstrap context by
+///   reading this variable and explicitly setting it as the parent for the
+///   process's root span.
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `app_name`.
 /// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own

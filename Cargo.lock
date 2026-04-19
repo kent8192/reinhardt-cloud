@@ -6007,6 +6007,7 @@ dependencies = [
  "lettre",
  "percent-encoding",
  "proptest",
+ "prost-types 0.13.5",
  "rand 0.9.3",
  "reinhardt-cloud-core",
  "reinhardt-cloud-grpc",
@@ -6145,7 +6146,6 @@ dependencies = [
 name = "reinhardt-cloud-telemetry"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "futures",

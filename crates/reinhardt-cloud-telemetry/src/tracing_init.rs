@@ -181,7 +181,8 @@ impl Drop for TracingGuard {
 ///
 /// Returns a [`TracingGuard`] that flushes pending spans when dropped. When
 /// `config.otlp_endpoint` is `None`, no OpenTelemetry layer is attached and
-/// the subscriber stack contains only the env filter and an fmt layer.
+/// the subscriber stack contains the env filter, `TraceContextLogLayer`, and
+/// an fmt layer.
 ///
 /// # Errors
 ///
@@ -197,7 +198,11 @@ pub fn init_tracing(config: TracingConfig) -> Result<TracingGuard, TracingInitEr
 	// Scope the default to reinhardt_cloud crates to avoid elevating log noise
 	// from third-party dependencies when RUST_LOG is unset.
 	let filter = EnvFilter::try_from_default_env()
-		.unwrap_or_else(|_| EnvFilter::new("reinhardt_cloud=info"));
+		.unwrap_or_else(|_| {
+			EnvFilter::new(
+				"warn,reinhardt_cloud_operator=info,reinhardt_cloud_cli=info,reinhardt_cloud_telemetry=info",
+			)
+		});
 
 	// Build the fmt layer unboxed; boxing happens against the final
 	// subscriber type in each branch below.
