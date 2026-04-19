@@ -3,6 +3,7 @@
 mod client;
 mod commands;
 mod config;
+mod crd_version;
 mod dockerfile_generator;
 mod feature_detector;
 mod settings_reader;
