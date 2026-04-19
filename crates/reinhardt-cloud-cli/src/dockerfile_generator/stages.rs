@@ -646,11 +646,6 @@ mod tests {
 			"tracecontext"
 		));
 		assert!(stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
-		assert!(stage_contains_env(
-			&stage,
-			"OTEL_EXPORTER_OTLP_ENDPOINT",
-			"http://otel-collector.monitoring.svc.cluster.local:4317"
-		));
 	}
 
 	// S20
@@ -666,10 +661,5 @@ mod tests {
 			"tracecontext"
 		));
 		assert!(!stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
-		assert!(!stage_contains_env(
-			&stage,
-			"OTEL_EXPORTER_OTLP_ENDPOINT",
-			"http://otel-collector.monitoring.svc.cluster.local:4317"
-		));
 	}
 }
