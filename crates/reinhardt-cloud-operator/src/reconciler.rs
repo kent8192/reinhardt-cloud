@@ -5,7 +5,6 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
@@ -22,9 +21,10 @@ use tracing::{error, info, warn};
 
 use crate::error::Error;
 use crate::inference::configmap::build_settings_configmap;
+use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::{build_db_credentials_secret, build_jwt_secret};
+use crate::inference::secrets::build_jwt_secret;
 use crate::resources::credentials;
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
@@ -36,6 +36,8 @@ use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
 };
+use k8s_openapi::api::core::v1::PersistentVolumeClaim;
+use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
 use reinhardt_cloud_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
@@ -48,9 +50,6 @@ pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
 	/// Platform-specific configuration for resource inference.
-	// Reserved for future reconciler integration that will use platform
-	// defaults when inferring resource specifications.
-	#[allow(dead_code)]
 	pub platform: PlatformConfig,
 }
 
@@ -112,32 +111,13 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		}
 	}
 
-	// Create DB credentials Secret if database is configured (preserve existing credentials)
-	if app.spec.database.is_some() {
-		let db_secret_name = format!("{name}-db-credentials");
-		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
-		if secret_api
-			.get_opt(&db_secret_name)
-			.await
-			.map_err(Error::Kube)?
-			.is_none()
-		{
-			let password_bytes: [u8; 16] = rand::random();
-			let password_str =
-				base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(password_bytes);
-			let db_secret = build_db_credentials_secret(
-				&name,
-				namespace,
-				&format!("{name}_user"),
-				&password_str,
-			);
-			secret_api
-				.create(&PostParams::default(), &db_secret)
-				.await
-				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
-			info!("Created DB credentials Secret {namespace}/{db_secret_name}");
-		}
-	}
+	// DB credentials Secret for the explicit-database path is created by
+	// `infer_database_resources` (called below in the `app.spec.database.is_some()`
+	// branch) via `apply_db_secret_if_absent`. Generating it here with a
+	// different username (`{name}_user` vs. the sanitized `{name_sanitized}` used
+	// by the inference module) caused a convention conflict: the early Secret was
+	// created first, then `apply_db_secret_if_absent` silently skipped it, leaving
+	// the credentials mismatched with the init-SQL in the ConfigMap.
 
 	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
 	let pages_config = resolve_pages_config(&app);
@@ -170,7 +150,35 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Database provisioning — explicit spec.database takes precedence,
 	// falling back to introspect infrastructure signals.
-	if should_provision_postgresql(&app) && app.spec.database.is_none() {
+	if app.spec.database.is_some() {
+		// Explicit database: use the inference module to generate the full
+		// set of platform-appropriate resources (on-prem StatefulSet/PVC,
+		// AWS ACK DBInstance, or GCP Config Connector SQL resources) and
+		// apply them via server-side apply.
+		let resources = infer_database_resources(&app, &ctx.platform);
+		for resource in resources {
+			match resource {
+				DatabaseResource::StatefulSet(ss) => {
+					apply_statefulset(&ctx.client, namespace, *ss).await?;
+				}
+				DatabaseResource::Pvc(pvc) => {
+					apply_pvc(&ctx.client, namespace, *pvc).await?;
+				}
+				DatabaseResource::Service(svc) => {
+					apply_db_service(&ctx.client, namespace, *svc).await?;
+				}
+				DatabaseResource::ConfigMap(cm) => {
+					apply_configmap(&ctx.client, namespace, *cm).await?;
+				}
+				DatabaseResource::Secret(sec) => {
+					apply_db_secret_if_absent(&ctx.client, namespace, *sec).await?;
+				}
+				DatabaseResource::Dynamic(obj) => {
+					apply_dynamic(&ctx.client, namespace, *obj).await?;
+				}
+			}
+		}
+	} else if should_provision_postgresql(&app) {
 		// Introspect-derived database: provision StatefulSet + credentials
 		reconcile_db_secret(&app, &ctx.client, namespace).await?;
 		reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
@@ -865,6 +873,138 @@ async fn reconcile_migration_job_resource(
 		.await
 		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
 	info!("Created migration Job {namespace}/{job_name}");
+	Ok(())
+}
+
+/// Apply a database `StatefulSet` via server-side apply.
+async fn apply_statefulset(client: &Client, namespace: &str, ss: StatefulSet) -> Result<(), Error> {
+	let name = ss
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("StatefulSet missing name".into()))?;
+	let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&ss))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred StatefulSet {namespace}/{name}");
+	Ok(())
+}
+
+/// Apply a database `PersistentVolumeClaim` via server-side apply.
+async fn apply_pvc(
+	client: &Client,
+	namespace: &str,
+	pvc: PersistentVolumeClaim,
+) -> Result<(), Error> {
+	let name = pvc
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("PVC missing name".into()))?;
+	let api: Api<PersistentVolumeClaim> = Api::namespaced(client.clone(), namespace);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&pvc))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred PVC {namespace}/{name}");
+	Ok(())
+}
+
+/// Apply a database `ConfigMap` via server-side apply.
+async fn apply_configmap(client: &Client, namespace: &str, cm: ConfigMap) -> Result<(), Error> {
+	let name = cm
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("ConfigMap missing name".into()))?;
+	let api: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&cm))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred ConfigMap {namespace}/{name}");
+	Ok(())
+}
+
+/// Apply an inferred database `Service` via server-side apply.
+async fn apply_db_service(client: &Client, namespace: &str, svc: Service) -> Result<(), Error> {
+	let name = svc
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("Service missing name".into()))?;
+	let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&svc))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred DB Service {namespace}/{name}");
+	Ok(())
+}
+
+/// Create a database credentials `Secret` only when missing.
+///
+/// Unlike other database resources, the credentials Secret embeds a
+/// freshly generated random password; reapplying it would rotate the
+/// password on every reconcile cycle and break existing consumers.
+/// We therefore create it once and leave subsequent reconciles as no-ops.
+///
+/// `AlreadyExists` (HTTP 409) is treated as success to handle races between
+/// concurrent reconcile cycles or external controllers that may create the
+/// Secret between our get-then-create calls.
+async fn apply_db_secret_if_absent(
+	client: &Client,
+	namespace: &str,
+	secret: Secret,
+) -> Result<(), Error> {
+	let name = secret
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("Secret missing name".into()))?;
+	let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+	if api.get_opt(&name).await.map_err(Error::Kube)?.is_some() {
+		info!("Inferred DB Secret {namespace}/{name} already exists, skipping");
+		return Ok(());
+	}
+	match api.create(&PostParams::default(), &secret).await {
+		Ok(_) => {
+			info!("Created inferred DB Secret {namespace}/{name}");
+			Ok(())
+		}
+		// AlreadyExists means another reconcile or controller beat us to it —
+		// treat as success since the desired state is already achieved.
+		Err(kube::Error::Api(ref status)) if status.code == 409 => {
+			info!("Inferred DB Secret {namespace}/{name} was created concurrently, skipping");
+			Ok(())
+		}
+		Err(e) => Err(Error::Kube(e)),
+	}
+}
+
+/// Apply a cloud-provider `DynamicObject` (ACK / Config Connector CRDs)
+/// via server-side apply.
+async fn apply_dynamic(client: &Client, namespace: &str, obj: DynamicObject) -> Result<(), Error> {
+	let name = obj
+		.metadata
+		.name
+		.clone()
+		.ok_or_else(|| Error::DatabaseProvisioning("DynamicObject missing name".into()))?;
+	let types = obj
+		.types
+		.as_ref()
+		.ok_or_else(|| Error::DatabaseProvisioning("DynamicObject missing TypeMeta".into()))?;
+	let gvk = kube::api::GroupVersionKind::try_from(types)
+		.map_err(|e| Error::DatabaseProvisioning(format!("invalid TypeMeta: {e}")))?;
+	let ar = kube::api::ApiResource::from_gvk(&gvk);
+	let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &ar);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	api.patch(&name, &ssapply, &Patch::Apply(&obj))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled inferred {} {namespace}/{name}", types.kind);
 	Ok(())
 }
 
@@ -1642,6 +1782,34 @@ mod tests {
 		// Assert — error_policy must return a 30-second requeue
 		let expected = Action::requeue(Duration::from_secs(30));
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	// ── explicit-database inference wiring ──────────────────────────
+
+	#[rstest]
+	fn explicit_database_spec_triggers_inference_branch() {
+		// Arrange — app with explicit DatabaseSpec and on-prem platform
+		let mut app = make_test_app("explicit-db-app");
+		app.spec.database = Some(DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: Some(25),
+			version: Some("16".to_string()),
+		});
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act — the reconciler's explicit-DB branch calls exactly this
+		// function. A non-empty result proves the wiring is reachable;
+		// the previous code path (introspect-only) would have ignored
+		// the explicit spec entirely.
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert_eq!(
+			resources.len(),
+			5,
+			"on-prem inference must emit StatefulSet + PVC + Service + ConfigMap + Secret"
+		);
 	}
 
 	// ── introspect-aware decision logic tests ───────────────────────

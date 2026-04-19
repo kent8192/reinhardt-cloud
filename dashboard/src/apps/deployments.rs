@@ -5,6 +5,7 @@
 use reinhardt::app_config;
 
 pub mod admin;
+pub mod client;
 pub mod models;
 pub mod serializers;
 pub mod tests;
