@@ -103,3 +103,4 @@ reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent819
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"
+

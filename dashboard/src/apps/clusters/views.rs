@@ -1,8 +1,8 @@
 //! View functions for cluster endpoints.
 
-use reinhardt::define_views;
+use reinhardt::flatten_imports;
 
-define_views! {
+flatten_imports! {
 	pub mod create_cluster;
 	pub mod delete_cluster;
 	pub mod list_clusters;

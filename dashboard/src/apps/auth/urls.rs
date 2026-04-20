@@ -4,10 +4,11 @@ use reinhardt::ServerRouter;
 use reinhardt::url_patterns;
 
 use crate::apps::auth::views;
+use crate::config::apps::InstalledApp;
 
 /// Returns the URL patterns for auth endpoints.
-#[url_patterns(app = "auth")]
-pub fn url_patterns() -> ServerRouter {
+#[url_patterns(InstalledApp::auth, mode = server)]
+pub fn server_url_patterns() -> ServerRouter {
 	ServerRouter::new()
 		.endpoint(views::login)
 		.endpoint(views::register)

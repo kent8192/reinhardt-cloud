@@ -1,8 +1,8 @@
 //! View functions for deployment endpoints.
 
-use reinhardt::define_views;
+use reinhardt::flatten_imports;
 
-define_views! {
+flatten_imports! {
 	pub mod create_deployment;
 	pub mod delete_deployment;
 	pub mod deployment_logs;
