@@ -193,9 +193,9 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_prefix("/api/")
 			.with_di_registrations(infra.admin_di)
 			// REST API endpoints
-			.mount("/auth/", crate::apps::auth::urls::url_patterns())
-			.mount("/clusters/", crate::apps::clusters::urls::url_patterns())
-			.mount("/deployments/", crate::apps::deployments::urls::url_patterns())
+			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
+			.mount("/clusters/", crate::apps::clusters::urls::server_url_patterns())
+			.mount("/deployments/", crate::apps::deployments::urls::server_url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)
 					.server_fn(server::register::register::marker)

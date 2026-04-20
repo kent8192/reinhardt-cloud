@@ -1,8 +1,8 @@
 //! View functions for auth endpoints.
 
-use reinhardt::define_views;
+use reinhardt::flatten_imports;
 
-define_views! {
+flatten_imports! {
 	pub mod change_password;
 	pub mod forgot_password;
 	pub mod login;
