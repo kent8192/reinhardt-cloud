@@ -31,6 +31,12 @@ spec:
           env:
             - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
+            {{- if .Values.metrics.enabled }}
+            - name: REINHARDT_CLOUD_METRICS_ENABLED
+              value: "true"
+            - name: REINHARDT_CLOUD_METRICS_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.metrics.port) | quote }}
+            {{- end }}
             - name: REINHARDT_LOG_FORMAT
               value: {{ .Values.logging.format | quote }}
             {{- range $key, $value := .Values.operator.env }}
@@ -41,6 +47,24 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if .Values.tracing.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.endpoint | quote }}
+            - name: OTEL_TRACES_SAMPLER
+              value: {{ .Values.tracing.sampler | quote }}
+            {{- if .Values.tracing.samplerArg }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.tracing.samplerArg | quote }}
+            {{- end }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.tracing.serviceName | default .Release.Name | quote }}
+            {{- end }}
+          {{- if .Values.metrics.enabled }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:

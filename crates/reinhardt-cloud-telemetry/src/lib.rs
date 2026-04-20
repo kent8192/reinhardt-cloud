@@ -8,12 +8,19 @@
 //! - Tracing / OTel integration (Issue #374).
 
 mod log_service;
+mod propagation;
 mod proto_convert;
 mod schema;
+mod tracing_init;
 
 pub use log_service::{
 	LogFilter, LogService, LogServiceError, Pagination, RetentionPolicy,
 	in_memory::InMemoryLogService, loki::LokiLogService,
 };
+pub use propagation::{context_from_traceparent, traceparent_from_context};
 pub use proto_convert::{log_entry_to_record, log_record_to_entry};
 pub use schema::{LogFields, LogLevel, LogRecord};
+pub use tracing_init::{
+	DEFAULT_SAMPLE_RATIO, SamplerKind, TraceContext, TraceContextExtension, TraceContextLogLayer,
+	TracingConfig, TracingGuard, TracingInitError, current_trace_context, init_tracing,
+};

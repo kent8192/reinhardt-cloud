@@ -17,14 +17,19 @@ use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, ResourceExt};
-use tracing::{error, info, warn};
+use tracing::{Instrument, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use uuid::Uuid;
 
-use crate::error::Error;
+use dashmap::DashMap;
+
+use crate::error::{BackoffClass, Error, backoff_class};
 use crate::inference::configmap::build_settings_configmap;
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::build_jwt_secret;
+use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
@@ -45,33 +50,133 @@ use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
+/// Annotation key on a `ReinhardtApp` that carries an incoming W3C `traceparent`
+/// for distributed-trace propagation into the reconcile span.
+///
+/// Writing the value back to the CRD is intentionally deferred: a patch-loop
+/// risk exists if the operator itself writes the annotation and immediately
+/// re-triggers reconciliation. The value is consumed read-only here.
+const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
+
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
 	/// Platform-specific configuration for resource inference.
 	pub platform: PlatformConfig,
+	/// Prometheus metrics shared with the exporter task.
+	pub metrics: Arc<Metrics>,
+	/// Per-object consecutive-failure counter used to drive exponential
+	/// backoff in `error_policy`. Key is `(namespace, name)`.
+	pub backoff_state: Arc<DashMap<(String, String), u32>>,
+	/// Last observed phase label per object, used to keep the
+	/// `managed_apps{phase}` gauge in sync as objects transition between
+	/// phases and when they are deleted. Key is `(namespace, name)`.
+	pub phase_state: Arc<DashMap<(String, String), String>>,
+}
+
+/// Base backoff duration for transient Kube API errors.
+const BACKOFF_BASE_TRANSIENT_SECS: u64 = 30;
+/// Base backoff duration for dependency-not-ready (404/409) errors.
+const BACKOFF_BASE_DEPENDENCY_SECS: u64 = 60;
+/// Upper bound for any backoff so we keep reconciling within 10 minutes.
+const BACKOFF_MAX_SECS: u64 = 600;
+
+/// Compute an exponential backoff capped at `BACKOFF_MAX_SECS`.
+///
+/// `attempt` is the zero-based consecutive-failure count observed by the
+/// error policy. The formula is `base * 2^attempt`, saturating to avoid
+/// overflow on pathological values.
+fn compute_backoff(base_secs: u64, attempt: u32) -> Duration {
+	// saturating shift to avoid overflow when attempt is very large
+	let factor = 1u64.checked_shl(attempt.min(20)).unwrap_or(u64::MAX);
+	let secs = base_secs.saturating_mul(factor).min(BACKOFF_MAX_SECS);
+	Duration::from_secs(secs)
+}
+
+/// Build a stable key for the backoff map from an object's namespace+name.
+fn backoff_key(obj: &ReinhardtApp) -> (String, String) {
+	(obj.namespace().unwrap_or_default(), obj.name_any())
 }
 
 /// Main reconciliation entry point.
 pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
-	let name = obj.name_any();
-	let namespace = obj
-		.namespace()
-		.filter(|ns| !ns.is_empty())
-		.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
-	info!("Reconciling ReinhardtApp {namespace}/{name}");
+	let span = tracing::info_span!(
+		"operator.reconcile",
+		otel.kind = "internal",
+		resource_kind = "ReinhardtApp",
+		resource_namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
+		resource_name = %obj.name_any(),
+		reconcile_id = %Uuid::new_v4(),
+	);
 
-	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+	// If the CRD carries a `reinhardt.io/traceparent` annotation, stitch this
+	// reconcile span into the caller's distributed trace. Writing the value
+	// back to the annotation is intentionally deferred: patching it here would
+	// re-trigger reconciliation and create a patch loop.
+	if let Some(tp) = obj
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|a| a.get(TRACEPARENT_ANNOTATION))
+	{
+		let parent_cx = reinhardt_cloud_telemetry::context_from_traceparent(tp);
+		let _ = span.set_parent(parent_cx);
+	}
 
-	finalizer(&api, FINALIZER_NAME, obj, |event| async {
-		match event {
-			FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
-			FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
+	let key = backoff_key(&obj);
+	let start = std::time::Instant::now();
+
+	async move {
+		let name = obj.name_any();
+		let namespace = obj
+			.namespace()
+			.filter(|ns| !ns.is_empty())
+			.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
+		info!("Reconciling ReinhardtApp {namespace}/{name}");
+
+		let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+
+		let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
+			match event {
+				FinalizerEvent::Apply(app) => apply(app, &ctx, &namespace).await,
+				FinalizerEvent::Cleanup(app) => cleanup(app, &ctx, &namespace).await,
+			}
+		})
+		.await
+		.map_err(|e| Error::Finalizer(Box::new(e)));
+
+		let elapsed = start.elapsed().as_secs_f64();
+		match &result {
+			Ok(_) => {
+				// Successful reconcile resets the backoff counter for this object.
+				ctx.backoff_state.remove(&key);
+				ctx.metrics
+					.reconcile_total
+					.with_label_values(&["success"])
+					.inc();
+				ctx.metrics
+					.reconcile_duration
+					.with_label_values(&["success"])
+					.observe(elapsed);
+			}
+			Err(err) => {
+				let label = backoff_class(err).as_metric_label();
+				ctx.metrics
+					.reconcile_total
+					.with_label_values(&[label])
+					.inc();
+				ctx.metrics
+					.reconcile_duration
+					.with_label_values(&[label])
+					.observe(elapsed);
+			}
 		}
-	})
+
+		result
+	}
+	.instrument(span)
 	.await
-	.map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 /// Apply the desired state for a `ReinhardtApp`.
@@ -494,7 +599,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	let ready = ready_replicas >= desired_replicas;
 
 	// Update status sub-resource
-	update_status(&app, &ctx.client, namespace, ready, ready_replicas).await?;
+	update_status(&app, ctx, namespace, ready, ready_replicas).await?;
 
 	Ok(Action::await_change())
 }
@@ -607,6 +712,10 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 				.await?;
 		}
 	}
+
+	// Decrement the `managed_apps` gauge for the phase this object was
+	// last observed in, so the gauge reflects only live objects.
+	drop_managed_apps_gauge(ctx, &app);
 
 	Ok(Action::await_change())
 }
@@ -1384,13 +1493,15 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 /// changes, preventing unnecessary tight reconcile loops.
 async fn update_status(
 	app: &ReinhardtApp,
-	client: &Client,
+	ctx: &Context,
 	namespace: &str,
 	ready: bool,
 	ready_replicas: i32,
 ) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
 	let typed_status = build_status(app, ready, ready_replicas);
+
+	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
 
 	api.patch_status(
@@ -1401,7 +1512,63 @@ async fn update_status(
 	.await
 	.map_err(Error::Kube)?;
 
+	// Update the `managed_apps{phase}` gauge only after the status patch
+	// has been persisted. Otherwise a failed patch could leave the gauge
+	// reflecting a phase transition that never actually took effect, and
+	// the next reconcile may not correct it cleanly.
+	if let Some(label) = phase_label_for_gauge {
+		update_managed_apps_gauge(ctx, app, label);
+	}
+
 	Ok(())
+}
+
+/// Map an `AppPhase` to the stable label value used by the
+/// `managed_apps{phase=...}` gauge. Kept as a free function so new
+/// phases must be added explicitly and cannot drift from the CRD enum.
+fn phase_label(phase: &AppPhase) -> &'static str {
+	match phase {
+		AppPhase::Pending => "Pending",
+		AppPhase::Provisioning => "Provisioning",
+		AppPhase::Deploying => "Deploying",
+		AppPhase::Running => "Running",
+		AppPhase::Degraded => "Degraded",
+		AppPhase::Failed => "Failed",
+		AppPhase::Terminating => "Terminating",
+	}
+}
+
+/// Update the `managed_apps{phase}` gauge for a single object.
+///
+/// Decrements the previous phase bucket (if any) before incrementing the
+/// new bucket, so totals across phases remain consistent even when an
+/// app transitions between phases across reconciliations.
+fn update_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp, new_phase: &str) {
+	let key = backoff_key(app);
+	let previous = ctx.phase_state.insert(key, new_phase.to_string());
+	let changed = previous.as_deref() != Some(new_phase);
+	if let Some(prev) = previous.as_deref()
+		&& changed
+	{
+		ctx.metrics.managed_apps.with_label_values(&[prev]).dec();
+	}
+	if changed {
+		ctx.metrics
+			.managed_apps
+			.with_label_values(&[new_phase])
+			.inc();
+	}
+}
+
+/// Decrement the `managed_apps` gauge for the phase this object was
+/// last observed in, if any. Called when the object is being cleaned up.
+fn drop_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp) {
+	if let Some((_, prev)) = ctx.phase_state.remove(&backoff_key(app)) {
+		ctx.metrics
+			.managed_apps
+			.with_label_values(&[prev.as_str()])
+			.dec();
+	}
 }
 
 /// Determines whether `lastTransitionTime` should be updated.
@@ -1415,14 +1582,55 @@ fn should_update_transition_time(
 	!matches!(existing_status, Some(existing) if existing == new_status)
 }
 
-/// Error policy: requeue after 30 seconds on transient failure.
-pub(crate) fn error_policy(_obj: Arc<ReinhardtApp>, error: &Error, _ctx: Arc<Context>) -> Action {
+/// Error policy: classify the error and select an exponential backoff
+/// duration based on the number of consecutive failures for this object.
+///
+/// - `Permanent` errors (invalid spec) return `Action::await_change()` —
+///   retrying does not help until the user fixes the resource.
+/// - `Transient` errors use a 30s base; `DependencyNotReady` uses a 60s
+///   base. Both double on each successive failure and cap at 10 minutes.
+pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Context>) -> Action {
 	error!("Reconciliation error: {error}");
-	Action::requeue(Duration::from_secs(30))
+
+	let class = backoff_class(error);
+
+	match class {
+		BackoffClass::Permanent => {
+			// Drop any stored attempt count; a permanent error will not be
+			// retried until the user changes the spec. `requeue_total` is
+			// intentionally NOT incremented here because `await_change()`
+			// does not produce a requeue.
+			ctx.backoff_state.remove(&backoff_key(&obj));
+			Action::await_change()
+		}
+		BackoffClass::Transient | BackoffClass::DependencyNotReady => {
+			let key = backoff_key(&obj);
+			// Atomically bump the attempt counter. Using `DashMap::entry`
+			// avoids a read+write race between concurrent error_policy calls.
+			let attempt = {
+				let mut entry = ctx.backoff_state.entry(key).or_insert(0);
+				*entry = entry.saturating_add(1);
+				*entry
+			};
+			let base = if class == BackoffClass::DependencyNotReady {
+				BACKOFF_BASE_DEPENDENCY_SECS
+			} else {
+				BACKOFF_BASE_TRANSIENT_SECS
+			};
+			// Record a requeue only on branches that actually issue
+			// `Action::requeue(...)`, so the metric reflects real requeues.
+			ctx.metrics
+				.requeue_total
+				.with_label_values(&[class.as_metric_label()])
+				.inc();
+			// Use attempt-1 so the first failure requeues at `base` seconds.
+			Action::requeue(compute_backoff(base, attempt.saturating_sub(1)))
+		}
+	}
 }
 
 /// Starts the operator controller loop.
-pub(crate) async fn run(client: Client) {
+pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let apps: Api<ReinhardtApp> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
@@ -1431,7 +1639,13 @@ pub(crate) async fn run(client: Client) {
 	let limit_ranges: Api<LimitRange> = Api::all(client.clone());
 
 	let platform = PlatformConfig::from_env();
-	let context = Arc::new(Context { client, platform });
+	let context = Arc::new(Context {
+		client,
+		platform,
+		metrics,
+		backoff_state: Arc::new(DashMap::new()),
+		phase_state: Arc::new(DashMap::new()),
+	});
 
 	Controller::new(apps, watcher::Config::default())
 		.owns(
@@ -1765,23 +1979,97 @@ mod tests {
 
 	// ── error_policy tests ───────────────────────────────────────────
 
+	/// Build a `Context` for error-policy tests with isolated metrics and
+	/// an empty backoff map. Using fresh metrics avoids cross-test
+	/// contamination of counters.
+	fn test_context() -> Arc<Context> {
+		Arc::new(Context {
+			client: dummy_client(),
+			platform: PlatformConfig::onprem_defaults(),
+			metrics: Metrics::new(),
+			backoff_state: Arc::new(DashMap::new()),
+			phase_state: Arc::new(DashMap::new()),
+		})
+	}
+
 	#[rstest]
 	#[tokio::test]
-	async fn test_error_policy_returns_requeue_action() {
+	async fn test_error_policy_transient_returns_base_requeue_on_first_failure() {
 		// Arrange
 		let app = Arc::new(make_test_app("error-app"));
 		let error = Error::MissingNamespace("error-app".to_string());
-		let ctx = Arc::new(Context {
-			client: dummy_client(),
-			platform: PlatformConfig::onprem_defaults(),
-		});
+		let ctx = test_context();
 
 		// Act
 		let action = error_policy(app, &error, ctx);
 
-		// Assert — error_policy must return a 30-second requeue
+		// Assert — first transient failure uses the 30s base backoff.
 		let expected = Action::requeue(Duration::from_secs(30));
 		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_transient_doubles_on_successive_failures() {
+		// Arrange
+		let app = Arc::new(make_test_app("flaky-app"));
+		let ctx = test_context();
+
+		// Act — three successive failures for the same object.
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		let action = error_policy(app, &Error::MissingNamespace("x".into()), ctx);
+
+		// Assert — third failure requeues at 30 * 2^2 = 120s.
+		let expected = Action::requeue(Duration::from_secs(120));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_permanent_awaits_change() {
+		// Arrange
+		let app = Arc::new(make_test_app("bad-spec"));
+		let error = Error::InvalidPort {
+			field: "port",
+			port: 70_000,
+		};
+		let ctx = test_context();
+
+		// Act
+		let action = error_policy(app, &error, ctx.clone());
+
+		// Assert — permanent errors do not requeue.
+		let expected = Action::await_change();
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+		// Assert — `requeue_total{reason="permanent"}` is NOT incremented
+		// because `Action::await_change()` does not issue a requeue.
+		let permanent_requeues = ctx
+			.metrics
+			.requeue_total
+			.with_label_values(&["permanent"])
+			.get();
+		assert_eq!(permanent_requeues, 0.0);
+	}
+
+	#[rstest]
+	fn test_compute_backoff_caps_at_max() {
+		// Assert: large attempt counts saturate to BACKOFF_MAX_SECS.
+		assert_eq!(
+			compute_backoff(30, 30),
+			Duration::from_secs(BACKOFF_MAX_SECS)
+		);
+		assert_eq!(compute_backoff(30, 0), Duration::from_secs(30));
+		assert_eq!(compute_backoff(30, 1), Duration::from_secs(60));
+		assert_eq!(compute_backoff(30, 2), Duration::from_secs(120));
 	}
 
 	// ── explicit-database inference wiring ──────────────────────────

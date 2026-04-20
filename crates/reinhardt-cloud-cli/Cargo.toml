@@ -16,6 +16,7 @@ colored = "3"
 dirs = "6"
 k8s-openapi = { workspace = true }
 kube = { workspace = true }
+reinhardt-cloud-telemetry = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reqwest = { workspace = true }
 rpassword = "7"
@@ -31,6 +32,7 @@ url = "2"
 
 [dev-dependencies]
 rstest = { workspace = true }
+rustls = { workspace = true }
 serial_test = "3.2"
 
 [lints]

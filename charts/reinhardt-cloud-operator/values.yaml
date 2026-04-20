@@ -80,6 +80,22 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+metrics:
+  # Enable the Prometheus /metrics endpoint exposed by the operator.
+  enabled: false
+  # Port on which the operator serves /metrics. The operator container
+  # always listens on this port when metrics are enabled.
+  port: 9090
+  service:
+    type: ClusterIP
+    annotations: {}
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs to be installed.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
@@ -160,3 +176,16 @@ isolation:
     max:
       cpu: "4"
       memory: 4Gi
+
+tracing:
+  # Enable OTLP trace export from the operator.
+  enabled: false
+  # OTLP gRPC endpoint receiving spans.
+  endpoint: "http://otel-collector.monitoring.svc.cluster.local:4317"
+  # OTel sampler kind. Maps directly to OTEL_TRACES_SAMPLER. See OTel spec for valid values.
+  sampler: "parentbased_traceidratio"
+  # OTel sampler argument. Maps to OTEL_TRACES_SAMPLER_ARG when non-empty.
+  # For parentbased_traceidratio this is the head-sampling ratio (0.0–1.0).
+  samplerArg: "0.1"
+  # Service name reported in spans. Defaults to "reinhardt-cloud-operator".
+  serviceName: "reinhardt-cloud-operator"
