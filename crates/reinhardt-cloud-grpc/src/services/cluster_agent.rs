@@ -19,6 +19,7 @@ use reinhardt_cloud_types::agent::{
 };
 use uuid::Uuid;
 
+use crate::agent_claims::AgentClaims;
 use crate::registry::AgentRegistry;
 
 // --- Conversions ---
@@ -125,6 +126,17 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		&self,
 		request: Request<Streaming<pb::AgentEvent>>,
 	) -> Result<Response<Self::AgentStreamStream>, Status> {
+		// Extract the authenticated cluster_id from AgentJwtInterceptor
+		// before consuming the request body. The interceptor is wired in
+		// `dashboard::config::grpc::start_grpc_server`; absent claims here
+		// indicate the interceptor was not installed (test or misconfig)
+		// and the implementation should fall back to its unauthenticated
+		// path.
+		let cluster_id = request
+			.extensions()
+			.get::<AgentClaims>()
+			.and_then(|claims| Uuid::parse_str(&claims.cluster_id).ok());
+
 		let incoming = request.into_inner();
 
 		// Convert proto stream to domain stream
@@ -135,7 +147,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 
 		let command_stream = self
 			.service
-			.agent_stream(Box::pin(domain_stream))
+			.agent_stream_authenticated(Box::pin(domain_stream), cluster_id)
 			.await
 			.map_err(api_error_to_status)?;
 
@@ -274,11 +286,10 @@ impl ClusterAgentService for RegistryBackedAgentService {
 			last_seen: timestamp,
 		};
 
-		// Register without cluster binding by default — a real control plane
-		// would look up the agent's authenticated cluster_id via JWT claims
-		// and call `register_with_cluster`. The service-level `register_*`
-		// distinction is intentionally kept in the registry so that
-		// cluster binding can be injected by request-scoped middleware.
+		// `agent_stream_authenticated` (below) re-routes through this
+		// method with the cluster binding already applied; the plain
+		// `agent_stream` path is reached only when no JWT claims were
+		// injected by the interceptor (tests, misconfig).
 		let mut command_rx = self.registry.register(info);
 		let registry = self.registry.clone();
 		let agent_id_copy = agent_id;
@@ -294,6 +305,79 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		});
 
 		// Consume agent-side events (heartbeat, deploy status) asynchronously.
+		let registry_events = self.registry.clone();
+		let agent_id_events = agent_id;
+		tokio::spawn(async move {
+			while let Some(result) = events.next().await {
+				match result {
+					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
+						registry_events.heartbeat(&id);
+					}
+					Ok(AgentEvent::Error { .. }) | Ok(AgentEvent::DeployStatus { .. }) => {
+						// Logged by the gRPC layer; no extra registry state.
+					}
+					Ok(_) => {}
+					Err(_) => break,
+				}
+			}
+			registry_events.unregister(&agent_id_events);
+		});
+
+		Ok(Box::pin(ReceiverStream::new(out_rx)))
+	}
+
+	async fn agent_stream_authenticated(
+		&self,
+		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
+		cluster_id: Option<Uuid>,
+	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
+		// Without an authenticated cluster_id we cannot route
+		// `send_command_to_cluster` to this agent — refuse the connection
+		// rather than silently registering an unroutable agent.
+		let Some(cluster_id) = cluster_id else {
+			return Err(ApiError::Unauthorized(
+				"Agent identity required: missing or invalid JWT claims".to_string(),
+			));
+		};
+
+		let mut events = agent_events;
+		let (out_tx, out_rx) = mpsc::channel::<Result<AgentCommand, ApiError>>(64);
+
+		let first = events.next().await;
+		let Some(Ok(AgentEvent::Connected {
+			agent_id,
+			cluster_name,
+			timestamp,
+		})) = first
+		else {
+			return Err(ApiError::BadRequest(
+				"Agent must send Connected event first".to_string(),
+			));
+		};
+
+		let info = AgentInfo {
+			agent_id,
+			cluster_name,
+			node_name: String::new(),
+			version: String::new(),
+			last_seen: timestamp,
+		};
+
+		// Bind the agent to its authenticated cluster_id so
+		// `AgentRegistry::send_command_to_cluster` reaches it.
+		let mut command_rx = self.registry.register_with_cluster(info, cluster_id);
+		let registry = self.registry.clone();
+		let agent_id_copy = agent_id;
+
+		tokio::spawn(async move {
+			while let Some(cmd) = command_rx.recv().await {
+				if out_tx.send(Ok(cmd)).await.is_err() {
+					break;
+				}
+			}
+			registry.unregister(&agent_id_copy);
+		});
+
 		let registry_events = self.registry.clone();
 		let agent_id_events = agent_id;
 		tokio::spawn(async move {
