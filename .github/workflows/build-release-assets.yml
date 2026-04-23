@@ -59,14 +59,14 @@ jobs:
       - name: Build binary (native)
         if: matrix.cross != true
         run: |
-          cargo build --release --bin ${{ matrix.binary }} --target ${{ matrix.target }}
+          cargo build --locked --release --bin ${{ matrix.binary }} --target ${{ matrix.target }}
           mv target/${{ matrix.target }}/release/${{ matrix.binary }} \
              ${{ matrix.binary }}-${{ matrix.target }}
 
       - name: Build binary (cross)
         if: matrix.cross == true
         run: |
-          cross build --release --bin ${{ matrix.binary }} --target ${{ matrix.target }}
+          cross build --locked --release --bin ${{ matrix.binary }} --target ${{ matrix.target }}
           mv target/${{ matrix.target }}/release/${{ matrix.binary }} \
              ${{ matrix.binary }}-${{ matrix.target }}
 
