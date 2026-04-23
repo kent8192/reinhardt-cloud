@@ -197,6 +197,24 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		.map_err(Error::Kube)?;
 	info!("Reconciled ConfigMap {namespace}/{name}-settings");
 
+	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
+	// Deletion of a stale ConfigMap is left to owner-reference GC once the
+	// owning ReinhardtApp is removed and to deliberate cleanup when
+	// spec.plugins transitions from Some(..) to None (not implemented here
+	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
+	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
+		let cm_name = plugin_cm
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| format!("{name}-dentdelion-plugins"));
+		cm_api
+			.patch(&cm_name, &ssapply, &Patch::Apply(&plugin_cm))
+			.await
+			.map_err(Error::Kube)?;
+		info!("Reconciled ConfigMap {namespace}/{cm_name}");
+	}
+
 	// Create JWT Secret if auth.jwt is enabled (preserve existing tokens)
 	if app.spec.auth.as_ref().is_some_and(|a| a.jwt) {
 		let secret_name = format!("{name}-jwt-secret");

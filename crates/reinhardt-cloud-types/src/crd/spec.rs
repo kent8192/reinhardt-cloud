@@ -15,6 +15,7 @@ use super::database::DatabaseSpec;
 use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::pages::PagesSpec;
+use super::plugins::{PluginSpec, sanitized_volume_suffix};
 use super::policy::DeletionPolicy;
 use super::source::SourceSpec;
 use super::status::ReinhardtAppStatus;
@@ -226,6 +227,12 @@ pub struct ReinhardtAppSpec {
 	/// Git source and CI/CD pipeline configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<SourceSpec>,
+	/// dentdelion WASM plugins to attach to the application.
+	///
+	/// Each entry produces a `dentdelion.toml` `[[plugins]]` section
+	/// and is mounted into the container via a volume at `wasm_dir`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub plugins: Option<Vec<PluginSpec>>,
 }
 
 impl ReinhardtAppSpec {
@@ -296,6 +303,39 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref plugins) = self.plugins {
+			for plugin in plugins {
+				if let Err(errs) = plugin.validate() {
+					errors.extend(errs);
+				}
+			}
+
+			// Cross-entry uniqueness checks. Two plugins whose names
+			// sanitize to the same Volume suffix would collide when the
+			// operator materializes the PodSpec, and two plugins sharing
+			// the same wasm_dir would produce duplicate VolumeMount
+			// mount paths. Both are rejected by kubelet at admission, so
+			// surface them here as validation errors instead.
+			let mut seen_suffixes: std::collections::BTreeSet<String> =
+				std::collections::BTreeSet::new();
+			let mut seen_dirs: std::collections::BTreeSet<String> =
+				std::collections::BTreeSet::new();
+			for plugin in plugins {
+				let suffix = sanitized_volume_suffix(&plugin.name);
+				if !seen_suffixes.insert(suffix.clone()) {
+					errors.push(ValidationError::new(format!(
+						"spec.plugins contains entries whose sanitized name collides on Volume suffix '{suffix}'"
+					)));
+				}
+				let dir = plugin.wasm_dir.trim().to_string();
+				if !dir.is_empty() && !seen_dirs.insert(dir.clone()) {
+					errors.push(ValidationError::new(format!(
+						"spec.plugins contains entries with duplicate wasm_dir '{dir}'"
+					)));
+				}
+			}
+		}
+
 		if errors.is_empty() {
 			Ok(())
 		} else {
@@ -356,6 +396,7 @@ mod tests {
 				),
 			]),
 			introspect: None,
+			plugins: None,
 		};
 
 		// Act
@@ -803,6 +844,7 @@ mod tests {
 			introspect: None,
 			isolation: None,
 			source: None,
+			plugins: None,
 		};
 
 		// Act
@@ -1126,6 +1168,168 @@ mod tests {
 		// Assert
 		let errors = result.unwrap_err();
 		assert!(errors.iter().any(|e| e.message.contains("repository")));
+	}
+
+	#[rstest]
+	fn test_spec_plugins_field_backward_compatible() {
+		// Arrange: JSON without plugins field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.plugins.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_plugins_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("plugins").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_with_plugins_roundtrip() {
+		// Arrange
+		use crate::crd::plugins::{PluginCapability, PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![PluginSpec {
+				name: "auth-gate".to_string(),
+				wasm_dir: "/var/lib/dentdelion/auth-gate".to_string(),
+				plugin_type: PluginType::HttpMiddleware,
+				memory_limit_mb: Some(64),
+				timeout_ms: Some(500),
+				capabilities: vec![PluginCapability::NetworkAccess],
+			}]),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).unwrap();
+		let parsed: ReinhardtAppSpec = serde_yaml::from_str(&yaml).unwrap();
+
+		// Assert
+		let plugins = parsed.plugins.unwrap();
+		assert_eq!(plugins.len(), 1);
+		assert_eq!(plugins[0].name, "auth-gate");
+		assert_eq!(plugins[0].plugin_type, PluginType::HttpMiddleware);
+		assert_eq!(plugins[0].capabilities.len(), 1);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_plugin_entry() {
+		// Arrange
+		use crate::crd::plugins::{PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![PluginSpec {
+				name: String::new(),
+				wasm_dir: "/p".to_string(),
+				plugin_type: PluginType::HttpMiddleware,
+				memory_limit_mb: None,
+				timeout_ms: None,
+				capabilities: Vec::new(),
+			}]),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("validation should fail");
+
+		// Assert
+		assert!(errors.iter().any(|e| e.message.contains("plugins[].name")));
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_duplicate_plugin_volume_suffix() {
+		// Arrange — names sanitize to the same Volume suffix.
+		use crate::crd::plugins::{PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![
+				PluginSpec {
+					name: "my.plugin".to_string(),
+					wasm_dir: "/var/lib/dentdelion/a".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+				PluginSpec {
+					name: "my-plugin".to_string(),
+					wasm_dir: "/var/lib/dentdelion/b".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("duplicate sanitized plugin name should be rejected");
+
+		// Assert
+		assert!(
+			errors
+				.iter()
+				.any(|e| e.message.contains("collides on Volume suffix 'my-plugin'"))
+		);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_duplicate_plugin_wasm_dir() {
+		// Arrange
+		use crate::crd::plugins::{PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![
+				PluginSpec {
+					name: "alpha".to_string(),
+					wasm_dir: "/var/lib/dentdelion/shared".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+				PluginSpec {
+					name: "beta".to_string(),
+					wasm_dir: "/var/lib/dentdelion/shared".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("duplicate wasm_dir should be rejected");
+
+		// Assert
+		assert!(errors.iter().any(|e| {
+			e.message
+				.contains("duplicate wasm_dir '/var/lib/dentdelion/shared'")
+		}));
 	}
 
 	#[rstest]
