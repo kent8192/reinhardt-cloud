@@ -36,6 +36,7 @@ use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
 use crate::apps::auth::services::local_auth::LocalAuthService;
+use crate::config::grpc_client::GrpcChannelSingleton;
 use crate::config::middleware::CspPathMiddleware;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 use reinhardt::{
@@ -88,6 +89,7 @@ async fn create_cookie_session_config() -> DashboardSessionConfig {
 		same_site: "Lax".to_string(),
 		skip_paths: vec![
 			"/api/auth/".to_string(),
+			"/api/healthz/".to_string(),
 			"/api/openapi.json".to_string(),
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
@@ -114,16 +116,19 @@ pub(crate) struct RouterInfrastructure {
 /// DI factory — builds shared router infrastructure components.
 ///
 /// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
-/// and `LocalAuthService` from the DI registry, then constructs the
-/// DI context, admin site routes, and Redis session backend.
-/// `WsBroadcaster` and `LocalAuthService` are injected solely to
-/// trigger their singleton initialization.
+/// `LocalAuthService`, and `GrpcChannelSingleton` from the DI registry,
+/// then constructs the DI context, admin site routes, and Redis session
+/// backend. `WsBroadcaster`, `LocalAuthService`, and `GrpcChannelSingleton`
+/// are injected solely to trigger their singleton initialization at startup
+/// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
+/// on the first RPC.
 #[injectable_factory(scope = "transient")]
 async fn create_router_infrastructure(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
 	#[inject] session_config: Depends<DashboardSessionConfig>,
 	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
 	#[inject] _local_auth_service: Depends<LocalAuthService>,
+	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> RouterInfrastructure {
 	let di_ctx = get_di_context(ContextLevel::Root);
 
@@ -196,6 +201,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
 			.mount("/clusters/", crate::apps::clusters::urls::server_url_patterns())
 			.mount("/deployments/", crate::apps::deployments::urls::server_url_patterns())
+			.mount("/", crate::apps::health::urls::server_url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)
 					.server_fn(server::register::register::marker)

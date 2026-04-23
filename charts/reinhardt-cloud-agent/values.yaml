@@ -1,0 +1,87 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/kent8192/reinhardt-cloud-agent
+  # When empty, defaults to .Chart.AppVersion at render time.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+rbac:
+  # When true, renders a namespace-scoped Role granting read access to
+  # apps/Deployments and apps/ReplicaSets (least-privilege per KUBERNETES_PATTERNS.md RB-1).
+  create: true
+
+controlPlane:
+  # Base URL of the Reinhardt Cloud control plane (Dashboard). Required.
+  # Injected into the Agent container as CONTROL_PLANE_URL.
+  url: "https://dashboard.example.com"
+  # Logical name identifying this cluster in the control plane. Required.
+  # Injected into the Agent container as CLUSTER_NAME.
+  clusterName: ""
+
+auth:
+  # Preferred: name of an existing Secret containing the bearer token used
+  # to authenticate with the control plane. Leave createSecret false.
+  existingSecret: ""
+  # Key within existingSecret (or the chart-created Secret) holding the token.
+  secretKey: "token"
+  # When true, the chart renders a Secret populated from auth.token.
+  # This path stores the token in Helm release values and is intended for
+  # local development only. Production deployments should provision the
+  # Secret out-of-band (e.g. sealed-secrets, external-secrets) and set
+  # auth.existingSecret instead.
+  createSecret: false
+  # Token value used only when createSecret is true. Never set in production.
+  token: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# The Agent does not currently expose an HTTP health endpoint, so probes are
+# commented out by default. Uncomment and adjust once the health surface lands.
+# livenessProbe:
+#   httpGet:
+#     path: /healthz
+#     port: http
+#   initialDelaySeconds: 15
+#   periodSeconds: 20
+# readinessProbe:
+#   httpGet:
+#     path: /readyz
+#     port: http
+#   initialDelaySeconds: 5
+#   periodSeconds: 10
+livenessProbe: {}
+readinessProbe: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL

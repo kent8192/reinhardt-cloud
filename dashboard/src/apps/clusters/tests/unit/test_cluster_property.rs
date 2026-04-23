@@ -22,6 +22,8 @@ mod tests {
 				name.clone(),
 				api_url.clone(),
 				is_active,
+				None,
+				None,
 			);
 
 			// Act

@@ -6,15 +6,19 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use reinhardt_cloud_core::mocks::{MockBuildService, MockClusterAgentService};
+use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
+use reinhardt_cloud_grpc::interceptor::AgentJwtInterceptor;
+use reinhardt_cloud_grpc::registry::AgentRegistry;
 use reinhardt_cloud_grpc::services::build::BuildServiceGrpc;
-use reinhardt_cloud_grpc::services::cluster_agent::AgentServiceGrpc;
+use reinhardt_cloud_grpc::services::cluster_agent::{AgentServiceGrpc, RegistryBackedAgentService};
 use reinhardt_cloud_proto::build::build_service_server::BuildServiceServer;
 use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServer;
 use tonic::transport::Server;
 use tracing::info;
+
+use crate::apps::clusters::services::token_issuance::jwt_secret;
 
 /// Mark a gRPC service as SERVING in the health reporter.
 ///
@@ -37,6 +41,12 @@ pub async fn start_grpc_server(
 		.parse()
 		.expect("Invalid gRPC bind address");
 
+	// Resolve the JWT secret once at startup so a missing
+	// `REINHARDT_CLOUD_JWT_SECRET` fails fast instead of letting
+	// agents connect to an unauthenticated server.
+	let secret = jwt_secret().expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
+	let agent_interceptor = AgentJwtInterceptor::new(secret.as_bytes());
+
 	let (mut health_reporter, health_service) = health::create_health_service();
 
 	// Register all known services as NOT_SERVING first, so that
@@ -44,9 +54,15 @@ pub async fn start_grpc_server(
 	// health check responses.
 	health::register_services(&mut health_reporter).await;
 
-	// Create gRPC service instances backed by mock implementations
+	// Create gRPC service instances. BuildService delegates to
+	// MockBuildService while the build pipeline is wired up.
+	// ClusterAgentService is backed by the real AgentRegistry so
+	// Deploy/Rollback/Scale/Restart commands route to the right
+	// agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
-	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
+	let agent_registry = Arc::new(AgentRegistry::new());
+	let agent_grpc =
+		AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(agent_registry)));
 
 	// Mark active services as SERVING for health checks
 	mark_service_healthy(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
@@ -73,7 +89,13 @@ pub async fn start_grpc_server(
 		.add_service(health_service)
 		.add_service(reflection_service)
 		.add_service(BuildServiceServer::new(build_grpc))
-		.add_service(AgentServiceServer::new(agent_grpc))
+		// AgentJwtInterceptor verifies the agent JWT and injects
+		// `AgentClaims` into request extensions so downstream service
+		// methods can route by the authenticated `cluster_id`.
+		.add_service(AgentServiceServer::with_interceptor(
+			agent_grpc,
+			agent_interceptor,
+		))
 		.serve_with_shutdown(addr, shutdown)
 		.await
 }
