@@ -91,7 +91,7 @@ jobs:
 
       - name: Run cross-crate integration tests (partition ${{ matrix.partition }}/2)
         run: |
-          cargo nextest run \
+          cargo nextest run --locked \
             --package reinhardt-cloud-integration-tests \
             --all-features \
             --partition hash:${{ matrix.partition }}/2 \

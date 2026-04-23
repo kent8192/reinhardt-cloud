@@ -17,6 +17,7 @@ description = "Run cargo check on workspace"
 command = "cargo"
 args = [
 	"check",
+	"--locked",
 	"--workspace",
 	"--all-features",
 	"--all-targets",
@@ -28,6 +29,7 @@ description = "Build workspace"
 command = "cargo"
 args = [
 	"build",
+	"--locked",
 	"--workspace",
 	"--all-features",
 	"--all-targets",
@@ -37,7 +39,14 @@ args = [
 [tasks.build-release]
 description = "Build workspace in release mode"
 command = "cargo"
-args = ["build", "--workspace", "--all-features", "--release", "--quiet"]
+args = [
+	"build",
+	"--locked",
+	"--workspace",
+	"--all-features",
+	"--release",
+	"--quiet",
+]
 
 [tasks.clean]
 description = "Clean build artifacts"
@@ -63,6 +72,7 @@ description = "Run clippy linter"
 command = "cargo"
 args = [
 	"clippy",
+	"--locked",
 	"--workspace",
 	"--all",
 	"--all-features",
@@ -77,6 +87,7 @@ command = "cargo"
 args = [
 	"clippy",
 	"--fix",
+	"--locked",
 	"--workspace",
 	"--all",
 	"--all-features",
@@ -91,6 +102,7 @@ description = "Check for development-only code (todo!, unimplemented!, dbg!)"
 command = "cargo"
 args = [
 	"clippy",
+	"--locked",
 	"--workspace",
 	"--all",
 	"--all-features",
@@ -110,6 +122,7 @@ command = "cargo"
 args = [
 	"nextest",
 	"run",
+	"--locked",
 	"--workspace",
 	"--all-features",
 	"--no-fail-fast",
@@ -121,6 +134,7 @@ command = "cargo"
 args = [
 	"nextest",
 	"run",
+	"--locked",
 	"--workspace",
 	"--lib",
 	"--all-features",
@@ -130,7 +144,7 @@ args = [
 [tasks.doc-test]
 description = "Run documentation tests"
 command = "cargo"
-args = ["test", "--workspace", "--all-features", "--doc"]
+args = ["test", "--locked", "--workspace", "--all-features", "--doc"]
 
 # ============================================================================
 # Documentation Tasks
@@ -139,12 +153,19 @@ args = ["test", "--workspace", "--all-features", "--doc"]
 [tasks.doc]
 description = "Build documentation"
 command = "cargo"
-args = ["doc", "--workspace", "--all-features", "--no-deps"]
+args = ["doc", "--locked", "--workspace", "--all-features", "--no-deps"]
 
 [tasks.doc-open]
 description = "Build and open documentation"
 command = "cargo"
-args = ["doc", "--workspace", "--all-features", "--no-deps", "--open"]
+args = [
+	"doc",
+	"--locked",
+	"--workspace",
+	"--all-features",
+	"--no-deps",
+	"--open",
+]
 
 # ============================================================================
 # Security Tasks
@@ -177,7 +198,7 @@ args = [
 [tasks.runserver]
 description = "Start local development server (requires PostgreSQL)"
 command = "cargo"
-args = ["run", "--bin", "manage", "--", "runserver"]
+args = ["run", "--locked", "--bin", "manage", "--", "runserver"]
 
 [tasks.runserver.env]
 REINHARDT_ENV = "local"
@@ -185,7 +206,7 @@ REINHARDT_ENV = "local"
 [tasks.showurls]
 description = "Display all registered URL patterns"
 command = "cargo"
-args = ["run", "--bin", "manage", "--", "showurls"]
+args = ["run", "--locked", "--bin", "manage", "--", "showurls"]
 
 [tasks.showurls.env]
 REINHARDT_ENV = "local"
@@ -193,7 +214,7 @@ REINHARDT_ENV = "local"
 [tasks.migrate]
 description = "Apply database migrations"
 command = "cargo"
-args = ["run", "--bin", "manage", "--", "migrate"]
+args = ["run", "--locked", "--bin", "manage", "--", "migrate"]
 
 [tasks.migrate.env]
 REINHARDT_ENV = "local"
@@ -207,6 +228,7 @@ description = "Generate ReinhardtApp CRD YAML into Helm chart crds/ directory"
 command = "cargo"
 args = [
 	"run",
+	"--locked",
 	"--bin",
 	"reinhardt-cloud",
 	"--quiet",
@@ -237,6 +259,7 @@ command = "cargo"
 args = [
 	"nextest",
 	"run",
+	"--locked",
 	"-p",
 	"reinhardt-cloud-telemetry",
 	"--all-features",
