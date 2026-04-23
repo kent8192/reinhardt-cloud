@@ -14,6 +14,7 @@ use kube::ResourceExt;
 use reinhardt_cloud_types::crd::ReinhardtApp;
 
 use super::labels::{Component, owner_reference, standard_labels};
+use super::plugins::build_plugin_volumes;
 use super::security::context::{build_container_security_context, build_pod_security_context};
 use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
@@ -97,12 +98,19 @@ pub(crate) fn build_deployment(
 		..Default::default()
 	}];
 
-	let volume_mounts = vec![VolumeMount {
+	let mut volume_mounts = vec![VolumeMount {
 		name: "settings".to_string(),
 		mount_path: "/etc/reinhardt-cloud/settings".to_string(),
 		read_only: Some(true),
 		..Default::default()
 	}];
+
+	// dentdelion WASM plugin volumes and mounts. Empty when spec.plugins is
+	// absent or empty; callers of build_plugin_configmap provision the
+	// backing ConfigMap separately in the reconciler.
+	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
+	volumes.extend(plugin_volumes);
+	volume_mounts.extend(plugin_mounts);
 
 	// Init container for database migrations when database will be provisioned
 	let mut init_containers: Vec<Container> = if needs_db_env {
