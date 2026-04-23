@@ -36,6 +36,7 @@ use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 use crate::apps::auth::server;
 use crate::apps::auth::services::local_auth::LocalAuthService;
+use crate::config::grpc_client::GrpcChannelSingleton;
 use crate::config::middleware::CspPathMiddleware;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 use reinhardt::{
@@ -114,16 +115,19 @@ pub(crate) struct RouterInfrastructure {
 /// DI factory — builds shared router infrastructure components.
 ///
 /// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
-/// and `LocalAuthService` from the DI registry, then constructs the
-/// DI context, admin site routes, and Redis session backend.
-/// `WsBroadcaster` and `LocalAuthService` are injected solely to
-/// trigger their singleton initialization.
+/// `LocalAuthService`, and `GrpcChannelSingleton` from the DI registry,
+/// then constructs the DI context, admin site routes, and Redis session
+/// backend. `WsBroadcaster`, `LocalAuthService`, and `GrpcChannelSingleton`
+/// are injected solely to trigger their singleton initialization at startup
+/// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
+/// on the first RPC.
 #[injectable_factory(scope = "transient")]
 async fn create_router_infrastructure(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
 	#[inject] session_config: Depends<DashboardSessionConfig>,
 	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
 	#[inject] _local_auth_service: Depends<LocalAuthService>,
+	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> RouterInfrastructure {
 	let di_ctx = get_di_context(ContextLevel::Root);
 
