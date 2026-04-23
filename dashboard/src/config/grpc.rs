@@ -51,9 +51,8 @@ pub async fn start_grpc_server(
 	// the right agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
 	let agent_registry = Arc::new(AgentRegistry::new());
-	let agent_grpc = AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(
-		agent_registry,
-	)));
+	let agent_grpc =
+		AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(agent_registry)));
 
 	// Mark active services as SERVING for health checks
 	mark_service_healthy(&mut health_reporter, health::BUILD_SERVICE_NAME).await;

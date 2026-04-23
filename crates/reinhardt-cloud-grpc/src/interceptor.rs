@@ -332,10 +332,7 @@ mod tests {
 
 		// Assert — must fail because `cluster_id` is missing/empty
 		assert!(result.is_err());
-		assert_eq!(
-			result.unwrap_err().code(),
-			tonic::Code::Unauthenticated
-		);
+		assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
 	}
 
 	#[rstest]
@@ -395,10 +392,8 @@ mod tests {
 		// Arrange
 		let mut interceptor = AgentJwtInterceptor::new(TEST_SECRET);
 		let mut req = Request::new(());
-		req.extensions_mut().insert(tonic::GrpcMethod::new(
-			"some.other.Service",
-			"Method",
-		));
+		req.extensions_mut()
+			.insert(tonic::GrpcMethod::new("some.other.Service", "Method"));
 
 		// Act — no auth header, but non-agent path should pass through
 		let result = interceptor.call(req);

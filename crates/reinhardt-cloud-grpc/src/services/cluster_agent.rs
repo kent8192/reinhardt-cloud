@@ -248,8 +248,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		// in the background.
 		let mut events = agent_events;
 
-		let (out_tx, out_rx) =
-			mpsc::channel::<Result<AgentCommand, ApiError>>(64);
+		let (out_tx, out_rx) = mpsc::channel::<Result<AgentCommand, ApiError>>(64);
 
 		// The Connected event is expected first; without it we cannot
 		// associate a command channel with an agent_id.
