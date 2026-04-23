@@ -1,8 +1,18 @@
 //! gRPC channel singleton used by the health check endpoint.
 //!
-//! Local copy until PR #392 promotes this to a shared dashboard-level
-//! singleton. When #392 lands, delete this module and update
-//! `views::healthz::healthz` to inject the shared singleton instead.
+//! Workaround for kent8192/reinhardt-cloud#391: this is a local copy of
+//! the dashboard-level `GrpcChannelSingleton` introduced by PR #392.
+//! Remove this module once PR #392 is merged, switching the health
+//! probe to consume the shared singleton via DI instead.
+//!
+//! Ideal implementation (without workaround):
+//!   // crates/.../views/healthz.rs
+//!   use crate::config::grpc_client::GrpcChannelSingleton;
+//!
+//!   #[get("/healthz/", name = "healthz")]
+//!   pub async fn healthz(
+//!       #[inject] grpc_channel: Depends<GrpcChannelSingleton>,
+//!   ) -> ViewResult<Response> { ... }
 //!
 //! The singleton wraps a lazily-connected `tonic::transport::Channel`
 //! so the health check probe does not pay the cost of establishing a
