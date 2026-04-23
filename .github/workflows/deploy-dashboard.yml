@@ -1,0 +1,98 @@
+name: Deploy Dashboard
+
+# Applies the canonical dashboard ReinhardtApp manifest whenever a new
+# release is published. Also runnable manually via workflow_dispatch so that
+# operators can pin a specific version without cutting a new release.
+#
+# Cluster access is provided through the KUBECONFIG repository secret.
+# See docs/self-hosting.md for the bootstrap flow.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Dashboard image tag to deploy (e.g. 1.2.3). Leave empty to use the latest release tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-dashboard:
+    name: Deploy dashboard via ReinhardtApp
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Resolve target version
+        id: version
+        # Route untrusted event inputs through the env map so the shell
+        # treats them as data, not as interpolated script fragments.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          # For release triggers, strip the leading "v" from the tag so the
+          # container tag matches the SemVer published to GHCR.
+          # For manual dispatch, use the operator-supplied input verbatim.
+          if [ "${EVENT_NAME}" = "release" ]; then
+            raw="${RELEASE_TAG}"
+          else
+            raw="${DISPATCH_VERSION}"
+          fi
+          if [ -z "${raw}" ]; then
+            echo "No version supplied. Provide 'version' input for workflow_dispatch."
+            exit 1
+          fi
+          version="${raw#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: v1.31.0
+
+      - name: Configure kubeconfig
+        # The KUBECONFIG secret must contain a base64-encoded kubeconfig that
+        # grants permission to apply ReinhardtApp resources in the
+        # reinhardt-cloud-system namespace. Cluster operators should scope
+        # this credential tightly (see docs/self-hosting.md).
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          if [ -z "${KUBECONFIG_B64}" ]; then
+            echo "KUBECONFIG secret is not set. See docs/self-hosting.md for setup."
+            exit 1
+          fi
+          mkdir -p "${HOME}/.kube"
+          echo "${KUBECONFIG_B64}" | base64 -d > "${HOME}/.kube/config"
+          chmod 600 "${HOME}/.kube/config"
+
+      - name: Render manifest with release version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Substitute the __VERSION__ placeholder so the committed manifest
+          # stays generic while the applied manifest pins a concrete tag.
+          sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-app.yaml \
+            > /tmp/dashboard-app.rendered.yaml
+          echo "Rendered manifest:"
+          cat /tmp/dashboard-app.rendered.yaml
+
+      - name: Apply ReinhardtApp manifest
+        run: |
+          kubectl apply -f /tmp/dashboard-app.rendered.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n reinhardt-cloud-system wait \
+            --for=condition=Ready \
+            --timeout=5m \
+            reinhardtapp/reinhardt-cloud-dashboard
