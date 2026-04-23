@@ -28,11 +28,11 @@ use tonic_health::pb::health_client::HealthClient;
 use tracing::warn;
 
 use crate::apps::auth::models::User;
-use crate::apps::health::serializers::{HealthStatus, HealthzResponse};
+use crate::apps::health::serializers::{HealthzResponse, STATUS_ERROR, STATUS_OK};
 use crate::apps::health::services::GrpcChannelSingleton;
 
 /// Per-probe timeout. Each individual probe (DB and gRPC) must complete
-/// within this window or it is reported as `error`.
+/// within this window or it is reported as `"error"`.
 ///
 /// Two seconds is generous enough to absorb routine scheduling jitter
 /// but tight enough that a hung dependency still fails probes quickly.
@@ -41,17 +41,17 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Probe the database by running a cheap `COUNT(*)` against an existing
 /// table via the ORM.
 ///
-/// Returns `Ok` on success, `Error` on any failure (including timeout).
-async fn probe_database() -> HealthStatus {
+/// Returns `true` on success, `false` on any failure (including timeout).
+async fn probe_database() -> bool {
 	match timeout(PROBE_TIMEOUT, User::objects().count()).await {
-		Ok(Ok(_)) => HealthStatus::Ok,
+		Ok(Ok(_)) => true,
 		Ok(Err(err)) => {
 			warn!("healthz: database probe failed: {err}");
-			HealthStatus::Error
+			false
 		}
 		Err(_) => {
 			warn!("healthz: database probe timed out after {PROBE_TIMEOUT:?}");
-			HealthStatus::Error
+			false
 		}
 	}
 }
@@ -61,22 +61,27 @@ async fn probe_database() -> HealthStatus {
 ///
 /// An empty `service` field is the standard way to ask for the server-wide
 /// health status under the gRPC Health Checking Protocol.
-async fn probe_grpc(grpc_channel: &GrpcChannelSingleton) -> HealthStatus {
+async fn probe_grpc(grpc_channel: &GrpcChannelSingleton) -> bool {
 	let mut client = HealthClient::new(grpc_channel.channel().clone());
 	let request = HealthCheckRequest {
 		service: String::new(),
 	};
 	match timeout(PROBE_TIMEOUT, client.check(request)).await {
-		Ok(Ok(_)) => HealthStatus::Ok,
+		Ok(Ok(_)) => true,
 		Ok(Err(err)) => {
 			warn!("healthz: gRPC probe failed: {err}");
-			HealthStatus::Error
+			false
 		}
 		Err(_) => {
 			warn!("healthz: gRPC probe timed out after {PROBE_TIMEOUT:?}");
-			HealthStatus::Error
+			false
 		}
 	}
+}
+
+/// Render a probe boolean as its stable status string.
+fn status_str(ok: bool) -> String {
+	if ok { STATUS_OK.to_string() } else { STATUS_ERROR.to_string() }
 }
 
 /// GET `/api/healthz/` — Kubernetes-friendly liveness and readiness probe.
@@ -93,21 +98,21 @@ async fn probe_grpc(grpc_channel: &GrpcChannelSingleton) -> HealthStatus {
 pub async fn healthz(
 	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
-	let db = probe_database().await;
-	let grpc = probe_grpc(&grpc_channel).await;
+	let db_ok = probe_database().await;
+	let grpc_ok = probe_grpc(&grpc_channel).await;
 
-	let status = if db == HealthStatus::Ok && grpc == HealthStatus::Ok {
-		HealthStatus::Ok
-	} else {
-		HealthStatus::Error
-	};
-	let http_status = if status == HealthStatus::Ok {
+	let all_ok = db_ok && grpc_ok;
+	let http_status = if all_ok {
 		StatusCode::OK
 	} else {
 		StatusCode::SERVICE_UNAVAILABLE
 	};
 
-	let body = HealthzResponse { status, db, grpc };
+	let body = HealthzResponse {
+		status: status_str(all_ok),
+		db: status_str(db_ok),
+		grpc: status_str(grpc_ok),
+	};
 	let bytes = json::to_vec(&body).map_err(|e| {
 		AppError::Internal(format!("Failed to serialize healthz response: {e}"))
 	})?;

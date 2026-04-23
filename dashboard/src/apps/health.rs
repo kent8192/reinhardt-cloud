@@ -12,6 +12,7 @@ pub mod services;
 pub mod tests;
 pub mod urls;
 pub mod views;
+pub mod ws_urls;
 
 #[app_config(name = "health", label = "health")]
 pub struct HealthConfig;

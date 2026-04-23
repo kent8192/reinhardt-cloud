@@ -1,5 +1,7 @@
 //! View functions for health endpoints.
 
-pub mod healthz;
+use reinhardt::flatten_imports;
 
-pub use healthz::healthz;
+flatten_imports! {
+	pub mod healthz;
+}
