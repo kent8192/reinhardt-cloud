@@ -88,6 +88,7 @@ async fn create_cookie_session_config() -> DashboardSessionConfig {
 		same_site: "Lax".to_string(),
 		skip_paths: vec![
 			"/api/auth/".to_string(),
+			"/api/healthz/".to_string(),
 			"/api/openapi.json".to_string(),
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
@@ -196,6 +197,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
 			.mount("/clusters/", crate::apps::clusters::urls::server_url_patterns())
 			.mount("/deployments/", crate::apps::deployments::urls::server_url_patterns())
+			.mount("/", crate::apps::health::urls::server_url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)
 					.server_fn(server::register::register::marker)

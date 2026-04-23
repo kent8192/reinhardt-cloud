@@ -10,4 +10,6 @@ pub mod clusters;
 #[cfg(native)]
 pub mod deployments;
 #[cfg(native)]
+pub mod health;
+#[cfg(native)]
 pub mod validators;
