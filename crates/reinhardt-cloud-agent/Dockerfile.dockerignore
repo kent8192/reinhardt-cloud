@@ -1,0 +1,62 @@
+# Keep the build context small and deterministic.
+#
+# The Dockerfile builds from the repository root (so cargo-chef can see the
+# full workspace manifest and Cargo.lock). The entries below exclude files
+# that are not required at build time: local tooling state, editor/IDE
+# artifacts, git metadata, docs, and every `target/` directory produced by
+# cargo.
+
+# Version control
+.git
+.gitattributes
+.gitignore
+.gitmessage
+
+# Cargo build artifacts (every workspace member)
+target
+**/target
+
+# Editor / IDE state
+.idea
+.vscode
+.zed
+.cursor
+*.swp
+*~
+.DS_Store
+
+# Claude Code / agent tooling state
+.claude
+.serena
+.devin
+.aider*
+
+# Coast / local runtime
+Coastfile
+
+# Docs and top-level markdown (not needed for the binary build).
+# README.md at the agent crate root is still included via `!` below.
+docs
+**/*.md
+!crates/reinhardt-cloud-agent/README.md
+!README.md
+
+# Test/CI artefacts
+tests/fixtures/**/target
+.cargo/registry
+.cargo/git
+
+# Node / dashboard assets not needed for the Rust binary build
+dashboard/node_modules
+dashboard/**/dist
+dashboard/**/build
+
+# Helm/Terraform/infra (not required by the agent binary)
+charts
+infra
+
+# Misc
+*.log
+.env
+.env.*
+!.env.example
