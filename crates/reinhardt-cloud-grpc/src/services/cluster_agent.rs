@@ -3,7 +3,10 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use prost_types::Timestamp;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -11,7 +14,12 @@ use reinhardt_cloud_core::ApiError;
 use reinhardt_cloud_core::traits::ClusterAgentService;
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::common::StatusResponse;
-use reinhardt_cloud_types::agent::{AgentCommand, AgentEvent, AgentHealth, DeployStatusReport};
+use reinhardt_cloud_types::agent::{
+	AgentCommand, AgentEvent, AgentHealth, AgentInfo, DeployStatusReport,
+};
+use uuid::Uuid;
+
+use crate::registry::AgentRegistry;
 
 // --- Conversions ---
 
@@ -200,6 +208,130 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 			success: true,
 			message: "Deploy status received".to_string(),
 		}))
+	}
+}
+
+// --- Registry-backed ClusterAgentService ---
+
+/// Real implementation of `ClusterAgentService` backed by `AgentRegistry`.
+///
+/// This replaces the previous `MockClusterAgentService` used by the
+/// dashboard gRPC server. On `agent_stream`, each connected agent's
+/// outbound command channel is registered with the agent registry so
+/// subsequent REST/gRPC control-plane requests can route
+/// Deploy/Rollback/Scale/Restart commands to the correct cluster via
+/// `AgentRegistry::send_command_to_cluster`.
+pub struct RegistryBackedAgentService {
+	registry: Arc<AgentRegistry>,
+}
+
+impl RegistryBackedAgentService {
+	/// Create a service backed by the given agent registry singleton.
+	pub fn new(registry: Arc<AgentRegistry>) -> Self {
+		Self { registry }
+	}
+
+	/// Expose the underlying registry for admin/inspection endpoints.
+	pub fn registry(&self) -> Arc<AgentRegistry> {
+		self.registry.clone()
+	}
+}
+
+#[async_trait]
+impl ClusterAgentService for RegistryBackedAgentService {
+	async fn agent_stream(
+		&self,
+		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
+	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
+		// Consume the first event from the agent to identify the cluster/agent
+		// binding. Subsequent events (heartbeats, deploy status) are processed
+		// in the background.
+		let mut events = agent_events;
+
+		let (out_tx, out_rx) =
+			mpsc::channel::<Result<AgentCommand, ApiError>>(64);
+
+		// The Connected event is expected first; without it we cannot
+		// associate a command channel with an agent_id.
+		let first = events.next().await;
+		let Some(Ok(AgentEvent::Connected {
+			agent_id,
+			cluster_name,
+			timestamp,
+		})) = first
+		else {
+			// Peer disconnected before announcing itself, or sent a
+			// non-Connected event as the first message.
+			return Err(ApiError::BadRequest(
+				"Agent must send Connected event first".to_string(),
+			));
+		};
+
+		let info = AgentInfo {
+			agent_id,
+			cluster_name,
+			node_name: String::new(),
+			version: String::new(),
+			last_seen: timestamp,
+		};
+
+		// Register without cluster binding by default — a real control plane
+		// would look up the agent's authenticated cluster_id via JWT claims
+		// and call `register_with_cluster`. The service-level `register_*`
+		// distinction is intentionally kept in the registry so that
+		// cluster binding can be injected by request-scoped middleware.
+		let mut command_rx = self.registry.register(info);
+		let registry = self.registry.clone();
+		let agent_id_copy = agent_id;
+
+		// Forward commands from the registry to the outbound stream.
+		tokio::spawn(async move {
+			while let Some(cmd) = command_rx.recv().await {
+				if out_tx.send(Ok(cmd)).await.is_err() {
+					break;
+				}
+			}
+			registry.unregister(&agent_id_copy);
+		});
+
+		// Consume agent-side events (heartbeat, deploy status) asynchronously.
+		let registry_events = self.registry.clone();
+		let agent_id_events = agent_id;
+		tokio::spawn(async move {
+			while let Some(result) = events.next().await {
+				match result {
+					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
+						registry_events.heartbeat(&id);
+					}
+					Ok(AgentEvent::Error { .. }) | Ok(AgentEvent::DeployStatus { .. }) => {
+						// Logged by the gRPC layer; no extra registry state.
+					}
+					Ok(_) => {}
+					Err(_) => break,
+				}
+			}
+			registry_events.unregister(&agent_id_events);
+		});
+
+		Ok(Box::pin(ReceiverStream::new(out_rx)))
+	}
+
+	async fn report_health(&self, health: AgentHealth) -> Result<(), ApiError> {
+		let agent_id = health.agent_id;
+		self.registry.update_health(&agent_id, health);
+		Ok(())
+	}
+
+	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError> {
+		self.registry
+			.get_health(&agent_id)
+			.ok_or_else(|| ApiError::NotFound(format!("No health report for agent {agent_id}")))
+	}
+
+	async fn report_deploy_status(&self, _report: DeployStatusReport) -> Result<(), ApiError> {
+		// Deploy status events flow through the agent_stream event pump; the
+		// explicit `report_deploy_status` RPC is kept as a compatibility path.
+		Ok(())
 	}
 }
 
@@ -581,6 +713,56 @@ mod tests {
 	}
 
 	// --- Decision table: #[case] for each command variant -> correct oneof arm ---
+
+	// --- RegistryBackedAgentService tests ---
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_registry_backed_report_health_writes_to_registry() {
+		// Arrange
+		let registry = Arc::new(AgentRegistry::new());
+		let service = RegistryBackedAgentService::new(registry.clone());
+		let agent_id = Uuid::now_v7();
+		let info = AgentInfo {
+			agent_id,
+			cluster_name: "c".to_string(),
+			node_name: "n".to_string(),
+			version: "0.1".to_string(),
+			last_seen: Utc::now(),
+		};
+		let _rx = registry.register(info);
+
+		let health = AgentHealth {
+			agent_id,
+			healthy: true,
+			cpu_usage_percent: 50.0,
+			memory_usage_percent: 60.0,
+			pod_count: 3,
+			reported_at: Utc::now(),
+		};
+
+		// Act
+		service.report_health(health).await.unwrap();
+
+		// Assert
+		let fetched = service.get_agent_health(agent_id).await.unwrap();
+		assert_eq!(fetched.cpu_usage_percent, 50.0);
+		assert_eq!(fetched.pod_count, 3);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_registry_backed_get_health_unknown_agent_is_not_found() {
+		// Arrange
+		let registry = Arc::new(AgentRegistry::new());
+		let service = RegistryBackedAgentService::new(registry);
+
+		// Act
+		let result = service.get_agent_health(Uuid::now_v7()).await;
+
+		// Assert
+		assert!(matches!(result, Err(ApiError::NotFound(_))));
+	}
 
 	#[rstest]
 	#[case(
