@@ -139,7 +139,10 @@ mod tests {
 		// Assert
 		let status = response.status_code();
 		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
-		assert_eq!(status, 503, "healthz must degrade to 503 when DB is down; body={body}");
+		assert_eq!(
+			status, 503,
+			"healthz must degrade to 503 when DB is down; body={body}"
+		);
 		assert_eq!(body["status"], "error");
 		assert_eq!(body["db"], "error");
 	}
