@@ -62,6 +62,10 @@ pub(crate) enum Error {
 	#[allow(dead_code)]
 	#[error("source build failed: {0}")]
 	BuildFailed(String),
+
+	/// Rendering the dentdelion plugin configuration TOML document failed.
+	#[error("dentdelion plugin config render failed: {0}")]
+	PluginConfigRender(String),
 }
 
 /// Classification of reconciliation errors for backoff decisions.

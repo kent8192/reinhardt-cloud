@@ -32,6 +32,8 @@ pub(crate) enum Component {
 	/// Preview environment for pull requests.
 	#[allow(dead_code)]
 	Preview,
+	/// dentdelion WASM plugin ConfigMap and backing volumes.
+	Plugins,
 }
 
 impl Component {
@@ -47,6 +49,7 @@ impl Component {
 			Self::StaticServer => "static-server",
 			Self::Build => "build",
 			Self::Preview => "preview",
+			Self::Plugins => "plugins",
 		}
 	}
 }
