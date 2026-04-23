@@ -15,6 +15,7 @@ use super::database::DatabaseSpec;
 use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::pages::PagesSpec;
+use super::plugins::PluginSpec;
 use super::policy::DeletionPolicy;
 use super::source::SourceSpec;
 use super::status::ReinhardtAppStatus;
@@ -226,6 +227,12 @@ pub struct ReinhardtAppSpec {
 	/// Git source and CI/CD pipeline configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<SourceSpec>,
+	/// dentdelion WASM plugins to attach to the application.
+	///
+	/// Each entry produces a `dentdelion.toml` `[[plugins]]` section
+	/// and is mounted into the container via a volume at `wasm_dir`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub plugins: Option<Vec<PluginSpec>>,
 }
 
 impl ReinhardtAppSpec {
@@ -296,6 +303,14 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref plugins) = self.plugins {
+			for plugin in plugins {
+				if let Err(errs) = plugin.validate() {
+					errors.extend(errs);
+				}
+			}
+		}
+
 		if errors.is_empty() {
 			Ok(())
 		} else {
@@ -356,6 +371,7 @@ mod tests {
 				),
 			]),
 			introspect: None,
+			plugins: None,
 		};
 
 		// Act
@@ -803,6 +819,7 @@ mod tests {
 			introspect: None,
 			isolation: None,
 			source: None,
+			plugins: None,
 		};
 
 		// Act
@@ -1126,6 +1143,89 @@ mod tests {
 		// Assert
 		let errors = result.unwrap_err();
 		assert!(errors.iter().any(|e| e.message.contains("repository")));
+	}
+
+	#[rstest]
+	fn test_spec_plugins_field_backward_compatible() {
+		// Arrange: JSON without plugins field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.plugins.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_plugins_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("plugins").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_with_plugins_roundtrip() {
+		// Arrange
+		use crate::crd::plugins::{PluginCapability, PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![PluginSpec {
+				name: "auth-gate".to_string(),
+				wasm_dir: "/var/lib/dentdelion/auth-gate".to_string(),
+				plugin_type: PluginType::HttpMiddleware,
+				memory_limit_mb: Some(64),
+				timeout_ms: Some(500),
+				capabilities: vec![PluginCapability::NetworkAccess],
+			}]),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).unwrap();
+		let parsed: ReinhardtAppSpec = serde_yaml::from_str(&yaml).unwrap();
+
+		// Assert
+		let plugins = parsed.plugins.unwrap();
+		assert_eq!(plugins.len(), 1);
+		assert_eq!(plugins[0].name, "auth-gate");
+		assert_eq!(plugins[0].plugin_type, PluginType::HttpMiddleware);
+		assert_eq!(plugins[0].capabilities.len(), 1);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_plugin_entry() {
+		// Arrange
+		use crate::crd::plugins::{PluginSpec, PluginType};
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![PluginSpec {
+				name: String::new(),
+				wasm_dir: "/p".to_string(),
+				plugin_type: PluginType::HttpMiddleware,
+				memory_limit_mb: None,
+				timeout_ms: None,
+				capabilities: Vec::new(),
+			}]),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("validation should fail");
+
+		// Assert
+		assert!(errors.iter().any(|e| e.message.contains("plugins[].name")));
 	}
 
 	#[rstest]
