@@ -45,10 +45,11 @@ pub async fn start_grpc_server(
 	// health check responses.
 	health::register_services(&mut health_reporter).await;
 
-	// Create gRPC service instances. BuildService remains on the mock
-	// implementation for now; ClusterAgentService is backed by the real
-	// AgentRegistry so Deploy/Rollback/Scale/Restart commands route to
-	// the right agent by cluster_id.
+	// Create gRPC service instances. BuildService delegates to
+	// MockBuildService while the build pipeline is wired up.
+	// ClusterAgentService is backed by the real AgentRegistry so
+	// Deploy/Rollback/Scale/Restart commands route to the right
+	// agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
 	let agent_registry = Arc::new(AgentRegistry::new());
 	let agent_grpc =
