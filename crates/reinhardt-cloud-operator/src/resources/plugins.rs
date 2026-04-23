@@ -337,8 +337,8 @@ mod tests {
 		};
 
 		// Act
-		let rendered = render_plugin_config(std::slice::from_ref(&plugin))
-			.expect("render should succeed");
+		let rendered =
+			render_plugin_config(std::slice::from_ref(&plugin)).expect("render should succeed");
 
 		// Assert
 		for expected in ["network", "fs-read", "fs-write", "env"] {

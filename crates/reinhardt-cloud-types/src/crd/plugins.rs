@@ -73,9 +73,7 @@ impl PluginSpec {
 		}
 
 		if self.wasm_dir.trim().is_empty() {
-			errors.push(ValidationError::new(
-				"plugins[].wasm_dir must be non-empty",
-			));
+			errors.push(ValidationError::new("plugins[].wasm_dir must be non-empty"));
 		}
 
 		if let Some(mem) = self.memory_limit_mb
@@ -119,8 +117,7 @@ mod tests {
 
 		// Act
 		let json = serde_json::to_string(&spec).expect("serialize should succeed");
-		let parsed: PluginSpec =
-			serde_json::from_str(&json).expect("deserialize should succeed");
+		let parsed: PluginSpec = serde_json::from_str(&json).expect("deserialize should succeed");
 
 		// Assert
 		assert_eq!(parsed.name, "auth-gate");
@@ -137,8 +134,7 @@ mod tests {
 		let json = r#"{"name":"p","wasm_dir":"/p","plugin_type":"GrpcInterceptor"}"#;
 
 		// Act
-		let parsed: PluginSpec =
-			serde_json::from_str(json).expect("deserialize should succeed");
+		let parsed: PluginSpec = serde_json::from_str(json).expect("deserialize should succeed");
 
 		// Assert
 		assert_eq!(parsed.plugin_type, PluginType::GrpcInterceptor);
