@@ -6061,6 +6061,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.13.1",
+ "tonic-health",
  "tonic-reflection",
  "tracing",
  "tracing-subscriber",
