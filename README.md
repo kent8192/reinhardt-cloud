@@ -449,6 +449,15 @@ cargo run --bin reinhardt-cloud-operator
 
 Breaking changes will be documented in release notes.
 
+## Self-hosting
+
+The Reinhardt Cloud Dashboard can be self-hosted through its own operator
+as a `ReinhardtApp`. A canonical manifest (`manifests/dashboard-app.yaml`)
+and a release-triggered deploy workflow
+(`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
+dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for
+bootstrap, upgrade, rollback, and observability instructions.
+
 ## Getting Help
 
 - [GitHub Discussions](https://github.com/kent8192/reinhardt-cloud/discussions) — Ask questions and share ideas

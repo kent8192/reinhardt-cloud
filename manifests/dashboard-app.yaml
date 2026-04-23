@@ -1,0 +1,62 @@
+# Canonical ReinhardtApp manifest for self-hosting the Reinhardt Cloud Dashboard.
+#
+# This manifest is applied by the .github/workflows/deploy-dashboard.yml
+# workflow on every GitHub release. The workflow replaces the __VERSION__
+# placeholder with the release tag (with any leading "v" stripped).
+#
+# Field names match crates/reinhardt-cloud-types/src/crd/spec.rs
+# (ReinhardtAppSpec, apiVersion v1alpha2).
+#
+# Prerequisites:
+#   - The Reinhardt Cloud Operator is installed and the reinhardtapps CRD
+#     is registered (v1alpha2).
+#   - The `reinhardt-cloud-system` namespace exists.
+#   - A Secret named `reinhardt-cloud-dashboard-secrets` with keys
+#     `jwt-secret` and `database-url` exists in `reinhardt-cloud-system`.
+#
+# See docs/self-hosting.md for the full bootstrap, upgrade, and rollback flow.
+---
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: reinhardt-cloud-dashboard
+  namespace: reinhardt-cloud-system
+  labels:
+    app.kubernetes.io/name: reinhardt-cloud-dashboard
+    app.kubernetes.io/instance: reinhardt-cloud-dashboard
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/managed-by: reinhardt-cloud-operator
+    app.kubernetes.io/part-of: reinhardt-cloud
+spec:
+  # Container image is published by the release pipeline to GHCR.
+  # __VERSION__ is replaced by the deploy-dashboard workflow with the
+  # release tag (e.g. "1.2.3").
+  image: ghcr.io/kent8192/reinhardt-cloud-dashboard:__VERSION__
+  replicas: 2
+  # Preserve cloud resources (e.g. managed database) on deletion so that
+  # an accidental `kubectl delete` cannot wipe production state.
+  deletion_policy: retain
+  # Autoscaling bounds. The operator wires these into the HPA / KEDA
+  # ScaledObject it owns for this ReinhardtApp.
+  scale:
+    min_replicas: 2
+    max_replicas: 6
+    metric: Cpu
+    target_value: 70
+  # Health probe configuration. The operator translates this into
+  # readiness/liveness probes on the owned Deployment.
+  health:
+    path: /api/healthz/
+    port: 8000
+    interval_seconds: 10
+  # Service exposure. target_port matches the dashboard's listener.
+  services:
+    port: 80
+    target_port: 8000
+  # Environment variables. The CRD models env as a flat key/value map;
+  # secret values are referenced by name and resolved by the operator
+  # from the Secret pre-provisioned in this namespace (see prerequisites).
+  env:
+    REINHARDT_CLOUD_JWT_SECRET: secretRef:reinhardt-cloud-dashboard-secrets/jwt-secret
+    DATABASE_URL: secretRef:reinhardt-cloud-dashboard-secrets/database-url
+    GRPC_ENDPOINT: http://reinhardt-cloud-operator.reinhardt-cloud-system.svc.cluster.local:50051
