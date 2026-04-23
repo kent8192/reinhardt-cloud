@@ -42,4 +42,4 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run cargo check (${{ matrix.os }})
-        run: cargo check --workspace --all --all-features
+        run: cargo check --locked --workspace --all --all-features
