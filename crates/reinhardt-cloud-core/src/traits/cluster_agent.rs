@@ -24,6 +24,21 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
 	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError>;
 
+	/// Open a bidirectional stream with an agent, propagating the
+	/// authenticated `cluster_id` from the gRPC interceptor so the
+	/// implementation can bind the agent to its cluster in the registry.
+	///
+	/// The default implementation ignores `cluster_id` and delegates to
+	/// [`Self::agent_stream`], preserving backward compatibility for
+	/// services (e.g. mocks) that do not need cluster-scoped routing.
+	async fn agent_stream_authenticated(
+		&self,
+		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
+		_cluster_id: Option<Uuid>,
+	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
+		self.agent_stream(agent_events).await
+	}
+
 	/// Report health status for an agent.
 	async fn report_health(&self, health: AgentHealth) -> Result<(), ApiError>;
 

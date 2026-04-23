@@ -7,5 +7,6 @@ flatten_imports! {
 	pub mod delete_cluster;
 	pub mod list_clusters;
 	pub mod retrieve_cluster;
+	pub mod rotate_token;
 	pub mod update_cluster;
 }

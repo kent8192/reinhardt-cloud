@@ -26,6 +26,11 @@ struct AgentConnection {
 	health: Option<AgentHealth>,
 	command_tx: mpsc::Sender<AgentCommand>,
 	last_heartbeat: DateTime<Utc>,
+	/// Optional cluster ID associated with this agent. Populated when an
+	/// agent connects with an authenticated agent JWT (whose claims carry
+	/// a `cluster_id`). Used by `ClusterAgentRegistry` to route commands
+	/// addressed to a cluster instead of a specific agent.
+	cluster_id: Option<Uuid>,
 }
 
 /// Registry tracking all connected cluster agents.
@@ -69,10 +74,76 @@ impl AgentRegistry {
 				health: None,
 				command_tx: tx,
 				last_heartbeat: Utc::now(),
+				cluster_id: None,
 			},
 		);
 
 		rx
+	}
+
+	/// Register a new agent connection associated with a specific cluster.
+	///
+	/// Identical to [`AgentRegistry::register`] but also records the
+	/// `cluster_id` taken from the agent's authenticated JWT claims, so
+	/// later calls to [`AgentRegistry::send_command_to_cluster`] can route
+	/// by cluster identity rather than agent identity.
+	pub fn register_with_cluster(
+		&self,
+		info: AgentInfo,
+		cluster_id: Uuid,
+	) -> mpsc::Receiver<AgentCommand> {
+		let (tx, rx) = mpsc::channel(64);
+		let agent_id = info.agent_id;
+
+		info!(
+			agent_id = %agent_id,
+			cluster_id = %cluster_id,
+			cluster = %info.cluster_name,
+			"Agent registered with cluster binding"
+		);
+
+		self.agents.insert(
+			agent_id,
+			AgentConnection {
+				info,
+				health: None,
+				command_tx: tx,
+				last_heartbeat: Utc::now(),
+				cluster_id: Some(cluster_id),
+			},
+		);
+
+		rx
+	}
+
+	/// Send a command to any connected agent that reports itself as
+	/// belonging to the given `cluster_id`.
+	///
+	/// Returns `Err` when no agent is currently registered for the
+	/// cluster, or when the agent's command channel is closed.
+	pub async fn send_command_to_cluster(
+		&self,
+		cluster_id: &Uuid,
+		command: AgentCommand,
+	) -> Result<(), String> {
+		// Find the first agent whose cluster binding matches.
+		let agent_id = self
+			.agents
+			.iter()
+			.find(|entry| entry.cluster_id == Some(*cluster_id))
+			.map(|entry| *entry.key())
+			.ok_or_else(|| format!("No agent connected for cluster {cluster_id}"))?;
+
+		self.send_command(&agent_id, command).await
+	}
+
+	/// List agent IDs currently bound to the given cluster.
+	pub fn agents_for_cluster(&self, cluster_id: &Uuid) -> Vec<Uuid> {
+		self.agents
+			.iter()
+			.filter(|entry| entry.cluster_id == Some(*cluster_id))
+			.map(|entry| *entry.key())
+			.collect()
 	}
 
 	/// Remove an agent from the registry.
@@ -561,5 +632,70 @@ mod tests {
 
 		// Assert — all agents have been unregistered, no panic
 		assert_eq!(registry.count(), 0);
+	}
+
+	// --- Cluster-aware routing tests ---
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_register_with_cluster_binds_agent_to_cluster() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+
+		// Act
+		let _rx = registry.register_with_cluster(test_agent_info(agent_id), cluster_id);
+
+		// Assert
+		let agents = registry.agents_for_cluster(&cluster_id);
+		assert_eq!(agents.len(), 1);
+		assert_eq!(agents[0], agent_id);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_send_command_to_cluster_routes_to_right_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let mut rx = registry.register_with_cluster(test_agent_info(agent_id), cluster_id);
+
+		// Act
+		let cmd = AgentCommand::Deploy {
+			app_name: "web".to_string(),
+			image: "web:v1".to_string(),
+			replicas: 3,
+		};
+		registry
+			.send_command_to_cluster(&cluster_id, cmd.clone())
+			.await
+			.unwrap();
+
+		// Assert
+		let received = rx.recv().await.unwrap();
+		assert_eq!(received, cmd);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_send_command_to_unknown_cluster_fails() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let unknown_cluster = Uuid::now_v7();
+
+		// Act
+		let result = registry
+			.send_command_to_cluster(
+				&unknown_cluster,
+				AgentCommand::Restart {
+					app_name: "x".to_string(),
+				},
+			)
+			.await;
+
+		// Assert
+		assert!(result.is_err());
 	}
 }

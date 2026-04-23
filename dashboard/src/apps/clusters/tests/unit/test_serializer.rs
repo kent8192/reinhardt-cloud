@@ -31,6 +31,8 @@ mod tests {
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
+			None,
+			None,
 		);
 
 		// Act
@@ -50,6 +52,8 @@ mod tests {
 			"production".to_string(),
 			"https://prod.k8s.io:6443".to_string(),
 			true,
+			None,
+			None,
 		);
 		cluster.id = Some(42);
 
@@ -70,6 +74,8 @@ mod tests {
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
+			None,
+			None,
 		);
 
 		// Act

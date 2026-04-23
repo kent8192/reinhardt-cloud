@@ -4,4 +4,4 @@ pub mod request;
 pub mod response;
 
 pub use request::{CreateClusterRequest, UpdateClusterRequest};
-pub use response::ClusterResponse;
+pub use response::{ClusterResponse, CreateClusterResponse, RotateTokenResponse};
