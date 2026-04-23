@@ -15,4 +15,5 @@ pub fn server_url_patterns() -> ServerRouter {
 		.endpoint(views::retrieve_cluster)
 		.endpoint(views::update_cluster)
 		.endpoint(views::delete_cluster)
+		.endpoint(views::rotate_token)
 }

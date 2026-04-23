@@ -15,7 +15,7 @@ mod tests {
 		let api_url = "https://k8s.example.com:6443".to_string();
 
 		// Act
-		let cluster = Cluster::new(user_id, name.clone(), api_url.clone(), true);
+		let cluster = Cluster::new(user_id, name.clone(), api_url.clone(), true, None, None);
 
 		// Assert
 		assert_eq!(cluster.user_id, user_id);
@@ -35,6 +35,8 @@ mod tests {
 			"test-cluster".to_string(),
 			"https://k8s.example.com:6443".to_string(),
 			true,
+			None,
+			None,
 		);
 
 		// Assert
@@ -54,6 +56,8 @@ mod tests {
 			"flag-test".to_string(),
 			"https://k8s.example.com:6443".to_string(),
 			active,
+			None,
+			None,
 		);
 
 		// Assert
@@ -68,6 +72,8 @@ mod tests {
 			"roundtrip".to_string(),
 			"https://k8s.example.com:6443".to_string(),
 			true,
+			None,
+			None,
 		);
 
 		// Act

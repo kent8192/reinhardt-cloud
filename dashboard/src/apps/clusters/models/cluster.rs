@@ -27,6 +27,19 @@ pub struct Cluster {
 	#[field(default = true)]
 	pub is_active: bool,
 
+	/// Argon2id hash of the cluster agent JWT token.
+	///
+	/// The plaintext token is returned exactly once on cluster creation or
+	/// rotation — only this hash is persisted. `None` indicates that a
+	/// token has not yet been issued (legacy clusters pre-dating token
+	/// issuance).
+	#[field(max_length = 255)]
+	pub token_hash: Option<String>,
+
+	/// Timestamp of the most recent token rotation. `None` when no token
+	/// has ever been issued.
+	pub token_last_rotated_at: Option<chrono::DateTime<chrono::Utc>>,
+
 	/// Cluster registration timestamp
 	#[field(auto_now_add = true)]
 	pub created_at: chrono::DateTime<chrono::Utc>,
