@@ -4,14 +4,13 @@
 //!
 //! - The unauthenticated client is accepted (the auth middleware skips
 //!   `/api/healthz/`).
-//! - A healthy database yields `"db": "ok"`.
+//! - All probes succeeding (live Postgres + in-process gRPC server with
+//!   `Health/Check` returning `SERVING`) yields HTTP 200 and
+//!   `"status": "ok"`.
+//! - A reachable database paired with an unreachable gRPC endpoint
+//!   yields HTTP 503 and `"grpc": "error"`.
 //! - A broken database probe (pointed at a non-existent Postgres) yields
 //!   `"db": "error"` and HTTP 503.
-//!
-//! The gRPC probe is not asserted to succeed — no gRPC server is run
-//! inside this test process, so the probe will report `"grpc": "error"`
-//! and the overall status will also be `"error"`. The DB-only positive
-//! assertion therefore targets the `db` field specifically.
 
 #[cfg(test)]
 mod tests {
@@ -52,17 +51,17 @@ mod tests {
 		(container, conn, client, urls)
 	}
 
-	/// Verify GET /api/healthz/ succeeds when the database is reachable.
+	/// Verify GET /api/healthz/ degrades to 503 when gRPC is unreachable.
 	///
-	/// The gRPC probe is expected to fail (no gRPC server is running in
-	/// this unit-test process), so the overall `status` and HTTP code
-	/// reflect a degraded response; only the `db` probe is asserted to
-	/// be `"ok"`. This still proves the endpoint bypasses auth and the
-	/// DB probe exercises the live connection end-to-end.
+	/// Postgres is reachable so `db` reports `"ok"`, but no gRPC server
+	/// is started inside this test process — the probe therefore reports
+	/// `"grpc": "error"` and the endpoint returns HTTP 503 with overall
+	/// `"status": "error"`. This proves both the auth bypass and the
+	/// live DB probe end-to-end while exercising the degraded path.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_healthz_returns_200_when_healthy(
+	async fn test_healthz_returns_503_when_grpc_unreachable(
 		#[future] db_with_app: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -90,6 +89,80 @@ mod tests {
 		assert_eq!(status, 503);
 		assert_eq!(body["grpc"], "error");
 		assert_eq!(body["status"], "error");
+	}
+
+	/// Verify GET /api/healthz/ returns 200 when both probes succeed.
+	///
+	/// Brings up an in-process gRPC server via `TestGrpcServer` whose
+	/// default `Health/Check` returns `SERVING` for the empty service
+	/// name (matching the probe in `views::healthz::probe_grpc`). The
+	/// `GrpcChannelSingleton` is pre-registered in the DI scope so the
+	/// view's RPC targets the test server. With live Postgres + serving
+	/// gRPC, the response must be HTTP 200 with `"status": "ok"`.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_healthz_returns_200_when_all_probes_succeed(
+		#[future] db_with_app: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+		),
+	) {
+		use crate::config::urls::{AllowedOrigins, DashboardRouter};
+		use reinhardt::OpenApiRouter;
+		use reinhardt_cloud_grpc::test_utils::TestGrpcServer;
+
+		// Arrange — bring up live Postgres (via fixture) and an
+		// in-process gRPC health server, then build a router using a
+		// custom DI scope that points the channel singleton at the
+		// test server's bound port.
+		let (_container, _conn, _client, _urls) = db_with_app.await;
+		let grpc_server = TestGrpcServer::start().await;
+		let endpoint = grpc_server.endpoint();
+
+		let scope = Arc::new(SingletonScope::new());
+		scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+		scope.set(
+			GrpcChannelSingleton::new(&endpoint)
+				.expect("Failed to build test gRPC channel singleton"),
+		);
+		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
+
+		let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {
+			tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
+		})
+		.expect("Failed to resolve DashboardRouter");
+		let server_router = Arc::new(
+			Arc::try_unwrap(router)
+				.expect("DashboardRouter has multiple owners after resolve")
+				.0
+				.into_server(),
+		);
+		let handler =
+			OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
+		let probe_client = APIClient::from_handler(handler);
+
+		// Act
+		let response = probe_client
+			.get("/api/healthz/")
+			.await
+			.expect("healthz request failed");
+
+		// Assert
+		let status = response.status_code();
+		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
+		assert_eq!(
+			status, 200,
+			"healthz must return 200 when DB and gRPC are both healthy; body={body}"
+		);
+		assert_eq!(body["status"], "ok");
+		assert_eq!(body["db"], "ok");
+		assert_eq!(body["grpc"], "ok");
+
+		// Cleanup
+		grpc_server.shutdown().await;
 	}
 
 	/// Verify GET /api/healthz/ returns 503 when the database probe fails.
