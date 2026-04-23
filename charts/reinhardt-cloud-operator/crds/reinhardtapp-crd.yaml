@@ -497,6 +497,65 @@ spec:
                     nullable: true
                     type: string
                 type: object
+              plugins:
+                description: |-
+                  dentdelion WASM plugins to attach to the application.
+
+                  Each entry produces a `dentdelion.toml` `[[plugins]]` section
+                  and is mounted into the container via a volume at `wasm_dir`.
+                items:
+                  description: Declarative configuration for a single dentdelion WASM plugin.
+                  properties:
+                    capabilities:
+                      default: []
+                      description: Capabilities granted to the plugin at runtime.
+                      items:
+                        description: |-
+                          Capability granted to a plugin at runtime.
+
+                          Capabilities follow the principle of least privilege: plugins
+                          only receive access to the listed categories.
+                        enum:
+                        - NetworkAccess
+                        - FilesystemRead
+                        - FilesystemWrite
+                        - EnvAccess
+                        type: string
+                      type: array
+                    memory_limit_mb:
+                      description: Optional memory limit in megabytes for the WASM sandbox.
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    name:
+                      description: |-
+                        Logical name of the plugin, used as an identifier in config and
+                        as the `subPath` for the mounted WASM artifact.
+                      type: string
+                    plugin_type:
+                      description: Extension point the plugin attaches to.
+                      enum:
+                      - HttpMiddleware
+                      - GrpcInterceptor
+                      - EventHandler
+                      type: string
+                    timeout_ms:
+                      description: Optional per-invocation timeout in milliseconds.
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    wasm_dir:
+                      description: Directory inside the pod where the WASM artifact(s) are mounted.
+                      type: string
+                  required:
+                  - name
+                  - plugin_type
+                  - wasm_dir
+                  type: object
+                nullable: true
+                type: array
               replicas:
                 description: Number of desired replicas (defaults to 1)
                 format: int32

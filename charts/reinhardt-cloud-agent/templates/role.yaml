@@ -1,0 +1,16 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "reinhardt-cloud-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "reinhardt-cloud-agent.labels" . | nindent 4 }}
+rules:
+  # Least-privilege: the Agent observes workload state in its namespace and
+  # reports it to the control plane. Read-only access to Deployments and the
+  # ReplicaSets they own is sufficient for deployment progress inference.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

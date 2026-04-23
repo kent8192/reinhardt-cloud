@@ -148,6 +148,9 @@ pub(crate) fn build_preview_spec(
 		scale: None,
 		storage: None,
 		mail: None,
+		// Preview environments do not inherit plugin attachments. If a plugin
+		// is desired in previews, it must be re-declared on the preview spec.
+		plugins: None,
 	})
 }
 
