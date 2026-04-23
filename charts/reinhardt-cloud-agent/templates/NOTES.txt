@@ -1,0 +1,25 @@
+Reinhardt Cloud Agent has been installed in namespace "{{ .Release.Namespace }}".
+
+Control plane: {{ .Values.controlPlane.url }}
+Cluster name:  {{ .Values.controlPlane.clusterName }}
+
+To verify the installation:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "reinhardt-cloud-agent.name" . }}
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "reinhardt-cloud-agent.fullname" . }}
+
+To follow the Agent's logs:
+
+  kubectl logs -n {{ .Release.Namespace }} deployment/{{ include "reinhardt-cloud-agent.fullname" . }} -f
+
+{{- if .Values.auth.createSecret }}
+
+NOTE: auth.createSecret is enabled. This is intended for development only;
+for production, provision the auth Secret out-of-band and set
+auth.existingSecret to its name.
+{{- else if not .Values.auth.existingSecret }}
+
+WARNING: auth.existingSecret is empty and auth.createSecret is false. The
+Agent pod will fail to start because the AUTH_TOKEN env var cannot be
+resolved. Create a Secret with the token and set auth.existingSecret.
+{{- end }}
