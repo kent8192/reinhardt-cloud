@@ -4,6 +4,7 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, get};
 use reinhardt_cloud_proto::common::PaginationRequest;
@@ -13,9 +14,7 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentLogsResponse, LogEntry};
-
-/// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
-const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
+use crate::config::GrpcChannelSingleton;
 
 /// Maximum number of log entries returned per request.
 ///
@@ -24,11 +23,6 @@ const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 /// Capped at 100 to match the server-side `MAX_PAGE_SIZE` limit in
 /// `reinhardt-cloud-core/src/pagination.rs`.
 const LOGS_PAGE_SIZE: u64 = 100;
-
-/// Resolve the gRPC endpoint from the environment or fall back to the default.
-fn grpc_endpoint() -> String {
-	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
-}
 
 /// Map a proto log level to its lowercase string form.
 fn proto_level_to_str(level: i32) -> &'static str {
@@ -72,6 +66,7 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 pub async fn deployment_logs(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
+	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
@@ -97,15 +92,11 @@ pub async fn deployment_logs(
 		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
 
 	// Fetch persisted logs via the gRPC LogService, filtering by app name.
-	// NOTE: This creates a new gRPC connection on every HTTP request. A
-	// future refactor should inject a shared `tonic::transport::Channel`
-	// via DI (see reinhardt-cloud#382) to amortise connection overhead.
-	let mut client = log_pb::log_service_client::LogServiceClient::connect(grpc_endpoint())
-		.await
-		.map_err(|e| {
-			error!("Failed to connect to gRPC LogService: {e}");
-			AppError::Internal("Log service unavailable".to_string())
-		})?;
+	// The channel is resolved from DI as a shared, lazily-connected
+	// singleton (see `crate::config::GrpcChannelSingleton`), so no TCP
+	// connect happens on the request path until the first RPC.
+	let mut client =
+		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
 
 	// Filter by app_name (the log source field). Note: log isolation is by
 	// app_name, not by deployment id or owner; cross-tenant leakage is possible
