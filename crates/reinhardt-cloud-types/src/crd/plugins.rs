@@ -5,10 +5,35 @@
 //! `dentdelion.toml` `ConfigMap` and mounts the WASM artifacts into
 //! the application container via volume + volume mount pairs.
 
+use std::path::{Component, Path};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::validation::ValidationError;
+
+/// Sanitizes a plugin name into the suffix used by the Kubernetes
+/// `Volume.name` (excluding any operator-side prefix).
+///
+/// The operator pairs this with a fixed prefix (`dentdelion-…`) when
+/// materializing volumes. Two distinct plugin names that produce the
+/// same sanitized suffix would collide on the resulting `Volume.name`
+/// and Kubernetes would reject the PodSpec at admission, so this
+/// helper is also used by [`crate::crd::ReinhardtAppSpec::validate`]
+/// to detect such collisions before they reach the cluster.
+pub fn sanitized_volume_suffix(name: &str) -> String {
+	let sanitized: String = name
+		.chars()
+		.map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+		.collect::<String>()
+		.to_ascii_lowercase();
+	let trimmed = sanitized.trim_matches('-').to_string();
+	if trimmed.is_empty() {
+		"plugin".to_string()
+	} else {
+		trimmed
+	}
+}
 
 /// Category of a dentdelion WASM plugin.
 ///
@@ -42,8 +67,9 @@ pub enum PluginCapability {
 /// Declarative configuration for a single dentdelion WASM plugin.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PluginSpec {
-	/// Logical name of the plugin, used as an identifier in config and
-	/// as the `subPath` for the mounted WASM artifact.
+	/// Logical name of the plugin, used as an identifier in the rendered
+	/// `dentdelion.toml` and as the basis for the per-plugin Kubernetes
+	/// `Volume.name` (sanitized via [`sanitized_volume_suffix`]).
 	pub name: String,
 	/// Directory inside the pod where the WASM artifact(s) are mounted.
 	pub wasm_dir: String,
@@ -63,8 +89,11 @@ pub struct PluginSpec {
 impl PluginSpec {
 	/// Validates the plugin specification.
 	///
-	/// Checks that `name` and `wasm_dir` are non-empty, and that any
-	/// optional numeric limits are strictly positive when provided.
+	/// Checks that `name` and `wasm_dir` are non-empty, that `wasm_dir`
+	/// is an absolute path with no `..` components (path-traversal
+	/// guard, since `wasm_dir` flows directly into a Kubernetes
+	/// `VolumeMount.mount_path`), and that any optional numeric limits
+	/// are strictly positive when provided.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
@@ -72,8 +101,23 @@ impl PluginSpec {
 			errors.push(ValidationError::new("plugins[].name must be non-empty"));
 		}
 
-		if self.wasm_dir.trim().is_empty() {
+		let trimmed_dir = self.wasm_dir.trim();
+		if trimmed_dir.is_empty() {
 			errors.push(ValidationError::new("plugins[].wasm_dir must be non-empty"));
+		} else {
+			if !trimmed_dir.starts_with('/') {
+				errors.push(ValidationError::new(
+					"plugins[].wasm_dir must be an absolute path (start with '/')",
+				));
+			}
+			if Path::new(trimmed_dir)
+				.components()
+				.any(|c| matches!(c, Component::ParentDir))
+			{
+				errors.push(ValidationError::new(
+					"plugins[].wasm_dir must not contain '..' path components",
+				));
+			}
 		}
 
 		if let Some(mem) = self.memory_limit_mb
@@ -183,5 +227,82 @@ mod tests {
 		assert_eq!(errors[1].message, "plugins[].wasm_dir must be non-empty");
 		assert_eq!(errors[2].message, "plugins[].memory_limit_mb must be > 0");
 		assert_eq!(errors[3].message, "plugins[].timeout_ms must be > 0");
+	}
+
+	#[rstest]
+	fn plugin_spec_validate_rejects_relative_wasm_dir() {
+		// Arrange
+		let spec = PluginSpec {
+			name: "p".to_string(),
+			wasm_dir: "var/lib/dentdelion/p".to_string(),
+			plugin_type: PluginType::HttpMiddleware,
+			memory_limit_mb: None,
+			timeout_ms: None,
+			capabilities: Vec::new(),
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("relative wasm_dir should be rejected");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"plugins[].wasm_dir must be an absolute path (start with '/')"
+		);
+	}
+
+	#[rstest]
+	fn plugin_spec_validate_rejects_path_traversal_in_wasm_dir() {
+		// Arrange
+		let spec = PluginSpec {
+			name: "p".to_string(),
+			wasm_dir: "/var/lib/../etc/passwd".to_string(),
+			plugin_type: PluginType::HttpMiddleware,
+			memory_limit_mb: None,
+			timeout_ms: None,
+			capabilities: Vec::new(),
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("traversal in wasm_dir should be rejected");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"plugins[].wasm_dir must not contain '..' path components"
+		);
+	}
+
+	#[rstest]
+	#[case::dot_versus_dash("my.plugin", "my-plugin", "my-plugin")]
+	#[case::underscore_versus_dash("my_plugin", "my-plugin", "my-plugin")]
+	#[case::case_versus_lower("MyPlugin", "myplugin", "myplugin")]
+	fn sanitized_volume_suffix_collides_for_equivalent_names(
+		#[case] a: &str,
+		#[case] b: &str,
+		#[case] expected: &str,
+	) {
+		// Arrange & Act
+		let suffix_a = sanitized_volume_suffix(a);
+		let suffix_b = sanitized_volume_suffix(b);
+
+		// Assert
+		assert_eq!(suffix_a, expected);
+		assert_eq!(suffix_b, expected);
+	}
+
+	#[rstest]
+	fn sanitized_volume_suffix_falls_back_when_only_separators() {
+		// Arrange & Act
+		let suffix = sanitized_volume_suffix("---");
+
+		// Assert
+		assert_eq!(suffix, "plugin");
 	}
 }

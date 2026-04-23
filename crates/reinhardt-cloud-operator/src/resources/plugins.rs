@@ -42,18 +42,15 @@ pub(crate) fn plugin_configmap_name(app: &ReinhardtApp) -> String {
 }
 
 /// Sanitized volume name for an individual plugin's WASM directory.
+///
+/// Delegates name sanitization to [`sanitized_volume_suffix`] so that
+/// validation in `ReinhardtAppSpec::validate` and materialization here
+/// share a single source of truth.
 fn plugin_volume_name(plugin: &PluginSpec) -> String {
-	let mut sanitized: String = plugin
-		.name
-		.chars()
-		.map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-		.collect::<String>()
-		.to_ascii_lowercase();
-	sanitized = sanitized.trim_matches('-').to_string();
-	if sanitized.is_empty() {
-		sanitized = "plugin".to_string();
-	}
-	format!("dentdelion-{sanitized}")
+	format!(
+		"dentdelion-{}",
+		reinhardt_cloud_types::crd::plugins::sanitized_volume_suffix(&plugin.name)
+	)
 }
 
 /// Serializable view of a [`PluginSpec`] for the dentdelion TOML document.
