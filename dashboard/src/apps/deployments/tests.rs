@@ -5,6 +5,9 @@ pub mod e2e {
 	pub mod test_deployment_ownership;
 	pub mod test_deployment_pagination;
 }
+pub mod integration {
+	pub mod test_lazy_grpc;
+}
 pub mod unit {
 	pub mod test_deployment_model;
 	pub mod test_deployment_property;
