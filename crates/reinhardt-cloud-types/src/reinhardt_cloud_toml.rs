@@ -365,6 +365,7 @@ impl ReinhardtCloudToml {
 				}),
 			}),
 			plugins: None,
+			service_account: None,
 		}
 	}
 }

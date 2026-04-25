@@ -151,6 +151,9 @@ pub(crate) fn build_preview_spec(
 		// Preview environments do not inherit plugin attachments. If a plugin
 		// is desired in previews, it must be re-declared on the preview spec.
 		plugins: None,
+		// Per-app workload identity is not inherited into previews. Operator
+		// wiring for service_account is tracked in #424.
+		service_account: None,
 	})
 }
 
