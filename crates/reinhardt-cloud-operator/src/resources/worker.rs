@@ -91,6 +91,10 @@ pub(crate) fn build_worker_deployment(
 							},
 							..Default::default()
 						}],
+						// Forward spec.imagePullSecrets so the worker
+						// Deployment can pull the application image from a
+						// private registry — same as the main Deployment.
+						image_pull_secrets: app.spec.image_pull_secrets.clone(),
 						..Default::default()
 					})
 				},
@@ -284,5 +288,73 @@ mod tests {
 		assert_eq!(psc.run_as_non_root, Some(true));
 		let container_sc = pod_spec.containers[0].security_context.as_ref().unwrap();
 		assert_eq!(container_sc.allow_privilege_escalation, Some(false));
+	}
+
+	// ── Image pull secrets tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn test_worker_image_pull_secrets_none_when_unset() {
+		// Arrange
+		let app = test_app("myapp", "myapp:v1");
+
+		// Act
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.image_pull_secrets.is_none());
+	}
+
+	#[rstest]
+	fn test_worker_image_pull_secrets_single_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = test_app("myapp", "myapp:v1");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "regcred".to_string(),
+		}]);
+
+		// Act
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 1);
+		assert_eq!(pull_secrets[0].name, "regcred");
+	}
+
+	#[rstest]
+	fn test_worker_image_pull_secrets_multiple_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = test_app("myapp", "myapp:v1");
+		app.spec.image_pull_secrets = Some(vec![
+			LocalObjectReference {
+				name: "regcred-primary".to_string(),
+			},
+			LocalObjectReference {
+				name: "regcred-fallback".to_string(),
+			},
+		]);
+
+		// Act
+		let deploy = build_worker_deployment(&app, None, &Platform::Onpremise)
+			.expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 2);
+		assert_eq!(pull_secrets[0].name, "regcred-primary");
+		assert_eq!(pull_secrets[1].name, "regcred-fallback");
 	}
 }
