@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
-	use uuid::Uuid;
 
 	use serde_json;
 
@@ -27,7 +26,7 @@ mod tests {
 	fn test_cluster_response_with_none_id_serializes_to_null() {
 		// Arrange
 		let cluster = Cluster::new(
-			Uuid::now_v7(),
+			1i64,
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
@@ -48,7 +47,7 @@ mod tests {
 	fn test_cluster_response_with_some_id_serializes_to_number() {
 		// Arrange
 		let mut cluster = Cluster::new(
-			Uuid::now_v7(),
+			1i64,
 			"production".to_string(),
 			"https://prod.k8s.io:6443".to_string(),
 			true,
@@ -70,7 +69,7 @@ mod tests {
 	fn test_cluster_response_from_orm_model() {
 		// Arrange
 		let cluster = Cluster::new(
-			Uuid::now_v7(),
+			1i64,
 			"staging".to_string(),
 			"https://staging.k8s.io:6443".to_string(),
 			true,
