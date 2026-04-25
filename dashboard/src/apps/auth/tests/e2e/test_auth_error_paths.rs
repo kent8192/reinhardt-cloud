@@ -137,7 +137,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.auth().login(), &login_data, "json")
+			.post(&urls.server().auth().login(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -168,7 +168,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.auth().login(), &empty_body, "json")
+			.post(&urls.server().auth().login(), &empty_body, "json")
 			.await
 			.expect("Login request failed");
 
@@ -194,7 +194,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.auth().register(), &empty_body, "json")
+			.post(&urls.server().auth().register(), &empty_body, "json")
 			.await
 			.expect("Register request failed");
 
@@ -226,7 +226,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post(&urls.auth().register(), &first_user, "json")
+			.post(&urls.server().auth().register(), &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -238,7 +238,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.auth().register(), &second_user, "json")
+			.post(&urls.server().auth().register(), &second_user, "json")
 			.await
 			.expect("Second register request failed");
 
@@ -276,7 +276,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.auth().login(), &login_data, "json")
+			.post(&urls.server().auth().login(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
