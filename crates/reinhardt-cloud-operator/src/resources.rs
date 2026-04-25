@@ -14,6 +14,7 @@ pub(crate) mod plugins;
 pub(crate) mod preview;
 pub(crate) mod security;
 pub(crate) mod service;
+pub(crate) mod service_account;
 pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod worker;
