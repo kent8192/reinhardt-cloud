@@ -151,6 +151,9 @@ pub(crate) fn build_preview_spec(
 		// Preview environments do not inherit plugin attachments. If a plugin
 		// is desired in previews, it must be re-declared on the preview spec.
 		plugins: None,
+		// Inherit image-pull secrets from the parent so previews can pull
+		// images from the same private registry.
+		image_pull_secrets: parent_spec.image_pull_secrets.clone(),
 	})
 }
 
