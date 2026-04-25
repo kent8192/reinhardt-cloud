@@ -20,8 +20,7 @@ fn membership_serializes_with_role_string() {
 
 	// Act
 	let json = serde_json::to_string(&m).expect("serialize");
-	let roundtripped: OrganizationMembership =
-		serde_json::from_str(&json).expect("deserialize");
+	let roundtripped: OrganizationMembership = serde_json::from_str(&json).expect("deserialize");
 
 	// Assert
 	assert_eq!(roundtripped.organization_id, 42);

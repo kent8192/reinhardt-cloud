@@ -185,7 +185,10 @@ async fn provision_personal_organization(
 					}
 				}
 			} else {
-				error!("Failed to provision Personal Org for user {}: {e}", created.id);
+				error!(
+					"Failed to provision Personal Org for user {}: {e}",
+					created.id
+				);
 				rollback_user(created).await;
 				return Err(ServerFnError::application("Internal server error"));
 			}
@@ -199,7 +202,10 @@ async fn provision_personal_organization(
 		role: MembershipRole::Owner.as_db_str().to_string(),
 		created_at: now,
 	};
-	if let Err(e) = OrganizationMembership::objects().create(&membership_input).await {
+	if let Err(e) = OrganizationMembership::objects()
+		.create(&membership_input)
+		.await
+	{
 		error!(
 			"Failed to provision Owner membership for user {} in org {}: {e}",
 			created.id,

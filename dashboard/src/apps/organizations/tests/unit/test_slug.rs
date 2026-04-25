@@ -18,7 +18,10 @@ fn sanitize_produces_valid_dns_label(#[case] input: &str, #[case] expected: &str
 
 	// Assert
 	assert_eq!(actual, expected);
-	assert!(validate_slug(&actual).is_ok(), "sanitized output must validate");
+	assert!(
+		validate_slug(&actual).is_ok(),
+		"sanitized output must validate"
+	);
 }
 
 #[rstest]

@@ -52,10 +52,7 @@ fn membership_role_parse_from_db_string(
 #[case(MembershipRole::Admin, "admin")]
 #[case(MembershipRole::Developer, "developer")]
 #[case(MembershipRole::Viewer, "viewer")]
-fn membership_role_to_db_string(
-	#[case] role: MembershipRole,
-	#[case] expected: &str,
-) {
+fn membership_role_to_db_string(#[case] role: MembershipRole, #[case] expected: &str) {
 	// Arrange / Act
 	let actual = role.as_db_str();
 

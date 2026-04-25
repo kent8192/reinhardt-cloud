@@ -1,7 +1,7 @@
 //! ORM models for the organizations app.
 
-pub mod organization;
 pub mod membership;
+pub mod organization;
 
-pub use organization::Organization;
 pub use membership::OrganizationMembership;
+pub use organization::Organization;

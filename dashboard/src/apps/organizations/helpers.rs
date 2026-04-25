@@ -35,8 +35,7 @@ pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppE
 		.map_err(|e| AppError::Internal(format!("membership lookup failed: {e}")))?
 		.ok_or_else(|| {
 			AppError::NotFound(
-				"user has no organization membership; re-register to provision one"
-					.to_string(),
+				"user has no organization membership; re-register to provision one".to_string(),
 			)
 		})?;
 	Ok(m.organization_id)
