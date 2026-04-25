@@ -146,6 +146,8 @@ C4Container
 - **Agent** (`reinhardt-cloud-agent`) — Bidirectional gRPC communication between control plane and clusters.
 - **gRPC layer** (`reinhardt-cloud-proto`, `reinhardt-cloud-grpc`) — Four gRPC services across five proto files: Agent, Build, Log, Plugin (plus Common shared types).
 
+For the end-to-end deployment flow — CLI branches, dashboard relay, agent behaviour, and reconciler output — see [`docs/architecture/deployment-flow.md`](docs/architecture/deployment-flow.md).
+
 ## Key Features
 
 - **Convention-Driven Deployment** — CLI introspects your Reinhardt project and infers infrastructure needs from Cargo feature flags and settings
