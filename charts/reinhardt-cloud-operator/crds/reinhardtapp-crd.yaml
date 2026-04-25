@@ -530,8 +530,9 @@ spec:
                       type: integer
                     name:
                       description: |-
-                        Logical name of the plugin, used as an identifier in config and
-                        as the `subPath` for the mounted WASM artifact.
+                        Logical name of the plugin, used as an identifier in the rendered
+                        `dentdelion.toml` and as the basis for the per-plugin Kubernetes
+                        `Volume.name` (sanitized via [`sanitized_volume_suffix`]).
                       type: string
                     plugin_type:
                       description: Extension point the plugin attaches to.
@@ -589,6 +590,30 @@ spec:
                     format: int32
                     nullable: true
                     type: integer
+                type: object
+              serviceAccount:
+                description: |-
+                  Per-app Kubernetes ServiceAccount configuration.
+
+                  Configures the workload's KSA — typically annotated with GKE
+                  Workload Identity or AWS IRSA bindings to grant the application
+                  pods cloud-API access. Distinct from the operator-managed
+                  `{app-name}-storage` KSA used for storage-backend access.
+                nullable: true
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations applied to the KSA — typically Workload Identity / IRSA bindings.
+                    type: object
+                  create:
+                    default: false
+                    description: Whether the operator should create a KSA. If false, the user must pre-create one.
+                    type: boolean
+                  name:
+                    description: Name of the KSA. Defaults to the ReinhardtApp name when not set.
+                    nullable: true
+                    type: string
                 type: object
               services:
                 description: Service exposure configuration
