@@ -457,6 +457,8 @@ and a release-triggered deploy workflow
 (`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
 dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for
 bootstrap, upgrade, rollback, and observability instructions.
+For private registry access and cloud workload identity, see
+[docs/registry-and-identity.md](docs/registry-and-identity.md).
 
 ## Getting Help
 

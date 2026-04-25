@@ -131,6 +131,8 @@ Common top-level value keys (summarized from `values.yaml`):
 | `isolation.resourceLimits.max.cpu` | Maximum CPU limit enforced by LimitRange | `"4"` |
 | `isolation.resourceLimits.max.memory` | Maximum memory limit enforced by LimitRange | `4Gi` |
 
+> See [docs/registry-and-identity.md](../registry-and-identity.md) for pull-secret and workload identity setup.
+
 Environment overlay differences:
 
 | Overlay | Purpose | Notable overrides |
