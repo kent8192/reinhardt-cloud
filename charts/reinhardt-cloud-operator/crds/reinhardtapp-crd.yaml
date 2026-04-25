@@ -140,6 +140,25 @@ spec:
               image:
                 description: Docker image to deploy
                 type: string
+              imagePullSecrets:
+                description: |-
+                  References to Kubernetes Secrets in the same namespace that hold
+                  container-registry credentials (type `kubernetes.io/dockerconfigjson`).
+
+                  Mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape so the
+                  operator can copy the references straight into the materialized
+                  PodSpec without re-serializing the user's intent.
+                items:
+                  description: LocalObjectReference contains enough information to let you locate the referenced object inside the same namespace.
+                  properties:
+                    name:
+                      description: 'Name of the referent. This field is effectively required, but due to backwards compatibility is allowed to be empty. Instances of this type with an empty value here are almost certainly wrong. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
+                      type: string
+                  required:
+                  - name
+                  type: object
+                nullable: true
+                type: array
               introspect:
                 description: |-
                   Introspect metadata from `manage introspect` output.
@@ -530,8 +549,9 @@ spec:
                       type: integer
                     name:
                       description: |-
-                        Logical name of the plugin, used as an identifier in config and
-                        as the `subPath` for the mounted WASM artifact.
+                        Logical name of the plugin, used as an identifier in the rendered
+                        `dentdelion.toml` and as the basis for the per-plugin Kubernetes
+                        `Volume.name` (sanitized via [`sanitized_volume_suffix`]).
                       type: string
                     plugin_type:
                       description: Extension point the plugin attaches to.
