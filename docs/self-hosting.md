@@ -34,6 +34,7 @@ place:
 2. **Dashboard image published.** The dashboard image is built and pushed to
    `ghcr.io/kent8192/reinhardt-cloud-dashboard:<tag>` for every release. The
    image tag must match the GitHub release tag (minus any leading `v`).
+   - **Pull secret.** If you push the dashboard or app images to a private registry, see [docs/registry-and-identity.md](registry-and-identity.md) for setup.
 3. **Cluster access.** A base64-encoded kubeconfig is stored as the
    `KUBECONFIG` repository secret. Scope it to the minimum permissions
    required to `get`/`create`/`patch` the `reinhardtapp` resource in
