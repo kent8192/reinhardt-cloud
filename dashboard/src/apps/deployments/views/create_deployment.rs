@@ -12,10 +12,12 @@ use uuid::Uuid;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
 /// Create a new deployment (authentication required).
 ///
-/// Sets the deployment owner to the authenticated user.
+/// Sets the deployment owner to the authenticated user's active organization.
+/// Validates that the target cluster belongs to the same organization.
 #[post("/", name = "create")]
 pub async fn create_deployment(
 	Json(body): Json<CreateDeploymentRequest>,
@@ -23,8 +25,9 @@ pub async fn create_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
-	// Validate cluster exists and is owned by the authenticated user
+	// Validate cluster exists and belongs to the active organization.
 	let cluster_exists = Cluster::objects()
 		.filter(
 			Cluster::field_id(),
@@ -32,9 +35,9 @@ pub async fn create_deployment(
 			FilterValue::Integer(body.cluster_id),
 		)
 		.filter(Filter::new(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		))
 		.exists()
 		.await
@@ -51,7 +54,7 @@ pub async fn create_deployment(
 	}
 
 	let new_deployment = Deployment::new(
-		user_id,
+		organization_id,
 		body.app_name.clone(),
 		body.cluster_id,
 		"pending".to_string(),

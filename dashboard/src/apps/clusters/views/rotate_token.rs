@@ -17,6 +17,7 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::RotateTokenResponse;
 use crate::apps::clusters::services::token_issuance;
 use crate::apps::clusters::views::create_cluster::cluster_id_from_pk;
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
 /// Rotate the agent JWT for an existing cluster (authentication required).
 ///
@@ -29,13 +30,14 @@ pub async fn rotate_token(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let manager = Cluster::objects();
 	let mut cluster = manager
 		.filter(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.filter(Filter::new(
 			Cluster::field_id(),

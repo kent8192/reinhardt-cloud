@@ -11,11 +11,12 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
-/// Retrieve a single deployment by ID (authentication required).
+/// Retrieve a single deployment by ID, scoped to the active organization.
 ///
-/// Returns 404 if the deployment does not exist or is not owned by the
-/// authenticated user.
+/// Returns 404 if the deployment does not exist or does not belong to the
+/// authenticated user's active organization.
 #[get("/{id}/", name = "retrieve")]
 pub async fn retrieve_deployment(
 	Path(id): Path<i64>,
@@ -23,6 +24,7 @@ pub async fn retrieve_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let deployment = Deployment::objects()
 		.filter(
@@ -31,9 +33,9 @@ pub async fn retrieve_deployment(
 			FilterValue::Integer(id),
 		)
 		.filter(Filter::new(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		))
 		.first()
 		.await

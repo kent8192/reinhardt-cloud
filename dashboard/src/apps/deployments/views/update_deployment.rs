@@ -11,13 +11,14 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeploymentRequest};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
 /// Update an existing deployment (authentication required).
 ///
 /// Accepts optional fields; only provided fields are applied.
 /// Returns 400 if the request body is empty (no fields provided).
-/// Returns 404 if the deployment does not exist or is not owned by the
-/// authenticated user.
+/// Returns 404 if the deployment does not exist or does not belong to the
+/// authenticated user's active organization.
 #[put("/{id}/", name = "update")]
 pub async fn update_deployment(
 	Path(id): Path<i64>,
@@ -26,11 +27,12 @@ pub async fn update_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	// Validate the request body
 	body.validate()?;
 
-	// Reject empty updates — at least one field must be provided
+	// Reject empty updates -- at least one field must be provided
 	if body.app_name.is_none() && body.image.is_none() && body.status.is_none() {
 		return Err(AppError::Validation(
 			"At least one field must be provided for update".to_string(),
@@ -44,9 +46,9 @@ pub async fn update_deployment(
 			FilterValue::Integer(id),
 		)
 		.filter(Filter::new(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		))
 		.first()
 		.await

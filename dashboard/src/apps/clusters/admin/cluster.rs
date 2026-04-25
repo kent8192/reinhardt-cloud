@@ -7,7 +7,7 @@ use crate::apps::clusters::models::Cluster;
 #[admin(model,
 	for = Cluster,
 	name = "Cluster",
-	list_display = [id, user_id, name, api_url, is_active, created_at],
+	list_display = [id, organization_id, name, api_url, is_active, created_at],
 	list_filter = [is_active],
 	search_fields = [name, api_url],
 	ordering = [(created_at, desc)],

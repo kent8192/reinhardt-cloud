@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
-	use uuid::Uuid;
 
 	use crate::apps::deployments::models::Deployment;
 
@@ -11,7 +10,7 @@ mod tests {
 	#[rstest]
 	fn test_deployment_new_sets_fields() {
 		// Arrange
-		let user_id = Uuid::now_v7();
+		let organization_id: i64 = 42;
 		let app_name = "my-app".to_string();
 		let cluster_id = 42i64;
 		let status = "pending".to_string();
@@ -19,7 +18,7 @@ mod tests {
 
 		// Act
 		let deployment = Deployment::new(
-			user_id,
+			organization_id,
 			app_name.clone(),
 			cluster_id,
 			status.clone(),
@@ -27,7 +26,7 @@ mod tests {
 		);
 
 		// Assert
-		assert_eq!(deployment.user_id, user_id);
+		assert_eq!(deployment.organization_id, organization_id);
 		assert_eq!(deployment.app_name, app_name);
 		assert_eq!(deployment.cluster_id, cluster_id);
 		assert_eq!(deployment.status, status);
@@ -39,7 +38,7 @@ mod tests {
 	fn test_deployment_new_id_is_none() {
 		// Arrange & Act
 		let deployment = Deployment::new(
-			Uuid::now_v7(),
+			1,
 			"app".to_string(),
 			1,
 			"pending".to_string(),
@@ -59,7 +58,7 @@ mod tests {
 	fn test_deployment_status_values(#[case] status: &str) {
 		// Arrange & Act
 		let deployment = Deployment::new(
-			Uuid::now_v7(),
+			1,
 			"app".to_string(),
 			1,
 			status.to_string(),
@@ -75,7 +74,7 @@ mod tests {
 	fn test_deployment_serialization_roundtrip() {
 		// Arrange
 		let mut deployment = Deployment::new(
-			Uuid::now_v7(),
+			7,
 			"roundtrip-app".to_string(),
 			99,
 			"running".to_string(),
@@ -89,7 +88,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(restored.id, deployment.id);
-		assert_eq!(restored.user_id, deployment.user_id);
+		assert_eq!(restored.organization_id, deployment.organization_id);
 		assert_eq!(restored.app_name, deployment.app_name);
 		assert_eq!(restored.cluster_id, deployment.cluster_id);
 		assert_eq!(restored.status, deployment.status);
