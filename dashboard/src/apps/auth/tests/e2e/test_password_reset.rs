@@ -187,7 +187,7 @@ mod tests {
 			"password": password
 		});
 		client
-			.post(&urls.auth().register(), &data, "json")
+			.post(&urls.server().auth().register(), &data, "json")
 			.await
 			.expect("Register failed");
 
@@ -200,7 +200,7 @@ mod tests {
 		let end = rest.find('/').expect("No trailing slash");
 		let token = &rest[..end];
 
-		let verify_url = urls.auth().verify_email(token);
+		let verify_url = urls.server().auth().verify_email(token);
 		client.get(&verify_url).await.expect("Verify failed");
 	}
 
@@ -236,7 +236,11 @@ mod tests {
 		// Act
 		let forgot_data = json!({ "email": "reset@example.com" });
 		let response = client
-			.post(&urls.auth().forgot_password(), &forgot_data, "json")
+			.post(
+				&urls.server().auth().forgot_password(),
+				&forgot_data,
+				"json",
+			)
 			.await
 			.expect("Forgot-password request failed");
 
@@ -271,7 +275,11 @@ mod tests {
 		// Act
 		let forgot_data = json!({ "email": "noone@example.com" });
 		let response = client
-			.post(&urls.auth().forgot_password(), &forgot_data, "json")
+			.post(
+				&urls.server().auth().forgot_password(),
+				&forgot_data,
+				"json",
+			)
 			.await
 			.expect("Forgot-password request failed");
 
@@ -311,7 +319,11 @@ mod tests {
 		// Request reset email
 		let forgot_data = json!({ "email": "resetpw@example.com" });
 		client
-			.post(&urls.auth().forgot_password(), &forgot_data, "json")
+			.post(
+				&urls.server().auth().forgot_password(),
+				&forgot_data,
+				"json",
+			)
 			.await
 			.expect("Forgot-password failed");
 
@@ -320,7 +332,7 @@ mod tests {
 		let token = extract_reset_token(&text).expect("Token not found");
 
 		// Act — reset password
-		let reset_url = urls.auth().reset_password(&token);
+		let reset_url = urls.server().auth().reset_password(&token);
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let response = client
 			.post(&reset_url, &reset_data, "json")
@@ -336,7 +348,7 @@ mod tests {
 			"password": "oldpassword"
 		});
 		let old_resp = client
-			.post(&urls.auth().login(), &login_old, "json")
+			.post(&urls.server().auth().login(), &login_old, "json")
 			.await
 			.expect("Login failed");
 		assert_ne!(old_resp.status_code(), 200);
@@ -347,7 +359,7 @@ mod tests {
 			"password": "newpassword123"
 		});
 		let new_resp = client
-			.post(&urls.auth().login(), &login_new, "json")
+			.post(&urls.server().auth().login(), &login_new, "json")
 			.await
 			.expect("Login failed");
 		assert_eq!(new_resp.status_code(), 200);
@@ -384,7 +396,11 @@ mod tests {
 
 		let forgot_data = json!({ "email": "reuse@example.com" });
 		client
-			.post(&urls.auth().forgot_password(), &forgot_data, "json")
+			.post(
+				&urls.server().auth().forgot_password(),
+				&forgot_data,
+				"json",
+			)
 			.await
 			.expect("Forgot-password failed");
 
@@ -393,7 +409,7 @@ mod tests {
 		let token = extract_reset_token(&text).expect("Token not found");
 
 		// Use the token once
-		let reset_url = urls.auth().reset_password(&token);
+		let reset_url = urls.server().auth().reset_password(&token);
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let first = client
 			.post(&reset_url, &reset_data, "json")

@@ -25,8 +25,6 @@ pub mod tests;
 pub mod urls;
 #[cfg(native)]
 pub mod views;
-#[cfg(native)]
-pub mod ws_urls;
 
 #[cfg(native)]
 #[app_config(name = "auth", label = "auth")]
