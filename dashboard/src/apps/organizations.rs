@@ -6,9 +6,9 @@
 
 pub mod helpers;
 pub mod models;
-pub mod repositories;
 pub mod roles;
 pub mod services;
+pub mod urls;
 
 #[cfg(test)]
 mod tests;

@@ -17,9 +17,11 @@ use crate::apps::organizations::models::OrganizationMembership;
 /// ordered by `created_at` ascending. This is the user's Personal Org for
 /// users registered after #415.
 ///
-/// Returns `AppError::Forbidden` if the user has no memberships, which
-/// should be impossible for users registered after #415 (the registration
-/// view always provisions a Personal Org).
+/// Returns `AppError::NotFound` if the user has no memberships. This should
+/// be impossible for users registered after #415 (the registration view
+/// always provisions a Personal Org); a stranded account indicates either
+/// a partial-failure rollback bug or a pre-#415 dev account that needs
+/// re-registration.
 pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppError> {
 	let m = OrganizationMembership::objects()
 		.filter(
@@ -32,7 +34,10 @@ pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppE
 		.await
 		.map_err(|e| AppError::Internal(format!("membership lookup failed: {e}")))?
 		.ok_or_else(|| {
-			AppError::Forbidden("user has no organization membership".to_string())
+			AppError::NotFound(
+				"user has no organization membership; re-register to provision one"
+					.to_string(),
+			)
 		})?;
 	Ok(m.organization_id)
 }
