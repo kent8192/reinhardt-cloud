@@ -317,6 +317,11 @@ pub(crate) fn build_deployment(
 					init_containers: init_containers_opt,
 					containers,
 					volumes: Some(volumes),
+					// Bind the workload to a per-app KSA when configured.
+					// The name resolution is centralized in
+					// `service_account::resolved_sa_name` so the SA builder
+					// and the PodSpec wiring can never disagree.
+					service_account_name: super::service_account::resolved_sa_name(app),
 					..Default::default()
 				}),
 			},
@@ -899,5 +904,104 @@ mod tests {
 		assert_eq!(psc.run_as_non_root, Some(true));
 		let container_sc = pod_spec.containers[0].security_context.as_ref().unwrap();
 		assert_eq!(container_sc.allow_privilege_escalation, Some(false));
+	}
+
+	// --- service_account_name wiring ---
+
+	#[rstest]
+	fn test_pod_spec_service_account_name_unset_when_spec_none() {
+		// Arrange — no spec.service_account configured
+		let app = make_test_app("web", "web:latest", None);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert — existing behavior preserved
+		assert_eq!(pod_spec.service_account_name, None);
+	}
+
+	#[rstest]
+	fn test_pod_spec_service_account_name_default_when_create_true() {
+		// Arrange — create=true, no explicit name
+		use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: true,
+			name: None,
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert — `{app}-app` default name is wired in
+		assert_eq!(pod_spec.service_account_name.as_deref(), Some("web-app"));
+	}
+
+	#[rstest]
+	fn test_pod_spec_service_account_name_explicit_when_create_true() {
+		// Arrange — create=true with explicit name
+		use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: true,
+			name: Some("my-sa".to_string()),
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.service_account_name.as_deref(), Some("my-sa"));
+	}
+
+	#[rstest]
+	fn test_pod_spec_service_account_name_explicit_when_create_false() {
+		// Arrange — user pre-created the KSA themselves and supplied the name
+		use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: false,
+			name: Some("user-managed".to_string()),
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert — the supplied name is used; the operator does not create the SA
+		assert_eq!(
+			pod_spec.service_account_name.as_deref(),
+			Some("user-managed")
+		);
+	}
+
+	#[rstest]
+	fn test_pod_spec_service_account_name_unset_when_create_false_and_no_name() {
+		// Arrange — ambiguous: don't create, no name → fall back to namespace default SA
+		use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
+		let mut app = make_test_app("web", "web:latest", None);
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: false,
+			name: None,
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.service_account_name, None);
 	}
 }
