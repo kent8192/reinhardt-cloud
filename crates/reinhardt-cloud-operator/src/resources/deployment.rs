@@ -317,6 +317,12 @@ pub(crate) fn build_deployment(
 					init_containers: init_containers_opt,
 					containers,
 					volumes: Some(volumes),
+					// Forward spec.imagePullSecrets verbatim so the kubelet can
+					// authenticate to private registries when pulling the main
+					// application container, the migrate init-container, the
+					// collectstatic init-container, and the static-server
+					// sidecar — they all share this PodSpec.
+					image_pull_secrets: app.spec.image_pull_secrets.clone(),
 					..Default::default()
 				}),
 			},
@@ -899,5 +905,110 @@ mod tests {
 		assert_eq!(psc.run_as_non_root, Some(true));
 		let container_sc = pod_spec.containers[0].security_context.as_ref().unwrap();
 		assert_eq!(container_sc.allow_privilege_escalation, Some(false));
+	}
+
+	// ── Image pull secrets tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn test_build_deployment_image_pull_secrets_none_when_unset() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.image_pull_secrets.is_none());
+	}
+
+	#[rstest]
+	fn test_build_deployment_image_pull_secrets_single_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "regcred".to_string(),
+		}]);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 1);
+		assert_eq!(pull_secrets[0].name, "regcred");
+	}
+
+	#[rstest]
+	fn test_build_deployment_image_pull_secrets_multiple_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.image_pull_secrets = Some(vec![
+			LocalObjectReference {
+				name: "regcred-primary".to_string(),
+			},
+			LocalObjectReference {
+				name: "regcred-fallback".to_string(),
+			},
+		]);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 2);
+		assert_eq!(pull_secrets[0].name, "regcred-primary");
+		assert_eq!(pull_secrets[1].name, "regcred-fallback");
+	}
+
+	#[rstest]
+	fn test_build_deployment_image_pull_secrets_apply_to_pages_pod_spec() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange — a pages-enabled deployment shares the same PodSpec
+		// across the main container, the static-server sidecar, and the
+		// migrate / collectstatic init-containers, so a single pod-level
+		// imagePullSecrets covers them all.
+		let mut app = make_test_app_with_database();
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "regcred".to_string(),
+		}]);
+		let pages = make_default_pages_config();
+
+		// Act
+		let deploy = build_deployment(&app, Some(&pages), &Platform::Onpremise)
+			.expect("build should succeed");
+		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 1);
+		assert_eq!(pull_secrets[0].name, "regcred");
+		// Sanity check: the PodSpec really does host the additional containers.
+		let init_containers = pod_spec.init_containers.as_ref().unwrap();
+		assert!(init_containers.iter().any(|c| c.name == "migrate"));
+		assert!(init_containers.iter().any(|c| c.name == "collectstatic"));
+		assert!(
+			pod_spec
+				.containers
+				.iter()
+				.any(|c| c.name == "static-server")
+		);
 	}
 }
