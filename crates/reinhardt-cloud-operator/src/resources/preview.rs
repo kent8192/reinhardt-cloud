@@ -154,6 +154,9 @@ pub(crate) fn build_preview_spec(
 		// Inherit image-pull secrets from the parent so previews can pull
 		// images from the same private registry.
 		image_pull_secrets: parent_spec.image_pull_secrets.clone(),
+		// Per-app workload identity is not inherited into previews. Operator
+		// wiring for service_account is tracked in #424.
+		service_account: None,
 	})
 }
 
