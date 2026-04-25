@@ -245,6 +245,14 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
 	let pages_config = resolve_pages_config(&app);
 
+	// Reconcile per-app workload `ServiceAccount` before the Deployment so
+	// the KSA exists when the Pod is admitted. Only materializes when
+	// `spec.service_account.create == true`; otherwise the user is
+	// pre-creating the KSA themselves.
+	if let Some(workload_sa) = resources::service_account::build_service_account(&app)? {
+		reconcile_app_service_account(&ctx.client, namespace, &workload_sa).await?;
+	}
+
 	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
 	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
@@ -653,6 +661,15 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 
 	// Storage ServiceAccount (stateless — always clean up)
 	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+
+	// Per-app workload ServiceAccount (stateless — always clean up).
+	// Owner references would also handle this on parent deletion, but the
+	// explicit deletion mirrors the storage SA pattern and covers the case
+	// where the user previously set `spec.service_account.name` to a
+	// non-default value: the operator only ever creates the `{name}-app`
+	// variant, and a user-supplied custom name was created by the user
+	// themselves (we never owned it, so we do not delete it here).
+	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-app")).await?;
 
 	// i18n ConfigMap (stateless — always clean up)
 	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
@@ -1273,6 +1290,32 @@ async fn reconcile_storage_sa(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled storage ServiceAccount {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the per-app workload `ServiceAccount` via server-side apply.
+///
+/// Distinct from [`reconcile_storage_sa`]: this SA carries Workload Identity
+/// or IRSA bindings for cloud-API access from the application pods, while
+/// the storage SA grants access to the storage backend specifically.
+async fn reconcile_app_service_account(
+	client: &Client,
+	namespace: &str,
+	sa: &ServiceAccount,
+) -> Result<(), Error> {
+	let name = sa
+		.metadata
+		.name
+		.as_ref()
+		.cloned()
+		.expect("workload SA always has a name set by build_service_account");
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	sa_api
+		.patch(&name, &ssapply, &Patch::Apply(sa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled workload ServiceAccount {namespace}/{name}");
 	Ok(())
 }
 
