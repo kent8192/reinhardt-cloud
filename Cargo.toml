@@ -37,7 +37,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Reinhardt — umbrella crate providing: HTTP server, auth (JWT + Argon2), database (SeaQuery),
 # configuration, DI container, middleware, OpenAPI, and management commands.
 # Direct hyper/jsonwebtoken/argon2/sea-query deps are NOT needed — reinhardt provides them.
-reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "middleware-security", "middleware-auth-jwt", "rest", "openapi", "openapi-router", "commands", "test", "testcontainers", "pages", "websockets", "admin", "sessions", "session-redis", "mail"] }
+reinhardt = { package = "reinhardt-web", git = "https://github.com/kent8192/reinhardt-web", tag = "reinhardt-web@v0.1.0-rc.22", features = ["database", "db-postgres", "auth", "auth-jwt", "argon2-hasher", "core", "conf", "server", "di", "middleware", "middleware-security", "middleware-auth-jwt", "rest", "openapi", "openapi-router", "commands", "test", "testcontainers", "pages", "websockets", "admin", "sessions", "session-redis", "mail"] }
 
 # PostgreSQL driver (sea-query is available via reinhardt::prelude — no direct dep needed)
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
@@ -99,7 +99,7 @@ rand = "0.9"
 rstest = "0.26"
 tokio-test = "0.4"
 proptest = "1"
-reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["testcontainers"] }
+reinhardt-test = { package = "reinhardt-test", git = "https://github.com/kent8192/reinhardt-web", tag = "reinhardt-web@v0.1.0-rc.22", features = ["testcontainers"] }
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"

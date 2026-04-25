@@ -1,5 +1,7 @@
 //! URL configuration for deployments app.
 
+pub mod ws_urls;
+
 use reinhardt::ServerRouter;
 use reinhardt::url_patterns;
 

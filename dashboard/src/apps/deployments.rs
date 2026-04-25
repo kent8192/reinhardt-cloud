@@ -11,7 +11,6 @@ pub mod serializers;
 pub mod tests;
 pub mod urls;
 pub mod views;
-pub mod ws_urls;
 
 #[app_config(name = "deployments", label = "deployments")]
 pub struct DeploymentsConfig;
