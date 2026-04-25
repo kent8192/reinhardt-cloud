@@ -1,20 +1,16 @@
 # Private Registry & Workload Identity
 
-> **Status legend** — every CRD field below is marked **Available** or
-> **Planned (#N)**. "Planned" surfaces are tracked in linked GitHub issues
-> and not yet wired into the operator.
-
 ## Overview
 
 Self-hosted Reinhardt Cloud installations frequently sit behind a private
 container registry and need cloud workload identity to call AWS, GCP, or
 Azure APIs. This page covers two related concerns: how the kubelet
 authenticates to a private registry to pull container images, and how a
-running Pod assumes a federated cloud identity. Operator-level workload
-identity (GKE Workload Identity / EKS IRSA) is fully wired today via the
-Helm chart. Per-app workload identity is currently surfaced only through
-the storage-backend integration; broader per-app identity and
-`imagePullSecrets` plumbing are tracked as **Planned** features below.
+running Pod assumes a federated cloud identity. All four surfaces — the
+operator's own ServiceAccount, the per-app `spec.imagePullSecrets`, the
+per-app `spec.serviceAccount`, and the storage-backend `{app-name}-storage`
+KSA — are now wired through the operator and exposed on the `ReinhardtApp`
+CRD. The sections below walk through each in turn.
 
 ## Concepts
 
@@ -27,13 +23,29 @@ the same namespace as the consuming Pod. When the kubelet pulls an image,
 it tries each referenced Secret's credentials against the registry
 hostname embedded in the image reference until one succeeds.
 
-**Status: Planned (#421, #423)** — the `ReinhardtApp` CRD does not yet
-expose a `spec.imagePullSecrets` field, and the operator does not inject
-pull secrets into the PodSpec it generates in
-`crates/reinhardt-cloud-operator/src/resources/deployment.rs`. Until that
-work lands, see the [Pre-Creating a Pull Secret](#pre-creating-a-pull-secret)
-section for the cluster-side preparation that the operator will consume
-once #421 and #423 ship.
+The `ReinhardtApp` CRD exposes a `spec.imagePullSecrets` field that
+mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape. The
+operator copies the references straight into every PodSpec it
+materializes (main Deployment, worker Deployment, migration init Job,
+Kaniko build Job, and preview environments), so a single CRD-level
+declaration covers every Pod the operator owns for that app:
+
+```yaml
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: orders-api
+  namespace: tenant-acme
+spec:
+  image: ghcr.io/myorg/orders-api:v1.2.3
+  imagePullSecrets:
+    - name: ghcr-pull
+```
+
+The Secret named here must already exist in the same namespace and be of
+type `kubernetes.io/dockerconfigjson`. See
+[Per-App Pull Secrets](#per-app-pull-secrets) below for the cluster-side
+recipes that produce such a Secret for the major registries.
 
 ### Workload Identity
 
@@ -49,16 +61,62 @@ long-lived static credentials. The two mainstream implementations are:
   `eks.amazonaws.com/role-arn` and configure the IAM role's trust policy
   to accept the cluster's OIDC provider and the KSA subject claim.
 
-Operator-level workload identity is fully supported via the Helm chart's
+Operator-level workload identity is supported via the Helm chart's
 `serviceAccount.annotations` (see
 [charts/reinhardt-cloud-operator/values-gcp.yaml](../charts/reinhardt-cloud-operator/values-gcp.yaml)
 and
 [charts/reinhardt-cloud-operator/values-aws.yaml](../charts/reinhardt-cloud-operator/values-aws.yaml)).
-**Per-app** workload identity is **Planned (#422, #424)**: the
-`ReinhardtApp` CRD does not yet expose a `spec.serviceAccount` field, and
-the operator does not yet create a per-app KSA or set
-`serviceAccountName` on the PodSpec for the general case. The single
-exception is the storage-backend KSA documented below.
+Per-app workload identity is now driven by `spec.serviceAccount` on the
+`ReinhardtApp` CRD. The operator can either create a managed KSA (when
+`create: true`) or wire an existing user-managed KSA into the workload
+PodSpec (when `create: false, name: <existing>`).
+
+**GKE Workload Identity flavor:**
+
+```yaml
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: orders-api
+  namespace: tenant-acme
+spec:
+  image: gcr.io/PROJECT/orders-api:v1.2.3
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: orders-api@PROJECT.iam.gserviceaccount.com
+```
+
+**AWS IRSA flavor:**
+
+```yaml
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: orders-api
+  namespace: tenant-acme
+spec:
+  image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/orders-api:v1.2.3
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orders-api
+```
+
+**Naming rules.** `spec.serviceAccount` accepts three independent fields
+(`create`, `name`, `annotations`); the operator resolves the effective
+KSA name as follows:
+
+| `create` | `name`        | KSA the operator manages | `serviceAccountName` set on PodSpec |
+|---------:|---------------|--------------------------|-------------------------------------|
+| `true`   | unset         | creates `{app-name}-app` | `{app-name}-app`                    |
+| `true`   | `Some("foo")` | creates `foo`            | `foo`                               |
+| `false`  | `Some("foo")` | none (user pre-creates)  | `foo`                               |
+| `false`  | unset         | none                     | unset (Pod uses namespace `default`)|
+
+The `-app` suffix on the auto-generated name is deliberate: it keeps the
+workload's KSA distinct from the storage-backend KSA (`{app-name}-storage`)
+and from any user-managed KSA that happens to share the bare app name.
 
 ## What Works Today
 
@@ -146,11 +204,24 @@ IAM role via IRSA.
 
 ### Storage Backend IAM (per-app)
 
-This is the **only per-app IAM-bound ServiceAccount** the operator
-manages today. When `spec.storage.backend` is set to `s3` (with a role
-ARN) or `gcs` (with a GCP ServiceAccount email), the operator creates a
-ServiceAccount named `{app-name}-storage` in the application's namespace
-and writes the appropriate cloud annotation:
+This is the storage-only KSA the operator manages alongside the
+per-app workload KSA configured by `spec.serviceAccount`. The two are
+**distinct**:
+
+- **`{app-name}-storage`** — operator-managed. Used solely for storage
+  backend access (the ObjectStore CRD / `spec.storage` flow). Created
+  whenever `spec.storage.backend` resolves to a backend that needs an
+  IAM identity (`s3`, `gcs`).
+- **`{app-name}-app`** (or any `spec.serviceAccount.name` you supply) —
+  the workload's own KSA. Optional; configured via `spec.serviceAccount`
+  as documented in [Workload Identity](#workload-identity) above. Wired
+  into the PodSpec's `serviceAccountName` so the application Pods inherit
+  cloud-API access via Workload Identity / IRSA.
+
+When `spec.storage.backend` is set to `s3` (with a role ARN) or `gcs`
+(with a GCP ServiceAccount email), the operator creates a ServiceAccount
+named `{app-name}-storage` in the application's namespace and writes the
+appropriate cloud annotation:
 
 - `s3` + role ARN → `eks.amazonaws.com/role-arn`
 - `gcs` + GSA email → `iam.gke.io/gcp-service-account`
@@ -193,132 +264,237 @@ fields. The IAM identity (role ARN for S3, GSA email for GCS) is
 supplied to `build_storage_service_account` via a separate platform-side
 resolution path; it is not yet a first-class CRD field.
 
-### Pre-Creating a Pull Secret
+### Per-App Pull Secrets
 
-Until #421 and #423 land, app images are pulled using whatever pull
-credentials are already attached at the namespace or default
-ServiceAccount level. Pre-creating a `kubernetes.io/dockerconfigjson`
-Secret in the target namespace is the cluster-side prerequisite the
-operator will consume once `spec.imagePullSecrets` is wired through.
+`spec.imagePullSecrets` lets a `ReinhardtApp` declare which
+`kubernetes.io/dockerconfigjson` Secret(s) the kubelet should use when
+pulling the workload's container images. The operator copies the
+references into every PodSpec it materializes for the app — main
+Deployment, worker Deployment, migration init Job, Kaniko build Job,
+and preview environments — so a single CRD-level declaration covers
+every Pod the operator owns for that app.
 
-> **Cluster-side prerequisite.** The CRD wiring that lets a
-> `ReinhardtApp` reference a Secret created here is tracked in #421
-> (CRD field) and #423 (operator PodSpec injection).
+#### 1. Pre-create the dockerconfigjson Secret
 
-#### Google Artifact Registry
+The Secret must already exist in the same namespace as the
+`ReinhardtApp`. The recipes below cover the major registries:
+
+##### Google Artifact Registry
 
 ```bash
 gcloud auth configure-docker REGION-docker.pkg.dev
 gcloud artifacts print-settings docker --project=PROJECT \
   --location=REGION --repository=REPO
 kubectl create secret docker-registry myapp-registry-pull \
-  --namespace=default \
+  --namespace=tenant-acme \
   --docker-server=REGION-docker.pkg.dev \
   --docker-username=oauth2accesstoken \
   --docker-password="$(gcloud auth print-access-token)"
 ```
 
-#### AWS ECR
+##### AWS ECR
 
 ```bash
 ACCOUNT=123456789012
 REGION=us-east-1
 aws ecr get-login-password --region "${REGION}" \
   | kubectl create secret docker-registry myapp-registry-pull \
-      --namespace=default \
+      --namespace=tenant-acme \
       --docker-server="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com" \
       --docker-username=AWS \
       --docker-password-stdin
 ```
 
 ECR tokens expire every 12 hours. For long-lived workloads, prefer
-attaching IRSA to a node group (or to a per-app ServiceAccount once #422
-and #424 land) rather than pre-creating a static Secret.
+attaching IRSA to a node group (or to a per-app ServiceAccount via
+`spec.serviceAccount` — see [Per-App Workload Identity](#per-app-workload-identity)
+below) rather than pre-creating a static Secret.
 
-#### GHCR (private)
+##### GHCR (private)
 
 Generate a Personal Access Token with the `read:packages` scope
 (classic) or use a fine-grained token with package read permission:
 
 ```bash
 kubectl create secret docker-registry myapp-registry-pull \
-  --namespace=default \
+  --namespace=tenant-acme \
   --docker-server=ghcr.io \
   --docker-username=GITHUB_USERNAME \
   --docker-password=GITHUB_PAT \
   --docker-email=user@example.com
 ```
 
-#### Self-hosted Harbor / Distribution
+##### Self-hosted Harbor / Distribution
 
 Use a Harbor robot account (or any registry account scoped to read the
 target project) rather than a human user:
 
 ```bash
 kubectl create secret docker-registry myapp-registry-pull \
-  --namespace=default \
+  --namespace=tenant-acme \
   --docker-server=harbor.internal.example.com \
   --docker-username='robot$myapp+pull' \
   --docker-password=ROBOT_TOKEN
 ```
 
-## Planned Features
-
-| Surface | CRD field | Issue | Status |
-|---|---|---|---|
-| Pull-secret declaration | `spec.imagePullSecrets` | #421 | Planned (CRD) |
-| App ServiceAccount | `spec.serviceAccount` | #422 | Planned (CRD) |
-| Operator PodSpec injection | (operator code) | #423 | Planned (operator) |
-| Per-app KSA wiring | (operator code) | #424 | Planned (operator) |
-| Documentation update once landed | this doc | #425 | Planned (docs) |
-
-```mermaid
-flowchart LR
-    Spec["ReinhardtApp.spec [Planned #421, #422]<br/>imagePullSecrets, serviceAccount"] --> Op["Operator reconciler [Planned #423, #424]"]
-    Op -->|"creates KSA [Planned #424]"| KSA["{app}-sa ServiceAccount<br/>(annotated for WI/IRSA)"]
-    Op -->|"sets serviceAccountName [Planned #424]"| Pod[PodSpec]
-    Op -->|"sets imagePullSecrets [Planned #423]"| Pod
-    PullSecret["Pre-created docker-registry Secret"] -.->|"referenced by name"| Pod
-    KSA -->|"workload identity"| CloudIAM[Cloud IAM]
-```
-
-*Diagram: Planned — Per-App Identity & Pull-Secret Wiring.*
-
-The intended end-state YAML, once #421 through #424 land — **preview
-only, not yet supported**:
+#### 2. Reference the Secret from the `ReinhardtApp`
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
 kind: ReinhardtApp
 metadata:
-  name: my-app
+  name: orders-api
+  namespace: tenant-acme
 spec:
-  image: gar-host/project/my-app:v1
-  # Planned (#421, #423) — wires kubelet pull credentials
+  image: ghcr.io/myorg/orders-api:v1.2.3
   imagePullSecrets:
-    - name: my-app-registry-pull
-  # Planned (#422, #424) — wires per-app workload identity
+    - name: myapp-registry-pull
+```
+
+Multiple Secret references are supported; the kubelet tries each in turn
+until one authenticates against the registry hostname embedded in
+`spec.image`.
+
+#### 3. Verify
+
+After the operator reconciles, the Pod should carry the pull-secret
+reference:
+
+```bash
+kubectl -n tenant-acme get pod \
+  -l app.kubernetes.io/name=orders-api \
+  -o jsonpath='{.items[0].spec.imagePullSecrets}'
+# → [{"name":"myapp-registry-pull"}]
+```
+
+### Per-App Workload Identity
+
+`spec.serviceAccount` configures the application workload's own KSA so
+the Pods can call cloud APIs via Workload Identity (GKE) or IRSA (EKS)
+without long-lived static credentials. The operator either creates a
+managed KSA (`create: true`) or wires an existing user-managed KSA into
+the PodSpec (`create: false, name: <existing>`).
+
+The flow has three steps. The first is cloud-side IAM setup, the second
+is the `ReinhardtApp` declaration, and the third is verification.
+
+#### 1. Cloud-side IAM setup
+
+##### GKE Workload Identity
+
+```bash
+# Create the GCP ServiceAccount the workload will assume.
+gcloud iam service-accounts create orders-api \
+  --project=PROJECT
+
+# Grant the GSA whatever cloud-API roles the workload needs.
+gcloud projects add-iam-policy-binding PROJECT \
+  --member="serviceAccount:orders-api@PROJECT.iam.gserviceaccount.com" \
+  --role="roles/<your-app-role>"
+
+# Bind the to-be-created KSA tenant-acme/orders-api-app to the GSA.
+# (orders-api-app is the default name when create=true and name is unset.)
+gcloud iam service-accounts add-iam-policy-binding \
+  orders-api@PROJECT.iam.gserviceaccount.com \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="serviceAccount:PROJECT.svc.id.goog[tenant-acme/orders-api-app]"
+```
+
+##### AWS IRSA
+
+Create an IAM role whose trust policy allows the EKS cluster's OIDC
+provider to assume the role for the
+`system:serviceaccount:tenant-acme:orders-api-app` subject claim, then
+grant that role whatever cloud-API permissions the workload needs.
+
+#### 2. Reference the KSA from the `ReinhardtApp`
+
+GKE Workload Identity flavor:
+
+```yaml
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: orders-api
+  namespace: tenant-acme
+spec:
+  image: gcr.io/PROJECT/orders-api:v1.2.3
   serviceAccount:
     create: true
-    name: my-app
     annotations:
-      iam.gke.io/gcp-service-account: my-app@PROJECT.iam.gserviceaccount.com
+      iam.gke.io/gcp-service-account: orders-api@PROJECT.iam.gserviceaccount.com
 ```
+
+AWS IRSA flavor:
+
+```yaml
+apiVersion: paas.reinhardt-cloud.dev/v1alpha2
+kind: ReinhardtApp
+metadata:
+  name: orders-api
+  namespace: tenant-acme
+spec:
+  image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/orders-api:v1.2.3
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orders-api
+```
+
+If you prefer to manage the KSA yourself (for example, because Terraform
+already owns it), set `create: false` and supply `name`:
+
+```yaml
+spec:
+  serviceAccount:
+    create: false
+    name: orders-api-team-managed
+```
+
+In that mode the operator does not touch the KSA — it only writes
+`serviceAccountName: orders-api-team-managed` into the PodSpec.
+
+#### 3. Verify
+
+```bash
+# The operator-managed KSA carries the cloud annotation:
+kubectl -n tenant-acme get sa orders-api-app \
+  -o jsonpath='{.metadata.annotations}'
+# → {"iam.gke.io/gcp-service-account":"orders-api@PROJECT.iam.gserviceaccount.com"}
+
+# And the workload Pod uses it:
+kubectl -n tenant-acme get pod \
+  -l app.kubernetes.io/name=orders-api \
+  -o jsonpath='{.items[0].spec.serviceAccountName}'
+# → orders-api-app
+```
+
+```mermaid
+flowchart LR
+    Spec["ReinhardtApp.spec<br/>imagePullSecrets, serviceAccount"] --> Op[Operator reconciler]
+    Op -->|"creates KSA<br/>{app}-app"| KSA["ServiceAccount (annotated for WI/IRSA)"]
+    Op -->|"sets serviceAccountName"| Pod[PodSpec]
+    Op -->|"sets imagePullSecrets"| Pod
+    PullSecret["Pre-created docker-registry Secret"] -.->|"referenced by name"| Pod
+    KSA -->|"workload identity binding"| CloudIAM[Cloud IAM]
+```
+
+*Diagram: Per-App Identity & Pull-Secret Wiring.*
 
 ## CRD Field Reference
 
 | Field | Type | Status | Notes |
 |---|---|---|---|
-| `spec.image` | `String` | Available | Plain image reference; pull-secret wiring tracked in #421/#423 |
+| `spec.image` | `String` | Available | Plain image reference; pull credentials supplied via `spec.imagePullSecrets` |
 | `spec.replicas` | `Option<i32>` | Available | — |
 | `spec.env` | `BTreeMap<String, String>` | Available | — |
 | `spec.isolation` | `Option<IsolationSpec>` | Available | Workload sandbox / network isolation |
 | `spec.storage.backend` | `Option<StorageBackend>` (`s3` / `gcs` / `pvc`) | Available | Drives `{app}-storage` KSA annotation when an IAM identity is supplied |
 | `spec.storage.bucket` | `Option<String>` | Available | Bucket / volume name |
-| `spec.imagePullSecrets` | `[{name}]` | **Planned (#421)** | Not yet on `ReinhardtAppSpec` |
-| `spec.serviceAccount.create` | `bool` | **Planned (#422)** | Not yet on `ReinhardtAppSpec` |
-| `spec.serviceAccount.name` | `String` | **Planned (#422)** | Not yet on `ReinhardtAppSpec` |
-| `spec.serviceAccount.annotations` | `map<string, string>` | **Planned (#422)** | Not yet on `ReinhardtAppSpec` |
+| `spec.imagePullSecrets` | `Option<Vec<LocalObjectReference>>` | Available | Mirrors `corev1.PodSpec.imagePullSecrets`; copied into every PodSpec the operator materializes |
+| `spec.serviceAccount.create` | `bool` | Available | When `true`, operator creates the per-app KSA |
+| `spec.serviceAccount.name` | `Option<String>` | Available | Optional KSA name. Defaults to `{app-name}-app` when `create: true` and unset |
+| `spec.serviceAccount.annotations` | `BTreeMap<String, String>` | Available | Annotations applied to the KSA (typically Workload Identity / IRSA bindings) |
 
 ## Troubleshooting
 
@@ -335,14 +511,10 @@ spec:
 - Confirm the `docker-server` in the Secret matches the registry
   hostname embedded in `spec.image` exactly (for example, `ghcr.io`, not
   `https://ghcr.io`).
-- **Workaround until #421/#423 land:** attach the pre-created Secret to
-  the namespace's default ServiceAccount so the kubelet picks it up
-  automatically:
-
-  ```bash
-  kubectl patch serviceaccount default -n NS \
-    -p '{"imagePullSecrets":[{"name":"myapp-registry-pull"}]}'
-  ```
+- Confirm `spec.imagePullSecrets[].name` on the `ReinhardtApp` references
+  the Secret you created. The operator only injects pull-secret
+  references that are listed there — it does not fall back to the
+  namespace's default ServiceAccount.
 
 ### GKE Workload Identity not propagating
 
