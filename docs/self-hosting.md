@@ -16,6 +16,7 @@ This page covers:
 - [Upgrade flow](#upgrade-flow)
 - [Rollback](#rollback)
 - [Observability](#observability)
+- [Deployment flow architecture](architecture/deployment-flow.md)
 
 The canonical manifest lives at [`manifests/dashboard-app.yaml`](../manifests/dashboard-app.yaml)
 and the workflow at

@@ -7,6 +7,7 @@ A Reinhardt project.
 - Full usage guide → [`../docs/tools/dashboard.md`](../docs/tools/dashboard.md)
 - Deployment guide for Platform Operators → [`../docs/tools/dashboard.md#deployment-of-the-dashboard-itself-for-platform-operators`](../docs/tools/dashboard.md#deployment-of-the-dashboard-itself-for-platform-operators)
 - Source of truth for Dashboard usage and configuration is the guide above; this README is a contributor-oriented summary.
+- Deployment flow & component responsibilities → [`../docs/architecture/deployment-flow.md`](../docs/architecture/deployment-flow.md)
 
 ## Getting Started
 
