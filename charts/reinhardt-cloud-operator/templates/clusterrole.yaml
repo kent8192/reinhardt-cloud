@@ -23,6 +23,12 @@ rules:
   - apiGroups: [""]
     resources: ["services", "configmaps", "secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Base: ServiceAccount management — used for the storage IAM KSA
+  # ({name}-storage) and the per-app workload identity KSA ({name}-app)
+  # that carries Workload Identity / IRSA bindings.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Base: Event creation (always required)
   - apiGroups: [""]
     resources: ["events"]
