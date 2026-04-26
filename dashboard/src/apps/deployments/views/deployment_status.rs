@@ -11,12 +11,13 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, DeploymentStatusRequest};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
 /// Update the status of a deployment (user-authenticated endpoint).
 ///
 /// Accepts a status string. Returns the updated deployment.
-/// Returns 404 if the deployment does not exist or is not owned
-/// by the authenticated user.
+/// Returns 404 if the deployment does not exist or does not belong to the
+/// authenticated user's active organization.
 #[post("/{id}/status/", name = "status")]
 pub async fn deployment_status(
 	Path(id): Path<i64>,
@@ -25,13 +26,14 @@ pub async fn deployment_status(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let mut deployment = Deployment::objects()
 		.filter("id", FilterOperator::Eq, FilterValue::Integer(id))
 		.filter(Filter::new(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		))
 		.first()
 		.await

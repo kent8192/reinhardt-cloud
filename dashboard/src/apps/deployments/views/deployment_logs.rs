@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentLogsResponse, LogEntry};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 use crate::config::GrpcChannelSingleton;
 
 /// Maximum number of log entries returned per request.
@@ -57,11 +58,17 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 	}
 }
 
-/// Retrieve logs for a specific deployment (authentication required).
+/// Retrieve logs for a specific deployment, scoped to the active organization.
 ///
-/// Logs are fetched from the `LogService.ListLogs` gRPC RPC using the
-/// deployment's `app_name` as the log `source` filter. Returns 404 if the
-/// deployment does not exist or is not owned by the authenticated user.
+/// Closes #419: the deployment lookup is now filtered by `organization_id`,
+/// so a user can no longer fetch logs for a deployment belonging to a
+/// different organization.
+///
+/// NOTE: The gRPC `LogFilter.source` field is still set to the deployment's
+/// `app_name`. If two organizations create deployments with the same
+/// `app_name`, the gRPC layer will return logs from both. Tightening that
+/// filter to include `deployment_id` or `organization_id` is tracked
+/// separately by the existing `// issue #390` follow-up.
 #[get("/{id}/logs/", name = "logs")]
 pub async fn deployment_logs(
 	Path(id): Path<i64>,
@@ -70,8 +77,12 @@ pub async fn deployment_logs(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
-	// Verify the deployment exists and belongs to the authenticated user.
+	// Verify the deployment exists and belongs to the active organization.
+	// This is the fix for cross-tenant log leakage (#419): previously the
+	// lookup filtered by `user_id`; now it filters by `organization_id`,
+	// which correctly bounds visibility to the user's active org.
 	let deployment = Deployment::objects()
 		.filter(
 			Deployment::field_id(),
@@ -79,9 +90,9 @@ pub async fn deployment_logs(
 			FilterValue::Integer(id),
 		)
 		.filter(Filter::new(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		))
 		.first()
 		.await
@@ -98,10 +109,10 @@ pub async fn deployment_logs(
 	let mut client =
 		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
 
-	// Filter by app_name (the log source field). Note: log isolation is by
-	// app_name, not by deployment id or owner; cross-tenant leakage is possible
-	// if two users share the same app_name. A stricter filter (e.g. by a
-	// globally unique deployment UUID) is tracked in issue #390.
+	// Filter by app_name (the log source field). Note: log isolation here
+	// is by app_name, not by deployment id or organization. Two orgs that
+	// happen to deploy apps with the same `app_name` would still see each
+	// other's gRPC logs. Narrowing the LogFilter is tracked in issue #390.
 	let request = log_pb::ListLogsRequest {
 		filter: Some(log_pb::LogFilter {
 			source: Some(deployment.app_name.clone()),
@@ -149,7 +160,7 @@ mod tests {
 
 	#[rstest]
 	fn test_proto_entry_to_serializer_valid_timestamp() {
-		// Arrange — a log entry with a valid Unix timestamp (2024-01-01 00:00:00 UTC)
+		// Arrange -- a log entry with a valid Unix timestamp (2024-01-01 00:00:00 UTC)
 		let entry = log_pb::LogEntry {
 			timestamp: Some(prost_types::Timestamp {
 				seconds: 1_704_067_200,
@@ -176,11 +187,11 @@ mod tests {
 
 	#[rstest]
 	fn test_proto_entry_to_serializer_out_of_range_nanos_clamped() {
-		// Arrange — nanos outside [0, 999_999_999] must be clamped to 0
+		// Arrange -- nanos outside [0, 999_999_999] must be clamped to 0
 		let entry = log_pb::LogEntry {
 			timestamp: Some(prost_types::Timestamp {
 				seconds: 1_704_067_200,
-				nanos: 1_500_000_000, // out of range
+				nanos: 1_500_000_000,
 			}),
 			message: "clamped".to_string(),
 			level: log_pb::LogLevel::Debug as i32,
@@ -188,10 +199,10 @@ mod tests {
 			metadata_json: None,
 		};
 
-		// Act — must not panic
+		// Act -- must not panic
 		let result = proto_entry_to_serializer(&entry);
 
-		// Assert — timestamp is still parseable (nanos clamped to 0)
+		// Assert -- timestamp is still parseable (nanos clamped to 0)
 		assert!(!result.timestamp.is_empty());
 	}
 

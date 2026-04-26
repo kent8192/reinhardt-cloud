@@ -12,11 +12,9 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
-/// List deployments owned by the authenticated user with pagination.
-///
-/// Accepts optional query parameters `page` and `page_size` for pagination.
-/// Returns a paginated response with items, total count, and page metadata.
+/// List deployments owned by the authenticated user's active organization with pagination.
 #[get("/", name = "list")]
 pub async fn list_deployments(
 	Query(params): Query<PaginationParams>,
@@ -24,12 +22,13 @@ pub async fn list_deployments(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let total = Deployment::objects()
 		.filter(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.count()
 		.await
@@ -41,9 +40,9 @@ pub async fn list_deployments(
 	let limit: usize = params.page_size().try_into().unwrap_or(20).min(100);
 	let deployments = Deployment::objects()
 		.filter(
-			Deployment::field_user_id(),
+			Deployment::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.order_by(&["id"])
 		.offset(offset)

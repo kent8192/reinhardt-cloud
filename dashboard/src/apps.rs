@@ -12,4 +12,6 @@ pub mod deployments;
 #[cfg(native)]
 pub mod health;
 #[cfg(native)]
+pub mod organizations;
+#[cfg(native)]
 pub mod validators;

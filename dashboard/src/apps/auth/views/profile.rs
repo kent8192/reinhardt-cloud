@@ -217,9 +217,10 @@ async fn issue_email_verification(
 	// of delete errors on earlier rows.
 	for t in prior {
 		if let Some(id) = t.id
-			&& let Err(e) = EmailVerificationToken::objects().delete(id).await {
-				error!("Failed to delete stale verification token {id}: {e}");
-			}
+			&& let Err(e) = EmailVerificationToken::objects().delete(id).await
+		{
+			error!("Failed to delete stale verification token {id}: {e}");
+		}
 	}
 
 	// 32 bytes of cryptographic randomness from the OS.

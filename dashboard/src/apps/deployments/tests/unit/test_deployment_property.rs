@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
 	use proptest::prelude::*;
-	use uuid::Uuid;
 
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
@@ -11,7 +10,7 @@ mod tests {
 	/// Strategy for generating arbitrary Deployment instances.
 	fn arb_deployment() -> impl Strategy<Value = Deployment> {
 		(
-			prop::array::uniform16(any::<u8>()),
+			1i64..=i64::MAX,
 			"[a-z][a-z0-9\\-]{0,62}",
 			1i64..=i64::MAX,
 			prop::sample::select(vec![
@@ -22,14 +21,8 @@ mod tests {
 			]),
 			"[a-z0-9./:\\-]{1,128}",
 		)
-			.prop_map(|(uuid_bytes, app_name, cluster_id, status, image)| {
-				let mut d = Deployment::new(
-					Uuid::from_bytes(uuid_bytes),
-					app_name,
-					cluster_id,
-					status,
-					image,
-				);
+			.prop_map(|(organization_id, app_name, cluster_id, status, image)| {
+				let mut d = Deployment::new(organization_id, app_name, cluster_id, status, image);
 				d.id = Some(cluster_id);
 				d
 			})

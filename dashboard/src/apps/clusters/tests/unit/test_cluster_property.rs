@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
 	use proptest::prelude::*;
-	use uuid::Uuid;
 
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::clusters::serializers::{ClusterResponse, CreateClusterRequest};
@@ -18,7 +17,7 @@ mod tests {
 		) {
 			// Arrange
 			let cluster = Cluster::new(
-				Uuid::now_v7(),
+				1i64,
 				name.clone(),
 				api_url.clone(),
 				is_active,

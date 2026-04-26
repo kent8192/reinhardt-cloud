@@ -11,10 +11,11 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::ClusterResponse;
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
-/// Retrieve a single cluster by ID (authentication required).
+/// Retrieve a single cluster by ID, scoped to the user's active organization.
 ///
-/// Returns 404 if the cluster does not exist or belongs to another user.
+/// Returns 404 if the cluster does not exist or does not belong to the active org.
 #[get("/{id}/", name = "retrieve")]
 pub async fn retrieve_cluster(
 	Path(id): Path<i64>,
@@ -22,12 +23,13 @@ pub async fn retrieve_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let cluster = Cluster::objects()
 		.filter(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.filter(Filter::new(
 			Cluster::field_id(),

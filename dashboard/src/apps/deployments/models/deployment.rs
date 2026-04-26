@@ -2,7 +2,6 @@
 
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Application deployment targeting a specific cluster.
 #[derive(Serialize, Deserialize)]
@@ -12,8 +11,8 @@ pub struct Deployment {
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
 
-	/// Owner user ID (foreign key to `auth_users.id`)
-	pub user_id: Uuid,
+	/// Foreign key to `organizations.id`. Multi-tenant ownership boundary.
+	pub organization_id: i64,
 
 	/// Application name
 	#[field(max_length = 255)]

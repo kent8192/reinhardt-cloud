@@ -81,7 +81,11 @@ async fn probe_grpc(grpc_channel: &GrpcChannelSingleton) -> bool {
 
 /// Render a probe boolean as its stable status string.
 fn status_str(ok: bool) -> String {
-	if ok { STATUS_OK.to_string() } else { STATUS_ERROR.to_string() }
+	if ok {
+		STATUS_OK.to_string()
+	} else {
+		STATUS_ERROR.to_string()
+	}
 }
 
 /// GET `/api/healthz/` — Kubernetes-friendly liveness and readiness probe.
@@ -113,9 +117,8 @@ pub async fn healthz(
 		db: status_str(db_ok),
 		grpc: status_str(grpc_ok),
 	};
-	let bytes = json::to_vec(&body).map_err(|e| {
-		AppError::Internal(format!("Failed to serialize healthz response: {e}"))
-	})?;
+	let bytes = json::to_vec(&body)
+		.map_err(|e| AppError::Internal(format!("Failed to serialize healthz response: {e}")))?;
 
 	Ok(Response::new(http_status)
 		.with_header("Content-Type", "application/json")

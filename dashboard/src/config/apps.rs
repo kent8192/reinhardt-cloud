@@ -11,6 +11,7 @@ installed_apps! {
 	clusters: "clusters",
 	deployments: "deployments",
 	health: "health",
+	organizations: "organizations",
 }
 
 /// Get the list of installed applications

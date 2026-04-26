@@ -11,11 +11,13 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
 /// Update an existing cluster (authentication required).
 ///
 /// Supports partial updates: only provided fields are modified.
-/// Returns 404 if the cluster does not exist or belongs to another user.
+/// Returns 404 if the cluster does not exist or does not belong to the
+/// authenticated user's active organization.
 #[patch("/{id}/", name = "update")]
 pub async fn update_cluster(
 	Path(id): Path<i64>,
@@ -24,11 +26,12 @@ pub async fn update_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	// Validate the request body
 	body.validate()?;
 
-	// Reject empty updates — at least one field must be provided
+	// Reject empty updates -- at least one field must be provided
 	if body.name.is_none() && body.api_url.is_none() && body.is_active.is_none() {
 		return Err(AppError::Validation(
 			"At least one field must be provided for update".to_string(),
@@ -38,9 +41,9 @@ pub async fn update_cluster(
 	let manager = Cluster::objects();
 	let mut cluster = manager
 		.filter(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.filter(Filter::new(
 			Cluster::field_id(),

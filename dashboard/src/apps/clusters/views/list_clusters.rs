@@ -12,8 +12,9 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::ClusterResponse;
+use crate::apps::organizations::helpers::current_organization_id_for_user;
 
-/// List clusters owned by the authenticated user with pagination.
+/// List clusters owned by the authenticated user's active organization with pagination.
 ///
 /// Accepts optional query parameters `page` and `page_size` for pagination.
 /// Returns a paginated response with items, total count, and page metadata.
@@ -24,12 +25,13 @@ pub async fn list_clusters(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
+	let organization_id = current_organization_id_for_user(user_id).await?;
 
 	let total = Cluster::objects()
 		.filter(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.count()
 		.await
@@ -41,9 +43,9 @@ pub async fn list_clusters(
 	let limit: usize = params.page_size().try_into().unwrap_or(20).min(100);
 	let clusters = Cluster::objects()
 		.filter(
-			Cluster::field_user_id(),
+			Cluster::field_organization_id(),
 			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
+			FilterValue::Integer(organization_id),
 		)
 		.order_by(&["id"])
 		.offset(offset)
