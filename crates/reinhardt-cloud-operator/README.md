@@ -7,6 +7,7 @@ Kubernetes operator that reconciles `ReinhardtApp` custom resources into Deploym
 - Full usage guide → [`docs/tools/operator.md`](../../docs/tools/operator.md)
 - Helm chart → [`charts/reinhardt-cloud-operator/`](../../charts/reinhardt-cloud-operator/)
 - Crate API → [`docs.rs/reinhardt-cloud-operator`](https://docs.rs/reinhardt-cloud-operator)
+- End-to-end deployment flow → [`docs/architecture/deployment-flow.md`](../../docs/architecture/deployment-flow.md)
 
 ## Minimal installation
 

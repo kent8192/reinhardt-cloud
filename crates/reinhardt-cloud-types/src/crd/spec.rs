@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use k8s_openapi::api::core::v1::LocalObjectReference;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ use super::mail::MailSpec;
 use super::pages::PagesSpec;
 use super::plugins::{PluginSpec, sanitized_volume_suffix};
 use super::policy::DeletionPolicy;
+use super::service_account::ServiceAccountSpec;
 use super::source::SourceSpec;
 use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
@@ -233,6 +235,26 @@ pub struct ReinhardtAppSpec {
 	/// and is mounted into the container via a volume at `wasm_dir`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub plugins: Option<Vec<PluginSpec>>,
+	/// References to Kubernetes Secrets in the same namespace that hold
+	/// container-registry credentials (type `kubernetes.io/dockerconfigjson`).
+	///
+	/// Mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape so the
+	/// operator can copy the references straight into the materialized
+	/// PodSpec without re-serializing the user's intent.
+	#[serde(
+		rename = "imagePullSecrets",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub image_pull_secrets: Option<Vec<LocalObjectReference>>,
+	/// Per-app Kubernetes ServiceAccount configuration.
+	///
+	/// Configures the workload's KSA — typically annotated with GKE
+	/// Workload Identity or AWS IRSA bindings to grant the application
+	/// pods cloud-API access. Distinct from the operator-managed
+	/// `{app-name}-storage` KSA used for storage-backend access.
+	#[serde(rename = "serviceAccount", skip_serializing_if = "Option::is_none")]
+	pub service_account: Option<ServiceAccountSpec>,
 }
 
 impl ReinhardtAppSpec {
@@ -299,6 +321,12 @@ impl ReinhardtAppSpec {
 
 		if let Some(ref source) = self.source
 			&& let Err(errs) = source.validate()
+		{
+			errors.extend(errs);
+		}
+
+		if let Some(ref sa) = self.service_account
+			&& let Err(errs) = sa.validate()
 		{
 			errors.extend(errs);
 		}
@@ -397,6 +425,8 @@ mod tests {
 			]),
 			introspect: None,
 			plugins: None,
+			image_pull_secrets: None,
+			service_account: None,
 		};
 
 		// Act
@@ -845,6 +875,8 @@ mod tests {
 			isolation: None,
 			source: None,
 			plugins: None,
+			image_pull_secrets: None,
+			service_account: None,
 		};
 
 		// Act
@@ -1330,6 +1362,198 @@ mod tests {
 			e.message
 				.contains("duplicate wasm_dir '/var/lib/dentdelion/shared'")
 		}));
+	}
+
+	#[rstest]
+	fn test_spec_service_account_field_backward_compatible() {
+		// Arrange: JSON without serviceAccount field (pre-existing format)
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.service_account.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_service_account_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("serviceAccount").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_with_service_account_roundtrip() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "app:v1".to_string(),
+			service_account: Some(ServiceAccountSpec {
+				create: true,
+				name: Some("my-app".to_string()),
+				annotations: BTreeMap::from([
+					(
+						"iam.gke.io/gcp-service-account".to_string(),
+						"my-app@project.iam.gserviceaccount.com".to_string(),
+					),
+					(
+						"eks.amazonaws.com/role-arn".to_string(),
+						"arn:aws:iam::123456789012:role/my-app".to_string(),
+					),
+				]),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).unwrap();
+		let deserialized: ReinhardtAppSpec = serde_yaml::from_str(&yaml).unwrap();
+
+		// Assert
+		let sa = deserialized
+			.service_account
+			.expect("serviceAccount should roundtrip");
+		assert!(sa.create);
+		assert_eq!(sa.name.as_deref(), Some("my-app"));
+		assert_eq!(sa.annotations.len(), 2);
+		assert_eq!(
+			sa.annotations
+				.get("iam.gke.io/gcp-service-account")
+				.map(String::as_str),
+			Some("my-app@project.iam.gserviceaccount.com"),
+		);
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_invalid_service_account() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			service_account: Some(ServiceAccountSpec {
+				create: true,
+				name: Some(String::new()),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.expect_err("invalid service_account should fail validation");
+		assert!(errors.iter().any(|e| e.message.contains("non-empty")));
+	}
+
+	#[rstest]
+	fn test_spec_image_pull_secrets_field_backward_compatible() {
+		// Arrange: JSON without imagePullSecrets (pre-existing format).
+		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
+
+		// Act
+		let spec: ReinhardtAppSpec =
+			serde_json::from_str(json).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(spec.image, "legacy-app:v2");
+		assert!(spec.image_pull_secrets.is_none());
+	}
+
+	#[rstest]
+	fn test_spec_image_pull_secrets_skipped_in_serialization_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).unwrap();
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert!(value.get("imagePullSecrets").is_none());
+	}
+
+	#[rstest]
+	fn test_spec_image_pull_secrets_roundtrip_single_secret() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "private-registry.example.com/app:v1".to_string(),
+			image_pull_secrets: Some(vec![LocalObjectReference {
+				name: "regcred".to_string(),
+			}]),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&spec).expect("serialization should succeed");
+		let deserialized: ReinhardtAppSpec =
+			serde_json::from_str(&json).expect("deserialization should succeed");
+
+		// Assert
+		let secrets = deserialized
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "regcred");
+		// The serialized form must use the camelCase wire name.
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+		assert!(value.get("imagePullSecrets").is_some());
+	}
+
+	#[rstest]
+	fn test_spec_image_pull_secrets_roundtrip_multiple_secrets() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "private-registry.example.com/app:v1".to_string(),
+			image_pull_secrets: Some(vec![
+				LocalObjectReference {
+					name: "ghcr-pull".to_string(),
+				},
+				LocalObjectReference {
+					name: "ecr-pull".to_string(),
+				},
+				LocalObjectReference {
+					name: "gar-pull".to_string(),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let yaml = serde_yaml::to_string(&spec).expect("serialization should succeed");
+		let deserialized: ReinhardtAppSpec =
+			serde_yaml::from_str(&yaml).expect("deserialization should succeed");
+
+		// Assert
+		let secrets = deserialized
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(secrets.len(), 3);
+		assert_eq!(secrets[0].name, "ghcr-pull");
+		assert_eq!(secrets[1].name, "ecr-pull");
+		assert_eq!(secrets[2].name, "gar-pull");
+	}
+
+	#[rstest]
+	fn test_spec_image_pull_secrets_default_is_none() {
+		// Arrange & Act
+		let spec = ReinhardtAppSpec::default();
+
+		// Assert
+		assert!(spec.image_pull_secrets.is_none());
 	}
 
 	#[rstest]

@@ -148,6 +148,10 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 					} else {
 						Some(volumes)
 					},
+					// Forward spec.imagePullSecrets so clusters that mirror
+					// the Kaniko executor image into a private registry can
+					// authenticate when pulling it for the build Job.
+					image_pull_secrets: app.spec.image_pull_secrets.clone(),
 					..Default::default()
 				}),
 			},
@@ -387,5 +391,70 @@ mod tests {
 		let owner_refs = job.metadata.owner_references.unwrap();
 		assert_eq!(owner_refs.len(), 1);
 		assert_eq!(owner_refs[0].name, "my-app");
+	}
+
+	// ── Image pull secrets tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn test_kaniko_job_image_pull_secrets_none_when_unset() {
+		// Arrange
+		let app = test_app_with_source("my-app");
+
+		// Act
+		let job = build_kaniko_job(&app, "v1").unwrap();
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert!(pod_spec.image_pull_secrets.is_none());
+	}
+
+	#[rstest]
+	fn test_kaniko_job_image_pull_secrets_single_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = test_app_with_source("my-app");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "regcred".to_string(),
+		}]);
+
+		// Act
+		let job = build_kaniko_job(&app, "v1").unwrap();
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 1);
+		assert_eq!(pull_secrets[0].name, "regcred");
+	}
+
+	#[rstest]
+	fn test_kaniko_job_image_pull_secrets_multiple_passthrough() {
+		use k8s_openapi::api::core::v1::LocalObjectReference;
+
+		// Arrange
+		let mut app = test_app_with_source("my-app");
+		app.spec.image_pull_secrets = Some(vec![
+			LocalObjectReference {
+				name: "regcred-primary".to_string(),
+			},
+			LocalObjectReference {
+				name: "regcred-fallback".to_string(),
+			},
+		]);
+
+		// Act
+		let job = build_kaniko_job(&app, "v1").unwrap();
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		let pull_secrets = pod_spec
+			.image_pull_secrets
+			.expect("image_pull_secrets should be set");
+		assert_eq!(pull_secrets.len(), 2);
+		assert_eq!(pull_secrets[0].name, "regcred-primary");
+		assert_eq!(pull_secrets[1].name, "regcred-fallback");
 	}
 }
