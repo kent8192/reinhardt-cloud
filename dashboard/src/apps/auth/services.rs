@@ -6,6 +6,7 @@ pub mod credentials;
 pub mod email;
 pub mod local_auth;
 pub mod mailer;
+pub mod oauth;
 pub mod session;
 pub mod token;
 
