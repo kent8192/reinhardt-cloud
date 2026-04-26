@@ -19,6 +19,8 @@ use reinhardt::test::APIClient;
 use rstest::fixture;
 
 use crate::apps::auth::models::User;
+use crate::apps::organizations::models::{Organization, OrganizationMembership};
+use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
 use crate::config::urls::{AllowedOrigins, DashboardRouter};
 
 // Re-export so tests can import the resolver alongside fixtures.
@@ -72,11 +74,16 @@ pub fn session_backend() -> Arc<dyn AsyncSessionBackend> {
 	)
 }
 
-/// Create a test user in the database and force-login on the client.
+/// Create a test user in the database (with a Personal Organization +
+/// Owner Membership) and force-login on the client.
 ///
-/// Creates the user via ORM, then calls [`force_login`] to establish
-/// a session. Use this for initial user setup. For switching back to
-/// an already-created user, use [`force_login`] directly.
+/// Creates the user via ORM, provisions a Personal Org so that views
+/// using `current_organization_id_for_user` succeed, then calls
+/// [`force_login`] to establish a session.
+///
+/// The slug used for the Personal Org is derived from `username` via
+/// `sanitize_username_to_slug` plus a uuid suffix to avoid collisions
+/// when many tests share the same username.
 pub async fn force_login_user(
 	client: &APIClient,
 	conn: &Arc<DatabaseConnection>,
@@ -101,8 +108,61 @@ pub async fn force_login_user(
 		.await
 		.expect("Failed to create test user");
 
+	provision_personal_org_for_user(conn, &user).await;
+
 	force_login(client, session_backend, &user).await;
 	user
+}
+
+/// Provision a Personal `Organization` and an `Owner` `OrganizationMembership`
+/// for an already-created test user.
+///
+/// Mirrors the runtime behaviour of the registration view (see
+/// `dashboard/src/apps/auth/server/register.rs`) so that e2e tests using
+/// `User::objects().create_with_conn` still satisfy the invariant that
+/// every user has at least one organization membership.
+///
+/// The slug uses a `<sanitized>-<short-uuid>` form to avoid collisions
+/// when multiple tests register the same username (each test gets its
+/// own DB container, but defensive uniqueness is cheap).
+pub async fn provision_personal_org_for_user(conn: &Arc<DatabaseConnection>, user: &User) {
+	use reinhardt::db::orm::Model;
+
+	let now = chrono::Utc::now();
+	let suffix = uuid::Uuid::new_v4().simple().to_string();
+	let slug = format!(
+		"{}-{}",
+		sanitize_username_to_slug(&user.username),
+		&suffix[..6]
+	);
+
+	let org = Organization::objects()
+		.create_with_conn(
+			conn,
+			&Organization {
+				id: None,
+				slug,
+				name: user.username.clone(),
+				created_at: now,
+				updated_at: now,
+			},
+		)
+		.await
+		.expect("Failed to create Personal Org for test user");
+
+	OrganizationMembership::objects()
+		.create_with_conn(
+			conn,
+			&OrganizationMembership {
+				id: None,
+				organization_id: org.id.expect("created Organization has id"),
+				user_id: user.id,
+				role: MembershipRole::Owner.as_db_str().to_string(),
+				created_at: now,
+			},
+		)
+		.await
+		.expect("Failed to create Owner membership for test user");
 }
 
 /// Force-login an existing user on the client.
