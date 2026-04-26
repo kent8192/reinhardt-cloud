@@ -40,8 +40,21 @@ async fn db(
 	(container, conn, client, urls)
 }
 
-/// Create a user via ORM, then login to obtain a session cookie.
+/// Create a user via ORM (with a Personal Organization + Owner Membership),
+/// then login to obtain a session cookie.
+///
+/// Bypasses the register endpoint and email verification, but still
+/// satisfies the post-#415 invariant that every user must have an
+/// `OrganizationMembership` (otherwise the views' organization-scoping
+/// helpers return 404).
 async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> String {
+	use reinhardt_cloud_dashboard::apps::organizations::models::{
+		Organization, OrganizationMembership,
+	};
+	use reinhardt_cloud_dashboard::apps::organizations::roles::{
+		MembershipRole, sanitize_username_to_slug,
+	};
+
 	// Create active user via ORM (bypasses register endpoint and email)
 	let mut user = User::new(
 		"testuser".to_string(),
@@ -55,10 +68,40 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> Strin
 	);
 	user.set_password("securepassword123")
 		.expect("Password hashing failed");
-	User::objects()
+	let created_user = User::objects()
 		.create(&user)
 		.await
 		.expect("Failed to create user");
+
+	// Provision a Personal Organization + Owner Membership so the
+	// organization-scoped views can resolve `current_organization_id_for_user`.
+	let now = chrono::Utc::now();
+	let suffix = uuid::Uuid::new_v4().simple().to_string();
+	let slug = format!(
+		"{}-{}",
+		sanitize_username_to_slug(&created_user.username),
+		&suffix[..6]
+	);
+	let org = Organization::objects()
+		.create(&Organization {
+			id: None,
+			slug,
+			name: created_user.username.clone(),
+			created_at: now,
+			updated_at: now,
+		})
+		.await
+		.expect("Failed to create Personal Org for test user");
+	OrganizationMembership::objects()
+		.create(&OrganizationMembership {
+			id: None,
+			organization_id: org.id.expect("created Organization has id"),
+			user_id: created_user.id,
+			role: MembershipRole::Owner.as_db_str().to_string(),
+			created_at: now,
+		})
+		.await
+		.expect("Failed to create Owner membership for test user");
 
 	// Login to obtain session cookie
 	let login_data = json!({
