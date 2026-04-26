@@ -12,6 +12,7 @@ pub mod unit {
 	pub mod test_jwt;
 	pub mod test_serializer_validation;
 	pub mod test_session_service;
+	pub mod test_social_account_model;
 	pub mod test_token_service;
 	pub mod test_user_model;
 }
