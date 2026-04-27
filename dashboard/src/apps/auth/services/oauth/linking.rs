@@ -38,6 +38,14 @@ pub enum LinkError {
 	/// The user-table lookup or insert failed.
 	#[error("user database error: {0}")]
 	Database(String),
+	/// An account with this email already exists, but we cannot auto-link
+	/// it (the provider did not assert email_verified == true). Caller must
+	/// sign in with the existing account first and link from there.
+	#[error(
+		"an account with email {email} already exists; sign in with your \
+		 existing account first and link {provider} from your profile"
+	)]
+	EmailConflict { email: String, provider: String },
 }
 
 /// Resolve OAuth claims into a local `User`, linking or creating as needed.
@@ -95,6 +103,30 @@ pub async fn link_or_create_user(
 	// (d) New user.
 	let username = generate_unique_username(claims).await?;
 	let email = claims.email.clone().unwrap_or_default().to_lowercase();
+
+	// Defensive: if a user with this email already exists, we got here
+	// only because path (c) declined to merge (provider did not assert
+	// email_verified == true). Refuse rather than crash on the unique
+	// constraint, and surface a message that guides the user to the
+	// link-from-existing-account flow.
+	if !email.is_empty() {
+		let conflict = User::objects()
+			.filter(
+				User::field_email(),
+				FilterOperator::Eq,
+				FilterValue::String(email.clone()),
+			)
+			.first()
+			.await
+			.map_err(|e| LinkError::Database(e.to_string()))?;
+		if conflict.is_some() {
+			return Err(LinkError::EmailConflict {
+				email,
+				provider: provider.to_string(),
+			});
+		}
+	}
+
 	let new_user = User::new(
 		username,
 		email,

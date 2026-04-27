@@ -23,7 +23,7 @@ mod tests {
 	use std::collections::HashMap;
 
 	use crate::apps::auth::models::User;
-	use crate::apps::auth::services::oauth::linking::link_or_create_user;
+	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
 	use crate::config::test_helpers::{ResolvedUrls, test_app};
 
 	#[fixture]
@@ -186,7 +186,7 @@ mod tests {
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_email_unverified_does_not_link_existing_user(
+	async fn test_email_unverified_collision_returns_email_conflict(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
@@ -194,26 +194,31 @@ mod tests {
 			ResolvedUrls,
 		),
 	) {
-		// Arrange
+		// Arrange — an existing local user owns the email, and the OAuth
+		// provider returns the same email but does NOT assert verification
+		// (email_verified = None mirrors GitHub's surface).
 		let (_c, _conn, _cli, _urls) = db.await;
 		let existing_id = seed_user("link_unverified", "unverified@example.com").await;
 		let storage = InMemorySocialAccountStorage::new();
-		// email_verified = None mirrors the GitHub case where verification
-		// state is not surfaced. Must NOT auto-merge into the existing user.
 		let claims = github_claims("gh_unv_1", Some("unverified@example.com"), None);
 
 		// Act
-		let user = link_or_create_user(&storage, "github", &claims, None)
-			.await
-			.expect("new-user creation should succeed");
+		let result = link_or_create_user(&storage, "github", &claims, None).await;
 
-		// Assert — a new user was created instead of merging.
-		assert_ne!(user.id, existing_id);
-		let new_links = storage.find_by_user(user.id).await.unwrap();
-		assert_eq!(new_links.len(), 1);
-		// Existing user has no link.
-		let old_links = storage.find_by_user(existing_id).await.unwrap();
-		assert!(old_links.is_empty());
+		// Assert — must NOT silently auto-merge (path (c) requires
+		// verified=true) and must NOT create a duplicate-email user. The
+		// caller gets a structured EmailConflict error so the UI can
+		// surface a "sign in with your existing account first" message.
+		match result {
+			Err(LinkError::EmailConflict { email, provider }) => {
+				assert_eq!(email, "unverified@example.com");
+				assert_eq!(provider, "github");
+			}
+			other => panic!("expected EmailConflict, got {other:?}"),
+		}
+		// Existing user is untouched.
+		let links = storage.find_by_user(existing_id).await.unwrap();
+		assert!(links.is_empty(), "existing user must not be auto-linked");
 	}
 
 	#[rstest]

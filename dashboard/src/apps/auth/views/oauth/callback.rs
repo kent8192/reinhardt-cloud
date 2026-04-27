@@ -22,7 +22,7 @@ use tracing::error;
 
 use crate::apps::auth::services::oauth::backend::build_social_auth_backend;
 use crate::apps::auth::services::oauth::config::OAuthSettings;
-use crate::apps::auth::services::oauth::linking::link_or_create_user;
+use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::auth::services::session::create_session;
 
@@ -74,7 +74,13 @@ pub async fn oauth_callback(
 		.await
 		.map_err(|e| {
 			error!("OAuth linking for {provider} failed: {e}");
-			AppError::Internal("account linking failed".to_string())
+			match e {
+				// Surface the actionable conflict message to the client so
+				// the UI can prompt for "sign in with your existing account
+				// first and link from there".
+				LinkError::EmailConflict { .. } => AppError::Validation(e.to_string()),
+				_ => AppError::Internal("account linking failed".to_string()),
+			}
 		})?;
 
 	let session_id = create_session(&user).await.map_err(|e| {
