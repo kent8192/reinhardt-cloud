@@ -154,6 +154,7 @@ async fn provision_personal_organization(
 		id: None,
 		slug: slug.clone(),
 		name: created.username.clone(),
+		created_by: created.id,
 		created_at: now,
 		updated_at: now,
 	};
@@ -170,6 +171,7 @@ async fn provision_personal_organization(
 					id: None,
 					slug: format!("{}-{}", slug, &suffix[..6]),
 					name: created.username.clone(),
+					created_by: created.id,
 					created_at: now,
 					updated_at: now,
 				};
