@@ -4,8 +4,17 @@ use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Kubernetes cluster registered with the Reinhardt Cloud PaaS.
+///
+/// Composite UNIQUE constraint on `(organization_id, name)` prevents
+/// duplicate cluster names within the same organization. Cross-organization
+/// name reuse is intentionally allowed so that distinct tenants can each
+/// own a `prod` (or other common name) without colliding.
 #[derive(Serialize, Deserialize)]
-#[model(app_label = "clusters", table_name = "clusters")]
+#[model(
+	app_label = "clusters",
+	table_name = "clusters",
+	unique_together = ("organization_id", "name")
+)]
 pub struct Cluster {
 	/// Primary key (None for auto-increment on insert)
 	#[field(primary_key = true)]
