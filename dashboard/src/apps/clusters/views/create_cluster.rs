@@ -15,10 +15,11 @@ use uuid::Uuid;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{CreateClusterRequest, CreateClusterResponse};
 use crate::apps::clusters::services::token_issuance;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Create a new cluster (authentication required).
 ///
+/// Requires `Action::ClusterCreate` (Developer or higher); Viewers receive 403.
 /// On success, returns the minted agent JWT exactly once -- it is never
 /// retrievable afterwards. Rotate via `POST /clusters/{id}/rotate-token/`.
 #[post("/", name = "create")]
@@ -28,7 +29,7 @@ pub async fn create_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::ClusterCreate).await?;
 
 	// Mint the agent token up-front so we never persist a cluster row
 	// without the corresponding token hash. The cluster UUID used as

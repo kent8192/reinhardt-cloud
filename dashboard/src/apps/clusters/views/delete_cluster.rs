@@ -9,10 +9,11 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Delete a cluster by ID (authentication required).
 ///
+/// Requires `Action::ClusterDelete` (Developer or higher); Viewers receive 403.
 /// Returns 204 No Content on success.
 /// Returns 404 if the cluster does not exist or does not belong to the
 /// authenticated user's active organization.
@@ -23,7 +24,7 @@ pub async fn delete_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::ClusterDelete).await?;
 
 	// Verify ownership before deleting
 	Cluster::objects()

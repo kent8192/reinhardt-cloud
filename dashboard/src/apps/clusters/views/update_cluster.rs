@@ -11,10 +11,11 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Update an existing cluster (authentication required).
 ///
+/// Requires `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Supports partial updates: only provided fields are modified.
 /// Returns 404 if the cluster does not exist or does not belong to the
 /// authenticated user's active organization.
@@ -26,7 +27,7 @@ pub async fn update_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::ClusterUpdate).await?;
 
 	// Validate the request body
 	body.validate()?;
