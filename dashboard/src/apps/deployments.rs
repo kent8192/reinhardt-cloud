@@ -1,16 +1,29 @@
 //! Deployments application module.
 //!
-//! Provides endpoints for application deployment management.
+//! Provides endpoints for application deployment management on the server,
+//! and a `client` submodule containing the WASM UI components for the
+//! real-time log viewer and cluster health panel.
 
+#[cfg(native)]
 use reinhardt::app_config;
 
-pub mod admin;
+// The `client` submodule is consumed from the WASM build path and is
+// therefore unconditional. Its own internals are wasm-gated as needed.
 pub mod client;
+
+#[cfg(native)]
+pub mod admin;
+#[cfg(native)]
 pub mod models;
+#[cfg(native)]
 pub mod serializers;
+#[cfg(native)]
 pub mod tests;
+#[cfg(native)]
 pub mod urls;
+#[cfg(native)]
 pub mod views;
 
+#[cfg(native)]
 #[app_config(name = "deployments", label = "deployments")]
 pub struct DeploymentsConfig;

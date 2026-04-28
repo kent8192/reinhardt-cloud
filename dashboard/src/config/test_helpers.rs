@@ -143,6 +143,7 @@ pub async fn provision_personal_org_for_user(conn: &Arc<DatabaseConnection>, use
 				id: None,
 				slug,
 				name: user.username.clone(),
+				created_by: user.id,
 				created_at: now,
 				updated_at: now,
 			},

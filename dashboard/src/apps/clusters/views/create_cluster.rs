@@ -44,10 +44,23 @@ pub async fn create_cluster(
 		None,
 	);
 	let manager = Cluster::objects();
-	let mut created = manager.create(&new_cluster).await.map_err(|e| {
-		error!("Failed to create cluster: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
+	let mut created = match manager.create(&new_cluster).await {
+		Ok(c) => c,
+		Err(e) => {
+			// Detect database UNIQUE constraint violation on
+			// `(organization_id, name)`. The ORM does not expose a
+			// structured variant for this case, so we string-match
+			// (mirrors the pattern used by `apps/auth/views/register.rs`).
+			let err_lower = e.to_string().to_lowercase();
+			if err_lower.contains("unique") || err_lower.contains("duplicate") {
+				return Err(AppError::Conflict(
+					"Cluster name already exists in this organization".to_string(),
+				));
+			}
+			error!("Failed to create cluster: {e}");
+			return Err(AppError::Internal("Internal server error".to_string()));
+		}
+	};
 
 	// Derive a stable cluster_id from the inserted row's primary key.
 	let cluster_uuid = cluster_id_from_pk(created.id)?;

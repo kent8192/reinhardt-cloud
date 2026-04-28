@@ -6,6 +6,7 @@ flatten_imports! {
 	pub mod change_password;
 	pub mod forgot_password;
 	pub mod login;
+	pub mod oauth;
 	pub mod profile;
 	pub mod register;
 	pub mod reset_password;
