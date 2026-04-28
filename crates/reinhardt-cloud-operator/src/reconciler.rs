@@ -37,6 +37,7 @@ use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
 use crate::resources::source::{build_kaniko_job, should_build_from_source};
+use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
@@ -183,6 +184,40 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	// Tenancy enforcement (#416) — runs before any per-app resource so a
+	// misplaced CR cannot create work in the wrong namespace. Validation
+	// failures are recorded as a `Degraded` condition (reason
+	// `TenantMismatch` or `InvalidTenant`) before the error is returned
+	// to the controller's error policy, which classifies them as
+	// permanent and skips backoff.
+	match validate_tenant_namespace(&app, namespace) {
+		Ok(Some(_expected)) => {
+			let tenant = app
+				.spec
+				.tenant
+				.as_ref()
+				.expect("tenant presence verified by validate_tenant_namespace");
+			reconcile_tenant_resources(&ctx.client, tenant).await?;
+		}
+		Ok(None) => {
+			// Backward-compat path: tenant unset, no enforcement.
+		}
+		Err(err) => {
+			let (reason, message) = match &err {
+				Error::TenantMismatch { expected, actual } => (
+					"TenantMismatch",
+					format!(
+						"metadata.namespace '{actual}' does not match the namespace computed from spec.tenant ('{expected}')"
+					),
+				),
+				Error::InvalidTenant(detail) => ("InvalidTenant", detail.clone()),
+				other => ("ReconcileError", other.to_string()),
+			};
+			record_degraded_condition(&app, ctx, namespace, reason, &message).await;
+			return Err(err);
+		}
+	}
 
 	// Reconcile settings ConfigMap via server-side apply
 	let configmap = build_settings_configmap(&name, namespace);
@@ -1428,6 +1463,170 @@ async fn reconcile_resource_limits(
 
 	info!("Reconciled LimitRange for {}", app.name_any());
 	Ok(())
+}
+
+/// Validates `spec.tenant` (if set) and verifies that the app's
+/// `metadata.namespace` matches the namespace computed from the tenant
+/// reference.
+///
+/// Returns:
+/// - `Ok(Some(expected_namespace))` when `spec.tenant` is set and valid.
+/// - `Ok(None)` when `spec.tenant` is absent (legacy mode — no enforcement).
+/// - `Err(Error::InvalidTenant)` when `spec.tenant` is set but malformed.
+/// - `Err(Error::TenantMismatch)` when the spec is valid but
+///   `metadata.namespace` is wrong.
+///
+/// Pure function — no API calls — so the caller controls how the
+/// failure is surfaced (status patch + log) before bubbling the error
+/// up to the reconciler's error policy.
+fn validate_tenant_namespace(
+	app: &ReinhardtApp,
+	actual_namespace: &str,
+) -> Result<Option<String>, Error> {
+	let Some(tenant) = app.spec.tenant.as_ref() else {
+		return Ok(None);
+	};
+
+	tenant.validate().map_err(|errors| {
+		Error::InvalidTenant(
+			errors
+				.into_iter()
+				.map(|e| e.message)
+				.collect::<Vec<_>>()
+				.join("; "),
+		)
+	})?;
+
+	let expected = tenant.namespace();
+	if expected != actual_namespace {
+		return Err(Error::TenantMismatch {
+			expected,
+			actual: actual_namespace.to_string(),
+		});
+	}
+
+	Ok(Some(expected))
+}
+
+/// Reconcile the per-tenant `Namespace`, `ResourceQuota`, and
+/// `NetworkPolicy` triple.
+///
+/// Server-side applies each resource so concurrent reconciles for
+/// sibling apps in the same tenant cannot fight over ownership. The
+/// `Namespace` is created without an owner reference because it is
+/// shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
+/// likewise omit owner references for the same reason (see the module
+/// docs in `resources::tenant`).
+async fn reconcile_tenant_resources(
+	client: &Client,
+	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
+) -> Result<(), Error> {
+	let namespace_name = tenant.namespace();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	// Namespace is cluster-scoped; use Api::all.
+	let namespaces: Api<Namespace> = Api::all(client.clone());
+	let desired_ns = tenant_resources::build_namespace(tenant);
+	namespaces
+		.patch(&namespace_name, &ssapply, &Patch::Apply(&desired_ns))
+		.await
+		.map_err(Error::Kube)?;
+
+	let quotas: Api<k8s_openapi::api::core::v1::ResourceQuota> =
+		Api::namespaced(client.clone(), &namespace_name);
+	let desired_quota = tenant_resources::build_default_resource_quota(tenant);
+	let quota_name = desired_quota
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "tenant-default-quota".to_string());
+	quotas
+		.patch(&quota_name, &ssapply, &Patch::Apply(&desired_quota))
+		.await
+		.map_err(Error::Kube)?;
+
+	let policies: Api<NetworkPolicy> = Api::namespaced(client.clone(), &namespace_name);
+	for policy in [
+		tenant_resources::build_default_deny_policy(tenant),
+		tenant_resources::build_allow_same_namespace_policy(tenant),
+		tenant_resources::build_allow_ingress_controller_policy(tenant),
+	] {
+		let policy_name = policy
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| "tenant-policy".to_string());
+		policies
+			.patch(&policy_name, &ssapply, &Patch::Apply(&policy))
+			.await
+			.map_err(Error::Kube)?;
+	}
+
+	info!(
+		"Reconciled tenant resources for namespace {namespace_name} (tenant org={}, team={:?})",
+		tenant.organization, tenant.team
+	);
+	Ok(())
+}
+
+/// Builds a `Degraded`-condition status patch payload for the given
+/// reason and message.
+///
+/// Pure function so it is exercised by unit tests without spinning up a
+/// kube client. The returned JSON value is shaped to merge into the
+/// `status` sub-resource via `Patch::Merge`.
+fn build_degraded_status_patch(
+	app: &ReinhardtApp,
+	reason: &str,
+	message: &str,
+) -> serde_json::Value {
+	let condition = AppCondition {
+		type_: ConditionType::Degraded,
+		status: ConditionStatus::True,
+		reason: reason.to_string(),
+		message: message.to_string(),
+		last_transition_time: Some(chrono::Utc::now().to_rfc3339()),
+		observed_generation: app.metadata.generation,
+	};
+
+	serde_json::json!({
+		"status": {
+			"phase": AppPhase::Failed,
+			"observedGeneration": app.metadata.generation,
+			"conditions": [condition],
+		}
+	})
+}
+
+/// Best-effort: write a `Degraded` condition to the app's status
+/// sub-resource so the failure is visible via `kubectl get reinhardtapp`.
+///
+/// Errors from this helper are logged at warn level rather than
+/// propagated because the original failure (the reason we're writing
+/// Degraded) is what the caller really needs to surface.
+async fn record_degraded_condition(
+	app: &ReinhardtApp,
+	ctx: &Context,
+	namespace: &str,
+	reason: &str,
+	message: &str,
+) {
+	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+	let payload = build_degraded_status_patch(app, reason, message);
+	if let Err(e) = api
+		.patch_status(
+			&app.name_any(),
+			&PatchParams::default(),
+			&Patch::Merge(payload),
+		)
+		.await
+	{
+		warn!(
+			"failed to write Degraded condition (reason={reason}) for {}/{}: {e}",
+			namespace,
+			app.name_any()
+		);
+	}
 }
 
 /// Apply Pod Security Standards labels to the app's namespace.
@@ -3025,6 +3224,122 @@ mod tests {
 		assert_eq!(
 			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
 			Some(&"3600".to_string())
+		);
+	}
+
+	// ── tenant validation tests (#416) ──────────────────────────────
+
+	#[rstest]
+	fn validate_tenant_namespace_returns_none_when_tenant_unset() {
+		// Arrange
+		let app = make_test_app("legacy-app");
+
+		// Act
+		let result = validate_tenant_namespace(&app, "default");
+
+		// Assert — backward-compat: legacy CRs without spec.tenant
+		// must continue to reconcile without enforcement.
+		assert!(matches!(result, Ok(None)));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_accepts_matching_namespace() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: None,
+		});
+		app.metadata.namespace = Some("tenant-acme".to_string());
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-acme");
+
+		// Assert
+		assert_eq!(result.unwrap(), Some("tenant-acme".to_string()));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_accepts_org_team_combo() {
+		// Arrange
+		let mut app = make_test_app("platform-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: Some("platform".to_string()),
+		});
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-acme-platform");
+
+		// Assert
+		assert_eq!(result.unwrap(), Some("tenant-acme-platform".to_string()));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_rejects_mismatch() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: None,
+		});
+
+		// Act — CR placed in `default` instead of `tenant-acme`.
+		let result = validate_tenant_namespace(&app, "default");
+
+		// Assert
+		match result {
+			Err(Error::TenantMismatch { expected, actual }) => {
+				assert_eq!(expected, "tenant-acme");
+				assert_eq!(actual, "default");
+			}
+			other => panic!("expected TenantMismatch, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_rejects_invalid_tenant() {
+		// Arrange — uppercase organization fails DNS-1123 validation.
+		let mut app = make_test_app("bad-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "ACME".to_string(),
+			team: None,
+		});
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-ACME");
+
+		// Assert
+		assert!(matches!(result, Err(Error::InvalidTenant(_))));
+	}
+
+	#[rstest]
+	fn build_degraded_status_patch_emits_failed_phase() {
+		// Arrange
+		let app = make_test_app("acme-app");
+
+		// Act
+		let payload = build_degraded_status_patch(
+			&app,
+			"TenantMismatch",
+			"namespace 'default' does not match expected 'tenant-acme'",
+		);
+
+		// Assert — the emitted JSON must drive the CR into `Failed`
+		// phase and carry a single Degraded=True condition with the
+		// supplied reason/message. `AppPhase` serializes lowercase
+		// (see crd/enums.rs), so the wire value is `"failed"`.
+		let status = &payload["status"];
+		assert_eq!(status["phase"], serde_json::json!("failed"));
+		let condition = &status["conditions"][0];
+		assert_eq!(condition["type"], serde_json::json!("Degraded"));
+		assert_eq!(condition["status"], serde_json::json!("True"));
+		assert_eq!(condition["reason"], serde_json::json!("TenantMismatch"));
+		assert!(
+			condition["message"]
+				.as_str()
+				.expect("message")
+				.contains("tenant-acme"),
 		);
 	}
 }
