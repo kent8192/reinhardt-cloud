@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::db::orm::Model;
+	use reinhardt::db::orm::inspection::ConstraintType;
 	use rstest::rstest;
 
 	use crate::apps::clusters::models::Cluster;
@@ -68,6 +70,31 @@ mod tests {
 
 		// Assert
 		assert_eq!(cluster.is_active, active);
+	}
+
+	/// The `unique_together = ("organization_id", "name")` declaration in
+	/// `Cluster` MUST surface as a composite UNIQUE constraint via the
+	/// model's `constraint_metadata()` (refs #436). This guards against
+	/// silent regressions where the model attribute is removed or
+	/// reordered.
+	#[rstest]
+	fn test_cluster_exposes_organization_name_unique_constraint() {
+		// Arrange
+		let constraints = Cluster::constraint_metadata();
+
+		// Act
+		let unique_constraint = constraints
+			.iter()
+			.find(|c| c.constraint_type == ConstraintType::Unique);
+
+		// Assert
+		let constraint = unique_constraint
+			.expect("Cluster must expose a composite UNIQUE constraint for unique_together");
+		assert_eq!(constraint.name, "clusters_organization_id_name_uniq");
+		assert_eq!(
+			constraint.definition, "UNIQUE (organization_id, name)",
+			"Constraint definition must cover (organization_id, name) in that order"
+		);
 	}
 
 	#[rstest]
