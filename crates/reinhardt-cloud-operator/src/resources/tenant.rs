@@ -1,6 +1,6 @@
 //! Builders for tenant-scoped Kubernetes primitives (#416).
 //!
-//! When a [`ReinhardtApp`] sets `spec.tenant`, the operator reconciles a
+//! When a `ReinhardtApp` sets `spec.tenant`, the operator reconciles a
 //! deterministic per-tenant `Namespace`, `ResourceQuota`, and a
 //! default-deny + selective-allow `NetworkPolicy` triple in addition to
 //! the per-app resources defined in the sibling modules. The builders
