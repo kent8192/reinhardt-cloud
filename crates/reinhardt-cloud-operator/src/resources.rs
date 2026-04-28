@@ -17,6 +17,7 @@ pub(crate) mod service;
 pub(crate) mod service_account;
 pub(crate) mod source;
 pub(crate) mod storage;
+pub(crate) mod tenant;
 pub(crate) mod worker;
 
 // Re-exports for convenient access from parent modules
