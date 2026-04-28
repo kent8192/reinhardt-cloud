@@ -12,12 +12,14 @@ use uuid::Uuid;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Create a new deployment (authentication required).
 ///
-/// Sets the deployment owner to the authenticated user's active organization.
-/// Validates that the target cluster belongs to the same organization.
+/// Requires `Action::DeploymentCreate` (Developer or higher); Viewers
+/// receive 403. Sets the deployment owner to the authenticated user's
+/// active organization. Validates that the target cluster belongs to the
+/// same organization.
 #[post("/", name = "create")]
 pub async fn create_deployment(
 	Json(body): Json<CreateDeploymentRequest>,
@@ -25,7 +27,7 @@ pub async fn create_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::DeploymentCreate).await?;
 
 	// Validate cluster exists and belongs to the active organization.
 	let cluster_exists = Cluster::objects()
