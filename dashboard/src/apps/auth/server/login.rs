@@ -14,6 +14,7 @@ use crate::shared::AuthResponse;
 pub async fn login(
 	username: String,
 	password: String,
+	csrf_token: String,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
 ) -> Result<AuthResponse, ServerFnError> {
 	#[cfg(native)]
@@ -22,6 +23,10 @@ pub async fn login(
 
 		use crate::apps::auth::services;
 		use crate::shared::UserInfo;
+
+		// CSRF validation runs in middleware before this handler, so the
+		// token is consumed only to satisfy the form! contract here.
+		let _ = csrf_token;
 
 		let user = services::verify_credentials(&username, &password)
 			.await
@@ -62,7 +67,7 @@ pub async fn login(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = (username, password, http_request);
+		let _ = (username, password, csrf_token, http_request);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
