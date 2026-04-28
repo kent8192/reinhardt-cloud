@@ -1,0 +1,61 @@
+name: WASM Build
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'Runner label JSON. Use "\"ubuntu-latest\"" for GitHub-hosted or "[\"self-hosted\",\"linux\",\"arm64\",\"reinhardt-cloud-ci\"]" for self-hosted.'
+        type: string
+        default: '"ubuntu-latest"'
+      cargo-build-jobs:
+        description: "Parallel cargo build jobs (1=GitHub-hosted OOM safe, 8=self-hosted)"
+        type: string
+        default: "1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_TARGET_DIR: /tmp/cargo_target
+  CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: ${{ inputs.cargo-build-jobs || '1' }}
+
+jobs:
+  wasm-build:
+    name: WASM Build (dashboard)
+    runs-on: ${{ fromJSON(inputs.runner || '"ubuntu-latest"') }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          # Differentiate cache from native-target jobs sharing CARGO_TARGET_DIR.
+          cache-key: wasm32
+
+      # The reusable setup-rust action does not accept a `targets` input,
+      # so add the wasm32 target explicitly after the toolchain is installed.
+      - name: Add wasm32-unknown-unknown target
+        shell: bash
+        run: rustup target add wasm32-unknown-unknown
+
+      # Defensive: clippy.yml installs protoc because some workspace deps
+      # require it. The dashboard's wasm graph excludes tonic/prost via
+      # `cfg(not(target_arch = "wasm32"))`, but cargo may still resolve
+      # build scripts for shared workspace members during metadata
+      # collection, so install protoc to match the rest of CI.
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@de6bbd1333b8f331563d54a051e542c7dfef81c3 # v2
+        with:
+          tool: cargo-make
+
+      - name: Build dashboard for wasm32-unknown-unknown
+        working-directory: dashboard
+        run: cargo make wasm-compile-dev

@@ -21,4 +21,8 @@ pub fn server_url_patterns() -> ServerRouter {
 		.endpoint(views::profile_update)
 		.endpoint(views::change_password)
 		.endpoint(views::verify_email_change)
+		.endpoint(views::oauth_start)
+		.endpoint(views::oauth_callback)
+		.endpoint(views::oauth_unlink)
+		.endpoint(views::oauth_providers)
 }
