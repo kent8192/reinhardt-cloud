@@ -11,6 +11,25 @@
 //! issue #428: new-user creation (path d), email-verified match (path c),
 //! and the email-collision rejection (`EmailConflict`) we ship as
 //! defensive behavior when path (c) declines.
+//!
+//! ## Userinfo mock shape — workaround for kent8192/reinhardt-web#4001
+//!
+//! The mocked userinfo body uses OIDC `StandardClaims` shape (`sub`,
+//! `email`, `email_verified`, `name`) rather than GitHub's actual
+//! `/user` shape (`id`, `login`, `email`, `name`). This is because
+//! upstream `reinhardt_auth::social::providers::github::GitHubProvider`
+//! deserializes the userinfo response directly into `StandardClaims`
+//! (which requires `sub: String`) and silently drops any deserialization
+//! error inside `SocialAuthBackend::handle_callback`. Until the upstream
+//! provider learns to map GitHub's `id` field into `sub`, the e2e tests
+//! must speak the framework's expected shape.
+//!
+//! Tracked in reinhardt-cloud#449. When the upstream issue is resolved
+//! and we bump `reinhardt-web`, revert the mocks to use GitHub's real
+//! response shape (e.g. `"id": 12345, "login": "octotest"`).
+//!
+//! Ideal mock body (without workaround), once upstream maps `id` → `sub`:
+//!   `json!({ "id": 12345, "login": "octotest", "email": "...", "name": "..." })`
 
 #[cfg(test)]
 mod tests {
@@ -188,10 +207,15 @@ mod tests {
 		let (_container, _conn, client, _urls) = db.await;
 		let mock = MockServer::start().await;
 		let _env = configure_mock_github(&mock);
+		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
+		// userinfo body must speak `StandardClaims` shape (top-level `sub`)
+		// because upstream `GitHubProvider` does not transform GitHub's
+		// real `id` field into `sub`. `additional_claims.login` keeps the
+		// GitHub-style handle the linking layer reads via `display_name_from_claims`.
 		mount_github_mocks(
 			&mock,
 			json!({
-				"id": 12345,
+				"sub": "12345",
 				"login": "octotest",
 				"email": "octotest@example.com",
 				"name": "Octo Test"
@@ -267,10 +291,14 @@ mod tests {
 
 		let mock = MockServer::start().await;
 		let _env = configure_mock_github(&mock);
+		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
+		// see module-level docs. `email_verified: true` is what makes path (c)
+		// fire — without it the linking layer falls through to the defensive
+		// check in path (d).
 		mount_github_mocks(
 			&mock,
 			json!({
-				"id": 9999,
+				"sub": "9999",
 				"login": "matchuser",
 				"email": "matched@example.com",
 				"email_verified": true,
@@ -345,10 +373,14 @@ mod tests {
 
 		let mock = MockServer::start().await;
 		let _env = configure_mock_github(&mock);
+		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
+		// see module-level docs. Note the absence of `email_verified` —
+		// path (c) requires `Some(true)` and we rely on its absence to
+		// fall through to the defensive `EmailConflict` branch in (d).
 		mount_github_mocks(
 			&mock,
 			json!({
-				"id": 7777,
+				"sub": "7777",
 				"login": "imposter",
 				"email": "contested@example.com",
 				"name": "Impostor"
@@ -360,10 +392,16 @@ mod tests {
 		let (cb_resp, _state) = drive_oauth_flow(&client).await;
 
 		// Assert — request rejected, no second user created, no link
-		// attached to the existing user.
-		assert!(
-			cb_resp.status_code() >= 400,
-			"callback must fail on unverified collision, got {}",
+		// attached to the existing user. Tighten the previously loose
+		// `>= 400` assertion to specifically expect 400 (the mapping
+		// `LinkError::EmailConflict` → `AppError::Validation` → 400 from
+		// reinhardt-core); the loose form let an unrelated 500 — when
+		// the userinfo response could not be deserialized into
+		// `StandardClaims` — silently pass.
+		assert_eq!(
+			cb_resp.status_code(),
+			400,
+			"callback must reject with 400 (EmailConflict) on unverified collision, got {}",
 			cb_resp.status_code()
 		);
 		let count = User::objects()
