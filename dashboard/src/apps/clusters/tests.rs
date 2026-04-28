@@ -4,6 +4,7 @@ pub mod e2e {
 	pub mod test_cluster_crud;
 	pub mod test_cluster_ownership;
 	pub mod test_cluster_pagination;
+	pub mod test_cluster_rbac;
 }
 pub mod unit {
 	pub mod test_cluster_model;
