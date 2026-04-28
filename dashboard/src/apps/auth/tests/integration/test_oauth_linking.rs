@@ -280,4 +280,76 @@ mod tests {
 		// Assert
 		assert_eq!(user.get_username(), "user_gh_collide_1");
 	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_email_verified_true_but_no_email_creates_new_user(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+		),
+	) {
+		// Arrange — a provider that asserts `email_verified == true` but
+		// returns no email at all (rare, but legal). Path (c) requires
+		// BOTH the verified flag AND a present email; missing the email
+		// must short-circuit (c) and fall through to (d) "new user".
+		let (_c, _conn, _cli, _urls) = db.await;
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = github_claims("gh_no_email_42", None, Some(true));
+
+		// Act
+		let user = link_or_create_user(&storage, "github", &claims, None)
+			.await
+			.expect("missing email with verified=true should still create a new user");
+
+		// Assert — new user, no email, derived username from the `login`
+		// additional claim.
+		assert!(user.password_hash.is_none());
+		assert_eq!(user.email, "");
+		assert_eq!(user.get_username(), "user_gh_no_email_42");
+		let links = storage.find_by_user(user.id).await.unwrap();
+		assert_eq!(links.len(), 1);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_username_falls_back_to_sub_when_no_login_or_name(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+		),
+	) {
+		// Arrange — claims with no `login` additional claim and no
+		// `name`. `display_name_from_claims` returns None and
+		// `generate_unique_username` falls back to using `sub` (after
+		// sanitization).
+		let (_c, _conn, _cli, _urls) = db.await;
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = StandardClaims {
+			sub: "raw-sub-42".to_string(),
+			email: Some("nameless@example.com".to_string()),
+			email_verified: Some(true),
+			name: None,
+			given_name: None,
+			family_name: None,
+			picture: None,
+			locale: None,
+			additional_claims: HashMap::new(),
+		};
+
+		// Act
+		let user = link_or_create_user(&storage, "github", &claims, None)
+			.await
+			.expect("creation should succeed using sub as username source");
+
+		// Assert — `raw-sub-42` is allowed verbatim by the username
+		// sanitizer (alnum, '-', '_', '.' are kept).
+		assert_eq!(user.get_username(), "raw-sub-42");
+	}
 }
