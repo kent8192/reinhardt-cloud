@@ -26,6 +26,7 @@ pub async fn register(
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::email::{get_email_backend, send_verification_email};
+	use crate::apps::auth::services::registration::provision_personal_organization;
 	use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 
 	let settings = crate::config::settings::get_settings();
@@ -66,13 +67,12 @@ pub async fn register(
 		}
 	};
 
-	// Provision a Personal Organization for the new user.
-	//
-	// Slug is derived from the username via DNS-1123 sanitization. On
-	// reserved-name collision (e.g., username "admin"), we fall back to a
-	// `user-<short-uuid>` slug. On unique-violation we retry with a fresh
-	// uuid suffix once.
-	provision_personal_organization(&created).await?;
+	// Provision a Personal Organization for the new user (refs #415, #435).
+	// Shared with the REST register flow; slug derivation, retry, and
+	// rollback are handled by the shared service.
+	provision_personal_organization(&created)
+		.await
+		.map_err(|e| ServerFnError::application(e.to_string()))?;
 
 	// Generate verification token and send email
 	let token = generate_token(
@@ -121,118 +121,4 @@ pub async fn register(
 		success: true,
 		user: Some(user_info),
 	})
-}
-
-/// Create a Personal `Organization` and an `Owner` `OrganizationMembership`
-/// for a freshly-registered user. Rolls the user creation back on failure so
-/// that the account never exists without an owning organization.
-///
-/// Refs #415
-async fn provision_personal_organization(
-	created: &crate::apps::auth::models::User,
-) -> Result<(), reinhardt::pages::server_fn::ServerFnError> {
-	use chrono::Utc;
-	use reinhardt::db::orm::Model;
-	use reinhardt::pages::server_fn::ServerFnError;
-	use tracing::error;
-
-	use crate::apps::organizations::models::{Organization, OrganizationMembership};
-	use crate::apps::organizations::roles::{
-		MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
-	};
-
-	let now = Utc::now();
-	let mut slug = sanitize_username_to_slug(&created.username);
-	if is_reserved_slug(&slug) || validate_slug(&slug).is_err() {
-		// Fall back to a user-<short-uuid> form so reserved/invalid slugs
-		// do not block registration.
-		let suffix = uuid::Uuid::new_v4().simple().to_string();
-		slug = format!("user-{}", &suffix[..8]);
-	}
-
-	let org_input = Organization {
-		id: None,
-		slug: slug.clone(),
-		name: created.username.clone(),
-		created_at: now,
-		updated_at: now,
-	};
-
-	// Try once with the derived slug. On unique-violation (rare collision
-	// between two simultaneous registrations), retry once with a uuid suffix.
-	let org = match Organization::objects().create(&org_input).await {
-		Ok(org) => org,
-		Err(e) => {
-			let err_lower = e.to_string().to_lowercase();
-			if err_lower.contains("unique") || err_lower.contains("duplicate") {
-				let suffix = uuid::Uuid::new_v4().simple().to_string();
-				let retry = Organization {
-					id: None,
-					slug: format!("{}-{}", slug, &suffix[..6]),
-					name: created.username.clone(),
-					created_at: now,
-					updated_at: now,
-				};
-				match Organization::objects().create(&retry).await {
-					Ok(o) => o,
-					Err(e2) => {
-						error!(
-							"Failed to provision Personal Org for user {} after retry: {e2}",
-							created.id
-						);
-						rollback_user(created).await;
-						return Err(ServerFnError::application("Internal server error"));
-					}
-				}
-			} else {
-				error!(
-					"Failed to provision Personal Org for user {}: {e}",
-					created.id
-				);
-				rollback_user(created).await;
-				return Err(ServerFnError::application("Internal server error"));
-			}
-		}
-	};
-
-	let membership_input = OrganizationMembership {
-		id: None,
-		organization_id: org.id.expect("created Organization has id"),
-		user_id: created.id,
-		role: MembershipRole::Owner.as_db_str().to_string(),
-		created_at: now,
-	};
-	if let Err(e) = OrganizationMembership::objects()
-		.create(&membership_input)
-		.await
-	{
-		error!(
-			"Failed to provision Owner membership for user {} in org {}: {e}",
-			created.id,
-			org.id.unwrap_or_default()
-		);
-		// Best-effort rollback: delete the org we just created, then the user.
-		if let Err(del_err) = Organization::objects()
-			.delete(org.id.expect("created Organization has id"))
-			.await
-		{
-			error!("Failed to roll back Organization after membership failure: {del_err}");
-		}
-		rollback_user(created).await;
-		return Err(ServerFnError::application("Internal server error"));
-	}
-
-	Ok(())
-}
-
-/// Best-effort delete of a user, used during Personal Org rollback.
-async fn rollback_user(created: &crate::apps::auth::models::User) {
-	use reinhardt::db::orm::Model;
-	use tracing::error;
-
-	use crate::apps::auth::models::User;
-
-	if let Err(del_err) = User::objects().delete(created.id).await {
-		error!("Failed to roll back user after org provisioning failure: {del_err}");
-	}
 }
