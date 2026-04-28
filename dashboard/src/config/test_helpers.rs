@@ -182,3 +182,34 @@ pub async fn force_login(
 		.await
 		.expect("Failed to force login");
 }
+
+/// Update an existing user's membership role in the org returned by
+/// [`super::organizations::helpers::current_organization_id_for_user`].
+///
+/// Used by RBAC integration tests to demote a user's Personal-Org Owner
+/// membership to e.g. Viewer or Developer before exercising a write
+/// endpoint. Panics if the user has no membership row — only call after
+/// [`force_login_user`] / [`provision_personal_org_for_user`].
+pub async fn set_membership_role(
+	conn: &Arc<DatabaseConnection>,
+	user: &User,
+	role: MembershipRole,
+) {
+	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+
+	let mut membership = OrganizationMembership::objects()
+		.filter(
+			OrganizationMembership::field_user_id(),
+			FilterOperator::Eq,
+			FilterValue::String(user.id.to_string()),
+		)
+		.first()
+		.await
+		.expect("Failed to look up membership for set_membership_role")
+		.expect("set_membership_role called for user with no membership");
+	membership.role = role.as_db_str().to_string();
+	OrganizationMembership::objects()
+		.update_with_conn(conn, &membership)
+		.await
+		.expect("Failed to update membership role");
+}
