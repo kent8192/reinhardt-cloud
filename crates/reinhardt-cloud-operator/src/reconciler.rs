@@ -3342,4 +3342,290 @@ mod tests {
 				.contains("tenant-acme"),
 		);
 	}
+
+	#[rstest]
+	fn build_degraded_status_patch_observes_generation() {
+		// Arrange — generation must round-trip into the patch payload so
+		// the API server records `observedGeneration` correctly.
+		let mut app = make_test_app("gen-app");
+		app.metadata.generation = Some(7);
+
+		// Act
+		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+
+		// Assert
+		let status = &payload["status"];
+		assert_eq!(status["observedGeneration"], serde_json::json!(7));
+		assert_eq!(
+			status["conditions"][0]["observedGeneration"],
+			serde_json::json!(7)
+		);
+	}
+
+	#[rstest]
+	fn build_degraded_status_patch_includes_transition_time() {
+		// Arrange
+		let app = make_test_app("ts-app");
+
+		// Act
+		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+
+		// Assert — `lastTransitionTime` must be a non-empty RFC-3339 string.
+		let ts = payload["status"]["conditions"][0]["lastTransitionTime"]
+			.as_str()
+			.expect("lastTransitionTime present");
+		assert!(!ts.is_empty());
+		assert!(
+			chrono::DateTime::parse_from_rfc3339(ts).is_ok(),
+			"lastTransitionTime must parse as RFC-3339, got {ts}",
+		);
+	}
+
+	// ── phase_label tests ───────────────────────────────────────────
+
+	#[rstest]
+	#[case(AppPhase::Pending, "Pending")]
+	#[case(AppPhase::Provisioning, "Provisioning")]
+	#[case(AppPhase::Deploying, "Deploying")]
+	#[case(AppPhase::Running, "Running")]
+	#[case(AppPhase::Degraded, "Degraded")]
+	#[case(AppPhase::Failed, "Failed")]
+	#[case(AppPhase::Terminating, "Terminating")]
+	fn phase_label_returns_stable_metric_label(
+		#[case] phase: AppPhase,
+		#[case] expected: &'static str,
+	) {
+		// Act
+		let label = phase_label(&phase);
+
+		// Assert — labels are stamped into Prometheus metrics; they must
+		// remain stable so dashboards keep working across releases.
+		assert_eq!(label, expected);
+	}
+
+	// ── backoff_key tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn backoff_key_combines_namespace_and_name() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.metadata.namespace = Some("tenant-acme".to_string());
+
+		// Act
+		let key = backoff_key(&app);
+
+		// Assert
+		assert_eq!(key, ("tenant-acme".to_string(), "acme-app".to_string()),);
+	}
+
+	#[rstest]
+	fn backoff_key_uses_empty_string_for_missing_namespace() {
+		// Arrange — cluster-scoped or pre-admission objects may lack a
+		// namespace; backoff_key must still produce a stable key.
+		let mut app = make_test_app("orphan-app");
+		app.metadata.namespace = None;
+
+		// Act
+		let key = backoff_key(&app);
+
+		// Assert
+		assert_eq!(key, (String::new(), "orphan-app".to_string()));
+	}
+
+	// ── managed_apps gauge tests ───────────────────────────────────
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_increments_new_phase() {
+		// Arrange
+		let app = make_test_app("g1-app");
+		let ctx = test_context();
+
+		// Act
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 1.0);
+		assert_eq!(
+			ctx.phase_state.get(&backoff_key(&app)).map(|v| v.clone()),
+			Some("Running".to_string()),
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_decrements_previous_on_transition() {
+		// Arrange
+		let app = make_test_app("g2-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Deploying");
+
+		// Act — transition Deploying -> Running.
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert — Deploying is decremented back to 0, Running is 1.
+		let deploying = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Deploying"])
+			.get();
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(deploying, 0.0);
+		assert_eq!(running, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_is_idempotent_for_same_phase() {
+		// Arrange
+		let app = make_test_app("g3-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Act — same phase observed again must not double-count.
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_managed_apps_gauge_decrements_last_phase() {
+		// Arrange — record an app in Running, then drop.
+		let app = make_test_app("g4-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Act
+		drop_managed_apps_gauge(&ctx, &app);
+
+		// Assert — gauge returns to 0 and the phase entry is removed.
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 0.0);
+		assert!(ctx.phase_state.get(&backoff_key(&app)).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_managed_apps_gauge_no_op_for_untracked_app() {
+		// Arrange — never tracked.
+		let app = make_test_app("untracked-app");
+		let ctx = test_context();
+
+		// Act
+		drop_managed_apps_gauge(&ctx, &app);
+
+		// Assert — no panic, no negative counts.
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 0.0);
+	}
+
+	// ── error_policy: dependency-not-ready branch ───────────────────
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_dependency_not_ready_uses_60s_base() {
+		// Arrange — fabricate a 404 kube::Error to drive the
+		// `DependencyNotReady` branch. Only `code` matters for
+		// `kube_status_class`; other fields use defaults.
+		let status = kube::core::Status {
+			code: 404,
+			message: "not found".to_string(),
+			reason: "NotFound".to_string(),
+			..Default::default()
+		};
+		let app = Arc::new(make_test_app("dep-app"));
+		let error = Error::Kube(kube::Error::Api(Box::new(status)));
+		let ctx = test_context();
+
+		// Act
+		let action = error_policy(app, &error, ctx.clone());
+
+		// Assert — first dependency-not-ready failure uses the 60s base.
+		let expected = Action::requeue(Duration::from_secs(60));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+
+		// Assert — `requeue_total{reason="dependency_not_ready"}` was
+		// incremented exactly once.
+		let count = ctx
+			.metrics
+			.requeue_total
+			.with_label_values(&["dependency_not_ready"])
+			.get();
+		assert_eq!(count, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_permanent_drops_backoff_state() {
+		// Arrange — accumulate transient attempts, then encounter a
+		// permanent error. The permanent branch must clear the counter
+		// so a future spec edit starts from a clean slate.
+		let app = Arc::new(make_test_app("recover-app"));
+		let ctx = test_context();
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		assert!(ctx.backoff_state.get(&backoff_key(&app)).is_some());
+
+		// Act
+		let _ = error_policy(
+			app.clone(),
+			&Error::TenantMismatch {
+				expected: "tenant-acme".into(),
+				actual: "default".into(),
+			},
+			ctx.clone(),
+		);
+
+		// Assert
+		assert!(
+			ctx.backoff_state.get(&backoff_key(&app)).is_none(),
+			"permanent errors must clear stored backoff attempts",
+		);
+	}
+
+	// ── compute_backoff edge cases ──────────────────────────────────
+
+	#[rstest]
+	fn compute_backoff_uses_60s_base_for_dependency() {
+		// Assert — base=60s, attempt=0 -> 60s; attempt=1 -> 120s.
+		assert_eq!(compute_backoff(60, 0), Duration::from_secs(60));
+		assert_eq!(compute_backoff(60, 1), Duration::from_secs(120));
+		assert_eq!(compute_backoff(60, 2), Duration::from_secs(240));
+	}
+
+	#[rstest]
+	fn compute_backoff_saturates_for_overflowing_attempts() {
+		// Arrange / Act — extreme attempt counts must not overflow.
+		let result = compute_backoff(30, u32::MAX);
+
+		// Assert — clamps to BACKOFF_MAX_SECS (10 minutes).
+		assert_eq!(result, Duration::from_secs(BACKOFF_MAX_SECS));
+	}
 }
