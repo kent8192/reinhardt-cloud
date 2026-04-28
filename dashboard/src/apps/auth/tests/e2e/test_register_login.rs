@@ -19,6 +19,7 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
+	use crate::apps::organizations::models::Organization;
 	use crate::config::test_helpers::{ResolvedUrls, test_app};
 
 	#[fixture]
@@ -179,6 +180,77 @@ mod tests {
 		assert!(
 			!user.is_active(),
 			"Newly registered user must be inactive until email verification"
+		);
+	}
+
+	/// Verify registration sets `Organization.created_by` to the new user's id.
+	///
+	/// This is the audit-trail invariant from #435: every Personal Org
+	/// provisioned during registration must record the originating user as
+	/// its creator, so an organization can always be traced back to the
+	/// account that initially provisioned it.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_register_records_created_by_on_personal_org(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+		),
+		#[future] mailpit: MailpitContainer,
+	) {
+		// Arrange
+		let (_container, _conn, client, urls) = db.await;
+		let mailpit = mailpit.await;
+		let _env = set_mailpit_env(&mailpit);
+
+		let register_data = json!({
+			"username": "auditor",
+			"email": "auditor@example.com",
+			"password": "securepassword"
+		});
+
+		// Act
+		let response = client
+			.post(&urls.server().auth().register(), &register_data, "json")
+			.await
+			.expect("Register request failed");
+		assert_eq!(response.status_code(), 201);
+
+		// Assert -- look up the new user, then look up the Personal Org by
+		// `created_by = user.id` and verify exactly one match
+		use reinhardt::db::orm::{FilterOperator, FilterValue};
+		let user = User::objects()
+			.filter(
+				User::field_username(),
+				FilterOperator::Eq,
+				FilterValue::String("auditor".to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query user")
+			.expect("User should exist after successful registration");
+
+		let org = Organization::objects()
+			.filter(
+				Organization::field_created_by(),
+				FilterOperator::Eq,
+				FilterValue::String(user.id.to_string()),
+			)
+			.first()
+			.await
+			.expect("Failed to query Organization by created_by")
+			.expect("Personal Org should exist for the new user");
+
+		assert_eq!(
+			org.created_by, user.id,
+			"Personal Org.created_by must equal the registering user's id (audit trail)",
+		);
+		assert_eq!(
+			org.name, "auditor",
+			"Personal Org name should default to the registering username",
 		);
 	}
 

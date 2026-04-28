@@ -87,6 +87,7 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> Strin
 			id: None,
 			slug,
 			name: created_user.username.clone(),
+			created_by: created_user.id,
 			created_at: now,
 			updated_at: now,
 		})

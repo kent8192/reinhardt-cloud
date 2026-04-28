@@ -146,4 +146,230 @@ mod tests {
 		assert!(body["page"].is_number());
 		assert!(body["page_size"].is_number());
 	}
+
+	/// Verify creating a second cluster with the same name in the same
+	/// organization is rejected with 409 Conflict (refs #436).
+	///
+	/// The uniqueness check is enforced at the application layer as a
+	/// workaround for `kent8192/reinhardt-web#3989` (tracking issue
+	/// #443) — the framework's `makemigrations` does not currently emit
+	/// `AlterUniqueTogether` for `unique_together` declared on existing
+	/// tables, so the DB constraint is not yet in place. This test will
+	/// remain valid once that workaround is removed and replaced by the
+	/// real DB constraint.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_create_cluster_duplicate_name_returns_conflict(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+			Arc<dyn AsyncSessionBackend>,
+		),
+	) {
+		// Arrange
+		let (_container, conn, client, _urls, backend) = db.await;
+		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+
+		let cluster_data = json!({
+			"name": "shared-name",
+			"api_url": "https://k8s.example.com:6443"
+		});
+
+		// Act -- first create succeeds
+		let first = client
+			.post("/api/clusters/", &cluster_data, "json")
+			.await
+			.expect("First create cluster request failed");
+		assert_eq!(first.status_code(), 201);
+
+		// Act -- second create with the same name in the same org is rejected
+		let duplicate_data = json!({
+			"name": "shared-name",
+			"api_url": "https://k8s2.example.com:6443"
+		});
+		let second = client
+			.post("/api/clusters/", &duplicate_data, "json")
+			.await
+			.expect("Second create cluster request failed");
+
+		// Assert -- 409 Conflict, name-collision-specific message
+		assert_eq!(second.status_code(), 409);
+		let body: serde_json::Value = second.json().expect("Failed to parse JSON response");
+		assert_eq!(body["error"], "Conflict");
+		assert_eq!(
+			body["detail"], "Cluster name already exists in this organization",
+			"Conflict response must surface the cluster-name-collision message"
+		);
+	}
+
+	/// Verify renaming a cluster to a name already taken by another cluster
+	/// in the same organization returns 409 Conflict (refs #436).
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_update_cluster_to_taken_name_returns_conflict(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+			Arc<dyn AsyncSessionBackend>,
+		),
+	) {
+		// Arrange -- create two clusters with distinct names
+		let (_container, conn, client, _urls, backend) = db.await;
+		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+
+		let first_response = client
+			.post(
+				"/api/clusters/",
+				&json!({
+					"name": "alpha",
+					"api_url": "https://alpha.example.com:6443"
+				}),
+				"json",
+			)
+			.await
+			.expect("Create alpha request failed");
+		assert_eq!(first_response.status_code(), 201);
+
+		let second_response = client
+			.post(
+				"/api/clusters/",
+				&json!({
+					"name": "beta",
+					"api_url": "https://beta.example.com:6443"
+				}),
+				"json",
+			)
+			.await
+			.expect("Create beta request failed");
+		assert_eq!(second_response.status_code(), 201);
+		let beta: serde_json::Value = second_response.json().expect("parse beta response");
+		let beta_id = beta["id"].as_i64().expect("beta id is i64");
+
+		// Act -- rename beta to alpha (already taken in this org)
+		let conflict_response = client
+			.patch(
+				&format!("/api/clusters/{beta_id}/"),
+				&json!({ "name": "alpha" }),
+				"json",
+			)
+			.await
+			.expect("PATCH beta -> alpha request failed");
+
+		// Assert -- 409 Conflict
+		assert_eq!(conflict_response.status_code(), 409);
+		let body: serde_json::Value = conflict_response
+			.json()
+			.expect("Failed to parse JSON response");
+		assert_eq!(body["error"], "Conflict");
+		assert_eq!(
+			body["detail"],
+			"Cluster name already exists in this organization",
+		);
+	}
+
+	/// Cross-organization duplicates MUST be allowed — the unique constraint
+	/// is scoped to `(organization_id, name)`, not to `name` alone (refs
+	/// #436). Two different organizations may each own a cluster called
+	/// `prod` without any collision.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_cross_organization_same_name_succeeds(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+			Arc<dyn AsyncSessionBackend>,
+		),
+	) {
+		// Arrange -- two distinct users, each in their own Personal Org
+		let (_container, conn, client, _urls, backend) = db.await;
+
+		let cluster_data = json!({
+			"name": "prod",
+			"api_url": "https://k8s.example.com:6443"
+		});
+
+		// Act -- user A in org A creates cluster "prod"
+		force_login_user(&client, &conn, &backend, "user_a", "a@example.com").await;
+		let resp_a = client
+			.post("/api/clusters/", &cluster_data, "json")
+			.await
+			.expect("Create cluster (user A) request failed");
+
+		// Act -- user B in org B creates cluster "prod"
+		force_login_user(&client, &conn, &backend, "user_b", "b@example.com").await;
+		let resp_b = client
+			.post("/api/clusters/", &cluster_data, "json")
+			.await
+			.expect("Create cluster (user B) request failed");
+
+		// Assert -- both succeed; uniqueness is per-organization, not global
+		assert_eq!(
+			resp_a.status_code(),
+			201,
+			"User A's cluster should be created"
+		);
+		assert_eq!(
+			resp_b.status_code(),
+			201,
+			"User B's cluster should also be created — same name, different org"
+		);
+	}
+
+	/// Verify renaming a cluster to a different (unused) name still succeeds
+	/// — guards against the pre-check workaround over-rejecting (refs #436).
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_update_cluster_to_unused_name_succeeds(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			ResolvedUrls,
+			Arc<dyn AsyncSessionBackend>,
+		),
+	) {
+		// Arrange -- one cluster
+		let (_container, conn, client, _urls, backend) = db.await;
+		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+
+		let create = client
+			.post(
+				"/api/clusters/",
+				&json!({
+					"name": "original",
+					"api_url": "https://original.example.com:6443"
+				}),
+				"json",
+			)
+			.await
+			.expect("Create cluster request failed");
+		assert_eq!(create.status_code(), 201);
+		let created: serde_json::Value = create.json().expect("parse create response");
+		let cluster_id = created["id"].as_i64().expect("cluster id is i64");
+
+		// Act -- rename to a free name
+		let response = client
+			.patch(
+				&format!("/api/clusters/{cluster_id}/"),
+				&json!({ "name": "renamed" }),
+				"json",
+			)
+			.await
+			.expect("PATCH rename request failed");
+
+		// Assert -- 200 OK with new name
+		assert_eq!(response.status_code(), 200);
+		let body: serde_json::Value = response.json().expect("Failed to parse JSON response");
+		assert_eq!(body["name"], "renamed");
+	}
 }

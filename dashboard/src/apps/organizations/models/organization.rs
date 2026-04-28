@@ -6,6 +6,7 @@
 
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Multi-tenant Organization, owns Clusters and Deployments.
 #[derive(Serialize, Deserialize)]
@@ -24,6 +25,14 @@ pub struct Organization {
 	/// Display name shown in dashboard UI.
 	#[field(max_length = 100)]
 	pub name: String,
+
+	/// FK to `auth_users.id`; the user who initially created this
+	/// organization. Recorded for audit trail, multi-owner attribution, and
+	/// future billing flows. The auto-detector emits ON DELETE CASCADE,
+	/// matching the existing `OrganizationMembership.user_id` pattern; a
+	/// follow-up issue will tighten this to ON DELETE RESTRICT for
+	/// auditability once the migration framework supports it.
+	pub created_by: Uuid,
 
 	/// Organization creation timestamp.
 	#[field(auto_now_add = true)]
