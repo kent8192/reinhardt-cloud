@@ -149,7 +149,10 @@ fn higher_roles_inherit_viewer_permissions(#[case] action: Action) {
 	let viewer_allowed = allowed(MembershipRole::Viewer, action);
 
 	// Act / Assert
-	assert!(viewer_allowed, "precondition: Viewer can perform {action:?}");
+	assert!(
+		viewer_allowed,
+		"precondition: Viewer can perform {action:?}"
+	);
 	assert!(
 		allowed(MembershipRole::Developer, action),
 		"Developer must inherit Viewer permission for {action:?}"

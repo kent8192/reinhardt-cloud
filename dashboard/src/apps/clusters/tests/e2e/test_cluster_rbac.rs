@@ -54,11 +54,7 @@ mod tests {
 			.post("/api/clusters/", &data, "json")
 			.await
 			.expect("Create cluster request failed");
-		assert_eq!(
-			resp.status_code(),
-			201,
-			"Owner should be allowed to create"
-		);
+		assert_eq!(resp.status_code(), 201, "Owner should be allowed to create");
 		let body: serde_json::Value = resp.json().expect("Failed to parse JSON");
 		body["id"].as_i64().expect("Created cluster missing id")
 	}
@@ -74,8 +70,14 @@ mod tests {
 	async fn test_viewer_can_list_clusters(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user =
-			force_login_user(&client, &conn, &backend, "viewer_user", "viewer@example.com").await;
+		let user = force_login_user(
+			&client,
+			&conn,
+			&backend,
+			"viewer_user",
+			"viewer@example.com",
+		)
+		.await;
 		// Default role is Owner (assigned in provision); demote to Viewer.
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 

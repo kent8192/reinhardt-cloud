@@ -82,7 +82,8 @@ pub async fn resolve_membership_role(
 /// # Behaviour
 ///
 /// 1. Resolve the user's active organization via
-///    [`super::super::helpers::current_organization_id_for_user`].
+///    `current_organization_id_for_user` (see
+///    `crate::apps::organizations::helpers`).
 /// 2. Look up the user's role in that organization.
 /// 3. Consult the static [`allowed`] matrix.
 ///
@@ -102,9 +103,7 @@ pub async fn require_permission(user_id: Uuid, action: Action) -> Result<i64, Ap
 
 	let role = resolve_membership_role(user_id, organization_id).await?;
 	let role = role.ok_or_else(|| {
-		AppError::Authorization(
-			"User is not a member of the target organization".to_string(),
-		)
+		AppError::Authorization("User is not a member of the target organization".to_string())
 	})?;
 
 	if !allowed(role, action) {

@@ -184,7 +184,8 @@ pub async fn force_login(
 }
 
 /// Update an existing user's membership role in the org returned by
-/// [`super::organizations::helpers::current_organization_id_for_user`].
+/// `current_organization_id_for_user` (see
+/// `crate::apps::organizations::helpers`).
 ///
 /// Used by RBAC integration tests to demote a user's Personal-Org Owner
 /// membership to e.g. Viewer or Developer before exercising a write

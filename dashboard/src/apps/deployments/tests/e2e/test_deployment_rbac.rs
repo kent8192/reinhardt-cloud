@@ -195,11 +195,7 @@ mod tests {
 		// Act
 		let data = json!({ "app_name": "renamed-app" });
 		let resp = client
-			.put(
-				&format!("/api/deployments/{deployment_id}/"),
-				&data,
-				"json",
-			)
+			.put(&format!("/api/deployments/{deployment_id}/"), &data, "json")
 			.await
 			.expect("Update deployment request failed");
 
