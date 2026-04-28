@@ -7,7 +7,10 @@
 pub mod auth;
 #[cfg(native)]
 pub mod clusters;
-#[cfg(native)]
+// `deployments` is server-only at the module level, but it owns a `client`
+// submodule containing WASM UI components consumed by `crate::client::ws`.
+// The cfg gating that excludes server-only sources lives inside
+// `apps/deployments.rs`, so the parent module declaration is unconditional.
 pub mod deployments;
 #[cfg(native)]
 pub mod health;
