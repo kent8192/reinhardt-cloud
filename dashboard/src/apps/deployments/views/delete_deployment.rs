@@ -9,12 +9,14 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Delete a deployment by ID (authentication required).
 ///
-/// Returns 204 No Content on success, 404 if the deployment does not exist
-/// or does not belong to the authenticated user's active organization.
+/// Requires `Action::DeploymentDelete` (Developer or higher); Viewers
+/// receive 403. Returns 204 No Content on success, 404 if the deployment
+/// does not exist or does not belong to the authenticated user's active
+/// organization.
 #[delete("/{id}/", name = "delete")]
 pub async fn delete_deployment(
 	Path(id): Path<i64>,
@@ -22,7 +24,7 @@ pub async fn delete_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::DeploymentDelete).await?;
 
 	Deployment::objects()
 		.filter("id", FilterOperator::Eq, FilterValue::Integer(id))

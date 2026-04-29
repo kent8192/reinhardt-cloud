@@ -23,6 +23,7 @@ use super::service_account::ServiceAccountSpec;
 use super::source::SourceSpec;
 use super::status::ReinhardtAppStatus;
 use super::storage::StorageSpec;
+use super::tenant::TenantRef;
 use super::worker::WorkerSpec;
 
 /// Metric type for autoscaling.
@@ -265,6 +266,24 @@ pub struct ReinhardtAppSpec {
 	/// solely on cluster-level shared infrastructure provisioned by #411.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub infrastructure: Option<InfrastructureSpec>,
+
+	/// Multi-tenant ownership marker (Refs #416).
+	///
+	/// Identifies the owning Organization (and optionally a Team) for this
+	/// `ReinhardtApp`. The operator computes a deterministic Kubernetes
+	/// namespace per tenant — `tenant-{organization}` or
+	/// `tenant-{organization}-{team}` — applies tenant-scoped
+	/// `ResourceQuota` and `NetworkPolicy` resources, and rejects CRs whose
+	/// `metadata.namespace` does not match the computed value (Degraded
+	/// status with reason `TenantMismatch`).
+	///
+	/// Optional for backward compatibility with `v1alpha1`-style CRs. When
+	/// `tenant` is `None`, the operator falls back to the legacy behavior of
+	/// honoring whatever namespace was set externally without enforcing any
+	/// inter-tenant boundary. New CRs SHOULD always set this field; the
+	/// option will become required in `v1alpha3`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tenant: Option<TenantRef>,
 }
 
 impl ReinhardtAppSpec {
@@ -279,6 +298,14 @@ impl ReinhardtAppSpec {
 			&& replicas < 0
 		{
 			errors.push(ValidationError::new("spec.replicas must be >= 0"));
+		}
+
+		if let Some(ref tenant) = self.tenant
+			&& let Err(errs) = tenant.validate()
+		{
+			for e in errs {
+				errors.push(ValidationError::new(format!("spec.{}", e.message)));
+			}
 		}
 
 		if let Some(ref db) = self.database
@@ -444,6 +471,7 @@ mod tests {
 			image_pull_secrets: None,
 			service_account: None,
 			infrastructure: None,
+			tenant: None,
 		};
 
 		// Act
@@ -895,6 +923,7 @@ mod tests {
 			image_pull_secrets: None,
 			service_account: None,
 			infrastructure: None,
+			tenant: None,
 		};
 
 		// Act
@@ -1597,6 +1626,156 @@ mod tests {
 		assert_eq!(
 			source.provider.unwrap(),
 			crate::crd::source::GitProvider::GitLab
+		);
+	}
+
+	#[rstest]
+	fn reinhardt_app_spec_validation_accepts_valid_tenant_org_only() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			tenant: Some(TenantRef {
+				organization: "acme-prod".to_string(),
+				team: None,
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_ok(), "expected valid tenant to pass: {result:?}");
+	}
+
+	#[rstest]
+	fn reinhardt_app_spec_validation_accepts_valid_tenant_with_team() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			tenant: Some(TenantRef {
+				organization: "acme".to_string(),
+				team: Some("platform".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_ok(), "expected valid tenant to pass: {result:?}");
+	}
+
+	#[rstest]
+	fn reinhardt_app_spec_validation_skips_when_tenant_absent() {
+		// Arrange — backward-compatibility: CRs without tenant must continue to pass.
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			tenant: None,
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
+	#[case("ACME", "spec.tenant.organization")]
+	#[case("acme_prod", "spec.tenant.organization")]
+	#[case("", "spec.tenant.organization")]
+	fn reinhardt_app_spec_validation_rejects_invalid_tenant_organization(
+		#[case] organization: &str,
+		#[case] expected_prefix: &str,
+	) {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			tenant: Some(TenantRef {
+				organization: organization.to_string(),
+				team: None,
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.expect_err("expected tenant validation to fail");
+		assert!(
+			errors[0].message.starts_with(expected_prefix),
+			"expected message prefix {expected_prefix:?}, got {:?}",
+			errors[0].message
+		);
+	}
+
+	#[rstest]
+	#[case("BAD")]
+	#[case("team_underscore")]
+	fn reinhardt_app_spec_validation_rejects_invalid_tenant_team(#[case] team: &str) {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:latest".to_string(),
+			tenant: Some(TenantRef {
+				organization: "acme".to_string(),
+				team: Some(team.to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.expect_err("expected tenant validation to fail");
+		assert!(
+			errors
+				.iter()
+				.any(|e| e.message.starts_with("spec.tenant.team")),
+			"expected spec.tenant.team error, got {errors:?}"
+		);
+	}
+
+	#[rstest]
+	fn reinhardt_app_spec_serializes_tenant_field() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			tenant: Some(TenantRef {
+				organization: "acme".to_string(),
+				team: Some("platform".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_value(&spec).expect("serialization should succeed");
+
+		// Assert
+		assert_eq!(json["tenant"]["organization"], "acme");
+		assert_eq!(json["tenant"]["team"], "platform");
+	}
+
+	#[rstest]
+	fn reinhardt_app_spec_omits_tenant_when_none() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "myapp:v1".to_string(),
+			tenant: None,
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_value(&spec).expect("serialization should succeed");
+
+		// Assert — skip_serializing_if = "Option::is_none" means the field is omitted entirely.
+		assert!(
+			json.get("tenant").is_none(),
+			"tenant should be omitted, got {json:?}"
 		);
 	}
 }

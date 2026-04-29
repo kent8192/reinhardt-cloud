@@ -159,6 +159,7 @@ pub(crate) fn build_preview_spec(
 		service_account: None,
 		// Infrastructure declarations are not provisioned for preview environments.
 		infrastructure: None,
+		tenant: None,
 	})
 }
 

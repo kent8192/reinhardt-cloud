@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentLogsResponse, LogEntry};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 use crate::config::GrpcChannelSingleton;
 
 /// Maximum number of log entries returned per request.
@@ -60,6 +60,9 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 
 /// Retrieve logs for a specific deployment, scoped to the active organization.
 ///
+/// Requires `Action::LogsRead` (Viewer or higher); returns 403 if the
+/// caller's role does not permit the action.
+///
 /// Closes #419: the deployment lookup is now filtered by `organization_id`,
 /// so a user can no longer fetch logs for a deployment belonging to a
 /// different organization.
@@ -77,7 +80,7 @@ pub async fn deployment_logs(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::LogsRead).await?;
 
 	// Verify the deployment exists and belongs to the active organization.
 	// This is the fix for cross-tenant log leakage (#419): previously the

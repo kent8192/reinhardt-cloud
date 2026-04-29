@@ -18,6 +18,7 @@ pub mod source;
 pub mod spec;
 pub mod status;
 pub mod storage;
+pub mod tenant;
 pub mod worker;
 
 pub use auth::*;
@@ -35,4 +36,5 @@ pub use source::*;
 pub use spec::*;
 pub use status::*;
 pub use storage::*;
+pub use tenant::*;
 pub use worker::*;

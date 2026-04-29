@@ -37,6 +37,7 @@ use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
 use crate::resources::source::{build_kaniko_job, should_build_from_source};
+use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
@@ -183,6 +184,40 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	// Tenancy enforcement (#416) — runs before any per-app resource so a
+	// misplaced CR cannot create work in the wrong namespace. Validation
+	// failures are recorded as a `Degraded` condition (reason
+	// `TenantMismatch` or `InvalidTenant`) before the error is returned
+	// to the controller's error policy, which classifies them as
+	// permanent and skips backoff.
+	match validate_tenant_namespace(&app, namespace) {
+		Ok(Some(_expected)) => {
+			let tenant = app
+				.spec
+				.tenant
+				.as_ref()
+				.expect("tenant presence verified by validate_tenant_namespace");
+			reconcile_tenant_resources(&ctx.client, tenant).await?;
+		}
+		Ok(None) => {
+			// Backward-compat path: tenant unset, no enforcement.
+		}
+		Err(err) => {
+			let (reason, message) = match &err {
+				Error::TenantMismatch { expected, actual } => (
+					"TenantMismatch",
+					format!(
+						"metadata.namespace '{actual}' does not match the namespace computed from spec.tenant ('{expected}')"
+					),
+				),
+				Error::InvalidTenant(detail) => ("InvalidTenant", detail.clone()),
+				other => ("ReconcileError", other.to_string()),
+			};
+			record_degraded_condition(&app, ctx, namespace, reason, &message).await;
+			return Err(err);
+		}
+	}
 
 	// Reconcile settings ConfigMap via server-side apply
 	let configmap = build_settings_configmap(&name, namespace);
@@ -1428,6 +1463,170 @@ async fn reconcile_resource_limits(
 
 	info!("Reconciled LimitRange for {}", app.name_any());
 	Ok(())
+}
+
+/// Validates `spec.tenant` (if set) and verifies that the app's
+/// `metadata.namespace` matches the namespace computed from the tenant
+/// reference.
+///
+/// Returns:
+/// - `Ok(Some(expected_namespace))` when `spec.tenant` is set and valid.
+/// - `Ok(None)` when `spec.tenant` is absent (legacy mode — no enforcement).
+/// - `Err(Error::InvalidTenant)` when `spec.tenant` is set but malformed.
+/// - `Err(Error::TenantMismatch)` when the spec is valid but
+///   `metadata.namespace` is wrong.
+///
+/// Pure function — no API calls — so the caller controls how the
+/// failure is surfaced (status patch + log) before bubbling the error
+/// up to the reconciler's error policy.
+fn validate_tenant_namespace(
+	app: &ReinhardtApp,
+	actual_namespace: &str,
+) -> Result<Option<String>, Error> {
+	let Some(tenant) = app.spec.tenant.as_ref() else {
+		return Ok(None);
+	};
+
+	tenant.validate().map_err(|errors| {
+		Error::InvalidTenant(
+			errors
+				.into_iter()
+				.map(|e| e.message)
+				.collect::<Vec<_>>()
+				.join("; "),
+		)
+	})?;
+
+	let expected = tenant.namespace();
+	if expected != actual_namespace {
+		return Err(Error::TenantMismatch {
+			expected,
+			actual: actual_namespace.to_string(),
+		});
+	}
+
+	Ok(Some(expected))
+}
+
+/// Reconcile the per-tenant `Namespace`, `ResourceQuota`, and
+/// `NetworkPolicy` triple.
+///
+/// Server-side applies each resource so concurrent reconciles for
+/// sibling apps in the same tenant cannot fight over ownership. The
+/// `Namespace` is created without an owner reference because it is
+/// shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
+/// likewise omit owner references for the same reason (see the module
+/// docs in `resources::tenant`).
+async fn reconcile_tenant_resources(
+	client: &Client,
+	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
+) -> Result<(), Error> {
+	let namespace_name = tenant.namespace();
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	// Namespace is cluster-scoped; use Api::all.
+	let namespaces: Api<Namespace> = Api::all(client.clone());
+	let desired_ns = tenant_resources::build_namespace(tenant);
+	namespaces
+		.patch(&namespace_name, &ssapply, &Patch::Apply(&desired_ns))
+		.await
+		.map_err(Error::Kube)?;
+
+	let quotas: Api<k8s_openapi::api::core::v1::ResourceQuota> =
+		Api::namespaced(client.clone(), &namespace_name);
+	let desired_quota = tenant_resources::build_default_resource_quota(tenant);
+	let quota_name = desired_quota
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "tenant-default-quota".to_string());
+	quotas
+		.patch(&quota_name, &ssapply, &Patch::Apply(&desired_quota))
+		.await
+		.map_err(Error::Kube)?;
+
+	let policies: Api<NetworkPolicy> = Api::namespaced(client.clone(), &namespace_name);
+	for policy in [
+		tenant_resources::build_default_deny_policy(tenant),
+		tenant_resources::build_allow_same_namespace_policy(tenant),
+		tenant_resources::build_allow_ingress_controller_policy(tenant),
+	] {
+		let policy_name = policy
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| "tenant-policy".to_string());
+		policies
+			.patch(&policy_name, &ssapply, &Patch::Apply(&policy))
+			.await
+			.map_err(Error::Kube)?;
+	}
+
+	info!(
+		"Reconciled tenant resources for namespace {namespace_name} (tenant org={}, team={:?})",
+		tenant.organization, tenant.team
+	);
+	Ok(())
+}
+
+/// Builds a `Degraded`-condition status patch payload for the given
+/// reason and message.
+///
+/// Pure function so it is exercised by unit tests without spinning up a
+/// kube client. The returned JSON value is shaped to merge into the
+/// `status` sub-resource via `Patch::Merge`.
+fn build_degraded_status_patch(
+	app: &ReinhardtApp,
+	reason: &str,
+	message: &str,
+) -> serde_json::Value {
+	let condition = AppCondition {
+		type_: ConditionType::Degraded,
+		status: ConditionStatus::True,
+		reason: reason.to_string(),
+		message: message.to_string(),
+		last_transition_time: Some(chrono::Utc::now().to_rfc3339()),
+		observed_generation: app.metadata.generation,
+	};
+
+	serde_json::json!({
+		"status": {
+			"phase": AppPhase::Failed,
+			"observedGeneration": app.metadata.generation,
+			"conditions": [condition],
+		}
+	})
+}
+
+/// Best-effort: write a `Degraded` condition to the app's status
+/// sub-resource so the failure is visible via `kubectl get reinhardtapp`.
+///
+/// Errors from this helper are logged at warn level rather than
+/// propagated because the original failure (the reason we're writing
+/// Degraded) is what the caller really needs to surface.
+async fn record_degraded_condition(
+	app: &ReinhardtApp,
+	ctx: &Context,
+	namespace: &str,
+	reason: &str,
+	message: &str,
+) {
+	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+	let payload = build_degraded_status_patch(app, reason, message);
+	if let Err(e) = api
+		.patch_status(
+			&app.name_any(),
+			&PatchParams::default(),
+			&Patch::Merge(payload),
+		)
+		.await
+	{
+		warn!(
+			"failed to write Degraded condition (reason={reason}) for {}/{}: {e}",
+			namespace,
+			app.name_any()
+		);
+	}
 }
 
 /// Apply Pod Security Standards labels to the app's namespace.
@@ -3026,5 +3225,407 @@ mod tests {
 			annotations.get("nginx.ingress.kubernetes.io/proxy-read-timeout"),
 			Some(&"3600".to_string())
 		);
+	}
+
+	// ── tenant validation tests (#416) ──────────────────────────────
+
+	#[rstest]
+	fn validate_tenant_namespace_returns_none_when_tenant_unset() {
+		// Arrange
+		let app = make_test_app("legacy-app");
+
+		// Act
+		let result = validate_tenant_namespace(&app, "default");
+
+		// Assert — backward-compat: legacy CRs without spec.tenant
+		// must continue to reconcile without enforcement.
+		assert!(matches!(result, Ok(None)));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_accepts_matching_namespace() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: None,
+		});
+		app.metadata.namespace = Some("tenant-acme".to_string());
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-acme");
+
+		// Assert
+		assert_eq!(result.unwrap(), Some("tenant-acme".to_string()));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_accepts_org_team_combo() {
+		// Arrange
+		let mut app = make_test_app("platform-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: Some("platform".to_string()),
+		});
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-acme-platform");
+
+		// Assert
+		assert_eq!(result.unwrap(), Some("tenant-acme-platform".to_string()));
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_rejects_mismatch() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: None,
+		});
+
+		// Act — CR placed in `default` instead of `tenant-acme`.
+		let result = validate_tenant_namespace(&app, "default");
+
+		// Assert
+		match result {
+			Err(Error::TenantMismatch { expected, actual }) => {
+				assert_eq!(expected, "tenant-acme");
+				assert_eq!(actual, "default");
+			}
+			other => panic!("expected TenantMismatch, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn validate_tenant_namespace_rejects_invalid_tenant() {
+		// Arrange — uppercase organization fails DNS-1123 validation.
+		let mut app = make_test_app("bad-app");
+		app.spec.tenant = Some(reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "ACME".to_string(),
+			team: None,
+		});
+
+		// Act
+		let result = validate_tenant_namespace(&app, "tenant-ACME");
+
+		// Assert
+		assert!(matches!(result, Err(Error::InvalidTenant(_))));
+	}
+
+	#[rstest]
+	fn build_degraded_status_patch_emits_failed_phase() {
+		// Arrange
+		let app = make_test_app("acme-app");
+
+		// Act
+		let payload = build_degraded_status_patch(
+			&app,
+			"TenantMismatch",
+			"namespace 'default' does not match expected 'tenant-acme'",
+		);
+
+		// Assert — the emitted JSON must drive the CR into `Failed`
+		// phase and carry a single Degraded=True condition with the
+		// supplied reason/message. `AppPhase` serializes lowercase
+		// (see crd/enums.rs), so the wire value is `"failed"`.
+		let status = &payload["status"];
+		assert_eq!(status["phase"], serde_json::json!("failed"));
+		let condition = &status["conditions"][0];
+		assert_eq!(condition["type"], serde_json::json!("Degraded"));
+		assert_eq!(condition["status"], serde_json::json!("True"));
+		assert_eq!(condition["reason"], serde_json::json!("TenantMismatch"));
+		assert!(
+			condition["message"]
+				.as_str()
+				.expect("message")
+				.contains("tenant-acme"),
+		);
+	}
+
+	#[rstest]
+	fn build_degraded_status_patch_observes_generation() {
+		// Arrange — generation must round-trip into the patch payload so
+		// the API server records `observedGeneration` correctly.
+		let mut app = make_test_app("gen-app");
+		app.metadata.generation = Some(7);
+
+		// Act
+		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+
+		// Assert
+		let status = &payload["status"];
+		assert_eq!(status["observedGeneration"], serde_json::json!(7));
+		assert_eq!(
+			status["conditions"][0]["observedGeneration"],
+			serde_json::json!(7)
+		);
+	}
+
+	#[rstest]
+	fn build_degraded_status_patch_includes_transition_time() {
+		// Arrange
+		let app = make_test_app("ts-app");
+
+		// Act
+		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+
+		// Assert — `lastTransitionTime` must be a non-empty RFC-3339 string.
+		let ts = payload["status"]["conditions"][0]["lastTransitionTime"]
+			.as_str()
+			.expect("lastTransitionTime present");
+		assert!(!ts.is_empty());
+		assert!(
+			chrono::DateTime::parse_from_rfc3339(ts).is_ok(),
+			"lastTransitionTime must parse as RFC-3339, got {ts}",
+		);
+	}
+
+	// ── phase_label tests ───────────────────────────────────────────
+
+	#[rstest]
+	#[case(AppPhase::Pending, "Pending")]
+	#[case(AppPhase::Provisioning, "Provisioning")]
+	#[case(AppPhase::Deploying, "Deploying")]
+	#[case(AppPhase::Running, "Running")]
+	#[case(AppPhase::Degraded, "Degraded")]
+	#[case(AppPhase::Failed, "Failed")]
+	#[case(AppPhase::Terminating, "Terminating")]
+	fn phase_label_returns_stable_metric_label(
+		#[case] phase: AppPhase,
+		#[case] expected: &'static str,
+	) {
+		// Act
+		let label = phase_label(&phase);
+
+		// Assert — labels are stamped into Prometheus metrics; they must
+		// remain stable so dashboards keep working across releases.
+		assert_eq!(label, expected);
+	}
+
+	// ── backoff_key tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn backoff_key_combines_namespace_and_name() {
+		// Arrange
+		let mut app = make_test_app("acme-app");
+		app.metadata.namespace = Some("tenant-acme".to_string());
+
+		// Act
+		let key = backoff_key(&app);
+
+		// Assert
+		assert_eq!(key, ("tenant-acme".to_string(), "acme-app".to_string()),);
+	}
+
+	#[rstest]
+	fn backoff_key_uses_empty_string_for_missing_namespace() {
+		// Arrange — cluster-scoped or pre-admission objects may lack a
+		// namespace; backoff_key must still produce a stable key.
+		let mut app = make_test_app("orphan-app");
+		app.metadata.namespace = None;
+
+		// Act
+		let key = backoff_key(&app);
+
+		// Assert
+		assert_eq!(key, (String::new(), "orphan-app".to_string()));
+	}
+
+	// ── managed_apps gauge tests ───────────────────────────────────
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_increments_new_phase() {
+		// Arrange
+		let app = make_test_app("g1-app");
+		let ctx = test_context();
+
+		// Act
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 1.0);
+		assert_eq!(
+			ctx.phase_state.get(&backoff_key(&app)).map(|v| v.clone()),
+			Some("Running".to_string()),
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_decrements_previous_on_transition() {
+		// Arrange
+		let app = make_test_app("g2-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Deploying");
+
+		// Act — transition Deploying -> Running.
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert — Deploying is decremented back to 0, Running is 1.
+		let deploying = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Deploying"])
+			.get();
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(deploying, 0.0);
+		assert_eq!(running, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn update_managed_apps_gauge_is_idempotent_for_same_phase() {
+		// Arrange
+		let app = make_test_app("g3-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Act — same phase observed again must not double-count.
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Assert
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_managed_apps_gauge_decrements_last_phase() {
+		// Arrange — record an app in Running, then drop.
+		let app = make_test_app("g4-app");
+		let ctx = test_context();
+		update_managed_apps_gauge(&ctx, &app, "Running");
+
+		// Act
+		drop_managed_apps_gauge(&ctx, &app);
+
+		// Assert — gauge returns to 0 and the phase entry is removed.
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 0.0);
+		assert!(ctx.phase_state.get(&backoff_key(&app)).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_managed_apps_gauge_no_op_for_untracked_app() {
+		// Arrange — never tracked.
+		let app = make_test_app("untracked-app");
+		let ctx = test_context();
+
+		// Act
+		drop_managed_apps_gauge(&ctx, &app);
+
+		// Assert — no panic, no negative counts.
+		let running = ctx
+			.metrics
+			.managed_apps
+			.with_label_values(&["Running"])
+			.get();
+		assert_eq!(running, 0.0);
+	}
+
+	// ── error_policy: dependency-not-ready branch ───────────────────
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_dependency_not_ready_uses_60s_base() {
+		// Arrange — fabricate a 404 kube::Error to drive the
+		// `DependencyNotReady` branch. Only `code` matters for
+		// `kube_status_class`; other fields use defaults.
+		let status = kube::core::Status {
+			code: 404,
+			message: "not found".to_string(),
+			reason: "NotFound".to_string(),
+			..Default::default()
+		};
+		let app = Arc::new(make_test_app("dep-app"));
+		let error = Error::Kube(kube::Error::Api(Box::new(status)));
+		let ctx = test_context();
+
+		// Act
+		let action = error_policy(app, &error, ctx.clone());
+
+		// Assert — first dependency-not-ready failure uses the 60s base.
+		let expected = Action::requeue(Duration::from_secs(60));
+		assert_eq!(format!("{action:?}"), format!("{expected:?}"));
+
+		// Assert — `requeue_total{reason="dependency_not_ready"}` was
+		// incremented exactly once.
+		let count = ctx
+			.metrics
+			.requeue_total
+			.with_label_values(&["dependency_not_ready"])
+			.get();
+		assert_eq!(count, 1.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_permanent_drops_backoff_state() {
+		// Arrange — accumulate transient attempts, then encounter a
+		// permanent error. The permanent branch must clear the counter
+		// so a future spec edit starts from a clean slate.
+		let app = Arc::new(make_test_app("recover-app"));
+		let ctx = test_context();
+		let _ = error_policy(
+			app.clone(),
+			&Error::MissingNamespace("x".into()),
+			ctx.clone(),
+		);
+		assert!(ctx.backoff_state.get(&backoff_key(&app)).is_some());
+
+		// Act
+		let _ = error_policy(
+			app.clone(),
+			&Error::TenantMismatch {
+				expected: "tenant-acme".into(),
+				actual: "default".into(),
+			},
+			ctx.clone(),
+		);
+
+		// Assert
+		assert!(
+			ctx.backoff_state.get(&backoff_key(&app)).is_none(),
+			"permanent errors must clear stored backoff attempts",
+		);
+	}
+
+	// ── compute_backoff edge cases ──────────────────────────────────
+
+	#[rstest]
+	fn compute_backoff_uses_60s_base_for_dependency() {
+		// Assert — base=60s, attempt=0 -> 60s; attempt=1 -> 120s.
+		assert_eq!(compute_backoff(60, 0), Duration::from_secs(60));
+		assert_eq!(compute_backoff(60, 1), Duration::from_secs(120));
+		assert_eq!(compute_backoff(60, 2), Duration::from_secs(240));
+	}
+
+	#[rstest]
+	fn compute_backoff_saturates_for_overflowing_attempts() {
+		// Arrange / Act — extreme attempt counts must not overflow.
+		let result = compute_backoff(30, u32::MAX);
+
+		// Assert — clamps to BACKOFF_MAX_SECS (10 minutes).
+		assert_eq!(result, Duration::from_secs(BACKOFF_MAX_SECS));
 	}
 }
