@@ -157,6 +157,7 @@ pub(crate) fn build_preview_spec(
 		// Per-app workload identity is not inherited into previews. Operator
 		// wiring for service_account is tracked in #424.
 		service_account: None,
+		tenant: None,
 	})
 }
 

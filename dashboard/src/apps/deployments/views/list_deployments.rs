@@ -12,9 +12,11 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// List deployments owned by the authenticated user's active organization with pagination.
+///
+/// Requires `Action::DeploymentRead` (Viewer or higher).
 #[get("/", name = "list")]
 pub async fn list_deployments(
 	Query(params): Query<PaginationParams>,
@@ -22,7 +24,7 @@ pub async fn list_deployments(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::DeploymentRead).await?;
 
 	let total = Deployment::objects()
 		.filter(

@@ -11,11 +11,13 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::ClusterResponse;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Retrieve a single cluster by ID, scoped to the user's active organization.
 ///
-/// Returns 404 if the cluster does not exist or does not belong to the active org.
+/// Requires `Action::ClusterRead` (Viewer or higher); returns 403 if the
+/// caller's role does not permit the action. Returns 404 if the cluster
+/// does not exist or does not belong to the active org.
 #[get("/{id}/", name = "retrieve")]
 pub async fn retrieve_cluster(
 	Path(id): Path<i64>,
@@ -23,7 +25,7 @@ pub async fn retrieve_cluster(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::ClusterRead).await?;
 
 	let cluster = Cluster::objects()
 		.filter(

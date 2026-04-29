@@ -62,4 +62,16 @@ ignore = [
 	# aws-lc-sys: vulnerability
 	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
 	"RUSTSEC-2026-0099",
+
+	# astral-tokio-tar: PAX Header Desynchronization (solution: upgrade to >=0.6.1).
+	# Transitive: reinhardt-web -> reinhardt-test -> reinhardt-testkit
+	#             -> testcontainers 0.27.2 -> astral-tokio-tar 0.6.0
+	# Tracked in reinhardt-cloud#460, upstream reinhardt-web#4010.
+	"RUSTSEC-2026-0112",
+
+	# astral-tokio-tar: companion advisory (solution: upgrade to >=0.6.1).
+	# Transitive: reinhardt-web -> reinhardt-test -> reinhardt-testkit
+	#             -> testcontainers 0.27.2 -> astral-tokio-tar 0.6.0
+	# Tracked in reinhardt-cloud#460, upstream reinhardt-web#4010.
+	"RUSTSEC-2026-0113",
 ]
