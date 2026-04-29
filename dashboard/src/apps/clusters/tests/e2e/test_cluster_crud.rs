@@ -12,7 +12,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{ResolvedUrls, force_login_user, session_backend, test_app};
+	use crate::config::test_helpers::{
+		ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	};
 
 	#[fixture]
 	async fn db(
@@ -33,7 +35,7 @@ mod tests {
 		(container, conn, client, urls, session_backend)
 	}
 
-	/// Verify unauthenticated GET /api/clusters/ returns 401.
+	/// Verify unauthenticated GET /api/orgs/{org}/clusters/ returns 401.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -49,9 +51,9 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, _urls, _backend) = db.await;
 
-		// Act
+		// Act -- use a placeholder slug; the auth middleware rejects before routing
 		let response = client
-			.get("/api/clusters/")
+			.get("/api/orgs/my-org/clusters/")
 			.await
 			.expect("List clusters request failed");
 
@@ -59,7 +61,7 @@ mod tests {
 		assert_eq!(response.status_code(), 401);
 	}
 
-	/// Verify GET /api/clusters/ returns empty list when authenticated.
+	/// Verify GET /api/orgs/{org}/clusters/ returns empty list when authenticated.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -74,11 +76,14 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		// Act
 		let response = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -91,7 +96,7 @@ mod tests {
 		assert!(body["page_size"].is_number());
 	}
 
-	/// Verify POST /api/clusters/ creates a cluster, then GET returns it.
+	/// Verify POST /api/orgs/{org}/clusters/ creates a cluster, then GET returns it.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -106,7 +111,10 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		let cluster_data = json!({
 			"name": "production-cluster",
@@ -115,7 +123,11 @@ mod tests {
 
 		// Act -- create cluster
 		let create_response = client
-			.post("/api/clusters/", &cluster_data, "json")
+			.post(
+				&format!("/api/orgs/{slug}/clusters/"),
+				&cluster_data,
+				"json",
+			)
 			.await
 			.expect("Create cluster request failed");
 
@@ -131,7 +143,7 @@ mod tests {
 
 		// Act -- list clusters to verify persistence
 		let list_response = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -171,7 +183,10 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		let cluster_data = json!({
 			"name": "shared-name",
@@ -180,7 +195,11 @@ mod tests {
 
 		// Act -- first create succeeds
 		let first = client
-			.post("/api/clusters/", &cluster_data, "json")
+			.post(
+				&format!("/api/orgs/{slug}/clusters/"),
+				&cluster_data,
+				"json",
+			)
 			.await
 			.expect("First create cluster request failed");
 		assert_eq!(first.status_code(), 201);
@@ -191,7 +210,11 @@ mod tests {
 			"api_url": "https://k8s2.example.com:6443"
 		});
 		let second = client
-			.post("/api/clusters/", &duplicate_data, "json")
+			.post(
+				&format!("/api/orgs/{slug}/clusters/"),
+				&duplicate_data,
+				"json",
+			)
 			.await
 			.expect("Second create cluster request failed");
 
@@ -221,11 +244,14 @@ mod tests {
 	) {
 		// Arrange -- create two clusters with distinct names
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		let first_response = client
 			.post(
-				"/api/clusters/",
+				&format!("/api/orgs/{slug}/clusters/"),
 				&json!({
 					"name": "alpha",
 					"api_url": "https://alpha.example.com:6443"
@@ -238,7 +264,7 @@ mod tests {
 
 		let second_response = client
 			.post(
-				"/api/clusters/",
+				&format!("/api/orgs/{slug}/clusters/"),
 				&json!({
 					"name": "beta",
 					"api_url": "https://beta.example.com:6443"
@@ -254,7 +280,7 @@ mod tests {
 		// Act -- rename beta to alpha (already taken in this org)
 		let conflict_response = client
 			.patch(
-				&format!("/api/clusters/{beta_id}/"),
+				&format!("/api/orgs/{slug}/clusters/{beta_id}/"),
 				&json!({ "name": "alpha" }),
 				"json",
 			)
@@ -298,16 +324,28 @@ mod tests {
 		});
 
 		// Act -- user A in org A creates cluster "prod"
-		force_login_user(&client, &conn, &backend, "user_a", "a@example.com").await;
+		let (_user_a, org_a) =
+			force_login_user_with_org(&client, &conn, &backend, "user_a", "a@example.com").await;
+		let slug_a = &org_a.slug;
 		let resp_a = client
-			.post("/api/clusters/", &cluster_data, "json")
+			.post(
+				&format!("/api/orgs/{slug_a}/clusters/"),
+				&cluster_data,
+				"json",
+			)
 			.await
 			.expect("Create cluster (user A) request failed");
 
 		// Act -- user B in org B creates cluster "prod"
-		force_login_user(&client, &conn, &backend, "user_b", "b@example.com").await;
+		let (_user_b, org_b) =
+			force_login_user_with_org(&client, &conn, &backend, "user_b", "b@example.com").await;
+		let slug_b = &org_b.slug;
 		let resp_b = client
-			.post("/api/clusters/", &cluster_data, "json")
+			.post(
+				&format!("/api/orgs/{slug_b}/clusters/"),
+				&cluster_data,
+				"json",
+			)
 			.await
 			.expect("Create cluster (user B) request failed");
 
@@ -340,11 +378,14 @@ mod tests {
 	) {
 		// Arrange -- one cluster
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		let create = client
 			.post(
-				"/api/clusters/",
+				&format!("/api/orgs/{slug}/clusters/"),
 				&json!({
 					"name": "original",
 					"api_url": "https://original.example.com:6443"
@@ -360,7 +401,7 @@ mod tests {
 		// Act -- rename to a free name
 		let response = client
 			.patch(
-				&format!("/api/clusters/{cluster_id}/"),
+				&format!("/api/orgs/{slug}/clusters/{cluster_id}/"),
 				&json!({ "name": "renamed" }),
 				"json",
 			)

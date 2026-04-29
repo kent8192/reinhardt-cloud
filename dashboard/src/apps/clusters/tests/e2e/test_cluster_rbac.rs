@@ -1,10 +1,9 @@
 //! Role-based access control tests for cluster API endpoints.
 //!
-//! Verifies that the `require_permission` guard correctly enforces the
-//! permission matrix introduced by issue #417 across all five cluster
-//! endpoints (`list`, `retrieve`, `create`, `update`, `delete`,
-//! `rotate-token`). Each role-action combination exercises the boundary
-//! between 200 / 201 / 204 / 403.
+//! Verifies that the `require_permission_for_org` guard correctly enforces
+//! the permission matrix introduced by issue #417 across all cluster
+//! endpoints. Each role-action combination exercises the boundary between
+//! 200 / 201 / 204 / 403.
 
 #[cfg(test)]
 mod tests {
@@ -20,7 +19,7 @@ mod tests {
 
 	use crate::apps::organizations::roles::MembershipRole;
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login_user, session_backend, set_membership_role, test_app,
+		ResolvedUrls, force_login_user_with_org, session_backend, set_membership_role, test_app,
 	};
 
 	type DbFixture = (
@@ -45,13 +44,13 @@ mod tests {
 	}
 
 	/// Helper: POST a cluster and return its primary key.
-	async fn create_cluster_returning_id(client: &APIClient, name: &str) -> i64 {
+	async fn create_cluster_returning_id(client: &APIClient, org_slug: &str, name: &str) -> i64 {
 		let data = json!({
 			"name": name,
 			"api_url": "https://k8s.example.com:6443",
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster request failed");
 		assert_eq!(resp.status_code(), 201, "Owner should be allowed to create");
@@ -70,7 +69,7 @@ mod tests {
 	async fn test_viewer_can_list_clusters(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -78,12 +77,13 @@ mod tests {
 			"viewer@example.com",
 		)
 		.await;
+		let slug = &org.slug;
 		// Default role is Owner (assigned in provision); demote to Viewer.
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -97,7 +97,7 @@ mod tests {
 	async fn test_viewer_cannot_create_cluster(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -105,6 +105,7 @@ mod tests {
 			"viewer-create@example.com",
 		)
 		.await;
+		let slug = &org.slug;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
@@ -113,7 +114,7 @@ mod tests {
 			"api_url": "https://k8s.example.com:6443",
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster request failed");
 
@@ -131,7 +132,7 @@ mod tests {
 	async fn test_viewer_cannot_delete_cluster(#[future] db: DbFixture) {
 		// Arrange — Owner creates cluster first, then we demote to Viewer.
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -139,12 +140,13 @@ mod tests {
 			"viewer-del@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster_returning_id(&client, "demote-target").await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster_returning_id(&client, slug, "demote-target").await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.delete(&format!("/api/clusters/{cluster_id}/"))
+			.delete(&format!("/api/orgs/{slug}/clusters/{cluster_id}/"))
 			.await
 			.expect("Delete cluster request failed");
 
@@ -162,7 +164,7 @@ mod tests {
 	async fn test_viewer_cannot_update_cluster(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -170,13 +172,18 @@ mod tests {
 			"viewer-upd@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster_returning_id(&client, "demote-update").await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster_returning_id(&client, slug, "demote-update").await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let data = json!({ "name": "renamed" });
 		let resp = client
-			.patch(&format!("/api/clusters/{cluster_id}/"), &data, "json")
+			.patch(
+				&format!("/api/orgs/{slug}/clusters/{cluster_id}/"),
+				&data,
+				"json",
+			)
 			.await
 			.expect("Update cluster request failed");
 
@@ -194,7 +201,7 @@ mod tests {
 	async fn test_viewer_can_retrieve_cluster(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -202,12 +209,13 @@ mod tests {
 			"viewer-get@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster_returning_id(&client, "viewer-readable").await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster_returning_id(&client, slug, "viewer-readable").await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.get(&format!("/api/clusters/{cluster_id}/"))
+			.get(&format!("/api/orgs/{slug}/clusters/{cluster_id}/"))
 			.await
 			.expect("Retrieve cluster request failed");
 
@@ -229,7 +237,7 @@ mod tests {
 	async fn test_developer_can_create_cluster(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -237,6 +245,7 @@ mod tests {
 			"dev-create@example.com",
 		)
 		.await;
+		let slug = &org.slug;
 		set_membership_role(&conn, &user, MembershipRole::Developer).await;
 
 		// Act
@@ -245,7 +254,7 @@ mod tests {
 			"api_url": "https://k8s.example.com:6443",
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster request failed");
 
@@ -259,7 +268,7 @@ mod tests {
 	async fn test_owner_can_delete_cluster(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let _user = force_login_user(
+		let (_user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -267,11 +276,12 @@ mod tests {
 			"owner-del@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster_returning_id(&client, "owner-delete-me").await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster_returning_id(&client, slug, "owner-delete-me").await;
 
 		// Act
 		let resp = client
-			.delete(&format!("/api/clusters/{cluster_id}/"))
+			.delete(&format!("/api/orgs/{slug}/clusters/{cluster_id}/"))
 			.await
 			.expect("Delete cluster request failed");
 

@@ -12,7 +12,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{ResolvedUrls, force_login_user, session_backend, test_app};
+	use crate::config::test_helpers::{
+		ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	};
 
 	#[fixture]
 	async fn db(
@@ -33,7 +35,7 @@ mod tests {
 		(container, conn, client, urls, session_backend)
 	}
 
-	/// Verify unauthenticated GET /api/deployments/ returns 401.
+	/// Verify unauthenticated GET /api/orgs/{org}/deployments/ returns 401.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -49,9 +51,9 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, _urls, _backend) = db.await;
 
-		// Act
+		// Act -- use a placeholder slug; the auth middleware rejects before routing
 		let response = client
-			.get("/api/deployments/")
+			.get("/api/orgs/my-org/deployments/")
 			.await
 			.expect("List deployments request failed");
 
@@ -59,7 +61,7 @@ mod tests {
 		assert_eq!(response.status_code(), 401);
 	}
 
-	/// Verify GET /api/deployments/ returns empty list when authenticated.
+	/// Verify GET /api/orgs/{org}/deployments/ returns empty list when authenticated.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -74,11 +76,14 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		// Act
 		let response = client
-			.get("/api/deployments/")
+			.get(&format!("/api/orgs/{slug}/deployments/"))
 			.await
 			.expect("List deployments request failed");
 
