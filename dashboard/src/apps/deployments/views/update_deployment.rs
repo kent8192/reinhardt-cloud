@@ -13,7 +13,16 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeploymentRequest};
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Update an existing deployment (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Update an existing deployment (authentication required).
 ///
 /// Requires `Action::DeploymentUpdate` (Developer or higher); Viewers
 /// receive 403. Accepts optional fields; only provided fields are

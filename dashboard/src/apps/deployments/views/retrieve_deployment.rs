@@ -13,7 +13,16 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Retrieve a single deployment by ID, scoped to the specified organization.
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Retrieve a single deployment by ID, scoped to the specified organization.
 ///
 /// Requires `Action::DeploymentRead` (Viewer or higher); returns 403 if
 /// the caller's role does not permit the action. Returns 404 if the

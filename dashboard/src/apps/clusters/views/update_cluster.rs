@@ -13,7 +13,16 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Update an existing cluster (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Update an existing cluster (authentication required).
 ///
 /// Requires `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Supports partial updates: only provided fields are modified.
