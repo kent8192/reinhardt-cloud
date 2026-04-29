@@ -35,19 +35,19 @@ mod tests {
 	const TEST_GRPC_ENDPOINT: &str = "http://127.0.0.1:1";
 
 	#[fixture]
-	async fn db_with_app(
-		test_app: (APIClient, ResolvedUrls),
-	) -> (
+	async fn db_with_app() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
 		ResolvedUrls,
 	) {
-		let (client, urls) = test_app;
+		// Start TestContainers first so build_test_app() registers DatabaseConnection
+		// in the DI scope. Fixes #459.
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
+		let (client, urls) = crate::config::test_helpers::build_test_app();
 		(container, conn, client, urls)
 	}
 
