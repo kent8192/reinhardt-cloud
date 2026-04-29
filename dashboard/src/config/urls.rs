@@ -199,8 +199,24 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_di_registrations(infra.admin_di)
 			// REST API endpoints
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
-			.mount("/clusters/", crate::apps::clusters::urls::server_url_patterns())
-			.mount("/deployments/", crate::apps::deployments::urls::server_url_patterns())
+			// Org-scoped endpoints (issue #418)
+			.mount(
+				"/",
+				crate::apps::clusters::urls::server_url_patterns(),
+			)
+			.mount(
+				"/",
+				crate::apps::deployments::urls::server_url_patterns(),
+			)
+			// Deprecated flat-URL redirects: 307 to org-scoped URL (removed after next release)
+			.mount(
+				"/clusters/",
+				crate::config::middleware::deprecated_flat_urls::clusters_redirect_patterns(),
+			)
+			.mount(
+				"/deployments/",
+				crate::config::middleware::deprecated_flat_urls::deployments_redirect_patterns(),
+			)
 			.mount("/", crate::apps::health::urls::server_url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)
