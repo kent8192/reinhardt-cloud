@@ -2,25 +2,22 @@
 // uniqueness. Mirrors the model-level `unique_together = ("organization_id",
 // "name")` declaration in `apps::clusters::models::Cluster`.
 //
-// Hand-written because `cargo make makemigrations` does not regenerate
-// this constraint. Three upstream fixes have landed but the e2e path
-// from `#[model(...)]` registration through `makemigrations` still
-// drops the constraint:
+// Hand-written because the CLI's `makemigrations` drops the
+// `AddConstraint` operation. Root cause was localized via the
+// diagnostic test
+// `apps::clusters::tests::unit::test_cluster_model::tests::
+//  diag_makemigrations_path_emits_add_constraint` — every layer up to
+// and including `MigrationAutodetector::generate_operations()` emits
+// the constraint correctly, but `generate_migrations()` (which the CLI
+// calls) lacks the `added_constraints` / `removed_constraints` loops
+// that PR #3998 added to `generate_operations()`. Tracked upstream as
+// kent8192/reinhardt-web#4040 (downstream: reinhardt-cloud#443).
 //
-// 1. kent8192/reinhardt-web#3989 / PR #3998 — autodetector consumer
-//    iterates `DetectedChanges.added_constraints`. ✅ merged.
-// 2. kent8192/reinhardt-web#4022 / PR #4024 — `#[model(unique_together)]`
-//    macro propagates the constraint into `ModelMetadata`. ✅ merged.
-// 3. kent8192/reinhardt-web#4032 / PR #4037 — offline state
-//    reconstruction's cross-state model lookup uses table_name. ✅ merged.
-// 4. kent8192/reinhardt-web#4038 — e2e regression: even with all of the
-//    above merged, `cargo run --bin manage -- makemigrations clusters`
-//    against this model still emits no `AddConstraint`. ⏳ open.
-//
-// Tracked downstream as reinhardt-cloud#443. Replace this file with
-// the autodetector-produced equivalent once #4038 is resolved and
-// `makemigrations clusters` regenerates an `Operation::AddConstraint`
-// matching the operation below.
+// Predecessor upstream fixes are in but each addressed a different
+// layer: #3998 (autodetector consumer), #4024 (macro propagation),
+// #4037 (lookup robustness). Replace this hand-written file once
+// #4040 lands and `cargo run --bin manage -- makemigrations clusters`
+// regenerates an equivalent `Operation::AddConstraint`.
 //
 // Constraint name matches the auto-generated name produced by the model
 // macro (`{table}_{field1}_{field2}_uniq`) so that future autodetector-
