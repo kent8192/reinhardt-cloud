@@ -189,6 +189,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `services` | no | Ingress host and extra port configuration |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
+| `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |
 | `worker` | no | Background-worker process configuration |
 
 **`status` fields**:
@@ -205,6 +206,54 @@ From `charts/reinhardt-cloud-operator/crds/`:
 Note: the served/storage version matrix may change release-to-release. The upcoming
 `reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at
 [#367](https://github.com/kent8192/reinhardt-cloud/issues/367).
+
+#### Multi-tenancy (`spec.tenant`)
+
+Setting `spec.tenant` opts a `ReinhardtApp` into the operator's per-tenant
+namespace model (#416). The field carries a slug-based `organization`
+reference and an optional `team`:
+
+```yaml
+spec:
+  tenant:
+    organization: acme         # required, DNS-1123 label
+    team: platform             # optional, DNS-1123 label
+```
+
+When the field is set, the operator:
+
+- Computes the tenant namespace as `tenant-<organization>` (or
+  `tenant-<organization>-<team>` if `team` is set).
+- Server-side applies that `Namespace` together with a default
+  `ResourceQuota` and a default-deny + same-namespace + ingress-controller
+  `NetworkPolicy` triple before any per-app workload is reconciled.
+- Verifies that `metadata.namespace` matches the computed value.
+  Mismatches set `status.phase: failed` and emit a `Degraded=True`
+  condition with reason `TenantMismatch`; the controller then skips
+  exponential-backoff retries until the user fixes the spec.
+
+CRs that omit `spec.tenant` continue to reconcile in whatever
+namespace they were created in, with no quota or network policy
+imposed by the tenant reconciler. This is the legacy `v1alpha1`-style
+behavior and is kept opt-out for backward compatibility; new CRs SHOULD
+always set `spec.tenant`. The plan is to drop `Option` (i.e. require
+`spec.tenant`) in `v1alpha3` once a conversion path or backfill is in
+place — the design is recorded in issue #416.
+
+Resource defaults applied per tenant when `spec.tenant` is set:
+
+| Quota key | Default |
+|---|---|
+| `requests.cpu` | `10` |
+| `requests.memory` | `20Gi` |
+| `limits.cpu` | `20` |
+| `limits.memory` | `40Gi` |
+| `pods` | `100` |
+| `persistentvolumeclaims` | `20` |
+| `requests.storage` | `200Gi` |
+
+Per-CR overrides for these defaults are tracked as follow-up work on
+#416. For now every tenant receives the same operator-default quota.
 
 ### RBAC
 
@@ -226,7 +275,7 @@ permissions are present; all rules follow the least-privilege principle (project
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, patch |
+| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
 
 **Feature-conditional rules**:
 
@@ -738,7 +787,7 @@ values. The base rules (always present, regardless of platform or features) are:
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, patch |
+| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
 
 Additional rules rendered when specific features or platforms are active:
 

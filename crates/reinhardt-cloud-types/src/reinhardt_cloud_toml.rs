@@ -367,6 +367,7 @@ impl ReinhardtCloudToml {
 			plugins: None,
 			image_pull_secrets: None,
 			service_account: None,
+			tenant: None,
 		}
 	}
 }

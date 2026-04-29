@@ -89,15 +89,27 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   {{- end }}
   # --- Workload Isolation (security resources) ---
-  # NetworkPolicy management for tenant isolation
+  # NetworkPolicy management for tenant isolation. Used both by the
+  # per-app isolation reconciler (spec.isolation) and by the tenant
+  # reconciler (#416) which lays down the per-tenant default-deny +
+  # selective-allow triple.
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # LimitRange and ResourceQuota management for noisy neighbor protection
+  # LimitRange and ResourceQuota management for noisy neighbor protection.
+  # ResourceQuota is also used by the tenant reconciler (#416) to apply a
+  # per-tenant default quota in each tenant namespace.
   - apiGroups: [""]
     resources: ["limitranges", "resourcequotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Namespace labeling for Pod Security Standards enforcement
+  # Namespace management for tenant isolation (#416).
+  # - get/list/watch: detect existing tenant namespaces and label state
+  # - create: initially provision the per-tenant namespace
+  # - update/patch: keep tenant labels in sync (and Pod Security Standards
+  #   labels written by the per-app `reconcile_pss_labels` path)
+  # delete is intentionally OMITTED — namespaces are shared across CRs in
+  # the tenant, and a tenant-scoped controller (future issue) will own
+  # cleanup once the namespace is empty.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
