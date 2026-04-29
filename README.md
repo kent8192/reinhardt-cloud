@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="branding/logo.png" alt="Reinhardt Cloud Logo" width="200"/>
 
   <h1>Reinhardt Cloud</h1>
 
@@ -33,6 +34,7 @@
 - [Workspace Crates](#workspace-crates)
 - [Development](#development)
 - [API Stability](#api-stability)
+- [Self-hosting](#self-hosting)
 
 ## Who is Reinhardt Cloud For?
 
@@ -155,6 +157,11 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Automatic Infrastructure** — PostgreSQL/MySQL database, Redis cache, S3/GCS/PVC object storage, SMTP mail, background workers
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
+- **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
+- **Dashboard Authentication** — Local credentials plus GitHub OAuth (account linking, email-verification flow)
+- **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
+- **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
+- **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation
 - **Multi-Cloud Helm Charts** — AWS, GCP, and on-prem values out of the box
 - **`reinhardt-cloud.toml`** — Human-readable project configuration that maps 1:1 to the CRD spec
 - **`manage introspect` Integration** — Detects databases, routes, middleware, and feature flags from your Reinhardt project
@@ -241,6 +248,11 @@ spec:
 | `features` | `Vec<String>` | Resolved reinhardt-web feature flags |
 | `env` | `BTreeMap<String, String>` | Environment variables |
 | `introspect` | `IntrospectOutput?` | Metadata from `manage introspect` |
+| `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
+| `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
+| `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets |
+| `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions
 
