@@ -38,10 +38,13 @@ pub async fn oauth_start(Path(provider): Path<String>) -> ViewResult<Response> {
 	// state (cryptographically random) and a PKCE verifier internally. The
 	// verifier is persisted into the state store keyed by state and is
 	// transparently consumed by `handle_callback`.
-	let result = backend.begin_auth(&provider, None, None).await.map_err(|e| {
-		error!("begin_auth({provider}) failed: {e}");
-		AppError::Internal("OAuth start failed".to_string())
-	})?;
+	let result = backend
+		.begin_auth(&provider, None, None)
+		.await
+		.map_err(|e| {
+			error!("begin_auth({provider}) failed: {e}");
+			AppError::Internal("OAuth start failed".to_string())
+		})?;
 
 	Ok(Response::new(StatusCode::FOUND).with_header("Location", &result.authorization_url))
 }

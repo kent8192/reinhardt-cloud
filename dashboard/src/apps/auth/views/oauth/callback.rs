@@ -90,8 +90,9 @@ pub async fn oauth_callback(
 
 	let is_debug = crate::config::settings::get_settings().core.debug;
 	let secure_flag = if is_debug { "" } else { "; Secure" };
-	let cookie =
-		format!("sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400");
+	let cookie = format!(
+		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
+	);
 
 	Ok(Response::new(StatusCode::FOUND)
 		.with_header("Location", "/")

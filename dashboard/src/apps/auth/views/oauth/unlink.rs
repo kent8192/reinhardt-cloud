@@ -56,8 +56,7 @@ pub async fn oauth_unlink(
 	// password first.
 	if user.password_hash.is_none() && links.len() == 1 {
 		return Err(AppError::Validation(
-			"cannot unlink the last sign-in method; set a password before unlinking"
-				.to_string(),
+			"cannot unlink the last sign-in method; set a password before unlinking".to_string(),
 		));
 	}
 
