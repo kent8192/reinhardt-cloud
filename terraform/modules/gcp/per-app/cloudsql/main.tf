@@ -26,10 +26,11 @@ resource "google_sql_database_instance" "app" {
       name  = "cloudsql.iam_authentication"
       value = "on"
     }
+
+    user_labels = var.labels
   }
 
   deletion_protection = false
-  user_labels         = var.labels
 }
 
 resource "google_sql_database" "app" {

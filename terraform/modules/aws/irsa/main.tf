@@ -64,7 +64,7 @@ resource "aws_iam_role" "dashboard" {
 data "aws_iam_policy_document" "rds_connect" {
   statement {
     actions   = ["rds-db:connect"]
-    resources = ["arn:aws:rds-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:dbuser:${var.rds_instance_id}/*"]
+    resources = ["arn:aws:rds-db:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:dbuser:${var.rds_instance_id}/*"]
   }
 }
 
