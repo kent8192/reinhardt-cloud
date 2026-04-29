@@ -8,28 +8,24 @@
 //! run — only the upstream HTTP destination is faked.
 //!
 //! Each scenario covers one branch of the linking decision tree from
-//! issue #428: new-user creation (path d), email-verified match (path c),
-//! and the email-collision rejection (`EmailConflict`) we ship as
-//! defensive behavior when path (c) declines.
+//! issue #428: new-user creation (path d) and the email-collision
+//! rejection (`EmailConflict`) we ship as defensive behavior when
+//! path (c) declines.
 //!
-//! ## Userinfo mock shape — workaround for kent8192/reinhardt-web#4001
+//! ## Userinfo mock shape
 //!
-//! The mocked userinfo body uses OIDC `StandardClaims` shape (`sub`,
-//! `email`, `email_verified`, `name`) rather than GitHub's actual
-//! `/user` shape (`id`, `login`, `email`, `name`). This is because
-//! upstream `reinhardt_auth::social::providers::github::GitHubProvider`
-//! deserializes the userinfo response directly into `StandardClaims`
-//! (which requires `sub: String`) and silently drops any deserialization
-//! error inside `SocialAuthBackend::handle_callback`. Until the upstream
-//! provider learns to map GitHub's `id` field into `sub`, the e2e tests
-//! must speak the framework's expected shape.
+//! The mocked userinfo body uses GitHub's real `/user` response shape
+//! (`id`, `login`, `email`, `name`). `GitHubProvider` transforms that
+//! payload into `StandardClaims` internally (mapping `id` → `sub`,
+//! `avatar_url` → `picture`, falling back to `login` for `name`).
 //!
-//! Tracked in reinhardt-cloud#449. When the upstream issue is resolved
-//! and we bump `reinhardt-web`, revert the mocks to use GitHub's real
-//! response shape (e.g. `"id": 12345, "login": "octotest"`).
-//!
-//! Ideal mock body (without workaround), once upstream maps `id` → `sub`:
-//!   `json!({ "id": 12345, "login": "octotest", "email": "...", "name": "..." })`
+//! GitHub's `/user` endpoint does not expose `email_verified`, so the
+//! linking layer's "verified-match" branch (path c) is unreachable
+//! through `GitHubProvider`: every flow that hits an existing email
+//! falls through to the defensive `EmailConflict` rejection in path (d).
+//! That is intentional — until GitHub exposes verification, we cannot
+//! safely auto-link, and the unverified-collision test below covers
+//! the resulting behavior.
 
 #[cfg(test)]
 mod tests {
@@ -207,15 +203,11 @@ mod tests {
 		let (_container, _conn, client, _urls) = db.await;
 		let mock = MockServer::start().await;
 		let _env = configure_mock_github(&mock);
-		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
-		// userinfo body must speak `StandardClaims` shape (top-level `sub`)
-		// because upstream `GitHubProvider` does not transform GitHub's
-		// real `id` field into `sub`. `additional_claims.login` keeps the
-		// GitHub-style handle the linking layer reads via `display_name_from_claims`.
+		// GitHub real `/user` shape; provider maps `id` → `sub`.
 		mount_github_mocks(
 			&mock,
 			json!({
-				"sub": "12345",
+				"id": 12345,
 				"login": "octotest",
 				"email": "octotest@example.com",
 				"name": "Octo Test"
@@ -264,86 +256,6 @@ mod tests {
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn test_email_verified_match_links_existing_user(
-		#[future] db: (
-			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
-			APIClient,
-			ResolvedUrls,
-		),
-	) {
-		// Arrange — pre-existing local user that matches the OAuth email.
-		// Provider asserts email_verified=true via the additional claim
-		// so path (c) takes the merge branch.
-		let (_c, _conn, client, _u) = db.await;
-		let mut local = User::new(
-			"existing_octo".to_string(),
-			"matched@example.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
-		local.set_password("local-password-1234").unwrap();
-		let local = User::objects().create(&local).await.unwrap();
-
-		let mock = MockServer::start().await;
-		let _env = configure_mock_github(&mock);
-		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
-		// see module-level docs. `email_verified: true` is what makes path (c)
-		// fire — without it the linking layer falls through to the defensive
-		// check in path (d).
-		mount_github_mocks(
-			&mock,
-			json!({
-				"sub": "9999",
-				"login": "matchuser",
-				"email": "matched@example.com",
-				"email_verified": true,
-				"name": "Matched User"
-			}),
-		)
-		.await;
-
-		// Act
-		let (cb_resp, _state) = drive_oauth_flow(&client).await;
-
-		// Assert — flow succeeded with redirect + cookie.
-		assert_eq!(cb_resp.status_code(), 302);
-
-		// Assert — no second user was created. The OAuth identity is
-		// linked onto `local` (which still owns the email).
-		let count = User::objects()
-			.filter(
-				User::field_email(),
-				FilterOperator::Eq,
-				FilterValue::String("matched@example.com".to_string()),
-			)
-			.all()
-			.await
-			.unwrap()
-			.len();
-		assert_eq!(count, 1, "no second user must be created on email-match");
-
-		// Local password must remain usable — linking does not clear it.
-		let after = User::objects()
-			.filter(
-				User::field_id(),
-				FilterOperator::Eq,
-				FilterValue::String(local.id.to_string()),
-			)
-			.first()
-			.await
-			.unwrap()
-			.unwrap();
-		assert!(after.password_hash.is_some());
-	}
-
-	#[rstest]
-	#[tokio::test(flavor = "multi_thread")]
-	#[serial(database)]
 	async fn test_email_unverified_collision_rejects_with_validation_error(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
@@ -373,14 +285,13 @@ mod tests {
 
 		let mock = MockServer::start().await;
 		let _env = configure_mock_github(&mock);
-		// Workaround for kent8192/reinhardt-web#4001 (tracked in reinhardt-cloud#449):
-		// see module-level docs. Note the absence of `email_verified` —
-		// path (c) requires `Some(true)` and we rely on its absence to
-		// fall through to the defensive `EmailConflict` branch in (d).
+		// GitHub's `/user` shape never carries `email_verified`, so the
+		// linking layer cannot enter path (c) and falls through to the
+		// defensive `EmailConflict` branch in path (d).
 		mount_github_mocks(
 			&mock,
 			json!({
-				"sub": "7777",
+				"id": 7777,
 				"login": "imposter",
 				"email": "contested@example.com",
 				"name": "Impostor"
