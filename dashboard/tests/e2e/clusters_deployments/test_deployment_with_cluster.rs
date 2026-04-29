@@ -14,7 +14,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user, session_backend, test_app,
+	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
 };
 
 // ============================================================================
@@ -61,7 +61,9 @@ async fn test_create_deployment_with_cluster(
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;
-	force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+	let (_user, org) =
+		force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com").await;
+	let slug = &org.slug;
 
 	// Act -- create a cluster first (deployment requires cluster_id)
 	let cluster_data = json!({
@@ -69,7 +71,11 @@ async fn test_create_deployment_with_cluster(
 		"api_url": "https://staging.k8s.local:6443"
 	});
 	let cluster_response = client
-		.post("/api/clusters/", &cluster_data, "json")
+		.post(
+			&format!("/api/orgs/{slug}/clusters/"),
+			&cluster_data,
+			"json",
+		)
 		.await
 		.expect("Create cluster request failed");
 	assert_eq!(cluster_response.status_code(), 201);
@@ -85,7 +91,11 @@ async fn test_create_deployment_with_cluster(
 		"image": "registry.example.com/my-web-app:v1.0.0"
 	});
 	let create_response = client
-		.post("/api/deployments/", &deployment_data, "json")
+		.post(
+			&format!("/api/orgs/{slug}/deployments/"),
+			&deployment_data,
+			"json",
+		)
 		.await
 		.expect("Create deployment request failed");
 
@@ -102,7 +112,7 @@ async fn test_create_deployment_with_cluster(
 
 	// Act -- list deployments to verify persistence
 	let list_response = client
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug}/deployments/"))
 		.await
 		.expect("List deployments request failed");
 

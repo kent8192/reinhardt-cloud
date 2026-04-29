@@ -199,8 +199,34 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_di_registrations(infra.admin_di)
 			// REST API endpoints
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
-			.mount("/clusters/", crate::apps::clusters::urls::server_url_patterns())
-			.mount("/deployments/", crate::apps::deployments::urls::server_url_patterns())
+			// Workaround for kent8192/reinhardt-web#4012 (tracked in reinhardt-cloud#465)
+			// Remove this workaround when the upstream issue is resolved.
+			//
+			// Ideal implementation (without workaround):
+			//   .mount("/orgs/{org}/clusters/", clusters_router)
+			//   .mount("/orgs/{org}/deployments/", deployments_router)
+			//
+			// mount() does not support path parameters in the prefix string —
+			// strip_prefix_normalized uses literal str::strip_prefix, so {org} is
+			// not treated as a wildcard. Mounting at "/" and embedding the full
+			// path in each view macro is the workaround.
+			.mount(
+				"/",
+				crate::apps::clusters::urls::server_url_patterns(),
+			)
+			.mount(
+				"/",
+				crate::apps::deployments::urls::server_url_patterns(),
+			)
+			// Deprecated flat-URL redirects: 307 to org-scoped URL (removed after next release)
+			.mount(
+				"/clusters/",
+				crate::config::middleware::deprecated_flat_urls::clusters_redirect_patterns(),
+			)
+			.mount(
+				"/deployments/",
+				crate::config::middleware::deprecated_flat_urls::deployments_redirect_patterns(),
+			)
 			.mount("/", crate::apps::health::urls::server_url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)

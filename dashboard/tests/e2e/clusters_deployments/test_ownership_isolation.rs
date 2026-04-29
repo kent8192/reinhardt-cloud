@@ -14,7 +14,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user, session_backend, test_app,
+	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
 };
 
 // ============================================================================
@@ -41,13 +41,13 @@ async fn db(
 	(container, conn, client, urls, session_backend)
 }
 
-async fn create_cluster(client: &APIClient, name: &str) -> i64 {
+async fn create_cluster(client: &APIClient, org_slug: &str, name: &str) -> i64 {
 	let data = json!({
 		"name": name,
 		"api_url": format!("https://{name}.k8s.local:6443")
 	});
 	let resp = client
-		.post("/api/clusters/", &data, "json")
+		.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 		.await
 		.expect("Create cluster failed");
 	assert_eq!(resp.status_code(), 201);
@@ -55,14 +55,19 @@ async fn create_cluster(client: &APIClient, name: &str) -> i64 {
 	body["id"].as_i64().expect("Cluster id should be i64")
 }
 
-async fn create_deployment(client: &APIClient, app_name: &str, cluster_id: i64) -> i64 {
+async fn create_deployment(
+	client: &APIClient,
+	org_slug: &str,
+	app_name: &str,
+	cluster_id: i64,
+) -> i64 {
 	let data = json!({
 		"app_name": app_name,
 		"cluster_id": cluster_id,
 		"image": format!("registry.example.com/{app_name}:v1")
 	});
 	let resp = client
-		.post("/api/deployments/", &data, "json")
+		.post(&format!("/api/orgs/{org_slug}/deployments/"), &data, "json")
 		.await
 		.expect("Create deployment failed");
 	assert_eq!(resp.status_code(), 201);
@@ -92,16 +97,19 @@ async fn test_two_users_full_isolation(
 	let (_container, conn, client, _urls, backend) = db.await;
 
 	// --- User A: 2 clusters, 2 deployments ---
-	force_login_user(&client, &conn, &backend, "iso_user_a", "iso_a@example.com").await;
+	let (_user_a, org_a) =
+		force_login_user_with_org(&client, &conn, &backend, "iso_user_a", "iso_a@example.com")
+			.await;
+	let slug_a = &org_a.slug;
 
-	let cluster_a1 = create_cluster(&client, "iso-cluster-a1").await;
-	let cluster_a2 = create_cluster(&client, "iso-cluster-a2").await;
-	create_deployment(&client, "app-a1", cluster_a1).await;
-	create_deployment(&client, "app-a2", cluster_a2).await;
+	let cluster_a1 = create_cluster(&client, slug_a, "iso-cluster-a1").await;
+	let cluster_a2 = create_cluster(&client, slug_a, "iso-cluster-a2").await;
+	create_deployment(&client, slug_a, "app-a1", cluster_a1).await;
+	create_deployment(&client, slug_a, "app-a2", cluster_a2).await;
 
 	// --- User B: 1 cluster, 1 deployment ---
 	let (client_b, _) = test_app;
-	force_login_user(
+	let (_user_b, org_b) = force_login_user_with_org(
 		&client_b,
 		&conn,
 		&backend,
@@ -109,13 +117,14 @@ async fn test_two_users_full_isolation(
 		"iso_b@example.com",
 	)
 	.await;
+	let slug_b = &org_b.slug;
 
-	let cluster_b1 = create_cluster(&client_b, "iso-cluster-b1").await;
-	create_deployment(&client_b, "app-b1", cluster_b1).await;
+	let cluster_b1 = create_cluster(&client_b, slug_b, "iso-cluster-b1").await;
+	create_deployment(&client_b, slug_b, "app-b1", cluster_b1).await;
 
 	// Assert -- User A sees exactly 2 clusters and 2 deployments
 	let clusters_a = client
-		.get("/api/clusters/")
+		.get(&format!("/api/orgs/{slug_a}/clusters/"))
 		.await
 		.expect("List clusters A failed");
 	assert_eq!(clusters_a.status_code(), 200);
@@ -130,7 +139,7 @@ async fn test_two_users_full_isolation(
 	assert!(ca_names.contains(&"iso-cluster-a2"));
 
 	let deps_a = client
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug_a}/deployments/"))
 		.await
 		.expect("List deployments A failed");
 	assert_eq!(deps_a.status_code(), 200);
@@ -144,7 +153,7 @@ async fn test_two_users_full_isolation(
 
 	// Assert -- User B sees exactly 1 cluster and 1 deployment
 	let clusters_b = client_b
-		.get("/api/clusters/")
+		.get(&format!("/api/orgs/{slug_b}/clusters/"))
 		.await
 		.expect("List clusters B failed");
 	assert_eq!(clusters_b.status_code(), 200);
@@ -154,7 +163,7 @@ async fn test_two_users_full_isolation(
 	assert_eq!(cb_items[0]["name"], "iso-cluster-b1");
 
 	let deps_b = client_b
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug_b}/deployments/"))
 		.await
 		.expect("List deployments B failed");
 	assert_eq!(deps_b.status_code(), 200);
@@ -179,7 +188,7 @@ async fn test_multiple_deployments_same_cluster(
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;
-	force_login_user(
+	let (_user, org) = force_login_user_with_org(
 		&client,
 		&conn,
 		&backend,
@@ -187,17 +196,18 @@ async fn test_multiple_deployments_same_cluster(
 		"multi@example.com",
 	)
 	.await;
+	let slug = &org.slug;
 
-	let cluster_id = create_cluster(&client, "multi-deploy-cluster").await;
+	let cluster_id = create_cluster(&client, slug, "multi-deploy-cluster").await;
 
 	// Act -- create 3 deployments on the same cluster
-	create_deployment(&client, "svc-web", cluster_id).await;
-	create_deployment(&client, "svc-api", cluster_id).await;
-	create_deployment(&client, "svc-worker", cluster_id).await;
+	create_deployment(&client, slug, "svc-web", cluster_id).await;
+	create_deployment(&client, slug, "svc-api", cluster_id).await;
+	create_deployment(&client, slug, "svc-worker", cluster_id).await;
 
 	// Assert
 	let list_resp = client
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug}/deployments/"))
 		.await
 		.expect("List deployments failed");
 	assert_eq!(list_resp.status_code(), 200);

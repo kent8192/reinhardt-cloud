@@ -41,13 +41,13 @@ async fn db() -> (
 }
 
 /// Create a user via ORM (with a Personal Organization + Owner Membership),
-/// then login to obtain a session cookie.
+/// then login to obtain a session cookie. Returns (session_id, org_slug).
 ///
 /// Bypasses the register endpoint and email verification, but still
 /// satisfies the post-#415 invariant that every user must have an
 /// `OrganizationMembership` (otherwise the views' organization-scoping
 /// helpers return 404).
-async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> String {
+async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> (String, String) {
 	use reinhardt_cloud_dashboard::apps::organizations::models::{
 		Organization, OrganizationMembership,
 	};
@@ -74,7 +74,7 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> Strin
 		.expect("Failed to create user");
 
 	// Provision a Personal Organization + Owner Membership so the
-	// organization-scoped views can resolve `current_organization_id_for_user`.
+	// organization-scoped views can resolve `resolve_org_by_slug`.
 	let now = chrono::Utc::now();
 	let suffix = uuid::Uuid::new_v4().simple().to_string();
 	let slug = format!(
@@ -85,7 +85,7 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> Strin
 	let org = Organization::objects()
 		.create(&Organization {
 			id: None,
-			slug,
+			slug: slug.clone(),
 			name: created_user.username.clone(),
 			created_by: created_user.id,
 			created_at: now,
@@ -123,7 +123,7 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> Strin
 		.unwrap()
 		.strip_prefix("sessionid=")
 		.expect("Cookie should start with sessionid=");
-	session_id.to_string()
+	(session_id.to_string(), slug)
 }
 
 async fn authenticate_client(client: &APIClient, session_id: &str) {
@@ -151,7 +151,7 @@ async fn test_register_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let session = create_user_and_login(&client, &urls).await;
+	let (session, org_slug) = create_user_and_login(&client, &urls).await;
 	authenticate_client(&client, &session).await;
 
 	// Act
@@ -160,7 +160,11 @@ async fn test_register_session_works_for_cluster_creation(
 		"api_url": "https://register.k8s.local:6443"
 	});
 	let resp = client
-		.post(&urls.server().clusters().list(), &cluster_data, "json")
+		.post(
+			&format!("/api/orgs/{org_slug}/clusters/"),
+			&cluster_data,
+			"json",
+		)
 		.await
 		.expect("Create cluster request failed");
 
@@ -182,7 +186,7 @@ async fn test_login_session_works_for_cluster_creation(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let _first_session = create_user_and_login(&client, &urls).await;
+	let (_first_session, org_slug) = create_user_and_login(&client, &urls).await;
 
 	// Login with the same credentials
 	let login_data = json!({
@@ -211,7 +215,11 @@ async fn test_login_session_works_for_cluster_creation(
 		"api_url": "https://login.k8s.local:6443"
 	});
 	let resp = client
-		.post(&urls.server().clusters().list(), &cluster_data, "json")
+		.post(
+			&format!("/api/orgs/{org_slug}/clusters/"),
+			&cluster_data,
+			"json",
+		)
 		.await
 		.expect("Create cluster request failed");
 
@@ -233,7 +241,7 @@ async fn test_register_and_login_sessions_same_resources(
 ) {
 	// Arrange
 	let (_container, _conn, client, urls) = db.await;
-	let first_session = create_user_and_login(&client, &urls).await;
+	let (first_session, org_slug) = create_user_and_login(&client, &urls).await;
 
 	// Create a cluster with the first session
 	authenticate_client(&client, &first_session).await;
@@ -242,7 +250,11 @@ async fn test_register_and_login_sessions_same_resources(
 		"api_url": "https://shared.k8s.local:6443"
 	});
 	let create_resp = client
-		.post(&urls.server().clusters().list(), &cluster_data, "json")
+		.post(
+			&format!("/api/orgs/{org_slug}/clusters/"),
+			&cluster_data,
+			"json",
+		)
 		.await
 		.expect("Create cluster failed");
 	assert_eq!(create_resp.status_code(), 201);
@@ -270,7 +282,7 @@ async fn test_register_and_login_sessions_same_resources(
 	// Act -- list clusters with the login session
 	authenticate_client(&client, login_session).await;
 	let list_resp = client
-		.get(&urls.server().clusters().list())
+		.get(&format!("/api/orgs/{org_slug}/clusters/"))
 		.await
 		.expect("List clusters failed");
 
@@ -295,12 +307,12 @@ async fn test_invalid_session_rejected_at_resource_endpoint(
 	),
 ) {
 	// Arrange
-	let (_container, _conn, client, urls) = db.await;
+	let (_container, _conn, client, _urls) = db.await;
 	authenticate_client(&client, "invalid-session-id-gibberish").await;
 
-	// Act
+	// Act -- use a placeholder slug; auth middleware rejects before org check
 	let resp = client
-		.get(&urls.server().clusters().list())
+		.get("/api/orgs/my-org/clusters/")
 		.await
 		.expect("Request failed");
 

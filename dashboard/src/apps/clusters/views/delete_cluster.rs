@@ -9,22 +9,32 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Delete a cluster by ID (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Delete a cluster by ID (authentication required).
 ///
 /// Requires `Action::ClusterDelete` (Developer or higher); Viewers receive 403.
 /// Returns 204 No Content on success.
 /// Returns 404 if the cluster does not exist or does not belong to the
-/// authenticated user's active organization.
-#[delete("/{id}/", name = "delete")]
+/// specified organization.
+#[delete("/orgs/{org}/clusters/{cluster_id}/", name = "delete")]
 pub async fn delete_cluster(
-	Path(id): Path<i64>,
+	Path((cluster_id, org)): Path<(i64, String)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::ClusterDelete).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::ClusterDelete).await?;
 
 	// Verify ownership before deleting
 	Cluster::objects()
@@ -36,7 +46,7 @@ pub async fn delete_cluster(
 		.filter(Filter::new(
 			Cluster::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(cluster_id),
 		))
 		.first()
 		.await
@@ -44,11 +54,11 @@ pub async fn delete_cluster(
 			error!("Failed to retrieve cluster for deletion: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {cluster_id} not found")))?;
 
 	// Use path id directly for deletion — the ownership check above
 	// already confirmed the record exists and belongs to this user
-	Cluster::objects().delete(id).await.map_err(|e| {
+	Cluster::objects().delete(cluster_id).await.map_err(|e| {
 		let err_msg = e.to_string();
 		// Detect foreign key constraint violations (e.g., deployments referencing this cluster)
 		if err_msg.contains("foreign key")
