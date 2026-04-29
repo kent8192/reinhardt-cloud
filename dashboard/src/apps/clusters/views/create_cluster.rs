@@ -8,28 +8,30 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::http::ViewResult;
-use reinhardt::{AuthInfo, Json, Response, StatusCode, post};
+use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, post};
 use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{CreateClusterRequest, CreateClusterResponse};
 use crate::apps::clusters::services::token_issuance;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
 /// Create a new cluster (authentication required).
 ///
 /// Requires `Action::ClusterCreate` (Developer or higher); Viewers receive 403.
 /// On success, returns the minted agent JWT exactly once -- it is never
-/// retrievable afterwards. Rotate via `POST /clusters/{id}/rotate-token/`.
-#[post("/", name = "create")]
+/// retrievable afterwards. Rotate via `POST /orgs/{org}/clusters/{id}/rotate-token/`.
+#[post("/orgs/{org}/clusters/", name = "create")]
 pub async fn create_cluster(
+	Path(org_slug): Path<String>,
 	Json(body): Json<CreateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::ClusterCreate).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org_slug, Action::ClusterCreate).await?;
 
 	// Mint the agent token up-front so we never persist a cluster row
 	// without the corresponding token hash. The cluster UUID used as

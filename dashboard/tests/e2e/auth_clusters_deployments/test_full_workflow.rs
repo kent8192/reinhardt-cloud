@@ -15,7 +15,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user, session_backend, test_app,
+	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
 };
 
 // ============================================================================
@@ -60,7 +60,7 @@ async fn test_full_user_journey(
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;
-	force_login_user(
+	let (_user, org) = force_login_user_with_org(
 		&client,
 		&conn,
 		&backend,
@@ -68,6 +68,7 @@ async fn test_full_user_journey(
 		"journey@example.com",
 	)
 	.await;
+	let slug = &org.slug;
 
 	// Act -- create cluster
 	let cluster_data = json!({
@@ -75,7 +76,11 @@ async fn test_full_user_journey(
 		"api_url": "https://journey.k8s.local:6443"
 	});
 	let cluster_resp = client
-		.post("/api/clusters/", &cluster_data, "json")
+		.post(
+			&format!("/api/orgs/{slug}/clusters/"),
+			&cluster_data,
+			"json",
+		)
 		.await
 		.expect("Create cluster failed");
 	assert_eq!(cluster_resp.status_code(), 201);
@@ -89,7 +94,11 @@ async fn test_full_user_journey(
 		"image": "registry.example.com/journey-app:v1.0.0"
 	});
 	let deploy_resp = client
-		.post("/api/deployments/", &deployment_data, "json")
+		.post(
+			&format!("/api/orgs/{slug}/deployments/"),
+			&deployment_data,
+			"json",
+		)
 		.await
 		.expect("Create deployment failed");
 	assert_eq!(deploy_resp.status_code(), 201);
@@ -107,7 +116,7 @@ async fn test_full_user_journey(
 
 	// Act -- list deployments
 	let list_resp = client
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug}/deployments/"))
 		.await
 		.expect("List deployments failed");
 
@@ -141,14 +150,16 @@ async fn test_two_users_independent_workflows(
 	let (_container, conn, client, _urls, backend) = db.await;
 
 	// --- User A ---
-	force_login_user(&client, &conn, &backend, "user_a", "a@example.com").await;
+	let (_user_a, org_a) =
+		force_login_user_with_org(&client, &conn, &backend, "user_a", "a@example.com").await;
+	let slug_a = &org_a.slug;
 
 	let cluster_a = json!({
 		"name": "cluster-a",
 		"api_url": "https://a.k8s.local:6443"
 	});
 	let resp = client
-		.post("/api/clusters/", &cluster_a, "json")
+		.post(&format!("/api/orgs/{slug_a}/clusters/"), &cluster_a, "json")
 		.await
 		.expect("Create cluster A failed");
 	assert_eq!(resp.status_code(), 201);
@@ -161,21 +172,27 @@ async fn test_two_users_independent_workflows(
 		"image": "registry.example.com/app-a:v1"
 	});
 	let resp = client
-		.post("/api/deployments/", &deploy_a, "json")
+		.post(
+			&format!("/api/orgs/{slug_a}/deployments/"),
+			&deploy_a,
+			"json",
+		)
 		.await
 		.expect("Create deployment A failed");
 	assert_eq!(resp.status_code(), 201);
 
 	// --- User B (new client to reset headers) ---
 	let (client_b, _) = test_app;
-	force_login_user(&client_b, &conn, &backend, "user_b", "b@example.com").await;
+	let (_user_b, org_b) =
+		force_login_user_with_org(&client_b, &conn, &backend, "user_b", "b@example.com").await;
+	let slug_b = &org_b.slug;
 
 	let cluster_b = json!({
 		"name": "cluster-b",
 		"api_url": "https://b.k8s.local:6443"
 	});
 	let resp = client_b
-		.post("/api/clusters/", &cluster_b, "json")
+		.post(&format!("/api/orgs/{slug_b}/clusters/"), &cluster_b, "json")
 		.await
 		.expect("Create cluster B failed");
 	assert_eq!(resp.status_code(), 201);
@@ -188,14 +205,18 @@ async fn test_two_users_independent_workflows(
 		"image": "registry.example.com/app-b:v1"
 	});
 	let resp = client_b
-		.post("/api/deployments/", &deploy_b, "json")
+		.post(
+			&format!("/api/orgs/{slug_b}/deployments/"),
+			&deploy_b,
+			"json",
+		)
 		.await
 		.expect("Create deployment B failed");
 	assert_eq!(resp.status_code(), 201);
 
 	// Assert -- User A sees only their resources
 	let list_a = client
-		.get("/api/clusters/")
+		.get(&format!("/api/orgs/{slug_a}/clusters/"))
 		.await
 		.expect("List clusters A failed");
 	assert_eq!(list_a.status_code(), 200);
@@ -205,7 +226,7 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(items_a[0]["name"], "cluster-a");
 
 	let dep_list_a = client
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug_a}/deployments/"))
 		.await
 		.expect("List deployments A failed");
 	assert_eq!(dep_list_a.status_code(), 200);
@@ -216,7 +237,7 @@ async fn test_two_users_independent_workflows(
 
 	// Assert -- User B sees only their resources
 	let list_b = client_b
-		.get("/api/clusters/")
+		.get(&format!("/api/orgs/{slug_b}/clusters/"))
 		.await
 		.expect("List clusters B failed");
 	assert_eq!(list_b.status_code(), 200);
@@ -226,7 +247,7 @@ async fn test_two_users_independent_workflows(
 	assert_eq!(items_b[0]["name"], "cluster-b");
 
 	let dep_list_b = client_b
-		.get("/api/deployments/")
+		.get(&format!("/api/orgs/{slug_b}/deployments/"))
 		.await
 		.expect("List deployments B failed");
 	assert_eq!(dep_list_b.status_code(), 200);

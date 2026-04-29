@@ -5,26 +5,28 @@ use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
-use reinhardt::{AuthInfo, Query, Response, StatusCode, get};
+use reinhardt::{AuthInfo, Path, Query, Response, StatusCode, get};
 use reinhardt_cloud_core::pagination::{PaginatedResponse, PaginationParams};
 use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// List deployments owned by the authenticated user's active organization with pagination.
+/// List deployments for an organization with pagination.
 ///
 /// Requires `Action::DeploymentRead` (Viewer or higher).
-#[get("/", name = "list")]
+#[get("/orgs/{org}/deployments/", name = "list")]
 pub async fn list_deployments(
+	Path(org_slug): Path<String>,
 	Query(params): Query<PaginationParams>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::DeploymentRead).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org_slug, Action::DeploymentRead).await?;
 
 	let total = Deployment::objects()
 		.filter(

@@ -12,7 +12,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{ResolvedUrls, force_login_user, session_backend, test_app};
+	use crate::config::test_helpers::{
+		ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	};
 
 	#[fixture]
 	async fn db(
@@ -34,14 +36,14 @@ mod tests {
 	}
 
 	/// Helper: create N clusters with sequential names.
-	async fn create_clusters(client: &APIClient, count: usize) {
+	async fn create_clusters(client: &APIClient, org_slug: &str, count: usize) {
 		for i in 0..count {
 			let data = json!({
 				"name": format!("cluster-{}", i),
 				"api_url": "https://k8s.example.com:6443"
 			});
 			let resp = client
-				.post("/api/clusters/", &data, "json")
+				.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 				.await
 				.expect("Create cluster request failed");
 			assert_eq!(resp.status_code(), 201);
@@ -63,12 +65,15 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
-		create_clusters(&client, 3).await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
+		create_clusters(&client, slug, 3).await;
 
 		// Act
 		let response = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -96,12 +101,15 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
-		create_clusters(&client, 5).await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
+		create_clusters(&client, slug, 5).await;
 
 		// Act
 		let response = client
-			.get("/api/clusters/?page_size=2")
+			.get(&format!("/api/orgs/{slug}/clusters/?page_size=2"))
 			.await
 			.expect("List clusters request failed");
 
@@ -128,12 +136,15 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
-		create_clusters(&client, 2).await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
+		create_clusters(&client, slug, 2).await;
 
 		// Act
 		let response = client
-			.get("/api/clusters/?page=5&page_size=2")
+			.get(&format!("/api/orgs/{slug}/clusters/?page=5&page_size=2"))
 			.await
 			.expect("List clusters request failed");
 
@@ -159,11 +170,14 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		// Act
 		let response = client
-			.get("/api/clusters/?page_size=500")
+			.get(&format!("/api/orgs/{slug}/clusters/?page_size=500"))
 			.await
 			.expect("List clusters request failed");
 

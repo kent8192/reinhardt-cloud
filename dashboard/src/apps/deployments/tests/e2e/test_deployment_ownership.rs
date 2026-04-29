@@ -12,7 +12,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{ResolvedUrls, force_login_user, session_backend, test_app};
+	use crate::config::test_helpers::{
+		ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	};
 
 	#[fixture]
 	async fn db(
@@ -34,13 +36,13 @@ mod tests {
 	}
 
 	/// Helper: create a cluster and return its id.
-	async fn create_cluster(client: &APIClient) -> i64 {
+	async fn create_cluster(client: &APIClient, org_slug: &str) -> i64 {
 		let data = json!({
 			"name": "test-cluster",
 			"api_url": "https://k8s.example.com:6443"
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster failed");
 		assert_eq!(resp.status_code(), 201);
@@ -49,14 +51,18 @@ mod tests {
 	}
 
 	/// Helper: create a deployment and return the response body.
-	async fn create_deployment(client: &APIClient, cluster_id: i64) -> serde_json::Value {
+	async fn create_deployment(
+		client: &APIClient,
+		org_slug: &str,
+		cluster_id: i64,
+	) -> serde_json::Value {
 		let data = json!({
 			"app_name": "test-app",
 			"cluster_id": cluster_id,
 			"image": "nginx:latest"
 		});
 		let resp = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment failed");
 		assert_eq!(resp.status_code(), 201);
@@ -79,15 +85,19 @@ mod tests {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
 
-		force_login_user(&client, &conn, &backend, "user_a", "a@example.com").await;
-		let cluster_id = create_cluster(&client).await;
-		create_deployment(&client, cluster_id).await;
+		let (_user_a, org_a) =
+			force_login_user_with_org(&client, &conn, &backend, "user_a", "a@example.com").await;
+		let slug_a = &org_a.slug;
+		let cluster_id = create_cluster(&client, slug_a).await;
+		create_deployment(&client, slug_a, cluster_id).await;
 
-		force_login_user(&client, &conn, &backend, "user_b", "b@example.com").await;
+		let (_user_b, org_b) =
+			force_login_user_with_org(&client, &conn, &backend, "user_b", "b@example.com").await;
+		let slug_b = &org_b.slug;
 
 		// Act
 		let response = client
-			.get("/api/deployments/")
+			.get(&format!("/api/orgs/{slug_b}/deployments/"))
 			.await
 			.expect("List deployments failed");
 
@@ -113,7 +123,10 @@ mod tests {
 	) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		force_login_user(&client, &conn, &backend, "testuser", "test@example.com").await;
+		let (_user, org) =
+			force_login_user_with_org(&client, &conn, &backend, "testuser", "test@example.com")
+				.await;
+		let slug = &org.slug;
 
 		let data = json!({
 			"app_name": "my-app",
@@ -123,7 +136,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{slug}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment request failed");
 
@@ -155,11 +168,16 @@ mod tests {
 		let (_container, conn, client, _urls, backend) = db.await;
 
 		// UserA creates a cluster
-		force_login_user(&client, &conn, &backend, "owner", "owner@example.com").await;
-		let cluster_id = create_cluster(&client).await;
+		let (_owner, org_a) =
+			force_login_user_with_org(&client, &conn, &backend, "owner", "owner@example.com").await;
+		let slug_a = &org_a.slug;
+		let cluster_id = create_cluster(&client, slug_a).await;
 
-		// UserB tries to deploy to it
-		force_login_user(&client, &conn, &backend, "intruder", "intruder@example.com").await;
+		// UserB tries to deploy to it (via their own org URL — cluster belongs to org_a)
+		let (_intruder, org_b) =
+			force_login_user_with_org(&client, &conn, &backend, "intruder", "intruder@example.com")
+				.await;
+		let slug_b = &org_b.slug;
 
 		let data = json!({
 			"app_name": "evil-app",
@@ -167,9 +185,9 @@ mod tests {
 			"image": "malicious:latest"
 		});
 
-		// Act
+		// Act -- UserB posts to their own org's deployments, but cluster belongs to org_a
 		let response = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{slug_b}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment request failed");
 
@@ -206,9 +224,9 @@ mod tests {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
 
-		let cluster_id = if cluster_exists {
-			// Create a cluster owned by user_a
-			force_login_user(
+		let (cluster_id, deployer_slug) = if cluster_exists {
+			// Create a cluster owned by cluster_owner
+			let (_co, org_co) = force_login_user_with_org(
 				&client,
 				&conn,
 				&backend,
@@ -216,18 +234,34 @@ mod tests {
 				"cowner@example.com",
 			)
 			.await;
-			let cid = create_cluster(&client).await;
+			let slug_co = org_co.slug.clone();
+			let cid = create_cluster(&client, &slug_co).await;
 
-			if !is_owner {
-				// Deploy as a different user
-				force_login_user(&client, &conn, &backend, "deployer", "deployer@example.com")
-					.await;
+			if is_owner {
+				(cid, slug_co)
+			} else {
+				// Deploy as a different user in their own org
+				let (_dep, org_dep) = force_login_user_with_org(
+					&client,
+					&conn,
+					&backend,
+					"deployer",
+					"deployer@example.com",
+				)
+				.await;
+				(cid, org_dep.slug)
 			}
-			cid
 		} else {
 			// Use a nonexistent cluster id
-			force_login_user(&client, &conn, &backend, "solo_user", "solo@example.com").await;
-			99999i64
+			let (_solo, org_solo) = force_login_user_with_org(
+				&client,
+				&conn,
+				&backend,
+				"solo_user",
+				"solo@example.com",
+			)
+			.await;
+			(99999i64, org_solo.slug)
 		};
 
 		let data = json!({
@@ -238,7 +272,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post("/api/deployments/", &data, "json")
+			.post(
+				&format!("/api/orgs/{deployer_slug}/deployments/"),
+				&data,
+				"json",
+			)
 			.await
 			.expect("Create deployment request failed");
 

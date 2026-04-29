@@ -34,5 +34,5 @@ pub mod guard;
 pub mod table;
 
 pub use action::Action;
-pub use guard::{require_permission, resolve_membership_role};
+pub use guard::{require_permission, require_permission_for_org, resolve_membership_role};
 pub use table::allowed;
