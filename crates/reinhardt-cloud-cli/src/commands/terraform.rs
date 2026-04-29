@@ -104,8 +104,7 @@ pub(crate) fn render_hcl(app: &str, provider: Provider, infra: &InfrastructureSp
 
 fn render_versions(provider: Provider) -> String {
 	match provider {
-		Provider::Gcp => {
-			r#"terraform {
+		Provider::Gcp => r#"terraform {
   required_version = ">= 1.7"
 
   required_providers {
@@ -116,10 +115,8 @@ fn render_versions(provider: Provider) -> String {
   }
 }
 "#
-			.to_string()
-		}
-		Provider::Aws => {
-			r#"terraform {
+		.to_string(),
+		Provider::Aws => r#"terraform {
   required_version = ">= 1.7"
 
   required_providers {
@@ -130,8 +127,7 @@ fn render_versions(provider: Provider) -> String {
   }
 }
 "#
-			.to_string()
-		}
+		.to_string(),
 	}
 }
 
@@ -195,10 +191,7 @@ variable "name_prefix" {{
 }
 
 fn render_gcp_cloudsql(app: &str, pg: &PostgresSpec) -> String {
-	let tier = pg
-		.tier
-		.as_deref()
-		.unwrap_or("db-f1-micro");
+	let tier = pg.tier.as_deref().unwrap_or("db-f1-micro");
 	let version = pg
 		.version
 		.as_deref()
