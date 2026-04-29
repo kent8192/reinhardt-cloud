@@ -97,3 +97,117 @@ pub async fn oauth_callback(
 		.with_header("Location", "/")
 		.with_header("Set-Cookie", &cookie))
 }
+
+#[cfg(test)]
+mod tests {
+	//! Inline unit tests for `oauth_callback`'s pre-flight error paths.
+	//!
+	//! The full callback exercise (state validation, code exchange,
+	//! userinfo fetch, linking, session creation) is covered by the e2e
+	//! flow in `tests/e2e/test_oauth_github_login.rs`. This module pins
+	//! the cheap-to-test short-circuit branches so view-level coverage
+	//! stays above 80%:
+	//!
+	//!   * provider-not-enabled → 404 (`AppError::NotFound`)
+	//!   * unknown provider id  → 404 (defense in depth: must not reach
+	//!     the framework registry where it would surface as a 500).
+
+	use super::*;
+	use reinhardt::Query;
+	use rstest::rstest;
+	use serial_test::serial;
+
+	const KEY_ID: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_CLIENT_ID";
+	const KEY_SECRET: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_CLIENT_SECRET";
+	const KEY_REDIRECT: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_REDIRECT_URI";
+
+	struct EnvGuard {
+		saved: Vec<(String, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(vars: Vec<(&str, Option<&str>)>) -> Self {
+			let mut saved = Vec::new();
+			for (key, new_val) in &vars {
+				saved.push((key.to_string(), std::env::var(key).ok()));
+				// SAFETY: called in a serial test before any parallel tasks read these vars.
+				unsafe {
+					match new_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, old_val) in &self.saved {
+				// SAFETY: restoring env vars in serial test teardown.
+				unsafe {
+					match old_val {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
+
+	fn dummy_query() -> OAuthCallbackQuery {
+		OAuthCallbackQuery {
+			code: "ignored-code".to_string(),
+			state: "ignored-state".to_string(),
+		}
+	}
+
+	#[rstest]
+	#[serial(env_oauth)]
+	#[tokio::test]
+	async fn test_oauth_callback_returns_404_when_provider_not_enabled() {
+		// Arrange — credentials are absent so `OAuthSettings::get("github")`
+		// returns None and the view short-circuits before touching the
+		// backend or the database.
+		let _g = EnvGuard::set(vec![(KEY_ID, None), (KEY_SECRET, None), (KEY_REDIRECT, None)]);
+
+		// Act
+		let result =
+			oauth_callback_original(Path("github".to_string()), Query(dummy_query())).await;
+
+		// Assert
+		match result {
+			Err(AppError::NotFound(msg)) => {
+				assert_eq!(msg, "OAuth provider not enabled: github");
+			}
+			other => panic!("expected NotFound, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	#[serial(env_oauth)]
+	#[tokio::test]
+	async fn test_oauth_callback_returns_404_for_unknown_provider() {
+		// Arrange — even with GitHub fully configured, an unknown
+		// provider id must 404 (defense in depth: we must not let the
+		// framework registry handle it and surface a generic 500).
+		let _g = EnvGuard::set(vec![
+			(KEY_ID, Some("test-id")),
+			(KEY_SECRET, Some("test-secret")),
+			(KEY_REDIRECT, Some("https://example.test/cb")),
+		]);
+
+		// Act
+		let result =
+			oauth_callback_original(Path("gitlab".to_string()), Query(dummy_query())).await;
+
+		// Assert
+		match result {
+			Err(AppError::NotFound(msg)) => {
+				assert_eq!(msg, "OAuth provider not enabled: gitlab");
+			}
+			other => panic!("expected NotFound, got {other:?}"),
+		}
+	}
+}
