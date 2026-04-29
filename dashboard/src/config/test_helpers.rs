@@ -34,10 +34,52 @@ pub use crate::config::urls::url_prelude::ResolvedUrls;
 /// All other singletons (`WsBroadcaster`, `LocalAuthService`,
 /// `DashboardSessionConfig`) are resolved lazily via their
 /// `#[injectable_factory]` registrations.
+///
+/// If the global ORM has already been initialised (e.g. by a preceding
+/// `postgres_with_migrations_from_dir` call that invoked
+/// `reinitialize_database`), the resulting `DatabaseConnection` is also
+/// registered in the `SingletonScope` so that view handlers that obtain a DB
+/// connection via `#[inject] Depends<DatabaseConnection>` see the same
+/// TestContainers database as `create_with_conn` helpers. When the global ORM
+/// is not yet initialised (e.g. when `test_app` is constructed before the
+/// TestContainers fixture runs), the `DatabaseConnection` singleton is
+/// omitted; view handlers fall back to the global ORM connection, which will
+/// be pointed at the TestContainers DB once `reinitialize_database` is called.
 #[fixture]
 pub fn test_app() -> (APIClient, ResolvedUrls) {
+	build_test_app()
+}
+
+/// Internal helper shared by [`test_app`] and other callers that need to build
+/// the test app after a TestContainers database has been initialised.
+///
+/// Constructs the DI context and API client. If the global ORM connection is
+/// available at call time (i.e. `reinitialize_database` has already been
+/// called), the `DatabaseConnection` is registered in the `SingletonScope` so
+/// that view handlers using `#[inject] Depends<DatabaseConnection>` see the
+/// TestContainers database.
+///
+/// Exposed as `pub` so that `db` fixtures in individual test modules can call
+/// it **after** `postgres_with_migrations_from_dir` has set up the global ORM,
+/// ensuring the DI context holds the correct `DatabaseConnection` from the
+/// start. Without this ordering, view handlers that use DI-based DB injection
+/// (e.g. `#[inject] Depends<DatabaseConnection>`) would not see the
+/// TestContainers database.
+pub fn build_test_app() -> (APIClient, ResolvedUrls) {
 	let scope = Arc::new(SingletonScope::new());
 	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+
+	// Register the global DatabaseConnection in the DI scope when available.
+	// This ensures view handlers that use `#[inject] Depends<DatabaseConnection>`
+	// see the same DB connection as helpers using `create_with_conn`.
+	tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current().block_on(async {
+			if let Ok(conn) = reinhardt::db::orm::get_connection().await {
+				scope.set(conn);
+			}
+		})
+	});
+
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
 	let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {

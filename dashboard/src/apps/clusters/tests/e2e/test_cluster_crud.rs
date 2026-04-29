@@ -18,7 +18,6 @@ mod tests {
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, ResolvedUrls),
 		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
@@ -27,11 +26,15 @@ mod tests {
 		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	) {
-		let (client, urls) = test_app;
+		// Start the TestContainers database first so that build_test_app() can
+		// register the DatabaseConnection in the DI singleton scope. This ensures
+		// view handlers that inject Depends<DatabaseConnection> see the same DB
+		// as helpers using create_with_conn. Fixes #459.
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
+		let (client, urls) = crate::config::test_helpers::build_test_app();
 		(container, conn, client, urls, session_backend)
 	}
 
