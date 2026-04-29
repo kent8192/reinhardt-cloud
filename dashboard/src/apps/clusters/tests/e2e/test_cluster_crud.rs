@@ -165,13 +165,10 @@ mod tests {
 	/// Verify creating a second cluster with the same name in the same
 	/// organization is rejected with 409 Conflict (refs #436).
 	///
-	/// The uniqueness check is enforced at the application layer as a
-	/// workaround for `kent8192/reinhardt-web#3989` (tracking issue
-	/// #443) — the framework's `makemigrations` does not currently emit
-	/// `AlterUniqueTogether` for `unique_together` declared on existing
-	/// tables, so the DB constraint is not yet in place. This test will
-	/// remain valid once that workaround is removed and replaced by the
-	/// real DB constraint.
+	/// The DB-level constraint comes from the hand-written
+	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`
+	/// (see that file for why `makemigrations` cannot regenerate it
+	/// today). Tracked in reinhardt-cloud#443.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]

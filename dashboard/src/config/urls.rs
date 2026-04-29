@@ -199,17 +199,12 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_di_registrations(infra.admin_di)
 			// REST API endpoints
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
-			// Workaround for kent8192/reinhardt-web#4012 (tracked in reinhardt-cloud#465)
-			// Remove this workaround when the upstream issue is resolved.
-			//
-			// Ideal implementation (without workaround):
-			//   .mount("/orgs/{org}/clusters/", clusters_router)
-			//   .mount("/orgs/{org}/deployments/", deployments_router)
-			//
-			// mount() does not support path parameters in the prefix string —
-			// strip_prefix_normalized uses literal str::strip_prefix, so {org} is
-			// not treated as a wildcard. Mounting at "/" and embedding the full
-			// path in each view macro is the workaround.
+			// `mount()` does not support path parameters in the prefix string:
+			// upstream PR #4015 (kent8192/reinhardt-web#4012, tracked in
+			// reinhardt-cloud#465) made this case panic at construction time,
+			// but path-parameter-aware prefixes themselves are still a
+			// follow-up. Mount at "/" and keep the full path in each view
+			// macro until the upstream feature lands.
 			.mount(
 				"/",
 				crate::apps::clusters::urls::server_url_patterns(),

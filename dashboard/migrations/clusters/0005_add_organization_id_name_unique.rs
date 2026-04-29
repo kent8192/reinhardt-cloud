@@ -2,13 +2,15 @@
 // uniqueness. Mirrors the model-level `unique_together = ("organization_id",
 // "name")` declaration in `apps::clusters::models::Cluster`.
 //
-// Workaround for kent8192/reinhardt-web#3989 (tracked in reinhardt-cloud#443).
-// Hand-written because the reinhardt-web v0.1.0-rc.22 migration autodetector
-// does not propagate `unique_together` from `#[model(...)]` into the
-// migration `ModelMetadata`, so `cargo make makemigrations` cannot emit
-// this `AlterUniqueTogether` operation today. Once the upstream fix lands
-// and the migration is regenerated, this hand-written file should be
-// replaced by the autodetector-produced equivalent.
+// Hand-written because `cargo make makemigrations` does not regenerate
+// this constraint even after kent8192/reinhardt-web#3989 — the autodetector
+// `generate_operations` fix (PR #3998) landed in main, but re-running
+// `makemigrations clusters --dry-run` against current main still proposes
+// only `0005_alter_clusters_id` with no `AddConstraint`. The remaining
+// gap appears to be on the macro side: `#[model(unique_together = ...)]`
+// does not yet surface the constraint into the model state used for
+// diffing. Tracked in reinhardt-cloud#443; a follow-up upstream issue
+// is needed for the macro layer.
 //
 // Constraint name matches the auto-generated name produced by the model
 // macro (`{table}_{field1}_{field2}_uniq`) so that future autodetector-
