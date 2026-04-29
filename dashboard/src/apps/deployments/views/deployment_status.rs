@@ -13,16 +13,7 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, DeploymentStatusRequest};
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Update the status of a deployment (user-authenticated endpoint).
+/// Update the status of a deployment (user-authenticated endpoint).
 ///
 /// Requires `Action::DeploymentUpdate` (Developer or higher); Viewers
 /// receive 403. Accepts a status string. Returns the updated deployment.
@@ -30,7 +21,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// specified organization.
 #[post("/orgs/{org}/deployments/{deployment_id}/status/", name = "status")]
 pub async fn deployment_status(
-	Path((deployment_id, org)): Path<(i64, String)>,
+	Path((org, deployment_id)): Path<(String, i64)>,
 	Json(body): Json<DeploymentStatusRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {

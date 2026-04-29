@@ -11,23 +11,14 @@ use uuid::Uuid;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Delete a deployment by ID (authentication required).
+/// Delete a deployment by ID (authentication required).
 ///
 /// Requires `Action::DeploymentDelete` (Developer or higher); Viewers
 /// receive 403. Returns 204 No Content on success, 404 if the deployment
 /// does not exist or does not belong to the specified organization.
 #[delete("/orgs/{org}/deployments/{deployment_id}/", name = "delete")]
 pub async fn delete_deployment(
-	Path((deployment_id, org)): Path<(i64, String)>,
+	Path((org, deployment_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())

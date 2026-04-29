@@ -58,16 +58,7 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 	}
 }
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Retrieve logs for a specific deployment, scoped to the specified organization.
+/// Retrieve logs for a specific deployment, scoped to the specified organization.
 ///
 /// Requires `Action::LogsRead` (Viewer or higher); returns 403 if the
 /// caller's role does not permit the action.
@@ -79,7 +70,7 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 /// separately by the existing `// issue #390` follow-up.
 #[get("/orgs/{org}/deployments/{deployment_id}/logs/", name = "logs")]
 pub async fn deployment_logs(
-	Path((deployment_id, org)): Path<(i64, String)>,
+	Path((org, deployment_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
 	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> ViewResult<Response> {

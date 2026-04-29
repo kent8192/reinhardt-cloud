@@ -11,16 +11,7 @@ use uuid::Uuid;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Delete a cluster by ID (authentication required).
+/// Delete a cluster by ID (authentication required).
 ///
 /// Requires `Action::ClusterDelete` (Developer or higher); Viewers receive 403.
 /// Returns 204 No Content on success.
@@ -28,7 +19,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// specified organization.
 #[delete("/orgs/{org}/clusters/{cluster_id}/", name = "delete")]
 pub async fn delete_cluster(
-	Path((cluster_id, org)): Path<(i64, String)>,
+	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
