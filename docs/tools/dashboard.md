@@ -235,7 +235,7 @@ This order prevents the new code from running against an un-migrated schema.
 
 #### Multi-tenancy
 
-The Dashboard is single-tenant today. All clusters, deployments, and users share one database. There is no namespace-level or organization-level data isolation in the application layer at this commit.
+The Dashboard is multi-tenant at the application layer: every Cluster and Deployment row carries an `organization_id` foreign key, and every authenticated user has at least one `OrganizationMembership` (auto-provisioned as a "Personal Organization" on registration). Cross-organization access is filtered at every read query and refused with HTTP 403 at every write request — see Appendix B for the permission matrix.
 
 ---
 
@@ -321,7 +321,31 @@ Source: `dashboard/src/config/urls.rs` and `dashboard/src/client/router.rs`.
 
 ## Appendix B: Permission model
 
-A formal role model is not yet in place; access is controlled at the account level via the reinhardt-admin `is_active` flag on the `User` model (`dashboard/migrations/auth/0001_initial.rs`). The `/admin/` panel is accessible only to users granted staff/admin status through the reinhardt-admin framework. There is no per-tenant, per-namespace, or per-resource RBAC in the Dashboard application layer at this commit.
+The Dashboard enforces a 4-role RBAC matrix at the view boundary. Membership rows carry one of the following roles, stored as a lowercase string with a database `CHECK` constraint:
+
+| Role        | Hierarchy | Capability summary                                                                |
+|-------------|-----------|-----------------------------------------------------------------------------------|
+| `owner`     | highest   | Org-level superuser. The only role allowed to delete the organization itself.     |
+| `admin`     |           | Manage members, manage all clusters and deployments. Cannot delete the org.       |
+| `developer` |           | Create/read/update/delete clusters and deployments. Cannot manage members.        |
+| `viewer`    | lowest    | Read-only access to clusters, deployments, and logs across the organization.      |
+
+Every authenticated request enters the matrix through `apps::organizations::permissions::require_permission(user_id, action)`, which:
+
+1. Resolves the user's active organization via the `OrganizationMembership` table.
+2. Looks up the user's role in that organization.
+3. Consults the static `(role, action)` matrix in `apps::organizations::permissions::table::allowed`.
+4. Returns the resolved `organization_id` on allow, or `AppError::Authorization` (HTTP 403) on deny.
+
+The full action catalog (`OrgRead`, `OrgUpdate`, `OrgDelete`, `MemberInvite`, `MemberRemove`, `MemberChangeRole`, `ClusterCreate`, `ClusterRead`, `ClusterUpdate`, `ClusterDelete`, `DeploymentCreate`, `DeploymentRead`, `DeploymentUpdate`, `DeploymentDelete`, `LogsRead`) is defined in `apps::organizations::permissions::action::Action`. Adding a new action requires:
+
+1. Adding the variant to `Action`.
+2. Extending the `match` in `permissions::table::allowed` with a row per role.
+3. Adding the `(role, action)` rows to `tests/unit/test_permissions.rs`.
+
+The `match` is exhaustive, so omitting any role for the new action is a compile error.
+
+The reinhardt-admin `/admin/` panel is still gated separately by the `is_staff` / `is_superuser` flags on the `User` model and is not part of the organization-scoped RBAC matrix.
 
 ---
 

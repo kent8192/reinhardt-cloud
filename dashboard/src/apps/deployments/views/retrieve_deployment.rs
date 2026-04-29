@@ -11,12 +11,14 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Retrieve a single deployment by ID, scoped to the active organization.
 ///
-/// Returns 404 if the deployment does not exist or does not belong to the
-/// authenticated user's active organization.
+/// Requires `Action::DeploymentRead` (Viewer or higher); returns 403 if
+/// the caller's role does not permit the action. Returns 404 if the
+/// deployment does not exist or does not belong to the authenticated
+/// user's active organization.
 #[get("/{id}/", name = "retrieve")]
 pub async fn retrieve_deployment(
 	Path(id): Path<i64>,
@@ -24,7 +26,7 @@ pub async fn retrieve_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::DeploymentRead).await?;
 
 	let deployment = Deployment::objects()
 		.filter(
