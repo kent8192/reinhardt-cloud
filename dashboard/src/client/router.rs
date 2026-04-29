@@ -4,6 +4,21 @@
 //! access at runtime is provided by `reinhardt::pages::with_router`,
 //! which is installed by `ClientLauncher::launch()`. This module no
 //! longer owns a thread-local instance.
+//!
+//! # Route names
+//!
+//! Every SPA route is registered via [`Router::named_route`] so that
+//! [`super::url::DashboardUrlResolver`] can perform reverse lookups for
+//! `href` and `redirect_on_success` values. Names follow the
+//! `<app>:<name>` namespace convention used by server-side view macros.
+//! SPA names use a `_page` suffix where a server-side route already owns
+//! the unsuffixed name (e.g. `auth:login` is the POST API, while
+//! `auth:login_page` is the SPA page).
+//!
+//! `dashboard:clusters` and `dashboard:deployments` are placeholder
+//! entries that resolve to the not-found view until those pages are
+//! implemented; they exist solely to keep navigation links resolvable
+//! through the URL resolver.
 
 use reinhardt::pages::router::Router;
 
@@ -17,8 +32,14 @@ use super::pages::not_found_page;
 /// Passed to `ClientLauncher::router(init_router)` from `client.rs`.
 pub fn init_router() -> Router {
 	Router::new()
-		.route("/", || dashboard_shell())
-		.route("/login", || login_page())
-		.route("/register", || register_page())
+		.named_route("dashboard:home", "/", || dashboard_shell())
+		.named_route("auth:login_page", "/login", || login_page())
+		.named_route("auth:register_page", "/register", || register_page())
+		// Placeholder names so navigation hrefs resolve via UrlResolver
+		// even before these pages are implemented.
+		.named_route("dashboard:clusters", "/clusters", || not_found_page())
+		.named_route("dashboard:deployments", "/deployments", || {
+			not_found_page()
+		})
 		.not_found(|| not_found_page())
 }
