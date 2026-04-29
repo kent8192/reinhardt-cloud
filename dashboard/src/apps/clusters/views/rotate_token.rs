@@ -17,10 +17,12 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::RotateTokenResponse;
 use crate::apps::clusters::services::token_issuance;
 use crate::apps::clusters::views::create_cluster::cluster_id_from_pk;
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Rotate the agent JWT for an existing cluster (authentication required).
 ///
+/// Token rotation is a write-class operation, so we require
+/// `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Returns the new plaintext JWT exactly once. Old tokens are rejected
 /// on next verify because the stored hash has changed.
 #[post("/{id}/rotate-token/", name = "rotate_token")]
@@ -30,7 +32,7 @@ pub async fn rotate_token(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::ClusterUpdate).await?;
 
 	let manager = Cluster::objects();
 	let mut cluster = manager

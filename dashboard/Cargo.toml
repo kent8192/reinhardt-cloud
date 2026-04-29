@@ -73,6 +73,7 @@ serial_test = "3.2"
 anyhow = { workspace = true }
 proptest = "1.4"
 reqwest = { workspace = true }
+wiremock = "0.6"
 
 [lints]
 workspace = true

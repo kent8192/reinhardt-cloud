@@ -2,9 +2,13 @@
 //!
 //! `current_organization_id_for_user` resolves the user's "active
 //! organization" by looking up their first `OrganizationMembership` ordered
-//! by creation time. This is intentionally simple — sub-issue #417 will
-//! replace callers with `Guard<HasOrgRole<R>>` + `OrgContext` derived from
-//! the URL path's `{org_slug}` parameter.
+//! by creation time. The function is wrapped by
+//! [`crate::apps::organizations::permissions::require_permission`]
+//! (introduced by issue #417), which adds RBAC checks on top of the
+//! organization lookup. View handlers should call `require_permission`
+//! and not this helper directly. A future URL reshape (sub-issue #418)
+//! will replace the "active organization" notion with an explicit
+//! `{org_slug}` URL parameter.
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
