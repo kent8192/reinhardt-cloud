@@ -3,14 +3,15 @@
 // "name")` declaration in `apps::clusters::models::Cluster`.
 //
 // Hand-written because `cargo make makemigrations` does not regenerate
-// this constraint even after kent8192/reinhardt-web#3989 — the autodetector
-// `generate_operations` fix (PR #3998) landed in main, but re-running
-// `makemigrations clusters --dry-run` against current main still proposes
-// only `0005_alter_clusters_id` with no `AddConstraint`. The remaining
-// gap appears to be on the macro side: `#[model(unique_together = ...)]`
-// does not yet surface the constraint into the model state used for
-// diffing. Tracked in reinhardt-cloud#443; a follow-up upstream issue
-// is needed for the macro layer.
+// this constraint. The autodetector `generate_operations` fix landed
+// upstream (kent8192/reinhardt-web#3989, PR #3998), but the macro side
+// — `#[model(unique_together = ...)]` propagating the constraint into
+// `ModelMetadata` for diffing — is still pending. Tracked upstream as
+// kent8192/reinhardt-web#4022 (downstream: reinhardt-cloud#443).
+//
+// Remove this hand-written file once #4022 lands and re-running
+// `makemigrations clusters --dry-run` regenerates an `AddConstraint`
+// equivalent to the operation below.
 //
 // Constraint name matches the auto-generated name produced by the model
 // macro (`{table}_{field1}_{field2}_uniq`) so that future autodetector-

@@ -200,11 +200,11 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			// REST API endpoints
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
 			// `mount()` does not support path parameters in the prefix string:
-			// upstream PR #4015 (kent8192/reinhardt-web#4012, tracked in
-			// reinhardt-cloud#465) made this case panic at construction time,
-			// but path-parameter-aware prefixes themselves are still a
-			// follow-up. Mount at "/" and keep the full path in each view
-			// macro until the upstream feature lands.
+			// the panic-on-misuse fix landed (kent8192/reinhardt-web#4012,
+			// PR #4015), but the actual path-parameter-aware prefix feature
+			// is tracked upstream as kent8192/reinhardt-web#4023 (downstream:
+			// reinhardt-cloud#465). Mount at "/" and keep the full path in
+			// each view macro until #4023 lands.
 			.mount(
 				"/",
 				crate::apps::clusters::urls::server_url_patterns(),
