@@ -3,15 +3,20 @@
 // "name")` declaration in `apps::clusters::models::Cluster`.
 //
 // Hand-written because `cargo make makemigrations` does not regenerate
-// this constraint. The autodetector `generate_operations` fix landed
-// upstream (kent8192/reinhardt-web#3989, PR #3998), but the macro side
-// — `#[model(unique_together = ...)]` propagating the constraint into
-// `ModelMetadata` for diffing — is still pending. Tracked upstream as
-// kent8192/reinhardt-web#4022 (downstream: reinhardt-cloud#443).
+// this constraint. Two upstream fixes have landed but a third layer is
+// still required before this file can be auto-generated:
 //
-// Remove this hand-written file once #4022 lands and re-running
-// `makemigrations clusters --dry-run` regenerates an `AddConstraint`
-// equivalent to the operation below.
+// 1. kent8192/reinhardt-web#3989 / PR #3998 — autodetector consumer
+//    iterates `DetectedChanges.added_constraints`. ✅ merged.
+// 2. kent8192/reinhardt-web#4022 / PR #4024 — `#[model(unique_together)]`
+//    macro propagates the constraint into `ModelMetadata`. ✅ merged.
+// 3. kent8192/reinhardt-web#4032 — offline file-based state
+//    reconstruction surfaces `unique_together` for the diff. ⏳ open.
+//
+// Tracked downstream as reinhardt-cloud#443. Re-run
+// `cargo run --bin manage -- makemigrations clusters --dry-run` after
+// #4032 lands; if the regenerated migration contains an equivalent
+// `Operation::AddConstraint`, replace this hand-written file.
 //
 // Constraint name matches the auto-generated name produced by the model
 // macro (`{table}_{field1}_{field2}_uniq`) so that future autodetector-
