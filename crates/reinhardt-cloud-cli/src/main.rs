@@ -46,6 +46,8 @@ enum Commands {
 	Credentials(commands::credentials::CredentialsArgs),
 	/// Manage CRD manifests (generate, inspect)
 	Crd(commands::crd::CrdArgs),
+	/// Generate Terraform HCL from a ReinhardtApp infrastructure spec
+	Terraform(commands::terraform::TerraformArgs),
 }
 
 #[tokio::main]
@@ -106,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Commands::Sync(args) => commands::sync::execute(args).await,
 		Commands::Credentials(args) => commands::credentials::execute(args).await,
 		Commands::Crd(args) => commands::crd::execute(args).await,
+		Commands::Terraform(args) => commands::terraform::execute(args).await,
 	}
 }
 
