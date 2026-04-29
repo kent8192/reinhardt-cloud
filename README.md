@@ -1,6 +1,5 @@
 <div align="center">
-
-  <img src="branding/logo.png" alt="Reinhardt Cloud logo" width="180" />
+  <img src="branding/logo.png" alt="Reinhardt Cloud Logo" width="200"/>
 
   <h1>Reinhardt Cloud</h1>
 
