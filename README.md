@@ -1,5 +1,7 @@
 <div align="center">
 
+  <img src="branding/logo.png" alt="Reinhardt Cloud logo" width="180" />
+
   <h1>Reinhardt Cloud</h1>
 
   <h3>Convention-driven deployment for Reinhardt apps</h3>
