@@ -11,14 +11,15 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeploymentRequest};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 
 /// Update an existing deployment (authentication required).
 ///
-/// Accepts optional fields; only provided fields are applied.
-/// Returns 400 if the request body is empty (no fields provided).
-/// Returns 404 if the deployment does not exist or does not belong to the
-/// authenticated user's active organization.
+/// Requires `Action::DeploymentUpdate` (Developer or higher); Viewers
+/// receive 403. Accepts optional fields; only provided fields are
+/// applied. Returns 400 if the request body is empty (no fields
+/// provided). Returns 404 if the deployment does not exist or does not
+/// belong to the authenticated user's active organization.
 #[put("/{id}/", name = "update")]
 pub async fn update_deployment(
 	Path(id): Path<i64>,
@@ -27,7 +28,7 @@ pub async fn update_deployment(
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = current_organization_id_for_user(user_id).await?;
+	let organization_id = require_permission(user_id, Action::DeploymentUpdate).await?;
 
 	// Validate the request body
 	body.validate()?;

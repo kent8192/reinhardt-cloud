@@ -66,6 +66,21 @@ pub(crate) enum Error {
 	/// Rendering the dentdelion plugin configuration TOML document failed.
 	#[error("dentdelion plugin config render failed: {0}")]
 	PluginConfigRender(String),
+
+	/// `metadata.namespace` does not match the namespace computed from
+	/// `spec.tenant`. Set `metadata.namespace` to the value in `expected`,
+	/// or update `spec.tenant` so the computed namespace matches the
+	/// existing one (#416).
+	#[error(
+		"tenant namespace mismatch: expected '{expected}' from spec.tenant, got '{actual}' on metadata.namespace"
+	)]
+	TenantMismatch { expected: String, actual: String },
+
+	/// `spec.tenant` is set but failed validation (e.g. organization or
+	/// team is not a DNS-1123 label, or the composed namespace overflows
+	/// the 63-character limit).
+	#[error("invalid spec.tenant: {0}")]
+	InvalidTenant(String),
 }
 
 /// Classification of reconciliation errors for backoff decisions.
@@ -105,7 +120,12 @@ impl BackoffClass {
 /// - All other errors: transient — short backoff.
 pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 	match error {
-		Error::MissingField(_) | Error::InvalidPort { .. } => BackoffClass::Permanent,
+		// Spec-level errors that need user intervention before a retry
+		// can possibly succeed.
+		Error::MissingField(_)
+		| Error::InvalidPort { .. }
+		| Error::TenantMismatch { .. }
+		| Error::InvalidTenant(_) => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}
@@ -148,6 +168,34 @@ mod tests {
 			field: "port",
 			port: 70_000,
 		};
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn tenant_mismatch_is_permanent() {
+		// Arrange — tenant mismatches require a spec edit; retrying
+		// without user intervention cannot succeed.
+		let err = Error::TenantMismatch {
+			expected: "tenant-acme".to_string(),
+			actual: "default".to_string(),
+		};
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_tenant_is_permanent() {
+		// Arrange
+		let err = Error::InvalidTenant("tenant.organization must not be empty".to_string());
 
 		// Act
 		let class = backoff_class(&err);

@@ -781,6 +781,40 @@ spec:
                     nullable: true
                     type: string
                 type: object
+              tenant:
+                description: |-
+                  Multi-tenant ownership marker (Refs #416).
+
+                  Identifies the owning Organization (and optionally a Team) for this
+                  `ReinhardtApp`. The operator computes a deterministic Kubernetes
+                  namespace per tenant — `tenant-{organization}` or
+                  `tenant-{organization}-{team}` — applies tenant-scoped
+                  `ResourceQuota` and `NetworkPolicy` resources, and rejects CRs whose
+                  `metadata.namespace` does not match the computed value (Degraded
+                  status with reason `TenantMismatch`).
+
+                  Optional for backward compatibility with `v1alpha1`-style CRs. When
+                  `tenant` is `None`, the operator falls back to the legacy behavior of
+                  honoring whatever namespace was set externally without enforcing any
+                  inter-tenant boundary. New CRs SHOULD always set this field; the
+                  option will become required in `v1alpha3`.
+                nullable: true
+                properties:
+                  organization:
+                    description: |-
+                      Slug of the owning Organization (matches `Organization.slug` in
+                      the dashboard database).
+                    type: string
+                  team:
+                    description: |-
+                      Optional Team slug within the organization. When set, the tenant
+                      namespace becomes `tenant-{organization}-{team}` instead of
+                      `tenant-{organization}`.
+                    nullable: true
+                    type: string
+                required:
+                - organization
+                type: object
               worker:
                 description: Background worker configuration
                 nullable: true
