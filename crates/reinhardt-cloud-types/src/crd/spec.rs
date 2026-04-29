@@ -13,6 +13,7 @@ use crate::validation::ValidationError;
 use super::auth::AuthSpec;
 use super::cache::CacheSpec;
 use super::database::DatabaseSpec;
+use super::infrastructure::InfrastructureSpec;
 use super::isolation::IsolationSpec;
 use super::mail::MailSpec;
 use super::pages::PagesSpec;
@@ -256,6 +257,16 @@ pub struct ReinhardtAppSpec {
 	/// `{app-name}-storage` KSA used for storage-backend access.
 	#[serde(rename = "serviceAccount", skip_serializing_if = "Option::is_none")]
 	pub service_account: Option<ServiceAccountSpec>,
+
+	/// Per-app managed cloud resources (Postgres, buckets, DNS, secrets).
+	///
+	/// When present, `reinhardt-cloud terraform generate` reads this block
+	/// and emits provider-scoped HCL so that per-app infrastructure stays
+	/// in sync with the CRD spec. Omit this field for apps that rely
+	/// solely on cluster-level shared infrastructure provisioned by #411.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub infrastructure: Option<InfrastructureSpec>,
+
 	/// Multi-tenant ownership marker (Refs #416).
 	///
 	/// Identifies the owning Organization (and optionally a Team) for this
@@ -357,6 +368,12 @@ impl ReinhardtAppSpec {
 			errors.extend(errs);
 		}
 
+		if let Some(ref infra) = self.infrastructure
+			&& let Err(errs) = infra.validate()
+		{
+			errors.extend(errs);
+		}
+
 		if let Some(ref plugins) = self.plugins {
 			for plugin in plugins {
 				if let Err(errs) = plugin.validate() {
@@ -453,6 +470,7 @@ mod tests {
 			plugins: None,
 			image_pull_secrets: None,
 			service_account: None,
+			infrastructure: None,
 			tenant: None,
 		};
 
@@ -904,6 +922,7 @@ mod tests {
 			plugins: None,
 			image_pull_secrets: None,
 			service_account: None,
+			infrastructure: None,
 			tenant: None,
 		};
 
