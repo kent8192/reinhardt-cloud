@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, UpdateDeploymentRequest};
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
 /// Update an existing deployment (authentication required).
 ///
@@ -19,16 +19,17 @@ use crate::apps::organizations::permissions::{Action, require_permission};
 /// receive 403. Accepts optional fields; only provided fields are
 /// applied. Returns 400 if the request body is empty (no fields
 /// provided). Returns 404 if the deployment does not exist or does not
-/// belong to the authenticated user's active organization.
-#[put("/{id}/", name = "update")]
+/// belong to the specified organization.
+#[put("/orgs/{org}/deployments/{deployment_id}/", name = "update")]
 pub async fn update_deployment(
-	Path(id): Path<i64>,
+	Path((deployment_id, org)): Path<(i64, String)>,
 	Json(body): Json<UpdateDeploymentRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::DeploymentUpdate).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::DeploymentUpdate).await?;
 
 	// Validate the request body
 	body.validate()?;
@@ -44,7 +45,7 @@ pub async fn update_deployment(
 		.filter(
 			Deployment::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(deployment_id),
 		)
 		.filter(Filter::new(
 			Deployment::field_organization_id(),
@@ -57,7 +58,7 @@ pub async fn update_deployment(
 			error!("Failed to retrieve deployment for update: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {deployment_id} not found")))?;
 
 	if let Some(app_name) = body.app_name {
 		deployment.app_name = app_name;

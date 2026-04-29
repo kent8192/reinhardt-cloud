@@ -11,28 +11,28 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::DeploymentResponse;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Retrieve a single deployment by ID, scoped to the active organization.
+/// Retrieve a single deployment by ID, scoped to the specified organization.
 ///
 /// Requires `Action::DeploymentRead` (Viewer or higher); returns 403 if
 /// the caller's role does not permit the action. Returns 404 if the
-/// deployment does not exist or does not belong to the authenticated
-/// user's active organization.
-#[get("/{id}/", name = "retrieve")]
+/// deployment does not exist or does not belong to the specified organization.
+#[get("/orgs/{org}/deployments/{deployment_id}/", name = "retrieve")]
 pub async fn retrieve_deployment(
-	Path(id): Path<i64>,
+	Path((deployment_id, org)): Path<(i64, String)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::DeploymentRead).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::DeploymentRead).await?;
 
 	let deployment = Deployment::objects()
 		.filter(
 			Deployment::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(deployment_id),
 		)
 		.filter(Filter::new(
 			Deployment::field_organization_id(),
@@ -45,7 +45,7 @@ pub async fn retrieve_deployment(
 			error!("Failed to retrieve deployment: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {deployment_id} not found")))?;
 
 	let resp = DeploymentResponse::from(deployment);
 	Ok(Response::new(StatusCode::OK)
