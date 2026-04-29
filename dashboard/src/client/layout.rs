@@ -3,6 +3,8 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::client::url::url_for;
+
 /// Render the main dashboard shell with navigation sidebar and overview cards.
 pub fn dashboard_shell() -> Page {
 	page!(|| {
@@ -24,7 +26,7 @@ pub fn dashboard_shell() -> Page {
 						"Dashboard"
 					}
 					a {
-						href: "/login",
+						href: url_for("auth:login_page"),
 						class: "text-sm text-blue-600 hover:underline",
 						"Login"
 					}
@@ -38,21 +40,21 @@ pub fn dashboard_shell() -> Page {
 						class: "space-y-1",
 						li {
 							a {
-								href: "/",
+								href: url_for("dashboard:home"),
 								class: "block px-3 py-2 text-sm rounded-md bg-blue-50 text-blue-700 font-medium",
 								"Overview"
 							}
 						}
 						li {
 							a {
-								href: "/clusters",
+								href: url_for("dashboard:clusters"),
 								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
 								"Clusters"
 							}
 						}
 						li {
 							a {
-								href: "/deployments",
+								href: url_for("dashboard:deployments"),
 								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
 								"Deployments"
 							}

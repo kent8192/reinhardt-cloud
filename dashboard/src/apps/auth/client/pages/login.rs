@@ -10,6 +10,7 @@ use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
 use crate::apps::auth::server::login::login;
+use crate::client::url::url_for;
 
 /// Render the login page.
 pub fn login_page() -> Page {
@@ -17,7 +18,6 @@ pub fn login_page() -> Page {
 		name: LoginForm,
 		server_fn: login,
 		class: "space-y-4",
-		redirect_on_success: "/",
 		on_success: |result: crate::shared::AuthResponse| {
 			use reinhardt::pages::auth::{AuthData, auth_state};
 
@@ -32,6 +32,13 @@ pub fn login_page() -> Page {
 					email: Some(user.email.clone()),
 					..Default::default()
 				});
+			}
+
+			// Redirect to the dashboard via the SPA URL resolver. Mirrors
+			// the hard reload that `redirect_on_success` would emit so the
+			// new session cookie is reloaded server-side.
+			if let Some(window) = web_sys::window() {
+				let _ = window.location().set_href(&url_for("dashboard:home"));
 			}
 		},
 		fields: {
@@ -67,7 +74,7 @@ pub fn login_page() -> Page {
 				class: "mt-6 text-center text-sm text-gray-600",
 				"Don't have an account? "
 				a {
-					href: "/register",
+					href: url_for("auth:register_page"),
 					class: "text-blue-600 font-medium hover:underline",
 					"Create one"
 				}
