@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentLogsResponse, LogEntry};
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 use crate::config::GrpcChannelSingleton;
 
 /// Maximum number of log entries returned per request.
@@ -58,39 +58,42 @@ fn proto_entry_to_serializer(entry: &log_pb::LogEntry) -> LogEntry {
 	}
 }
 
-/// Retrieve logs for a specific deployment, scoped to the active organization.
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Retrieve logs for a specific deployment, scoped to the specified organization.
 ///
 /// Requires `Action::LogsRead` (Viewer or higher); returns 403 if the
 /// caller's role does not permit the action.
-///
-/// Closes #419: the deployment lookup is now filtered by `organization_id`,
-/// so a user can no longer fetch logs for a deployment belonging to a
-/// different organization.
 ///
 /// NOTE: The gRPC `LogFilter.source` field is still set to the deployment's
 /// `app_name`. If two organizations create deployments with the same
 /// `app_name`, the gRPC layer will return logs from both. Tightening that
 /// filter to include `deployment_id` or `organization_id` is tracked
 /// separately by the existing `// issue #390` follow-up.
-#[get("/{id}/logs/", name = "logs")]
+#[get("/orgs/{org}/deployments/{deployment_id}/logs/", name = "logs")]
 pub async fn deployment_logs(
-	Path(id): Path<i64>,
+	Path((deployment_id, org)): Path<(i64, String)>,
 	#[inject] AuthInfo(state): AuthInfo,
 	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::LogsRead).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::LogsRead).await?;
 
-	// Verify the deployment exists and belongs to the active organization.
-	// This is the fix for cross-tenant log leakage (#419): previously the
-	// lookup filtered by `user_id`; now it filters by `organization_id`,
-	// which correctly bounds visibility to the user's active org.
+	// Verify the deployment exists and belongs to the specified organization.
 	let deployment = Deployment::objects()
 		.filter(
 			Deployment::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(deployment_id),
 		)
 		.filter(Filter::new(
 			Deployment::field_organization_id(),
@@ -103,7 +106,7 @@ pub async fn deployment_logs(
 			error!("Failed to retrieve deployment for logs: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {deployment_id} not found")))?;
 
 	// Fetch persisted logs via the gRPC LogService, filtering by app name.
 	// The channel is resolved from DI as a shared, lazily-connected

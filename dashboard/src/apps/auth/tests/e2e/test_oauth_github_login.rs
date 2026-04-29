@@ -50,19 +50,19 @@ mod tests {
 	use crate::config::test_helpers::{ResolvedUrls, test_app};
 
 	#[fixture]
-	async fn db(
-		test_app: (APIClient, ResolvedUrls),
-	) -> (
+	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
 		ResolvedUrls,
 	) {
-		let (client, urls) = test_app;
+		// Start TestContainers first so build_test_app() registers DatabaseConnection
+		// in the DI scope. Fixes #459.
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
+		let (client, urls) = crate::config::test_helpers::build_test_app();
 		(container, conn, client, urls)
 	}
 

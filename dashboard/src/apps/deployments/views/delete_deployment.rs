@@ -9,25 +9,34 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Delete a deployment by ID (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Delete a deployment by ID (authentication required).
 ///
 /// Requires `Action::DeploymentDelete` (Developer or higher); Viewers
 /// receive 403. Returns 204 No Content on success, 404 if the deployment
-/// does not exist or does not belong to the authenticated user's active
-/// organization.
-#[delete("/{id}/", name = "delete")]
+/// does not exist or does not belong to the specified organization.
+#[delete("/orgs/{org}/deployments/{deployment_id}/", name = "delete")]
 pub async fn delete_deployment(
-	Path(id): Path<i64>,
+	Path((deployment_id, org)): Path<(i64, String)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::DeploymentDelete).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::DeploymentDelete).await?;
 
 	Deployment::objects()
-		.filter("id", FilterOperator::Eq, FilterValue::Integer(id))
+		.filter("id", FilterOperator::Eq, FilterValue::Integer(deployment_id))
 		.filter(Filter::new(
 			Deployment::field_organization_id(),
 			FilterOperator::Eq,
@@ -39,11 +48,11 @@ pub async fn delete_deployment(
 			error!("Failed to retrieve deployment for deletion: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {deployment_id} not found")))?;
 
 	// Use path id directly for deletion -- the ownership check above
 	// already confirmed the record exists and belongs to this organization
-	Deployment::objects().delete(id).await.map_err(|e| {
+	Deployment::objects().delete(deployment_id).await.map_err(|e| {
 		error!("Failed to delete deployment: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;

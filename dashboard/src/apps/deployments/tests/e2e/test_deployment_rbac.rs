@@ -1,7 +1,7 @@
 //! Role-based access control tests for deployment API endpoints.
 //!
-//! Verifies that the `require_permission` guard correctly enforces the
-//! permission matrix introduced by issue #417 across deployment views.
+//! Verifies that the `require_permission_for_org` guard correctly enforces
+//! the permission matrix introduced by issue #417 across deployment views.
 //! The list/retrieve paths must accept Viewers; create/update/delete
 //! must reject Viewers with 403.
 
@@ -19,7 +19,7 @@ mod tests {
 
 	use crate::apps::organizations::roles::MembershipRole;
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login_user, session_backend, set_membership_role, test_app,
+		ResolvedUrls, force_login_user_with_org, session_backend, set_membership_role, test_app,
 	};
 
 	type DbFixture = (
@@ -31,26 +31,25 @@ mod tests {
 	);
 
 	#[fixture]
-	async fn db(
-		test_app: (APIClient, ResolvedUrls),
-		session_backend: Arc<dyn AsyncSessionBackend>,
-	) -> DbFixture {
-		let (client, urls) = test_app;
+	async fn db(session_backend: Arc<dyn AsyncSessionBackend>) -> DbFixture {
+		// Start the TestContainers database first so that build_test_app() can
+		// register the DatabaseConnection in the DI singleton scope. Fixes #459.
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
+		let (client, urls) = crate::config::test_helpers::build_test_app();
 		(container, conn, client, urls, session_backend)
 	}
 
 	/// Helper: create a cluster as the active Owner and return its id.
-	async fn create_cluster(client: &APIClient) -> i64 {
+	async fn create_cluster(client: &APIClient, org_slug: &str) -> i64 {
 		let data = json!({
 			"name": "rbac-cluster",
 			"api_url": "https://k8s.example.com:6443",
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster failed");
 		assert_eq!(resp.status_code(), 201);
@@ -59,14 +58,14 @@ mod tests {
 	}
 
 	/// Helper: create a deployment and return its id.
-	async fn create_deployment(client: &APIClient, cluster_id: i64) -> i64 {
+	async fn create_deployment(client: &APIClient, org_slug: &str, cluster_id: i64) -> i64 {
 		let data = json!({
 			"app_name": "rbac-app",
 			"cluster_id": cluster_id,
 			"image": "nginx:latest",
 		});
 		let resp = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment failed");
 		assert_eq!(resp.status_code(), 201);
@@ -84,7 +83,7 @@ mod tests {
 	async fn test_viewer_can_list_deployments(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -92,11 +91,12 @@ mod tests {
 			"viewer-dep-list@example.com",
 		)
 		.await;
+		let slug = &org.slug;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.get("/api/deployments/")
+			.get(&format!("/api/orgs/{slug}/deployments/"))
 			.await
 			.expect("List deployments request failed");
 
@@ -110,7 +110,7 @@ mod tests {
 	async fn test_viewer_cannot_create_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -118,8 +118,9 @@ mod tests {
 			"viewer-dep-create@example.com",
 		)
 		.await;
+		let slug = &org.slug;
 		// Owner privileges needed to create the cluster first.
-		let cluster_id = create_cluster(&client).await;
+		let cluster_id = create_cluster(&client, slug).await;
 		// Demote to Viewer before attempting the deployment create.
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
@@ -130,7 +131,7 @@ mod tests {
 			"image": "nginx:latest",
 		});
 		let resp = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{slug}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment request failed");
 
@@ -148,7 +149,7 @@ mod tests {
 	async fn test_viewer_cannot_delete_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -156,13 +157,14 @@ mod tests {
 			"viewer-dep-del@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster(&client).await;
-		let deployment_id = create_deployment(&client, cluster_id).await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster(&client, slug).await;
+		let deployment_id = create_deployment(&client, slug, cluster_id).await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.delete(&format!("/api/deployments/{deployment_id}/"))
+			.delete(&format!("/api/orgs/{slug}/deployments/{deployment_id}/"))
 			.await
 			.expect("Delete deployment request failed");
 
@@ -180,7 +182,7 @@ mod tests {
 	async fn test_viewer_cannot_update_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -188,14 +190,19 @@ mod tests {
 			"viewer-dep-upd@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster(&client).await;
-		let deployment_id = create_deployment(&client, cluster_id).await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster(&client, slug).await;
+		let deployment_id = create_deployment(&client, slug, cluster_id).await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let data = json!({ "app_name": "renamed-app" });
 		let resp = client
-			.put(&format!("/api/deployments/{deployment_id}/"), &data, "json")
+			.put(
+				&format!("/api/orgs/{slug}/deployments/{deployment_id}/"),
+				&data,
+				"json",
+			)
 			.await
 			.expect("Update deployment request failed");
 
@@ -213,7 +220,7 @@ mod tests {
 	async fn test_viewer_can_retrieve_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -221,13 +228,14 @@ mod tests {
 			"viewer-dep-get@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster(&client).await;
-		let deployment_id = create_deployment(&client, cluster_id).await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster(&client, slug).await;
+		let deployment_id = create_deployment(&client, slug, cluster_id).await;
 		set_membership_role(&conn, &user, MembershipRole::Viewer).await;
 
 		// Act
 		let resp = client
-			.get(&format!("/api/deployments/{deployment_id}/"))
+			.get(&format!("/api/orgs/{slug}/deployments/{deployment_id}/"))
 			.await
 			.expect("Retrieve deployment request failed");
 
@@ -249,7 +257,7 @@ mod tests {
 	async fn test_developer_can_create_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let user = force_login_user(
+		let (user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -257,7 +265,8 @@ mod tests {
 			"dev-dep-create@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster(&client).await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster(&client, slug).await;
 		set_membership_role(&conn, &user, MembershipRole::Developer).await;
 
 		// Act
@@ -267,7 +276,7 @@ mod tests {
 			"image": "nginx:latest",
 		});
 		let resp = client
-			.post("/api/deployments/", &data, "json")
+			.post(&format!("/api/orgs/{slug}/deployments/"), &data, "json")
 			.await
 			.expect("Create deployment request failed");
 
@@ -281,7 +290,7 @@ mod tests {
 	async fn test_owner_can_delete_deployment(#[future] db: DbFixture) {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
-		let _user = force_login_user(
+		let (_user, org) = force_login_user_with_org(
 			&client,
 			&conn,
 			&backend,
@@ -289,12 +298,13 @@ mod tests {
 			"owner-dep-del@example.com",
 		)
 		.await;
-		let cluster_id = create_cluster(&client).await;
-		let deployment_id = create_deployment(&client, cluster_id).await;
+		let slug = &org.slug;
+		let cluster_id = create_cluster(&client, slug).await;
+		let deployment_id = create_deployment(&client, slug, cluster_id).await;
 
 		// Act
 		let resp = client
-			.delete(&format!("/api/deployments/{deployment_id}/"))
+			.delete(&format!("/api/orgs/{slug}/deployments/{deployment_id}/"))
 			.await
 			.expect("Delete deployment request failed");
 

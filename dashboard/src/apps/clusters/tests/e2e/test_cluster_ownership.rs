@@ -13,12 +13,11 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login, force_login_user, session_backend, test_app,
+		ResolvedUrls, force_login, force_login_user_with_org, session_backend, test_app,
 	};
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, ResolvedUrls),
 		session_backend: Arc<dyn AsyncSessionBackend>,
 	) -> (
 		ContainerAsync<GenericImage>,
@@ -27,22 +26,26 @@ mod tests {
 		ResolvedUrls,
 		Arc<dyn AsyncSessionBackend>,
 	) {
-		let (client, urls) = test_app;
+		// Start the TestContainers database first so that build_test_app() can
+		// register the DatabaseConnection in the DI singleton scope. This ensures
+		// view handlers that inject Depends<DatabaseConnection> see the same DB
+		// as helpers using create_with_conn. Fixes #459.
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
+		let (client, urls) = crate::config::test_helpers::build_test_app();
 		(container, conn, client, urls, session_backend)
 	}
 
-	/// Helper: create a cluster and return its response body.
-	async fn create_cluster(client: &APIClient, name: &str) -> serde_json::Value {
+	/// Helper: create a cluster for the current user's org and return its response body.
+	async fn create_cluster(client: &APIClient, org_slug: &str, name: &str) -> serde_json::Value {
 		let data = json!({
 			"name": name,
 			"api_url": "https://k8s.example.com:6443"
 		});
 		let resp = client
-			.post("/api/clusters/", &data, "json")
+			.post(&format!("/api/orgs/{org_slug}/clusters/"), &data, "json")
 			.await
 			.expect("Create cluster request failed");
 		assert_eq!(resp.status_code(), 201);
@@ -65,14 +68,18 @@ mod tests {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
 
-		force_login_user(&client, &conn, &backend, "owner_a", "a@example.com").await;
-		create_cluster(&client, "cluster-a").await;
+		let (_user_a, org_a) =
+			force_login_user_with_org(&client, &conn, &backend, "owner_a", "a@example.com").await;
+		let slug_a = &org_a.slug;
+		create_cluster(&client, slug_a, "cluster-a").await;
 
-		force_login_user(&client, &conn, &backend, "owner_b", "b@example.com").await;
+		let (_user_b, org_b) =
+			force_login_user_with_org(&client, &conn, &backend, "owner_b", "b@example.com").await;
+		let slug_b = &org_b.slug;
 
 		// Act
 		let response = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug_b}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -99,16 +106,20 @@ mod tests {
 		// Arrange
 		let (_container, conn, client, _urls, backend) = db.await;
 
-		let user_a = force_login_user(&client, &conn, &backend, "owner_a", "a@example.com").await;
-		create_cluster(&client, "cluster-a1").await;
-		create_cluster(&client, "cluster-a2").await;
+		let (user_a, org_a) =
+			force_login_user_with_org(&client, &conn, &backend, "owner_a", "a@example.com").await;
+		let slug_a = org_a.slug.clone();
+		create_cluster(&client, &slug_a, "cluster-a1").await;
+		create_cluster(&client, &slug_a, "cluster-a2").await;
 
-		force_login_user(&client, &conn, &backend, "owner_b", "b@example.com").await;
-		create_cluster(&client, "cluster-b1").await;
+		let (_user_b, org_b) =
+			force_login_user_with_org(&client, &conn, &backend, "owner_b", "b@example.com").await;
+		let slug_b = &org_b.slug;
+		create_cluster(&client, slug_b, "cluster-b1").await;
 
 		// Act -- UserB lists clusters
 		let resp_b = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug_b}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -125,7 +136,7 @@ mod tests {
 		// Act -- switch back to UserA
 		force_login(&client, &backend, &user_a).await;
 		let resp_a = client
-			.get("/api/clusters/")
+			.get(&format!("/api/orgs/{slug_a}/clusters/"))
 			.await
 			.expect("List clusters request failed");
 
@@ -155,9 +166,9 @@ mod tests {
 		// Arrange
 		let (_container, _conn, client, _urls, _backend) = db.await;
 
-		// Act
+		// Act -- use a placeholder slug; the auth middleware rejects before routing
 		let response = client
-			.get("/api/clusters/")
+			.get("/api/orgs/my-org/clusters/")
 			.await
 			.expect("List clusters request failed");
 
@@ -190,7 +201,7 @@ mod tests {
 
 		// Act
 		let response = client
-			.get("/api/clusters/")
+			.get("/api/orgs/my-org/clusters/")
 			.await
 			.expect("List clusters request failed");
 

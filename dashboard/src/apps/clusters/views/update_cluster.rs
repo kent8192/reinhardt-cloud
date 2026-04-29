@@ -11,23 +11,33 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Update an existing cluster (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Update an existing cluster (authentication required).
 ///
 /// Requires `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Supports partial updates: only provided fields are modified.
 /// Returns 404 if the cluster does not exist or does not belong to the
-/// authenticated user's active organization.
-#[patch("/{id}/", name = "update")]
+/// specified organization.
+#[patch("/orgs/{org}/clusters/{cluster_id}/", name = "update")]
 pub async fn update_cluster(
-	Path(id): Path<i64>,
+	Path((cluster_id, org)): Path<(i64, String)>,
 	Json(body): Json<UpdateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::ClusterUpdate).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::ClusterUpdate).await?;
 
 	// Validate the request body
 	body.validate()?;
@@ -49,7 +59,7 @@ pub async fn update_cluster(
 		.filter(Filter::new(
 			Cluster::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(cluster_id),
 		))
 		.first()
 		.await
@@ -57,7 +67,7 @@ pub async fn update_cluster(
 			error!("Failed to retrieve cluster for update: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {cluster_id} not found")))?;
 
 	// Apply partial updates
 	if let Some(name) = body.name {

@@ -11,26 +11,36 @@ use uuid::Uuid;
 
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::serializers::{DeploymentResponse, DeploymentStatusRequest};
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Update the status of a deployment (user-authenticated endpoint).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, deployment_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `deployment_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Update the status of a deployment (user-authenticated endpoint).
 ///
 /// Requires `Action::DeploymentUpdate` (Developer or higher); Viewers
 /// receive 403. Accepts a status string. Returns the updated deployment.
 /// Returns 404 if the deployment does not exist or does not belong to the
-/// authenticated user's active organization.
-#[post("/{id}/status/", name = "status")]
+/// specified organization.
+#[post("/orgs/{org}/deployments/{deployment_id}/status/", name = "status")]
 pub async fn deployment_status(
-	Path(id): Path<i64>,
+	Path((deployment_id, org)): Path<(i64, String)>,
 	Json(body): Json<DeploymentStatusRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::DeploymentUpdate).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::DeploymentUpdate).await?;
 
 	let mut deployment = Deployment::objects()
-		.filter("id", FilterOperator::Eq, FilterValue::Integer(id))
+		.filter("id", FilterOperator::Eq, FilterValue::Integer(deployment_id))
 		.filter(Filter::new(
 			Deployment::field_organization_id(),
 			FilterOperator::Eq,
@@ -42,7 +52,7 @@ pub async fn deployment_status(
 			error!("Failed to retrieve deployment for status update: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Deployment with id {deployment_id} not found")))?;
 
 	deployment.status = body.status;
 

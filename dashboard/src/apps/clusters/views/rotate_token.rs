@@ -17,22 +17,32 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::RotateTokenResponse;
 use crate::apps::clusters::services::token_issuance;
 use crate::apps::clusters::views::create_cluster::cluster_id_from_pk;
-use crate::apps::organizations::permissions::{Action, require_permission};
+use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Rotate the agent JWT for an existing cluster (authentication required).
+/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
+/// Remove this comment when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
+///
+/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
+/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
+///
+/// /// Rotate the agent JWT for an existing cluster (authentication required).
 ///
 /// Token rotation is a write-class operation, so we require
 /// `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Returns the new plaintext JWT exactly once. Old tokens are rejected
 /// on next verify because the stored hash has changed.
-#[post("/{id}/rotate-token/", name = "rotate_token")]
+#[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate_token")]
 pub async fn rotate_token(
-	Path(id): Path<i64>,
+	Path((cluster_id, org)): Path<(i64, String)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
-	let organization_id = require_permission(user_id, Action::ClusterUpdate).await?;
+	let organization_id =
+		require_permission_for_org(user_id, &org, Action::ClusterUpdate).await?;
 
 	let manager = Cluster::objects();
 	let mut cluster = manager
@@ -44,7 +54,7 @@ pub async fn rotate_token(
 		.filter(Filter::new(
 			Cluster::field_id(),
 			FilterOperator::Eq,
-			FilterValue::Integer(id),
+			FilterValue::Integer(cluster_id),
 		))
 		.first()
 		.await
@@ -52,7 +62,7 @@ pub async fn rotate_token(
 			error!("Failed to retrieve cluster for token rotation: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?
-		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {id} not found")))?;
+		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {cluster_id} not found")))?;
 
 	let cluster_uuid = cluster_id_from_pk(cluster.id)?;
 	let issued = token_issuance::issue_agent_token(cluster_uuid)?;
