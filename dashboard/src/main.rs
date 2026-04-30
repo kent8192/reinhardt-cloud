@@ -17,9 +17,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand};
-	use reinhardt_cloud_dashboard as _;
-
 	// SAFETY: invoked at program start before any spawned tasks read
 	// environment variables. Mirrors `src/bin/manage.rs`.
 	unsafe {
@@ -30,13 +27,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 
 	// Bind to all interfaces so the Kubernetes Service can route to us.
-	// `RunServerCommand`'s positional argument is the bind address.
-	let ctx = CommandContext::new(vec!["0.0.0.0:8000".to_string()]);
-	let cmd = RunServerCommand;
-	cmd.execute(&ctx).await.map_err(|e| {
-		eprintln!("dashboard server failed: {e}");
-		Box::<dyn std::error::Error>::from(e.to_string())
-	})
+	// `server::run` registers the router from the inventory before
+	// invoking `RunServerCommand::execute` — without that step the
+	// server binary fails immediately with "No router registered"
+	// (see kent8192/reinhardt-cloud#478).
+	reinhardt_cloud_dashboard::server::run("0.0.0.0:8000")
+		.await
+		.map_err(|e| {
+			eprintln!("dashboard server failed: {e}");
+			e
+		})
 }
 
 /// On `wasm32` the dashboard ships only its `[lib]` (cdylib) artifact.

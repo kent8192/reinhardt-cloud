@@ -24,7 +24,7 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	#[fixture]
 	async fn db() -> (

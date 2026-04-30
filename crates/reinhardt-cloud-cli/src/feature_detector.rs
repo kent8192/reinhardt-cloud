@@ -16,6 +16,15 @@ pub(crate) struct InfraSignals {
 	pub(crate) pages: bool,
 	pub(crate) graphql: bool,
 	pub(crate) tracing: bool,
+	/// Whether the build needs the `protoc` compiler installed in the build
+	/// stages of the generated Dockerfile.
+	///
+	/// Distinct from `grpc` (which is derived from reinhardt-web feature
+	/// flags): this signal is detected from `Cargo.lock` so that any
+	/// transitive `prost`/`tonic` dependency — including indirect ones
+	/// pulled in by reinhardt-cloud-grpc or reinhardt-cloud-proto — also
+	/// triggers protoc installation.
+	pub(crate) protoc_needed: bool,
 }
 
 impl InfraSignals {
@@ -49,6 +58,11 @@ impl InfraSignals {
 			pages: has("pages"),
 			graphql: has("graphql"),
 			tracing: has("telemetry-tracing"),
+			// Detected from Cargo.lock by the Dockerfile generator, not from
+			// reinhardt-web feature flags. Default to false here so feature-only
+			// inference paths (e.g., zero-config introspection) keep behaving
+			// the same.
+			protoc_needed: false,
 		}
 	}
 }

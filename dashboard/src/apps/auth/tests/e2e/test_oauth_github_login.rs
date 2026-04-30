@@ -43,7 +43,7 @@ mod tests {
 	use wiremock::{Mock, MockServer, ResponseTemplate};
 
 	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	#[fixture]
 	async fn db() -> (

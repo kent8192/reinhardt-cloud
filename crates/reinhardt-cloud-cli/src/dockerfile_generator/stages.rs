@@ -19,6 +19,15 @@ pub(crate) struct DockerfileSignals {
 	/// left as a placeholder ("app") because the real name is injected at
 	/// Pod launch time via the Kubernetes Downward API.
 	pub(crate) tracing: bool,
+	/// When true, install `protobuf-compiler` (provides `protoc`) in the
+	/// chef and builder stages. Set when `Cargo.lock` shows a transitive
+	/// dependency on `prost`, `prost-build`, `tonic`, or `tonic-build`.
+	///
+	/// Independent from the `grpc` reinhardt-web feature flag because
+	/// indirect dependencies (e.g., `reinhardt-cloud-grpc` pulling in
+	/// `tonic-build`) can require protoc even when the consumer crate
+	/// does not enable the reinhardt-web `grpc` feature.
+	pub(crate) protoc_needed: bool,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
@@ -44,20 +53,35 @@ fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
 
 /// Builds the "chef" stage that prepares the cargo-chef recipe.
 pub(crate) fn build_chef_stage(signals: &DockerfileSignals) -> Stage {
+	let mut instructions = Vec::new();
+
+	// Install protoc up front so any subsequent step that resolves the
+	// dependency tree (including transitive build scripts invoked when
+	// cargo-chef inspects metadata) has the compiler available.
+	if signals.grpc || signals.protoc_needed {
+		instructions.push(Instruction::RunMulti(vec![
+			"apt-get update".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
+			"rm -rf /var/lib/apt/lists/*".to_string(),
+		]));
+	}
+
+	instructions.push(Instruction::Run("cargo install cargo-chef".to_string()));
+	instructions.push(Instruction::Workdir("/app".to_string()));
+	instructions.push(Instruction::Copy {
+		from: None,
+		src: ".".to_string(),
+		dst: ".".to_string(),
+	});
+	instructions.push(Instruction::Run(
+		"cargo chef prepare --recipe-path recipe.json".to_string(),
+	));
+
 	Stage {
 		base_image: format!("rust:{}-bookworm", signals.rust_version),
 		name: Some("chef".to_string()),
 		platform: None,
-		instructions: vec![
-			Instruction::Run("cargo install cargo-chef".to_string()),
-			Instruction::Workdir("/app".to_string()),
-			Instruction::Copy {
-				from: None,
-				src: ".".to_string(),
-				dst: ".".to_string(),
-			},
-			Instruction::Run("cargo chef prepare --recipe-path recipe.json".to_string()),
-		],
+		instructions,
 	}
 }
 
@@ -65,10 +89,10 @@ pub(crate) fn build_chef_stage(signals: &DockerfileSignals) -> Stage {
 pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 	let mut instructions = Vec::new();
 
-	if signals.grpc {
+	if signals.grpc || signals.protoc_needed {
 		instructions.push(Instruction::RunMulti(vec![
 			"apt-get update".to_string(),
-			"apt-get install -y protobuf-compiler".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
 		]));
 	}
@@ -275,6 +299,7 @@ mod tests {
 			session_backend: None,
 			base_image_override: None,
 			tracing: false,
+			protoc_needed: false,
 		}
 	}
 
@@ -661,5 +686,58 @@ mod tests {
 			"tracecontext"
 		));
 		assert!(!stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
+	}
+
+	// PR1 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
+	// chef stage so cargo-chef metadata extraction does not abort when a
+	// transitive build script invokes protoc.
+	#[rstest]
+	fn chef_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.grpc = false;
+		minimal_signals.protoc_needed = true;
+
+		// Act
+		let stage = build_chef_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "protobuf-compiler"),
+			"chef stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PR2 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
+	// builder stage so `cargo chef cook` succeeds against transitive
+	// prost/tonic dependencies.
+	#[rstest]
+	fn builder_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.grpc = false;
+		minimal_signals.protoc_needed = true;
+
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "protobuf-compiler"),
+			"builder stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PR3 (Refs #477): chef stage emits no protoc install when neither grpc
+	// nor protoc_needed is set, preserving the slim baseline for non-grpc
+	// projects.
+	#[rstest]
+	fn chef_stage_omits_protoc_when_neither_signal_set(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_chef_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			!stage_contains_run(&stage, "protobuf-compiler"),
+			"chef stage must not install protobuf-compiler without grpc or protoc_needed"
+		);
 	}
 }

@@ -79,16 +79,26 @@ pub(crate) fn collect_signals(
 
 	let signals = &metadata.signals;
 
-	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args.
-	// Cargo.lock lives at the workspace root in workspace projects, not in
-	// the member crate, so walk up if not found locally.
-	let wasm_bindgen_version = if signals.pages {
-		let from_lock = if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
-			let content = std::fs::read_to_string(&lock_path)
-				.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?;
-			cargo_lock_reader::extract_wasm_bindgen_version(&content)?
+	// Read Cargo.lock once and share its content between every reader that
+	// needs to walk the resolved dependency graph (wasm-bindgen version
+	// resolution, protoc requirement detection, ...). Cargo.lock lives at
+	// the workspace root in workspace projects, not in the member crate,
+	// so walk up if not found locally.
+	let cargo_lock_content: Option<String> =
+		if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
+			Some(
+				std::fs::read_to_string(&lock_path)
+					.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?,
+			)
 		} else {
 			None
+		};
+
+	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args.
+	let wasm_bindgen_version = if signals.pages {
+		let from_lock = match &cargo_lock_content {
+			Some(content) => cargo_lock_reader::extract_wasm_bindgen_version(content)?,
+			None => None,
 		};
 
 		let version = from_lock.or_else(|| {
@@ -110,6 +120,15 @@ pub(crate) fn collect_signals(
 		None
 	};
 
+	// protoc requirement: detected from Cargo.lock so that transitive
+	// prost/tonic dependencies (e.g., reinhardt-cloud-grpc pulling in
+	// tonic-build) trigger installation even when the consumer crate does
+	// not opt into the reinhardt-web `grpc` feature flag.
+	let protoc_needed = match &cargo_lock_content {
+		Some(content) => cargo_lock_reader::detect_protoc_requirement(content),
+		None => false,
+	};
+
 	// base_image override
 	let base_image_override = toml_config
 		.source
@@ -129,6 +148,7 @@ pub(crate) fn collect_signals(
 		session_backend: None, // Only available via introspect at deploy time
 		base_image_override,
 		tracing: signals.tracing,
+		protoc_needed,
 	})
 }
 
@@ -167,6 +187,7 @@ mod tests {
 			session_backend: None,
 			base_image_override: None,
 			tracing: false,
+			protoc_needed: false,
 		}
 	}
 
@@ -494,5 +515,135 @@ mod tests {
 
 		// Assert
 		assert_eq!(result, SkipReason::None);
+	}
+
+	/// Integration test (Refs #477): a Cargo.lock that pulls in `prost-build`
+	/// or `tonic-build` (directly or transitively) must propagate through
+	/// `collect_signals` so the generated Dockerfile installs
+	/// `protobuf-compiler` in both the chef and builder stages.
+	#[rstest]
+	fn collect_signals_propagates_protoc_from_cargo_lock() {
+		// Arrange — minimal workspace fixture: rust-toolchain.toml,
+		// Cargo.lock with a tonic-build entry, and a project metadata
+		// stand-in that does NOT enable the reinhardt-web `grpc` feature.
+		// This proves the lockfile path is the one driving protoc install.
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			r#"
+[toolchain]
+channel = "1.94.1"
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tonic-build"
+version = "0.13.0"
+"#,
+		)
+		.unwrap();
+
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "consumer-app".to_string(),
+			version: "0.1.0".to_string(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals::default(),
+		};
+		let toml_config = ReinhardtCloudToml::default();
+
+		// Act
+		let signals = collect_signals(dir.path(), &metadata, &toml_config)
+			.expect("collect_signals must succeed");
+		let dockerfile = generate(&signals).to_string();
+
+		// Assert
+		assert!(
+			signals.protoc_needed,
+			"protoc_needed must be true when Cargo.lock carries tonic-build"
+		);
+		assert!(
+			!signals.grpc,
+			"grpc must remain false: protoc detection must NOT depend on the grpc feature flag"
+		);
+		// Both build stages must install the compiler.
+		let chef_install_count = dockerfile
+			.split("FROM rust:")
+			.nth(1)
+			.expect("chef stage")
+			.matches("protobuf-compiler")
+			.count();
+		let builder_install_count = dockerfile
+			.split("FROM rust:")
+			.nth(2)
+			.expect("builder stage")
+			.matches("protobuf-compiler")
+			.count();
+		assert!(
+			chef_install_count >= 1,
+			"chef stage must contain protobuf-compiler install, got dockerfile:\n{dockerfile}"
+		);
+		assert!(
+			builder_install_count >= 1,
+			"builder stage must contain protobuf-compiler install, got dockerfile:\n{dockerfile}"
+		);
+	}
+
+	/// Integration test (Refs #477): a Cargo.lock without prost/tonic must
+	/// keep the slim Dockerfile baseline — no spurious protoc install.
+	#[rstest]
+	fn collect_signals_omits_protoc_for_unrelated_lockfile() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			r#"
+[toolchain]
+channel = "1.94.1"
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tokio"
+version = "1.40.0"
+"#,
+		)
+		.unwrap();
+
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "plain-app".to_string(),
+			version: "0.1.0".to_string(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals::default(),
+		};
+		let toml_config = ReinhardtCloudToml::default();
+
+		// Act
+		let signals = collect_signals(dir.path(), &metadata, &toml_config)
+			.expect("collect_signals must succeed");
+		let dockerfile = generate(&signals).to_string();
+
+		// Assert
+		assert!(
+			!signals.protoc_needed,
+			"protoc_needed must be false when Cargo.lock has no prost/tonic"
+		);
+		assert!(
+			!dockerfile.contains("protobuf-compiler"),
+			"Dockerfile must not install protobuf-compiler for unrelated dependency tree"
+		);
 	}
 }

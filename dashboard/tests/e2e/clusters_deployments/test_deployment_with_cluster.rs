@@ -14,7 +14,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	ResolvedUrls, force_login_user_with_org, session_backend,
 };
 
 // ============================================================================
