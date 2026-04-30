@@ -263,6 +263,161 @@ mod tests {
 		);
 	}
 
+	/// Regression for the residual offline-state-reconstruction bug not
+	/// fully covered by reinhardt-web#4050 (which closed reinhardt-web#4049
+	/// for the synthetic case but did not catch the production CLI path
+	/// when `table_name` is overridden to match the table name produced by
+	/// `0001_initial`'s `CreateTable`).
+	///
+	/// The previous diagnostic builds `from_state` by cloning fields from
+	/// `target_cluster.fields`, which makes the `from`/`to` `FieldState`
+	/// param HashMaps trivially symmetric — the asymmetric population that
+	/// `has_field_changed` was supposed to canonicalize is never exercised.
+	///
+	/// This test instead builds `from_state` the way the production CLI
+	/// does: by feeding a synthetic `Operation::CreateTable` (modeled on
+	/// `dashboard/migrations/clusters/0001_initial.rs`) through
+	/// `ProjectState::apply_migration_operations`. That codepath flows
+	/// through `column_def_to_field_state`, which only inserts schema-
+	/// affecting `params` keys when the underlying value is true / `Some`.
+	/// The macro-registry `to_state`, by contrast, populates `not_null`,
+	/// `null`, and `unique` strings on every field. The `id` PK therefore
+	/// arrives with sparse params on the `from` side and dense params on
+	/// the `to` side — the exact asymmetric scenario `#4050` claimed to
+	/// fix.
+	///
+	/// If `cargo make makemigrations clusters` still emits a no-op
+	/// `Operation::AlterColumn { old_definition: None, .. }` for the
+	/// unchanged `id` column under the `table_name = "clusters"` override
+	/// (see `apps::clusters::models::Cluster`), this test will fail —
+	/// proving the residual bug remains and motivating the workaround in
+	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`.
+	#[rstest]
+	#[ignore = "tracks reinhardt-web#4052 (residual after #4050); un-ignore once upstream resolves. Reinhardt Cloud tracking: #476"]
+	fn diag_apply_migration_operations_from_state_no_spurious_altercolumn() {
+		// Arrange — build the to_state via the same code path the CLI uses.
+		let _ensure_registered = std::any::type_name::<Cluster>();
+		let target_project_state = reinhardt::db::migrations::ProjectState::from_global_registry();
+		let app_target_state = target_project_state.filter_by_app("clusters");
+
+		// Mirror migrations/clusters/0001_initial.rs: a single CreateTable
+		// with the six initial columns. Apply it through
+		// `apply_migration_operations` so `from_state` is populated via
+		// `column_def_to_field_state` — the production path that produces
+		// sparse `params` HashMaps.
+		use reinhardt::db::migrations::FieldType;
+		use reinhardt::db::migrations::operations::{ColumnDefinition, Operation};
+		let create_clusters = Operation::CreateTable {
+			name: "clusters".to_string(),
+			columns: vec![
+				ColumnDefinition {
+					name: "api_url".to_string(),
+					type_definition: FieldType::VarChar(1024),
+					not_null: true,
+					unique: false,
+					primary_key: false,
+					auto_increment: false,
+					default: None,
+				},
+				ColumnDefinition {
+					name: "created_at".to_string(),
+					type_definition: FieldType::TimestampTz,
+					not_null: true,
+					unique: false,
+					primary_key: false,
+					auto_increment: false,
+					default: None,
+				},
+				ColumnDefinition {
+					name: "id".to_string(),
+					type_definition: FieldType::BigInteger,
+					not_null: true,
+					unique: false,
+					primary_key: true,
+					auto_increment: true,
+					default: None,
+				},
+				ColumnDefinition {
+					name: "is_active".to_string(),
+					type_definition: FieldType::Boolean,
+					not_null: true,
+					unique: false,
+					primary_key: false,
+					auto_increment: false,
+					default: None,
+				},
+				ColumnDefinition {
+					name: "name".to_string(),
+					type_definition: FieldType::VarChar(255),
+					not_null: true,
+					unique: false,
+					primary_key: false,
+					auto_increment: false,
+					default: None,
+				},
+				ColumnDefinition {
+					name: "updated_at".to_string(),
+					type_definition: FieldType::TimestampTz,
+					not_null: true,
+					unique: false,
+					primary_key: false,
+					auto_increment: false,
+					default: None,
+				},
+			],
+			constraints: vec![],
+			without_rowid: None,
+			interleave_in_parent: None,
+			partition: None,
+		};
+		let mut app_from_state = reinhardt::db::migrations::ProjectState::new();
+		app_from_state.apply_migration_operations(&[create_clusters], "clusters");
+
+		// Act — run the same autodetector entry points the CLI hits.
+		let detector =
+			reinhardt::db::migrations::MigrationAutodetector::new(app_from_state, app_target_state);
+		let direct_ops = detector.generate_operations();
+		let migrations = detector.generate_migrations();
+		let migration_ops: Vec<_> = migrations
+			.iter()
+			.flat_map(|m| m.operations.iter())
+			.collect();
+
+		let alter_id_in_direct: Vec<_> = direct_ops
+			.iter()
+			.filter(|op| {
+				matches!(
+					op,
+					Operation::AlterColumn { column, .. } if column == "id"
+				)
+			})
+			.collect();
+		let alter_id_in_migration: Vec<_> = migration_ops
+			.iter()
+			.filter(|op| {
+				matches!(
+					op,
+					Operation::AlterColumn { column, .. } if column == "id"
+				)
+			})
+			.collect();
+
+		// Assert — the unchanged `id` PK must NOT surface as AlterColumn
+		// from either entry point. When this test starts passing, the
+		// upstream residual bug has been fixed and the workaround in
+		// 0005_add_organization_id_name_unique.rs can be removed.
+		assert!(
+			alter_id_in_direct.is_empty(),
+			"generate_operations() emitted spurious AlterColumn for unchanged \
+			 `id` PK under apply_migration_operations from_state. ops={direct_ops:?}"
+		);
+		assert!(
+			alter_id_in_migration.is_empty(),
+			"generate_migrations() emitted spurious AlterColumn for unchanged \
+			 `id` PK under apply_migration_operations from_state. ops={migration_ops:?}"
+		);
+	}
+
 	/// The `unique_together = ("organization_id", "name")` declaration in
 	/// `Cluster` MUST surface as a composite UNIQUE constraint via the
 	/// model's `constraint_metadata()` (refs #436). This guards against
