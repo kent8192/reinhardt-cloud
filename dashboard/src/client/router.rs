@@ -19,6 +19,14 @@
 //! entries that resolve to the not-found view until those pages are
 //! implemented; they exist solely to keep navigation links resolvable
 //! through the URL resolver.
+//!
+//! # Native parallel registration
+//!
+//! Server-side reverse URL resolution is registered via
+//! `UnifiedRouter::client(...)` in `crate::config::urls::make_router`,
+//! which calls `register_client_reverser` so server-side callers of
+//! `url_for` can reverse names. Every `named_route` call below MUST
+//! appear there with the same `(name, pattern)` pair.
 
 use reinhardt::pages::router::Router;
 
