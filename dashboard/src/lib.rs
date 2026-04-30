@@ -20,6 +20,8 @@ pub mod apps;
 pub mod client;
 #[cfg(native)]
 pub mod config;
+#[cfg(native)]
+pub mod server;
 pub mod shared;
 #[cfg(native)]
 pub mod utils;
