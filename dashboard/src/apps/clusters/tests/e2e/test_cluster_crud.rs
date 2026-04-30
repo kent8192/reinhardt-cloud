@@ -165,10 +165,13 @@ mod tests {
 	/// Verify creating a second cluster with the same name in the same
 	/// organization is rejected with 409 Conflict (refs #436).
 	///
-	/// The DB-level constraint comes from the hand-written
-	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`
-	/// (see that file for why `makemigrations` cannot regenerate it
-	/// today). Tracked in reinhardt-cloud#443.
+	/// The DB-level constraint comes from
+	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`,
+	/// regenerated via `cargo make makemigrations` after
+	/// reinhardt-web#4041 (closes reinhardt-web#4040). The migration
+	/// retains a hand-edit removing a spurious `AlterColumn`
+	/// operation (tracked as reinhardt-cloud#475 /
+	/// reinhardt-web#4049).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
