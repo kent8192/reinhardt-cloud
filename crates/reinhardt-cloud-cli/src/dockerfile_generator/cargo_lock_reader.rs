@@ -32,6 +32,45 @@ pub(super) fn extract_wasm_bindgen_version(content: &str) -> Result<Option<Strin
 	Ok(None)
 }
 
+/// Returns `true` when `prost`, `prost-build`, `tonic`, or `tonic-build`
+/// appears anywhere in the workspace dependency graph captured by
+/// `Cargo.lock`.
+///
+/// The lockfile is the authoritative source for this check because it
+/// reflects the fully-resolved dependency tree, including transitive
+/// dependencies pulled in by build scripts (e.g., `tonic-build` is a
+/// `[build-dependencies]` entry of `reinhardt-cloud-grpc`). Walking only
+/// the project's `Cargo.toml` would miss those.
+///
+/// Returns `false` when the content is empty, the TOML is malformed, or
+/// no matching package is found. The function is intentionally lenient
+/// — a missing or unreadable lockfile must not block Dockerfile
+/// generation.
+pub(super) fn detect_protoc_requirement(cargo_lock_content: &str) -> bool {
+	if cargo_lock_content.trim().is_empty() {
+		return false;
+	}
+
+	let parsed: toml::Value = match toml::from_str(cargo_lock_content) {
+		Ok(value) => value,
+		Err(_) => return false,
+	};
+
+	let packages = match parsed.get("package").and_then(|v| v.as_array()) {
+		Some(pkgs) => pkgs,
+		None => return false,
+	};
+
+	for pkg in packages {
+		let name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or("");
+		if matches!(name, "prost" | "prost-build" | "tonic" | "tonic-build") {
+			return true;
+		}
+	}
+
+	false
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -156,5 +195,103 @@ version = "0.3.0-alpha.1"
 
 		// Assert
 		assert_eq!(result, Ok(Some("0.3.0-alpha.1".to_owned())));
+	}
+
+	// P1: prost-build present (build-dep transitively requires protoc)
+	#[rstest]
+	fn detect_protoc_with_prost_build() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "prost-build"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P2: tonic-build present (build-dep — direct trigger from #477)
+	#[rstest]
+	fn detect_protoc_with_tonic_build() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "tonic-build"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P3: tonic runtime only — no build-dep, but still requires protoc somewhere
+	// in the workspace (typically via reinhardt-cloud-grpc) so detection must
+	// still fire.
+	#[rstest]
+	fn detect_protoc_with_tonic_runtime_only() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "tonic"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P4: completely unrelated dependency tree — must NOT fire
+	#[rstest]
+	fn detect_protoc_with_no_prost_or_tonic() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tokio"
+version = "1.40.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(!result);
+	}
+
+	// P5: malformed lockfile must not panic and must be lenient (false)
+	#[rstest]
+	fn detect_protoc_malformed_returns_false() {
+		// Act
+		let result = detect_protoc_requirement("not [[ valid toml");
+
+		// Assert
+		assert!(!result);
+	}
+
+	// P6: empty content returns false
+	#[rstest]
+	fn detect_protoc_empty_returns_false() {
+		// Act
+		let result = detect_protoc_requirement("");
+
+		// Assert
+		assert!(!result);
 	}
 }
