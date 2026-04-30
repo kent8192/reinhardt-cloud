@@ -70,10 +70,19 @@ cd dashboard && cargo make infra-up
 docker ps --filter name=reinhardt-cloud-dashboard-
 ```
 
-The defaults are `postgres://reinhardt:reinhardt@localhost:5432/reinhardt_cloud`
-and `redis://localhost:6379`. Stop the containers with
-`cargo make infra-down`, or recreate from a clean state with
-`cargo make infra-reset`.
+`infra-up` reads connection parameters from the settings TOML matching
+the active `REINHARDT_ENV` profile (defaults to `local`, so `local.toml`).
+This is the same lookup `runserver` performs, so both sides stay in
+sync. With a typical `local.toml` the defaults are
+`postgres://reinhardt:reinhardt@localhost:5432/reinhardt_cloud` and
+`redis://localhost:6379`. Stop the containers with `cargo make infra-down`,
+or recreate from a clean state with `cargo make infra-reset`.
+
+> **Note:** if you have `REINHARDT_ENV` set in your shell (e.g. left over
+> from a CI shell where you exported `REINHARDT_ENV=ci`), both `infra-up`
+> and `runserver` will resolve `<env>.toml` instead of `local.toml`. Run
+> `unset REINHARDT_ENV` before running `infra-up` to use the default
+> `local` profile.
 
 ## 3. Install the CRD
 
