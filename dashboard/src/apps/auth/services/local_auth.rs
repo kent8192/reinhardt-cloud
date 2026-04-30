@@ -47,13 +47,17 @@ async fn create_local_auth_service() -> LocalAuthService {
 impl LocalAuthService {
 	/// Get the JWT secret for gRPC token operations.
 	///
-	/// Reads from `REINHARDT_CLOUD_JWT_SECRET` environment variable.
+	/// Resolves via `crate::config::settings::get_jwt_secret()` (TOML key
+	/// `jwt_secret` with `REINHARDT_CLOUD_JWT_SECRET` env-var fallback).
 	/// This is only used by the gRPC `AuthService` trait implementation,
 	/// not by the dashboard's HTTP cookie-based auth.
+	///
+	/// Issue: kent8192/reinhardt-cloud#494
 	fn secret(&self) -> Result<String, ApiError> {
-		std::env::var("REINHARDT_CLOUD_JWT_SECRET").map_err(|_| {
+		crate::config::settings::get_jwt_secret().ok_or_else(|| {
 			ApiError::Internal(
-				"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var".to_string(),
+				"JWT secret not configured: set jwt_secret in TOML or REINHARDT_CLOUD_JWT_SECRET env var"
+					.to_string(),
 			)
 		})
 	}

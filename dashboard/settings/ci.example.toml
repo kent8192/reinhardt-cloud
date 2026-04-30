@@ -9,12 +9,17 @@
 # Getting started:
 #   cp ci.example.toml ci.toml
 
-# JWT secret for session token signing (required for auth endpoints)
+# JWT secret for cluster-agent and gRPC AuthService token signing.
+# Resolved by `dashboard::config::settings::get_jwt_secret()`, which reads
+# this top-level TOML key first and falls back to the
+# `REINHARDT_CLOUD_JWT_SECRET` env var for container/CI overrides.
 jwt_secret = "ci-only-jwt-secret-not-for-production"
 
-# Redis URL for session backend (required for cookie-session auth)
-# In CI, this is overridden by REINHARDT_CLOUD_REDIS_URL env var pointing
-# to a Redis service container or TestContainers-managed instance.
+# Redis URL for cookie session storage. Resolved by
+# `dashboard::config::settings::get_redis_url()`, which reads this TOML key
+# first and falls back to the `REINHARDT_CLOUD_REDIS_URL` env var.
+# In CI, the env var typically points to a Redis service container or
+# TestContainers-managed instance.
 redis_url = "redis://localhost:6379/0"
 
 [core]
