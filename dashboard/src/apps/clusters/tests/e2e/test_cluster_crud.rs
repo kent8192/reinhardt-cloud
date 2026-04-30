@@ -166,13 +166,14 @@ mod tests {
 	/// organization is rejected with 409 Conflict (refs #436).
 	///
 	/// The DB-level constraint comes from
-	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`,
-	/// regenerated via `cargo make makemigrations` after
-	/// reinhardt-web#4041 (closes reinhardt-web#4040). The migration
-	/// retains a hand-edit removing a spurious `AlterColumn` operation
-	/// (residual after reinhardt-web#4050 closed reinhardt-web#4049 /
-	/// reinhardt-cloud#475; tracked as reinhardt-web#4052 /
-	/// reinhardt-cloud#476).
+	/// `migrations/clusters/0005_add_constraint_clusters.rs`, regenerated
+	/// verbatim via `cargo make makemigrations` after
+	/// reinhardt-web#4041 (closed reinhardt-web#4040) propagated the
+	/// `added_constraints` loop, reinhardt-web#4050 (closed reinhardt-web#4049)
+	/// canonicalized synthetic `FieldState` param populations, and
+	/// reinhardt-web#4053 (closed reinhardt-web#4052) suppressed the
+	/// `null = true` emission for `Option<T>` PKs that drove the residual
+	/// asymmetric-`nullable` AlterColumn.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]

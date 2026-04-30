@@ -263,37 +263,26 @@ mod tests {
 		);
 	}
 
-	/// Regression for the residual offline-state-reconstruction bug not
-	/// fully covered by reinhardt-web#4050 (which closed reinhardt-web#4049
-	/// for the synthetic case but did not catch the production CLI path
-	/// when `table_name` is overridden to match the table name produced by
-	/// `0001_initial`'s `CreateTable`).
-	///
-	/// The previous diagnostic builds `from_state` by cloning fields from
-	/// `target_cluster.fields`, which makes the `from`/`to` `FieldState`
-	/// param HashMaps trivially symmetric — the asymmetric population that
-	/// `has_field_changed` was supposed to canonicalize is never exercised.
-	///
-	/// This test instead builds `from_state` the way the production CLI
-	/// does: by feeding a synthetic `Operation::CreateTable` (modeled on
-	/// `dashboard/migrations/clusters/0001_initial.rs`) through
-	/// `ProjectState::apply_migration_operations`. That codepath flows
-	/// through `column_def_to_field_state`, which only inserts schema-
-	/// affecting `params` keys when the underlying value is true / `Some`.
-	/// The macro-registry `to_state`, by contrast, populates `not_null`,
-	/// `null`, and `unique` strings on every field. The `id` PK therefore
-	/// arrives with sparse params on the `from` side and dense params on
-	/// the `to` side — the exact asymmetric scenario `#4050` claimed to
-	/// fix.
-	///
-	/// If `cargo make makemigrations clusters` still emits a no-op
+	/// Regression test that locked in the offline-state-reconstruction bug
+	/// originally tracked as reinhardt-web#4052 (a residual after
+	/// reinhardt-web#4050 closed reinhardt-web#4049): when `from_state` is
+	/// built via `ProjectState::apply_migration_operations` from a
+	/// `CreateTable` op against a model with a `table_name` override that
+	/// matches `0001_initial`'s table, the autodetector used to emit a no-op
 	/// `Operation::AlterColumn { old_definition: None, .. }` for the
-	/// unchanged `id` column under the `table_name = "clusters"` override
-	/// (see `apps::clusters::models::Cluster`), this test will fail —
-	/// proving the residual bug remains and motivating the workaround in
-	/// `migrations/clusters/0005_add_organization_id_name_unique.rs`.
+	/// unchanged `id` PK. The root cause was that the `#[model]` macro
+	/// emitted `null = "true"` on `Option<T>` primary keys while
+	/// `column_def_to_field_state` (driven by `not_null = true`) reported
+	/// `nullable = false`. The direct `nullable != nullable` check in
+	/// `has_field_changed` then tripped before #4050's canonicalization
+	/// could absorb the asymmetry.
+	///
+	/// reinhardt-web#4053 suppresses the `null = true` emission for
+	/// `Option<T>` PKs, restoring symmetric `nullable` between the
+	/// migration-replay `from_state` and the macro-registry `to_state`.
+	/// This test exercises the same scenario the CLI runs and asserts no
+	/// spurious `AlterColumn` for the unchanged `id` PK.
 	#[rstest]
-	#[ignore = "tracks reinhardt-web#4052 (residual after #4050); un-ignore once upstream resolves. Reinhardt Cloud tracking: #476"]
 	fn diag_apply_migration_operations_from_state_no_spurious_altercolumn() {
 		// Arrange — build the to_state via the same code path the CLI uses.
 		let _ensure_registered = std::any::type_name::<Cluster>();
