@@ -12,6 +12,7 @@ pub mod layout;
 #[cfg(wasm)]
 pub mod link_interception;
 pub mod pages;
+pub mod route_table;
 #[cfg(wasm)]
 pub mod router;
 pub mod state;
