@@ -5,9 +5,24 @@ mod dockerfile;
 mod rust_toolchain_reader;
 mod stages;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
+
+/// Walk from `start_dir` upward looking for a file with the given name.
+/// Returns the closest match, or `None` if no parent directory contains it.
+/// Used so workspace-level files (`Cargo.lock`, `rust-toolchain.toml`) can
+/// be located when `init` is invoked from a member crate directory.
+fn locate_ancestor_file(start_dir: &Path, file_name: &str) -> Option<PathBuf> {
+	let mut current = start_dir.canonicalize().ok()?;
+	loop {
+		let candidate = current.join(file_name);
+		if candidate.exists() {
+			return Some(candidate);
+		}
+		current = current.parent()?.to_path_buf();
+	}
+}
 
 pub(crate) use self::dockerfile::Dockerfile;
 pub(crate) use self::stages::DockerfileSignals;
@@ -64,12 +79,13 @@ pub(crate) fn collect_signals(
 
 	let signals = &metadata.signals;
 
-	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args
+	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args.
+	// Cargo.lock lives at the workspace root in workspace projects, not in
+	// the member crate, so walk up if not found locally.
 	let wasm_bindgen_version = if signals.pages {
-		let lock_path = project_dir.join("Cargo.lock");
-		let from_lock = if lock_path.exists() {
+		let from_lock = if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
 			let content = std::fs::read_to_string(&lock_path)
-				.map_err(|e| format!("failed to read Cargo.lock: {e}"))?;
+				.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?;
 			cargo_lock_reader::extract_wasm_bindgen_version(&content)?
 		} else {
 			None

@@ -85,8 +85,9 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 		.unwrap_or("0.1.0")
 		.to_owned();
 
-	// Find reinhardt-web dependency (handles package rename pattern)
-	let features = find_reinhardt_features(&parsed)
+	// Find reinhardt-web dependency (handles package rename pattern,
+	// target-cfg sections, and `workspace = true` inheritance).
+	let features = find_reinhardt_features(project_dir, &parsed)
 		.ok_or("Not a reinhardt-web project: no reinhardt-web dependency found")?;
 
 	let signals = InfraSignals::from_features(&features);
@@ -99,38 +100,124 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 	})
 }
 
-/// Search for reinhardt-web dependency features across dependency sections
-fn find_reinhardt_features(cargo_toml: &toml::Value) -> Option<Vec<String>> {
-	// Check [dependencies] first
+/// Search for reinhardt-web dependency features across every dependency
+/// section that Cargo recognizes:
+///
+/// 1. `[dependencies]`
+/// 2. `[target.'<cfg>'.dependencies]` for every cfg expression
+/// 3. `[workspace.dependencies]` (when this Cargo.toml IS the workspace root)
+///
+/// When the matching entry is `{ workspace = true }`, the lookup walks up
+/// to the workspace root's `[workspace.dependencies]` and re-runs the same
+/// resolver against that table.
+fn find_reinhardt_features(project_dir: &Path, cargo_toml: &toml::Value) -> Option<Vec<String>> {
 	if let Some(features) = cargo_toml
 		.get("dependencies")
-		.and_then(extract_reinhardt_features)
+		.and_then(|deps| resolve_reinhardt_in_table(project_dir, deps))
 	{
 		return Some(features);
 	}
-	// Check [workspace.dependencies]
-	if let Some(features) = cargo_toml
+
+	// Iterate every `[target.'<cfg>'.dependencies]` sub-table.
+	if let Some(target_table) = cargo_toml.get("target").and_then(|t| t.as_table()) {
+		for target_section in target_table.values() {
+			if let Some(deps) = target_section.get("dependencies")
+				&& let Some(features) = resolve_reinhardt_in_table(project_dir, deps)
+			{
+				return Some(features);
+			}
+		}
+	}
+
+	cargo_toml
 		.get("workspace")
 		.and_then(|w| w.get("dependencies"))
-		.and_then(extract_reinhardt_features)
-	{
-		return Some(features);
+		.and_then(|deps| resolve_reinhardt_in_table(project_dir, deps))
+}
+
+/// Locate the reinhardt-web dependency in a dependency table and extract
+/// its features, transparently following `workspace = true` to the
+/// workspace root's `[workspace.dependencies]` table.
+///
+/// Two passes are required because in a workspace member the dependency
+/// is declared as `reinhardt = { workspace = true }` — the local table
+/// has neither the `reinhardt-web` key nor a `package = "reinhardt-web"`
+/// rename, so identification can only happen at the workspace root.
+fn resolve_reinhardt_in_table(project_dir: &Path, deps: &toml::Value) -> Option<Vec<String>> {
+	// Pass 1: directly identifiable reinhardt-web entry (key match or
+	// `package = "reinhardt-web"` rename).
+	if let Some((key, dep)) = find_reinhardt_dep_in_table(deps) {
+		if dep.get("workspace").and_then(|v| v.as_bool()) == Some(true) {
+			return resolve_workspace_features_for_key(project_dir, &key);
+		}
+		return extract_features_from_dep(dep);
+	}
+
+	// Pass 2: any `workspace = true` entry whose key, when resolved against
+	// the workspace root, turns out to be reinhardt-web.
+	let table = deps.as_table()?;
+	for (key, dep) in table {
+		if dep.get("workspace").and_then(|v| v.as_bool()) == Some(true)
+			&& let Some(features) = resolve_workspace_features_for_key(project_dir, key)
+		{
+			return Some(features);
+		}
 	}
 	None
 }
 
-/// Extract features from deps table, checking for both direct and renamed dependency keys
-fn extract_reinhardt_features(deps: &toml::Value) -> Option<Vec<String>> {
-	// Check for key "reinhardt-web" directly
-	if let Some(dep) = deps.get("reinhardt-web") {
-		return extract_features_from_dep(dep);
+/// Walk up from `project_dir` to the workspace root, look up `key` in
+/// `[workspace.dependencies]`, and — if that entry actually IS reinhardt-web
+/// (key match or `package = "reinhardt-web"` rename) — return its features.
+fn resolve_workspace_features_for_key(project_dir: &Path, key: &str) -> Option<Vec<String>> {
+	let workspace_root = find_workspace_root(project_dir)?;
+	let content = std::fs::read_to_string(&workspace_root).ok()?;
+	let parsed: toml::Value = toml::from_str(&content).ok()?;
+	let deps = parsed
+		.get("workspace")
+		.and_then(|w| w.get("dependencies"))?;
+	let dep = deps.get(key)?;
+
+	let is_reinhardt = key == "reinhardt-web"
+		|| dep.get("package").and_then(|p| p.as_str()) == Some("reinhardt-web");
+	if !is_reinhardt {
+		return None;
 	}
-	// Check all deps for package = "reinhardt-web" (rename pattern)
-	if let Some(table) = deps.as_table() {
-		for (_key, dep) in table {
-			if dep.get("package").and_then(|p| p.as_str()) == Some("reinhardt-web") {
-				return extract_features_from_dep(dep);
-			}
+
+	extract_features_from_dep(dep)
+}
+
+/// Walk up from `start_dir` (exclusive — the caller's own Cargo.toml is
+/// already excluded by the surrounding flow) looking for a `Cargo.toml`
+/// containing `[workspace]`. Returns the absolute path to that file.
+fn find_workspace_root(start_dir: &Path) -> Option<std::path::PathBuf> {
+	let mut current = start_dir.canonicalize().ok()?;
+	loop {
+		current = current.parent()?.to_path_buf();
+		let candidate = current.join("Cargo.toml");
+		if candidate.exists()
+			&& let Ok(content) = std::fs::read_to_string(&candidate)
+			&& let Ok(parsed) = toml::from_str::<toml::Value>(&content)
+			&& parsed.get("workspace").is_some()
+		{
+			return Some(candidate);
+		}
+	}
+}
+
+/// Locate the reinhardt-web dependency entry in a deps table, handling the
+/// `package = "reinhardt-web"` rename pattern. Returns `(key, value)` so
+/// the caller can either extract features directly or — when `value` is
+/// `{ workspace = true }` — re-resolve against the workspace root using
+/// the same `key`.
+fn find_reinhardt_dep_in_table(deps: &toml::Value) -> Option<(String, &toml::Value)> {
+	if let Some(dep) = deps.get("reinhardt-web") {
+		return Some(("reinhardt-web".to_owned(), dep));
+	}
+	let table = deps.as_table()?;
+	for (key, dep) in table {
+		if dep.get("package").and_then(|p| p.as_str()) == Some("reinhardt-web") {
+			return Some((key.clone(), dep));
 		}
 	}
 	None
@@ -569,6 +656,177 @@ reinhardt-web = "0.1"
 
 		// Assert
 		assert!(signals.graphql);
+	}
+
+	/// `[target.'cfg(...)'.dependencies]` is the standard way to keep
+	/// `reinhardt-web` server-side while letting the same crate also build
+	/// for `wasm32`. The detector must walk these tables — otherwise every
+	/// app crate using the recommended layout (including the dashboard)
+	/// fails detection.
+	#[rstest]
+	fn test_detect_project_target_cfg_dependency() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "target-cfg-app"
+version = "0.4.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reinhardt = { package = "reinhardt-web", version = "0.1", features = ["db-postgres", "auth-jwt"] }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let metadata = detect_project(dir.path()).expect("target-cfg dep must be detected");
+
+		// Assert
+		assert_eq!(metadata.name, "target-cfg-app");
+		assert!(metadata.features.contains(&"db-postgres".to_owned()));
+		assert!(metadata.features.contains(&"auth-jwt".to_owned()));
+		assert_eq!(metadata.signals.database, Some("postgresql".to_owned()));
+		assert!(metadata.signals.jwt);
+	}
+
+	/// `reinhardt = { workspace = true }` in a member crate must follow
+	/// through to the workspace root's `[workspace.dependencies]` entry,
+	/// where the actual `package = "reinhardt-web"` and feature list live.
+	#[rstest]
+	fn test_detect_project_workspace_inherited() {
+		// Arrange — workspace root
+		let workspace_dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			workspace_dir.path().join("Cargo.toml"),
+			r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+reinhardt = { package = "reinhardt-web", version = "0.1", features = ["db-postgres", "websockets"] }
+"#,
+		)
+		.unwrap();
+		// Member crate
+		let member_dir = workspace_dir.path().join("app");
+		std::fs::create_dir(&member_dir).unwrap();
+		std::fs::write(
+			member_dir.join("Cargo.toml"),
+			r#"
+[package]
+name = "ws-member"
+version = "0.5.0"
+
+[dependencies]
+reinhardt = { workspace = true }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let metadata =
+			detect_project(&member_dir).expect("workspace=true must resolve to root features");
+
+		// Assert
+		assert_eq!(metadata.name, "ws-member");
+		assert!(metadata.features.contains(&"db-postgres".to_owned()));
+		assert!(metadata.features.contains(&"websockets".to_owned()));
+		assert_eq!(metadata.signals.database, Some("postgresql".to_owned()));
+		assert!(metadata.signals.websocket);
+	}
+
+	/// The full dashboard pattern: `workspace = true` declared inside
+	/// `[target.'cfg(...)'.dependencies]`. Both gaps must be closed
+	/// simultaneously for the detector to succeed.
+	#[rstest]
+	fn test_detect_project_workspace_inherited_with_target_cfg() {
+		// Arrange — workspace root carries the actual rename + features
+		let workspace_dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			workspace_dir.path().join("Cargo.toml"),
+			r#"
+[workspace]
+members = ["dashboard"]
+
+[workspace.dependencies]
+reinhardt = { package = "reinhardt-web", version = "0.1", features = ["db-postgres", "auth-jwt", "sessions"] }
+"#,
+		)
+		.unwrap();
+		// Member crate mirrors dashboard/Cargo.toml shape
+		let member_dir = workspace_dir.path().join("dashboard");
+		std::fs::create_dir(&member_dir).unwrap();
+		std::fs::write(
+			member_dir.join("Cargo.toml"),
+			r#"
+[package]
+name = "reinhardt-cloud-dashboard"
+version = "0.1.0"
+
+[dependencies]
+serde = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reinhardt = { workspace = true }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let metadata = detect_project(&member_dir)
+			.expect("dashboard pattern (target-cfg + workspace=true) must be detected");
+
+		// Assert
+		assert_eq!(metadata.name, "reinhardt-cloud-dashboard");
+		assert!(metadata.features.contains(&"db-postgres".to_owned()));
+		assert!(metadata.features.contains(&"auth-jwt".to_owned()));
+		assert!(metadata.features.contains(&"sessions".to_owned()));
+		assert_eq!(metadata.signals.database, Some("postgresql".to_owned()));
+		assert!(metadata.signals.jwt);
+		assert!(metadata.signals.sessions);
+	}
+
+	/// The workspace-inheritance path must still honor the
+	/// `package = "reinhardt-web"` rename when the workspace key itself is
+	/// not literally "reinhardt-web".
+	#[rstest]
+	fn test_detect_project_workspace_inherited_with_package_rename_in_member() {
+		// Arrange — workspace root keys the dep as `reinhardt-web` directly
+		let workspace_dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			workspace_dir.path().join("Cargo.toml"),
+			r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+reinhardt-web = { version = "0.1", features = ["db-mysql", "tasks"] }
+"#,
+		)
+		.unwrap();
+		let member_dir = workspace_dir.path().join("app");
+		std::fs::create_dir(&member_dir).unwrap();
+		std::fs::write(
+			member_dir.join("Cargo.toml"),
+			r#"
+[package]
+name = "renamed-member"
+version = "0.1.0"
+
+[dependencies]
+reinhardt-web = { workspace = true }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let metadata = detect_project(&member_dir).unwrap();
+
+		// Assert
+		assert_eq!(metadata.signals.database, Some("mysql".to_owned()));
+		assert!(metadata.signals.background_worker);
 	}
 
 	#[rstest]
