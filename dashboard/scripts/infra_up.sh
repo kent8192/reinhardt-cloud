@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Start disposable PostgreSQL + Redis containers via `docker run --rm`.
 # Connection parameters (user / password / database / port / redis URL)
-# are parsed from `dashboard/settings/local.toml`.
+# are parsed from the settings TOML matching the active `REINHARDT_ENV`
+# profile (defaults to `local`). Reading the same profile that
+# `dashboard/src/config/settings.rs` resolves keeps the provisioned
+# container credentials in sync with what `runserver` later connects
+# with -- see kent8192/reinhardt-cloud#487.
 set -euo pipefail
 
 PG_NAME="reinhardt-cloud-dashboard-postgres"
@@ -11,12 +15,23 @@ RD_NAME="reinhardt-cloud-dashboard-redis"
 # invoked through cargo-make or directly via `bash dashboard/scripts/infra_up.sh`.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG="$DASHBOARD_DIR/settings/local.toml"
+# Mirror the env-aware lookup performed by `profile_name()` in
+# `dashboard/src/config/settings.rs` so infra-up and runserver pick the
+# same `<profile>.toml` file. Without this the runserver would silently
+# load `<profile>.toml` while infra-up had provisioned the container
+# from `local.toml`, producing a cryptic auth failure at first query.
+PROFILE="${REINHARDT_ENV:-local}"
+CONFIG="$DASHBOARD_DIR/settings/${PROFILE}.toml"
 
 if [ ! -f "$CONFIG" ]; then
-	echo "Error: $CONFIG not found." >&2
-	echo "  Run: cp $DASHBOARD_DIR/settings/local.example.toml $CONFIG" >&2
-	echo "       and fill in any required secrets before retrying." >&2
+	echo "Error: settings file for profile '${PROFILE}' not found at: $CONFIG" >&2
+	if [ -f "$DASHBOARD_DIR/settings/${PROFILE}.example.toml" ]; then
+		echo "  Run: cp $DASHBOARD_DIR/settings/${PROFILE}.example.toml $CONFIG" >&2
+		echo "       and fill in any required secrets before retrying." >&2
+	else
+		echo "  No example template exists for profile '${PROFILE}'." >&2
+		echo "  Either create $CONFIG manually or unset REINHARDT_ENV to use 'local'." >&2
+	fi
 	exit 1
 fi
 
@@ -27,12 +42,14 @@ fi
 
 # Delegate TOML parsing to the shared helper so future infra scripts can
 # reuse the same shape (PG_*, RD_*) without re-implementing the parser.
+# The helper accepts any settings TOML, not just `local.toml`.
 SETTINGS=$(python3 "$SCRIPT_DIR/parse_local_toml.py" "$CONFIG") || exit $?
 eval "$SETTINGS"
 
 # Drop any stale containers from a previous aborted run so --name is free.
 docker rm -f "$PG_NAME" "$RD_NAME" >/dev/null 2>&1 || true
 
+echo "Using settings profile '${PROFILE}' (from $CONFIG)"
 echo "Starting PostgreSQL ($PG_NAME) on ${PG_HOST}:${PG_PORT} as ${PG_USER}/${PG_DB}..."
 docker run --rm -d \
 	--name "$PG_NAME" \

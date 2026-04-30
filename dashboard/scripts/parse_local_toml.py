@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Parse dashboard/settings/local.toml and emit shell-evaluable KEY=VALUE lines.
+"""Parse a dashboard settings TOML and emit shell-evaluable KEY=VALUE lines.
 
 Used by `dashboard/scripts/infra_up.sh` (and any future infra script that
 needs the same connection info) to keep the dashboard's runtime
-configuration in a single source of truth.
+configuration in a single source of truth. Despite the historical name,
+this script accepts any settings profile (local.toml, ci.toml, ...) --
+the caller picks the file based on `REINHARDT_ENV`.
 
 Usage:
-    parse_local_toml.py <path_to_local.toml>
+    parse_local_toml.py <path_to_settings.toml>
 
 Stdout (one KEY=value per line, suitable for `eval`):
     PG_HOST=localhost
@@ -58,7 +60,7 @@ def _resolve_password(raw: object) -> str:
 
 def main(argv: list[str]) -> int:
 	if len(argv) != 2:
-		sys.stderr.write("Usage: parse_local_toml.py <local.toml>\n")
+		sys.stderr.write("Usage: parse_local_toml.py <settings.toml>\n")
 		return 2
 
 	data = _load_toml(argv[1])
@@ -66,7 +68,9 @@ def main(argv: list[str]) -> int:
 	try:
 		db = data["core"]["databases"]["default"]
 	except KeyError:
-		sys.stderr.write("Error: [core.databases.default] missing from local.toml\n")
+		sys.stderr.write(
+			f"Error: [core.databases.default] missing from {argv[1]}\n"
+		)
 		return 1
 
 	pw = _resolve_password(db.get("password", ""))
