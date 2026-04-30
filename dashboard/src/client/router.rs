@@ -22,13 +22,11 @@
 //!
 //! # Native parallel registration
 //!
-//! Server-side reverse URL resolution uses
-//! [`super::route_table::SPA_ROUTES`] as the cross-target source of
-//! truth for `(route_name, path_pattern)` pairs. Every `named_route`
-//! call below MUST appear in `SPA_ROUTES` with the same pattern.
-//! See `super::route_table` for the workaround rationale and ideal
-//! implementation (kent8192/reinhardt-cloud#498, #501;
-//! kent8192/reinhardt-web#4067).
+//! Server-side reverse URL resolution is registered via
+//! `UnifiedRouter::client(...)` in `crate::config::urls::make_router`,
+//! which calls `register_client_reverser` so server-side callers of
+//! `url_for` can reverse names. Every `named_route` call below MUST
+//! appear there with the same `(name, pattern)` pair.
 
 use reinhardt::pages::router::Router;
 

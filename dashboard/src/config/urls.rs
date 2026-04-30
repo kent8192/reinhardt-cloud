@@ -28,8 +28,13 @@ use reinhardt::di::{
 	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context, injectable_factory,
 };
 use reinhardt::pages::server_fn::ServerFnRouterExt;
+use reinhardt::register_client_reverser;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
+
+use crate::apps::auth::client::pages::{login_page, register_page};
+use crate::client::layout::dashboard_shell;
+use crate::client::pages::not_found_page;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
@@ -190,8 +195,30 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 		.try_unwrap()
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 
-	DashboardRouter(
-		UnifiedRouter::new()
+	let unified = UnifiedRouter::new()
+			// SPA route table — server-side reverse URL resolution. Mirrors
+			// the WASM-side `init_router()` registration so cross-target
+			// callers of `url_for` (SSR `href`, server-rendered redirects)
+			// resolve names like `auth:login_page` to `/login` without the
+			// WASM bundle being loaded. The `register_client_reverser`
+			// call below makes the reverser globally retrievable via
+			// `get_client_reverser()` (used by `DashboardUrlResolver` on
+			// native).
+			.client(|c| {
+				c.named_route("dashboard:home", "/", dashboard_shell)
+					.named_route("auth:login_page", "/login", login_page)
+					.named_route("auth:register_page", "/register", register_page)
+					// Placeholder names so navigation hrefs resolve via
+					// `ClientUrlResolver` even before these pages are
+					// implemented. Mirror entries in `init_router()`.
+					.named_route("dashboard:clusters", "/clusters", not_found_page)
+					.named_route(
+						"dashboard:deployments",
+						"/deployments",
+						not_found_page,
+					)
+					.not_found(not_found_page)
+			})
 			// Admin panel
 			.mount("/admin/", infra.admin_router)
 			.mount("/static/admin/", admin_static_routes())
@@ -239,8 +266,15 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_middleware(CookieSessionAuthMiddleware::with_config(
 				infra.session_backend,
 				infra.session_config,
-			)),
-	)
+			));
+
+	// Register the client reverser globally so server-side callers of
+	// `url_for(name)` (SSR `href`, redirect-after-login, etc.) can
+	// reverse-resolve SPA route names. Idempotent across DI resolutions
+	// because the global slot is replaced atomically.
+	register_client_reverser(unified.client_ref().to_reverser());
+
+	DashboardRouter(unified)
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

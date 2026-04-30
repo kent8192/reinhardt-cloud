@@ -3,20 +3,21 @@
 //! Provides a [`ClientUrlResolver`] implementation that resolves named
 //! SPA routes (e.g. `auth:login_page`) to URL paths. SPA components call
 //! [`urls()`] to look up routes registered in
-//! `super::router::init_router`, eliminating hard-coded paths in `href`
-//! attributes.
+//! `crate::config::urls::make_router` (server-side, via
+//! `UnifiedRouter::client(...)`) and `super::router::init_router` (WASM
+//! side, for the SPA `Router`).
 //!
 //! Route name conventions follow the server-side `<app>:<name>` pattern.
-//! See `super::route_table::SPA_ROUTES` for the registered names.
 //!
 //! # Cross-target behaviour
 //!
 //! - **WASM**: delegates to the globally installed `pages::Router`
 //!   (built by [`super::router::init_router`]) via
 //!   `pages::with_router(|r| r.reverse(name, params))`.
-//! - **Native**: looks up the path in [`super::route_table::SPA_ROUTES`].
-//!   Required for SSR `href` generation and any server-side use of
-//!   [`url_for`].
+//! - **Native**: delegates to the global [`ClientUrlReverser`] registered
+//!   by `make_router` calling
+//!   `register_client_reverser(unified.client_ref().to_reverser())`.
+//!   Required for SSR `href` generation.
 //!
 //! Both branches panic on an unregistered name so missing wiring is
 //! caught during dev/test rather than producing broken links silently.
@@ -27,11 +28,11 @@ use reinhardt::ClientUrlResolver;
 use reinhardt::pages::with_router;
 
 #[cfg(not(wasm))]
-use crate::client::route_table;
+use reinhardt::get_client_reverser;
 
 /// SPA URL resolver backed by either the globally installed
-/// `pages::Router` (WASM) or the static [`route_table::SPA_ROUTES`]
-/// table (native).
+/// `pages::Router` (WASM) or the globally registered
+/// `ClientUrlReverser` (native).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DashboardUrlResolver;
 
@@ -45,33 +46,28 @@ impl ClientUrlResolver for DashboardUrlResolver {
 		})
 	}
 
-	// Native build: look up the static route table. Used for SSR `href`
-	// generation and any server-side caller of `url_for(name)`.
-	//
-	// Workaround for kent8192/reinhardt-web#4067 (tracked in #501).
-	// Once upstream lands a `Sync`-compatible `ClientRouter` (or splits
-	// the `client-router` feature), `make_router` can register routes via
-	// `UnifiedRouter::client(...)` and this branch should delegate to
-	// `reinhardt::get_client_reverser()` instead. See route_table.rs for
-	// the full ideal-implementation snippet.
+	// Native build: delegate to the globally registered
+	// `ClientUrlReverser`. Registration happens inside
+	// `make_router` via
+	// `register_client_reverser(unified.client_ref().to_reverser())`,
+	// which is invoked when the DI container resolves
+	// `DashboardRouter` at startup (and at the start of every test
+	// that resolves the router through DI).
 	#[cfg(not(wasm))]
 	fn resolve_client_url(&self, name: &str, params: &[(&str, &str)]) -> String {
-		// Current routes are param-less; if a route gains `{param}`
-		// placeholders, extend this lookup to perform substitution.
-		assert!(
-			params.is_empty(),
-			"native SPA URL resolver does not yet support path parameters; \
-			 route '{name}' was called with {} param(s). Implement substitution \
-			 in route_table::lookup or wait for reinhardt-web#4067.",
-			params.len()
-		);
-		match route_table::lookup(name) {
-			Some(pattern) => pattern.to_string(),
-			None => panic!(
-				"SPA route '{name}' not registered in route_table::SPA_ROUTES; \
-				 add it there and in init_router"
-			),
-		}
+		let reverser = get_client_reverser().unwrap_or_else(|| {
+			panic!(
+				"global ClientUrlReverser not registered; ensure DashboardRouter \
+				 has been resolved through DI (which calls register_client_reverser \
+				 inside make_router) before invoking url_for"
+			)
+		});
+		reverser.reverse(name, params).unwrap_or_else(|| {
+			panic!(
+				"SPA route '{name}' not registered in make_router .client(...); \
+				 add it there to enable server-side reverse URL resolution"
+			)
+		})
 	}
 }
 
@@ -100,23 +96,30 @@ pub fn url_for(name: &str) -> String {
 #[cfg(all(test, not(wasm)))]
 mod tests {
 	use super::{DashboardUrlResolver, url_for};
+	use crate::config::test_helpers::build_test_app;
 	use reinhardt::ClientUrlResolver;
 	use rstest::rstest;
+	use serial_test::serial;
 
-	// Verifies the native (non-WASM) `DashboardUrlResolver` produces the
-	// path defined in `route_table::SPA_ROUTES`. Required for SSR `href`
-	// generation. See kent8192/reinhardt-cloud#498 for context.
+	// Verifies the native `DashboardUrlResolver` delegates to the
+	// globally registered `ClientUrlReverser`. Required for SSR `href`
+	// generation. See kent8192/reinhardt-cloud#498 + #501;
+	// kent8192/reinhardt-web#4067 / #4068.
 	#[rstest]
 	#[case::home("dashboard:home", "/")]
 	#[case::login("auth:login_page", "/login")]
 	#[case::register("auth:register_page", "/register")]
 	#[case::clusters("dashboard:clusters", "/clusters")]
 	#[case::deployments("dashboard:deployments", "/deployments")]
-	fn native_resolver_returns_pattern_from_route_table(
+	#[serial(global_client_reverser)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn native_resolver_delegates_to_global_reverser(
 		#[case] name: &str,
 		#[case] expected_path: &str,
 	) {
-		// Arrange
+		// Arrange — building the router through DI registers the global
+		// reverser as a side effect of make_router.
+		let _app = build_test_app();
 		let resolver = DashboardUrlResolver;
 
 		// Act
@@ -126,13 +129,18 @@ mod tests {
 		assert_eq!(
 			resolved, expected_path,
 			"native DashboardUrlResolver must reverse-resolve '{name}' to '{expected_path}' \
-			 so server-side SSR can produce correct hrefs"
+			 via the globally registered ClientUrlReverser"
 		);
 	}
 
 	#[rstest]
-	fn url_for_helper_resolves_login_page() {
-		// Arrange & Act
+	#[serial(global_client_reverser)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn url_for_helper_resolves_login_page() {
+		// Arrange
+		let _app = build_test_app();
+
+		// Act
 		let url = url_for("auth:login_page");
 
 		// Assert — guards against regressions in the convenience wrapper
@@ -141,24 +149,16 @@ mod tests {
 	}
 
 	#[rstest]
-	#[should_panic(expected = "not registered in route_table::SPA_ROUTES")]
-	fn native_resolver_panics_on_unregistered_name() {
+	#[should_panic(expected = "not registered in make_router")]
+	#[serial(global_client_reverser)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn native_resolver_panics_on_unregistered_name() {
 		// Arrange
+		let _app = build_test_app();
 		let resolver = DashboardUrlResolver;
 
 		// Act — must panic so missing wiring is caught during dev/test
 		// rather than producing broken links silently.
 		let _ = resolver.resolve_client_url("nonexistent:route", &[]);
-	}
-
-	#[rstest]
-	#[should_panic(expected = "does not yet support path parameters")]
-	fn native_resolver_panics_when_params_are_passed() {
-		// Arrange
-		let resolver = DashboardUrlResolver;
-
-		// Act — guard the explicit assertion until parameter substitution
-		// is implemented (or upstream reinhardt-web#4067 lands).
-		let _ = resolver.resolve_client_url("auth:login_page", &[("id", "1")]);
 	}
 }
