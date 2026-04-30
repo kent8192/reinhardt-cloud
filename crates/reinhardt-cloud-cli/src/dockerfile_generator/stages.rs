@@ -77,9 +77,17 @@ pub(crate) fn build_chef_stage(signals: &DockerfileSignals) -> Stage {
 	// dependency tree (including transitive build scripts invoked when
 	// cargo-chef inspects metadata) has the compiler available.
 	if signals.grpc || signals.protoc_needed {
+		// Install both `protobuf-compiler` (provides /usr/bin/protoc) and
+		// `libprotobuf-dev` (ships well-known proto headers under
+		// /usr/include/google/protobuf/, e.g. timestamp.proto, duration.proto,
+		// empty.proto). prost-build invokes protoc with `-I/usr/include`
+		// implicitly, so without libprotobuf-dev any `import
+		// "google/protobuf/*.proto"` fails at build time. See
+		// kent8192/reinhardt-cloud#496.
 		instructions.push(Instruction::RunMulti(vec![
 			"apt-get update".to_string(),
-			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev"
+				.to_string(),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
 		]));
 	}
@@ -108,9 +116,17 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 	let mut instructions = Vec::new();
 
 	if signals.grpc || signals.protoc_needed {
+		// Install both `protobuf-compiler` (provides /usr/bin/protoc) and
+		// `libprotobuf-dev` (ships well-known proto headers under
+		// /usr/include/google/protobuf/, e.g. timestamp.proto, duration.proto,
+		// empty.proto). prost-build invokes protoc with `-I/usr/include`
+		// implicitly, so without libprotobuf-dev any `import
+		// "google/protobuf/*.proto"` fails at build time. See
+		// kent8192/reinhardt-cloud#496.
 		instructions.push(Instruction::RunMulti(vec![
 			"apt-get update".to_string(),
-			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev"
+				.to_string(),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
 		]));
 	}
@@ -372,6 +388,19 @@ mod tests {
 		})
 	}
 
+	/// Finds the apt-get install line within a stage's RunMulti instructions.
+	/// Returns the full command string so callers can assert its exact content
+	/// (e.g., that both `protobuf-compiler` and `libprotobuf-dev` are listed).
+	fn stage_apt_install_line(stage: &Stage) -> Option<String> {
+		stage.instructions.iter().find_map(|inst| match inst {
+			Instruction::RunMulti(cmds) => cmds
+				.iter()
+				.find(|c| c.starts_with("apt-get install"))
+				.cloned(),
+			_ => None,
+		})
+	}
+
 	fn stage_contains_copy_from(stage: &Stage, from_name: &str) -> bool {
 		stage.instructions.iter().any(|inst| {
 			matches!(
@@ -413,8 +442,13 @@ mod tests {
 		// Act
 		let stage = build_builder_stage(&minimal_signals);
 
-		// Assert
-		assert!(stage_contains_run(&stage, "protobuf-compiler"));
+		// Assert: install line must include both protobuf-compiler (provides
+		// protoc) AND libprotobuf-dev (ships well-known proto headers under
+		// /usr/include/google/protobuf/). See kent8192/reinhardt-cloud#496.
+		assert_eq!(
+			stage_apt_install_line(&stage).as_deref(),
+			Some("apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev")
+		);
 	}
 
 	// S4
@@ -750,9 +784,10 @@ mod tests {
 		assert!(!stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
 	}
 
-	// PR1 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
-	// chef stage so cargo-chef metadata extraction does not abort when a
-	// transitive build script invokes protoc.
+	// PR1 (Refs #477, #496): protoc_needed alone (grpc=false) installs protoc
+	// AND libprotobuf-dev in the chef stage so cargo-chef metadata extraction
+	// does not abort when a transitive build script invokes protoc, and so
+	// well-known proto imports (google/protobuf/timestamp.proto, etc.) resolve.
 	#[rstest]
 	fn chef_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
 		// Arrange
@@ -762,16 +797,20 @@ mod tests {
 		// Act
 		let stage = build_chef_stage(&minimal_signals);
 
-		// Assert
-		assert!(
-			stage_contains_run(&stage, "protobuf-compiler"),
-			"chef stage must install protobuf-compiler when protoc_needed is set"
+		// Assert: install line must list both packages. libprotobuf-dev ships
+		// the well-known proto headers (google/protobuf/timestamp.proto, etc.)
+		// that prost-build needs. See kent8192/reinhardt-cloud#496.
+		assert_eq!(
+			stage_apt_install_line(&stage).as_deref(),
+			Some("apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev"),
+			"chef stage must install protobuf-compiler AND libprotobuf-dev when protoc_needed is set"
 		);
 	}
 
-	// PR2 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
-	// builder stage so `cargo chef cook` succeeds against transitive
-	// prost/tonic dependencies.
+	// PR2 (Refs #477, #496): protoc_needed alone (grpc=false) installs protoc
+	// AND libprotobuf-dev in the builder stage so `cargo chef cook` succeeds
+	// against transitive prost/tonic dependencies and well-known proto imports
+	// resolve.
 	#[rstest]
 	fn builder_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
 		// Arrange
@@ -781,10 +820,13 @@ mod tests {
 		// Act
 		let stage = build_builder_stage(&minimal_signals);
 
-		// Assert
-		assert!(
-			stage_contains_run(&stage, "protobuf-compiler"),
-			"builder stage must install protobuf-compiler when protoc_needed is set"
+		// Assert: install line must list both packages. libprotobuf-dev ships
+		// the well-known proto headers (google/protobuf/timestamp.proto, etc.)
+		// that prost-build needs. See kent8192/reinhardt-cloud#496.
+		assert_eq!(
+			stage_apt_install_line(&stage).as_deref(),
+			Some("apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev"),
+			"builder stage must install protobuf-compiler AND libprotobuf-dev when protoc_needed is set"
 		);
 	}
 
