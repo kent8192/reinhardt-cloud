@@ -1,0 +1,15 @@
+# Docker images for Unit Tests
+# Pre-pulled to avoid Docker Hub rate limits.
+#
+# Why this is necessary (see issue #492):
+#   testcontainers-rs uses bollard, which talks to the Docker daemon HTTP API
+#   directly. bollard does NOT read ~/.docker/config.json, so even after
+#   `docker/login-action` succeeds, container starts via testcontainers-rs
+#   pull anonymously and trip Docker Hub's unauthenticated rate limit.
+#
+#   Pre-pulling here goes through the docker CLI, which IS authenticated
+#   via ~/.docker/config.json. Subsequent bollard `create_image` calls hit
+#   the local cache instead of Docker Hub.
+
+# Email mock used by SMTP-related unit tests via TestContainers
+axllent/mailpit:latest

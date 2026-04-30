@@ -136,6 +136,20 @@ pub(crate) fn collect_signals(
 		.and_then(|s| s.build.as_ref())
 		.and_then(|b| b.base_image.clone());
 
+	// settings/ detection (#486 issue 2): if the project crate ships a
+	// `settings/` directory next to its `Cargo.toml`, the runtime image
+	// must bundle it and pin `REINHARDT_CLOUD_CONFIG_DIR` so the binary
+	// does not fall back to `CARGO_MANIFEST_DIR` (host build path) at
+	// runtime.
+	let has_settings_dir = project_dir.join("settings").is_dir();
+
+	// Compute the project's path relative to the Docker build context.
+	// The build context is the workspace root (where `Cargo.lock` lives
+	// in workspace projects). For single-crate projects, project_dir
+	// IS the workspace root, so the relative path is empty and we use
+	// `None` to signal "no prefix needed".
+	let project_relative_path = compute_project_relative_path(project_dir);
+
 	Ok(DockerfileSignals {
 		app_name: metadata.name.clone(),
 		rust_version,
@@ -149,7 +163,29 @@ pub(crate) fn collect_signals(
 		base_image_override,
 		tracing: signals.tracing,
 		protoc_needed,
+		has_settings_dir,
+		project_relative_path,
 	})
+}
+
+/// Returns the project's path relative to the workspace root (Docker
+/// build context), or `None` if the project IS the workspace root or
+/// the relationship cannot be determined. Helper extracted from
+/// `collect_signals` for testability.
+fn compute_project_relative_path(project_dir: &Path) -> Option<String> {
+	let lock_path = locate_ancestor_file(project_dir, "Cargo.lock")?;
+	let workspace_root = lock_path.parent()?;
+	let project_canonical = project_dir.canonicalize().ok()?;
+	let workspace_canonical = workspace_root.canonicalize().ok()?;
+	if project_canonical == workspace_canonical {
+		return None;
+	}
+	let rel = project_canonical
+		.strip_prefix(&workspace_canonical)
+		.ok()?
+		.to_string_lossy()
+		.into_owned();
+	if rel.is_empty() { None } else { Some(rel) }
 }
 
 /// Generate a Dockerfile from signals.
@@ -188,6 +224,8 @@ mod tests {
 			base_image_override: None,
 			tracing: false,
 			protoc_needed: false,
+			has_settings_dir: false,
+			project_relative_path: None,
 		}
 	}
 
@@ -324,6 +362,26 @@ mod tests {
 		assert_eq!(
 			generate(&signals).to_string(),
 			include_str!("dockerfile_generator/snapshots/pages_full.dockerfile")
+		);
+	}
+
+	// G10b (Refs #486 issue 2): pages project shipping a `settings/`
+	// directory that lives at `dashboard/` inside the workspace. The
+	// runtime stage must COPY the settings TOMLs from
+	// `/app/dashboard/settings` and pin `REINHARDT_CLOUD_CONFIG_DIR`.
+	#[rstest]
+	fn snapshot_pages_with_settings() {
+		let signals = DockerfileSignals {
+			pages: true,
+			wasm_bindgen_version: Some("0.2.100".into()),
+			database: Some("postgresql".into()),
+			has_settings_dir: true,
+			project_relative_path: Some("dashboard".to_string()),
+			..minimal_signals()
+		};
+		assert_eq!(
+			generate(&signals).to_string(),
+			include_str!("dockerfile_generator/snapshots/pages_with_settings.dockerfile")
 		);
 	}
 

@@ -28,6 +28,24 @@ pub(crate) struct DockerfileSignals {
 	/// `tonic-build`) can require protoc even when the consumer crate
 	/// does not enable the reinhardt-web `grpc` feature.
 	pub(crate) protoc_needed: bool,
+	/// When true, the project has a `settings/` directory next to its
+	/// `Cargo.toml`. The runtime stage will COPY it into `/app/settings`
+	/// and set `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` so the binary
+	/// loads its configuration from a deterministic, container-local
+	/// location rather than falling back to `CARGO_MANIFEST_DIR` (which
+	/// does not exist inside the runtime image).
+	///
+	/// See kent8192/reinhardt-cloud#486 (issue 2).
+	pub(crate) has_settings_dir: bool,
+	/// Path to the project crate relative to the Docker build context
+	/// (typically the workspace root). When `Some("dashboard")`, the
+	/// builder stage's `COPY . .` puts the project sources at
+	/// `/app/dashboard/...`, so the runtime stage must reference
+	/// `/app/dashboard/settings` rather than `/app/settings`. `None` for
+	/// single-crate projects where the project dir IS the build context.
+	///
+	/// See kent8192/reinhardt-cloud#486 (issue 2).
+	pub(crate) project_relative_path: Option<String>,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
@@ -121,8 +139,13 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 		src: ".".to_string(),
 		dst: ".".to_string(),
 	});
+	// Scope the build to the project crate so wasm-incompatible workspace
+	// members (operator/agent/CLI/grpc/etc.) are not pulled into the build
+	// graph. See kent8192/reinhardt-cloud#485 for the underlying mio failure
+	// that motivated scoping.
 	instructions.push(Instruction::Run(format!(
-		"cargo build --release{feature_args}"
+		"cargo build --release -p {}{feature_args}",
+		signals.app_name
 	)));
 
 	Stage {
@@ -161,7 +184,17 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 				src: ".".to_string(),
 				dst: ".".to_string(),
 			},
-			Instruction::Run("cargo build --release --target wasm32-unknown-unknown".to_string()),
+			// `--lib -p {app_name}` ensures only the dashboard crate's cdylib is
+			// built. Without `-p` cargo builds every workspace member for the
+			// wasm32 target, which fails on members that depend on
+			// `tokio = { features = ["full"] }` because `mio`'s net feature is
+			// not wasm-compatible. Without `--lib`, cargo also tries to build
+			// the project's host binary (`main.rs`) for wasm32 and fails.
+			// See kent8192/reinhardt-cloud#485.
+			Instruction::Run(format!(
+				"cargo build --release --target wasm32-unknown-unknown --lib -p {}",
+				signals.app_name
+			)),
 			Instruction::RunMulti(vec![
 				format!(
 					"wasm-bindgen --out-dir /wasm-dist --target web \
@@ -215,6 +248,22 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		});
 	}
 
+	// Bundle the project's `settings/` TOMLs into the runtime image so the
+	// binary can load its configuration without bind-mounts. The source
+	// path depends on whether the project lives at the build-context root
+	// or as a workspace member. See kent8192/reinhardt-cloud#486 (issue 2).
+	if signals.has_settings_dir {
+		let settings_src = match signals.project_relative_path.as_deref() {
+			Some(rel) => format!("/app/{rel}/settings"),
+			None => "/app/settings".to_string(),
+		};
+		instructions.push(Instruction::Copy {
+			from: Some("builder".to_string()),
+			src: settings_src,
+			dst: "/app/settings".to_string(),
+		});
+	}
+
 	if is_custom_image {
 		// Custom image: use numeric UID (65534 = nobody) since useradd is
 		// unavailable on non-Debian images such as distroless.
@@ -231,6 +280,16 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	let mut env_pairs = vec![("RUST_LOG".to_string(), "info".to_string())];
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
+	}
+	// Pin the config dir so the binary loads its TOMLs from a known
+	// location instead of falling back to `CARGO_MANIFEST_DIR` (which
+	// resolves to the host build path and is meaningless in the runtime
+	// image). See kent8192/reinhardt-cloud#486 (issue 2).
+	if signals.has_settings_dir {
+		env_pairs.push((
+			"REINHARDT_CLOUD_CONFIG_DIR".to_string(),
+			"/app/settings".to_string(),
+		));
 	}
 	instructions.push(Instruction::Env(env_pairs));
 
@@ -300,6 +359,8 @@ mod tests {
 			base_image_override: None,
 			tracing: false,
 			protoc_needed: false,
+			has_settings_dir: false,
+			project_relative_path: None,
 		}
 	}
 
@@ -608,9 +669,10 @@ mod tests {
 
 		// Assert: both cargo-chef caching and the final build must carry the
 		// graphql feature so the compiled binary includes GraphQL code.
+		// The cargo build line also carries `-p my-app` for #485 scoping.
 		assert!(
-			stage_contains_run(&stage, "cargo build --release --features graphql"),
-			"expected graphql feature in cargo build"
+			stage_contains_run(&stage, "cargo build --release -p my-app --features graphql"),
+			"expected graphql feature in cargo build with package scope"
 		);
 		assert!(
 			stage_contains_run(&stage, "cargo chef cook --release --features graphql"),
@@ -723,6 +785,134 @@ mod tests {
 		assert!(
 			stage_contains_run(&stage, "protobuf-compiler"),
 			"builder stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PS1 (Refs #485): builder stage scopes cargo build to the project
+	// package, preventing wasm-incompatible workspace members from being
+	// pulled into the build graph.
+	#[rstest]
+	fn builder_stage_scopes_cargo_build_to_package(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "cargo build --release -p my-app"),
+			"builder stage must pass `-p {{app_name}}` to cargo build; \
+			 see kent8192/reinhardt-cloud#485"
+		);
+	}
+
+	// PS2 (Refs #485): wasm stage scopes cargo build to the project package
+	// AND restricts to lib targets. Without `--lib`, cargo also tries to
+	// compile the project's bin (`main.rs`) for wasm32 and fails because
+	// server-only deps (tokio with full features) are not wasm-compatible.
+	#[rstest]
+	fn wasm_stage_scopes_cargo_build_to_lib_target(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+
+		// Act
+		let stage = build_wasm_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(
+				&stage,
+				"cargo build --release --target wasm32-unknown-unknown --lib -p my-app",
+			),
+			"wasm stage must pass `--lib -p {{app_name}}` to cargo build; \
+			 see kent8192/reinhardt-cloud#485"
+		);
+	}
+
+	// SD1 (Refs #486 issue 2): runtime stage bundles project settings when
+	// the project ships a `settings/` directory next to its `Cargo.toml`.
+	// For workspace members, the source path includes the project's
+	// relative path so `COPY` resolves to the correct location inside
+	// the builder stage's filesystem.
+	#[rstest]
+	fn runtime_stage_bundles_settings_for_workspace_member(mut minimal_signals: DockerfileSignals) {
+		// Arrange — workspace member at `dashboard/` with a settings dir
+		minimal_signals.has_settings_dir = true;
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert: COPY must reference the workspace-relative path AND set
+		// REINHARDT_CLOUD_CONFIG_DIR so the binary doesn't fall back to
+		// CARGO_MANIFEST_DIR at runtime.
+		let copies_settings = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { from: Some(f), src, dst }
+					if f == "builder" && src == "/app/dashboard/settings" && dst == "/app/settings"
+			)
+		});
+		assert!(
+			copies_settings,
+			"runtime stage must COPY /app/dashboard/settings -> /app/settings"
+		);
+		assert_eq!(
+			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").as_deref(),
+			Some("/app/settings"),
+			"runtime stage must pin REINHARDT_CLOUD_CONFIG_DIR; \
+			 see kent8192/reinhardt-cloud#486"
+		);
+	}
+
+	// SD2 (Refs #486 issue 2): single-crate project (no workspace) places
+	// `settings/` at the build context root, so the COPY src is just
+	// `/app/settings`.
+	#[rstest]
+	fn runtime_stage_bundles_settings_for_root_project(mut minimal_signals: DockerfileSignals) {
+		// Arrange — single-crate project: project_relative_path is None
+		minimal_signals.has_settings_dir = true;
+		minimal_signals.project_relative_path = None;
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		let copies_settings = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { from: Some(f), src, dst }
+					if f == "builder" && src == "/app/settings" && dst == "/app/settings"
+			)
+		});
+		assert!(
+			copies_settings,
+			"single-crate project: COPY src must be /app/settings (no prefix)"
+		);
+	}
+
+	// SD3 (Refs #486 issue 2): when has_settings_dir is false (project
+	// has no settings/ directory), runtime stage must NOT emit the COPY
+	// or the env var. This preserves backwards compatibility for
+	// projects that load settings from elsewhere.
+	#[rstest]
+	fn runtime_stage_omits_settings_when_dir_absent(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		let has_settings_copy = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { dst, .. } if dst == "/app/settings"
+			)
+		});
+		assert!(
+			!has_settings_copy,
+			"must not COPY settings when has_settings_dir is false"
+		);
+		assert!(
+			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").is_none(),
+			"must not set REINHARDT_CLOUD_CONFIG_DIR when has_settings_dir is false"
 		);
 	}
 
