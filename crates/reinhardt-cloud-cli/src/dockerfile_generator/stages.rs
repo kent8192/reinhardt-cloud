@@ -121,8 +121,13 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 		src: ".".to_string(),
 		dst: ".".to_string(),
 	});
+	// Scope the build to the project crate so wasm-incompatible workspace
+	// members (operator/agent/CLI/grpc/etc.) are not pulled into the build
+	// graph. See kent8192/reinhardt-cloud#485 for the underlying mio failure
+	// that motivated scoping.
 	instructions.push(Instruction::Run(format!(
-		"cargo build --release{feature_args}"
+		"cargo build --release -p {}{feature_args}",
+		signals.app_name
 	)));
 
 	Stage {
@@ -161,7 +166,17 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 				src: ".".to_string(),
 				dst: ".".to_string(),
 			},
-			Instruction::Run("cargo build --release --target wasm32-unknown-unknown".to_string()),
+			// `--lib -p {app_name}` ensures only the dashboard crate's cdylib is
+			// built. Without `-p` cargo builds every workspace member for the
+			// wasm32 target, which fails on members that depend on
+			// `tokio = { features = ["full"] }` because `mio`'s net feature is
+			// not wasm-compatible. Without `--lib`, cargo also tries to build
+			// the project's host binary (`main.rs`) for wasm32 and fails.
+			// See kent8192/reinhardt-cloud#485.
+			Instruction::Run(format!(
+				"cargo build --release --target wasm32-unknown-unknown --lib -p {}",
+				signals.app_name
+			)),
 			Instruction::RunMulti(vec![
 				format!(
 					"wasm-bindgen --out-dir /wasm-dist --target web \
@@ -608,9 +623,10 @@ mod tests {
 
 		// Assert: both cargo-chef caching and the final build must carry the
 		// graphql feature so the compiled binary includes GraphQL code.
+		// The cargo build line also carries `-p my-app` for #485 scoping.
 		assert!(
-			stage_contains_run(&stage, "cargo build --release --features graphql"),
-			"expected graphql feature in cargo build"
+			stage_contains_run(&stage, "cargo build --release -p my-app --features graphql"),
+			"expected graphql feature in cargo build with package scope"
 		);
 		assert!(
 			stage_contains_run(&stage, "cargo chef cook --release --features graphql"),
@@ -723,6 +739,46 @@ mod tests {
 		assert!(
 			stage_contains_run(&stage, "protobuf-compiler"),
 			"builder stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PS1 (Refs #485): builder stage scopes cargo build to the project
+	// package, preventing wasm-incompatible workspace members from being
+	// pulled into the build graph.
+	#[rstest]
+	fn builder_stage_scopes_cargo_build_to_package(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "cargo build --release -p my-app"),
+			"builder stage must pass `-p {{app_name}}` to cargo build; \
+			 see kent8192/reinhardt-cloud#485"
+		);
+	}
+
+	// PS2 (Refs #485): wasm stage scopes cargo build to the project package
+	// AND restricts to lib targets. Without `--lib`, cargo also tries to
+	// compile the project's bin (`main.rs`) for wasm32 and fails because
+	// server-only deps (tokio with full features) are not wasm-compatible.
+	#[rstest]
+	fn wasm_stage_scopes_cargo_build_to_lib_target(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+
+		// Act
+		let stage = build_wasm_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(
+				&stage,
+				"cargo build --release --target wasm32-unknown-unknown --lib -p my-app",
+			),
+			"wasm stage must pass `--lib -p {{app_name}}` to cargo build; \
+			 see kent8192/reinhardt-cloud#485"
 		);
 	}
 
