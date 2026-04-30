@@ -28,13 +28,19 @@ pub struct IssuedAgentToken {
 	pub hash: String,
 }
 
-/// Load the JWT signing secret from the environment.
+/// Load the JWT signing secret.
 ///
-/// Matches the convention used by the auth app's `LocalAuthService`.
+/// Resolves via `crate::config::settings::get_jwt_secret()`, which reads the
+/// top-level `jwt_secret` key from the active TOML profile and falls back to
+/// the `REINHARDT_CLOUD_JWT_SECRET` environment variable. Returns an error
+/// only when neither source supplies a value.
+///
+/// Issue: kent8192/reinhardt-cloud#494
 pub fn jwt_secret() -> Result<String, AppError> {
-	std::env::var("REINHARDT_CLOUD_JWT_SECRET").map_err(|_| {
+	crate::config::settings::get_jwt_secret().ok_or_else(|| {
 		AppError::Internal(
-			"JWT secret not configured: set REINHARDT_CLOUD_JWT_SECRET env var".to_string(),
+			"JWT secret not configured: set jwt_secret in TOML or REINHARDT_CLOUD_JWT_SECRET env var"
+				.to_string(),
 		)
 	})
 }
@@ -59,13 +65,17 @@ mod tests {
 	use rstest::rstest;
 	use serial_test::serial;
 
-	const TEST_SECRET: &str = "test-secret-for-cluster-token-issuance";
+	/// Path that is guaranteed not to contain settings TOML files.
+	/// Used to neutralise TOML lookup so env-var resolution can be tested
+	/// in isolation (`get_jwt_secret` falls back when TOML is absent).
+	const NONEXISTENT_CONFIG_DIR: &str = "/nonexistent-test-config-dir-494";
 
 	#[rstest]
 	#[serial(env_jwt_secret)]
 	fn test_issue_agent_token_roundtrip_hash_verifies() {
-		// Arrange
-		unsafe { std::env::set_var("REINHARDT_CLOUD_JWT_SECRET", TEST_SECRET) };
+		// Arrange — secret is sourced from the active settings (TOML
+		// or env var); test only verifies that the Argon2 hash matches
+		// the issued plaintext, independent of the secret value.
 		let cluster_id = Uuid::now_v7();
 
 		// Act
@@ -84,15 +94,17 @@ mod tests {
 	#[rstest]
 	#[serial(env_jwt_secret)]
 	fn test_issued_token_contains_cluster_id_claim() {
-		// Arrange
-		unsafe { std::env::set_var("REINHARDT_CLOUD_JWT_SECRET", TEST_SECRET) };
+		// Arrange — verify with the same secret that the function used
+		// to mint the token, so the assertion holds regardless of whether
+		// the secret came from TOML or the env-var fallback.
 		let cluster_id = Uuid::now_v7();
 
 		// Act
 		let issued = issue_agent_token(cluster_id).unwrap();
+		let secret = jwt_secret().unwrap();
 		let claims = reinhardt_cloud_grpc::agent_claims::verify_agent_token(
 			&issued.plaintext,
-			TEST_SECRET.as_bytes(),
+			secret.as_bytes(),
 		)
 		.unwrap();
 
@@ -103,12 +115,26 @@ mod tests {
 	#[rstest]
 	#[serial(env_jwt_secret)]
 	fn test_issue_agent_token_fails_without_secret() {
-		// Arrange
+		// Arrange — neutralise both resolution sources: redirect TOML
+		// lookup to a non-existent dir (so `base.toml`/`local.toml` cannot
+		// be parsed) and remove the env-var fallback. Issue: #494.
+		let prior_dir = std::env::var("REINHARDT_CLOUD_CONFIG_DIR").ok();
+		let prior_secret = std::env::var("REINHARDT_CLOUD_JWT_SECRET").ok();
+		unsafe { std::env::set_var("REINHARDT_CLOUD_CONFIG_DIR", NONEXISTENT_CONFIG_DIR) };
 		unsafe { std::env::remove_var("REINHARDT_CLOUD_JWT_SECRET") };
 		let cluster_id = Uuid::now_v7();
 
 		// Act
 		let result = issue_agent_token(cluster_id);
+
+		// Cleanup — restore prior values so other serial tests are unaffected.
+		match prior_dir {
+			Some(v) => unsafe { std::env::set_var("REINHARDT_CLOUD_CONFIG_DIR", v) },
+			None => unsafe { std::env::remove_var("REINHARDT_CLOUD_CONFIG_DIR") },
+		}
+		if let Some(v) = prior_secret {
+			unsafe { std::env::set_var("REINHARDT_CLOUD_JWT_SECRET", v) };
+		}
 
 		// Assert
 		assert!(result.is_err());

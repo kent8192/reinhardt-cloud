@@ -8,10 +8,15 @@
 #   cp local.example.toml local.toml
 #   # Edit local.toml and fill in sensitive values.
 
-# JWT secret for session token signing (required for auth endpoints)
+# JWT secret for cluster-agent and gRPC AuthService token signing.
+# Resolved by `dashboard::config::settings::get_jwt_secret()`, which reads
+# this top-level TOML key first and falls back to the
+# `REINHARDT_CLOUD_JWT_SECRET` env var for container/CI overrides.
 jwt_secret = "CHANGE-ME-to-a-random-string"
 
-# Redis URL for session storage (required for cookie session auth)
+# Redis URL for cookie session storage. Resolved by
+# `dashboard::config::settings::get_redis_url()`, which reads this TOML key
+# first and falls back to the `REINHARDT_CLOUD_REDIS_URL` env var.
 redis_url = "redis://localhost:6379/1"
 
 [core]

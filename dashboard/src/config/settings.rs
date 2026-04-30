@@ -136,7 +136,28 @@ pub fn get_settings() -> ProjectSettings {
 ///
 /// Returns `None` if the Redis URL is not configured in either source.
 pub fn get_redis_url() -> Option<String> {
-	// TOML settings take highest priority
+	get_top_level_string("redis_url", "REINHARDT_CLOUD_REDIS_URL")
+}
+
+/// Get the JWT signing secret from settings or environment.
+///
+/// Priority (highest to lowest):
+/// 1. `jwt_secret` top-level key in the active TOML settings file
+/// 2. `REINHARDT_CLOUD_JWT_SECRET` environment variable (fallback for CI/container overrides)
+///
+/// Returns `None` if the secret is not configured in either source.
+///
+/// Issue: kent8192/reinhardt-cloud#494
+pub fn get_jwt_secret() -> Option<String> {
+	get_top_level_string("jwt_secret", "REINHARDT_CLOUD_JWT_SECRET")
+}
+
+/// Resolve a top-level TOML string key with an environment-variable fallback.
+///
+/// Reads `base.toml` + `<profile>.toml` and returns the merged top-level
+/// `key` value as a `String`. If absent, reads `env_var` from the process
+/// environment. Returns `None` if neither source supplies the value.
+fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 	let from_toml = SettingsBuilder::new()
@@ -148,7 +169,7 @@ pub fn get_redis_url() -> Option<String> {
 		.ok()
 		.and_then(|merged| {
 			merged
-				.get_raw("redis_url")
+				.get_raw(key)
 				.and_then(|v| v.as_str())
 				.map(String::from)
 		});
@@ -157,8 +178,7 @@ pub fn get_redis_url() -> Option<String> {
 		return from_toml;
 	}
 
-	// Fall back to env var for container/CI overrides
-	env::var("REINHARDT_CLOUD_REDIS_URL").ok()
+	env::var(env_var).ok()
 }
 
 #[cfg(test)]
@@ -241,5 +261,17 @@ mod tests {
 		// Assert
 		assert_eq!(settings.media.url, "/media/");
 		assert!(!settings.media.root.as_os_str().is_empty());
+	}
+
+	#[rstest]
+	fn test_get_jwt_secret_reads_from_local_toml() {
+		// Arrange / Act — local.toml ships with `jwt_secret = "test-secret-..."`,
+		// which `get_jwt_secret` MUST surface even when no env var is set.
+		// Issue: #494
+		let secret = get_jwt_secret();
+
+		// Assert
+		assert!(secret.is_some(), "expected jwt_secret from local.toml");
+		assert!(!secret.unwrap().is_empty());
 	}
 }

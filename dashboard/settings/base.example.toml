@@ -59,7 +59,26 @@ allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
 
 [email]
 # SMTP backend configuration for transactional emails.
-# For testing, override via REINHARDT_EMAIL__* env vars to point at Mailpit.
+#
+# Domain context (`reinhardt-cloud.dev`, verified via cloudflared/dig):
+#   - NS: brynne/coleman.ns.cloudflare.com (Cloudflare-managed)
+#   - MX: route{1,2,3}.mx.cloudflare.net (Cloudflare Email Routing — INBOUND only)
+#   - SPF: "v=spf1 include:_spf.mx.cloudflare.net ~all"
+#   - DKIM: cf2024-1._domainkey present (Cloudflare signing key)
+#   - DMARC: p=none (monitoring)
+#
+# Cloudflare does NOT provide a public outbound SMTP relay, so production
+# delivery requires a third-party provider (Resend / SendGrid / AWS SES /
+# Postmark). When that provider is chosen, also extend the SPF record with
+# `include:<provider-spf>` and publish the provider's DKIM selector.
+#
+# Suggested production overrides via REINHARDT_EMAIL__* env vars:
+#   port 465 → use_ssl=true, use_tls=false  (implicit TLS)
+#   port 587 → use_ssl=false, use_tls=true  (STARTTLS)
+#
+# Defaults below target Mailpit (`docker run mailpit`) for local development;
+# `use_ssl`/`use_tls` are intentionally false because Mailpit serves plaintext
+# on 1025. Production MUST override host/port/credentials via env vars.
 host = "localhost"
 port = 1025
 from_email = "noreply@reinhardt-cloud.dev"
