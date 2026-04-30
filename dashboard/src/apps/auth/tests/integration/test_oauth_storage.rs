@@ -22,7 +22,7 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	#[fixture]
 	async fn db() -> (

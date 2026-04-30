@@ -16,7 +16,7 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Duration;
 
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	/// Mailpit API message summary.
 	#[derive(Debug, serde::Deserialize)]

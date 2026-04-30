@@ -17,7 +17,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{ResolvedUrls, test_app};
+use reinhardt_cloud_dashboard::config::test_helpers::ResolvedUrls;
 
 // ============================================================================
 // Fixtures & Helpers
