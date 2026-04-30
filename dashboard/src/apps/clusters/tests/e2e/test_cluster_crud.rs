@@ -163,13 +163,15 @@ mod tests {
 	/// Verify creating a second cluster with the same name in the same
 	/// organization is rejected with 409 Conflict (refs #436).
 	///
-	/// The uniqueness check is enforced at the application layer as a
-	/// workaround for `kent8192/reinhardt-web#3989` (tracking issue
-	/// #443) — the framework's `makemigrations` does not currently emit
-	/// `AlterUniqueTogether` for `unique_together` declared on existing
-	/// tables, so the DB constraint is not yet in place. This test will
-	/// remain valid once that workaround is removed and replaced by the
-	/// real DB constraint.
+	/// The DB-level constraint comes from
+	/// `migrations/clusters/0005_add_constraint_clusters.rs`, regenerated
+	/// verbatim via `cargo make makemigrations` after
+	/// reinhardt-web#4041 (closed reinhardt-web#4040) propagated the
+	/// `added_constraints` loop, reinhardt-web#4050 (closed reinhardt-web#4049)
+	/// canonicalized synthetic `FieldState` param populations, and
+	/// reinhardt-web#4053 (closed reinhardt-web#4052) suppressed the
+	/// `null = true` emission for `Option<T>` PKs that drove the residual
+	/// asymmetric-`nullable` AlterColumn.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]

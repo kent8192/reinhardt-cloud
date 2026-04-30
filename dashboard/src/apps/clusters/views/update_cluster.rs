@@ -13,16 +13,7 @@ use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{ClusterResponse, UpdateClusterRequest};
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Update an existing cluster (authentication required).
+/// Update an existing cluster (authentication required).
 ///
 /// Requires `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Supports partial updates: only provided fields are modified.
@@ -30,7 +21,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// specified organization.
 #[patch("/orgs/{org}/clusters/{cluster_id}/", name = "update")]
 pub async fn update_cluster(
-	Path((cluster_id, org)): Path<(i64, String)>,
+	Path((org, cluster_id)): Path<(String, i64)>,
 	Json(body): Json<UpdateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {

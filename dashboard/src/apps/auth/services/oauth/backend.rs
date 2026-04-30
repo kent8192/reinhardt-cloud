@@ -10,7 +10,7 @@
 //! (`SessionStateStore`) requires a *synchronous* `SessionBackend`, but
 //! the dashboard's `RedisSessionBackend` only implements
 //! `AsyncSessionBackend`. There is no Redis-or-async `StateStore` impl
-//! upstream as of `reinhardt-web@v0.1.0-rc.22`, so we use
+//! upstream as of reinhardt-web `main`, so we use
 //! `InMemoryStateStore`. Implication: the dashboard is single-instance
 //! for OAuth flow purposes — a user who starts the flow on one pod and
 //! is routed to another for the callback will see `InvalidState`. State
@@ -19,8 +19,9 @@
 //! still per-request and CSRF-bound).
 //!
 //! Tracked for follow-up: this should move to a Redis-backed StateStore
-//! once upstream `reinhardt-auth` exposes one (companion to
-//! `kent8192/reinhardt-web#3986`).
+//! once upstream `reinhardt-auth` exposes one. (Unrelated to the now-merged
+//! `kent8192/reinhardt-web#3986`, which added `GenericOidcProvider` but
+//! left the state-store backend story unchanged.)
 //!
 //! ## State-store sharing across requests
 //!

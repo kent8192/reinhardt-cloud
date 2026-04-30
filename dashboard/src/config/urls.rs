@@ -199,17 +199,15 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_di_registrations(infra.admin_di)
 			// REST API endpoints
 			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
-			// Workaround for kent8192/reinhardt-web#4012 (tracked in reinhardt-cloud#465)
-			// Remove this workaround when the upstream issue is resolved.
-			//
-			// Ideal implementation (without workaround):
-			//   .mount("/orgs/{org}/clusters/", clusters_router)
-			//   .mount("/orgs/{org}/deployments/", deployments_router)
-			//
-			// mount() does not support path parameters in the prefix string —
-			// strip_prefix_normalized uses literal str::strip_prefix, so {org} is
-			// not treated as a wildcard. Mounting at "/" and embedding the full
-			// path in each view macro is the workaround.
+			// Mount at "/" and embed the full `/orgs/{org}/...` path in each
+			// view macro. This is intentional: parameter-prefixed mount
+			// (e.g. `.mount("/orgs/{org}/", ...)`) would create an implicit,
+			// non-local URL contract — a view's accepted path params would
+			// depend on which mount it was attached to, breaking locality
+			// and refactor safety. Upstream surfaces the mistake loudly via
+			// kent8192/reinhardt-web#4012 (PR #4015 panics on `{` / `}` in
+			// the prefix); the broader feature was rejected on design
+			// grounds in kent8192/reinhardt-web#4023.
 			.mount(
 				"/",
 				crate::apps::clusters::urls::server_url_patterns(),

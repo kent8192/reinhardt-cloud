@@ -15,23 +15,12 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 
 /// Retrieve a single cluster by ID, scoped to the specified organization.
 ///
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts path parameters alphabetically by name before
-/// filling the tuple, not in URL pattern order. For this route:
-/// "cluster_id" < "org" alphabetically → tuple[0]=cluster_id, tuple[1]=org.
-/// Therefore `Path<(i64, String)>` is required (i64=cluster_id, String=org).
-///
 /// Requires `Action::ClusterRead` (Viewer or higher); returns 403 if the
 /// caller's role does not permit the action. Returns 404 if the cluster
 /// does not exist or does not belong to the specified org.
 #[get("/orgs/{org}/clusters/{cluster_id}/", name = "retrieve")]
 pub async fn retrieve_cluster(
-	Path((cluster_id, org)): Path<(i64, String)>,
+	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())

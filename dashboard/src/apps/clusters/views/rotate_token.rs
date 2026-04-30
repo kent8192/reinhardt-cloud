@@ -19,16 +19,7 @@ use crate::apps::clusters::services::token_issuance;
 use crate::apps::clusters::views::create_cluster::cluster_id_from_pk;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
-/// Workaround for kent8192/reinhardt-web#4013 (tracked in reinhardt-cloud#466)
-/// Remove this comment when the upstream issue is resolved.
-///
-/// Ideal implementation (without workaround):
-///   `Path((org, cluster_id)): Path<(String, i64)>` — URL pattern order
-///
-/// `Path<(T1, T2)>` sorts parameters alphabetically by name, not URL order.
-/// `cluster_id` < `org` alphabetically → tuple[0] is the id, tuple[1] is the org.
-///
-/// /// Rotate the agent JWT for an existing cluster (authentication required).
+/// Rotate the agent JWT for an existing cluster (authentication required).
 ///
 /// Token rotation is a write-class operation, so we require
 /// `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
@@ -36,7 +27,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// on next verify because the stored hash has changed.
 #[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate_token")]
 pub async fn rotate_token(
-	Path((cluster_id, org)): Path<(i64, String)>,
+	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
