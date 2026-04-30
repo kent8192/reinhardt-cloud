@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p my-app
 
 FROM rust:1.94.1-bookworm AS wasm
 RUN apt-get update && \
@@ -21,7 +21,7 @@ RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli@0.2.100
 WORKDIR /app
 COPY . .
-RUN cargo build --release --target wasm32-unknown-unknown
+RUN cargo build --release --target wasm32-unknown-unknown --lib -p my-app
 RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/my_app.wasm && \
     wasm-opt -Oz -o /wasm-dist/optimized.wasm /wasm-dist/*.wasm
 
