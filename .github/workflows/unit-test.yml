@@ -89,6 +89,15 @@ jobs:
           cp dashboard/settings/base.example.toml dashboard/settings/base.toml
           cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
 
+      # Pre-pull testcontainers-rs images via authenticated docker CLI.
+      # bollard (used by testcontainers-rs) does not read ~/.docker/config.json,
+      # so without this step it would pull anonymously and hit Docker Hub's
+      # rate limit. See issue #492.
+      - name: Pull Docker images
+        uses: ./.github/actions/pull-docker-images
+        with:
+          images-file: .github/docker-images-unit-test.txt
+
       - name: Run unit tests (partition ${{ matrix.partition }}/2)
         run: |
           cargo nextest run --locked \

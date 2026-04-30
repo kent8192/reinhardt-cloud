@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --features graphql --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --features graphql
+RUN cargo build --release -p my-app --features graphql
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \

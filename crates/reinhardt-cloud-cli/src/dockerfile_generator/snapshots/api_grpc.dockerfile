@@ -17,7 +17,7 @@ WORKDIR /app
 COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p my-app
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
