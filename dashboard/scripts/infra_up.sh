@@ -25,43 +25,9 @@ if ! command -v python3 >/dev/null 2>&1; then
 	exit 1
 fi
 
-SETTINGS=$(CONFIG_PATH="$CONFIG" python3 - <<'PY'
-import os, sys, urllib.parse
-try:
-	import tomllib
-except ImportError:
-	sys.stderr.write("Error: requires Python 3.11+ for tomllib\n")
-	sys.exit(1)
-
-with open(os.environ["CONFIG_PATH"], "rb") as f:
-	data = tomllib.load(f)
-
-try:
-	db = data["core"]["databases"]["default"]
-except KeyError:
-	sys.stderr.write("Error: [core.databases.default] missing from local.toml\n")
-	sys.exit(1)
-
-pw = db.get("password", "")
-# Support both `password = "..."` and `password = { secret = "..." }` forms.
-if isinstance(pw, dict):
-	pw = pw.get("secret", "")
-if not isinstance(pw, str) or not pw:
-	sys.stderr.write("Error: [core.databases.default].password must be a non-empty string\n")
-	sys.exit(1)
-
-redis_url = data.get("redis_url", "redis://localhost:6379/0")
-parsed = urllib.parse.urlparse(redis_url)
-
-print(f"PG_HOST={db.get('host', 'localhost')}")
-print(f"PG_PORT={db.get('port', 5432)}")
-print(f"PG_DB={db.get('name', 'reinhardt_cloud')}")
-print(f"PG_USER={db.get('user', 'reinhardt')}")
-print(f"PG_PASS={pw}")
-print(f"RD_HOST={parsed.hostname or 'localhost'}")
-print(f"RD_PORT={parsed.port or 6379}")
-PY
-)
+# Delegate TOML parsing to the shared helper so future infra scripts can
+# reuse the same shape (PG_*, RD_*) without re-implementing the parser.
+SETTINGS=$(python3 "$SCRIPT_DIR/parse_local_toml.py" "$CONFIG") || exit $?
 eval "$SETTINGS"
 
 # Drop any stale containers from a previous aborted run so --name is free.
