@@ -196,4 +196,102 @@ version = "0.3.0-alpha.1"
 		// Assert
 		assert_eq!(result, Ok(Some("0.3.0-alpha.1".to_owned())));
 	}
+
+	// P1: prost-build present (build-dep transitively requires protoc)
+	#[rstest]
+	fn detect_protoc_with_prost_build() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "prost-build"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P2: tonic-build present (build-dep — direct trigger from #477)
+	#[rstest]
+	fn detect_protoc_with_tonic_build() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "tonic-build"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P3: tonic runtime only — no build-dep, but still requires protoc somewhere
+	// in the workspace (typically via reinhardt-cloud-grpc) so detection must
+	// still fire.
+	#[rstest]
+	fn detect_protoc_with_tonic_runtime_only() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "tonic"
+version = "0.13.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(result);
+	}
+
+	// P4: completely unrelated dependency tree — must NOT fire
+	#[rstest]
+	fn detect_protoc_with_no_prost_or_tonic() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tokio"
+version = "1.40.0"
+"#;
+
+		// Act
+		let result = detect_protoc_requirement(content);
+
+		// Assert
+		assert!(!result);
+	}
+
+	// P5: malformed lockfile must not panic and must be lenient (false)
+	#[rstest]
+	fn detect_protoc_malformed_returns_false() {
+		// Act
+		let result = detect_protoc_requirement("not [[ valid toml");
+
+		// Assert
+		assert!(!result);
+	}
+
+	// P6: empty content returns false
+	#[rstest]
+	fn detect_protoc_empty_returns_false() {
+		// Act
+		let result = detect_protoc_requirement("");
+
+		// Assert
+		assert!(!result);
+	}
 }

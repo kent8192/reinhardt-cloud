@@ -516,4 +516,134 @@ mod tests {
 		// Assert
 		assert_eq!(result, SkipReason::None);
 	}
+
+	/// Integration test (Refs #477): a Cargo.lock that pulls in `prost-build`
+	/// or `tonic-build` (directly or transitively) must propagate through
+	/// `collect_signals` so the generated Dockerfile installs
+	/// `protobuf-compiler` in both the chef and builder stages.
+	#[rstest]
+	fn collect_signals_propagates_protoc_from_cargo_lock() {
+		// Arrange — minimal workspace fixture: rust-toolchain.toml,
+		// Cargo.lock with a tonic-build entry, and a project metadata
+		// stand-in that does NOT enable the reinhardt-web `grpc` feature.
+		// This proves the lockfile path is the one driving protoc install.
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			r#"
+[toolchain]
+channel = "1.94.1"
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tonic-build"
+version = "0.13.0"
+"#,
+		)
+		.unwrap();
+
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "consumer-app".to_string(),
+			version: "0.1.0".to_string(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals::default(),
+		};
+		let toml_config = ReinhardtCloudToml::default();
+
+		// Act
+		let signals = collect_signals(dir.path(), &metadata, &toml_config)
+			.expect("collect_signals must succeed");
+		let dockerfile = generate(&signals).to_string();
+
+		// Assert
+		assert!(
+			signals.protoc_needed,
+			"protoc_needed must be true when Cargo.lock carries tonic-build"
+		);
+		assert!(
+			!signals.grpc,
+			"grpc must remain false: protoc detection must NOT depend on the grpc feature flag"
+		);
+		// Both build stages must install the compiler.
+		let chef_install_count = dockerfile
+			.split("FROM rust:")
+			.nth(1)
+			.expect("chef stage")
+			.matches("protobuf-compiler")
+			.count();
+		let builder_install_count = dockerfile
+			.split("FROM rust:")
+			.nth(2)
+			.expect("builder stage")
+			.matches("protobuf-compiler")
+			.count();
+		assert!(
+			chef_install_count >= 1,
+			"chef stage must contain protobuf-compiler install, got dockerfile:\n{dockerfile}"
+		);
+		assert!(
+			builder_install_count >= 1,
+			"builder stage must contain protobuf-compiler install, got dockerfile:\n{dockerfile}"
+		);
+	}
+
+	/// Integration test (Refs #477): a Cargo.lock without prost/tonic must
+	/// keep the slim Dockerfile baseline — no spurious protoc install.
+	#[rstest]
+	fn collect_signals_omits_protoc_for_unrelated_lockfile() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			r#"
+[toolchain]
+channel = "1.94.1"
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name = "serde"
+version = "1.0.200"
+
+[[package]]
+name = "tokio"
+version = "1.40.0"
+"#,
+		)
+		.unwrap();
+
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "plain-app".to_string(),
+			version: "0.1.0".to_string(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals::default(),
+		};
+		let toml_config = ReinhardtCloudToml::default();
+
+		// Act
+		let signals = collect_signals(dir.path(), &metadata, &toml_config)
+			.expect("collect_signals must succeed");
+		let dockerfile = generate(&signals).to_string();
+
+		// Assert
+		assert!(
+			!signals.protoc_needed,
+			"protoc_needed must be false when Cargo.lock has no prost/tonic"
+		);
+		assert!(
+			!dockerfile.contains("protobuf-compiler"),
+			"Dockerfile must not install protobuf-compiler for unrelated dependency tree"
+		);
+	}
 }

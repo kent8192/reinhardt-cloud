@@ -687,4 +687,57 @@ mod tests {
 		));
 		assert!(!stage_contains_env(&stage, "OTEL_SERVICE_NAME", "app"));
 	}
+
+	// PR1 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
+	// chef stage so cargo-chef metadata extraction does not abort when a
+	// transitive build script invokes protoc.
+	#[rstest]
+	fn chef_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.grpc = false;
+		minimal_signals.protoc_needed = true;
+
+		// Act
+		let stage = build_chef_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "protobuf-compiler"),
+			"chef stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PR2 (Refs #477): protoc_needed alone (grpc=false) installs protoc in the
+	// builder stage so `cargo chef cook` succeeds against transitive
+	// prost/tonic dependencies.
+	#[rstest]
+	fn builder_stage_installs_protoc_when_protoc_needed(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.grpc = false;
+		minimal_signals.protoc_needed = true;
+
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_run(&stage, "protobuf-compiler"),
+			"builder stage must install protobuf-compiler when protoc_needed is set"
+		);
+	}
+
+	// PR3 (Refs #477): chef stage emits no protoc install when neither grpc
+	// nor protoc_needed is set, preserving the slim baseline for non-grpc
+	// projects.
+	#[rstest]
+	fn chef_stage_omits_protoc_when_neither_signal_set(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_chef_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			!stage_contains_run(&stage, "protobuf-compiler"),
+			"chef stage must not install protobuf-compiler without grpc or protoc_needed"
+		);
+	}
 }
