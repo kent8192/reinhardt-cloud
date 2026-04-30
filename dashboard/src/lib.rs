@@ -16,7 +16,10 @@ pub use reinhardt_cloud_types;
 
 // Application modules — available on both platforms with conditional submodules.
 pub mod apps;
-#[cfg(any(wasm, test))]
+// `client` is intentionally cross-target. WASM consumes it as the SPA;
+// native needs the page constructors for `UnifiedRouter::client(...)`
+// to register names for server-side reverse URL resolution
+// (kent8192/reinhardt-web#4068).
 pub mod client;
 #[cfg(native)]
 pub mod config;
