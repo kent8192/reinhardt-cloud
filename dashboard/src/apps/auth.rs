@@ -8,7 +8,9 @@ use reinhardt::app_config;
 
 #[cfg(native)]
 pub mod admin;
-#[cfg(wasm)]
+// `client` is intentionally cross-target so page constructors are
+// available for `UnifiedRouter::client(...)` reverse URL registration
+// in `crate::config::urls::make_router` (kent8192/reinhardt-web#4068).
 pub mod client;
 #[cfg(native)]
 pub mod models;
