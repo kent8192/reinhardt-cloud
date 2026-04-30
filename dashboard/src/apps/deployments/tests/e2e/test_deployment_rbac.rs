@@ -19,7 +19,7 @@ mod tests {
 
 	use crate::apps::organizations::roles::MembershipRole;
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login_user_with_org, session_backend, set_membership_role, test_app,
+		ResolvedUrls, force_login_user_with_org, session_backend, set_membership_role,
 	};
 
 	type DbFixture = (

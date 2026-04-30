@@ -13,7 +13,7 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login, force_login_user_with_org, session_backend, test_app,
+		ResolvedUrls, force_login, force_login_user_with_org, session_backend,
 	};
 
 	#[fixture]

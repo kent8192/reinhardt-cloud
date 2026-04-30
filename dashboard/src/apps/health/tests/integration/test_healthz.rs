@@ -25,7 +25,7 @@ mod tests {
 	use serial_test::serial;
 
 	use crate::apps::health::services::GrpcChannelSingleton;
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	/// gRPC endpoint used by test probes.
 	///

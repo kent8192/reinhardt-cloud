@@ -24,7 +24,7 @@ mod tests {
 	use crate::apps::auth::services::registration::provision_personal_organization;
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::sanitize_username_to_slug;
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use crate::config::test_helpers::ResolvedUrls;
 
 	#[fixture]
 	async fn db() -> (

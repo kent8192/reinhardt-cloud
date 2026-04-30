@@ -12,9 +12,7 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{
-		ResolvedUrls, force_login_user_with_org, session_backend, test_app,
-	};
+	use crate::config::test_helpers::{ResolvedUrls, force_login_user_with_org, session_backend};
 
 	#[fixture]
 	async fn db(
