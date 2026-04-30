@@ -61,16 +61,19 @@ kubectl cluster-info
 
 ## 2. Start dependency services
 
-Postgres and Redis are defined in the repo-root `docker-compose.yml` and used
-by the Dashboard:
+Postgres and Redis are launched as ephemeral containers (`docker run --rm`)
+via the cargo-make task defined in `dashboard/Makefile.toml`. Data is wiped
+when the containers stop, which keeps each local session isolated.
 
 ```bash
-docker compose up -d postgres redis
-docker compose ps
+cd dashboard && cargo make infra-up
+docker ps --filter name=reinhardt-cloud-dashboard-
 ```
 
 The defaults are `postgres://reinhardt:reinhardt@localhost:5432/reinhardt_cloud`
-and `redis://localhost:6379`.
+and `redis://localhost:6379`. Stop the containers with
+`cargo make infra-down`, or recreate from a clean state with
+`cargo make infra-reset`.
 
 ## 3. Install the CRD
 
