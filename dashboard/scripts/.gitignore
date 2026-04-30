@@ -1,0 +1,4 @@
+# Python bytecode caches generated when scripts in this directory are
+# imported or compile-checked (e.g. `python3 -m py_compile`).
+__pycache__/
+*.pyc

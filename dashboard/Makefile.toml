@@ -258,6 +258,33 @@ command = "cargo"
 args = ["run", "--bin", "manage", "runserver", "--with-pages"]
 
 # ============================================================================
+# Ephemeral Local Infrastructure (postgres / redis via docker run --rm)
+# ============================================================================
+#
+# Spins up disposable PostgreSQL + Redis containers for local development.
+# Containers are launched with `docker run --rm` and no persistent volumes,
+# so all data is wiped when the containers stop. Connection parameters
+# (user / password / database / port / redis URL) are parsed from
+# `dashboard/settings/local.toml`, so changes to that file are picked up
+# on the next `cargo make infra-up` without editing this Makefile.
+#
+# Implementation: dashboard/scripts/infra_up.sh and infra_down.sh.
+
+[tasks.infra-up]
+description = "Start disposable PostgreSQL + Redis containers (docker run --rm); credentials parsed from settings/local.toml"
+command = "bash"
+args = ["scripts/infra_up.sh"]
+
+[tasks.infra-down]
+description = "Stop disposable PostgreSQL + Redis containers (data is wiped)"
+command = "bash"
+args = ["scripts/infra_down.sh"]
+
+[tasks.infra-reset]
+description = "Stop and recreate disposable infrastructure (wipes all data)"
+dependencies = ["infra-down", "infra-up"]
+
+# ============================================================================
 # Help
 # ============================================================================
 
@@ -311,6 +338,11 @@ echo "    wasm-build-dev     - Full WASM debug build"
 echo "    wasm-build-release - Full WASM release build"
 echo "    wasm-clean         - Clean WASM artifacts"
 echo "    runserver-pages    - Build WASM + start server"
+echo ""
+echo "  Local Infrastructure (ephemeral postgres/redis):"
+echo "    infra-up           - Start disposable postgres + redis"
+echo "    infra-down         - Stop disposable infrastructure"
+echo "    infra-reset        - Recreate disposable infrastructure (wipes data)"
 echo ""
 echo "Usage: cargo make <task>"
 '''
