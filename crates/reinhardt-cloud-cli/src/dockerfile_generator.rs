@@ -79,16 +79,26 @@ pub(crate) fn collect_signals(
 
 	let signals = &metadata.signals;
 
-	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args.
-	// Cargo.lock lives at the workspace root in workspace projects, not in
-	// the member crate, so walk up if not found locally.
-	let wasm_bindgen_version = if signals.pages {
-		let from_lock = if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
-			let content = std::fs::read_to_string(&lock_path)
-				.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?;
-			cargo_lock_reader::extract_wasm_bindgen_version(&content)?
+	// Read Cargo.lock once and share its content between every reader that
+	// needs to walk the resolved dependency graph (wasm-bindgen version
+	// resolution, protoc requirement detection, ...). Cargo.lock lives at
+	// the workspace root in workspace projects, not in the member crate,
+	// so walk up if not found locally.
+	let cargo_lock_content: Option<String> =
+		if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
+			Some(
+				std::fs::read_to_string(&lock_path)
+					.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?,
+			)
 		} else {
 			None
+		};
+
+	// wasm-bindgen version: Cargo.lock > reinhardt-cloud.toml build_args.
+	let wasm_bindgen_version = if signals.pages {
+		let from_lock = match &cargo_lock_content {
+			Some(content) => cargo_lock_reader::extract_wasm_bindgen_version(content)?,
+			None => None,
 		};
 
 		let version = from_lock.or_else(|| {
@@ -110,6 +120,15 @@ pub(crate) fn collect_signals(
 		None
 	};
 
+	// protoc requirement: detected from Cargo.lock so that transitive
+	// prost/tonic dependencies (e.g., reinhardt-cloud-grpc pulling in
+	// tonic-build) trigger installation even when the consumer crate does
+	// not opt into the reinhardt-web `grpc` feature flag.
+	let protoc_needed = match &cargo_lock_content {
+		Some(content) => cargo_lock_reader::detect_protoc_requirement(content),
+		None => false,
+	};
+
 	// base_image override
 	let base_image_override = toml_config
 		.source
@@ -129,6 +148,7 @@ pub(crate) fn collect_signals(
 		session_backend: None, // Only available via introspect at deploy time
 		base_image_override,
 		tracing: signals.tracing,
+		protoc_needed,
 	})
 }
 
@@ -167,6 +187,7 @@ mod tests {
 			session_backend: None,
 			base_image_override: None,
 			tracing: false,
+			protoc_needed: false,
 		}
 	}
 

@@ -109,6 +109,12 @@ fn validate_api_version(value: &str) -> Result<String, String> {
 /// All fields of `DetectedInfraSignals` are read here so the struct remains
 /// a stable contract — add new mappings in lockstep when new signals land.
 fn synthesize_infra_signals(detected: &DetectedInfraSignals) -> IntrospectInfraSignals {
+	// Bind build-time-only signals up front so the compiler sees every field
+	// of `DetectedInfraSignals` as read. They are deliberately omitted from
+	// the IntrospectOutput shape returned below — see the trailing comment
+	// for the per-field rationale.
+	let _ = detected.protoc_needed;
+
 	IntrospectInfraSignals {
 		database: detected.database.clone(),
 		cache: detected.cache.clone(),
@@ -129,6 +135,11 @@ fn synthesize_infra_signals(detected: &DetectedInfraSignals) -> IntrospectInfraS
 	// Note: `detected.jwt` is intentionally not surfaced here because the
 	// IntrospectOutput schema has no JWT-specific field. JWT usage affects
 	// RBAC manifests generated later, which is outside the zero-config path.
+	//
+	// Note: `detected.protoc_needed` is intentionally not surfaced here
+	// because it is a build-time concern (driving Dockerfile generation,
+	// not deploy-time runtime topology). The IntrospectOutput schema
+	// describes the running app, not its build prerequisites.
 }
 
 /// Builds a synthetic `IntrospectOutput` from a project directory.

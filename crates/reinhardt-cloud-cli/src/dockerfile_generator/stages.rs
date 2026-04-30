@@ -19,6 +19,15 @@ pub(crate) struct DockerfileSignals {
 	/// left as a placeholder ("app") because the real name is injected at
 	/// Pod launch time via the Kubernetes Downward API.
 	pub(crate) tracing: bool,
+	/// When true, install `protobuf-compiler` (provides `protoc`) in the
+	/// chef and builder stages. Set when `Cargo.lock` shows a transitive
+	/// dependency on `prost`, `prost-build`, `tonic`, or `tonic-build`.
+	///
+	/// Independent from the `grpc` reinhardt-web feature flag because
+	/// indirect dependencies (e.g., `reinhardt-cloud-grpc` pulling in
+	/// `tonic-build`) can require protoc even when the consumer crate
+	/// does not enable the reinhardt-web `grpc` feature.
+	pub(crate) protoc_needed: bool,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
@@ -44,20 +53,35 @@ fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
 
 /// Builds the "chef" stage that prepares the cargo-chef recipe.
 pub(crate) fn build_chef_stage(signals: &DockerfileSignals) -> Stage {
+	let mut instructions = Vec::new();
+
+	// Install protoc up front so any subsequent step that resolves the
+	// dependency tree (including transitive build scripts invoked when
+	// cargo-chef inspects metadata) has the compiler available.
+	if signals.grpc || signals.protoc_needed {
+		instructions.push(Instruction::RunMulti(vec![
+			"apt-get update".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
+			"rm -rf /var/lib/apt/lists/*".to_string(),
+		]));
+	}
+
+	instructions.push(Instruction::Run("cargo install cargo-chef".to_string()));
+	instructions.push(Instruction::Workdir("/app".to_string()));
+	instructions.push(Instruction::Copy {
+		from: None,
+		src: ".".to_string(),
+		dst: ".".to_string(),
+	});
+	instructions.push(Instruction::Run(
+		"cargo chef prepare --recipe-path recipe.json".to_string(),
+	));
+
 	Stage {
 		base_image: format!("rust:{}-bookworm", signals.rust_version),
 		name: Some("chef".to_string()),
 		platform: None,
-		instructions: vec![
-			Instruction::Run("cargo install cargo-chef".to_string()),
-			Instruction::Workdir("/app".to_string()),
-			Instruction::Copy {
-				from: None,
-				src: ".".to_string(),
-				dst: ".".to_string(),
-			},
-			Instruction::Run("cargo chef prepare --recipe-path recipe.json".to_string()),
-		],
+		instructions,
 	}
 }
 
@@ -65,10 +89,10 @@ pub(crate) fn build_chef_stage(signals: &DockerfileSignals) -> Stage {
 pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 	let mut instructions = Vec::new();
 
-	if signals.grpc {
+	if signals.grpc || signals.protoc_needed {
 		instructions.push(Instruction::RunMulti(vec![
 			"apt-get update".to_string(),
-			"apt-get install -y protobuf-compiler".to_string(),
+			"apt-get install -y --no-install-recommends protobuf-compiler".to_string(),
 			"rm -rf /var/lib/apt/lists/*".to_string(),
 		]));
 	}
@@ -275,6 +299,7 @@ mod tests {
 			session_backend: None,
 			base_image_override: None,
 			tracing: false,
+			protoc_needed: false,
 		}
 	}
 

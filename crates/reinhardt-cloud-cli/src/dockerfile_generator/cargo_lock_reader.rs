@@ -32,6 +32,45 @@ pub(super) fn extract_wasm_bindgen_version(content: &str) -> Result<Option<Strin
 	Ok(None)
 }
 
+/// Returns `true` when `prost`, `prost-build`, `tonic`, or `tonic-build`
+/// appears anywhere in the workspace dependency graph captured by
+/// `Cargo.lock`.
+///
+/// The lockfile is the authoritative source for this check because it
+/// reflects the fully-resolved dependency tree, including transitive
+/// dependencies pulled in by build scripts (e.g., `tonic-build` is a
+/// `[build-dependencies]` entry of `reinhardt-cloud-grpc`). Walking only
+/// the project's `Cargo.toml` would miss those.
+///
+/// Returns `false` when the content is empty, the TOML is malformed, or
+/// no matching package is found. The function is intentionally lenient
+/// — a missing or unreadable lockfile must not block Dockerfile
+/// generation.
+pub(super) fn detect_protoc_requirement(cargo_lock_content: &str) -> bool {
+	if cargo_lock_content.trim().is_empty() {
+		return false;
+	}
+
+	let parsed: toml::Value = match toml::from_str(cargo_lock_content) {
+		Ok(value) => value,
+		Err(_) => return false,
+	};
+
+	let packages = match parsed.get("package").and_then(|v| v.as_array()) {
+		Some(pkgs) => pkgs,
+		None => return false,
+	};
+
+	for pkg in packages {
+		let name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or("");
+		if matches!(name, "prost" | "prost-build" | "tonic" | "tonic-build") {
+			return true;
+		}
+	}
+
+	false
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
