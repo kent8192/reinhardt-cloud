@@ -201,6 +201,7 @@ args = [
 
 [tasks.runserver]
 description = "Start local development server with WASM frontend (requires PostgreSQL)"
+cwd = "dashboard"
 command = "cargo"
 args = [
 	"run",
@@ -212,9 +213,9 @@ args = [
 	"--with-pages",
 	"--insecure",
 	"--static-dir",
-	"dashboard/dist",
+	"dist",
 	"--index",
-	"dashboard/index.html",
+	"index.html",
 ]
 
 [tasks.runserver.env]
@@ -222,6 +223,7 @@ REINHARDT_ENV = "local"
 
 [tasks.showurls]
 description = "Display all registered URL patterns"
+cwd = "dashboard"
 command = "cargo"
 args = ["run", "--locked", "--bin", "manage", "--", "showurls"]
 
@@ -230,6 +232,7 @@ REINHARDT_ENV = "local"
 
 [tasks.migrate]
 description = "Apply database migrations"
+cwd = "dashboard"
 command = "cargo"
 args = ["run", "--locked", "--bin", "manage", "--", "migrate"]
 
