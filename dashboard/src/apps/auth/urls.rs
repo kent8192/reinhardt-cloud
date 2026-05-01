@@ -21,7 +21,7 @@ use crate::config::apps::InstalledApp;
 /// client route table in a single `UnifiedRouter`. The `#[url_patterns]`
 /// macro applies the `auth` namespace once to both sides; named routes
 /// declared inside `.client(|c| c.named_route("login_page", ...))` are
-/// globally reverseable as `auth:login_page` after `mount_unified`
+/// globally reversible as `auth:login_page` after `mount_unified`
 /// merges them into the project router (kent8192/reinhardt-web#4077).
 #[url_patterns(InstalledApp::auth, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
