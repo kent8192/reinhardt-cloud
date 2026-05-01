@@ -26,8 +26,10 @@ devcontainer exec --workspace-folder . zsh
 ```
 
 The first build takes ~10–20 minutes because every cargo tool is compiled
-from source so the container can be reproduced offline. Subsequent rebuilds
-are cached.
+from source rather than pulled as a prebuilt binary, which keeps the image
+reproducible from a single pinned version list. Network access is still
+required for the initial apt + crates.io fetches; subsequent rebuilds use
+the Docker layer cache.
 
 After the container is up:
 
@@ -66,8 +68,9 @@ Both `local.toml` and `devcontainer.toml` are gitignored — the
 
 - **Port collisions with `cargo make infra-up`**: if you also run the
   dashboard's `infra-up` task on the host, both setups try to bind 5432 and
-  6379. Stop one before starting the other (`docker stop reinhardt-cloud-pg
-  reinhardt-cloud-redis` on the host, or shut the dev container down).
+  6379. Stop one before starting the other (`docker stop
+  reinhardt-cloud-dashboard-postgres reinhardt-cloud-dashboard-redis` on the
+  host, or shut the dev container down).
 - **wasm-bindgen-cli version drift**: this container installs 0.2.118 to
   match `Cargo.lock`. Running `cargo make wasm-build-dev` may currently
   reinstall 0.2.114 because of an upstream pin in `dashboard/Makefile.toml`
