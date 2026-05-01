@@ -200,9 +200,22 @@ args = [
 # ============================================================================
 
 [tasks.runserver]
-description = "Start local development server (requires PostgreSQL)"
+description = "Start local development server with WASM frontend (requires PostgreSQL)"
 command = "cargo"
-args = ["run", "--locked", "--bin", "manage", "--", "runserver"]
+args = [
+	"run",
+	"--locked",
+	"--bin",
+	"manage",
+	"--",
+	"runserver",
+	"--with-pages",
+	"--insecure",
+	"--static-dir",
+	"dashboard/dist",
+	"--index",
+	"dashboard/index.html",
+]
 
 [tasks.runserver.env]
 REINHARDT_ENV = "local"
