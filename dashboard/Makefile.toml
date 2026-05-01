@@ -36,11 +36,6 @@ description = "Create new migrations for a specific app (usage: cargo make makem
 command = "cargo"
 args = ["run", "--bin", "manage", "makemigrations", "${@}"]
 
-[tasks.migrate]
-description = "Apply database migrations"
-command = "cargo"
-args = ["run", "--bin", "manage", "migrate"]
-
 # ============================================================================
 # Static Files
 # ============================================================================
@@ -58,11 +53,6 @@ args = ["run", "--bin", "manage", "collectstatic"]
 description = "Check the project for common issues"
 command = "cargo"
 args = ["run", "--bin", "manage", "check"]
-
-[tasks.showurls]
-description = "Display all registered URL patterns"
-command = "cargo"
-args = ["run", "--bin", "manage", "showurls"]
 
 [tasks.shell]
 description = "Run an interactive Rust shell (REPL)"
@@ -301,14 +291,12 @@ echo ""
 echo "  Database:"
 echo "    makemigrations     - Create new migrations"
 echo "    makemigrations-app - Create migrations for specific app"
-echo "    migrate            - Apply migrations"
 echo ""
 echo "  Static Files:"
 echo "    collectstatic      - Collect static files"
 echo ""
 echo "  Project Management:"
 echo "    check              - Check project for issues"
-echo "    showurls           - Show URL patterns"
 echo "    shell              - Interactive REPL"
 echo ""
 echo "  Testing:"
