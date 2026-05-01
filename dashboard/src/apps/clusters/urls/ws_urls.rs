@@ -1,4 +1,4 @@
-//! WebSocket URL configuration for clusters app.
+//! WebSocket URL configuration for the clusters app.
 //!
 //! Currently empty — clusters has no per-handler WebSocket endpoints.
 //! The module is required by the `#[routes]` macro to generate the

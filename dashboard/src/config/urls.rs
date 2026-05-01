@@ -32,7 +32,6 @@ use reinhardt::register_client_reverser;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::auth::client::pages::{login_page, register_page};
 use crate::client::layout::dashboard_shell;
 use crate::client::pages::not_found_page;
 
@@ -196,18 +195,21 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 
 	let unified = UnifiedRouter::new()
-			// SPA route table — server-side reverse URL resolution. Mirrors
-			// the WASM-side `init_router()` registration so cross-target
-			// callers of `url_for` (SSR `href`, server-rendered redirects)
-			// resolve names like `auth:login_page` to `/login` without the
-			// WASM bundle being loaded. The `register_client_reverser`
-			// call below makes the reverser globally retrievable via
-			// `get_client_reverser()` (used by `DashboardUrlResolver` on
-			// native).
+			// Project-level SPA route table — server-side reverse URL
+			// resolution. Mirrors the WASM-side `init_router()` registration
+			// so cross-target callers of `url_for` (SSR `href`,
+			// server-rendered redirects) resolve names like `dashboard:home`
+			// to `/` without the WASM bundle being loaded. The
+			// `register_client_reverser` call below makes the reverser
+			// globally retrievable via `get_client_reverser()` (used by
+			// `DashboardUrlResolver` on native).
+			//
+			// App-namespaced SPA routes (e.g. `auth:login_page`) live in
+			// each app's `url_patterns()` and are merged into this router
+			// via `mount_unified` further down — possible on native after
+			// kent8192/reinhardt-web#4077.
 			.client(|c| {
 				c.named_route("dashboard:home", "/", dashboard_shell)
-					.named_route("auth:login_page", "/login", login_page)
-					.named_route("auth:register_page", "/register", register_page)
 					// Placeholder names so navigation hrefs resolve via
 					// `ClientUrlResolver` even before these pages are
 					// implemented. Mirror entries in `init_router()`.
@@ -224,25 +226,22 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.mount("/static/admin/", admin_static_routes())
 			.with_prefix("/api/")
 			.with_di_registrations(infra.admin_di)
-			// REST API endpoints
-			.mount("/auth/", crate::apps::auth::urls::server_url_patterns())
+			// Per-app unified routers — `mount_unified` carries server
+			// endpoints (mounted under the given prefix) AND merges client
+			// SPA `named_route` entries into the parent's client router so
+			// the global reverser sees `auth:login_page`, etc.
+			.mount_unified("/auth/", crate::apps::auth::urls::url_patterns())
 			// Mount at "/" and embed the full `/orgs/{org}/...` path in each
 			// view macro. This is intentional: parameter-prefixed mount
-			// (e.g. `.mount("/orgs/{org}/", ...)`) would create an implicit,
-			// non-local URL contract — a view's accepted path params would
-			// depend on which mount it was attached to, breaking locality
-			// and refactor safety. Upstream surfaces the mistake loudly via
-			// kent8192/reinhardt-web#4012 (PR #4015 panics on `{` / `}` in
-			// the prefix); the broader feature was rejected on design
-			// grounds in kent8192/reinhardt-web#4023.
-			.mount(
-				"/",
-				crate::apps::clusters::urls::server_url_patterns(),
-			)
-			.mount(
-				"/",
-				crate::apps::deployments::urls::server_url_patterns(),
-			)
+			// (e.g. `.mount_unified("/orgs/{org}/", ...)`) would create an
+			// implicit, non-local URL contract — a view's accepted path
+			// params would depend on which mount it was attached to,
+			// breaking locality and refactor safety. Upstream surfaces the
+			// mistake loudly via kent8192/reinhardt-web#4012 (PR #4015
+			// panics on `{` / `}` in the prefix); the broader feature was
+			// rejected on design grounds in kent8192/reinhardt-web#4023.
+			.mount_unified("/", crate::apps::clusters::urls::url_patterns())
+			.mount_unified("/", crate::apps::deployments::urls::url_patterns())
 			// Deprecated flat-URL redirects: 307 to org-scoped URL (removed after next release)
 			.mount(
 				"/clusters/",
@@ -252,7 +251,8 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 				"/deployments/",
 				crate::config::middleware::deprecated_flat_urls::deployments_redirect_patterns(),
 			)
-			.mount("/", crate::apps::health::urls::server_url_patterns())
+			.mount_unified("/", crate::apps::health::urls::url_patterns())
+			.mount_unified("/", crate::apps::organizations::urls::url_patterns())
 			.server(|s| {
 				s.server_fn(server::login::login::marker)
 					.server_fn(server::register::register::marker)

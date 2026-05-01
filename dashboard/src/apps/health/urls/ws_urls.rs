@@ -1,7 +1,7 @@
-//! WebSocket URL configuration for health app.
+//! WebSocket URL configuration for the health app.
 //!
-//! Currently empty — the health app has no WebSocket endpoints. The
-//! module is required by the `#[routes]` macro to generate the
+//! Currently empty — health has no per-handler WebSocket endpoints.
+//! The module is required by the `#[routes]` macro to generate the
 //! `urls.ws().health()` accessor and its underlying `ws_url_resolvers`
 //! sub-module via `#[url_patterns(mode = ws)]`.
 
