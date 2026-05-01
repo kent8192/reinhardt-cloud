@@ -30,10 +30,15 @@ services:
       - cargo-git:/usr/local/cargo/git
       - target-cache:/workspaces/reinhardt-cloud/target
       # docker-outside-of-docker: share the host's Docker daemon so
-      # TestContainers can spin up sibling containers.
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Force testcontainers to use the bind-mounted socket regardless of
-      # any inherited DOCKER_HOST.
+      # TestContainers can spin up sibling containers. The host-side socket
+      # path varies between runtimes (Docker Desktop / OrbStack expose it at
+      # `/var/run/docker.sock`; Colima at `~/.colima/default/docker.sock`;
+      # Rancher Desktop varies by config) — let users override via the
+      # `HOST_DOCKER_SOCKET` env var while defaulting to the conventional
+      # path that already works for Docker Desktop and OrbStack.
+      - ${HOST_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      # Mount TestContainers tuning (ryuk + reuse) but do NOT pin docker.host
+      # — TestContainers' auto-detection finds the bind-mounted socket above.
       - ./.testcontainers.properties:/home/vscode/.testcontainers.properties:ro
     # Allow TestContainers' randomly-mapped child container ports to be
     # reachable through `host.docker.internal` from inside this dev container.

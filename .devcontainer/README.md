@@ -7,9 +7,27 @@ cargo tool referenced by `dashboard/Makefile.toml`, and sidecar services
 
 ## Prerequisites
 
-- macOS, Linux, or Windows host with **Docker Desktop** running
+- macOS, Linux, or Windows host with a Docker-compatible runtime running
+  (Docker Desktop, OrbStack, Colima, Rancher Desktop, or native Docker
+  Engine on Linux all work)
 - VS Code with the **Dev Containers** extension, or the [`devcontainer`
   CLI](https://github.com/devcontainers/cli)
+
+### Host Docker socket location
+
+The dev container bind-mounts the host's Docker socket so TestContainers
+and `docker` CLI calls inside the container reach the host daemon. The
+default mount source is `/var/run/docker.sock`, which works for Docker
+Desktop and OrbStack out of the box. If your runtime exposes the socket
+elsewhere, set `HOST_DOCKER_SOCKET` before bringing the container up:
+
+```bash
+# Colima
+export HOST_DOCKER_SOCKET="$HOME/.colima/default/docker.sock"
+
+# Rancher Desktop (default `dockerd-moby` on macOS)
+export HOST_DOCKER_SOCKET="$HOME/.rd/docker.sock"
+```
 
 ## Getting started
 
@@ -82,8 +100,12 @@ Both `local.toml` and `devcontainer.toml` are gitignored — the
 ## Troubleshooting
 
 - `Cannot connect to Docker daemon` from inside the container → ensure
-  Docker Desktop is running on the host. The container reuses the host
-  daemon by design.
-- `IncompleteMessage` errors from TestContainers → confirm `DOCKER_HOST`
-  inside the container points at `unix:///var/run/docker.sock` (it does by
-  default; this only breaks if it gets manually overridden).
+  the host Docker runtime is running and that `HOST_DOCKER_SOCKET` (if
+  set) points at the runtime's actual socket. The container reuses the
+  host daemon by design.
+- TestContainers cannot find a Docker socket → check that
+  `/var/run/docker.sock` exists *inside* the container (`docker run --rm
+  -v /var/run/docker.sock:/var/run/docker.sock alpine ls -l
+  /var/run/docker.sock` from the host is a fast sanity check). The
+  bind-mount target is fixed; only the host-side source is configurable
+  via `HOST_DOCKER_SOCKET`.

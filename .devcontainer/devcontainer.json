@@ -33,7 +33,6 @@
 
 	"containerEnv": {
 		"REINHARDT_ENV": "devcontainer",
-		"DOCKER_HOST": "unix:///var/run/docker.sock",
 		"RUST_LOG": "info",
 		"RUST_BACKTRACE": "1",
 		"CARGO_TERM_COLOR": "always"
