@@ -1,4 +1,4 @@
-//! WebSocket URL configuration for auth app.
+//! WebSocket URL configuration for the auth app.
 //!
 //! Currently empty — auth has no per-handler WebSocket endpoints.
 //! The module is required by the `#[routes]` macro to generate the
