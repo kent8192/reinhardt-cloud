@@ -9,14 +9,6 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
-// Workaround for kent8192/reinhardt-web#4070 (tracked in #503).
-// `form!` macro expands the `server_fn: login` reference on WASM only,
-// so the import is unused on native. Cfg-gate the import until the
-// macro emits a native-side reference too.
-//
-// Ideal implementation (without workaround):
-//   use crate::apps::auth::server::login::login;
-#[cfg(wasm)]
 use crate::apps::auth::server::login::login;
 use crate::client::url::url_for;
 
