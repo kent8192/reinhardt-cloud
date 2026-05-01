@@ -10,6 +10,11 @@ debug = 1
 
 # rust-analyzer settings
 # Enable all features to improve type checking in the editor
+#
+# REINHARDT_ENV is intentionally NOT pinned here: cargo's [env] table propagates
+# to every cargo invocation, so pinning a profile would force local `cargo run`
+# / `cargo test` to load CI settings and mask the `local`-default resolution
+# in `dashboard/src/config/settings.rs::profile_name()`. CI workflows and
+# Makefile.toml set REINHARDT_ENV explicitly per task instead. (Issue #499)
 [env]
 RUST_ANALYZER_CARGO_FEATURES = "all"
-REINHARDT_ENV = "ci"
