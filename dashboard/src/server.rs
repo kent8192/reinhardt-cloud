@@ -13,12 +13,15 @@ use std::error::Error;
 
 use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand, auto_register_router};
 
-/// Walk the `#[routes]` inventory and register the (single) discovered
-/// router into the global slot that `RunServerCommand::execute` reads.
+/// Delegate to the upstream [`auto_register_router`] helper, which walks
+/// the `#[routes]` inventory and registers the discovered router into the
+/// global slot that `RunServerCommand::execute` reads.
 ///
-/// Thin wrapper around upstream [`auto_register_router`] preserved so
-/// `tests/server_startup.rs` can assert that the binary's startup path
-/// performs the inventory walk before delegating to `RunServerCommand`.
+/// Kept as a named entry point (rather than calling `auto_register_router`
+/// directly from `run`) so `tests/server_startup.rs` can assert that the
+/// binary's startup path performs router registration before delegating to
+/// `RunServerCommand`. The actual registration mechanism lives in
+/// `reinhardt-commands` upstream.
 pub async fn register_router_from_inventory() -> Result<(), Box<dyn Error>> {
 	auto_register_router().await
 }
