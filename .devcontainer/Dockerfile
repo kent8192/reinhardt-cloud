@@ -37,11 +37,14 @@ RUN rustup toolchain install 1.94.0 \
 	&& rustup default 1.94.0
 
 # Install cargo tooling. Each `cargo install` is a separate layer so that
-# bumping one tool does not invalidate the others' caches.
-RUN cargo install cargo-make --locked
-RUN cargo install cargo-nextest --locked
-RUN cargo install cargo-audit --locked
-RUN cargo install bacon --locked
+# bumping one tool does not invalidate the others' caches. Versions are
+# pinned so that rebuilding the image at a later date produces the same
+# tool set; bump them deliberately rather than letting `cargo install`
+# pick up new releases silently.
+RUN cargo install cargo-make --locked --version 0.37.24
+RUN cargo install cargo-nextest --locked --version 0.9.133
+RUN cargo install cargo-audit --locked --version 0.22.1
+RUN cargo install bacon --locked --version 3.22.0
 
 # wasm-bindgen-cli must match the `wasm-bindgen` version in `Cargo.lock`
 # (currently 0.2.118). Note: `dashboard/Makefile.toml`'s `wasm-install-tools`
