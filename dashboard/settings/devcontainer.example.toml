@@ -1,0 +1,58 @@
+# Dev Container Settings for Reinhardt Cloud dashboard
+#
+# Loaded when REINHARDT_ENV=devcontainer (set automatically by
+# `.devcontainer/devcontainer.json`).
+#
+# This file mirrors `local.toml` but points DB and Redis hosts at the
+# docker-compose service names (`postgres`, `redis`) instead of `localhost`.
+#
+# Getting started:
+#   The dev container's post-create hook copies this file to
+#   dashboard/settings/devcontainer.toml on first startup.
+
+# JWT secret for session token signing (required for auth endpoints).
+jwt_secret = "test-secret-key-for-playwright-e2e-testing-32bytes"
+
+# Redis URL for session storage (required for cookie session auth).
+# `redis` resolves to the compose service via the dev container's network.
+redis_url = "redis://redis:6379/1"
+
+[core]
+debug = true
+secret_key = "test-secret-key-for-playwright-e2e-testing"
+allowed_hosts = ["*"]
+root_urlconf = ""
+
+middleware = []
+
+# Security settings (relaxed for development).
+[core.security]
+append_slash = true
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+
+# Database configuration: PostgreSQL service from docker-compose.
+[core.databases.default]
+engine = "postgresql"
+host = "postgres"
+port = 5432
+name = "reinhardt_cloud"
+user = "reinhardt"
+password = "reinhardt"
+options = {}
+
+# Top-level [database] section required by reinhardt-web's runserver/migrate
+# commands. Must mirror [core.databases.default] above.
+[database]
+engine = "postgresql"
+host = "postgres"
+port = 5432
+name = "reinhardt_cloud"
+user = "reinhardt"
+password = "reinhardt"
+
+[cors]
+allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
