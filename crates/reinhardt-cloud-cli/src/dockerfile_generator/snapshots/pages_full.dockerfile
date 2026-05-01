@@ -39,6 +39,7 @@ RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
 COPY --from=wasm /wasm-dist /app/static/wasm/
+COPY --from=builder /app/index.html /app/static/wasm/index.html
 RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser

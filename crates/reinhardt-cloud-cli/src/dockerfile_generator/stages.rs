@@ -262,6 +262,20 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 			src: "/wasm-dist".to_string(),
 			dst: "/app/static/wasm/".to_string(),
 		});
+		// SPA fallback: ship `index.html` alongside the WASM artifacts so
+		// `RunServerCommand`'s `--with-pages` mode can serve it for unknown
+		// routes. Source path mirrors the settings/ COPY logic below
+		// (workspace-member layouts vs. project-root layouts).
+		// See kent8192/reinhardt-cloud#511.
+		let index_src = match signals.project_relative_path.as_deref() {
+			Some(rel) => format!("/app/{rel}/index.html"),
+			None => "/app/index.html".to_string(),
+		};
+		instructions.push(Instruction::Copy {
+			from: Some("builder".to_string()),
+			src: index_src,
+			dst: "/app/static/wasm/index.html".to_string(),
+		});
 	}
 
 	// Bundle the project's `settings/` TOMLs into the runtime image so the
@@ -614,6 +628,88 @@ mod tests {
 
 		// Assert
 		assert!(!stage_contains_copy_from(&stage, "wasm"));
+	}
+
+	// S15b (Refs #511): pages-enabled runtime stage MUST also COPY
+	// `index.html` so `RunServerCommand`'s SPA fallback can serve it for
+	// unknown routes. For single-crate projects, the source path is at
+	// the build-context root.
+	#[rstest]
+	fn runtime_copies_index_html_for_root_project(mut minimal_signals: DockerfileSignals) {
+		// Arrange — single-crate project: project_relative_path is None
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+		minimal_signals.project_relative_path = None;
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		let copies_index = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { from: Some(f), src, dst }
+					if f == "builder"
+						&& src == "/app/index.html"
+						&& dst == "/app/static/wasm/index.html"
+			)
+		});
+		assert!(
+			copies_index,
+			"runtime stage must COPY /app/index.html -> /app/static/wasm/index.html; \
+			 see kent8192/reinhardt-cloud#511"
+		);
+	}
+
+	// S15c (Refs #511): for workspace-member projects, the index.html
+	// source path must include the project's relative path so COPY
+	// resolves to the correct location inside the builder stage's
+	// filesystem.
+	#[rstest]
+	fn runtime_copies_index_html_for_workspace_member(mut minimal_signals: DockerfileSignals) {
+		// Arrange — workspace member at `dashboard/`
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		let copies_index = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { from: Some(f), src, dst }
+					if f == "builder"
+						&& src == "/app/dashboard/index.html"
+						&& dst == "/app/static/wasm/index.html"
+			)
+		});
+		assert!(
+			copies_index,
+			"runtime stage must COPY /app/dashboard/index.html for workspace-member \
+			 projects; see kent8192/reinhardt-cloud#511"
+		);
+	}
+
+	// S15d (Refs #511): non-pages projects must NOT trigger the index.html
+	// COPY, because the source file may not exist.
+	#[rstest]
+	fn runtime_no_index_html_copy_when_pages_disabled(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		let copies_index = stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { dst, .. } if dst == "/app/static/wasm/index.html"
+			)
+		});
+		assert!(
+			!copies_index,
+			"runtime stage must NOT COPY index.html when pages is disabled"
+		);
 	}
 
 	// S17
