@@ -8,14 +8,15 @@
 # Note: env-specific TOML replaces the entire [core] section from base.toml,
 # so all required core fields must be specified here.
 #
-# Getting started:
-#   cp ci.example.toml ci.toml
+# This file is tracked in the repo. Edit it directly for CI-specific settings;
+# real secrets are injected at workflow runtime via REINHARDT_* env vars.
 
 # JWT secret for cluster-agent and gRPC AuthService token signing.
 jwt_secret = "ci-only-jwt-secret-not-for-production"
 
-# Redis URL for cookie session storage (matches GitHub Actions Redis service).
-redis_url = "redis://localhost:6379/1"
+# Redis URL for cookie session storage. Matches GitHub Actions Redis service
+# and `REINHARDT_CLOUD_REDIS_URL` (database 0) used across CI workflows.
+redis_url = "redis://localhost:6379/0"
 
 [core]
 debug = true
