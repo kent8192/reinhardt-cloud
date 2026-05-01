@@ -90,6 +90,12 @@ jobs:
       - name: Install Bruno CLI
         run: npm install -g @usebruno/cli@3.1.3
 
+      - name: Prepare settings files
+        # base.toml is .gitignored; create it from the example so the settings
+        # loader can merge [i18n]/[static_files]/[media]/[email] into the
+        # tracked ci.toml (which only carries CI-specific overrides).
+        run: cp dashboard/settings/base.example.toml dashboard/settings/base.toml
+
       - name: Build application
         run: cargo build --locked --package reinhardt-cloud-dashboard --bin manage
 

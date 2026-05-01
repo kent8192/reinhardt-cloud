@@ -1,0 +1,75 @@
+# Production Environment Settings for Reinhardt Cloud
+#
+# Loaded when REINHARDT_ENV=production.
+# Hardened defaults: debug off, HSTS+SSL redirect on, secure cookies on,
+# explicit allowed_hosts, no permissive CORS origins.
+#
+# Note: env-specific TOML replaces the entire [core] section from base.toml,
+# so all required core fields must be specified here.
+#
+# Secrets MUST be supplied via REINHARDT_* environment variables in the
+# deployment runtime (Kubernetes Secret, SealedSecret, External Secrets, etc.).
+# The placeholders below exist only to keep the schema valid; deploying with
+# them unmodified is unsafe.
+
+# JWT secret — MUST be overridden via REINHARDT_CLOUD_JWT_SECRET (>= 32 bytes
+# of cryptographically random data).
+jwt_secret = "PRODUCTION-OVERRIDE-VIA-REINHARDT_CLOUD_JWT_SECRET"
+
+# Redis URL — MUST be overridden via REINHARDT_CLOUD_REDIS_URL.
+redis_url = "redis://redis.production.internal:6379/0"
+
+[core]
+debug = false
+secret_key = "PRODUCTION-OVERRIDE-VIA-REINHARDT_CORE__SECRET_KEY"
+allowed_hosts = ["reinhardt-cloud.dev", "www.reinhardt-cloud.dev"]
+root_urlconf = ""
+
+middleware = []
+
+# Security settings (full production hardening)
+[core.security]
+append_slash = true
+session_cookie_secure = true
+csrf_cookie_secure = true
+secure_ssl_redirect = true
+secure_hsts_include_subdomains = true
+secure_hsts_preload = true
+
+# Database configuration — credentials MUST be overridden via
+# REINHARDT_CORE__DATABASES__DEFAULT__* env vars (or equivalent secret store).
+[core.databases.default]
+engine = "postgresql"
+host = "db.production.internal"
+port = 5432
+name = "reinhardt_cloud"
+user = "reinhardt"
+password = { secret = "PRODUCTION-OVERRIDE-VIA-ENV" }
+options = {}
+
+# Top-level [database] section required by reinhardt-web's runserver/migrate commands.
+[database]
+engine = "postgresql"
+host = "db.production.internal"
+port = 5432
+name = "reinhardt_cloud"
+user = "reinhardt"
+password = "PRODUCTION-OVERRIDE-VIA-ENV"
+
+[cors]
+allow_origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"]
+
+# Production email delivery — Cloudflare Email Routing is INBOUND only
+# (see base.toml [email] comment). Outbound delivery REQUIRES a third-party
+# provider (Resend / SendGrid / AWS SES / Postmark). Override host/port/
+# credentials via REINHARDT_EMAIL__* env vars and publish the provider's SPF
+# include + DKIM selector on the reinhardt-cloud.dev DNS zone.
+#
+# Defaults below assume STARTTLS on 587; switch to use_ssl=true / use_tls=false
+# for implicit-TLS providers on 465.
+[email]
+host = "smtp.production-provider.invalid"
+port = 587
+from_email = "noreply@reinhardt-cloud.dev"
+use_ssl = false
+use_tls = true
