@@ -1,0 +1,78 @@
+# docker-compose for the dashboard development container.
+#
+# Services:
+#   dev      - Rust toolchain + dashboard build tooling (this PR's Dockerfile)
+#   postgres - PostgreSQL 17 (matches dashboard/scripts/infra_up.sh)
+#   redis    - Redis 7
+#
+# Bind-mounting `/var/run/docker.sock` lets TestContainers talk to the host
+# Docker daemon directly (docker-outside-of-docker). DinD is intentionally
+# avoided so ephemeral test containers share the same daemon as
+# `cargo make infra-up` and stay visible from the host.
+
+name: reinhardt-cloud-devcontainer
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Workspace bind. `cached` is a macOS-specific consistency hint that
+      # speeds up reads in the container at the cost of slightly delayed
+      # propagation back to the host - acceptable since edits originate in
+      # VS Code running against the in-container files.
+      - ../..:/workspaces/reinhardt-cloud:cached
+      # Persist cargo registry / git checkouts and the workspace `target/`
+      # in named volumes. Bind-mounting `target/` on macOS is unusably slow
+      # because of osxfs translation overhead.
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspaces/reinhardt-cloud/target
+      # docker-outside-of-docker: share the host's Docker daemon so
+      # TestContainers can spin up sibling containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Force testcontainers to use the bind-mounted socket regardless of
+      # any inherited DOCKER_HOST.
+      - ./.testcontainers.properties:/home/vscode/.testcontainers.properties:ro
+    # Allow TestContainers' randomly-mapped child container ports to be
+    # reachable through `host.docker.internal` from inside this dev container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: reinhardt
+      POSTGRES_PASSWORD: reinhardt
+      POSTGRES_DB: reinhardt_cloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reinhardt -d reinhardt_cloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target-cache:
+  postgres-data:
+  redis-data:
