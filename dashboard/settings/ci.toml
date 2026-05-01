@@ -1,35 +1,29 @@
 # CI Environment Settings for Reinhardt Cloud
 #
 # Loaded when REINHARDT_ENV=ci.
-# This file contains settings specific to the CI (GitHub Actions) environment.
-# Used by Bruno API tests and other CI workflows that require a running application.
+# Used by GitHub Actions workflows (Bruno API tests, unit tests, integration
+# tests) that require a running application against the workflow's
+# PostgreSQL/Redis service containers.
+#
 # Note: env-specific TOML replaces the entire [core] section from base.toml,
 # so all required core fields must be specified here.
 #
 # Getting started:
 #   cp ci.example.toml ci.toml
 
+# JWT secret for cluster-agent and gRPC AuthService token signing.
 jwt_secret = "ci-only-jwt-secret-not-for-production"
+
+# Redis URL for cookie session storage (matches GitHub Actions Redis service).
 redis_url = "redis://localhost:6379/1"
 
 [core]
-# Enable debug mode for verbose error output in CI logs
 debug = true
 secret_key = "ci-only-secret-key-not-for-production"
 allowed_hosts = ["*"]
 root_urlconf = ""
 
 middleware = []
-
-# Database configuration for CI (matches GitHub Actions PostgreSQL service container)
-# Used by reinhardt-web's migrate command which reads from [database] section.
-[database]
-engine = "postgresql"
-host = "localhost"
-port = 5432
-name = "reinhardt_cloud_ci"
-user = "postgres"
-password = "postgres"
 
 # Security settings (relaxed for CI)
 [core.security]
@@ -40,7 +34,8 @@ secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
 
-# Database configuration for CI (TestContainers overrides at runtime)
+# Database configuration for CI (matches GitHub Actions PostgreSQL service container).
+# TestContainers may override host/port at runtime.
 [core.databases.default]
 engine = "postgresql"
 host = "localhost"
@@ -50,24 +45,14 @@ user = "postgres"
 password = { secret = "postgres" }
 options = {}
 
-[i18n]
-language_code = "en-us"
-time_zone = "UTC"
-use_i18n = true
-use_tz = true
-
-[static_files]
-url = "/static/"
-root = "static"
-
-[media]
-url = "/media/"
-root = "media"
+# Top-level [database] section required by reinhardt-web's runserver/migrate commands.
+[database]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "reinhardt_cloud_ci"
+user = "postgres"
+password = "postgres"
 
 [cors]
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
-
-[email]
-host = "localhost"
-port = 1025
-from_email = "noreply@reinhardt-cloud.dev"
