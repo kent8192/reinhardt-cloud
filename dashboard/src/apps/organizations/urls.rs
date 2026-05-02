@@ -19,7 +19,5 @@ use crate::config::apps::InstalledApp;
 /// `mount_unified` composition pattern.
 #[url_patterns(InstalledApp::organizations, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
-	UnifiedRouter::new()
-		.server(|s| s)
-		.client(|c| c)
+	UnifiedRouter::new().server(|s| s).client(|c| c)
 }
