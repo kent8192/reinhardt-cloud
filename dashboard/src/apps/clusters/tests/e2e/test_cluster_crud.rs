@@ -368,7 +368,7 @@ mod tests {
 	/// Verify renaming a cluster to a different (unused) name still succeeds.
 	/// Regression guard for the conflict-detection path: an UPDATE that does
 	/// not collide with an existing `(organization_id, name)` row must
-	/// return 200, not bubble up as a 409 (refs #436).
+	/// return `200 OK`, not `409 Conflict` (refs #436).
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
