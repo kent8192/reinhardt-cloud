@@ -15,19 +15,11 @@
 		"ghcr.io/devcontainers/features/github-cli:1": {}
 	},
 
-	"forwardPorts": [8000, 5432, 6379],
+	"forwardPorts": [8000],
 	"portsAttributes": {
 		"8000": {
 			"label": "dashboard",
 			"onAutoForward": "openBrowser"
-		},
-		"5432": {
-			"label": "postgres",
-			"onAutoForward": "silent"
-		},
-		"6379": {
-			"label": "redis",
-			"onAutoForward": "silent"
 		}
 	},
 

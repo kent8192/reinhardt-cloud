@@ -65,8 +65,8 @@ cargo make runserver        # start the dashboard on http://localhost:8000
 | Rust toolchain | 1.94.0 (matches `rust-toolchain.toml`) + `wasm32-unknown-unknown` |
 | Cargo tools | `cargo-make`, `cargo-nextest`, `cargo-audit`, `bacon`, `wasm-bindgen-cli` (0.2.118), `reinhardt-admin-cli` (0.1.0-rc.15) |
 | System tools | `protoc`, `binaryen` (`wasm-opt`), `lldb`, `postgresql-client`, `redis-tools`, `gh` |
-| Sidecar services | `postgres:17-bookworm`, `redis:7-alpine` (compose, healthchecked) |
-| Forwarded ports | `8000` (dashboard), `5432` (postgres), `6379` (redis) |
+| Sidecar services | `postgres:17-bookworm`, `redis:7-alpine` (compose, healthchecked, container-internal) |
+| Forwarded ports | `8000` (dashboard) |
 
 `/var/run/docker.sock` is bind-mounted so TestContainers can launch sibling
 containers via the host's Docker daemon (docker-outside-of-docker).
@@ -84,11 +84,13 @@ Both `local.toml` and `devcontainer.toml` are gitignored — the
 
 ## Caveats
 
-- **Port collisions with `cargo make infra-up`**: if you also run the
-  dashboard's `infra-up` task on the host, both setups try to bind 5432 and
-  6379. Stop one before starting the other (`docker stop
-  reinhardt-cloud-dashboard-postgres reinhardt-cloud-dashboard-redis` on the
-  host, or shut the dev container down).
+- **PostgreSQL / Redis are container-internal**: the compose sidecars do
+  not publish 5432 / 6379 on the host, so you cannot connect to them
+  from the host with `psql -h localhost`. Use `docker compose exec
+  postgres psql -U reinhardt reinhardt_cloud` (or the equivalent
+  `redis-cli` invocation) instead. Running the dashboard's host-side
+  `cargo make infra-up` in parallel is therefore safe; the two setups
+  do not share ports.
 - **wasm-bindgen-cli version drift**: this container installs 0.2.118 to
   match `Cargo.lock`. Running `cargo make wasm-build-dev` may currently
   reinstall 0.2.114 because of an upstream pin in `dashboard/Makefile.toml`

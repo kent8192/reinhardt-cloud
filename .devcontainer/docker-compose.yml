@@ -51,6 +51,11 @@ services:
       redis:
         condition: service_healthy
 
+  # `postgres` and `redis` deliberately do NOT declare `ports:` mappings.
+  # The dashboard inside the `dev` container reaches them by service name
+  # over the compose network; keeping them off the host avoids colliding
+  # with `cargo make infra-up` and matches the README claim that DB/Redis
+  # are container-internal. Use `docker compose exec` for ad-hoc access.
   postgres:
     image: postgres:17-bookworm
     environment:
