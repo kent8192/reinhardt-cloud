@@ -10,7 +10,7 @@ use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
 use crate::apps::auth::server::login::login;
-use crate::client::url::url_for;
+use crate::client::client_urls;
 
 /// Render the login page.
 pub fn login_page() -> Page {
@@ -38,7 +38,7 @@ pub fn login_page() -> Page {
 			// the hard reload that `redirect_on_success` would emit so the
 			// new session cookie is reloaded server-side.
 			if let Some(window) = web_sys::window() {
-				let _ = window.location().set_href(&url_for("dashboard:home"));
+				let _ = window.location().set_href(client_urls::dashboard::home());
 			}
 		},
 		fields: {
@@ -74,7 +74,7 @@ pub fn login_page() -> Page {
 				class: "mt-6 text-center text-sm text-gray-600",
 				"Don't have an account? "
 				a {
-					href: url_for("auth:register_page"),
+					href: client_urls::auth::register_page(),
 					class: "text-blue-600 font-medium hover:underline",
 					"Create one"
 				}

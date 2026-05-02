@@ -89,11 +89,21 @@ pub fn urls() -> DashboardUrlResolver {
 ///
 /// Equivalent to `urls().resolve_client_url(name, &[])`. Use this in
 /// `page!` `href` attributes where no path parameters apply.
+#[deprecated(
+	since = "0.1.0",
+	note = "Use crate::client::client_urls::<app>::<route>() instead — string-based \
+	        SPA route lookup loses compile-time safety. Removal is tracked in a \
+	        follow-up to kent8192/reinhardt-cloud#519."
+)]
 pub fn url_for(name: &str) -> String {
 	urls().resolve_client_url(name, &[])
 }
 
 #[cfg(all(test, not(wasm)))]
+// Tests cover the deprecated `url_for` alongside the resolver to ensure
+// the deprecation does not silently break the existing wrapper. Removal
+// of `url_for` in a follow-up PR will also drop these tests.
+#[allow(deprecated)]
 mod tests {
 	use super::{DashboardUrlResolver, url_for};
 	use crate::config::test_helpers::build_test_app;

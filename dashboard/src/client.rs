@@ -7,6 +7,7 @@
 //! WebSocket bootstrap) are layered on top before and after
 //! `launch()`.
 
+pub mod client_urls;
 pub mod components;
 pub mod layout;
 #[cfg(wasm)]
