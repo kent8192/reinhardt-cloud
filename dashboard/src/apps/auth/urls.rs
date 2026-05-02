@@ -8,6 +8,7 @@
 
 pub mod ws_urls;
 
+use reinhardt::ClientUrlResolver;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 

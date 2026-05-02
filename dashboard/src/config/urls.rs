@@ -22,6 +22,7 @@
 
 use std::sync::Arc;
 
+use reinhardt::ClientUrlResolver;
 use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 use reinhardt::di::{
@@ -32,7 +33,6 @@ use reinhardt::register_client_reverser;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::client::layout::dashboard_shell;
 use crate::client::pages::not_found_page;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -195,32 +195,10 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 
 	let unified = UnifiedRouter::new()
-			// Project-level SPA route table — server-side reverse URL
-			// resolution. Mirrors the WASM-side `init_router()` registration
-			// so cross-target callers of `url_for` (SSR `href`,
-			// server-rendered redirects) resolve names like `dashboard:home`
-			// to `/` without the WASM bundle being loaded. The
-			// `register_client_reverser` call below makes the reverser
-			// globally retrievable via `get_client_reverser()` (used by
-			// `DashboardUrlResolver` on native).
-			//
-			// App-namespaced SPA routes (e.g. `auth:login_page`) live in
-			// each app's `url_patterns()` and are merged into this router
-			// via `mount_unified` further down — possible on native after
-			// kent8192/reinhardt-web#4077.
-			.client(|c| {
-				c.named_route("dashboard:home", "/", dashboard_shell)
-					// Placeholder names so navigation hrefs resolve via
-					// `ClientUrlResolver` even before these pages are
-					// implemented. Mirror entries in `init_router()`.
-					.named_route("dashboard:clusters", "/clusters", not_found_page)
-					.named_route(
-						"dashboard:deployments",
-						"/deployments",
-						not_found_page,
-					)
-					.not_found(not_found_page)
-			})
+			// Project-level SPA 404 fallback — owned here rather than by any
+			// individual app because Reinhardt's `not_found` slot is per
+			// `UnifiedRouter`, not per mounted segment.
+			.client(|c| c.not_found(not_found_page))
 			// Admin panel
 			.mount("/admin/", infra.admin_router)
 			.mount("/static/admin/", admin_static_routes())
@@ -229,7 +207,9 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			// Per-app unified routers — `mount_unified` carries server
 			// endpoints (mounted under the given prefix) AND merges client
 			// SPA `named_route` entries into the parent's client router so
-			// the global reverser sees `auth:login_page`, etc.
+			// the global reverser sees `auth:login_page`,
+			// `dashboard:home`, etc.
+			.mount_unified("/", crate::apps::dashboard::urls::url_patterns())
 			.mount_unified("/auth/", crate::apps::auth::urls::url_patterns())
 			// Mount at "/" and embed the full `/orgs/{org}/...` path in each
 			// view macro. This is intentional: parameter-prefixed mount

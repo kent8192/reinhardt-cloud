@@ -9,6 +9,7 @@ use reinhardt::installed_apps;
 installed_apps! {
 	auth: "auth",
 	clusters: "clusters",
+	dashboard: "dashboard",
 	deployments: "deployments",
 	health: "health",
 	organizations: "organizations",

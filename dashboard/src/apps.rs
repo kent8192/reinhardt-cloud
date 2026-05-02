@@ -7,6 +7,7 @@
 pub mod auth;
 #[cfg(native)]
 pub mod clusters;
+pub mod dashboard;
 // `deployments` is server-only at the module level, but it owns a `client`
 // submodule containing WASM UI components consumed by `crate::client::ws`.
 // The cfg gating that excludes server-only sources lives inside
