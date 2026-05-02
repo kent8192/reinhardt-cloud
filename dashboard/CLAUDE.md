@@ -14,6 +14,11 @@ This file defines development conventions specific to the `dashboard/` crate, wh
 - Files under `migrations/` MUST NOT be manually edited
 - Apply migrations with `cargo make migrate`
 
+### MG-2 (NOTE): Auto-Applied by Workspace-Root `runserver`
+
+- Workspace-root `cargo make runserver` (defined in `/Makefile.toml`) automatically chains `migrate` and `collectstatic` before launching the dev server, so a fresh database does not produce 5xx responses on first boot.
+- The dashboard-local `cargo make runserver` (defined in `dashboard/Makefile.toml`) intentionally skips this chain for users who need to drive `manage` directly without DB or static-file mutation.
+
 ---
 
 ## Module File Conventions
