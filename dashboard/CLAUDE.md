@@ -21,7 +21,7 @@ This file defines development conventions specific to the `dashboard/` crate, wh
   ```bash
   cd dashboard && cargo make runserver
   ```
-  The dashboard-local `cargo make runserver` (defined in `dashboard/Makefile.toml`) intentionally has no `dependencies` so it launches the server directly. The individual preflight tasks (`cargo make migrate`, `cargo make collectstatic`) remain available from either directory if you want to run only one of them.
+  The dashboard-local `cargo make runserver` (defined in `dashboard/Makefile.toml`) intentionally has no `dependencies` so it launches the server directly. To run only one preflight step, use `cargo make migrate` or `cargo make collectstatic` from the workspace root.
 
 ---
 
