@@ -29,7 +29,7 @@ use tracing::warn;
 
 use crate::apps::auth::models::User;
 use crate::apps::health::serializers::{HealthzResponse, STATUS_ERROR, STATUS_OK};
-use crate::apps::health::services::GrpcChannelSingleton;
+use crate::config::grpc_client::GrpcChannelSingleton;
 
 /// Per-probe timeout. Each individual probe (DB and gRPC) must complete
 /// within this window or it is reported as `"error"`.
@@ -62,7 +62,7 @@ async fn probe_database() -> bool {
 /// An empty `service` field is the standard way to ask for the server-wide
 /// health status under the gRPC Health Checking Protocol.
 async fn probe_grpc(grpc_channel: &GrpcChannelSingleton) -> bool {
-	let mut client = HealthClient::new(grpc_channel.channel().clone());
+	let mut client = HealthClient::new(grpc_channel.channel.clone());
 	let request = HealthCheckRequest {
 		service: String::new(),
 	};
