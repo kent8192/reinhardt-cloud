@@ -93,7 +93,14 @@ pub fn build_test_app() -> (APIClient, ResolvedUrls) {
 			.into_server(),
 	);
 
-	let urls = ResolvedUrls::from_router(server_router.clone());
+	// `make_router` calls `register_client_reverser` as a side effect of
+	// the DI resolve above, so the client reverser is registered globally
+	// by the time we land here. Pull it out so `ResolvedUrls` can serve
+	// both `urls.server().<app>()` and `urls.client().<app>()` typed
+	// accessors in tests.
+	let client_reverser = reinhardt::get_client_reverser()
+		.expect("global ClientUrlReverser must be registered by make_router");
+	let urls = ResolvedUrls::from_router(server_router.clone(), client_reverser);
 
 	// Wrap with OpenApiRouter to serve /api/openapi.json, /api/docs, /api/redoc.
 	// In production this is done by the `runserver` command; tests must do it explicitly.
