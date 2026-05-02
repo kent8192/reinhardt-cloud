@@ -1,0 +1,88 @@
+# docker-compose for the dashboard development container.
+#
+# Services:
+#   dev      - Rust toolchain + dashboard build tooling (this PR's Dockerfile)
+#   postgres - PostgreSQL 17 (matches dashboard/scripts/infra_up.sh)
+#   redis    - Redis 7
+#
+# Bind-mounting `/var/run/docker.sock` lets TestContainers talk to the host
+# Docker daemon directly (docker-outside-of-docker). DinD is intentionally
+# avoided so ephemeral test containers share the same daemon as
+# `cargo make infra-up` and stay visible from the host.
+
+name: reinhardt-cloud-devcontainer
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Workspace bind. `cached` is a macOS-specific consistency hint that
+      # speeds up reads in the container at the cost of slightly delayed
+      # propagation back to the host - acceptable since edits originate in
+      # VS Code running against the in-container files.
+      - ../..:/workspaces/reinhardt-cloud:cached
+      # Persist cargo registry / git checkouts and the workspace `target/`
+      # in named volumes. Bind-mounting `target/` on macOS is unusably slow
+      # because of osxfs translation overhead.
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspaces/reinhardt-cloud/target
+      # docker-outside-of-docker: share the host's Docker daemon so
+      # TestContainers can spin up sibling containers. The host-side socket
+      # path varies between runtimes (Docker Desktop / OrbStack expose it at
+      # `/var/run/docker.sock`; Colima at `~/.colima/default/docker.sock`;
+      # Rancher Desktop varies by config) — let users override via the
+      # `HOST_DOCKER_SOCKET` env var while defaulting to the conventional
+      # path that already works for Docker Desktop and OrbStack.
+      - ${HOST_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      # Mount TestContainers tuning (ryuk + reuse) but do NOT pin docker.host
+      # — TestContainers' auto-detection finds the bind-mounted socket above.
+      - ./.testcontainers.properties:/home/vscode/.testcontainers.properties:ro
+    # Allow TestContainers' randomly-mapped child container ports to be
+    # reachable through `host.docker.internal` from inside this dev container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # `postgres` and `redis` deliberately do NOT declare `ports:` mappings.
+  # The dashboard inside the `dev` container reaches them by service name
+  # over the compose network; keeping them off the host avoids colliding
+  # with `cargo make infra-up` and matches the README claim that DB/Redis
+  # are container-internal. Use `docker compose exec` for ad-hoc access.
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: reinhardt
+      POSTGRES_PASSWORD: reinhardt
+      POSTGRES_DB: reinhardt_cloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reinhardt -d reinhardt_cloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target-cache:
+  postgres-data:
+  redis-data:
