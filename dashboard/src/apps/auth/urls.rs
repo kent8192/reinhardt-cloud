@@ -46,4 +46,3 @@ pub fn url_patterns() -> UnifiedRouter {
 				.named_route("register_page", "/register", register_page)
 		})
 }
-
