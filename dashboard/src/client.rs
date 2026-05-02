@@ -1,16 +1,14 @@
 //! WASM client entry point for the Reinhardt Cloud dashboard.
 //!
 //! Bootstraps the SPA via `reinhardt::pages::ClientLauncher`, which
-//! handles router initialization, history listener wiring, the DOM
-//! mount on `#app`, and the reactive re-render Effect. Dashboard-
-//! specific concerns (link interception, app state, toast container,
+//! handles router initialization, history listener wiring, SPA link
+//! interception, the DOM mount on `#app`, and the reactive re-render
+//! Effect. Dashboard-specific concerns (app state, toast container,
 //! WebSocket bootstrap) are layered on top before and after
 //! `launch()`.
 
 pub mod components;
 pub mod layout;
-#[cfg(wasm)]
-pub mod link_interception;
 pub mod pages;
 #[cfg(wasm)]
 pub mod router;
@@ -36,12 +34,9 @@ mod wasm_entry {
 
 		state::init_app_state();
 
-		// Install the SPA link interceptor before launch so the very
-		// first click is captured. ClientLauncher does not register one.
 		let document = web_sys::window()
 			.and_then(|w| w.document())
 			.expect("no document");
-		link_interception::setup_link_interception(&document);
 
 		// Hand router init, history listener, DOM mount and the
 		// reactive re-render Effect to ClientLauncher.
