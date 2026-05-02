@@ -35,13 +35,18 @@ secure_hsts_include_subdomains = false
 secure_hsts_preload = false
 
 # Database configuration: PostgreSQL service from docker-compose.
+# `password` follows the `{ secret = ... }` shape used by every other
+# `[core.databases.default]` profile (`base.example.toml`, `ci.toml`,
+# `staging.toml`, `production.toml`). The top-level `[database]` block
+# below keeps the plain-string shape because that is what reinhardt-web's
+# runserver/migrate commands expect.
 [core.databases.default]
 engine = "postgresql"
 host = "postgres"
 port = 5432
 name = "reinhardt_cloud"
 user = "reinhardt"
-password = "reinhardt"
+password = { secret = "reinhardt" }
 options = {}
 
 # Top-level [database] section required by reinhardt-web's runserver/migrate
