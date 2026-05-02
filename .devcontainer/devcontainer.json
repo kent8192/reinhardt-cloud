@@ -1,0 +1,62 @@
+{
+	"name": "Reinhardt Cloud (dashboard dev)",
+	"dockerComposeFile": ["docker-compose.yml"],
+	"service": "dev",
+	"workspaceFolder": "/workspaces/reinhardt-cloud",
+	"shutdownAction": "stopCompose",
+	"remoteUser": "vscode",
+
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"configureZshAsDefaultShell": true,
+			"upgradePackages": false
+		},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+
+	"forwardPorts": [8000],
+	"portsAttributes": {
+		"8000": {
+			"label": "dashboard",
+			"onAutoForward": "openBrowser"
+		}
+	},
+
+	"containerEnv": {
+		"REINHARDT_ENV": "devcontainer",
+		"RUST_LOG": "info",
+		"RUST_BACKTRACE": "1",
+		"CARGO_TERM_COLOR": "always"
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"vadimcn.vscode-lldb",
+				"serayuzgur.crates",
+				"ms-azuretools.vscode-docker",
+				"GitHub.copilot",
+				"GitHub.copilot-chat"
+			],
+			"settings": {
+				"editor.insertSpaces": false,
+				"editor.tabSize": 4,
+				"editor.detectIndentation": false,
+				"[rust]": {
+					"editor.formatOnSave": true,
+					"editor.defaultFormatter": "rust-lang.rust-analyzer"
+				},
+				"rust-analyzer.check.command": "clippy",
+				"rust-analyzer.cargo.allFeatures": true,
+				"files.watcherExclude": {
+					"**/target/**": true
+				}
+			}
+		}
+	},
+
+	"postCreateCommand": "bash .devcontainer/post-create.sh"
+}
