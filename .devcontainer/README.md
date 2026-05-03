@@ -73,14 +73,16 @@ containers via the host's Docker daemon (docker-outside-of-docker).
 
 ## Settings layering
 
-The container starts with `REINHARDT_ENV=devcontainer`, which causes the
-Reinhardt configuration system to load `dashboard/settings/devcontainer.toml`
-(copied from `devcontainer.example.toml` on first run). That file mirrors
-`local.toml` but routes the DB and Redis hosts to the compose service names
-(`postgres`, `redis`).
+The container starts with `REINHARDT_ENV=local` and the env vars
+`REINHARDT_DB_HOST=postgres` and `REINHARDT_REDIS_HOST=redis`. The
+single `dashboard/settings/local.toml` file uses TOML interpolation
+(kent8192/reinhardt-web#4092) — `host = "${REINHARDT_DB_HOST:-localhost}"` —
+so it expands to the compose service name inside the container and falls
+back to `localhost` for host-native development.
 
-Both `local.toml` and `devcontainer.toml` are gitignored — the
-`*.example.toml` templates are the canonical entries in version control.
+`local.toml` is gitignored; the `local.example.toml` template is the
+canonical entry in version control. The `post-create` hook copies the
+template on first container start.
 
 ## Caveats
 
