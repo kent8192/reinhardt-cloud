@@ -10,7 +10,7 @@ use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
 use crate::apps::auth::server::login::login;
-use crate::config::urls::ResolvedUrls;
+use crate::client::url::url_for_spa;
 
 /// Render the login page.
 pub fn login_page() -> Page {
@@ -40,7 +40,7 @@ pub fn login_page() -> Page {
 			if let Some(window) = web_sys::window() {
 				let _ = window
 					.location()
-					.set_href(&ResolvedUrls::from_global().client().dashboard().home());
+					.set_href(&url_for_spa("dashboard:home"));
 			}
 		},
 		fields: {
@@ -76,7 +76,7 @@ pub fn login_page() -> Page {
 				class: "mt-6 text-center text-sm text-gray-600",
 				"Don't have an account? "
 				a {
-					href: ResolvedUrls::from_global().client().auth().register_page(),
+					href: url_for_spa("auth:register_page"),
 					class: "text-blue-600 font-medium hover:underline",
 					"Create one"
 				}
