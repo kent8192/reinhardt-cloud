@@ -86,12 +86,15 @@ fn build_settings() -> ProjectSettings {
 
 	SettingsBuilder::new()
 		.profile(Profile::parse(&profile_str))
-		// Medium priority: Base TOML file
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		// High priority: Environment-specific TOML file
-		.add_source(TomlFileSource::new(
-			settings_dir.join(format!("{}.toml", profile_str)),
-		))
+		// `with_interpolation(true)` expands `${VAR}` / `${VAR:-default}`
+		// in TOML string values against process env at load time, so a
+		// single TOML file can host environment-specific knobs without a
+		// dedicated profile per environment.
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation(true))
+		.add_source(
+			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
+				.with_interpolation(true),
+		)
 		// Highest priority: Environment variables (for container/CI overrides)
 		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
@@ -161,10 +164,11 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 	let from_toml = SettingsBuilder::new()
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		.add_source(TomlFileSource::new(
-			settings_dir.join(format!("{}.toml", profile_str)),
-		))
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation(true))
+		.add_source(
+			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
+				.with_interpolation(true),
+		)
 		.build()
 		.ok()
 		.and_then(|merged| {
