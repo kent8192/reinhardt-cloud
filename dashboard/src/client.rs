@@ -2,10 +2,11 @@
 //!
 //! Bootstraps the SPA via [`reinhardt::pages::ClientLauncher`], which
 //! handles router initialization, history listener wiring, the DOM
-//! mount on `#app`, re-mount on every `Router::on_navigate` event,
-//! and built-in SPA link interception. Dashboard-specific concerns
-//! (app state init, toast container, WebSocket bootstrap) plug in
-//! through the launcher lifecycle hooks (`before_launch`, `on_path`).
+//! mount on `#app`, re-mount on every
+//! [`reinhardt::pages::Router::on_navigate`] event, and built-in SPA
+//! link interception. Dashboard-specific concerns (app state init,
+//! toast container, WebSocket bootstrap) plug in through the launcher
+//! lifecycle hooks (`before_launch`, `on_path`).
 //!
 //! Re-mount on navigation went through a reactive `Effect` until
 //! upstream PR kent8192/reinhardt-web#4114 replaced the Effect with a
@@ -36,8 +37,8 @@ mod wasm_entry {
 		// is enabled; calling set_once twice is harmless.
 		console_error_panic_hook::set_once();
 
-		// Hand router init, history listener, DOM mount, SPA link
-		// interception, and re-mount-on-navigate to ClientLauncher.
+		// Delegate router init, history listener, DOM mount, SPA link
+		// interception, and re-mount on navigate to ClientLauncher.
 		// Path-driven side effects (toast container + notifications WS)
 		// run through `on_path` so they re-fire on every entry to "/".
 		ClientLauncher::new("#app")
