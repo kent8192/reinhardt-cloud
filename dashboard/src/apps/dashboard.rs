@@ -7,10 +7,10 @@
 //! `urls` and `app_config` are native-only because `#[url_patterns]` and
 //! `#[app_config]` are gated behind `#[cfg(native)]` in the framework.
 //! `views` stays cross-target because it only re-exports cross-target
-//! items from `crate::client`. The typed SPA accessor
-//! `urls.client().dashboard().<route>()` works on WASM via the global
-//! `ClientUrlReverser` populated at runtime, independent of this
-//! native-only `url_patterns()` declaration.
+//! items from `crate::client`. SPA URL resolution from cross-target
+//! files goes through `crate::client::url::url_for_spa` until upstream
+//! kent8192/reinhardt-web#4119 lifts the wasm gate on per-app typed
+//! accessors (tracked in #534).
 
 #[cfg(native)]
 use reinhardt::app_config;
