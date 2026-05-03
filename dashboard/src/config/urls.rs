@@ -22,7 +22,6 @@
 
 use std::sync::Arc;
 
-use reinhardt::ClientUrlResolver;
 use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 use reinhardt::di::{
