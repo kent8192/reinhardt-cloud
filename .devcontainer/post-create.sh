@@ -17,12 +17,16 @@ cargo make --version
 cargo nextest --version
 reinhardt-admin --version
 
-# 3. Provision dashboard/settings/devcontainer.toml from the example template
-#    on first run. The file is gitignored (matches `dashboard/settings/*.toml`),
+# 3. Provision dashboard/settings/local.toml from the example template on
+#    first run. The file is gitignored (matches `dashboard/settings/*.toml`),
 #    so each developer ends up with a local copy they can edit.
-if [ ! -f dashboard/settings/devcontainer.toml ]; then
-	cp dashboard/settings/devcontainer.example.toml dashboard/settings/devcontainer.toml
-	echo "Created dashboard/settings/devcontainer.toml from example."
+#    Host/redis URLs use `${REINHARDT_DB_HOST:-localhost}` interpolation so
+#    the same file works for host-native and dev-container workflows; the
+#    devcontainer's `containerEnv` sets `REINHARDT_DB_HOST=postgres` and
+#    `REINHARDT_REDIS_HOST=redis` to point at the compose service names.
+if [ ! -f dashboard/settings/local.toml ]; then
+	cp dashboard/settings/local.example.toml dashboard/settings/local.toml
+	echo "Created dashboard/settings/local.toml from example."
 fi
 
 cat <<'EOF'
