@@ -17,7 +17,14 @@ jwt_secret = "CHANGE-ME-to-a-random-string"
 # Redis URL for cookie session storage. Resolved by
 # `dashboard::config::settings::get_redis_url()`, which reads this TOML key
 # first and falls back to the `REINHARDT_CLOUD_REDIS_URL` env var.
-redis_url = "redis://localhost:6379/1"
+#
+# `${RC_REDIS_HOST:-localhost}` expands to the env var if set (the
+# `.devcontainer/` sets `RC_REDIS_HOST=redis` to point at the compose
+# service) and falls back to `localhost` for host-native development.
+# The `RC_*` prefix is intentionally outside the `REINHARDT_*` namespace
+# consumed by `HighPriorityEnvSource` so interpolation helpers do not
+# leak into the merged settings as unknown top-level keys.
+redis_url = "redis://${RC_REDIS_HOST:-localhost}:6379/1"
 
 [core]
 debug = true
@@ -36,10 +43,18 @@ secure_ssl_redirect = false
 secure_hsts_include_subdomains = false
 secure_hsts_preload = false
 
-# Database configuration for local development
+# Database configuration for local development.
+# `${RC_DB_HOST:-localhost}` expands to the env var if set (the
+# `.devcontainer/` sets `RC_DB_HOST=postgres` to point at the compose
+# service) and falls back to `localhost` for host-native development.
+# Numeric/bool fields (port) keep their native types and are overridden
+# via the `REINHARDT_CORE__DATABASES__DEFAULT__PORT` env var when needed.
+# The `RC_*` prefix is intentionally outside the `REINHARDT_*` namespace
+# consumed by `HighPriorityEnvSource` so interpolation helpers do not
+# leak into the merged settings as unknown top-level keys.
 [core.databases.default]
 engine = "postgresql"
-host = "localhost"
+host = "${RC_DB_HOST:-localhost}"
 port = 5432
 name = "reinhardt_cloud_dev"
 user = "postgres"

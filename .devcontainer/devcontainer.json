@@ -24,7 +24,9 @@
 	},
 
 	"containerEnv": {
-		"REINHARDT_ENV": "devcontainer",
+		"REINHARDT_ENV": "local",
+		"RC_DB_HOST": "postgres",
+		"RC_REDIS_HOST": "redis",
 		"RUST_LOG": "info",
 		"RUST_BACKTRACE": "1",
 		"CARGO_TERM_COLOR": "always"
