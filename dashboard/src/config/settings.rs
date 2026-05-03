@@ -86,14 +86,11 @@ fn build_settings() -> ProjectSettings {
 
 	SettingsBuilder::new()
 		.profile(Profile::parse(&profile_str))
-		// Medium priority: Base TOML file. `with_interpolation(true)` enables
-		// `${VAR}` / `${VAR:-default}` substitution against process env vars
-		// at load time (kent8192/reinhardt-web#4092). String values like
-		// `host = "${REINHARDT_DB_HOST:-localhost}"` resolve to the env var
-		// when set and fall back to `localhost` otherwise — single TOML file
-		// works for host-native and dev-container workflows. Resolves #522.
+		// `with_interpolation(true)` expands `${VAR}` / `${VAR:-default}`
+		// in TOML string values against process env at load time, so a
+		// single TOML file can host environment-specific knobs without a
+		// dedicated profile per environment.
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation(true))
-		// High priority: Environment-specific TOML file
 		.add_source(
 			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
 				.with_interpolation(true),

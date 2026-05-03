@@ -74,11 +74,14 @@ containers via the host's Docker daemon (docker-outside-of-docker).
 ## Settings layering
 
 The container starts with `REINHARDT_ENV=local` and the env vars
-`REINHARDT_DB_HOST=postgres` and `REINHARDT_REDIS_HOST=redis`. The
-single `dashboard/settings/local.toml` file uses TOML interpolation
-(kent8192/reinhardt-web#4092) — `host = "${REINHARDT_DB_HOST:-localhost}"` —
+`RC_DB_HOST=postgres` and `RC_REDIS_HOST=redis`. The single
+`dashboard/settings/local.toml` file uses TOML interpolation
+(kent8192/reinhardt-web#4092) — `host = "${RC_DB_HOST:-localhost}"` —
 so it expands to the compose service name inside the container and falls
-back to `localhost` for host-native development.
+back to `localhost` for host-native development. The `RC_*` prefix sits
+outside the `REINHARDT_*` namespace consumed by `HighPriorityEnvSource`,
+so these helper vars do not leak into the merged settings as unknown
+top-level keys.
 
 `local.toml` is gitignored; the `local.example.toml` template is the
 canonical entry in version control. The `post-create` hook copies the
