@@ -219,7 +219,7 @@ if [ ! -f "$WASM_FILE" ]; then
 	exit 1
 fi
 wasm-bindgen --target web "$WASM_FILE" --out-dir dist
-if command -v wasm-opt &> /dev/null; then
+if command -v wasm-opt >/dev/null 2>&1; then
 	echo "Optimizing WASM with wasm-opt..."
 	wasm-opt -O3 dist/reinhardt_cloud_dashboard_bg.wasm -o dist/reinhardt_cloud_dashboard_bg.wasm
 fi
