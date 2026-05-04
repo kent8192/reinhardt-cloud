@@ -181,7 +181,7 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
 script = '''
 # Keep this version in sync with the wasm-bindgen crate in Cargo.lock
-cargo install wasm-bindgen-cli --version "0.2.114" --locked 2>/dev/null || true
+cargo install wasm-bindgen-cli --version "0.2.118" --locked 2>/dev/null || true
 '''
 
 [tasks.wasm-compile-dev]
@@ -198,8 +198,8 @@ args = ["build", "--lib", "--target", "wasm32-unknown-unknown", "--release"]
 description = "Generate JS bindings for WASM (debug)"
 script = '''
 mkdir -p dist
-WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
-WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/debug/reinhardt_cloud.wasm"
+TARGET_DIR="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['target_directory'])" 2>/dev/null || echo "../target")"
+WASM_FILE="${TARGET_DIR}/wasm32-unknown-unknown/debug/reinhardt_cloud_dashboard.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1
@@ -212,8 +212,8 @@ dependencies = ["wasm-compile-dev"]
 description = "Generate JS bindings for WASM (release)"
 script = '''
 mkdir -p dist
-WORKSPACE_ROOT="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_root'])" 2>/dev/null || echo "..")"
-WASM_FILE="${WORKSPACE_ROOT}/target/wasm32-unknown-unknown/release/reinhardt_cloud.wasm"
+TARGET_DIR="$(cargo metadata --no-deps --format-version=1 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['target_directory'])" 2>/dev/null || echo "../target")"
+WASM_FILE="${TARGET_DIR}/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm"
 if [ ! -f "$WASM_FILE" ]; then
 	echo "Error: WASM file not found at $WASM_FILE"
 	exit 1
@@ -221,7 +221,7 @@ fi
 wasm-bindgen --target web "$WASM_FILE" --out-dir dist
 if command -v wasm-opt &> /dev/null; then
 	echo "Optimizing WASM with wasm-opt..."
-	wasm-opt -O3 dist/reinhardt_cloud_bg.wasm -o dist/reinhardt_cloud_bg.wasm
+	wasm-opt -O3 dist/reinhardt_cloud_dashboard_bg.wasm -o dist/reinhardt_cloud_dashboard_bg.wasm
 fi
 '''
 dependencies = ["wasm-compile-release"]
