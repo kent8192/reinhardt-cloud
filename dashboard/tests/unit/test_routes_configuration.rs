@@ -12,12 +12,13 @@ fn test_installed_apps_exact_content() {
 	// Assert — verify exact app list, not just contains
 	assert_eq!(
 		apps.len(),
-		5,
-		"Expected exactly 5 installed apps, got: {:?}",
+		6,
+		"Expected exactly 6 installed apps, got: {:?}",
 		apps
 	);
 	assert!(apps.contains(&"auth".to_string()));
 	assert!(apps.contains(&"clusters".to_string()));
+	assert!(apps.contains(&"dashboard".to_string()));
 	assert!(apps.contains(&"deployments".to_string()));
 	assert!(apps.contains(&"health".to_string()));
 	assert!(apps.contains(&"organizations".to_string()));
