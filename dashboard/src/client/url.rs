@@ -1,21 +1,36 @@
 //! Cross-target SPA URL resolution shim.
 //!
-//! Workaround for kent8192/reinhardt-web#4119 (tracked in
-//! kent8192/reinhardt-cloud#534). The framework's typed accessor
-//! `urls.client().<app>().<route>()` is gated behind `is_wasm_target()`
-//! in `routes_registration.rs:472`, so per-app methods are not generated
-//! on `wasm32-unknown-unknown` and any cross-target SPA file that calls
-//! them fails to compile. This shim resolves named SPA routes against
-//! the runtime `ClientUrlReverser` on both targets so the same call
-//! works from `client/layout.rs`, `apps/auth/client/pages/{login,
-//! register}.rs`, and `client/pages/not_found.rs`.
+//! Workaround for kent8192/reinhardt-web#4161 (tracked in
+//! kent8192/reinhardt-cloud#540). The framework's typed accessor
+//! `urls.client().<app>().<route>()` is reachable in principle on
+//! `wasm32-unknown-unknown` after kent8192/reinhardt-web#4132 (per-app
+//! emission) and #4156 (`routes`/`url_patterns` macro re-export ungate),
+//! but the macro expansions still reference four downstream-facing
+//! re-exports/modules that remain `#[cfg(native)]` in
+//! `reinhardt-web/src/lib.rs`:
+//!
+//!   - `reinhardt_apps`     (`:118`, `cfg(all(feature = "core", native))`)
+//!   - `urls`               (`:243`, `cfg(native)`)
+//!   - `app_config`         (`:255`, `cfg(native)`)
+//!   - `WebSocketRouter` &c (`:1201`, `cfg(native)`)
+//!
+//! As a result, `dashboard/src/apps/dashboard.rs` and
+//! `apps/dashboard/urls.rs` must remain `#[cfg(native)]`, which leaves
+//! the `ResolvedUrls` struct unreachable from cross-target SPA call
+//! sites. This shim resolves named SPA routes against the runtime
+//! `ClientUrlReverser` on both targets so the same call works from
+//! `client/layout.rs`, `apps/auth/client/pages/{login,register}.rs`,
+//! and `client/pages/not_found.rs`.
 //!
 //! Ideal implementation (without workaround):
-//!   - Delete this module.
+//!   - Delete this module and the `pub mod url;` declaration in
+//!     `client.rs`.
+//!   - Ungate `dashboard/src/apps/dashboard.rs` and
+//!     `apps/dashboard/urls.rs` (drop `#[cfg(native)]`).
 //!   - In each call site, replace `url_for_spa("auth:login_page")` with
 //!     `crate::config::urls::ResolvedUrls::from_global().client().auth().login_page()`.
-//!   - The typed accessor needs to be available on wasm too (upstream
-//!     kent8192/reinhardt-web#4119).
+//!   - Requires the four re-exports above to ungate cross-target
+//!     (upstream kent8192/reinhardt-web#4161).
 //!
 //! On native the resolution path is identical to the typed accessor —
 //! both eventually call `ClientUrlReverser::reverse(name, params)`. The

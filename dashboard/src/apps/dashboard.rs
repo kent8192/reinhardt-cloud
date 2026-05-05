@@ -4,13 +4,14 @@
 //! pages reachable from the top-level navigation. Views are pulled from
 //! `crate::client` until each section grows its own per-app implementation.
 //!
-//! `urls` and `app_config` are native-only because `#[url_patterns]` and
-//! `#[app_config]` are gated behind `#[cfg(native)]` in the framework.
+//! `urls` and `app_config` are native-only because the `#[url_patterns]`
+//! / `#[app_config]` macro expansions reference framework re-exports
+//! (`reinhardt_apps`, `urls`, `app_config`, `WebSocketRouter`) that are
+//! still `#[cfg(native)]` even after kent8192/reinhardt-web#4132 / #4156.
 //! `views` stays cross-target because it only re-exports cross-target
 //! items from `crate::client`. SPA URL resolution from cross-target
 //! files goes through `crate::client::url::url_for_spa` until upstream
-//! kent8192/reinhardt-web#4119 lifts the wasm gate on per-app typed
-//! accessors (tracked in #534).
+//! kent8192/reinhardt-web#4161 lifts those four gates (tracked in #540).
 
 #[cfg(native)]
 use reinhardt::app_config;
