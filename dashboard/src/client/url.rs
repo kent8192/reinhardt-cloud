@@ -1,24 +1,22 @@
 //! Cross-target SPA URL resolution shim.
 //!
-//! Workaround for kent8192/reinhardt-web#4175 (tracked in
-//! kent8192/reinhardt-cloud#541). The four `#[cfg(native)]` re-exports
-//! that originally blocked cross-target use of `#[url_patterns]` /
-//! `#[app_config]` (kent8192/reinhardt-web#4161) were ungated by #4166
-//! and #4167, so per-app `urls.rs` files now compile cross-target —
-//! `dashboard/src/apps/dashboard.rs` and its `urls.rs` / `urls/ws_urls.rs`
-//! children no longer need their `#[cfg(native)]` gates.
-//!
-//! The remaining gap blocking the typed accessor is upstream #4175: the
-//! `#[routes]` macro's generated `__url_resolver_support::ResolvedUrls`
-//! type is co-located with the `routes()` function it annotates, so the
-//! function body's wasm typecheck failure transitively kills the type.
-//! Our project-level `routes()` body in `crate::config::urls` references
-//! native-only items (admin routes, `RedisSessionBackend`, four session /
-//! security middleware re-exports, `#[inject]` parameters, server
-//! functions) — making `crate::config::urls` cross-target produces ~40
-//! errors. Until upstream emits `ResolvedUrls` outside the function's
-//! cfg scope (or documents a wasm-friendly split-routes pattern), the
-//! type stays unreachable from wasm SPA call sites.
+//! Workaround for kent8192/reinhardt-web#4185 (tracked in
+//! kent8192/reinhardt-cloud#541). The macro emission ungate cascade
+//! (#4161 / #4166 / #4167) plus the `#[routes]` body wasm-gating
+//! (#4175 / #4179, merged as `cef9afb2`) made
+//! `__url_resolver_support::ResolvedUrls` reachable from wasm in
+//! principle. The remaining blocker is `#[url_patterns(mode = unified)]`:
+//! it substitutes `UnifiedRouter::server` for a wasm variant taking
+//! `FnOnce(ServerRouterStub) -> ServerRouterStub`, but `ServerRouterStub`
+//! has no methods, so any user closure containing
+//! `s.endpoint(views::*)` (the canonical pattern across this project's
+//! per-app `urls.rs`) fails to compile on wasm. Until upstream stubs
+//! the missing methods on `ServerRouterStub` (or fully wasm-gates the
+//! `.server(|s| ...)` call site in the macro output), per-app `urls`
+//! modules cannot be lifted to cross-target, which means
+//! `crate::config::urls` cannot be lifted, which keeps
+//! `__url_resolver_support::ResolvedUrls` unreachable from wasm SPA
+//! call sites.
 //!
 //! This shim resolves named SPA routes against the runtime
 //! `ClientUrlReverser` on both targets so the same call works from
@@ -29,9 +27,13 @@
 //!   - Delete this module and the `pub mod url;` declaration in
 //!     `client.rs`.
 //!   - Lift `#[cfg(native)]` from `dashboard/src/config.rs::pub mod urls;`.
+//!   - Lift `#[cfg(native)]` from `dashboard/src/apps.rs::pub mod
+//!     {clusters,health,organizations};` and `auth::urls`, gating each
+//!     module's server-only submodules individually.
 //!   - In each call site, replace `url_for_spa("auth:login_page")` with
-//!     `crate::config::urls::ResolvedUrls::from_global().client().auth().login_page()`.
-//!   - Requires upstream kent8192/reinhardt-web#4175 to land.
+//!     `crate::config::urls::__url_resolver_support::ResolvedUrls::from_global().client().auth().login_page()`.
+//!   - Requires upstream kent8192/reinhardt-web#4185 to land
+//!     (#4175 / #4179 are necessary but not sufficient).
 //!
 //! On native the resolution path is identical to the typed accessor —
 //! both eventually call `ClientUrlReverser::reverse(name, params)`. The
