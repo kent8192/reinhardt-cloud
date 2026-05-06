@@ -10,7 +10,7 @@ use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::{auth_layout, oauth_buttons};
 use crate::apps::auth::server::register::register;
-use crate::client::url::url_for_spa;
+use crate::config::urls::ResolvedUrls;
 
 /// Render the registration page inside the shared auth layout.
 pub fn register_page() -> Page {
@@ -40,7 +40,7 @@ pub fn register_page() -> Page {
 			if let Some(window) = web_sys::window() {
 				let _ = window
 					.location()
-					.set_href(&url_for_spa("dashboard:home"));
+					.set_href(&ResolvedUrls::from_global().client().dashboard().home());
 			}
 		},
 		fields: {
@@ -81,7 +81,7 @@ pub fn register_page() -> Page {
 				class: "mt-6 text-center text-sm text-gray-600",
 				"Already have an account? "
 				a {
-					href: url_for_spa("auth:login_page"),
+					href: ResolvedUrls::from_global().client().auth().login_page(),
 					class: "text-blue-600 font-medium hover:underline",
 					"Sign in"
 				}
