@@ -4,7 +4,16 @@
 //! including REST API endpoints and server function registrations
 //! for the WASM frontend.
 //!
-//! ## DI-based configuration
+//! ## Cross-target compilation
+//!
+//! This module compiles on both native and wasm. On native it carries
+//! the full router build (DI factories, admin routes, middleware,
+//! WebSocket setup). On wasm only the `#[routes]`-decorated `routes()`
+//! stub remains, which is sufficient for the macro to emit
+//! `__url_resolver_support::ResolvedUrls` so SPA call sites can use
+//! the typed accessor `ResolvedUrls::from_global().client().<app>().<route>()`.
+//!
+//! ## DI-based configuration (native only)
 //!
 //! `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`, and
 //! `LocalAuthService` are auto-registered as singletons via
@@ -14,34 +23,54 @@
 //! The router builder resolves `RouterInfrastructure` from the
 //! DI registry at startup.
 //!
-//! ## WebSocket routes
+//! ## WebSocket routes (native only)
 //!
 //! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt, which is async and independent of `UnifiedRouter`.
 //! See `init_websocket_routes()` below.
 
+#[cfg(native)]
 use std::sync::Arc;
 
+#[cfg(native)]
 use reinhardt::ServerRouter;
+#[cfg(native)]
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
+#[cfg(native)]
 use reinhardt::di::{
 	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context, injectable_factory,
 };
+#[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
+#[cfg(native)]
 use reinhardt::register_client_reverser;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+// Re-export the macro-generated typed URL accessor under a clean public
+// path. The `#[routes]` macro emits `__url_resolver_support::ResolvedUrls`
+// adjacent to `routes()`; the underscore-prefixed module is implementation
+// detail. SPA call sites use this re-export as
+// `crate::config::urls::ResolvedUrls::from_global().client().<app>().<route>()`.
+pub use __url_resolver_support::ResolvedUrls;
+
+#[cfg(native)]
 use crate::client::pages::not_found_page;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
+#[cfg(native)]
 use crate::apps::auth::server;
+#[cfg(native)]
 use crate::apps::auth::services::local_auth::LocalAuthService;
+#[cfg(native)]
 use crate::config::grpc_client::GrpcChannelSingleton;
+#[cfg(native)]
 use crate::config::middleware::CspPathMiddleware;
+#[cfg(native)]
 use crate::utils::realtime::broadcaster::WsBroadcaster;
+#[cfg(native)]
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
 	SecurityMiddleware,
@@ -53,9 +82,11 @@ use reinhardt::{
 ///
 /// Tests can override by pre-registering in `SingletonScope`
 /// before the factory is invoked.
+#[cfg(native)]
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
 /// DI factory — resolves allowed origins from settings.
+#[cfg(native)]
 #[injectable_factory(scope = "singleton")]
 async fn create_allowed_origins() -> AllowedOrigins {
 	let settings = crate::config::settings::get_settings();
@@ -77,10 +108,12 @@ async fn create_allowed_origins() -> AllowedOrigins {
 /// Wraps the framework's `CookieSessionConfig` to comply with the
 /// DI pseudo orphan rule (kent8192/reinhardt-web#3468). Factories
 /// must not return framework-managed types directly.
+#[cfg(native)]
 #[derive(Debug)]
 pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
 
 /// DI factory — builds `DashboardSessionConfig` from settings.
+#[cfg(native)]
 #[injectable_factory(scope = "singleton")]
 async fn create_cookie_session_config() -> DashboardSessionConfig {
 	let settings = crate::config::settings::get_settings();
@@ -107,6 +140,7 @@ async fn create_cookie_session_config() -> DashboardSessionConfig {
 /// Groups the DI context, admin routes with DI registrations,
 /// session backend, and middleware configuration so they can be
 /// resolved as a single dependency by `make_router`.
+#[cfg(native)]
 pub(crate) struct RouterInfrastructure {
 	pub di_ctx: Arc<InjectionContext>,
 	pub admin_router: ServerRouter,
@@ -125,6 +159,7 @@ pub(crate) struct RouterInfrastructure {
 /// are injected solely to trigger their singleton initialization at startup
 /// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
 /// on the first RPC.
+#[cfg(native)]
 #[injectable_factory(scope = "transient")]
 async fn create_router_infrastructure(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
@@ -164,21 +199,40 @@ async fn create_router_infrastructure(
 /// Wraps the framework's `UnifiedRouter` to comply with the DI pseudo
 /// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
 /// point unwraps this to return the inner `UnifiedRouter` to the framework.
+#[cfg(native)]
 #[derive(Debug)]
 pub(crate) struct DashboardRouter(pub UnifiedRouter);
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
-/// The `#[inject]` parameter resolves `DashboardRouter` from the DI registry,
-/// which triggers the `make_router` factory and all its transitive dependencies.
-/// The framework creates the `InjectionContext` automatically for async routes.
+/// On native, the `#[inject]` parameter resolves `DashboardRouter` from
+/// the DI registry, which triggers the `make_router` factory and all its
+/// transitive dependencies. The framework creates the `InjectionContext`
+/// automatically for async routes.
+///
+/// On wasm the function reduces to a stub that returns an empty
+/// `UnifiedRouter`. The body is never executed in a browser context —
+/// the macro only needs the function to exist so it can emit
+/// `__url_resolver_support::ResolvedUrls` adjacent to it, which is what
+/// SPA call sites consume via the typed accessor.
 #[routes]
 #[allow(private_interfaces)] // DashboardRouter is pub(crate) by design; #[routes] macro requires pub fn
-pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter {
-	router
-		.try_unwrap()
-		.expect("DashboardRouter has multiple owners after resolve")
-		.0
+pub async fn routes(
+	#[cfg(native)]
+	#[inject]
+	router: Depends<DashboardRouter>,
+) -> UnifiedRouter {
+	#[cfg(native)]
+	{
+		router
+			.try_unwrap()
+			.expect("DashboardRouter has multiple owners after resolve")
+			.0
+	}
+	#[cfg(not(native))]
+	{
+		UnifiedRouter::new()
+	}
 }
 
 /// Build the application router by resolving dependencies from DI.
@@ -187,6 +241,7 @@ pub async fn routes(#[inject] router: Depends<DashboardRouter>) -> UnifiedRouter
 /// transitively from the DI registry. Tests can override singletons
 /// like `AllowedOrigins` by pre-registering in the `SingletonScope`
 /// before calling this function.
+#[cfg(native)]
 #[injectable_factory(scope = "transient")]
 async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> DashboardRouter {
 	let infra = infra

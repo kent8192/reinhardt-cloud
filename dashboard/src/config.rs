@@ -15,7 +15,6 @@ pub mod middleware;
 pub mod settings;
 #[cfg(native)]
 pub mod test_helpers;
-#[cfg(native)]
 pub mod urls;
 
 #[cfg(native)]
