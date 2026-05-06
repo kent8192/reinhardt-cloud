@@ -21,7 +21,6 @@ pub mod apps;
 // to register names for server-side reverse URL resolution
 // (kent8192/reinhardt-web#4068).
 pub mod client;
-#[cfg(native)]
 pub mod config;
 #[cfg(native)]
 pub mod server;
