@@ -5,6 +5,7 @@ pub mod ws_urls;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(native)]
 use crate::apps::health::views;
 use crate::config::apps::InstalledApp;
 
@@ -16,6 +17,10 @@ use crate::config::apps::InstalledApp;
 #[url_patterns(InstalledApp::health, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
-		.server(|s| s.endpoint(views::healthz))
+		.server(|s| {
+			#[cfg(native)]
+			let s = s.endpoint(views::healthz);
+			s
+		})
 		.client(|c| c)
 }
