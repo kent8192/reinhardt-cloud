@@ -40,14 +40,12 @@ use super::pages::not_found_page;
 /// Passed to `ClientLauncher::router(init_router)` from `client.rs`.
 pub fn init_router() -> Router {
 	Router::new()
-		.named_route("dashboard:home", "/", || dashboard_shell())
-		.named_route("auth:login_page", "/login", || login_page())
-		.named_route("auth:register_page", "/register", || register_page())
+		.named_route("dashboard:home", "/", dashboard_shell)
+		.named_route("auth:login_page", "/login", login_page)
+		.named_route("auth:register_page", "/register", register_page)
 		// Placeholder names so navigation hrefs resolve via UrlResolver
 		// even before these pages are implemented.
-		.named_route("dashboard:clusters", "/clusters", || not_found_page())
-		.named_route("dashboard:deployments", "/deployments", || {
-			not_found_page()
-		})
-		.not_found(|| not_found_page())
+		.named_route("dashboard:clusters", "/clusters", not_found_page)
+		.named_route("dashboard:deployments", "/deployments", not_found_page)
+		.not_found(not_found_page)
 }

@@ -31,7 +31,7 @@ mod wasm_entry {
 
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
-	pub fn main() -> Result<(), JsValue> {
+	pub(super) fn main() -> Result<(), JsValue> {
 		// Hedge: ClientLauncher installs the panic hook when its feature
 		// is enabled; calling set_once twice is harmless.
 		console_error_panic_hook::set_once();
