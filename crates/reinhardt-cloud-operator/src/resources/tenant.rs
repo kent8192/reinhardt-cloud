@@ -301,7 +301,7 @@ mod tests {
 				.map(String::as_str),
 			Some(MANAGED_BY_VALUE),
 		);
-		assert!(labels.get(TENANT_TEAM_LABEL_KEY).is_none());
+		assert!(!labels.contains_key(TENANT_TEAM_LABEL_KEY));
 	}
 
 	#[rstest]

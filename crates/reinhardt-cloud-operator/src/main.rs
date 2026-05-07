@@ -51,44 +51,45 @@ async fn main() -> anyhow::Result<()> {
 
 	let operator_metrics = metrics::Metrics::new();
 
-	// Launch the Prometheus exporter only when explicitly enabled. This
-	// matches the Helm chart's `metrics.enabled` flag: when disabled the
-	// operator does not open a listening socket, avoiding unexpected open
-	// ports and port conflicts. Either setting `REINHARDT_CLOUD_METRICS_ENABLED=true`
-	// or providing `REINHARDT_CLOUD_METRICS_ADDR` turns the exporter on.
-	// Errors binding the exporter are logged by the spawned task; the
-	// operator keeps running so that reconciliation is not blocked by a
-	// metrics port conflict.
+	// The operator's HTTP server is started by default (binding to
+	// `0.0.0.0:9090`) so that kubelet probes have a `/healthz` to call.
+	// `REINHARDT_CLOUD_METRICS_ADDR` overrides the bind address; if the
+	// override is present but unparsable, the listener is intentionally
+	// skipped (see comment near `bind` below) and BOTH `/healthz` and
+	// `/metrics` will be unavailable until the env-var is fixed.
+	// The `/metrics` endpoint is conditionally enabled by
+	// `REINHARDT_CLOUD_METRICS_ENABLED`; when disabled, the same server
+	// returns 404 for `/metrics` while still answering `/healthz`.
 	let metrics_addr = std::env::var("REINHARDT_CLOUD_METRICS_ADDR").ok();
 	let metrics_enabled = std::env::var("REINHARDT_CLOUD_METRICS_ENABLED")
 		.ok()
 		.is_some_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "True"));
-	if metrics_enabled || metrics_addr.is_some() {
-		// When `REINHARDT_CLOUD_METRICS_ADDR` is present but unparsable, do
-		// NOT silently fall back to `0.0.0.0:9090` — that could expose the
-		// exporter on all interfaces or collide with another listener while
-		// hiding a configuration mistake. Refuse to start the exporter and
-		// surface the error so the operator (or its operator) can fix the
-		// supplied value.
-		let bind: Option<SocketAddr> = match metrics_addr.as_deref() {
-			Some(raw) => match raw.parse::<SocketAddr>() {
-				Ok(addr) => Some(addr),
-				Err(err) => {
-					tracing::error!(
-						"Invalid REINHARDT_CLOUD_METRICS_ADDR={raw:?}: {err}; metrics exporter disabled"
-					);
-					None
-				}
-			},
-			None => Some("0.0.0.0:9090".parse().expect("static bind address")),
-		};
-		if let Some(bind) = bind {
-			metrics::spawn_exporter(operator_metrics.clone(), bind);
-		}
+	let mode = if metrics_enabled {
+		metrics::MetricsMode::Enabled
 	} else {
-		tracing::info!(
-			"Prometheus metrics exporter disabled (set REINHARDT_CLOUD_METRICS_ENABLED=true or REINHARDT_CLOUD_METRICS_ADDR to enable)"
-		);
+		metrics::MetricsMode::Disabled
+	};
+
+	// When `REINHARDT_CLOUD_METRICS_ADDR` is present but unparsable, do
+	// NOT silently fall back to `0.0.0.0:9090` — that could expose the
+	// server on all interfaces or collide with another listener while
+	// hiding a configuration mistake. Refuse to start the listener and
+	// surface the error so the operator (or its operator) can fix the
+	// supplied value.
+	let bind: Option<SocketAddr> = match metrics_addr.as_deref() {
+		Some(raw) => match raw.parse::<SocketAddr>() {
+			Ok(addr) => Some(addr),
+			Err(err) => {
+				tracing::error!(
+					"Invalid REINHARDT_CLOUD_METRICS_ADDR={raw:?}: {err}; HTTP server (healthz/metrics) disabled"
+				);
+				None
+			}
+		},
+		None => Some("0.0.0.0:9090".parse().expect("static bind address")),
+	};
+	if let Some(bind) = bind {
+		metrics::spawn_exporter(operator_metrics.clone(), bind, mode);
 	}
 
 	// Surface the default telemetry retention policy at startup so operators
