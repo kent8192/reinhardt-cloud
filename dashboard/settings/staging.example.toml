@@ -24,15 +24,15 @@
 #   REINHARDT_CORE__SECRET_KEY                       — [core].secret_key
 #   REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD     — [core.databases.default].password
 #   REINHARDT_DATABASE__PASSWORD                     — [database].password
-#   REINHARDT_EMAIL__BACKEND="smtp"                  — Trigger env-based SMTP override
-#   REINHARDT_EMAIL__HOST / __PORT                   — SMTP target (read only when BACKEND=smtp)
-#
-# Note: SMTP credentials, TLS settings, from_email, and timeout are NOT yet
-# read from env vars by `dashboard::apps::auth::services::email::get_email_backend()`
-# (only BACKEND/HOST/PORT are honored, and the env-driven path forces
-# `SmtpSecurity::None` with no credentials). Configure those fields in this
-# TOML or via TOML overrides at deploy time. Broader env-var coverage is
-# tracked in #558.
+#   REINHARDT_EMAIL__BACKEND="smtp"                  — backend type
+#   REINHARDT_EMAIL__HOST                            — SMTP destination host
+#   REINHARDT_EMAIL__PORT                            — SMTP destination port (u16)
+#   REINHARDT_EMAIL__USERNAME                        — SMTP auth username
+#   REINHARDT_EMAIL__PASSWORD                        — SMTP auth password (use Secret)
+#   REINHARDT_EMAIL__USE_TLS="true"                  — STARTTLS (port 587 typical)
+#   REINHARDT_EMAIL__USE_SSL="true"                  — Implicit TLS (port 465 typical, takes precedence over USE_TLS)
+#   REINHARDT_EMAIL__FROM_EMAIL                      — outbound `From:` header
+#   REINHARDT_EMAIL__TIMEOUT                         — SMTP socket timeout in seconds
 
 # JWT secret — MUST be overridden via REINHARDT_CLOUD_JWT_SECRET in the
 # deployed environment.
@@ -85,13 +85,10 @@ allow_origins = ["https://staging.reinhardt-cloud.dev"]
 
 # Staging email delivery — point at a real provider (Resend/SES/etc.).
 #
-# Env-var overrides supported by the runtime today (see header for the full
-# list and #558 for upcoming expansion):
-#   REINHARDT_EMAIL__BACKEND="smtp"  — must be set to enable env override
-#   REINHARDT_EMAIL__HOST            — SMTP destination
-#   REINHARDT_EMAIL__PORT            — SMTP port
-# All other fields below (credentials, TLS toggles, from_email, timeout) are
-# read from this TOML; setting them via env has no effect at present.
+# Every `[email]` field below is overridable at runtime via the
+# `REINHARDT_EMAIL__*` env-var family (see file header for the full list).
+# Credentials and TLS toggles SHOULD be set via Secret-backed env vars rather
+# than this template.
 #
 # Defaults below assume STARTTLS on 587.
 [email]

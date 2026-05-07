@@ -13,7 +13,9 @@ use tracing::{error, info};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::RegisterRequest;
-use crate::apps::auth::services::email::{get_email_backend, send_verification_email};
+use crate::apps::auth::services::email::{
+	get_email_backend, resolved_email_settings, send_verification_email,
+};
 use crate::apps::auth::services::registration::provision_personal_organization;
 use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 use crate::shared::AuthResponse;
@@ -26,7 +28,12 @@ use crate::shared::AuthResponse;
 pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 	let settings = crate::config::settings::get_settings();
 	let secret_key = settings.core.secret_key.clone();
-	let from_email = settings.email.from_email.clone();
+	let from_email = resolved_email_settings()
+		.map_err(|e| {
+			error!("Failed to resolve email settings: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?
+		.from_email;
 
 	// Create user as inactive — requires email verification to activate
 	let mut user = User::new(
