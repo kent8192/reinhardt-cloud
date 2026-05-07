@@ -30,7 +30,9 @@ place:
 1. **Operator installed.** The `reinhardt-cloud-operator` Helm chart
    (`charts/reinhardt-cloud-operator`) is deployed into the
    `reinhardt-cloud-system` namespace, and the `reinhardtapps.paas.reinhardt-cloud.dev`
-   CRD (version `v1alpha2`) is registered in the cluster.
+   CRD (version `v1alpha2`) is registered in the cluster. See the
+   [Operator bootstrap](#operator-bootstrap) section below for three
+   install paths (GHCR, local kind cluster, cloud overlay).
 2. **Dashboard image published.** The dashboard image is built and pushed to
    `ghcr.io/kent8192/reinhardt-cloud-dashboard:<tag>` for every release. The
    image tag must match the GitHub release tag (minus any leading `v`).
@@ -47,6 +49,66 @@ place:
 
    The operator resolves the `secretRef:<secret>/<key>` values declared in
    `spec.env` against this `Secret` at reconciliation time.
+
+## Operator bootstrap
+
+The operator image is published to GHCR by the `build-operator-image`
+job in the [Build Release Assets](../.github/workflows/build-release-assets.yml)
+workflow on every `reinhardt-cloud-operator@v*` release-plz tag. The
+chart's default `image.repository` resolves to
+`ghcr.io/kent8192/reinhardt-cloud-operator:<Chart.appVersion>`, so a
+vanilla `helm install` works against the public registry.
+
+### Production install (GHCR default)
+
+```bash
+helm install reinhardt-cloud-operator \
+  charts/reinhardt-cloud-operator \
+  -n reinhardt-cloud-system --create-namespace
+```
+
+The chart's `_helpers.tpl` resolves `image.tag` to `Chart.appVersion`
+when `image.tag` is empty (the default). Pin a specific image tag with
+`--set image.tag=<semver>` (without a leading `v`, matching the
+workflow's tag-stripping convention) if you need to roll back without
+bumping the chart.
+
+### Local kind cluster (development / pre-release validation)
+
+```bash
+docker build \
+  -f crates/reinhardt-cloud-operator/Dockerfile \
+  -t reinhardt-cloud-operator:dev .
+
+kind load docker-image reinhardt-cloud-operator:dev --name <cluster>  # cluster name from `kind create cluster --name`
+
+helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  -n reinhardt-cloud-system --create-namespace \
+  --set image.repository=reinhardt-cloud-operator \
+  --set image.tag=dev \
+  --set image.pullPolicy=Never
+```
+
+`pullPolicy=Never` ensures kubelet uses the locally loaded image instead
+of trying to pull `reinhardt-cloud-operator:dev` from a registry.
+
+### Cloud overlays
+
+The chart ships overlays for managed and on-prem registries:
+
+- `values-gcp.yaml` — GCP Artifact Registry
+- `values-aws.yaml` — AWS ECR
+- `values-onprem.yaml` — air-gapped or self-hosted private registry
+
+```bash
+helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  -n reinhardt-cloud-system --create-namespace \
+  -f charts/reinhardt-cloud-operator/values-gcp.yaml   # or values-aws.yaml / values-onprem.yaml
+```
+
+Each overlay pins `image.repository` to the platform-specific registry
+placeholder; replace the placeholder values (`<region>`, `<project-id>`,
+`<account-id>`) before applying.
 
 ## Bootstrap
 
