@@ -3,11 +3,19 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
-use crate::client::url::url_for;
+use crate::config::urls::ResolvedUrls;
 
 /// Render the main dashboard shell with navigation sidebar and overview cards.
 pub fn dashboard_shell() -> Page {
-	page!(|| {
+	// Resolve all SPA URLs once per render. `ResolvedUrls::from_global()`
+	// clones two `Arc`s on each call, so we hoist it out of the rsx tree
+	// to avoid repeating that work for every `href`.
+	let urls = ResolvedUrls::from_global();
+	let login_href = urls.client().auth().login_page();
+	let home_href = urls.client().dashboard().home();
+	let clusters_href = urls.client().dashboard().clusters();
+	let deployments_href = urls.client().dashboard().deployments();
+	page!(|login_href: String, home_href: String, clusters_href: String, deployments_href: String| {
 		div {
 			class: "min-h-screen flex flex-col bg-gray-50",
 			header {
@@ -26,7 +34,7 @@ pub fn dashboard_shell() -> Page {
 						"Dashboard"
 					}
 					a {
-						href: url_for("auth:login_page"),
+						href: login_href,
 						class: "text-sm text-blue-600 hover:underline",
 						"Login"
 					}
@@ -40,21 +48,21 @@ pub fn dashboard_shell() -> Page {
 						class: "space-y-1",
 						li {
 							a {
-								href: url_for("dashboard:home"),
+								href: home_href,
 								class: "block px-3 py-2 text-sm rounded-md bg-blue-50 text-blue-700 font-medium",
 								"Overview"
 							}
 						}
 						li {
 							a {
-								href: url_for("dashboard:clusters"),
+								href: clusters_href,
 								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
 								"Clusters"
 							}
 						}
 						li {
 							a {
-								href: url_for("dashboard:deployments"),
+								href: deployments_href,
 								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
 								"Deployments"
 							}
@@ -106,5 +114,5 @@ pub fn dashboard_shell() -> Page {
 				}
 			}
 		}
-	})()
+	})(login_href, home_href, clusters_href, deployments_href)
 }

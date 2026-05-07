@@ -19,7 +19,6 @@ pub mod pages;
 #[cfg(wasm)]
 pub mod router;
 pub mod state;
-pub mod url;
 pub mod ws;
 
 #[cfg(wasm)]

@@ -5,6 +5,7 @@ pub mod ws_urls;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(native)]
 use crate::apps::deployments::views;
 use crate::config::apps::InstalledApp;
 
@@ -18,13 +19,15 @@ use crate::config::apps::InstalledApp;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| {
-			s.endpoint(views::list_deployments)
+			#[cfg(native)]
+			let s = s.endpoint(views::list_deployments)
 				.endpoint(views::create_deployment)
 				.endpoint(views::retrieve_deployment)
 				.endpoint(views::update_deployment)
 				.endpoint(views::delete_deployment)
 				.endpoint(views::deployment_logs)
-				.endpoint(views::deployment_status)
+				.endpoint(views::deployment_status);
+			s
 		})
 		.client(|c| c)
 }

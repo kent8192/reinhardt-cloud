@@ -12,6 +12,7 @@ use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
+#[cfg(native)]
 use crate::apps::auth::views;
 use crate::config::apps::InstalledApp;
 
@@ -27,7 +28,8 @@ use crate::config::apps::InstalledApp;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| {
-			s.endpoint(views::login)
+			#[cfg(native)]
+			let s = s.endpoint(views::login)
 				.endpoint(views::register)
 				.endpoint(views::verify_email)
 				.endpoint(views::forgot_password)
@@ -39,7 +41,8 @@ pub fn url_patterns() -> UnifiedRouter {
 				.endpoint(views::oauth_start)
 				.endpoint(views::oauth_callback)
 				.endpoint(views::oauth_unlink)
-				.endpoint(views::oauth_providers)
+				.endpoint(views::oauth_providers);
+			s
 		})
 		.client(|c| {
 			c.named_route("login_page", "/login", login_page)

@@ -5,16 +5,14 @@
 //! client pages). Other app modules are server-only.
 
 pub mod auth;
-#[cfg(native)]
+// Each app's parent module is cross-target so its `urls` submodule is
+// reachable on wasm for `__url_resolver_support::ResolvedUrls`. Per-app
+// internals (admin, models, serializers, services, tests, views) remain
+// native-only via cfg gates inside each `<app>.rs`.
 pub mod clusters;
-// `deployments` is server-only at the module level, but it owns a `client`
-// submodule containing WASM UI components consumed by `crate::client::ws`.
-// The cfg gating that excludes server-only sources lives inside
-// `apps/deployments.rs`, so the parent module declaration is unconditional.
+pub mod dashboard;
 pub mod deployments;
-#[cfg(native)]
 pub mod health;
-#[cfg(native)]
 pub mod organizations;
 #[cfg(native)]
 pub mod validators;

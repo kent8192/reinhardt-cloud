@@ -5,6 +5,7 @@ pub mod ws_urls;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(native)]
 use crate::apps::clusters::views;
 use crate::config::apps::InstalledApp;
 
@@ -18,12 +19,14 @@ use crate::config::apps::InstalledApp;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| {
-			s.endpoint(views::list_clusters)
+			#[cfg(native)]
+			let s = s.endpoint(views::list_clusters)
 				.endpoint(views::create_cluster)
 				.endpoint(views::retrieve_cluster)
 				.endpoint(views::update_cluster)
 				.endpoint(views::delete_cluster)
-				.endpoint(views::rotate_token)
+				.endpoint(views::rotate_token);
+			s
 		})
 		.client(|c| c)
 }

@@ -8,7 +8,7 @@
 //! # Route names
 //!
 //! Every SPA route is registered via [`Router::named_route`] so that
-//! [`super::url::DashboardUrlResolver`] can perform reverse lookups for
+//! the typed `crate::config::urls::ResolvedUrls` accessor can resolve
 //! `href` and `redirect_on_success` values. Names follow the
 //! `<app>:<name>` namespace convention used by server-side view macros.
 //! SPA names use a `_page` suffix where a server-side route already owns
