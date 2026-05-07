@@ -242,9 +242,9 @@ echo "Cleaned dist/"
 '''
 
 [tasks.runserver-pages]
-description = "Start server with pages (runserver --with-pages rebuilds WASM by default; pass --no-override-wasm to preserve dist/)"
+description = "Start server with pages (runserver --with-pages rebuilds WASM by default; pass --no-override-wasm via `cargo make runserver-pages -- --no-override-wasm` to preserve dist/)"
 command = "cargo"
-args = ["run", "--bin", "manage", "runserver", "--with-pages"]
+args = ["run", "--bin", "manage", "runserver", "--with-pages", "${@}"]
 
 # ============================================================================
 # Ephemeral Local Infrastructure (postgres / redis via docker run --rm)
