@@ -1,8 +1,15 @@
 replicaCount: 1
 
 image:
-  repository: reinhardt-cloud-operator
+  # Default image published to GHCR by `.github/workflows/build-release-assets.yml`
+  # on every `reinhardt-cloud-operator@v*` release-plz tag. Override
+  # `repository` when pulling from a private registry; see `values-gcp.yaml`,
+  # `values-aws.yaml`, and `values-onprem.yaml` for examples.
+  repository: ghcr.io/kent8192/reinhardt-cloud-operator
   pullPolicy: IfNotPresent
+  # When empty, the chart resolves the tag to `Chart.appVersion` via
+  # `_helpers.tpl`. Pin a value here only to override the chart-tracked
+  # version (e.g. when validating a pre-release image).
   tag: ""
 
 imagePullSecrets: []
@@ -66,7 +73,11 @@ logging:
 
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 1000
+  # Distroless `nonroot` user (uid/gid 65532). Must match the USER
+  # directive in `crates/reinhardt-cloud-operator/Dockerfile`.
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -81,10 +92,11 @@ resources:
     memory: 128Mi
 
 metrics:
-  # Enable the Prometheus /metrics endpoint exposed by the operator.
+  # When true, the operator's HTTP server returns Prometheus output on
+  # /metrics. The HTTP server itself is *always* started to serve /healthz
+  # for kubelet probes; this flag controls only the /metrics endpoint
+  # contents (404 when disabled).
   enabled: false
-  # Port on which the operator serves /metrics. The operator container
-  # always listens on this port when metrics are enabled.
   port: 9090
   service:
     type: ClusterIP
@@ -189,3 +201,18 @@ tracing:
   samplerArg: "0.1"
   # Service name reported in spans. Defaults to "reinhardt-cloud-operator".
   serviceName: "reinhardt-cloud-operator"
+
+# Probe timing for the operator's HTTP server. Both probes hit /healthz
+# on the container `http` port (defined by `metrics.port`). Override here
+# if your cluster needs longer startup grace.
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3

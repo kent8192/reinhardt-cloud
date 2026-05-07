@@ -59,12 +59,26 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: {{ .Values.tracing.serviceName | default .Release.Name | quote }}
             {{- end }}
-          {{- if .Values.metrics.enabled }}
           ports:
-            - name: metrics
+            - name: http
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
-          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:
