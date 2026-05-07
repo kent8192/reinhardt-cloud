@@ -51,10 +51,15 @@ async fn main() -> anyhow::Result<()> {
 
 	let operator_metrics = metrics::Metrics::new();
 
-	// The operator's HTTP server is always started so that kubelet probes
-	// have a `/healthz` to call. The `/metrics` endpoint is conditionally
-	// enabled by `REINHARDT_CLOUD_METRICS_ENABLED`; when disabled, the same
-	// server returns 404 for `/metrics` while still answering `/healthz`.
+	// The operator's HTTP server is started by default (binding to
+	// `0.0.0.0:9090`) so that kubelet probes have a `/healthz` to call.
+	// `REINHARDT_CLOUD_METRICS_ADDR` overrides the bind address; if the
+	// override is present but unparsable, the listener is intentionally
+	// skipped (see comment near `bind` below) and BOTH `/healthz` and
+	// `/metrics` will be unavailable until the env-var is fixed.
+	// The `/metrics` endpoint is conditionally enabled by
+	// `REINHARDT_CLOUD_METRICS_ENABLED`; when disabled, the same server
+	// returns 404 for `/metrics` while still answering `/healthz`.
 	let metrics_addr = std::env::var("REINHARDT_CLOUD_METRICS_ADDR").ok();
 	let metrics_enabled = std::env::var("REINHARDT_CLOUD_METRICS_ENABLED")
 		.ok()
