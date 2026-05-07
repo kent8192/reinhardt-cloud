@@ -22,7 +22,15 @@
 #   REINHARDT_CORE__SECRET_KEY                       — [core].secret_key
 #   REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD     — [core.databases.default].password
 #   REINHARDT_DATABASE__PASSWORD                     — [database].password
-#   REINHARDT_EMAIL__HOST / __PORT / __USERNAME / __PASSWORD — [email] SMTP
+#   REINHARDT_EMAIL__BACKEND="smtp"                  — Trigger env-based SMTP override
+#   REINHARDT_EMAIL__HOST / __PORT                   — SMTP target (read only when BACKEND=smtp)
+#
+# Note: SMTP credentials, TLS settings, from_email, and timeout are NOT yet
+# read from env vars by `dashboard::apps::auth::services::email::get_email_backend()`
+# (only BACKEND/HOST/PORT are honored, and the env-driven path forces
+# `SmtpSecurity::None` with no credentials). Configure those fields in this
+# TOML or via TOML overrides at deploy time. Broader env-var coverage is
+# tracked in #558.
 
 # JWT secret — MUST be overridden via REINHARDT_CLOUD_JWT_SECRET (>= 32 bytes
 # of cryptographically random data).
@@ -73,9 +81,16 @@ allow_origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev
 
 # Production email delivery — Cloudflare Email Routing is INBOUND only
 # (see base.toml [email] comment). Outbound delivery REQUIRES a third-party
-# provider (Resend / SendGrid / AWS SES / Postmark). Override host/port/
-# credentials via REINHARDT_EMAIL__* env vars and publish the provider's SPF
-# include + DKIM selector on the reinhardt-cloud.dev DNS zone.
+# provider (Resend / SendGrid / AWS SES / Postmark) and the provider's SPF
+# include + DKIM selector must be published on the reinhardt-cloud.dev DNS zone.
+#
+# Env-var overrides supported by the runtime today (see header for the full
+# list and #558 for upcoming expansion):
+#   REINHARDT_EMAIL__BACKEND="smtp"  — must be set to enable env override
+#   REINHARDT_EMAIL__HOST            — SMTP destination
+#   REINHARDT_EMAIL__PORT            — SMTP port
+# All other fields below (credentials, TLS toggles, from_email, timeout) are
+# read from this TOML; setting them via env has no effect at present.
 #
 # Defaults below assume STARTTLS on 587; switch to use_ssl=true / use_tls=false
 # for implicit-TLS providers on 465.
