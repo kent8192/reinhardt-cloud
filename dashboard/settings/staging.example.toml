@@ -1,0 +1,86 @@
+# Staging Environment Settings — TEMPLATE
+#
+# This file is a documented reference for the staging environment. It mirrors
+# the schema of `staging.toml` (which is loaded when REINHARDT_ENV=staging) so
+# deployers can compare the active config against a known-good shape.
+#
+# In normal deployments, `staging.toml` is what the server actually loads;
+# this `.example.toml` is *not* read at runtime. Use it as:
+#   1. A reference for required keys when authoring overrides.
+#   2. A starting point if `staging.toml` ever needs to be regenerated.
+#
+# Staging mirrors the production posture (security on, debug off) but uses
+# staging-specific hosts and lower-stakes credentials so release candidates
+# can be exercised end-to-end before promotion.
+#
+# Note: env-specific TOML replaces the entire [core] section from base.toml,
+# so all required core fields must be specified here.
+#
+# Secrets MUST be supplied at deploy time via REINHARDT_* environment
+# variables; the placeholders below exist only to keep the schema valid for
+# `cargo check` and local previews.
+#   REINHARDT_CLOUD_JWT_SECRET                       — top-level jwt_secret
+#   REINHARDT_CLOUD_REDIS_URL                        — top-level redis_url
+#   REINHARDT_CORE__SECRET_KEY                       — [core].secret_key
+#   REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD     — [core.databases.default].password
+#   REINHARDT_DATABASE__PASSWORD                     — [database].password
+#   REINHARDT_EMAIL__HOST / __PORT / __USERNAME / __PASSWORD — [email] SMTP
+
+# JWT secret — MUST be overridden via REINHARDT_CLOUD_JWT_SECRET in the
+# deployed environment.
+jwt_secret = "CHANGE-ME-via-REINHARDT_CLOUD_JWT_SECRET"
+
+# Redis URL — MUST be overridden via REINHARDT_CLOUD_REDIS_URL.
+redis_url = "redis://redis.staging.internal:6379/0"
+
+[core]
+debug = false
+secret_key = "CHANGE-ME-via-REINHARDT_CORE__SECRET_KEY"
+allowed_hosts = ["staging.reinhardt-cloud.dev"]
+root_urlconf = ""
+
+middleware = []
+
+# Security settings (production-aligned; staging serves over HTTPS).
+# HSTS preload stays disabled until the staging hostname is ready for the
+# preload list; flip secure_hsts_preload to true after rollout sign-off.
+[core.security]
+append_slash = true
+session_cookie_secure = true
+csrf_cookie_secure = true
+secure_ssl_redirect = true
+secure_hsts_include_subdomains = true
+secure_hsts_preload = false
+
+# Database configuration — credentials MUST be overridden via
+# REINHARDT_CORE__DATABASES__DEFAULT__* env vars (or equivalent secret store).
+[core.databases.default]
+engine = "postgresql"
+host = "db.staging.internal"
+port = 5432
+name = "reinhardt_cloud_staging"
+user = "reinhardt"
+password = { secret = "CHANGE-ME-via-REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD" }
+options = {}
+
+# Top-level [database] section required by reinhardt-web's runserver/migrate commands.
+[database]
+engine = "postgresql"
+host = "db.staging.internal"
+port = 5432
+name = "reinhardt_cloud_staging"
+user = "reinhardt"
+password = "CHANGE-ME-via-REINHARDT_DATABASE__PASSWORD"
+
+[cors]
+allow_origins = ["https://staging.reinhardt-cloud.dev"]
+
+# Staging email delivery — point at a real provider (Resend/SES/etc.) via env
+# overrides (REINHARDT_EMAIL__HOST, REINHARDT_EMAIL__PORT, REINHARDT_EMAIL__USERNAME,
+# REINHARDT_EMAIL__PASSWORD). Defaults below assume STARTTLS on 587.
+[email]
+host = "smtp.staging-provider.invalid"
+port = 587
+from_email = "noreply@staging.reinhardt-cloud.dev"
+use_ssl = false
+use_tls = true
