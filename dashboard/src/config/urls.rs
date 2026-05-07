@@ -47,22 +47,6 @@ use reinhardt::register_client_reverser;
 use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
-// Workaround for kent8192/reinhardt-web#4198 (tracked in
-// kent8192/reinhardt-cloud#544). The `#[routes]` macro emits
-// `__url_resolver_support::ResolvedUrls` adjacent to `routes()` but
-// does not expose a clean public alias, so SPA call sites would have
-// to reach into the underscore-prefixed internal module. This local
-// `pub use` lets call sites write `crate::config::urls::ResolvedUrls`
-// instead. Remove this line once the upstream macro emits a sibling
-// public alias of its own.
-//
-// Ideal implementation (without workaround):
-//   - Upstream `#[routes]` macro emits a sibling
-//     `pub use __url_resolver_support::ResolvedUrls;` next to `routes()`.
-//   - This `pub use` line is deleted; `crate::config::urls::ResolvedUrls`
-//     keeps resolving through the macro's emission.
-pub use __url_resolver_support::ResolvedUrls;
-
 #[cfg(native)]
 use crate::client::pages::not_found_page;
 
