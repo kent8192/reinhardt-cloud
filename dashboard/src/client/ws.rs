@@ -32,10 +32,10 @@ use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 #[cfg(wasm)]
 thread_local! {
 	static SUBSCRIBED_IDS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-	static RECONNECT_ATTEMPTS: RefCell<u32> = RefCell::new(0);
+	static RECONNECT_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
 	/// Holds the current WebSocket so it can be explicitly closed on reconnect,
 	/// preventing leaked Closures from accumulating across connection cycles.
-	static CURRENT_WS: RefCell<Option<WebSocket>> = RefCell::new(None);
+	static CURRENT_WS: RefCell<Option<WebSocket>> = const { RefCell::new(None) };
 }
 
 #[cfg(wasm)]

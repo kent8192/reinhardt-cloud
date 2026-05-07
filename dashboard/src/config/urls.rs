@@ -45,6 +45,7 @@ use reinhardt::pages::server_fn::ServerFnRouterExt;
 #[cfg(native)]
 use reinhardt::register_client_reverser;
 use reinhardt::routes;
+#[cfg(native)]
 use reinhardt::urls::prelude::UnifiedRouter;
 
 #[cfg(native)]
