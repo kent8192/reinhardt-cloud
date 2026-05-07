@@ -31,11 +31,17 @@ spec:
           env:
             - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
+            # Always bind the always-on HTTP server (healthz + optional
+            # metrics) to `.Values.metrics.port` so the containerPort and
+            # probe targets stay consistent even when metrics scraping is
+            # disabled. `REINHARDT_CLOUD_METRICS_ENABLED` remains gated by
+            # `.Values.metrics.enabled` so `/metrics` is only exposed when
+            # the operator opts in.
+            - name: REINHARDT_CLOUD_METRICS_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.metrics.port) | quote }}
             {{- if .Values.metrics.enabled }}
             - name: REINHARDT_CLOUD_METRICS_ENABLED
               value: "true"
-            - name: REINHARDT_CLOUD_METRICS_ADDR
-              value: {{ printf "0.0.0.0:%d" (int .Values.metrics.port) | quote }}
             {{- end }}
             - name: REINHARDT_LOG_FORMAT
               value: {{ .Values.logging.format | quote }}
