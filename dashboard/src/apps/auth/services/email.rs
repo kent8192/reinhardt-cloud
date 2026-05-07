@@ -1,40 +1,93 @@
 //! Email sending service for auth flows (verification and password reset).
 
+use reinhardt::conf::EmailSettings;
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
 use reinhardt::mail::{EmailBackend, SmtpBackend, SmtpConfig, SmtpSecurity};
 
-/// Build an email backend from the application's `EmailSettings`.
+/// Apply `REINHARDT_EMAIL__*` environment variable overrides on top of an
+/// `EmailSettings` value loaded from TOML.
 ///
-/// Checks `REINHARDT_EMAIL__*` environment variables first to allow
-/// tests to override the SMTP target (e.g., pointing to a Mailpit
-/// container). The settings system's `EnvSource` does not support
-/// nested keys via `__`, so this direct check is necessary.
-pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
-	// Direct env var override for testing — the settings system cannot
-	// map REINHARDT_EMAIL__* to nested email.* keys.
-	if std::env::var("REINHARDT_EMAIL__BACKEND").as_deref() == Ok("smtp")
-		&& let (Ok(host), Ok(port_str)) = (
-			std::env::var("REINHARDT_EMAIL__HOST"),
-			std::env::var("REINHARDT_EMAIL__PORT"),
-		) {
-		let port: u16 = port_str
+/// The settings system's `EnvSource` does not yet map double-underscore env
+/// keys to nested TOML sections, so we layer the overrides here. Each env
+/// var is optional; only fields with a corresponding env var set are
+/// touched. Parse failures are surfaced as `Err` to mirror the strictness
+/// of TOML deserialization.
+fn apply_email_env_overrides(mut email: EmailSettings) -> Result<EmailSettings, String> {
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__BACKEND") {
+		email.backend = v;
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__HOST") {
+		email.host = v;
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__PORT") {
+		email.port = v
 			.parse()
 			.map_err(|e| format!("Invalid REINHARDT_EMAIL__PORT: {e}"))?;
-		return get_email_backend_with_config(&host, port);
 	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__USERNAME") {
+		email.username = Some(v);
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__PASSWORD") {
+		email.password = Some(v);
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__USE_TLS") {
+		email.use_tls = v
+			.parse()
+			.map_err(|e| format!("Invalid REINHARDT_EMAIL__USE_TLS: {e}"))?;
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__USE_SSL") {
+		email.use_ssl = v
+			.parse()
+			.map_err(|e| format!("Invalid REINHARDT_EMAIL__USE_SSL: {e}"))?;
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__FROM_EMAIL") {
+		email.from_email = v;
+	}
+	if let Ok(v) = std::env::var("REINHARDT_EMAIL__TIMEOUT") {
+		email.timeout = Some(
+			v.parse()
+				.map_err(|e| format!("Invalid REINHARDT_EMAIL__TIMEOUT: {e}"))?,
+		);
+	}
+	Ok(email)
+}
 
+/// Resolve the active `EmailSettings`, layering `REINHARDT_EMAIL__*` env
+/// var overrides on top of TOML-loaded settings.
+///
+/// Use this from any call site that needs an email-related field
+/// (`from_email`, host, port, etc.) so the env-var override path is honored
+/// consistently across the codebase.
+pub fn resolved_email_settings() -> Result<EmailSettings, String> {
 	let settings = crate::config::settings::get_settings();
-	let email = &settings.email;
+	apply_email_env_overrides(settings.email.clone())
+}
 
-	let security = if email.use_ssl {
+/// Pick the SMTP security mode for an `EmailSettings` value.
+///
+/// Implicit TLS (`use_ssl`) takes precedence over STARTTLS (`use_tls`) when
+/// both flags are set — the two modes are mutually exclusive at the wire
+/// level, and the historical dashboard behavior favors the stricter
+/// implicit-TLS mode (port 465 typical).
+fn select_smtp_security(email: &EmailSettings) -> SmtpSecurity {
+	if email.use_ssl {
 		SmtpSecurity::Tls
 	} else if email.use_tls {
 		SmtpSecurity::StartTls
 	} else {
 		SmtpSecurity::None
-	};
+	}
+}
 
-	let mut config = SmtpConfig::new(&email.host, email.port).with_security(security);
+/// Build an SMTP email backend from the resolved `EmailSettings`.
+///
+/// `REINHARDT_EMAIL__*` env vars override the TOML-loaded values; see
+/// [`resolved_email_settings`] for the full list of supported keys.
+pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
+	let email = resolved_email_settings()?;
+
+	let mut config =
+		SmtpConfig::new(&email.host, email.port).with_security(select_smtp_security(&email));
 
 	if let (Some(username), Some(password)) = (&email.username, &email.password) {
 		config = config.with_credentials(username.clone(), password.clone());
@@ -44,16 +97,6 @@ pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
 		config = config.with_timeout(std::time::Duration::from_secs(timeout_secs));
 	}
 
-	let backend = SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
-	Ok(Box::new(backend))
-}
-
-/// Build an email backend from explicit SMTP parameters (for testing).
-pub fn get_email_backend_with_config(
-	host: &str,
-	port: u16,
-) -> Result<Box<dyn EmailBackend>, String> {
-	let config = SmtpConfig::new(host, port).with_security(SmtpSecurity::None);
 	let backend = SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
 	Ok(Box::new(backend))
 }
@@ -134,4 +177,290 @@ pub async fn send_password_reset_email(
 		.send(backend)
 		.await
 		.map_err(|e| format!("Failed to send reset email: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+	use serial_test::serial;
+
+	const ENV_KEYS: &[&str] = &[
+		"REINHARDT_EMAIL__BACKEND",
+		"REINHARDT_EMAIL__HOST",
+		"REINHARDT_EMAIL__PORT",
+		"REINHARDT_EMAIL__USERNAME",
+		"REINHARDT_EMAIL__PASSWORD",
+		"REINHARDT_EMAIL__USE_TLS",
+		"REINHARDT_EMAIL__USE_SSL",
+		"REINHARDT_EMAIL__FROM_EMAIL",
+		"REINHARDT_EMAIL__TIMEOUT",
+	];
+
+	/// RAII guard that snapshots `REINHARDT_EMAIL__*` env vars on
+	/// construction, applies caller-supplied overrides, and restores the
+	/// original values when dropped. Pairs with `#[serial(env)]` so the
+	/// snapshot is taken without contention from other tests.
+	struct EnvGuard {
+		saved: Vec<(&'static str, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(vars: &[(&'static str, &str)]) -> Self {
+			let mut saved = Vec::with_capacity(ENV_KEYS.len());
+			for key in ENV_KEYS {
+				saved.push((*key, std::env::var(key).ok()));
+				// SAFETY: env mutation is serialized via `#[serial(env)]`.
+				unsafe { std::env::remove_var(key) };
+			}
+			for (key, value) in vars {
+				// SAFETY: env mutation is serialized via `#[serial(env)]`.
+				unsafe { std::env::set_var(key, value) };
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, value) in &self.saved {
+				// SAFETY: env mutation is serialized via `#[serial(env)]`.
+				unsafe {
+					match value {
+						Some(v) => std::env::set_var(key, v),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn no_env_vars_preserves_input_settings() {
+		// Arrange
+		let _guard = EnvGuard::set(&[]);
+		let input = EmailSettings::default();
+
+		// Act
+		let resolved = apply_email_env_overrides(input.clone()).unwrap();
+
+		// Assert — every field unchanged from the TOML-derived input.
+		assert_eq!(resolved.backend, input.backend);
+		assert_eq!(resolved.host, input.host);
+		assert_eq!(resolved.port, input.port);
+		assert_eq!(resolved.username, input.username);
+		assert_eq!(resolved.password, input.password);
+		assert_eq!(resolved.use_tls, input.use_tls);
+		assert_eq!(resolved.use_ssl, input.use_ssl);
+		assert_eq!(resolved.from_email, input.from_email);
+		assert_eq!(resolved.timeout, input.timeout);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn host_and_port_env_overrides() {
+		// Arrange
+		let _guard = EnvGuard::set(&[
+			("REINHARDT_EMAIL__HOST", "smtp.example.test"),
+			("REINHARDT_EMAIL__PORT", "2525"),
+		]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert_eq!(resolved.host, "smtp.example.test");
+		assert_eq!(resolved.port, 2525);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn username_password_env_overrides_credentials() {
+		// Arrange
+		let _guard = EnvGuard::set(&[
+			("REINHARDT_EMAIL__USERNAME", "smtp-user"),
+			("REINHARDT_EMAIL__PASSWORD", "smtp-pass"),
+		]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert_eq!(resolved.username, Some("smtp-user".to_string()));
+		assert_eq!(resolved.password, Some("smtp-pass".to_string()));
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn use_tls_env_sets_starttls_flag() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__USE_TLS", "true")]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert!(resolved.use_tls);
+		assert!(!resolved.use_ssl);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn use_ssl_env_sets_implicit_tls_flag() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__USE_SSL", "true")]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert!(resolved.use_ssl);
+		assert!(!resolved.use_tls);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn use_ssl_takes_precedence_over_use_tls() {
+		// Arrange — both flags enabled simulates a misconfiguration; the
+		// runtime must choose implicit TLS (the stricter mode).
+		let _guard = EnvGuard::set(&[
+			("REINHARDT_EMAIL__USE_TLS", "true"),
+			("REINHARDT_EMAIL__USE_SSL", "true"),
+		]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+		let security = select_smtp_security(&resolved);
+
+		// Assert — both flags survive the override pass; the backend
+		// chooses implicit TLS via `select_smtp_security`.
+		assert!(resolved.use_tls);
+		assert!(resolved.use_ssl);
+		assert!(
+			matches!(security, SmtpSecurity::Tls),
+			"expected SmtpSecurity::Tls, got {security:?}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn select_smtp_security_falls_back_to_none() {
+		// Arrange / Act
+		let security = select_smtp_security(&EmailSettings::default());
+
+		// Assert — defaults disable both flags, yielding plaintext.
+		assert!(
+			matches!(security, SmtpSecurity::None),
+			"expected SmtpSecurity::None, got {security:?}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn select_smtp_security_picks_starttls_for_use_tls_only() {
+		// Arrange — `EmailSettings` is `#[non_exhaustive]`, so mutate a
+		// `Default` instance rather than using struct-update syntax.
+		let mut email = EmailSettings::default();
+		email.use_tls = true;
+
+		// Act
+		let security = select_smtp_security(&email);
+
+		// Assert
+		assert!(
+			matches!(security, SmtpSecurity::StartTls),
+			"expected SmtpSecurity::StartTls, got {security:?}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn from_email_env_overrides_outbound_address() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__FROM_EMAIL", "sender@example.test")]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert_eq!(resolved.from_email, "sender@example.test");
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn timeout_env_overrides_socket_timeout() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__TIMEOUT", "30")]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert_eq!(resolved.timeout, Some(30));
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn backend_env_overrides_backend_field() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__BACKEND", "smtp")]);
+
+		// Act
+		let resolved = apply_email_env_overrides(EmailSettings::default()).unwrap();
+
+		// Assert
+		assert_eq!(resolved.backend, "smtp");
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn invalid_port_returns_error() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__PORT", "not-a-port")]);
+
+		// Act
+		let result = apply_email_env_overrides(EmailSettings::default());
+
+		// Assert
+		let err = result.unwrap_err();
+		assert!(
+			err.contains("Invalid REINHARDT_EMAIL__PORT"),
+			"unexpected error: {err}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn invalid_timeout_returns_error() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__TIMEOUT", "abc")]);
+
+		// Act
+		let result = apply_email_env_overrides(EmailSettings::default());
+
+		// Assert
+		let err = result.unwrap_err();
+		assert!(
+			err.contains("Invalid REINHARDT_EMAIL__TIMEOUT"),
+			"unexpected error: {err}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn invalid_use_tls_returns_error() {
+		// Arrange
+		let _guard = EnvGuard::set(&[("REINHARDT_EMAIL__USE_TLS", "maybe")]);
+
+		// Act
+		let result = apply_email_env_overrides(EmailSettings::default());
+
+		// Assert
+		let err = result.unwrap_err();
+		assert!(
+			err.contains("Invalid REINHARDT_EMAIL__USE_TLS"),
+			"unexpected error: {err}"
+		);
+	}
 }
