@@ -65,6 +65,11 @@ pub fn test_app() -> (APIClient, ResolvedUrls) {
 /// start. Without this ordering, view handlers that use DI-based DB injection
 /// (e.g. `#[inject] Depends<DatabaseConnection>`) would not see the
 /// TestContainers database.
+///
+/// The returned [`ResolvedUrls`] is constructed from the just-built router's
+/// own `ClientUrlReverser` rather than the process-global slot, so concurrent
+/// callers receive independent resolvers and do not race on the global
+/// reverser registered by `make_router`.
 pub fn build_test_app() -> (APIClient, ResolvedUrls) {
 	let scope = Arc::new(SingletonScope::new());
 	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
@@ -86,6 +91,15 @@ pub fn build_test_app() -> (APIClient, ResolvedUrls) {
 		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
 	})
 	.expect("Failed to resolve DashboardRouter");
+
+	// Snapshot the per-instance client reverser before unwrapping the Arc so
+	// the resulting `ResolvedUrls` does not depend on the process-global
+	// `ClientUrlReverser` slot. `make_router` still registers the reverser in
+	// that slot for production SSR `url_for` callers, but concurrent
+	// `build_test_app` invocations no longer race on global overwrites for
+	// the typed `urls.client().<app>()` accessors used by tests.
+	let client_reverser = Arc::new(router.0.client_ref().to_reverser());
+
 	let server_router = Arc::new(
 		Arc::try_unwrap(router)
 			.expect("DashboardRouter has multiple owners after resolve")
@@ -93,13 +107,6 @@ pub fn build_test_app() -> (APIClient, ResolvedUrls) {
 			.into_server(),
 	);
 
-	// `make_router` calls `register_client_reverser` as a side effect of
-	// the DI resolve above, so the client reverser is registered globally
-	// by the time we land here. Pull it out so `ResolvedUrls` can serve
-	// both `urls.server().<app>()` and `urls.client().<app>()` typed
-	// accessors in tests.
-	let client_reverser = reinhardt::get_client_reverser()
-		.expect("global ClientUrlReverser must be registered by make_router");
 	let urls = ResolvedUrls::from_router(server_router.clone(), client_reverser);
 
 	// Wrap with OpenApiRouter to serve /api/openapi.json, /api/docs, /api/redoc.
