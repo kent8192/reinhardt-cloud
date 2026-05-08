@@ -20,7 +20,8 @@ use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
 use crate::inference::env_vars::{
-	build_database_env_vars_from_secret, build_otel_env_vars, build_system_env_vars, merge_env_vars,
+	build_core_secret_key_env_var, build_database_env_vars_from_secret, build_otel_env_vars,
+	build_system_env_vars, merge_env_vars,
 };
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
@@ -69,6 +70,11 @@ pub(crate) fn build_deployment(
 	});
 	let needs_db_env = explicit_db || introspect_db;
 	let mut auto_vars = build_system_env_vars();
+	// Inject the per-app `core.secret_key` env var unconditionally so the
+	// generated `production.toml` can resolve `${REINHARDT_CLOUD_SECRET_KEY}`
+	// at startup; the value lives in the operator-managed
+	// `<app>-core-secret-key` Secret, never in the Pod spec.
+	auto_vars.push(build_core_secret_key_env_var(&app_name));
 	if needs_db_env {
 		let db_host = if explicit_db {
 			format!("{app_name}-db")

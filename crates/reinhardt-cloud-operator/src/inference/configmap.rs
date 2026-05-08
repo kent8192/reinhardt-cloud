@@ -20,9 +20,17 @@ pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> Confi
 	// `allowed_hosts` defaults to empty (deny all) for security. Users should
 	// override via `REINHARDT_CORE__ALLOWED_HOSTS` env var or by customizing
 	// this ConfigMap after deployment.
+	//
+	// `secret_key` is filled in by reinhardt-conf's `${VAR}` interpolation
+	// from `REINHARDT_CLOUD_SECRET_KEY`, which the operator injects into the
+	// Pod via `valueFrom.secretKeyRef` against the per-app
+	// `<app>-core-secret-key` Secret (see
+	// `inference::env_vars::build_core_secret_key_env_var`). Storing only
+	// the placeholder here keeps the actual key value out of the ConfigMap.
 	let production_toml = r#"[core]
 debug = false
 allowed_hosts = []
+secret_key = "${REINHARDT_CLOUD_SECRET_KEY}"
 
 [security]
 session_cookie_secure = true
@@ -160,6 +168,28 @@ mod tests {
 				.get("secure_ssl_redirect")
 				.and_then(|v| v.as_bool()),
 			Some(false),
+		);
+	}
+
+	#[rstest]
+	fn configmap_production_toml_references_secret_key_via_env_var_interpolation() {
+		// Arrange & Act
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert — the placeholder must be present and must NOT carry an
+		// inline key value (which would defeat the point of moving the
+		// signing key into a Secret).
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let secret_key = parsed
+			.get("core")
+			.and_then(|c| c.get("secret_key"))
+			.and_then(|v| v.as_str())
+			.expect("`core.secret_key` must be set so reinhardt-conf can interpolate it");
+		assert_eq!(
+			secret_key, "${REINHARDT_CLOUD_SECRET_KEY}",
+			"`core.secret_key` must reference the operator-injected env var, never an inline value",
 		);
 	}
 

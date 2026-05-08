@@ -35,6 +35,37 @@ pub(crate) fn build_jwt_secret(app_name: &str, namespace: &str) -> Secret {
 	}
 }
 
+/// Build a Kubernetes Secret containing the per-app `core.secret_key`.
+///
+/// reinhardt-web's `CoreSettings::secret_key` is required at startup and
+/// cannot be populated through the `REINHARDT_*` env-var override path
+/// because `HighPriorityEnvSource` does not expand `__` into nested keys.
+/// Instead, the Secret holds a 256-bit random value, the operator injects
+/// it as `REINHARDT_CLOUD_SECRET_KEY`, and the generated `production.toml`
+/// references it via `${REINHARDT_CLOUD_SECRET_KEY}` interpolation.
+///
+/// Generates a 256-bit random key, base64-encodes it, and stores the
+/// result under the `secret-key` data key.
+pub(crate) fn build_core_secret_key_secret(app_name: &str, namespace: &str) -> Secret {
+	let key_bytes: [u8; 32] = rand::random();
+	let key_b64 = base64_encode(&key_bytes);
+
+	Secret {
+		metadata: ObjectMeta {
+			name: Some(format!("{app_name}-core-secret-key")),
+			namespace: Some(namespace.to_string()),
+			labels: Some(standard_secret_labels(app_name)),
+			..Default::default()
+		},
+		data: Some(BTreeMap::from([(
+			"secret-key".to_string(),
+			ByteString(key_b64.into_bytes()),
+		)])),
+		type_: Some("Opaque".to_string()),
+		..Default::default()
+	}
+}
+
 /// Build a Kubernetes Secret containing database credentials.
 pub(crate) fn build_db_credentials_secret(
 	app_name: &str,
@@ -265,5 +296,71 @@ mod tests {
 		let data1 = secret1.data.as_ref().unwrap();
 		let data2 = secret2.data.as_ref().unwrap();
 		assert_ne!(data1["jwt-secret"].0, data2["jwt-secret"].0);
+	}
+
+	#[rstest]
+	fn core_secret_key_secret_has_correct_name() {
+		// Arrange & Act
+		let secret = build_core_secret_key_secret("myapp", "default");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("myapp-core-secret-key")
+		);
+	}
+
+	#[rstest]
+	fn core_secret_key_secret_stores_secret_key_under_documented_data_key() {
+		// Arrange & Act
+		let secret = build_core_secret_key_secret("myapp", "default");
+
+		// Assert — the data key name `secret-key` is part of the operator's
+		// public reconciler contract; env_vars::build_core_secret_key_env_var
+		// references it explicitly, so renaming requires updating both sites.
+		let data = secret.data.as_ref().unwrap();
+		assert!(data.contains_key("secret-key"));
+	}
+
+	#[rstest]
+	fn core_secret_key_secret_value_is_32_bytes_when_decoded() {
+		// Arrange & Act
+		let secret = build_core_secret_key_secret("myapp", "default");
+
+		// Assert
+		let data = secret.data.as_ref().unwrap();
+		let raw = &data["secret-key"].0;
+		let decoded = base64::engine::general_purpose::STANDARD
+			.decode(raw)
+			.expect("data key value must be valid base64");
+		assert_eq!(decoded.len(), 32);
+	}
+
+	#[rstest]
+	fn core_secret_key_secret_has_opaque_type_and_standard_labels() {
+		// Arrange & Act
+		let secret = build_core_secret_key_secret("myapp", "default");
+
+		// Assert
+		assert_eq!(secret.type_.as_deref(), Some("Opaque"));
+		let labels = secret.metadata.labels.as_ref().unwrap();
+		assert_eq!(labels.get("app.kubernetes.io/name").unwrap(), "myapp");
+		assert_eq!(
+			labels.get("app.kubernetes.io/managed-by").unwrap(),
+			"reinhardt-cloud-operator"
+		);
+	}
+
+	#[rstest]
+	fn two_core_secret_key_secrets_have_different_values() {
+		// Arrange & Act — calls must use a fresh CSPRNG draw each time so
+		// regenerating the Secret cannot accidentally restore an old value.
+		let s1 = build_core_secret_key_secret("app", "ns");
+		let s2 = build_core_secret_key_secret("app", "ns");
+
+		// Assert
+		let d1 = s1.data.as_ref().unwrap();
+		let d2 = s2.data.as_ref().unwrap();
+		assert_ne!(d1["secret-key"].0, d2["secret-key"].0);
 	}
 }
