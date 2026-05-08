@@ -21,6 +21,10 @@ path = "src/bin/manage.rs"
 # `ResolvedUrls::from_global()` in dashboard pages and layouts.
 default = ["client-router"]
 client-router = ["reinhardt/client-router"]
+# Opts the `tests/wasm/` browser tests into the build. Off by default so
+# `cargo nextest run` (host-target) does not try to compile WASM-only
+# tests. Driven by `cargo make wasm-spa-test`. Refs #574.
+wasm-spa-test = []
 
 [dependencies]
 reinhardt = { workspace = true }
@@ -71,10 +75,27 @@ js-sys = "0.3"
 gloo-timers = "0.3"
 console_error_panic_hook = "0.1"
 
+# WASM-target dev-deps for browser tests. Driver: `wasm-pack test
+# --headless --chrome --features wasm-spa-test`. Refs #574.
+#
+# `rstest` is required because `wasm-pack test` builds the lib (with
+# `#[cfg(test)]` modules) alongside the integration test, and several
+# lib modules (e.g. `apps/deployments/client/components/log_viewer.rs`)
+# already use `rstest` for native unit tests. Without `rstest` in the
+# wasm dev-dep set, `cargo build --tests --target wasm32-unknown-unknown`
+# fails to find the `#[case]` and `#[rstest]` attributes.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+rstest = { workspace = true }
+
 [build-dependencies]
 cfg_aliases = "0.2"
 
-[dev-dependencies]
+# Native dev-deps. Pulled into a target-gated block so the WASM browser
+# tests under `tests/wasm/` (driven by `wasm-pack test --headless
+# --chrome`) do not transitively compile `tokio`/`mio`/`reqwest`/
+# `wiremock`, which fail to link for `wasm32-unknown-unknown`. Refs #574.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rstest = { workspace = true }
 serial_test = "3.2"
 anyhow = { workspace = true }
