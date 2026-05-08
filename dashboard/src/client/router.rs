@@ -33,9 +33,9 @@ use reinhardt::pages::router::Router;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
 use crate::apps::clusters::client::pages::clusters_list_page;
+use crate::apps::dashboard::client::layout::dashboard_shell;
 use crate::apps::deployments::client::pages::deployments_list_page;
 
-use super::layout::dashboard_shell;
 use super::pages::not_found_page;
 
 // ──────────────────────────────────────────────────────────────────────

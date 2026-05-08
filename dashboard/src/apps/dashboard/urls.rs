@@ -12,7 +12,7 @@ pub mod ws_urls;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::dashboard::views::dashboard_shell;
+use crate::apps::dashboard::client::layout::dashboard_shell;
 use crate::config::apps::InstalledApp;
 
 /// Returns the unified URL patterns for the dashboard app.
