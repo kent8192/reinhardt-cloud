@@ -113,6 +113,17 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
+	/// Extract and parse the `production.toml` value out of a generated
+	/// `ConfigMap`. Centralizes the boilerplate so individual tests can focus
+	/// on the section/key they actually assert against.
+	fn parse_production_toml(cm: &ConfigMap) -> toml::Value {
+		let data = cm.data.as_ref().expect("ConfigMap.data must be set");
+		let content = data
+			.get("production.toml")
+			.expect("`production.toml` key must be present");
+		toml::from_str(content).expect("`production.toml` must parse as valid TOML")
+	}
+
 	#[rstest]
 	fn configmap_has_correct_name() {
 		// Arrange & Act
@@ -149,9 +160,7 @@ mod tests {
 		// Assert — parse the TOML so the section nesting is enforced, not just
 		// the textual presence of `debug = false` (which would also pass for
 		// the malformed top-level placement that motivated this regression test).
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		assert_eq!(
 			parsed
 				.get("core")
@@ -172,9 +181,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let allowed_hosts = parsed
 			.get("core")
 			.and_then(|c| c.get("allowed_hosts"))
@@ -198,9 +205,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let security = parsed
 			.get("core")
 			.and_then(|c| c.get("security"))
@@ -238,9 +243,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		for section in ["core", "i18n", "static_files", "media", "cors", "email"] {
 			assert!(
 				parsed.get(section).is_some(),
@@ -259,9 +262,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let default_db = parsed
 			.get("core")
 			.and_then(|c| c.get("databases"))
@@ -293,9 +294,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let i18n = parsed.get("i18n").expect("`[i18n]` must be present");
 		assert_eq!(
 			i18n.get("language_code").and_then(|v| v.as_str()),
@@ -314,9 +313,7 @@ mod tests {
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let allow_origins = parsed
 			.get("cors")
 			.and_then(|c| c.get("allow_origins"))
@@ -337,9 +334,7 @@ mod tests {
 		// Assert — the placeholder must be present and must NOT carry an
 		// inline key value (which would defeat the point of moving the
 		// signing key into a Secret).
-		let data = cm.data.as_ref().unwrap();
-		let toml_content = &data["production.toml"];
-		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let parsed = parse_production_toml(&cm);
 		let secret_key = parsed
 			.get("core")
 			.and_then(|c| c.get("secret_key"))
