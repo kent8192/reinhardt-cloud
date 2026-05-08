@@ -36,11 +36,40 @@ pub mod ws;
 // `kent8192/reinhardt-cloud#574`.
 #[cfg(all(wasm, not(feature = "wasm-spa-test")))]
 mod wasm_entry {
+	use std::collections::HashMap;
+
 	use wasm_bindgen::prelude::*;
 
 	use reinhardt::pages::{ClientLauncher, PathCtx};
+	use reinhardt::{ClientUrlReverser, register_client_reverser};
 
 	use super::*;
+
+	/// Register the SPA route reverser that
+	/// [`crate::config::urls::ResolvedUrls::from_global()`] consumers
+	/// (e.g. `dashboard_shell`, `not_found_page`) need before the first
+	/// render.
+	///
+	/// The native side wires this through
+	/// `crate::config::urls::make_router`'s
+	/// `register_client_reverser(unified.client_ref().to_reverser())`.
+	/// On the WASM target the `#[routes]` macro at upstream `f0dd166c`
+	/// emits only the consumer (`__url_resolver_support::ResolvedUrls`),
+	/// not the registrar — so without this manual call the first WASM
+	/// render panics with "Global client reverser not registered".
+	/// Refs `kent8192/reinhardt-cloud#574`,
+	/// `kent8192/reinhardt-web#4221` (7th SPA navigation regression).
+	///
+	/// Patterns are sourced from
+	/// [`router::SPA_ROUTE_PATTERNS`](super::router::SPA_ROUTE_PATTERNS)
+	/// — the single source of truth shared with `init_router()` and the
+	/// `tests/wasm/test_spa_navigation_smoke.rs` smoke test, so drift
+	/// between the runtime router and the registered reverser is
+	/// impossible.
+	fn register_client_url_reverser() {
+		let patterns: HashMap<String, String> = router::spa_route_pattern_pairs().collect();
+		register_client_reverser(ClientUrlReverser::new(patterns));
+	}
 
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
@@ -48,6 +77,11 @@ mod wasm_entry {
 		// Hedge: ClientLauncher installs the panic hook when its feature
 		// is enabled; calling set_once twice is harmless.
 		console_error_panic_hook::set_once();
+
+		// Must run before `dashboard_shell` (the layout for `/`) renders,
+		// because the layout calls `ResolvedUrls::from_global()` which
+		// panics if the reverser is unset. Refs #574.
+		register_client_url_reverser();
 
 		// Delegate router init, history listener, DOM mount, SPA link
 		// interception, and re-mount on navigate to ClientLauncher.
