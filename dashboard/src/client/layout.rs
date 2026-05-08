@@ -13,8 +13,8 @@ pub fn dashboard_shell() -> Page {
 	let urls = ResolvedUrls::from_global();
 	let login_href = urls.client().auth().login_page();
 	let home_href = urls.client().dashboard().home();
-	let clusters_href = urls.client().dashboard().clusters();
-	let deployments_href = urls.client().dashboard().deployments();
+	let clusters_href = urls.client().clusters().list();
+	let deployments_href = urls.client().deployments().list();
 	page!(|login_href: String, home_href: String, clusters_href: String, deployments_href: String| {
 		div {
 			class: "min-h-screen flex flex-col bg-gray-50",
