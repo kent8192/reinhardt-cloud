@@ -13,10 +13,15 @@ use kube::api::ObjectMeta;
 /// The ConfigMap contains a `production.toml` key with sensible
 /// production defaults (debug off, secure cookies, etc.).
 pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> ConfigMap {
-	// allowed_hosts defaults to empty (deny all) for security.
-	// Users should override via REINHARDT_ALLOWED_HOSTS env var
-	// or by customizing this ConfigMap after deployment.
-	let production_toml = r#"debug = false
+	// `debug` and `allowed_hosts` belong to CoreSettings and must live under
+	// `[core]`; placing them at the top level causes reinhardt-conf to warn
+	// and silently discard the values at load time.
+	//
+	// `allowed_hosts` defaults to empty (deny all) for security. Users should
+	// override via `REINHARDT_CORE__ALLOWED_HOSTS` env var or by customizing
+	// this ConfigMap after deployment.
+	let production_toml = r#"[core]
+debug = false
 allowed_hosts = []
 
 [security]
@@ -80,14 +85,52 @@ mod tests {
 	}
 
 	#[rstest]
-	fn configmap_production_toml_has_debug_false() {
+	fn configmap_production_toml_places_debug_under_core_section() {
+		// Arrange & Act
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert — parse the TOML so the section nesting is enforced, not just
+		// the textual presence of `debug = false` (which would also pass for
+		// the malformed top-level placement that motivated this regression test).
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		assert_eq!(
+			parsed
+				.get("core")
+				.and_then(|c| c.get("debug"))
+				.and_then(|v| v.as_bool()),
+			Some(false),
+			"`debug` must be nested under `[core]`, not at top level",
+		);
+		assert!(
+			parsed.get("debug").is_none(),
+			"`debug` must not appear at the top level (reinhardt-conf would discard it)",
+		);
+	}
+
+	#[rstest]
+	fn configmap_production_toml_places_allowed_hosts_under_core_section() {
 		// Arrange & Act
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
 		let data = cm.data.as_ref().unwrap();
 		let toml_content = &data["production.toml"];
-		assert!(toml_content.contains("debug = false"));
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let allowed_hosts = parsed
+			.get("core")
+			.and_then(|c| c.get("allowed_hosts"))
+			.and_then(|v| v.as_array())
+			.expect("`allowed_hosts` must be a `[core]` array");
+		assert!(
+			allowed_hosts.is_empty(),
+			"default allowed_hosts is empty (deny all) for security",
+		);
+		assert!(
+			parsed.get("allowed_hosts").is_none(),
+			"`allowed_hosts` must not appear at the top level",
+		);
 	}
 
 	#[rstest]
@@ -98,9 +141,26 @@ mod tests {
 		// Assert
 		let data = cm.data.as_ref().unwrap();
 		let toml_content = &data["production.toml"];
-		assert!(toml_content.contains("[security]"));
-		assert!(toml_content.contains("session_cookie_secure = true"));
-		assert!(toml_content.contains("csrf_cookie_secure = true"));
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let security = parsed
+			.get("security")
+			.expect("`[security]` section must be present");
+		assert_eq!(
+			security
+				.get("session_cookie_secure")
+				.and_then(|v| v.as_bool()),
+			Some(true),
+		);
+		assert_eq!(
+			security.get("csrf_cookie_secure").and_then(|v| v.as_bool()),
+			Some(true),
+		);
+		assert_eq!(
+			security
+				.get("secure_ssl_redirect")
+				.and_then(|v| v.as_bool()),
+			Some(false),
+		);
 	}
 
 	#[rstest]
