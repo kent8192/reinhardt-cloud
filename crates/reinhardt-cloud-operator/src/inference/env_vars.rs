@@ -166,6 +166,12 @@ pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
 /// User overrides (`user_vars`) always take priority over auto-generated
 /// variables (`auto_vars`). When both define the same key, the user value
 /// is kept and the auto-generated value is discarded.
+///
+/// User values that match the `secretRef:<secret-name>/<key>` form are
+/// rewritten to a Kubernetes `valueFrom.secretKeyRef`, so the rendered
+/// `EnvVar` references a `Secret` rather than carrying the literal string
+/// (which would otherwise leak the prefix into the running container).
+/// Values that do not match the syntax are forwarded as literals.
 pub(crate) fn merge_env_vars(
 	auto_vars: &[EnvVar],
 	user_vars: &BTreeMap<String, String>,
@@ -175,7 +181,7 @@ pub(crate) fn merge_env_vars(
 
 	// User vars first (highest priority)
 	for (k, v) in user_vars {
-		result.push(env_var(k, v));
+		result.push(user_env_var(k, v));
 		seen.insert(k.clone());
 	}
 
@@ -188,6 +194,56 @@ pub(crate) fn merge_env_vars(
 	}
 
 	result
+}
+
+/// Prefix that marks a user-supplied env value as a reference into a
+/// Kubernetes `Secret`. The body after the prefix is `<secret-name>/<key>`.
+const SECRET_REF_PREFIX: &str = "secretRef:";
+
+/// Parse `secretRef:<secret-name>/<key>`, returning `(secret_name, key)` on
+/// success. Both components must be non-empty; a malformed value (missing
+/// slash or empty component) yields `None` so the caller can fall back to
+/// a literal `value`.
+fn parse_secret_ref(value: &str) -> Option<(&str, &str)> {
+	let body = value.strip_prefix(SECRET_REF_PREFIX)?;
+	let (secret_name, key) = body.split_once('/')?;
+	if secret_name.is_empty() || key.is_empty() {
+		return None;
+	}
+	Some((secret_name, key))
+}
+
+/// Build an `EnvVar` from a user-supplied `(name, value)` pair, honoring
+/// the `secretRef:<secret-name>/<key>` syntax for `Secret` references.
+fn user_env_var(name: &str, value: &str) -> EnvVar {
+	if let Some((secret_name, key)) = parse_secret_ref(value) {
+		return EnvVar {
+			name: name.to_string(),
+			value: None,
+			value_from: Some(EnvVarSource {
+				secret_key_ref: Some(SecretKeySelector {
+					name: secret_name.to_string(),
+					key: key.to_string(),
+					optional: Some(false),
+				}),
+				..Default::default()
+			}),
+		};
+	}
+
+	if value.starts_with(SECRET_REF_PREFIX) {
+		// Prefix present but body is malformed. Fall back to a literal
+		// to avoid silently dropping the user's value, and warn so the
+		// misconfiguration is visible in operator logs.
+		tracing::warn!(
+			env_name = %name,
+			"User-supplied env var {name} starts with `secretRef:` but is not in the form \
+			 `secretRef:<secret-name>/<key>`; treating the value as a literal string. \
+			 Update the spec to use the documented form to inject a Secret value.",
+		);
+	}
+
+	env_var(name, value)
 }
 
 fn env_var(name: &str, value: &str) -> EnvVar {
@@ -506,5 +562,79 @@ mod tests {
 		// Assert
 		assert_eq!(merged.len(), 1);
 		assert_eq!(merged[0].name, "X");
+	}
+
+	#[rstest]
+	fn merge_env_vars_resolves_secret_ref_to_value_from() {
+		// Arrange — `manifests/dashboard-app.yaml` uses this exact form.
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars = BTreeMap::from([(
+			"REINHARDT_CLOUD_JWT_SECRET".to_string(),
+			"secretRef:reinhardt-cloud-dashboard-secrets/jwt-secret".to_string(),
+		)]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert — literal value must be cleared and a SecretKeyRef emitted.
+		let var = merged
+			.iter()
+			.find(|v| v.name == "REINHARDT_CLOUD_JWT_SECRET")
+			.expect("env var must be present");
+		assert!(
+			var.value.is_none(),
+			"value must be empty when a SecretKeyRef is set; the operator must not pass the \
+			 `secretRef:...` literal through to the container env",
+		);
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("value_from.secret_key_ref must be set");
+		assert_eq!(key_ref.name, "reinhardt-cloud-dashboard-secrets");
+		assert_eq!(key_ref.key, "jwt-secret");
+		assert_eq!(key_ref.optional, Some(false));
+	}
+
+	#[rstest]
+	#[case::missing_slash("secretRef:onlyname")]
+	#[case::empty_secret_name("secretRef:/key")]
+	#[case::empty_key("secretRef:name/")]
+	#[case::empty_body("secretRef:")]
+	fn merge_env_vars_falls_back_to_literal_for_malformed_secret_ref(#[case] value: &str) {
+		// Arrange
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars = BTreeMap::from([("MY_VAR".to_string(), value.to_string())]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert — malformed prefix is preserved as a literal so we don't
+		// silently drop the user's value; a tracing warn surfaces the issue.
+		let var = merged.iter().find(|v| v.name == "MY_VAR").unwrap();
+		assert_eq!(var.value.as_deref(), Some(value));
+		assert!(var.value_from.is_none());
+	}
+
+	#[rstest]
+	fn merge_env_vars_does_not_match_prefix_inside_value() {
+		// Arrange — only the literal prefix at position 0 should be parsed,
+		// otherwise URLs containing `secretRef:` mid-string would be eaten.
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars = BTreeMap::from([(
+			"NOTE".to_string(),
+			"see secretRef:foo/bar in the docs".to_string(),
+		)]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars);
+
+		// Assert
+		let var = merged.iter().find(|v| v.name == "NOTE").unwrap();
+		assert_eq!(
+			var.value.as_deref(),
+			Some("see secretRef:foo/bar in the docs")
+		);
+		assert!(var.value_from.is_none());
 	}
 }
