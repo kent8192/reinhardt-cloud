@@ -13,13 +13,15 @@ use kube::api::ObjectMeta;
 /// The ConfigMap contains a `production.toml` key with sensible
 /// production defaults (debug off, secure cookies, etc.).
 pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> ConfigMap {
-	// `debug` and `allowed_hosts` belong to CoreSettings and must live under
-	// `[core]`; placing them at the top level causes reinhardt-conf to warn
-	// and silently discard the values at load time.
-	//
-	// `allowed_hosts` defaults to empty (deny all) for security. Users should
-	// override via `REINHARDT_CORE__ALLOWED_HOSTS` env var or by customizing
-	// this ConfigMap after deployment.
+	// The dashboard's `ProjectSettings` (see `dashboard/src/config/settings.rs`)
+	// composes `CoreSettings`, `I18nSettings`, `StaticSettings`, `MediaSettings`,
+	// `CorsSettings`, and `EmailSettings`; deserialization fails when any of
+	// the corresponding sections is absent from the merged TOML. Because the
+	// operator overrides `REINHARDT_CLOUD_CONFIG_DIR` to point at this mounted
+	// ConfigMap, it must own a complete schema (the bundled
+	// `dashboard/settings/production.toml` is shadowed and is itself
+	// incomplete — it relies on a developer-managed `base.toml` that is
+	// gitignored).
 	//
 	// `secret_key` is filled in by reinhardt-conf's `${VAR}` interpolation
 	// from `REINHARDT_CLOUD_SECRET_KEY`, which the operator injects into the
@@ -27,15 +29,62 @@ pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> Confi
 	// `<app>-core-secret-key` Secret (see
 	// `inference::env_vars::build_core_secret_key_env_var`). Storing only
 	// the placeholder here keeps the actual key value out of the ConfigMap.
+	//
+	// `allowed_hosts` defaults to empty (deny all) for security. Users should
+	// customize this ConfigMap after deployment when they have a public hostname
+	// to allow.
+	//
+	// `secure_ssl_redirect` is left `false` because the operator's default
+	// reinhardt-cloud deployment terminates TLS at the Ingress (or runs without
+	// TLS in local kind clusters); enabling redirect inside the pod would loop
+	// when the inbound request is already plain HTTP.
 	let production_toml = r#"[core]
 debug = false
 allowed_hosts = []
 secret_key = "${REINHARDT_CLOUD_SECRET_KEY}"
+root_urlconf = ""
+middleware = []
 
-[security]
+[core.security]
+append_slash = true
 session_cookie_secure = true
 csrf_cookie_secure = true
 secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "reinhardt_cloud"
+user = "reinhardt"
+password = { secret = "OPERATOR-MANAGED-VIA-DATABASE_URL" }
+options = {}
+
+[i18n]
+language_code = "en-us"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+
+[static_files]
+url = "/static/"
+root = "static"
+
+[media]
+url = "/media/"
+root = "media"
+
+[cors]
+allow_origins = []
+
+[email]
+host = "localhost"
+port = 1025
+from_email = "noreply@example.invalid"
+use_ssl = false
+use_tls = false
 "#;
 
 	ConfigMap {
@@ -142,8 +191,10 @@ mod tests {
 	}
 
 	#[rstest]
-	fn configmap_production_toml_has_security_section() {
-		// Arrange & Act
+	fn configmap_production_toml_has_core_security_subsection() {
+		// Arrange & Act — `CoreSettings::security` is nested, so the section
+		// header must be `[core.security]`, not the top-level `[security]`
+		// that earlier revisions emitted.
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
@@ -151,8 +202,9 @@ mod tests {
 		let toml_content = &data["production.toml"];
 		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
 		let security = parsed
-			.get("security")
-			.expect("`[security]` section must be present");
+			.get("core")
+			.and_then(|c| c.get("security"))
+			.expect("`[core.security]` section must be present");
 		assert_eq!(
 			security
 				.get("session_cookie_secure")
@@ -168,6 +220,112 @@ mod tests {
 				.get("secure_ssl_redirect")
 				.and_then(|v| v.as_bool()),
 			Some(false),
+		);
+		// And the malformed top-level form must NOT be present.
+		assert!(
+			parsed.get("security").is_none(),
+			"`[security]` must not be a top-level section (reinhardt-conf expects `[core.security]`)",
+		);
+	}
+
+	#[rstest]
+	fn configmap_production_toml_has_all_required_project_settings_sections() {
+		// Arrange & Act — `dashboard/src/config/settings.rs` composes
+		// ProjectSettings from CoreSettings, I18nSettings, StaticSettings,
+		// MediaSettings, CorsSettings, and EmailSettings. The dashboard panics
+		// at startup if any of these are missing from the merged TOML, so
+		// guard the operator against silently re-introducing the regression.
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		for section in ["core", "i18n", "static_files", "media", "cors", "email"] {
+			assert!(
+				parsed.get(section).is_some(),
+				"`[{section}]` must be present in production.toml — missing it crashes \
+				 reinhardt-web's settings deserializer",
+			);
+		}
+	}
+
+	#[rstest]
+	fn configmap_production_toml_databases_default_uses_postgres_with_options_table() {
+		// Arrange & Act — `[core.databases.default]` schema requires
+		// `engine`, `host`, `port`, `name`, `user`, `password`, and `options`.
+		// `password` is the secret-fragment shape `{ secret = "..." }` and
+		// `options` must be a (possibly empty) inline table.
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let default_db = parsed
+			.get("core")
+			.and_then(|c| c.get("databases"))
+			.and_then(|d| d.get("default"))
+			.expect("`[core.databases.default]` must be present");
+		assert_eq!(
+			default_db.get("engine").and_then(|v| v.as_str()),
+			Some("postgresql")
+		);
+		assert!(
+			default_db
+				.get("password")
+				.and_then(|v| v.as_table())
+				.is_some(),
+			"password must be the `{{ secret = \"...\" }}` shape so reinhardt-conf accepts it"
+		);
+		assert!(
+			default_db
+				.get("options")
+				.and_then(|v| v.as_table())
+				.is_some(),
+			"options must be an inline table even when empty"
+		);
+	}
+
+	#[rstest]
+	fn configmap_production_toml_i18n_section_uses_utc_defaults() {
+		// Arrange & Act
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let i18n = parsed.get("i18n").expect("`[i18n]` must be present");
+		assert_eq!(
+			i18n.get("language_code").and_then(|v| v.as_str()),
+			Some("en-us")
+		);
+		assert_eq!(i18n.get("time_zone").and_then(|v| v.as_str()), Some("UTC"));
+		assert_eq!(i18n.get("use_i18n").and_then(|v| v.as_bool()), Some(true));
+		assert_eq!(i18n.get("use_tz").and_then(|v| v.as_bool()), Some(true));
+	}
+
+	#[rstest]
+	fn configmap_production_toml_cors_default_is_empty_for_safety() {
+		// Arrange & Act — production default must NOT permit any cross-origin
+		// requests; operators opt in by editing the ConfigMap once they know
+		// their public hostname.
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let data = cm.data.as_ref().unwrap();
+		let toml_content = &data["production.toml"];
+		let parsed: toml::Value = toml::from_str(toml_content).expect("valid TOML");
+		let allow_origins = parsed
+			.get("cors")
+			.and_then(|c| c.get("allow_origins"))
+			.and_then(|v| v.as_array())
+			.expect("`cors.allow_origins` must be an array");
+		assert!(
+			allow_origins.is_empty(),
+			"production default must deny all cross-origin requests — \
+			 a non-empty default would silently widen the attack surface",
 		);
 	}
 
