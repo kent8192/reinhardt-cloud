@@ -259,6 +259,12 @@ mod tests {
 		assert_eq!(roundtrip.message, message);
 	}
 
+	// `proptest` is only wired into native dev-deps because `dashboard`
+	// also runs `wasm-bindgen-test` browser tests (#574); pulling
+	// `proptest` into the WASM dev-dep set would bloat the wasm test
+	// build. The fuzz coverage is target-agnostic — running it on the
+	// native target is sufficient. Refs #574.
+	#[cfg(not(target_arch = "wasm32"))]
 	mod property_tests {
 		use super::super::*;
 		use proptest::prelude::*;

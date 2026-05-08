@@ -9,6 +9,7 @@
 //! We exercise the helper that `src/main.rs` now calls in its hot
 //! path so the regression cannot reappear silently.
 
+// Native-only — see `tests/wasm.rs` for browser tests. Refs #574.
 #![cfg(not(target_arch = "wasm32"))]
 
 use reinhardt::urls::routers::{clear_router, is_router_registered};
