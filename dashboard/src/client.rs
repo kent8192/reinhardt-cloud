@@ -21,7 +21,20 @@ pub mod router;
 pub mod state;
 pub mod ws;
 
-#[cfg(wasm)]
+// `#[wasm_bindgen(start)]` registers a `main` entry that runs when the
+// WASM module loads. We compile that entry out of the test build because
+// `wasm-bindgen-test` injects its own `main` for the test runner, and
+// `wasm-ld` discards both when two `main` exports collide ("main symbol
+// is missing, may be because there are multiple exports with the same
+// name but different signatures").
+//
+// `cfg(not(test))` won't help here — the lib is compiled without the
+// `cfg(test)` flag when it's a dependency of `tests/wasm.rs`. Instead,
+// we negate the `wasm-spa-test` feature: the production WASM bundle
+// (built without that feature) keeps the `wasm_bindgen(start)` entry,
+// and `wasm-pack test --features wasm-spa-test` opts it out. Refs
+// `kent8192/reinhardt-cloud#574`.
+#[cfg(all(wasm, not(feature = "wasm-spa-test")))]
 mod wasm_entry {
 	use wasm_bindgen::prelude::*;
 

@@ -4,6 +4,9 @@
 //! `/api/redoc`) are available and return valid content when the router
 //! is wrapped with `OpenApiRouter`.
 
+// Native-only — see `tests/wasm.rs` for browser tests. Refs #574.
+#![cfg(not(target_arch = "wasm32"))]
+
 use reinhardt::test::APIClient;
 use reinhardt_cloud_dashboard::config::test_helpers::{ResolvedUrls, test_app};
 use rstest::rstest;
