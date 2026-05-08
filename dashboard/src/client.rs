@@ -14,7 +14,6 @@
 //! same `on_path` hook here, so this module did not need to change.
 
 pub mod components;
-pub mod layout;
 pub mod pages;
 #[cfg(wasm)]
 pub mod router;
