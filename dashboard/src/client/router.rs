@@ -15,10 +15,11 @@
 //! the unsuffixed name (e.g. `auth:login` is the POST API, while
 //! `auth:login_page` is the SPA page).
 //!
-//! `dashboard:clusters` and `dashboard:deployments` are placeholder
-//! entries that resolve to the not-found view until those pages are
-//! implemented; they exist solely to keep navigation links resolvable
-//! through the URL resolver.
+//! `clusters:list` and `deployments:list` currently resolve to a
+//! placeholder page that delegates to the shared 404 view; the route
+//! handlers live with each app under
+//! `apps/<app>/client/pages/list.rs` so the SPA pages can be filled in
+//! per app without further refactoring of this file.
 //!
 //! # Native parallel registration
 //!
@@ -31,6 +32,8 @@
 use reinhardt::pages::router::Router;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
+use crate::apps::clusters::client::pages::clusters_list_page;
+use crate::apps::deployments::client::pages::deployments_list_page;
 
 use super::layout::dashboard_shell;
 use super::pages::not_found_page;
@@ -73,8 +76,8 @@ use super::pages::not_found_page;
 //               c.named_route("dashboard:home", "/", dashboard_shell)
 //                   .named_route("auth:login_page", "/login", login_page)
 //                   .named_route("auth:register_page", "/register", register_page)
-//                   .named_route("dashboard:clusters", "/clusters", not_found_page)
-//                   .named_route("dashboard:deployments", "/deployments", not_found_page)
+//                   .named_route("clusters:list", "/clusters", clusters_list_page)
+//                   .named_route("deployments:list", "/deployments", deployments_list_page)
 //                   .not_found(not_found_page)
 //           })
 //           .register_globally()
@@ -101,10 +104,8 @@ pub(crate) const SPA_ROUTE_PATTERNS: &[(&str, &str)] = &[
 	("dashboard:home", "/"),
 	("auth:login_page", "/login"),
 	("auth:register_page", "/register"),
-	// Placeholder names so navigation hrefs resolve via UrlResolver
-	// even before these pages are implemented.
-	("dashboard:clusters", "/clusters"),
-	("dashboard:deployments", "/deployments"),
+	("clusters:list", "/clusters"),
+	("deployments:list", "/deployments"),
 ];
 
 /// Iterator-friendly view onto [`SPA_ROUTE_PATTERNS`] used by callers that
@@ -131,9 +132,8 @@ pub fn init_router() -> Router {
 			"dashboard:home" => router.named_route(name, pattern, dashboard_shell),
 			"auth:login_page" => router.named_route(name, pattern, login_page),
 			"auth:register_page" => router.named_route(name, pattern, register_page),
-			"dashboard:clusters" | "dashboard:deployments" => {
-				router.named_route(name, pattern, not_found_page)
-			}
+			"clusters:list" => router.named_route(name, pattern, clusters_list_page),
+			"deployments:list" => router.named_route(name, pattern, deployments_list_page),
 			other => panic!(
 				"client/router.rs: SPA_ROUTE_PATTERNS entry '{other}' has no \
 				 matching handler in init_router(); add an arm or remove the entry"

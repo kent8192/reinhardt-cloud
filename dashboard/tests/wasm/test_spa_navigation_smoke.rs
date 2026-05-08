@@ -5,7 +5,7 @@
 //! Mirrors upstream `kent8192/reinhardt-web` PR #4227's
 //! `nav_diag_dom_advances_through_full_link_click_chain`, but launches
 //! the dashboard's actual `init_router()` (named routes for
-//! `dashboard:home`, `dashboard:clusters`, etc.) so a regression in the
+//! `dashboard:home`, `clusters:list`, etc.) so a regression in the
 //! `UnifiedRouter::client(...) → ClientLauncher → reinhardt-pages
 //! Router::push → reinhardt-urls push_state → state_to_js_object` chain
 //! is caught by tests that sit on the actual click-to-render path. Every
@@ -55,11 +55,8 @@ fn register_dashboard_url_reverser() {
 		("dashboard:home".to_string(), "/".to_string()),
 		("auth:login_page".to_string(), "/login".to_string()),
 		("auth:register_page".to_string(), "/register".to_string()),
-		("dashboard:clusters".to_string(), "/clusters".to_string()),
-		(
-			"dashboard:deployments".to_string(),
-			"/deployments".to_string(),
-		),
+		("clusters:list".to_string(), "/clusters".to_string()),
+		("deployments:list".to_string(), "/deployments".to_string()),
 	]);
 	register_client_reverser(ClientUrlReverser::new(patterns));
 }
@@ -120,8 +117,8 @@ fn link_click_advances_history_state_as_object() {
 		.as_string()
 		.unwrap_or_default();
 	assert_eq!(
-		route_name, "dashboard:clusters",
-		"named route must resolve to 'dashboard:clusters'; \
+		route_name, "clusters:list",
+		"named route must resolve to 'clusters:list'; \
 		 empty route_name was the original #4221 symptom"
 	);
 
