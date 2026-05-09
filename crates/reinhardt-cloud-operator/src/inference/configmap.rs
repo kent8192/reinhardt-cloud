@@ -428,4 +428,199 @@ mod tests {
 			"reinhardt-cloud-operator"
 		);
 	}
+
+	// ------------------------------------------------------------------
+	// Typed-coercion round-trip tests
+	//
+	// These exercise the contract that #4232 unlocked: the operator emits
+	// `${VAR}` strings in TOML and the dashboard side, via reinhardt-conf's
+	// `TomlFileSource::with_interpolation()` + `MergedSettings::into_typed()`,
+	// resolves them into typed Rust fields. Without typed coercion the
+	// `port: u16` deserialization would fail with a serde type-mismatch
+	// because the source value is `Value::String("5432")`.
+	//
+	// Co-located in `mod tests` rather than under `tests/` because the
+	// operator binary crate has no library target, so an integration-test
+	// crate cannot reach `pub(crate) build_settings_configmap`.
+	// ------------------------------------------------------------------
+
+	use reinhardt::conf::settings::builder::SettingsBuilder;
+	use reinhardt::conf::settings::sources::TomlFileSource;
+	use serde::Deserialize;
+	use serial_test::serial;
+	use std::io::Write;
+
+	/// Minimal mirror of the `[core]` slice the operator-emitted template
+	/// populates. We mirror only the fields we vary at integration time so
+	/// the test struct doesn't drift in lockstep with `dashboard`'s
+	/// `ProjectSettings`.
+	#[derive(Debug, Deserialize)]
+	struct TypedRoundTrip {
+		core: TypedCore,
+	}
+
+	#[derive(Debug, Deserialize)]
+	struct TypedCore {
+		secret_key: String,
+		databases: TypedDatabases,
+	}
+
+	#[derive(Debug, Deserialize)]
+	struct TypedDatabases {
+		default: TypedDb,
+	}
+
+	#[derive(Debug, Deserialize)]
+	struct TypedDb {
+		engine: String,
+		host: String,
+		// `port: u16` is the canonical typed-coercion target — interpolation
+		// substitutes `"5432"` (or `"6543"`), and #4232's coercion at the
+		// visitor boundary is what turns it back into a `u16`.
+		port: u16,
+		name: String,
+		user: String,
+		password: TypedSecretMap,
+	}
+
+	#[derive(Debug, Deserialize)]
+	struct TypedSecretMap {
+		secret: String,
+	}
+
+	/// Write the operator-emitted TOML to a temp file and load it through
+	/// reinhardt-conf with interpolation enabled. Returns the parse result
+	/// so the caller can assert on success or failure mode.
+	fn load_emitted_toml<T: serde::de::DeserializeOwned>(
+	) -> Result<T, Box<dyn std::error::Error>> {
+		let cm = build_settings_configmap("myapp", "default");
+		let content = cm
+			.data
+			.as_ref()
+			.expect("data set")
+			.get("production.toml")
+			.expect("production.toml key set")
+			.clone();
+		let mut tmp = tempfile::NamedTempFile::new()?;
+		tmp.write_all(content.as_bytes())?;
+		let path = tmp.path().to_path_buf();
+		// Keep `tmp` alive until SettingsBuilder reads the file.
+		let merged = SettingsBuilder::new()
+			.add_source(TomlFileSource::new(&path).with_interpolation())
+			.build()?;
+		drop(tmp);
+		Ok(merged.into_typed::<T>()?)
+	}
+
+	/// Helper: set the four DB env vars + secret_key for the happy path.
+	fn set_happy_path_env() {
+		// SAFETY: the surrounding test is `#[serial(env)]`, so no other
+		// test holds a reference to these vars at the same time.
+		unsafe {
+			std::env::set_var("REINHARDT_DATABASE_HOST", "db.example");
+			std::env::set_var("REINHARDT_DATABASE_PORT", "6543");
+			std::env::set_var("REINHARDT_DATABASE_NAME", "myapp_db");
+			std::env::set_var("REINHARDT_DATABASE_USER", "myapp_user");
+			std::env::set_var("REINHARDT_DATABASE_PASSWORD", "hunter2");
+			std::env::set_var("REINHARDT_CLOUD_SECRET_KEY", "test-signing-key");
+		}
+	}
+
+	fn clear_managed_env() {
+		// SAFETY: `#[serial(env)]` excludes other env-touching tests.
+		unsafe {
+			for var in [
+				"REINHARDT_DATABASE_HOST",
+				"REINHARDT_DATABASE_PORT",
+				"REINHARDT_DATABASE_NAME",
+				"REINHARDT_DATABASE_USER",
+				"REINHARDT_DATABASE_PASSWORD",
+				"REINHARDT_CLOUD_SECRET_KEY",
+			] {
+				std::env::remove_var(var);
+			}
+		}
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn typed_interpolation_resolves_db_fields_to_typed_values() {
+		// Arrange — set every env var the operator would inject in production,
+		// matching the names emitted in `${VAR:-default}` placeholders.
+		set_happy_path_env();
+
+		// Act
+		let typed: TypedRoundTrip =
+			load_emitted_toml().expect("emitted TOML must round-trip with all env vars set");
+
+		// Assert — the `u16` field is the smoking gun for #4232: without
+		// typed coercion, deserialization would fail before reaching here.
+		assert_eq!(typed.core.databases.default.port, 6543u16);
+		assert_eq!(typed.core.databases.default.host, "db.example");
+		assert_eq!(typed.core.databases.default.name, "myapp_db");
+		assert_eq!(typed.core.databases.default.user, "myapp_user");
+		assert_eq!(typed.core.databases.default.engine, "postgresql");
+		assert_eq!(typed.core.databases.default.password.secret, "hunter2");
+		assert_eq!(typed.core.secret_key, "test-signing-key");
+
+		clear_managed_env();
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn typed_interpolation_falls_back_to_default_when_optional_env_missing() {
+		// Arrange — clear the optional vars that have `:-default` fallbacks,
+		// keep the required-secret vars set so the build doesn't fail for
+		// an unrelated reason.
+		clear_managed_env();
+		// SAFETY: `#[serial(env)]` excludes other env-touching tests.
+		unsafe {
+			std::env::set_var("REINHARDT_DATABASE_PASSWORD", "hunter2");
+			std::env::set_var("REINHARDT_CLOUD_SECRET_KEY", "test-signing-key");
+		}
+
+		// Act
+		let typed: TypedRoundTrip = load_emitted_toml()
+			.expect("emitted TOML must round-trip when only required secrets are set");
+
+		// Assert — defaults from `${VAR:-default}` flow through.
+		assert_eq!(typed.core.databases.default.host, "localhost");
+		assert_eq!(typed.core.databases.default.port, 5432u16);
+		assert_eq!(typed.core.databases.default.name, "reinhardt_cloud");
+		assert_eq!(typed.core.databases.default.user, "reinhardt");
+
+		clear_managed_env();
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn typed_interpolation_fails_fast_when_required_db_password_missing() {
+		// Arrange — drop the required password, keep the secret_key set so
+		// the failure must originate from the password placeholder, not from
+		// either of the other required-secret form.
+		clear_managed_env();
+		// SAFETY: `#[serial(env)]` excludes other env-touching tests.
+		unsafe {
+			std::env::set_var("REINHARDT_CLOUD_SECRET_KEY", "test-signing-key");
+		}
+
+		// Act
+		let result = load_emitted_toml::<TypedRoundTrip>();
+
+		// Assert — a `${VAR:?message}` placeholder against an unset env var
+		// must surface the operator's injection message in the error chain.
+		let err = result.expect_err("missing REINHARDT_DATABASE_PASSWORD must fail the build");
+		let rendered = format!("{err:#}");
+		assert!(
+			rendered.contains("REINHARDT_DATABASE_PASSWORD"),
+			"error must name the missing env var; got: {rendered}",
+		);
+		assert!(
+			rendered.contains("Operator must inject DB password"),
+			"error must include the operator's `${{VAR:?message}}` payload so the \
+			 failure is attributable to the operator's injection contract; got: {rendered}",
+		);
+
+		clear_managed_env();
+	}
 }

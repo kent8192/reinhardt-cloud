@@ -36,6 +36,11 @@ serial_test = "3.2"
 tower = "0.5"
 http = "1"
 http-body-util = "0.1"
+# Used by tests/configmap_typed_coercion.rs to round-trip the operator's
+# generated production.toml through reinhardt-conf and assert that the
+# `${VAR}` placeholders resolve into typed fields (refs kent8192/reinhardt-web#4232).
+reinhardt = { workspace = true }
+tempfile = "3"
 
 [lints]
 workspace = true
