@@ -17,8 +17,8 @@
 # ${VAR:?message} interpolation that fails fast at startup if the env var is
 # missing. Optional fields use ${VAR:-default} so deployers can override
 # without forking the file. Numeric, boolean, and array fields keep TOML
-# literals here and are overridden at the HighPriorityEnvSource layer
-# (priority 60 > TomlFileSource priority 50) when the corresponding REINHARDT_*
+# literals here and are overridden by the HighPriorityEnvSource layer
+# (env vars take precedence over TOML) when the corresponding REINHARDT_*
 # env var is set.
 #
 # Required env vars (no default — startup fails if unset):
@@ -34,13 +34,13 @@
 #   REINHARDT_DATABASE_USER                          — [core.databases.default].user and [database].user (default: reinhardt)
 #   REINHARDT_EMAIL__FROM_EMAIL                      — [email].from_email (default: noreply@reinhardt-cloud.dev)
 #
-# Numeric/boolean/array overrides via HighPriorityEnvSource:
+# Overrides via HighPriorityEnvSource (env vars take precedence over TOML):
 #   REINHARDT_CORE__ALLOWED_HOSTS                    — [core].allowed_hosts (Vec<String>; pass JSON-array literal)
 #   REINHARDT_DATABASE_PORT                          — [core.databases.default].port and [database].port (u16)
-#   REINHARDT_EMAIL__BACKEND                         — backend type (e.g., "smtp")
+#   REINHARDT_EMAIL__BACKEND                         — backend type (string, e.g., "smtp")
 #   REINHARDT_EMAIL__PORT                            — [email].port (u16)
-#   REINHARDT_EMAIL__USERNAME                        — SMTP auth username
-#   REINHARDT_EMAIL__PASSWORD                        — SMTP auth password (use Secret)
+#   REINHARDT_EMAIL__USERNAME                        — SMTP auth username (string)
+#   REINHARDT_EMAIL__PASSWORD                        — SMTP auth password (string; use Secret)
 #   REINHARDT_EMAIL__USE_TLS                         — STARTTLS (bool; port 587 typical)
 #   REINHARDT_EMAIL__USE_SSL                         — implicit TLS (bool; port 465 typical, takes precedence over USE_TLS)
 #   REINHARDT_EMAIL__TIMEOUT                         — SMTP socket timeout in seconds (integer)

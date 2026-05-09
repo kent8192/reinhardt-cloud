@@ -12,9 +12,9 @@
 # ${VAR:?message} interpolation that fails fast at startup if the env var
 # is missing. Optional fields use ${VAR:-default} so deployers can override
 # without forking this file. Numeric, boolean, and array fields keep TOML
-# literals here and are overridden at the HighPriorityEnvSource layer
-# (priority 60 > TomlFileSource priority 50) when the corresponding REINHARDT_*
-# env var is set — see dashboard/src/config/settings.rs for the priority chain.
+# literals here and are overridden by the HighPriorityEnvSource layer
+# (env vars take precedence over TOML) when the corresponding REINHARDT_*
+# env var is set — see dashboard/src/config/settings.rs for the source order.
 #
 # Required env vars (no default — startup fails if unset):
 #   REINHARDT_CLOUD_JWT_SECRET                       — top-level jwt_secret
