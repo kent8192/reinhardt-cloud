@@ -73,14 +73,16 @@ fn profile_name() -> String {
 	env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string())
 }
 
-/// Build merged settings from all configuration sources.
+/// Build merged settings from all configuration sources, returning errors
+/// for missing required env vars (so callers — including tests — can
+/// distinguish a startup misconfiguration from an unrelated panic).
 ///
 /// Sources are merged in priority order (lowest to highest):
 /// 1. Default values (CoreSettings provides its own defaults via serde)
 /// 2. Base TOML file (`base.toml`)
 /// 3. Environment-specific TOML file (e.g., `local.toml`)
 /// 4. Environment variables with `REINHARDT_` prefix (highest)
-fn build_settings() -> ProjectSettings {
+fn try_build_settings() -> Result<ProjectSettings, Box<dyn std::error::Error + Send + Sync>> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 
@@ -100,7 +102,15 @@ fn build_settings() -> ProjectSettings {
 		// Highest priority: Environment variables (for container/CI overrides)
 		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
-		.expect("Failed to build settings")
+		.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+}
+
+/// Build merged settings or panic.
+///
+/// Production callers (`get_settings`) use this; tests that need to inspect
+/// the error path call [`try_build_settings`] directly.
+fn build_settings() -> ProjectSettings {
+	try_build_settings().expect("Failed to build settings")
 }
 
 /// Get settings based on environment variable
@@ -191,6 +201,40 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 mod tests {
 	use super::*;
 	use rstest::rstest;
+	use serial_test::serial;
+
+	/// Required env vars for the production profile after #588 made
+	/// `production.toml` self-contained via `${VAR:?msg}` interpolation.
+	const PRODUCTION_REQUIRED_ENV_VARS: &[&str] = &[
+		"REINHARDT_CLOUD_JWT_SECRET",
+		"REINHARDT_CLOUD_REDIS_URL",
+		"REINHARDT_CORE__SECRET_KEY",
+		"REINHARDT_DATABASE_PASSWORD",
+		"REINHARDT_EMAIL__HOST",
+	];
+
+	/// Snapshot env vars before mutating so the test can restore them on the
+	/// way out. Returns `(name, original_value)` pairs.
+	fn snapshot_env(names: &[&str]) -> Vec<(String, Option<String>)> {
+		names
+			.iter()
+			.map(|n| ((*n).to_string(), env::var(n).ok()))
+			.collect()
+	}
+
+	fn restore_env(saved: &[(String, Option<String>)]) {
+		// SAFETY: `set_var`/`remove_var` are racy across threads. The
+		// `#[serial(env_settings_load)]` attribute on the calling tests
+		// guarantees only one of these runs at a time within this group.
+		unsafe {
+			for (name, value) in saved {
+				match value {
+					Some(v) => env::set_var(name, v),
+					None => env::remove_var(name),
+				}
+			}
+		}
+	}
 
 	#[rstest]
 	fn test_get_settings() {
@@ -279,5 +323,116 @@ mod tests {
 		// Assert
 		assert!(secret.is_some(), "expected jwt_secret from local.toml");
 		assert!(!secret.unwrap().is_empty());
+	}
+
+	/// `production.toml` rewritten in #588 must fail-fast at startup if any
+	/// required `${VAR:?msg}` env var is missing — otherwise the dashboard
+	/// would silently boot with a placeholder secret. The error message must
+	/// name the missing env var so an operator can fix the deployment without
+	/// guessing.
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_production_profile_fails_fast_when_required_env_vars_missing() {
+		// Arrange — snapshot every env var this test mutates so other tests in
+		// the same group see the original process environment afterwards.
+		let mut watched: Vec<&str> = vec!["REINHARDT_ENV"];
+		watched.extend_from_slice(PRODUCTION_REQUIRED_ENV_VARS);
+		let saved = snapshot_env(&watched);
+
+		// SAFETY: see `restore_env`. `#[serial(env_settings_load)]` provides
+		// the cross-test exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::set_var("REINHARDT_ENV", "production");
+			for name in PRODUCTION_REQUIRED_ENV_VARS {
+				env::remove_var(name);
+			}
+		}
+
+		// Act
+		let outcome = try_build_settings();
+
+		// Assert — error must mention at least one of the required env vars.
+		// Restore env BEFORE asserting so a failed assertion cannot leak state.
+		restore_env(&saved);
+
+		let err = outcome.expect_err(
+			"production.toml must reject startup with no env vars set — see \
+			 issue #588 for the fail-fast contract",
+		);
+		let msg = err.to_string();
+		let mut full = msg.clone();
+		let mut source = err.source();
+		while let Some(s) = source {
+			full.push_str("\nCaused by: ");
+			full.push_str(&s.to_string());
+			source = s.source();
+		}
+
+		assert!(
+			PRODUCTION_REQUIRED_ENV_VARS
+				.iter()
+				.any(|v| full.contains(v)),
+			"error message should name at least one required env var, got:\n{full}",
+		);
+	}
+
+	/// With every required env var set, `production.toml` round-trips into a
+	/// `ProjectSettings` whose typed fields (`port: u16`, `use_tls: bool`,
+	/// `allowed_hosts: Vec<String>`) deserialize correctly and the
+	/// `${VAR:-default}` form picks up overrides.
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_production_profile_round_trips_with_required_env_vars() {
+		// Arrange
+		let watched: Vec<&str> = vec![
+			"REINHARDT_ENV",
+			"REINHARDT_CLOUD_JWT_SECRET",
+			"REINHARDT_CLOUD_REDIS_URL",
+			"REINHARDT_CORE__SECRET_KEY",
+			"REINHARDT_DATABASE_PASSWORD",
+			"REINHARDT_DATABASE_HOST",
+			"REINHARDT_EMAIL__HOST",
+		];
+		let saved = snapshot_env(&watched);
+
+		// SAFETY: see `restore_env`.
+		unsafe {
+			env::set_var("REINHARDT_ENV", "production");
+			env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-jwt-secret-32-bytes-of-random-data!!",
+			);
+			env::set_var("REINHARDT_CLOUD_REDIS_URL", "redis://test-redis:6379/0");
+			env::set_var("REINHARDT_CORE__SECRET_KEY", "test-core-secret-key");
+			env::set_var("REINHARDT_DATABASE_PASSWORD", "test-db-password");
+			// Override the default (db.production.internal) to prove
+			// `${VAR:-default}` honours env overrides.
+			env::set_var("REINHARDT_DATABASE_HOST", "override.example.invalid");
+			env::set_var("REINHARDT_EMAIL__HOST", "smtp.test-provider.invalid");
+		}
+
+		// Act
+		let outcome = try_build_settings();
+
+		// Assert — restore env first, then inspect.
+		restore_env(&saved);
+
+		let settings = outcome.expect("production.toml should load with env vars set");
+		// Typed numeric / bool fields survive the TOML→struct hop.
+		let db = &settings.core.databases["default"];
+		assert_eq!(db.port, Some(5432), "port must deserialize as u16");
+		assert_eq!(
+			db.host.as_deref(),
+			Some("override.example.invalid"),
+			"${{VAR:-default}} must honour env override",
+		);
+		assert!(
+			!settings.core.allowed_hosts.is_empty(),
+			"allowed_hosts must deserialize as Vec<String>",
+		);
+		// Production profile flips security knobs on.
+		assert!(!settings.core.debug);
+		assert!(settings.core.security.secure_ssl_redirect);
+		assert!(settings.core.security.session_cookie_secure);
 	}
 }
