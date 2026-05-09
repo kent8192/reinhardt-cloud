@@ -491,8 +491,8 @@ mod tests {
 	/// Write the operator-emitted TOML to a temp file and load it through
 	/// reinhardt-conf with interpolation enabled. Returns the parse result
 	/// so the caller can assert on success or failure mode.
-	fn load_emitted_toml<T: serde::de::DeserializeOwned>(
-	) -> Result<T, Box<dyn std::error::Error>> {
+	fn load_emitted_toml<T: serde::de::DeserializeOwned>() -> Result<T, Box<dyn std::error::Error>>
+	{
 		let cm = build_settings_configmap("myapp", "default");
 		let content = cm
 			.data
