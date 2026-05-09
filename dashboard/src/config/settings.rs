@@ -86,14 +86,16 @@ fn build_settings() -> ProjectSettings {
 
 	SettingsBuilder::new()
 		.profile(Profile::parse(&profile_str))
-		// `with_interpolation(true)` expands `${VAR}` / `${VAR:-default}`
-		// in TOML string values against process env at load time, so a
-		// single TOML file can host environment-specific knobs without a
-		// dedicated profile per environment.
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation(true))
+		// `with_interpolation()` expands `${VAR}` / `${VAR:-default}` in TOML
+		// string values against process env at load time, so a single TOML
+		// file can host environment-specific knobs without a dedicated
+		// profile per environment. Combined with reinhardt-conf's typed
+		// coercion (kent8192/reinhardt-web#4232), interpolated strings also
+		// deserialize into typed fields (`port: u16`, `debug: bool`, ...).
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
 		.add_source(
 			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
-				.with_interpolation(true),
+				.with_interpolation(),
 		)
 		// Highest priority: Environment variables (for container/CI overrides)
 		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
@@ -164,10 +166,10 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 	let from_toml = SettingsBuilder::new()
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation(true))
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
 		.add_source(
 			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
-				.with_interpolation(true),
+				.with_interpolation(),
 		)
 		.build()
 		.ok()
