@@ -23,12 +23,23 @@ pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> Confi
 	// incomplete — it relies on a developer-managed `base.toml` that is
 	// gitignored).
 	//
-	// `secret_key` is filled in by reinhardt-conf's `${VAR}` interpolation
-	// from `REINHARDT_CLOUD_SECRET_KEY`, which the operator injects into the
-	// Pod via `valueFrom.secretKeyRef` against the per-app
-	// `<app>-core-secret-key` Secret (see
-	// `inference::env_vars::build_core_secret_key_env_var`). Storing only
-	// the placeholder here keeps the actual key value out of the ConfigMap.
+	// Per-app values (DB host/port/name/user/password and the application
+	// signing key) are emitted as `${VAR}` placeholders, NOT inline literals.
+	// reinhardt-conf resolves them at pod startup against the env vars the
+	// operator already injects from `inference::env_vars`:
+	//
+	//   - `REINHARDT_CLOUD_SECRET_KEY` → secretKeyRef on `<app>-core-secret-key`
+	//   - `REINHARDT_DATABASE_HOST/PORT/NAME/USER` → literal values
+	//   - `REINHARDT_DATABASE_PASSWORD` → secretKeyRef on `<app>-db-credentials`
+	//
+	// kent8192/reinhardt-web#4232 (`feat(conf)!: typed TOML interpolation`)
+	// makes this work for typed targets too — `port = "${REINHARDT_DATABASE_PORT:-5432}"`
+	// deserializes into `u16`, not `String`. Without that change we would have
+	// to fall back to operator-side string→int substitution before mounting.
+	//
+	// Required secrets use the `${VAR:?message}` form so a missing env var
+	// surfaces a precise startup error instead of a downstream connect/auth
+	// failure that would be harder to attribute back to the operator.
 	//
 	// `allowed_hosts` defaults to empty (deny all) for security. Users should
 	// customize this ConfigMap after deployment when they have a public hostname
@@ -41,7 +52,7 @@ pub(crate) fn build_settings_configmap(app_name: &str, namespace: &str) -> Confi
 	let production_toml = r#"[core]
 debug = false
 allowed_hosts = []
-secret_key = "${REINHARDT_CLOUD_SECRET_KEY}"
+secret_key = "${REINHARDT_CLOUD_SECRET_KEY:?Operator must inject REINHARDT_CLOUD_SECRET_KEY via secretKeyRef}"
 root_urlconf = ""
 middleware = []
 
@@ -55,11 +66,11 @@ secure_hsts_preload = false
 
 [core.databases.default]
 engine = "postgresql"
-host = "localhost"
-port = 5432
-name = "reinhardt_cloud"
-user = "reinhardt"
-password = { secret = "OPERATOR-MANAGED-VIA-DATABASE_URL" }
+host = "${REINHARDT_DATABASE_HOST:-localhost}"
+port = "${REINHARDT_DATABASE_PORT:-5432}"
+name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
+user = "${REINHARDT_DATABASE_USER:-reinhardt}"
+password = { secret = "${REINHARDT_DATABASE_PASSWORD:?Operator must inject DB password via secretKeyRef}" }
 options = {}
 
 [i18n]
@@ -257,8 +268,9 @@ mod tests {
 	fn configmap_production_toml_databases_default_uses_postgres_with_options_table() {
 		// Arrange & Act — `[core.databases.default]` schema requires
 		// `engine`, `host`, `port`, `name`, `user`, `password`, and `options`.
-		// `password` is the secret-fragment shape `{ secret = "..." }` and
-		// `options` must be a (possibly empty) inline table.
+		// `engine` and `options` stay literals (operator policy); `host`,
+		// `port`, `name`, `user`, and `password.secret` flow through env-var
+		// interpolation (asserted by sibling tests).
 		let cm = build_settings_configmap("myapp", "default");
 
 		// Assert
@@ -285,6 +297,63 @@ mod tests {
 				.and_then(|v| v.as_table())
 				.is_some(),
 			"options must be an inline table even when empty"
+		);
+	}
+
+	#[rstest]
+	fn configmap_production_toml_databases_use_env_interpolation_with_defaults() {
+		// Arrange & Act — `host`, `port`, `name`, and `user` are emitted as
+		// `${REINHARDT_DATABASE_*:-default}` strings so the operator's
+		// existing env-var injection (`inference::env_vars`) drives per-app
+		// variation through one source. The `port` field doubles as a
+		// regression test for kent8192/reinhardt-web#4232: the string
+		// `"5432"` must round-trip into `u16` via typed coercion at the
+		// dashboard side (covered end-to-end in the integration test crate).
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let parsed = parse_production_toml(&cm);
+		let default_db = parsed
+			.get("core")
+			.and_then(|c| c.get("databases"))
+			.and_then(|d| d.get("default"))
+			.expect("`[core.databases.default]` must be present");
+		for (field, expected) in [
+			("host", "${REINHARDT_DATABASE_HOST:-localhost}"),
+			("port", "${REINHARDT_DATABASE_PORT:-5432}"),
+			("name", "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"),
+			("user", "${REINHARDT_DATABASE_USER:-reinhardt}"),
+		] {
+			assert_eq!(
+				default_db.get(field).and_then(|v| v.as_str()),
+				Some(expected),
+				"`core.databases.default.{field}` must reference the operator-injected \
+				 env var; inline literals defeat per-app variation",
+			);
+		}
+	}
+
+	#[rstest]
+	fn configmap_production_toml_database_password_requires_injected_env_var() {
+		// Arrange & Act — `${VAR:?message}` makes a missing env var fail-fast
+		// at pod startup with a precise message instead of degrading to a
+		// downstream connect/auth error.
+		let cm = build_settings_configmap("myapp", "default");
+
+		// Assert
+		let parsed = parse_production_toml(&cm);
+		let secret = parsed
+			.get("core")
+			.and_then(|c| c.get("databases"))
+			.and_then(|d| d.get("default"))
+			.and_then(|d| d.get("password"))
+			.and_then(|p| p.get("secret"))
+			.and_then(|s| s.as_str())
+			.expect("`core.databases.default.password.secret` must be a string");
+		assert!(
+			secret.starts_with("${REINHARDT_DATABASE_PASSWORD:?"),
+			"DB password must use the `${{VAR:?message}}` form so reinhardt-conf \
+			 surfaces a startup error when the operator forgot to inject it; got: {secret}",
 		);
 	}
 
@@ -327,22 +396,22 @@ mod tests {
 	}
 
 	#[rstest]
-	fn configmap_production_toml_references_secret_key_via_env_var_interpolation() {
+	fn configmap_production_toml_secret_key_uses_required_env_interpolation() {
 		// Arrange & Act
 		let cm = build_settings_configmap("myapp", "default");
 
-		// Assert — the placeholder must be present and must NOT carry an
-		// inline key value (which would defeat the point of moving the
-		// signing key into a Secret).
+		// Assert — the placeholder must be the `${VAR:?message}` form so a
+		// missing operator-side secret injection surfaces a precise startup
+		// error rather than a generic empty-key crash.
 		let parsed = parse_production_toml(&cm);
 		let secret_key = parsed
 			.get("core")
 			.and_then(|c| c.get("secret_key"))
 			.and_then(|v| v.as_str())
 			.expect("`core.secret_key` must be set so reinhardt-conf can interpolate it");
-		assert_eq!(
-			secret_key, "${REINHARDT_CLOUD_SECRET_KEY}",
-			"`core.secret_key` must reference the operator-injected env var, never an inline value",
+		assert!(
+			secret_key.starts_with("${REINHARDT_CLOUD_SECRET_KEY:?"),
+			"`core.secret_key` must use the required `${{VAR:?message}}` form; got: {secret_key}",
 		);
 	}
 
