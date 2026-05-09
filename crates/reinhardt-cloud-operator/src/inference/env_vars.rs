@@ -151,14 +151,15 @@ pub(crate) fn build_otel_env_vars(app_name: &str) -> Vec<EnvVar> {
 }
 
 /// Build system environment variables that are always injected.
+///
+/// As of #589, the operator no longer emits an application settings ConfigMap;
+/// each reinhardt-web image is responsible for its own bundled
+/// `production.toml` (made self-contained in #588), so the previous
+/// `REINHARDT_CLOUD_CONFIG_DIR=/etc/reinhardt-cloud/settings` override has
+/// been removed. The application's compile-time `CARGO_MANIFEST_DIR/settings`
+/// path now wins.
 pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
-	vec![
-		env_var("REINHARDT_ENV", "production"),
-		env_var(
-			"REINHARDT_CLOUD_CONFIG_DIR",
-			"/etc/reinhardt-cloud/settings",
-		),
-	]
+	vec![env_var("REINHARDT_ENV", "production")]
 }
 
 /// Build the `REINHARDT_CLOUD_SECRET_KEY` env var referencing the per-app
@@ -402,19 +403,18 @@ mod tests {
 		// Arrange & Act
 		let vars = build_system_env_vars();
 
-		// Assert
-		assert_eq!(vars.len(), 2);
+		// Assert — after #589, `REINHARDT_ENV` is the only system env var
+		// the operator injects. `REINHARDT_CLOUD_CONFIG_DIR` was dropped
+		// because the application reads its own bundled production.toml
+		// (made self-contained via ${VAR} interpolation in #588).
+		assert_eq!(vars.len(), 1);
 
 		let env_var = vars.iter().find(|v| v.name == "REINHARDT_ENV").unwrap();
 		assert_eq!(env_var.value.as_deref(), Some("production"));
 
-		let config_var = vars
-			.iter()
-			.find(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
-			.unwrap();
-		assert_eq!(
-			config_var.value.as_deref(),
-			Some("/etc/reinhardt-cloud/settings")
+		assert!(
+			!vars.iter().any(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR"),
+			"REINHARDT_CLOUD_CONFIG_DIR must not be auto-injected after #589",
 		);
 	}
 
@@ -490,10 +490,6 @@ mod tests {
 		// Arrange
 		let auto_vars = vec![
 			env_var("REINHARDT_ENV", "production"),
-			env_var(
-				"REINHARDT_CLOUD_CONFIG_DIR",
-				"/etc/reinhardt-cloud/settings",
-			),
 			env_var("DATABASE_URL", "postgres://localhost/db"),
 		];
 		let user_vars = BTreeMap::new();
@@ -502,16 +498,11 @@ mod tests {
 		let merged = merge_env_vars(&auto_vars, &user_vars);
 
 		// Assert
-		assert_eq!(merged.len(), 3);
+		assert_eq!(merged.len(), 2);
 		assert!(
 			merged
 				.iter()
 				.any(|v| v.name == "REINHARDT_ENV" && v.value.as_deref() == Some("production"))
-		);
-		assert!(
-			merged
-				.iter()
-				.any(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
 		);
 		assert!(merged.iter().any(|v| v.name == "DATABASE_URL"));
 	}
@@ -519,33 +510,17 @@ mod tests {
 	#[rstest]
 	fn merge_env_vars_user_overrides_all_auto() {
 		// Arrange
-		let auto_vars = vec![
-			env_var("REINHARDT_ENV", "production"),
-			env_var(
-				"REINHARDT_CLOUD_CONFIG_DIR",
-				"/etc/reinhardt-cloud/settings",
-			),
-		];
-		let user_vars = BTreeMap::from([
-			("REINHARDT_ENV".to_string(), "staging".to_string()),
-			(
-				"REINHARDT_CLOUD_CONFIG_DIR".to_string(),
-				"/custom/path".to_string(),
-			),
-		]);
+		let auto_vars = vec![env_var("REINHARDT_ENV", "production")];
+		let user_vars = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
 		let merged = merge_env_vars(&auto_vars, &user_vars);
 
-		// Assert
-		assert_eq!(merged.len(), 2);
+		// Assert — user override takes precedence over the auto-injected
+		// `REINHARDT_ENV`, and no other system env var leaks through.
+		assert_eq!(merged.len(), 1);
 		let env = merged.iter().find(|v| v.name == "REINHARDT_ENV").unwrap();
 		assert_eq!(env.value.as_deref(), Some("staging"));
-		let config = merged
-			.iter()
-			.find(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR")
-			.unwrap();
-		assert_eq!(config.value.as_deref(), Some("/custom/path"));
 	}
 
 	#[rstest]
@@ -553,10 +528,11 @@ mod tests {
 		// Arrange & Act
 		let vars = build_system_env_vars();
 
-		// Assert
+		// Assert — `REINHARDT_ENV` remains the single system env var the
+		// operator injects after #589. `REINHARDT_CLOUD_CONFIG_DIR` was
+		// removed alongside the application settings ConfigMap.
 		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
-		assert!(names.contains(&"REINHARDT_ENV"));
-		assert!(names.contains(&"REINHARDT_CLOUD_CONFIG_DIR"));
+		assert_eq!(names, vec!["REINHARDT_ENV"]);
 	}
 
 	#[rstest]

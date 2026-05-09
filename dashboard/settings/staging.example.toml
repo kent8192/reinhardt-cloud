@@ -16,34 +16,48 @@
 # Note: env-specific TOML replaces the entire [core] section from base.toml,
 # so all required core fields must be specified here.
 #
-# Secrets MUST be supplied at deploy time via REINHARDT_* environment
-# variables; the placeholders below exist only to keep the schema valid for
-# `cargo check` and local previews.
+# `staging.toml` is safe-by-default and self-contained: required secrets use
+# ${VAR:?message} interpolation that fails fast at startup if the env var is
+# missing. Optional fields use ${VAR:-default} so deployers can override
+# without forking the file. Numeric, boolean, and array fields keep TOML
+# literals here and are overridden at the HighPriorityEnvSource layer
+# (priority 60 > TomlFileSource priority 50) when the corresponding REINHARDT_*
+# env var is set.
+#
+# Required env vars (no default — startup fails if unset):
 #   REINHARDT_CLOUD_JWT_SECRET                       — top-level jwt_secret
 #   REINHARDT_CLOUD_REDIS_URL                        — top-level redis_url
 #   REINHARDT_CORE__SECRET_KEY                       — [core].secret_key
-#   REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD     — [core.databases.default].password
-#   REINHARDT_DATABASE__PASSWORD                     — [database].password
-#   REINHARDT_EMAIL__BACKEND="smtp"                  — backend type
-#   REINHARDT_EMAIL__HOST                            — SMTP destination host
-#   REINHARDT_EMAIL__PORT                            — SMTP destination port (u16)
+#   REINHARDT_DATABASE_PASSWORD                      — both [core.databases.default].password.secret and [database].password
+#   REINHARDT_EMAIL__HOST                            — [email].host (outbound provider)
+#
+# Optional env vars (have a documented default):
+#   REINHARDT_DATABASE_HOST                          — [core.databases.default].host and [database].host (default: db.staging.internal)
+#   REINHARDT_DATABASE_NAME                          — [core.databases.default].name and [database].name (default: reinhardt_cloud_staging)
+#   REINHARDT_DATABASE_USER                          — [core.databases.default].user and [database].user (default: reinhardt)
+#   REINHARDT_EMAIL__FROM_EMAIL                      — [email].from_email (default: noreply@staging.reinhardt-cloud.dev)
+#
+# Numeric/boolean/array overrides via HighPriorityEnvSource:
+#   REINHARDT_CORE__ALLOWED_HOSTS                    — [core].allowed_hosts (Vec<String>; pass JSON-array literal)
+#   REINHARDT_DATABASE_PORT                          — [core.databases.default].port and [database].port (u16)
+#   REINHARDT_EMAIL__BACKEND                         — backend type (e.g., "smtp")
+#   REINHARDT_EMAIL__PORT                            — [email].port (u16)
 #   REINHARDT_EMAIL__USERNAME                        — SMTP auth username
 #   REINHARDT_EMAIL__PASSWORD                        — SMTP auth password (use Secret)
-#   REINHARDT_EMAIL__USE_TLS="true"                  — STARTTLS (port 587 typical)
-#   REINHARDT_EMAIL__USE_SSL="true"                  — Implicit TLS (port 465 typical, takes precedence over USE_TLS)
-#   REINHARDT_EMAIL__FROM_EMAIL                      — outbound `From:` header
-#   REINHARDT_EMAIL__TIMEOUT                         — SMTP socket timeout in seconds
+#   REINHARDT_EMAIL__USE_TLS                         — STARTTLS (bool; port 587 typical)
+#   REINHARDT_EMAIL__USE_SSL                         — implicit TLS (bool; port 465 typical, takes precedence over USE_TLS)
+#   REINHARDT_EMAIL__TIMEOUT                         — SMTP socket timeout in seconds (integer)
 
 # JWT secret — MUST be overridden via REINHARDT_CLOUD_JWT_SECRET in the
 # deployed environment.
-jwt_secret = "CHANGE-ME-via-REINHARDT_CLOUD_JWT_SECRET"
+jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of cryptographically random data}"
 
 # Redis URL — MUST be overridden via REINHARDT_CLOUD_REDIS_URL.
-redis_url = "redis://redis.staging.internal:6379/0"
+redis_url = "${REINHARDT_CLOUD_REDIS_URL:?must point at the staging Redis instance}"
 
 [core]
 debug = false
-secret_key = "CHANGE-ME-via-REINHARDT_CORE__SECRET_KEY"
+secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
 allowed_hosts = ["staging.reinhardt-cloud.dev"]
 root_urlconf = ""
 
@@ -60,25 +74,28 @@ secure_ssl_redirect = true
 secure_hsts_include_subdomains = true
 secure_hsts_preload = false
 
-# Database configuration — credentials MUST be overridden via
-# REINHARDT_CORE__DATABASES__DEFAULT__* env vars (or equivalent secret store).
+# Database configuration — credentials MUST be overridden via REINHARDT_DATABASE_*
+# env vars. The operator's inference/env_vars.rs::build_database_env_vars_from_secret
+# injects REINHARDT_DATABASE_HOST/PORT/NAME/USER/PASSWORD with PASSWORD wired to
+# a Kubernetes Secret.
 [core.databases.default]
 engine = "postgresql"
-host = "db.staging.internal"
+host = "${REINHARDT_DATABASE_HOST:-db.staging.internal}"
 port = 5432
-name = "reinhardt_cloud_staging"
-user = "reinhardt"
-password = { secret = "CHANGE-ME-via-REINHARDT_CORE__DATABASES__DEFAULT__PASSWORD" }
+name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud_staging}"
+user = "${REINHARDT_DATABASE_USER:-reinhardt}"
+password = { secret = "${REINHARDT_DATABASE_PASSWORD:?must be supplied via Secret-backed env var}" }
 options = {}
 
 # Top-level [database] section required by reinhardt-web's runserver/migrate commands.
+# Mirrors [core.databases.default] and consumes the same REINHARDT_DATABASE_* env vars.
 [database]
 engine = "postgresql"
-host = "db.staging.internal"
+host = "${REINHARDT_DATABASE_HOST:-db.staging.internal}"
 port = 5432
-name = "reinhardt_cloud_staging"
-user = "reinhardt"
-password = "CHANGE-ME-via-REINHARDT_DATABASE__PASSWORD"
+name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud_staging}"
+user = "${REINHARDT_DATABASE_USER:-reinhardt}"
+password = "${REINHARDT_DATABASE_PASSWORD:?must be supplied via Secret-backed env var}"
 
 [cors]
 allow_origins = ["https://staging.reinhardt-cloud.dev"]
@@ -92,8 +109,8 @@ allow_origins = ["https://staging.reinhardt-cloud.dev"]
 #
 # Defaults below assume STARTTLS on 587.
 [email]
-host = "smtp.staging-provider.invalid"
+host = "${REINHARDT_EMAIL__HOST:?must point at outbound provider (Resend/SES/SendGrid/Postmark)}"
 port = 587
-from_email = "noreply@staging.reinhardt-cloud.dev"
+from_email = "${REINHARDT_EMAIL__FROM_EMAIL:-noreply@staging.reinhardt-cloud.dev}"
 use_ssl = false
 use_tls = true
