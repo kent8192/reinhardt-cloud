@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-	PodSpec, PodTemplateSpec, Probe, ResourceRequirements, Volume, VolumeMount,
+	Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, PodSpec,
+	PodTemplateSpec, Probe, ResourceRequirements, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -94,29 +94,18 @@ pub(crate) fn build_deployment(
 		}
 	}
 
-	// Settings ConfigMap volume and mount
-	let mut volumes = vec![Volume {
-		name: "settings".to_string(),
-		config_map: Some(ConfigMapVolumeSource {
-			name: format!("{}-settings", app.name_any()),
-			..Default::default()
-		}),
-		..Default::default()
-	}];
-
-	let mut volume_mounts = vec![VolumeMount {
-		name: "settings".to_string(),
-		mount_path: "/etc/reinhardt-cloud/settings".to_string(),
-		read_only: Some(true),
-		..Default::default()
-	}];
-
 	// dentdelion WASM plugin volumes and mounts. Empty when spec.plugins is
 	// absent or empty; callers of build_plugin_configmap provision the
 	// backing ConfigMap separately in the reconciler.
+	//
+	// As of #589, the operator no longer injects an `<app>-settings`
+	// ConfigMap volume — each reinhardt-web image ships its own bundled
+	// `production.toml` (made self-contained via ${VAR} interpolation in
+	// #588), so the application reads settings from its compile-time
+	// `CARGO_MANIFEST_DIR/settings` path.
 	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
-	volumes.extend(plugin_volumes);
-	volume_mounts.extend(plugin_mounts);
+	let mut volumes: Vec<Volume> = plugin_volumes;
+	let volume_mounts: Vec<VolumeMount> = plugin_mounts;
 
 	// Init container for database migrations when database will be provisioned
 	let mut init_containers: Vec<Container> = if needs_db_env {
@@ -553,8 +542,10 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_deployment_has_settings_volume() {
-		// Arrange
+	fn test_build_deployment_has_no_settings_volume_or_mount() {
+		// Arrange — after #589, the operator stops emitting an
+		// `<app>-settings` ConfigMap and the corresponding volume/mount;
+		// the application reads its bundled production.toml directly.
 		let app = make_test_app("web", "web:v1", None);
 
 		// Act
@@ -562,31 +553,40 @@ mod tests {
 			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
-		// Assert
-		let volumes = pod_spec.volumes.unwrap();
-		assert!(volumes.iter().any(|v| v.name == "settings"));
-		let settings_vol = volumes.iter().find(|v| v.name == "settings").unwrap();
-		assert_eq!(
-			settings_vol.config_map.as_ref().unwrap().name.as_str(),
-			"web-settings"
+		// Assert — no Volume named "settings"
+		let no_settings_volume = pod_spec
+			.volumes
+			.as_ref()
+			.is_none_or(|vs| !vs.iter().any(|v| v.name == "settings"));
+		assert!(
+			no_settings_volume,
+			"Pod spec must not include a `settings` Volume after #589",
 		);
-	}
 
-	#[rstest]
-	fn test_build_deployment_has_settings_volume_mount() {
-		// Arrange
-		let app = make_test_app("web", "web:v1", None);
-
-		// Act
-		let deployment =
-			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
-		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
-
-		// Assert
-		let mounts = container.volume_mounts.as_ref().unwrap();
-		assert!(mounts.iter().any(|m| m.name == "settings"
-			&& m.mount_path == "/etc/reinhardt-cloud/settings"
-			&& m.read_only == Some(true)));
+		// Assert — no VolumeMount at /etc/reinhardt-cloud/settings on any
+		// container or init container.
+		for container in &pod_spec.containers {
+			if let Some(mounts) = &container.volume_mounts {
+				assert!(
+					!mounts
+						.iter()
+						.any(|m| m.mount_path == "/etc/reinhardt-cloud/settings"),
+					"container {:?} must not mount /etc/reinhardt-cloud/settings",
+					container.name,
+				);
+			}
+		}
+		for init in pod_spec.init_containers.as_deref().unwrap_or(&[]) {
+			if let Some(mounts) = &init.volume_mounts {
+				assert!(
+					!mounts
+						.iter()
+						.any(|m| m.mount_path == "/etc/reinhardt-cloud/settings"),
+					"init container {:?} must not mount /etc/reinhardt-cloud/settings",
+					init.name,
+				);
+			}
+		}
 	}
 
 	#[rstest]
@@ -600,12 +600,17 @@ mod tests {
 		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
 		let env = containers[0].env.as_ref().unwrap();
 
-		// Assert
+		// Assert — `REINHARDT_ENV` is the only system env var the operator
+		// auto-injects after #589. `REINHARDT_CLOUD_CONFIG_DIR` was removed
+		// alongside the settings ConfigMap.
 		assert!(
 			env.iter()
 				.any(|e| e.name == "REINHARDT_ENV" && e.value.as_deref() == Some("production"))
 		);
-		assert!(env.iter().any(|e| e.name == "REINHARDT_CLOUD_CONFIG_DIR"));
+		assert!(
+			!env.iter().any(|e| e.name == "REINHARDT_CLOUD_CONFIG_DIR"),
+			"REINHARDT_CLOUD_CONFIG_DIR must not be auto-injected after #589",
+		);
 	}
 
 	#[rstest]
@@ -665,22 +670,6 @@ mod tests {
 		let limits = resources.limits.as_ref().unwrap();
 		assert!(limits.contains_key("cpu"));
 		assert!(limits.contains_key("memory"));
-	}
-
-	#[rstest]
-	fn test_build_deployment_volume_mount_path_is_settings() {
-		// Arrange
-		let app = make_test_app("web", "web:v1", None);
-
-		// Act
-		let deployment =
-			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
-		let container = &deployment.spec.unwrap().template.spec.unwrap().containers[0];
-		let mounts = container.volume_mounts.as_ref().unwrap();
-
-		// Assert
-		let settings_mount = mounts.iter().find(|m| m.name == "settings").unwrap();
-		assert_eq!(settings_mount.mount_path, "/etc/reinhardt-cloud/settings");
 	}
 
 	#[rstest]

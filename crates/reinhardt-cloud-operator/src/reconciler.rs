@@ -24,7 +24,6 @@ use uuid::Uuid;
 use dashmap::DashMap;
 
 use crate::error::{BackoffClass, Error, backoff_class};
-use crate::inference::configmap::build_settings_configmap;
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
@@ -219,20 +218,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		}
 	}
 
-	// Reconcile settings ConfigMap via server-side apply
-	let configmap = build_settings_configmap(&name, namespace);
-	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
-	cm_api
-		.patch(
-			&format!("{name}-settings"),
-			&ssapply,
-			&Patch::Apply(&configmap),
-		)
-		.await
-		.map_err(Error::Kube)?;
-	info!("Reconciled ConfigMap {namespace}/{name}-settings");
-
 	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
+	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
 	// Deletion of a stale ConfigMap is left to owner-reference GC once the
 	// owning ReinhardtApp is removed and to deliberate cleanup when
 	// spec.plugins transitions from Some(..) to None (not implemented here
@@ -756,21 +743,15 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
 			// Deployment and Service are cleaned up via ownerReferences GC.
-			// Secrets, ConfigMaps, and StatefulSets are retained for manual cleanup.
+			// Secrets and StatefulSets are retained for manual cleanup.
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
 				 Manual cleanup may be required for: {name}-db-credentials, \
-				 {name}-postgresql, {name}-settings"
+				 {name}-postgresql"
 			);
 		}
 		DeletionPolicy::Delete => {
 			info!("DeletionPolicy is Delete: removing all resources for {name}");
-
-			// Delete settings ConfigMap
-			let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
-			let _ = cm_api
-				.delete(&format!("{name}-settings"), &DeleteParams::default())
-				.await;
 
 			// Delete JWT Secret
 			let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
