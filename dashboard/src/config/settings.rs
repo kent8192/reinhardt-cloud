@@ -35,7 +35,7 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
-use reinhardt::conf::settings::builder::SettingsBuilder;
+use reinhardt::conf::settings::builder::{BuildError, SettingsBuilder};
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{HighPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
@@ -82,7 +82,7 @@ fn profile_name() -> String {
 /// 2. Base TOML file (`base.toml`)
 /// 3. Environment-specific TOML file (e.g., `local.toml`)
 /// 4. Environment variables with `REINHARDT_` prefix (highest)
-fn try_build_settings() -> Result<ProjectSettings, Box<dyn std::error::Error + Send + Sync>> {
+fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 
@@ -102,7 +102,6 @@ fn try_build_settings() -> Result<ProjectSettings, Box<dyn std::error::Error + S
 		// Highest priority: Environment variables (for container/CI overrides)
 		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
-		.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
 }
 
 /// Build merged settings or panic.
@@ -202,6 +201,7 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 	use serial_test::serial;
+	use std::ffi::OsString;
 
 	/// Required env vars for the production profile after #588 made
 	/// `production.toml` self-contained via `${VAR:?msg}` interpolation.
@@ -213,30 +213,41 @@ mod tests {
 		"REINHARDT_EMAIL__HOST",
 	];
 
-	/// Snapshot env vars before mutating so the test can restore them on the
-	/// way out. Returns `(name, original_value)` pairs.
-	fn snapshot_env(names: &[&str]) -> Vec<(String, Option<String>)> {
-		names
-			.iter()
-			.map(|n| ((*n).to_string(), env::var(n).ok()))
-			.collect()
+	/// RAII guard that snapshots a set of env vars on construction and restores
+	/// them on `Drop`, so a panicking test cannot leak mutated env into the
+	/// next test in the `env_settings_load` serial group. Uses `OsString` so
+	/// non-UTF-8 values round-trip losslessly instead of being silently
+	/// dropped by `env::var(..).ok()`.
+	struct EnvSnapshot {
+		saved: Vec<(&'static str, Option<OsString>)>,
 	}
 
-	fn restore_env(saved: &[(String, Option<String>)]) {
-		// SAFETY: `set_var`/`remove_var` are racy across threads. The
-		// `#[serial(env_settings_load)]` attribute on the calling tests
-		// guarantees only one of these runs at a time within this group.
-		unsafe {
-			for (name, value) in saved {
-				match value {
-					Some(v) => env::set_var(name, v),
-					None => env::remove_var(name),
+	impl EnvSnapshot {
+		fn new(names: &[&'static str]) -> Self {
+			Self {
+				saved: names.iter().map(|n| (*n, env::var_os(n))).collect(),
+			}
+		}
+	}
+
+	impl Drop for EnvSnapshot {
+		fn drop(&mut self) {
+			// SAFETY: `set_var`/`remove_var` are racy across threads. Every
+			// caller holds `#[serial(env_settings_load)]`, which guarantees
+			// only one test in this group mutates env at a time.
+			unsafe {
+				for (name, value) in &self.saved {
+					match value {
+						Some(v) => env::set_var(name, v),
+						None => env::remove_var(name),
+					}
 				}
 			}
 		}
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_get_settings() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -246,6 +257,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_core_settings_fields() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -257,6 +269,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_core_database_config() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -270,6 +283,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_core_security_settings() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -282,6 +296,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_i18n_settings() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -294,6 +309,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_static_files_settings() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -304,6 +320,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_media_settings() {
 		// Arrange / Act
 		let settings = get_settings();
@@ -314,6 +331,7 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env_settings_load)]
 	fn test_get_jwt_secret_reads_from_local_toml() {
 		// Arrange / Act — local.toml ships with `jwt_secret = "test-secret-..."`,
 		// which `get_jwt_secret` MUST surface even when no env var is set.
@@ -333,14 +351,14 @@ mod tests {
 	#[rstest]
 	#[serial(env_settings_load)]
 	fn test_production_profile_fails_fast_when_required_env_vars_missing() {
-		// Arrange — snapshot every env var this test mutates so other tests in
-		// the same group see the original process environment afterwards.
-		let mut watched: Vec<&str> = vec!["REINHARDT_ENV"];
+		// Arrange — `EnvSnapshot::drop` restores the original env even if the
+		// assertions below panic, keeping the `env_settings_load` group safe.
+		let mut watched: Vec<&'static str> = vec!["REINHARDT_ENV"];
 		watched.extend_from_slice(PRODUCTION_REQUIRED_ENV_VARS);
-		let saved = snapshot_env(&watched);
+		let _guard = EnvSnapshot::new(&watched);
 
-		// SAFETY: see `restore_env`. `#[serial(env_settings_load)]` provides
-		// the cross-test exclusion that `set_var`/`remove_var` need.
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
 		unsafe {
 			env::set_var("REINHARDT_ENV", "production");
 			for name in PRODUCTION_REQUIRED_ENV_VARS {
@@ -352,16 +370,13 @@ mod tests {
 		let outcome = try_build_settings();
 
 		// Assert — error must mention at least one of the required env vars.
-		// Restore env BEFORE asserting so a failed assertion cannot leak state.
-		restore_env(&saved);
-
 		let err = outcome.expect_err(
 			"production.toml must reject startup with no env vars set — see \
 			 issue #588 for the fail-fast contract",
 		);
 		let msg = err.to_string();
 		let mut full = msg.clone();
-		let mut source = err.source();
+		let mut source = std::error::Error::source(&err);
 		while let Some(s) = source {
 			full.push_str("\nCaused by: ");
 			full.push_str(&s.to_string());
@@ -383,8 +398,8 @@ mod tests {
 	#[rstest]
 	#[serial(env_settings_load)]
 	fn test_production_profile_round_trips_with_required_env_vars() {
-		// Arrange
-		let watched: Vec<&str> = vec![
+		// Arrange — `EnvSnapshot::drop` restores the original env even on panic.
+		let watched: Vec<&'static str> = vec![
 			"REINHARDT_ENV",
 			"REINHARDT_CLOUD_JWT_SECRET",
 			"REINHARDT_CLOUD_REDIS_URL",
@@ -393,9 +408,10 @@ mod tests {
 			"REINHARDT_DATABASE_HOST",
 			"REINHARDT_EMAIL__HOST",
 		];
-		let saved = snapshot_env(&watched);
+		let _guard = EnvSnapshot::new(&watched);
 
-		// SAFETY: see `restore_env`.
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
 		unsafe {
 			env::set_var("REINHARDT_ENV", "production");
 			env::set_var(
@@ -414,9 +430,7 @@ mod tests {
 		// Act
 		let outcome = try_build_settings();
 
-		// Assert — restore env first, then inspect.
-		restore_env(&saved);
-
+		// Assert
 		let settings = outcome.expect("production.toml should load with env vars set");
 		// Typed numeric / bool fields survive the TOML→struct hop.
 		let db = &settings.core.databases["default"];
