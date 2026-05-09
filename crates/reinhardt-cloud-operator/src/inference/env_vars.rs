@@ -161,6 +161,28 @@ pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
 	]
 }
 
+/// Build the `REINHARDT_CLOUD_SECRET_KEY` env var referencing the per-app
+/// `<app>-core-secret-key` Secret created by
+/// `inference::secrets::build_core_secret_key_secret`.
+///
+/// The generated `production.toml` reads this back via `${VAR}` interpolation
+/// in the `[core] secret_key` field, so the actual key value is never stored
+/// in a ConfigMap.
+pub(crate) fn build_core_secret_key_env_var(app_name: &str) -> EnvVar {
+	EnvVar {
+		name: "REINHARDT_CLOUD_SECRET_KEY".to_string(),
+		value: None,
+		value_from: Some(EnvVarSource {
+			secret_key_ref: Some(SecretKeySelector {
+				name: format!("{app_name}-core-secret-key"),
+				key: "secret-key".to_string(),
+				optional: Some(false),
+			}),
+			..Default::default()
+		}),
+	}
+}
+
 /// Merge auto-generated and user-supplied environment variables.
 ///
 /// User overrides (`user_vars`) always take priority over auto-generated
@@ -562,6 +584,40 @@ mod tests {
 		// Assert
 		assert_eq!(merged.len(), 1);
 		assert_eq!(merged[0].name, "X");
+	}
+
+	#[rstest]
+	fn core_secret_key_env_var_references_per_app_secret() {
+		// Arrange & Act
+		let var = build_core_secret_key_env_var("myapp");
+
+		// Assert — the actual key bytes must come from the Secret, never
+		// be inlined into the Pod spec.
+		assert_eq!(var.name, "REINHARDT_CLOUD_SECRET_KEY");
+		assert!(var.value.is_none());
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("must use SecretKeyRef so the key value is never inlined");
+		assert_eq!(key_ref.name, "myapp-core-secret-key");
+		assert_eq!(key_ref.key, "secret-key");
+		assert_eq!(key_ref.optional, Some(false));
+	}
+
+	#[rstest]
+	fn core_secret_key_env_var_secret_name_tracks_app_name() {
+		// Arrange & Act — a different app must reference its own Secret;
+		// the helper must NOT share a single Secret across apps.
+		let var = build_core_secret_key_env_var("other-app");
+
+		// Assert
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.unwrap();
+		assert_eq!(key_ref.name, "other-app-core-secret-key");
 	}
 
 	#[rstest]

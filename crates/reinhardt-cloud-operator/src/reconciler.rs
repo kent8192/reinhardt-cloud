@@ -28,7 +28,7 @@ use crate::inference::configmap::build_settings_configmap;
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::build_jwt_secret;
+use crate::inference::secrets::{build_core_secret_key_secret, build_jwt_secret};
 use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::preview;
@@ -248,6 +248,31 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			.await
 			.map_err(Error::Kube)?;
 		info!("Reconciled ConfigMap {namespace}/{cm_name}");
+	}
+
+	// Create the per-app `core.secret_key` Secret unconditionally, so every
+	// reinhardt-web app reconciled by this operator can resolve
+	// `core.secret_key` from `production.toml` via the
+	// `${REINHARDT_CLOUD_SECRET_KEY}` env-var interpolation. Use idempotent
+	// get-or-create so we never rotate the key on a follow-up reconcile —
+	// rotating the signing key would invalidate every active session and
+	// CSRF token in the running Pod.
+	{
+		let core_secret_name = format!("{name}-core-secret-key");
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&core_secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			let core_secret = build_core_secret_key_secret(&name, namespace);
+			secret_api
+				.create(&PostParams::default(), &core_secret)
+				.await
+				.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+			info!("Created core secret_key Secret {namespace}/{core_secret_name}");
+		}
 	}
 
 	// Create JWT Secret if auth.jwt is enabled (preserve existing tokens)
