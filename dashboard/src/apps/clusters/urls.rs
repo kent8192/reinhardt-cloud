@@ -5,16 +5,18 @@ pub mod ws_urls;
 use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
+use crate::apps::clusters::client::pages::clusters_list_page;
 #[cfg(native)]
 use crate::apps::clusters::views;
 use crate::config::apps::InstalledApp;
 
 /// Returns the unified URL patterns for the clusters app.
 ///
-/// Server endpoints and (currently absent) client SPA routes are merged
-/// into a single function via `mode = unified`. The empty
-/// `.client(|c| c)` block keeps the composition pattern uniform across
-/// all apps so `config/urls.rs` can call `mount_unified` once per app.
+/// Server endpoints and the SPA `clusters:list` route are merged into a
+/// single function via `mode = unified`. The named route resolves to
+/// `clusters_list_page` (a placeholder delegating to the shared 404 view
+/// until a dedicated list page lands), and `mount_unified` in
+/// `config/urls.rs` aggregates both sides into the project router.
 #[url_patterns(InstalledApp::clusters, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
@@ -28,5 +30,5 @@ pub fn url_patterns() -> UnifiedRouter {
 				.endpoint(views::rotate_token);
 			s
 		})
-		.client(|c| c)
+		.client(|c| c.named_route("list", "/clusters", clusters_list_page))
 }

@@ -55,12 +55,12 @@ async fn dashboard_home_resolves_to_expected_path(test_app: (APIClient, Resolved
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn dashboard_clusters_resolves_to_expected_path(test_app: (APIClient, ResolvedUrls)) {
+async fn clusters_list_resolves_to_expected_path(test_app: (APIClient, ResolvedUrls)) {
 	// Arrange
 	let (_client, urls) = test_app;
 
 	// Act
-	let path = urls.client().dashboard().clusters();
+	let path = urls.client().clusters().list();
 
 	// Assert
 	assert_eq!(path, "/clusters");
@@ -68,12 +68,12 @@ async fn dashboard_clusters_resolves_to_expected_path(test_app: (APIClient, Reso
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn dashboard_deployments_resolves_to_expected_path(test_app: (APIClient, ResolvedUrls)) {
+async fn deployments_list_resolves_to_expected_path(test_app: (APIClient, ResolvedUrls)) {
 	// Arrange
 	let (_client, urls) = test_app;
 
 	// Act
-	let path = urls.client().dashboard().deployments();
+	let path = urls.client().deployments().list();
 
 	// Assert
 	assert_eq!(path, "/deployments");

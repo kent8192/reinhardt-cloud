@@ -247,6 +247,33 @@ command = "cargo"
 args = ["run", "--bin", "manage", "runserver", "--with-pages", "${@}"]
 
 # ============================================================================
+# WASM browser tests (wasm-bindgen-test in headless Chrome)
+# ============================================================================
+#
+# Closes the structural test gap behind the SPA navigation regression
+# class — every framework-side fix in the chain
+# (#4075 → #4088 → #4122 → #4203 → #4213 → #4217 → #4221) passed
+# framework-side tests because no test exercised the consumer-facing
+# `UnifiedRouter::client(...) → ClientLauncher → Router::push` topology.
+#
+# Tests live under `dashboard/tests/wasm/` per CLAUDE.md TD-3 and are
+# gated behind the `wasm-spa-test` feature so default `cargo nextest
+# run` (host target) skips them. Refs #574.
+
+[tasks.wasm-spa-test]
+description = "Run dashboard SPA browser tests under wasm-pack + headless Chrome (#574 regression suite)"
+command = "wasm-pack"
+args = [
+	"test",
+	"--headless",
+	"--chrome",
+	"--",
+	"--features",
+	"wasm-spa-test",
+]
+dependencies = ["wasm-install-tools"]
+
+# ============================================================================
 # Ephemeral Local Infrastructure (postgres / redis via docker run --rm)
 # ============================================================================
 #

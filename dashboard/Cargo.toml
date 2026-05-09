@@ -21,6 +21,10 @@ path = "src/bin/manage.rs"
 # `ResolvedUrls::from_global()` in dashboard pages and layouts.
 default = ["client-router"]
 client-router = ["reinhardt/client-router"]
+# Opts the `tests/wasm/` browser tests into the build. Off by default so
+# `cargo nextest run` (host-target) does not try to compile WASM-only
+# tests. Driven by `cargo make wasm-spa-test`. Refs #574.
+wasm-spa-test = []
 
 [dependencies]
 reinhardt = { workspace = true }
@@ -61,9 +65,20 @@ rand = { workspace = true }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls", "hostname"] }
 rstest = { workspace = true }
 
-# WASM client: reinhardt with pages features only
+# WASM client: reinhardt with pages features only.
+#
+# `pages-nav-diag-dom` is the upstream opt-in DOM-based navigation
+# diagnostic from `kent8192/reinhardt-web#4223`. Writes
+# `data-reinhardt-nav-site` on `<body>` at five canonical SPA navigation
+# sites (`store_router`, `link_interceptor`, `navigate`,
+# `notify_observers`, `popstate`), which is the cheapest way to localise
+# this regression class end-to-end without `console.debug` filtering or
+# wasm-bindgen import-shim subtleties. Originally enabled to verify
+# `kent8192/reinhardt-cloud#574` (7th-occurrence SPA navigation
+# regression `kent8192/reinhardt-web#4221`); kept on going forward as a
+# permanent diagnostic surface for any future ABI-class regression.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reinhardt = { workspace = true, features = ["pages", "admin"] }
+reinhardt = { workspace = true, features = ["pages", "admin", "pages-nav-diag-dom"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Event", "History", "Location", "Storage", "WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent"] }
@@ -71,10 +86,27 @@ js-sys = "0.3"
 gloo-timers = "0.3"
 console_error_panic_hook = "0.1"
 
+# WASM-target dev-deps for browser tests. Driver: `wasm-pack test
+# --headless --chrome --features wasm-spa-test`. Refs #574.
+#
+# `rstest` is required because `wasm-pack test` builds the lib (with
+# `#[cfg(test)]` modules) alongside the integration test, and several
+# lib modules (e.g. `apps/deployments/client/components/log_viewer.rs`)
+# already use `rstest` for native unit tests. Without `rstest` in the
+# wasm dev-dep set, `cargo build --tests --target wasm32-unknown-unknown`
+# fails to find the `#[case]` and `#[rstest]` attributes.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+rstest = { workspace = true }
+
 [build-dependencies]
 cfg_aliases = "0.2"
 
-[dev-dependencies]
+# Native dev-deps. Pulled into a target-gated block so the WASM browser
+# tests under `tests/wasm/` (driven by `wasm-pack test --headless
+# --chrome`) do not transitively compile `tokio`/`mio`/`reqwest`/
+# `wiremock`, which fail to link for `wasm32-unknown-unknown`. Refs #574.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rstest = { workspace = true }
 serial_test = "3.2"
 anyhow = { workspace = true }
