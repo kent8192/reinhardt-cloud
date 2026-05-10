@@ -16,12 +16,12 @@ This file defines development conventions specific to the `dashboard/` crate, wh
 
 ### MG-2 (NOTE): Auto-Applied by Workspace-Root `runserver`
 
-- Workspace-root `cargo make runserver` (defined in `/Makefile.toml`) automatically chains `migrate` and `collectstatic` before launching the dev server, so a fresh database does not produce 5xx responses on first boot.
+- Workspace-root `cargo make runserver` (defined in `/Makefile.toml`) automatically chains `infra-up`, `migrate`, and `collectstatic` before launching the dev server, so a fresh checkout against an empty Docker host does not produce 5xx responses on first boot.
 - To skip the preflight steps (e.g., for faster restarts during iterative development, or when debugging without touching the DB), run the dashboard-local task instead:
   ```bash
   cd dashboard && cargo make runserver
   ```
-  The dashboard-local `cargo make runserver` (defined in `dashboard/Makefile.toml`) intentionally has no `dependencies` so it launches the server directly. To run only one preflight step, use `cargo make migrate` or `cargo make collectstatic` from the workspace root.
+  The dashboard-local `cargo make runserver` (defined in `dashboard/Makefile.toml`) intentionally has no `dependencies` so it launches the server directly. To run only one preflight step, use `cargo make infra-up`, `cargo make migrate`, or `cargo make collectstatic` from the workspace root.
 
 ---
 
