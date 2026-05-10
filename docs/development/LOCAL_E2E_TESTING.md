@@ -62,11 +62,14 @@ kubectl cluster-info
 ## 2. Start dependency services
 
 Postgres and Redis are launched as ephemeral containers (`docker run --rm`)
-via the cargo-make task defined in `dashboard/Makefile.toml`. Data is wiped
-when the containers stop, which keeps each local session isolated.
+via the cargo-make task defined in the workspace-root `Makefile.toml`.
+Data is wiped when the containers stop, which keeps each local session
+isolated. (`cargo make runserver` from the workspace root will also start
+these containers automatically as a dependency, so this step is only
+needed when you want the infra without launching the dev server.)
 
 ```bash
-cd dashboard && cargo make infra-up
+cargo make infra-up
 docker ps --filter name=reinhardt-cloud-dashboard-
 ```
 
