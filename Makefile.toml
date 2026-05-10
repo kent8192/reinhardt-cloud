@@ -202,7 +202,7 @@ args = [
 [tasks.runserver]
 description = "Start local development server with WASM frontend (requires PostgreSQL)"
 cwd = "dashboard"
-dependencies = ["migrate", "collectstatic"]
+dependencies = ["infra-up", "migrate", "collectstatic"]
 command = "cargo"
 args = [
 	"run",
