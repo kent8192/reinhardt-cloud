@@ -55,6 +55,14 @@ async fn create_session_service(#[inject] redis_url: Depends<RedisUrl>) -> Sessi
 }
 
 impl SessionService {
+	/// Construct a service from an existing backend without going
+	/// through the DI factory. Intended for inline view-level unit
+	/// tests that need a hand-built service for short-circuit branches
+	/// where the backend is never actually invoked.
+	pub fn from_backend(backend: Arc<dyn AsyncSessionBackend>) -> Self {
+		Self { backend }
+	}
+
 	/// Create a new session in Redis for the given user. Returns the
 	/// session ID, which the caller sets as a cookie value.
 	pub async fn create_session(&self, user: &User) -> Result<String, String> {

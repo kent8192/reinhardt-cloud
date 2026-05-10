@@ -8,6 +8,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{Response, StatusCode, get};
 use serde::Serialize;
@@ -35,8 +36,9 @@ pub fn label_for(id: &str) -> &'static str {
 }
 
 #[get("/oauth/providers/", name = "oauth_providers")]
-pub async fn oauth_providers() -> ViewResult<Response> {
-	let settings = OAuthSettings::from_env();
+pub async fn oauth_providers(
+	#[inject] settings: Depends<OAuthSettings>,
+) -> ViewResult<Response> {
 	let providers: Vec<ProviderEntry> = settings
 		.enabled_provider_ids()
 		.into_iter()

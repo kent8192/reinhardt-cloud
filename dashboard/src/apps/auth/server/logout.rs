@@ -1,6 +1,9 @@
 //! Logout server function for frontend session termination.
 
+use reinhardt::di::Depends;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
+
+use crate::apps::auth::services::session::SessionService;
 
 /// Invalidate the current session and clear the session cookie.
 ///
@@ -10,12 +13,11 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 #[server_fn]
 pub async fn logout(
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] session_service: Depends<SessionService>,
 ) -> Result<bool, ServerFnError> {
 	#[cfg(native)]
 	{
 		use tracing::warn;
-
-		use crate::apps::auth::services;
 
 		// Extract session ID from the Cookie header
 		let session_id = http_request
@@ -37,7 +39,7 @@ pub async fn logout(
 
 		// Destroy the session in Redis if a session cookie was present
 		if let Some(ref sid) = session_id
-			&& let Err(e) = services::destroy_session(sid).await
+			&& let Err(e) = session_service.destroy_session(sid).await
 		{
 			warn!("Failed to destroy session during logout: {e}");
 		}
@@ -53,7 +55,7 @@ pub async fn logout(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = http_request;
+		let _ = (http_request, session_service);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

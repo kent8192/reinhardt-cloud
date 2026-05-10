@@ -3,6 +3,7 @@
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, Response, StatusCode};
@@ -10,12 +11,15 @@ use tracing::error;
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::LoginRequest;
-use crate::apps::auth::services::session::create_session;
+use crate::apps::auth::services::session::SessionService;
 use crate::shared::AuthResponse;
 
 /// Authenticate user against database and create a session.
 #[post("/login/", name = "login", pre_validate = true)]
-pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
+pub async fn login(
+	Json(body): Json<LoginRequest>,
+	#[inject] session_service: Depends<SessionService>,
+) -> ViewResult<Response> {
 	// Find user by username
 	let user = User::objects()
 		.filter(
@@ -46,7 +50,7 @@ pub async fn login(body: Json<LoginRequest>) -> ViewResult<Response> {
 	}
 
 	// Create session in Redis
-	let session_id = create_session(&user).await.map_err(|e| {
+	let session_id = session_service.create_session(&user).await.map_err(|e| {
 		error!("Session creation failed during login: {e}");
 		AppError::Internal("Internal server error".to_string())
 	})?;

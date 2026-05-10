@@ -3,8 +3,10 @@
 //! Creates a new user with `is_active = false` and sends a verification
 //! email. The user must verify their email before they can log in.
 
+use reinhardt::di::Depends;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
+use crate::apps::auth::services::email::EmailService;
 use crate::shared::AuthResponse;
 
 /// Create a new user account with email verification.
@@ -20,6 +22,7 @@ pub async fn register(
 	password: String,
 	csrf_token: String,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] email_service: Depends<EmailService>,
 ) -> Result<AuthResponse, ServerFnError> {
 	#[cfg(native)]
 	{
@@ -28,9 +31,6 @@ pub async fn register(
 		use tracing::{error, info};
 
 		use crate::apps::auth::models::User;
-		use crate::apps::auth::services::email::{
-			get_email_backend, resolved_email_settings, send_verification_email,
-		};
 		use crate::apps::auth::services::registration::provision_personal_organization;
 		use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 		use crate::shared::UserInfo;
@@ -41,12 +41,6 @@ pub async fn register(
 
 		let settings = crate::config::settings::get_settings();
 		let secret_key = settings.core.secret_key.clone();
-		let from_email = resolved_email_settings()
-			.map_err(|e| {
-				error!("Failed to resolve email settings: {e}");
-				ServerFnError::application("Internal server error")
-			})?
-			.from_email;
 
 		// Create user as inactive — requires email verification to activate
 		let mut user = User::new(
@@ -102,19 +96,9 @@ pub async fn register(
 			.unwrap_or_else(|_| format!("http://localhost:{port}"));
 		let verification_url = format!("{base_url}/api/auth/verify-email/{token}/");
 
-		let backend = get_email_backend().map_err(|e| {
-			error!("Failed to create email backend: {e}");
-			ServerFnError::application("Internal server error")
-		})?;
-
-		if let Err(e) = send_verification_email(
-			&created.email,
-			&created.username,
-			&verification_url,
-			backend.as_ref(),
-			&from_email,
-		)
-		.await
+		if let Err(e) = email_service
+			.send_verification_email(&created.email, &created.username, &verification_url)
+			.await
 		{
 			error!(
 				"Failed to send verification email to {}: {e}",
@@ -142,7 +126,14 @@ pub async fn register(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = (username, email, password, csrf_token, _http_request);
+		let _ = (
+			username,
+			email,
+			password,
+			csrf_token,
+			_http_request,
+			email_service,
+		);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
