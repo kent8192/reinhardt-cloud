@@ -273,32 +273,12 @@ args = [
 ]
 dependencies = ["wasm-install-tools"]
 
-# ============================================================================
-# Ephemeral Local Infrastructure (postgres / redis via docker run --rm)
-# ============================================================================
-#
-# Spins up disposable PostgreSQL + Redis containers for local development.
-# Containers are launched with `docker run --rm` and no persistent volumes,
-# so all data is wiped when the containers stop. Connection parameters
-# (user / password / database / port / redis URL) are parsed from
-# `dashboard/settings/local.toml`, so changes to that file are picked up
-# on the next `cargo make infra-up` without editing this Makefile.
-#
-# Implementation: dashboard/scripts/infra_up.sh and infra_down.sh.
-
-[tasks.infra-up]
-description = "Start disposable PostgreSQL + Redis containers (docker run --rm); credentials parsed from settings/local.toml"
-command = "bash"
-args = ["scripts/infra_up.sh"]
-
-[tasks.infra-down]
-description = "Stop disposable PostgreSQL + Redis containers (data is wiped)"
-command = "bash"
-args = ["scripts/infra_down.sh"]
-
-[tasks.infra-reset]
-description = "Stop and recreate disposable infrastructure (wipes all data)"
-dependencies = ["infra-down", "infra-up"]
+# Note: ephemeral local infrastructure tasks (`infra-up` / `infra-down` /
+# `infra-reset`) live in the workspace-root `Makefile.toml` so that
+# `cargo make runserver` from the workspace root chains
+# `infra-up → migrate → collectstatic → runserver` in one shot. The
+# implementation scripts at `dashboard/scripts/infra_up.sh` and
+# `dashboard/scripts/infra_down.sh` are unchanged.
 
 # ============================================================================
 # Help
@@ -353,10 +333,10 @@ echo "    wasm-build-release - Full WASM release build"
 echo "    wasm-clean         - Clean WASM artifacts"
 echo "    runserver-pages    - Build WASM + start server"
 echo ""
-echo "  Local Infrastructure (ephemeral postgres/redis):"
-echo "    infra-up           - Start disposable postgres + redis"
-echo "    infra-down         - Stop disposable infrastructure"
-echo "    infra-reset        - Recreate disposable infrastructure (wipes data)"
+echo "  Local Infrastructure (ephemeral postgres/redis; run from workspace root):"
+echo "    cargo make infra-up      - Start postgres/redis containers"
+echo "    cargo make infra-down    - Stop containers (data wiped)"
+echo "    cargo make infra-reset   - Stop and recreate (wipes data)"
 echo ""
 echo "Usage: cargo make <task>"
 '''
