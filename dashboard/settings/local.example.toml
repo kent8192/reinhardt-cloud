@@ -80,7 +80,8 @@ root = "static"
 url = "/media/"
 root = "media"
 
-# Local email defaults target Mailpit (`docker run mailpit`) on plaintext 1025.
+# Local email defaults target a plaintext SMTP catcher on 127.0.0.1:1025
+# (e.g. Mailpit: `docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit`).
 # Override host/port/credentials via REINHARDT_EMAIL__* env vars when pointing
 # at a real provider (Resend / SES / SendGrid / Postmark).
 [email]
@@ -93,10 +94,14 @@ use_tls = false
 # Top-level [database] section required by reinhardt-web's runserver/migrate
 # CLI commands. Mirrors [core.databases.default] above with a plain-string
 # password field (the CLI does not understand the `{ secret = ... }` shape).
+# `${RC_DB_PASSWORD:-CHANGE-ME}` lets the password come from an env var
+# (mirroring the `RC_DB_HOST` pattern elsewhere) so that automated flows
+# can avoid editing this file; if RC_DB_PASSWORD is unset the placeholder
+# remains and must be replaced manually in `local.toml`.
 [database]
 engine = "postgresql"
 host = "${RC_DB_HOST:-localhost}"
 port = 5432
 name = "reinhardt_cloud_dev"
 user = "postgres"
-password = "CHANGE-ME"
+password = "${RC_DB_PASSWORD:-CHANGE-ME}"
