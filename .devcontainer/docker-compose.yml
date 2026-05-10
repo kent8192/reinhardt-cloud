@@ -22,7 +22,7 @@ services:
       # speeds up reads in the container at the cost of slightly delayed
       # propagation back to the host - acceptable since edits originate in
       # VS Code running against the in-container files.
-      - ../..:/workspaces/reinhardt-cloud:cached
+      - ..:/workspaces/reinhardt-cloud:cached
       # Persist cargo registry / git checkouts and the workspace `target/`
       # in named volumes. Bind-mounting `target/` on macOS is unusably slow
       # because of osxfs translation overhead.
