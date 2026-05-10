@@ -18,6 +18,32 @@ use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
 use rstest::fixture;
 
+/// Build a fresh `InjectionContext` for factory unit tests.
+///
+/// Centralizes the four-line setup (`SingletonScope::new` →
+/// `scope.set` overrides → `InjectionContext::builder` → `Arc::new`)
+/// used by services converted to `#[injectable_factory]` for
+/// kent8192/reinhardt-cloud#599. The closure parameter receives the
+/// scope before the context is built so tests can override any
+/// dependency that the factory under test injects via `Depends<T>`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let ctx = make_test_di_context(|scope| {
+///     scope.set(MySettings { jwt_secret: "test".into() });
+/// });
+/// let svc: Arc<MyService> = ctx.resolve::<MyService>().await.unwrap();
+/// ```
+pub fn make_test_di_context<F>(setup: F) -> Arc<InjectionContext>
+where
+	F: FnOnce(&Arc<SingletonScope>),
+{
+	let scope = Arc::new(SingletonScope::new());
+	setup(&scope);
+	Arc::new(InjectionContext::builder(scope).build())
+}
+
 use crate::apps::auth::models::User;
 use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
