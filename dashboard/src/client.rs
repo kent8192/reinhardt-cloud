@@ -62,8 +62,16 @@ mod wasm_entry {
 	// for the upstream-resolved ideal form using
 	// `UnifiedRouter::new().client(|c| ...).register_globally()`.
 	//
+	// Status (verified at reinhardt-web SHA 32a244e92d, 2026-05-10):
+	// removal is now blocked on `kent8192/reinhardt-web#4258` (a
+	// regression introduced by reinhardt-web#4242 that broke `ClientRouter`
+	// `Send + Sync` on native) rather than on the original
+	// `kent8192/reinhardt-web#4230`. Tracking on cloud:
+	// `kent8192/reinhardt-cloud#600`.
+	//
 	// Remove this helper and the `register_client_url_reverser()` call
-	// in `main` when reinhardt-web#4230 is resolved.
+	// in `main` once `kent8192/reinhardt-web#4258` ships AND the cloud
+	// bumps past the merge of that fix together with reinhardt-web#4242.
 	//
 	// Ideal implementation (without workaround):
 	//   /* removed entirely; reverser is registered automatically by */

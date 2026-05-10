@@ -62,14 +62,31 @@ use crate::shared::client::pages::not_found::not_found_page;
 // helper in `client.rs::wasm_entry`. Both consume the same const slice
 // so drift is impossible while the workaround is in place.
 //
-// Remove this workaround when reinhardt-web#4230 is resolved (the
-// framework collapses `pages::Router` into `urls::ClientRouter`,
-// `ClientLauncher::router(...)` accepts the unified type, and the
-// `#[routes]` macro emits `register_client_reverser` on WASM).
+// Status (verified at reinhardt-web SHA 32a244e92d, 2026-05-10):
+//   - Upstream PR reinhardt-web#4242 (closed reinhardt-web#4234) added
+//     `ClientLauncher::router_client` and made
+//     `UnifiedRouter::register_globally()` install the WASM-side
+//     `ClientUrlReverser` automatically — addressing #4230.
+//   - However, the same PR moved `pages::Router`'s reactive state
+//     (`Rc<Cell<u64>>`, `Rc<RefCell<Vec<Weak<dyn Fn>>>>`) into
+//     `urls::ClientRouter` *without* `#[cfg(wasm)]` gating, so the
+//     unified router is no longer `Send + Sync` on native. This breaks
+//     `DashboardRouter(pub UnifiedRouter)`'s DI registration in
+//     `crate::config::urls::make_router` (35 compile errors of the form
+//     "Rc<Cell<u64>> cannot be sent between threads safely").
+//   - Filed upstream as `kent8192/reinhardt-web#4258`; tracked in
+//     `kent8192/reinhardt-cloud#600` (`upstream-tracking`).
+//
+// Remove this workaround once `kent8192/reinhardt-web#4258` ships AND
+// the cloud bumps to a revision that includes both the #4258 fix and
+// the #4242 `ClientLauncher::router_client` API. The patch set is
+// staged on the worktree branch
+// `refactor/issue-577-unified-router-spa-32a244e9` (see #600 comments).
 //
 // Ideal implementation (without workaround):
-//   pub fn init_router() -> reinhardt::urls::UnifiedRouter {
-//       use reinhardt::urls::UnifiedRouter;
+//   use reinhardt::urls::routers::{ClientRouter, UnifiedRouter};
+//
+//   pub fn init_router() -> ClientRouter {
 //       UnifiedRouter::new()
 //           .client(|c| {
 //               c.named_route("dashboard:home", "/", dashboard_shell)
@@ -84,7 +101,7 @@ use crate::shared::client::pages::not_found::not_found_page;
 //
 // Caller in `client.rs::wasm_entry::main` becomes:
 //   ClientLauncher::new("#app")
-//       .router(router::init_router)  // returns ClientRouter via register_globally()
+//       .router_client(router::init_router)
 //       .launch()?;
 //
 // `client.rs::wasm_entry::register_client_url_reverser` and the const
