@@ -7,7 +7,7 @@
 
 use reinhardt::pages::component::Page;
 
-use crate::client::pages::not_found_page;
+use crate::shared::client::pages::not_found::not_found_page;
 
 /// Render the deployments list page placeholder.
 pub fn deployments_list_page() -> Page {

@@ -13,12 +13,8 @@
 //! direct `Router::on_navigate` observer. Both APIs flow through the
 //! same `on_path` hook here, so this module did not need to change.
 
-pub mod components;
-pub mod pages;
 #[cfg(wasm)]
 pub mod router;
-pub mod state;
-pub mod ws;
 
 // `#[wasm_bindgen(start)]` registers a `main` entry that runs when the
 // WASM module loads. We compile that entry out of the test build because
@@ -42,7 +38,8 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 	use reinhardt::{ClientUrlReverser, register_client_reverser};
 
-	use super::*;
+	use super::router;
+	use crate::shared::client::{components, state, ws};
 
 	// WORKAROUND for kent8192/reinhardt-web#4230 (tracked in
 	// kent8192/reinhardt-cloud#577).
@@ -65,8 +62,16 @@ mod wasm_entry {
 	// for the upstream-resolved ideal form using
 	// `UnifiedRouter::new().client(|c| ...).register_globally()`.
 	//
+	// Status (verified at reinhardt-web SHA 32a244e92d, 2026-05-10):
+	// removal is now blocked on `kent8192/reinhardt-web#4258` (a
+	// regression introduced by reinhardt-web#4242 that broke `ClientRouter`
+	// `Send + Sync` on native) rather than on the original
+	// `kent8192/reinhardt-web#4230`. Tracking on cloud:
+	// `kent8192/reinhardt-cloud#600`.
+	//
 	// Remove this helper and the `register_client_url_reverser()` call
-	// in `main` when reinhardt-web#4230 is resolved.
+	// in `main` once `kent8192/reinhardt-web#4258` ships AND the cloud
+	// bumps past the merge of that fix together with reinhardt-web#4242.
 	//
 	// Ideal implementation (without workaround):
 	//   /* removed entirely; reverser is registered automatically by */
