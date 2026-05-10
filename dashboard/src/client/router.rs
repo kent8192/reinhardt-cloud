@@ -35,8 +35,7 @@ use crate::apps::auth::client::pages::{login_page, register_page};
 use crate::apps::clusters::client::pages::clusters_list_page;
 use crate::apps::dashboard::client::layout::dashboard_shell;
 use crate::apps::deployments::client::pages::deployments_list_page;
-
-use super::pages::not_found_page;
+use crate::shared::client::pages::not_found::not_found_page;
 
 // ──────────────────────────────────────────────────────────────────────
 // WORKAROUND for kent8192/reinhardt-web#4230 (tracked in

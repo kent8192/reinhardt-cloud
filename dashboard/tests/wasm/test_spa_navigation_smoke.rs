@@ -19,7 +19,7 @@ use js_sys::Reflect;
 use reinhardt::pages::ClientLauncher;
 use reinhardt::{ClientUrlReverser, register_client_reverser};
 use reinhardt_cloud_dashboard::client::router::init_router;
-use reinhardt_cloud_dashboard::client::state;
+use reinhardt_cloud_dashboard::shared::client::state;
 use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;

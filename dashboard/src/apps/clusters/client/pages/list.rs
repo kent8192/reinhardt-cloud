@@ -6,7 +6,7 @@
 
 use reinhardt::pages::component::Page;
 
-use crate::client::pages::not_found_page;
+use crate::shared::client::pages::not_found::not_found_page;
 
 /// Render the clusters list page placeholder.
 pub fn clusters_list_page() -> Page {

@@ -49,7 +49,7 @@ use reinhardt::routes;
 use reinhardt::urls::prelude::UnifiedRouter;
 
 #[cfg(native)]
-use crate::client::pages::not_found_page;
+use crate::shared::client::pages::not_found::not_found_page;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
