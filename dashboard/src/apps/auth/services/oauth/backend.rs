@@ -4,6 +4,11 @@
 //!   * the configured providers (today: `GitHubProvider`, see #428); and
 //!   * an `InMemoryStateStore` for OAuth `state` and PKCE verifiers.
 //!
+//! Exposes [`OAuthBackendBox`] (newtype around `Option<Arc<SocialAuthBackend>>`)
+//! resolved via `#[injectable_factory]`, plus the legacy
+//! [`build_social_auth_backend`] adapter retained during the
+//! kent8192/reinhardt-cloud#599 caller migration.
+//!
 //! ## State-store choice
 //!
 //! The framework's only `SessionBackend`-backed state store
@@ -28,12 +33,9 @@
 //! `begin_auth` (in the `start` view) and `handle_callback` (in the
 //! `callback` view) MUST observe the same `StateStore` instance,
 //! otherwise the state created on `/start/` is invisible to `/callback/`
-//! and every flow returns `InvalidState`. Since each view rebuilds the
-//! `SocialAuthBackend` per request to pick up env changes, we keep the
-//! state store itself in a process-wide `OnceLock` and reuse it on every
-//! rebuild. The provider configuration can change between calls (e.g.
-//! tests overriding endpoints), but the state store is stable for the
-//! lifetime of the process.
+//! and every flow returns `InvalidState`. The DI singleton scope on
+//! [`OAuthBackendBox`] guarantees a single backend instance (and
+//! therefore a single state store) across the lifetime of the process.
 //!
 //! ## Test-only endpoint overrides
 //!
@@ -43,11 +45,15 @@
 //! `REINHARDT_CLOUD_OAUTH_GITHUB_USERINFO_URL` (when set and non-empty)
 //! replace the corresponding GitHub URLs in `ProviderConfig::github`'s
 //! `OAuth2Config`. This is the only sanctioned way to redirect a flow
-//! at a fake provider without forking `reinhardt-auth`.
+//! at a fake provider without forking `reinhardt-auth`. The overrides
+//! are read once when the singleton factory resolves; tests that need
+//! to vary endpoints across runs must construct the backend manually
+//! and override the scope entry rather than mutating env vars.
 
 use std::env;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
+use reinhardt::di::{Depends, injectable_factory};
 use reinhardt_auth::social::backend::SocialAuthBackend;
 use reinhardt_auth::social::core::config::ProviderConfig;
 use reinhardt_auth::social::core::error::SocialAuthError;
@@ -56,14 +62,32 @@ use reinhardt_auth::social::providers::github::GitHubProvider;
 
 use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
 
-/// Process-wide state store shared across all backend rebuilds. See module
-/// documentation for why this is a `OnceLock` rather than per-request.
-static STATE_STORE: OnceLock<Arc<InMemoryStateStore>> = OnceLock::new();
+/// DI-resolvable wrapper around the optional `SocialAuthBackend`.
+///
+/// Newtype satisfies the DI pseudo-orphan rule
+/// (kent8192/reinhardt-web#3468) — `Option<Arc<SocialAuthBackend>>`
+/// cannot be registered directly because `SocialAuthBackend` lives in
+/// `reinhardt-auth`. Holds `None` when no providers are configured so
+/// callers can short-circuit endpoint registration when the feature is
+/// effectively disabled.
+pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 
-fn shared_state_store() -> Arc<InMemoryStateStore> {
-	STATE_STORE
-		.get_or_init(|| Arc::new(InMemoryStateStore::new()))
-		.clone()
+/// DI factory — singleton scope so the state store and registered
+/// providers are shared across all requests for the lifetime of the
+/// process. Replaces the previous process-wide `OnceLock<Arc<InMemoryStateStore>>`
+/// (kent8192/reinhardt-cloud#599 β2 decision: rely on SingletonScope
+/// for single-instance semantics rather than a hand-rolled OnceLock).
+///
+/// Panics on `SocialAuthError` because backend construction failures are
+/// deploy-time configuration errors (bad provider config / missing
+/// dependencies), not recoverable runtime faults.
+#[injectable_factory(scope = "singleton")]
+async fn create_oauth_backend(#[inject] settings: Depends<OAuthSettings>) -> OAuthBackendBox {
+	OAuthBackendBox(
+		assemble_social_auth_backend(&settings)
+			.await
+			.expect("Failed to construct SocialAuthBackend: check OAuth provider configuration"),
+	)
 }
 
 /// Build a fully wired `SocialAuthBackend` from settings.
@@ -71,14 +95,26 @@ fn shared_state_store() -> Arc<InMemoryStateStore> {
 /// Returns `Ok(None)` if no providers are configured — callers can use this
 /// to short-circuit endpoint registration when the feature is effectively
 /// disabled.
+///
+/// Retained as a thin adapter while callers migrate to resolving
+/// [`OAuthBackendBox`] via DI (kent8192/reinhardt-cloud#599). Note that
+/// each call to this adapter constructs a fresh `InMemoryStateStore`
+/// and so does NOT share state with the DI-resolved backend; do not
+/// mix the two in the same flow.
 pub async fn build_social_auth_backend(
+	settings: &OAuthSettings,
+) -> Result<Option<Arc<SocialAuthBackend>>, SocialAuthError> {
+	assemble_social_auth_backend(settings).await
+}
+
+async fn assemble_social_auth_backend(
 	settings: &OAuthSettings,
 ) -> Result<Option<Arc<SocialAuthBackend>>, SocialAuthError> {
 	if settings.enabled_provider_ids().is_empty() {
 		return Ok(None);
 	}
 
-	let mut backend = SocialAuthBackend::with_state_store(shared_state_store());
+	let mut backend = SocialAuthBackend::with_state_store(Arc::new(InMemoryStateStore::new()));
 
 	if let Some(creds) = &settings.github {
 		let cfg = github_provider_config(creds);
@@ -116,4 +152,62 @@ fn github_provider_config(creds: &ProviderCredentials) -> ProviderConfig {
 
 fn non_empty_env(key: &str) -> Option<String> {
 	env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::config::test_helpers::make_test_di_context;
+	use rstest::rstest;
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_oauth_backend_factory_returns_none_when_no_providers_configured() {
+		// Arrange — empty OAuthSettings simulates a deployment with no
+		// providers enabled. The factory should short-circuit to None
+		// rather than constructing an empty backend.
+		let ctx = make_test_di_context(|scope| {
+			scope.set(OAuthSettings::default());
+		});
+
+		// Act
+		let backend: Arc<OAuthBackendBox> = ctx
+			.resolve::<OAuthBackendBox>()
+			.await
+			.expect("OAuthBackendBox factory should resolve when OAuthSettings is registered");
+
+		// Assert
+		assert!(backend.0.is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_oauth_backend_factory_returns_some_when_github_configured() {
+		// Arrange — populated OAuthSettings with valid GitHub credentials.
+		// Endpoint URLs are unset so the factory uses the canonical GitHub
+		// endpoints, which `GitHubProvider::new` accepts without contacting
+		// the network.
+		let settings = OAuthSettings {
+			github: Some(ProviderCredentials {
+				client_id: "test-client-id".to_string(),
+				client_secret: "test-client-secret".to_string(),
+				redirect_uri: "https://example.test/oauth/github/callback".to_string(),
+			}),
+		};
+		let ctx = make_test_di_context(|scope| {
+			scope.set(settings);
+		});
+
+		// Act
+		let backend: Arc<OAuthBackendBox> = ctx
+			.resolve::<OAuthBackendBox>()
+			.await
+			.expect("OAuthBackendBox factory should resolve when GitHub credentials are present");
+
+		// Assert
+		assert!(
+			backend.0.is_some(),
+			"backend should be Some when GitHub provider is configured"
+		);
+	}
 }
