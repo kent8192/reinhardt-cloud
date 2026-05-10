@@ -13,12 +13,8 @@
 //! direct `Router::on_navigate` observer. Both APIs flow through the
 //! same `on_path` hook here, so this module did not need to change.
 
-pub mod components;
-pub mod pages;
 #[cfg(wasm)]
 pub mod router;
-pub mod state;
-pub mod ws;
 
 // `#[wasm_bindgen(start)]` registers a `main` entry that runs when the
 // WASM module loads. We compile that entry out of the test build because
@@ -42,7 +38,8 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 	use reinhardt::{ClientUrlReverser, register_client_reverser};
 
-	use super::*;
+	use super::router;
+	use crate::shared::client::{components, state, ws};
 
 	// WORKAROUND for kent8192/reinhardt-web#4230 (tracked in
 	// kent8192/reinhardt-cloud#577).
