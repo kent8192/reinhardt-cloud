@@ -65,3 +65,38 @@ options = {}
 # Allowed origins for OriginGuardMiddleware (exact match, no wildcards).
 # OriginGuard filters out "*" — use explicit URLs.
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+[i18n]
+language_code = "en-us"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+
+[static_files]
+url = "/static/"
+root = "static"
+
+[media]
+url = "/media/"
+root = "media"
+
+# Local email defaults target Mailpit (`docker run mailpit`) on plaintext 1025.
+# Override host/port/credentials via REINHARDT_EMAIL__* env vars when pointing
+# at a real provider (Resend / SES / SendGrid / Postmark).
+[email]
+host = "localhost"
+port = 1025
+from_email = "noreply@localhost"
+use_ssl = false
+use_tls = false
+
+# Top-level [database] section required by reinhardt-web's runserver/migrate
+# CLI commands. Mirrors [core.databases.default] above with a plain-string
+# password field (the CLI does not understand the `{ secret = ... }` shape).
+[database]
+engine = "postgresql"
+host = "${RC_DB_HOST:-localhost}"
+port = 5432
+name = "reinhardt_cloud_dev"
+user = "postgres"
+password = "CHANGE-ME"
