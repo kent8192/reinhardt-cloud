@@ -2,11 +2,11 @@
 //!
 //! Provides [`SessionService`] resolved via `#[injectable_factory]`,
 //! capturing a Redis-backed [`AsyncSessionBackend`] once at factory
-//! time and exposing async session lifecycle methods. The legacy free
-//! functions [`create_session`], [`destroy_session`] and
-//! [`validate_session`] are retained as thin adapters during the
-//! kent8192/reinhardt-cloud#599 caller migration and will be removed
-//! once all callers resolve [`SessionService`] via DI.
+//! time and exposing async session lifecycle methods. A single free
+//! function [`validate_session`] is retained as a thin adapter for the
+//! WebSocket `NotificationConsumer` whose trait signature cannot accept
+//! `#[inject]` parameters; all other call sites resolve
+//! [`SessionService`] via DI.
 
 use std::sync::Arc;
 use std::time::Duration;
