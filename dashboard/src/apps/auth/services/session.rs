@@ -109,53 +109,14 @@ impl SessionService {
 	}
 }
 
-/// Create a new session in Redis for the given user.
-///
-/// Retained as a thin adapter while callers migrate to resolving
-/// [`SessionService`] via DI (kent8192/reinhardt-cloud#599).
-pub async fn create_session(user: &User) -> Result<String, String> {
-	use reinhardt::BaseUser;
-
-	let backend = get_session_backend()?;
-	let mut session = SessionData::new(Duration::from_secs(1800));
-	session
-		.set("user_id".to_string(), user.id().to_string())
-		.map_err(|e| e.to_string())?;
-	session
-		.set("username".to_string(), user.get_username().to_string())
-		.map_err(|e| e.to_string())?;
-	session
-		.set("is_staff".to_string(), user.is_staff)
-		.map_err(|e| e.to_string())?;
-	session
-		.set("is_superuser".to_string(), user.is_superuser)
-		.map_err(|e| e.to_string())?;
-
-	let session_id = session.id.clone();
-	backend
-		.save(&session)
-		.await
-		.map_err(|e| format!("Failed to save session: {e}"))?;
-
-	Ok(session_id)
-}
-
-/// Destroy a session in Redis.
-///
-/// Retained as a thin adapter while callers migrate to
-/// [`SessionService`].
-pub async fn destroy_session(session_id: &str) -> Result<(), String> {
-	let backend = get_session_backend()?;
-	backend
-		.destroy(session_id)
-		.await
-		.map_err(|e| format!("Failed to destroy session: {e}"))
-}
-
 /// Validate a session and return `(user_id, username)`.
 ///
-/// Retained as a thin adapter while callers migrate to
-/// [`SessionService`].
+/// Retained as a free-function adapter because the WebSocket
+/// `NotificationConsumer` in `utils/realtime/consumer.rs` has a fixed
+/// trait signature (`WebSocketConsumer::on_connect`) that does not
+/// support `#[inject]`. Wiring `SessionService` through the consumer
+/// constructor is tracked separately; until that lands, this adapter
+/// is the single remaining caller path.
 pub async fn validate_session(session_id: &str) -> Option<(String, String)> {
 	let backend = get_session_backend().ok()?;
 	let session = backend.load(session_id).await.ok()??;

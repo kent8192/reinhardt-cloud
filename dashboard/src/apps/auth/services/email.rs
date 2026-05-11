@@ -2,11 +2,6 @@
 //!
 //! Provides [`EmailService`] resolved via `#[injectable_factory]`,
 //! capturing the SMTP backend and `from_email` once at factory time.
-//! The legacy free functions [`get_email_backend`],
-//! [`resolved_email_settings`], [`send_verification_email`] and
-//! [`send_password_reset_email`] are retained as thin adapters during
-//! the kent8192/reinhardt-cloud#599 caller migration and will be
-//! removed once all callers resolve [`EmailService`] via DI.
 
 use std::sync::Arc;
 
@@ -66,10 +61,9 @@ fn apply_email_env_overrides(mut email: EmailSettings) -> Result<EmailSettings, 
 /// Resolve the active `EmailSettings`, layering `REINHARDT_EMAIL__*` env
 /// var overrides on top of TOML-loaded settings.
 ///
-/// Use this from any call site that needs an email-related field
-/// (`from_email`, host, port, etc.) so the env-var override path is honored
-/// consistently across the codebase.
-pub fn resolved_email_settings() -> Result<EmailSettings, String> {
+/// Used by the [`ResolvedEmailSettings`] factory and by the inline
+/// helper tests covering `apply_email_env_overrides`.
+fn resolved_email_settings() -> Result<EmailSettings, String> {
 	let settings = crate::config::settings::get_settings();
 	apply_email_env_overrides(settings.email.clone())
 }
@@ -108,18 +102,6 @@ fn build_smtp_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, St
 
 	let backend = SmtpBackend::new(config).map_err(|e| format!("SMTP backend error: {e}"))?;
 	Ok(Box::new(backend))
-}
-
-/// Build an SMTP email backend from the resolved `EmailSettings`.
-///
-/// `REINHARDT_EMAIL__*` env vars override the TOML-loaded values; see
-/// [`resolved_email_settings`] for the full list of supported keys.
-///
-/// Retained as a thin adapter while callers migrate to resolving
-/// [`EmailService`] via DI (kent8192/reinhardt-cloud#599).
-pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
-	let email = resolved_email_settings()?;
-	build_smtp_backend(&email)
 }
 
 /// Resolved email settings captured at DI resolution time.
@@ -247,90 +229,6 @@ impl EmailService {
 			.await
 			.map_err(|e| format!("Failed to send reset email: {e}"))
 	}
-}
-
-/// Send a verification email to a newly registered user.
-///
-/// Retained as a thin adapter while callers migrate to
-/// [`EmailService::send_verification_email`].
-pub async fn send_verification_email(
-	to_email: &str,
-	username: &str,
-	verification_url: &str,
-	backend: &dyn EmailBackend,
-	from_email: &str,
-) -> Result<(), String> {
-	let mut ctx = TemplateContext::new();
-	ctx.insert("username".to_string(), username.into());
-	ctx.insert("verification_url".to_string(), verification_url.into());
-
-	let email = TemplateEmailBuilder::new()
-		.from(from_email)
-		.to(vec![to_email.to_string()])
-		.subject_template("Verify your email address")
-		.body_template(
-			"Hi {{username}},\n\n\
-			 Please verify your email address by visiting the following URL:\n\n\
-			 {{verification_url}}\n\n\
-			 This link will expire in 24 hours.\n\n\
-			 If you did not create an account, you can safely ignore this email.",
-		)
-		.html_template(
-			"<h2>Welcome, {{username}}!</h2>\
-			 <p>Please verify your email address by clicking the link below:</p>\
-			 <p><a href=\"{{verification_url}}\">Verify Email</a></p>\
-			 <p>This link will expire in 24 hours.</p>\
-			 <p>If you did not create an account, you can safely ignore this email.</p>",
-		)
-		.context(ctx)
-		.build()
-		.map_err(|e| format!("Failed to build verification email: {e}"))?;
-
-	email
-		.send(backend)
-		.await
-		.map_err(|e| format!("Failed to send verification email: {e}"))
-}
-
-/// Send a password reset email.
-///
-/// Retained as a thin adapter while callers migrate to
-/// [`EmailService::send_password_reset_email`].
-pub async fn send_password_reset_email(
-	to_email: &str,
-	reset_url: &str,
-	backend: &dyn EmailBackend,
-	from_email: &str,
-) -> Result<(), String> {
-	let mut ctx = TemplateContext::new();
-	ctx.insert("reset_url".to_string(), reset_url.into());
-
-	let email = TemplateEmailBuilder::new()
-		.from(from_email)
-		.to(vec![to_email.to_string()])
-		.subject_template("Reset your password")
-		.body_template(
-			"You requested a password reset.\n\n\
-			 Please visit the following URL to set a new password:\n\n\
-			 {{reset_url}}\n\n\
-			 This link will expire in 1 hour.\n\n\
-			 If you did not request a password reset, you can safely ignore this email.",
-		)
-		.html_template(
-			"<h2>Password Reset</h2>\
-			 <p>You requested a password reset. Click the link below to set a new password:</p>\
-			 <p><a href=\"{{reset_url}}\">Reset Password</a></p>\
-			 <p>This link will expire in 1 hour.</p>\
-			 <p>If you did not request a password reset, you can safely ignore this email.</p>",
-		)
-		.context(ctx)
-		.build()
-		.map_err(|e| format!("Failed to build reset email: {e}"))?;
-
-	email
-		.send(backend)
-		.await
-		.map_err(|e| format!("Failed to send reset email: {e}"))
 }
 
 #[cfg(test)]

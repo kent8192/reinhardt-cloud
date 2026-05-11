@@ -5,9 +5,7 @@
 //!   * an `InMemoryStateStore` for OAuth `state` and PKCE verifiers.
 //!
 //! Exposes [`OAuthBackendBox`] (newtype around `Option<Arc<SocialAuthBackend>>`)
-//! resolved via `#[injectable_factory]`, plus the legacy
-//! [`build_social_auth_backend`] adapter retained during the
-//! kent8192/reinhardt-cloud#599 caller migration.
+//! resolved via `#[injectable_factory]`.
 //!
 //! ## State-store choice
 //!
@@ -88,23 +86,6 @@ async fn create_oauth_backend(#[inject] settings: Depends<OAuthSettings>) -> OAu
 			.await
 			.expect("Failed to construct SocialAuthBackend: check OAuth provider configuration"),
 	)
-}
-
-/// Build a fully wired `SocialAuthBackend` from settings.
-///
-/// Returns `Ok(None)` if no providers are configured — callers can use this
-/// to short-circuit endpoint registration when the feature is effectively
-/// disabled.
-///
-/// Retained as a thin adapter while callers migrate to resolving
-/// [`OAuthBackendBox`] via DI (kent8192/reinhardt-cloud#599). Note that
-/// each call to this adapter constructs a fresh `InMemoryStateStore`
-/// and so does NOT share state with the DI-resolved backend; do not
-/// mix the two in the same flow.
-pub async fn build_social_auth_backend(
-	settings: &OAuthSettings,
-) -> Result<Option<Arc<SocialAuthBackend>>, SocialAuthError> {
-	assemble_social_auth_backend(settings).await
 }
 
 async fn assemble_social_auth_backend(

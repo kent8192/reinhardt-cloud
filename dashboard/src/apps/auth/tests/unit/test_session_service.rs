@@ -1,22 +1,23 @@
 //! Tests for session service module structure.
 //!
-//! The session service functions (`create_session`, `destroy_session`,
-//! `validate_session`) require a running Redis instance and are tested
-//! in integration tests. These unit tests verify module-level invariants
-//! that don't require external services.
+//! The full session lifecycle (`SessionService::create_session`,
+//! `destroy_session`, `validate_session`) requires a running Redis
+//! instance and is covered by integration tests. These unit tests
+//! verify module-level invariants that don't require external services.
 
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
 
-	/// The session service re-exports are accessible from the services module.
+	/// The session service public API is accessible from the services module.
 	#[rstest]
 	fn test_session_service_exports_are_accessible() {
 		// Verify that the public API of the session service module is importable.
-		// The functions are async and require Redis; we verify they exist as symbols
-		// by referencing them without calling.
-		let _create = crate::apps::auth::services::create_session;
+		// `SessionService` is resolved via the DI factory at runtime; here we only
+		// check that the type and the remaining free-function adapter
+		// (`validate_session`, used by the WebSocket consumer) are reachable as
+		// symbols.
+		let _service: fn(_) -> _ = crate::apps::auth::services::session::SessionService::from_backend;
 		let _validate = crate::apps::auth::services::validate_session;
-		let _destroy = crate::apps::auth::services::destroy_session;
 	}
 }
