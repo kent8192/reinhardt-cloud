@@ -61,9 +61,7 @@ pub struct AgentTokenService {
 /// DI factory — `transient` because the service is cheap to clone and
 /// may be resolved per request without contention.
 #[injectable_factory(scope = "transient")]
-async fn create_agent_token_service(
-	#[inject] jwt_secret: Depends<JwtSecret>,
-) -> AgentTokenService {
+async fn create_agent_token_service(#[inject] jwt_secret: Depends<JwtSecret>) -> AgentTokenService {
 	AgentTokenService {
 		jwt_secret: jwt_secret.0.clone(),
 	}

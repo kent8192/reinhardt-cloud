@@ -17,7 +17,8 @@ mod tests {
 		// check that the type and the remaining free-function adapter
 		// (`validate_session`, used by the WebSocket consumer) are reachable as
 		// symbols.
-		let _service: fn(_) -> _ = crate::apps::auth::services::session::SessionService::from_backend;
+		let _service: fn(_) -> _ =
+			crate::apps::auth::services::session::SessionService::from_backend;
 		let _validate = crate::apps::auth::services::validate_session;
 	}
 }

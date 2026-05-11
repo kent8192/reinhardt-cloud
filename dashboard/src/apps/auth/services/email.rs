@@ -137,9 +137,7 @@ pub struct EmailService {
 /// DI factory — `singleton` because the SMTP transport pool is reusable
 /// across requests and connection setup is expensive.
 #[injectable_factory(scope = "singleton")]
-async fn create_email_service(
-	#[inject] settings: Depends<ResolvedEmailSettings>,
-) -> EmailService {
+async fn create_email_service(#[inject] settings: Depends<ResolvedEmailSettings>) -> EmailService {
 	let backend = build_smtp_backend(&settings.0)
 		.expect("Failed to build SMTP email backend: check REINHARDT_EMAIL__* env vars");
 	EmailService {
