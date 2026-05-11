@@ -1,4 +1,11 @@
 //! Credential verification service.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! this module is a pure ORM helper. It neither reads global settings
+//! nor environment variables, so wrapping it in a DI service would add
+//! ceremony without removing any global-state coupling. All inputs are
+//! function parameters, and the only collaborator (`User::objects()`)
+//! is itself a framework-managed ORM entry point already.
 
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;

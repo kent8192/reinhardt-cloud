@@ -2,6 +2,14 @@
 //!
 //! Tokens are signed with the application's `secret_key` using HMAC-SHA256.
 //! No database table is needed — verification is purely computational.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! every function in this module is a pure cryptographic primitive that
+//! takes its `secret_key` as an explicit parameter. There is no global
+//! settings access and no environment-variable read, so the
+//! ergonomic benefit of DI does not apply. Callers that need the
+//! secret key resolve it from settings (or, in the future, from a
+//! DI-resolved newtype) and pass it in.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;

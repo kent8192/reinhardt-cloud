@@ -4,6 +4,12 @@
 //! social-auth machinery: a database-backed `SocialAccountStorage` impl,
 //! and (in later phases) provider configuration, error mapping, and
 //! account-linking semantics.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! this file is a `pub mod` aggregator with no logic of its own. The
+//! DI-backed surfaces live in the submodules themselves
+//! (`config::OAuthSettings`, `backend::OAuthBackendBox`); the
+//! aggregator merely re-exports.
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backend;
