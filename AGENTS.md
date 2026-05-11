@@ -154,7 +154,7 @@ See instructions/DOCUMENTATION_STANDARDS.md for comprehensive documentation stan
 
 **Autonomous Operation Policy (Reinhardt Family):**
 
-This is an explicit, named exception to "NEVER commit/push without explicit user instruction" (Commit Policy above) and to the "Authorization = explicit user instruction OR Plan Mode approval" requirement in the GitHub Comments policy.
+This is an explicit, named exception to "NEVER commit/push without explicit user instruction" in the Commit Policy above. Comment-posting authorization (`instructions/GITHUB_INTERACTION.md` PP-1) is unchanged — see "Still Requires Explicit User Authorization" below.
 
 Scope (applies only when the working directory is inside one of these four repositories):
 
@@ -184,7 +184,9 @@ Still Requires Explicit User Authorization (no autonomy):
 - `git push --force`, `--force-with-lease`, or any other history-rewriting push
 - `git rebase`, `git reset --hard`, `git branch -D`, deleting tags, or any other history-destructive operation
 - Closing, merging, or deleting PRs
-- Closing or deleting Issues, comments, or review threads
+- Closing or deleting Issues
+- Deleting or hiding comments (on PRs, Issues, or commits)
+- Resolving or unresolving review threads
 - Creating release tags or any PR carrying the `release` label
 - Posting comments / replies / reviews on PRs/Issues — the comment-posting authorization model in `instructions/GITHUB_INTERACTION.md` PP-1 is unchanged; the autonomous policy covers only the **creation** of commits, pushes, Draft PRs, and Issues, not commenting
 
