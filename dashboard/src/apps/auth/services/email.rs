@@ -86,8 +86,9 @@ fn select_smtp_security(email: &EmailSettings) -> SmtpSecurity {
 
 /// Construct an SMTP backend from a resolved `EmailSettings` snapshot.
 ///
-/// Shared between the DI factory and the legacy [`get_email_backend`]
-/// adapter so the construction logic stays in one place.
+/// Extracted from the [`EmailService`] DI factory so the security-mode
+/// selection and timeout/credential plumbing stay in one place even as
+/// the factory grows.
 fn build_smtp_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, String> {
 	let mut config =
 		SmtpConfig::new(&email.host, email.port).with_security(select_smtp_security(email));
