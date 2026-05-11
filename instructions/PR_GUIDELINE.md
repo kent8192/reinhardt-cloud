@@ -24,6 +24,7 @@ This file defines the pull request (PR) policy for the Reinhardt Cloud project. 
 - **MUST** prefer GitHub MCP tools (`create_pull_request`) for creating pull requests when available
 - **Fallback**: Use GitHub CLI (`gh pr create`) when GitHub MCP is not available
 - **NEVER** use web browser UI for PR creation when MCP or CLI is available
+- **Autonomy (Reinhardt family)**: Creating a **Draft** PR is authorized without further user confirmation in `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc` (see Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md`); the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed. Marking a PR as Ready for Review is also authorized autonomously once the implementation is complete (CI completion is **not** required).
 
 The following diagram summarizes the PR creation flow:
 
@@ -90,12 +91,15 @@ chore/ci-update-kubernetes-version
 ### PC-4 (SHOULD): Draft PRs for Work in Progress
 
 - Use draft PRs for incomplete work
-- Convert to ready for review when all tests pass
+- Convert to Ready for Review **once the implementation is complete** — CI completion is **not** a prerequisite (the Reinhardt-family Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` overrides any "wait for all tests to pass" criterion for the Draft→Ready transition)
 - Draft PRs allow early feedback without formal review requests
 
 **Example:**
 ```bash
 gh pr create --draft --title "feat(crd): add ReinhardtApp CRD (WIP)"
+
+# Convert to Ready once implementation is complete (no need to wait for CI):
+gh pr ready <number>
 ```
 
 ### PC-5 (MUST): PR Labels
