@@ -8,6 +8,7 @@ use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, post};
 use tracing::error;
@@ -15,7 +16,7 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::RotateTokenResponse;
-use crate::apps::clusters::services::token_issuance;
+use crate::apps::clusters::services::token_issuance::AgentTokenService;
 use crate::apps::clusters::views::create_cluster::cluster_id_from_pk;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
@@ -29,6 +30,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 pub async fn rotate_token(
 	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
+	#[inject] agent_token_service: Depends<AgentTokenService>,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
@@ -56,7 +58,7 @@ pub async fn rotate_token(
 		.ok_or_else(|| AppError::NotFound(format!("Cluster with id {cluster_id} not found")))?;
 
 	let cluster_uuid = cluster_id_from_pk(cluster.id)?;
-	let issued = token_issuance::issue_agent_token(cluster_uuid)?;
+	let issued = agent_token_service.issue(cluster_uuid)?;
 	let now = chrono::Utc::now();
 
 	cluster.token_hash = Some(issued.hash);

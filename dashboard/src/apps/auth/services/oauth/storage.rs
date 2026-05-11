@@ -15,6 +15,15 @@
 //! safe defaults (empty strings / `Vec::new()` / `None`) so that callers
 //! that round-trip through `update()` cannot accidentally observe a token
 //! value loaded from the database.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! `OrmSocialAccountStorage` is already a stateless unit struct that
+//! reads no global settings or environment variables. Construction is
+//! a single `OrmSocialAccountStorage::new()` call; adding a DI factory
+//! around it would be pure ceremony with no observable benefit. If a
+//! future refactor wants to inject this through `Depends<...>` to
+//! decouple the OAuth view from the concrete storage type, the factory
+//! can be added at that point without changing the type's surface.
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};

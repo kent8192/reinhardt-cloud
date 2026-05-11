@@ -7,6 +7,7 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, post};
 use tracing::error;
@@ -14,7 +15,7 @@ use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::serializers::{CreateClusterRequest, CreateClusterResponse};
-use crate::apps::clusters::services::token_issuance;
+use crate::apps::clusters::services::token_issuance::AgentTokenService;
 use crate::apps::organizations::permissions::{Action, require_permission_for_org};
 
 /// Create a new cluster (authentication required).
@@ -27,6 +28,7 @@ pub async fn create_cluster(
 	Path(org_slug): Path<String>,
 	Json(body): Json<CreateClusterRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
+	#[inject] agent_token_service: Depends<AgentTokenService>,
 ) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
@@ -66,7 +68,7 @@ pub async fn create_cluster(
 
 	// Derive a stable cluster_id from the inserted row's primary key.
 	let cluster_uuid = cluster_id_from_pk(created.id)?;
-	let issued = token_issuance::issue_agent_token(cluster_uuid)?;
+	let issued = agent_token_service.issue(cluster_uuid)?;
 
 	// Persist the hash + rotation timestamp.
 	created.token_hash = Some(issued.hash);

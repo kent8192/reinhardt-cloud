@@ -1,6 +1,12 @@
 //! Email sending service for auth flows (verification and password reset).
+//!
+//! Provides [`EmailService`] resolved via `#[injectable_factory]`,
+//! capturing the SMTP backend and `from_email` once at factory time.
+
+use std::sync::Arc;
 
 use reinhardt::conf::EmailSettings;
+use reinhardt::di::{Depends, injectable_factory};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
 use reinhardt::mail::{EmailBackend, SmtpBackend, SmtpConfig, SmtpSecurity};
 
@@ -55,10 +61,9 @@ fn apply_email_env_overrides(mut email: EmailSettings) -> Result<EmailSettings, 
 /// Resolve the active `EmailSettings`, layering `REINHARDT_EMAIL__*` env
 /// var overrides on top of TOML-loaded settings.
 ///
-/// Use this from any call site that needs an email-related field
-/// (`from_email`, host, port, etc.) so the env-var override path is honored
-/// consistently across the codebase.
-pub fn resolved_email_settings() -> Result<EmailSettings, String> {
+/// Used by the [`ResolvedEmailSettings`] factory and by the inline
+/// helper tests covering `apply_email_env_overrides`.
+fn resolved_email_settings() -> Result<EmailSettings, String> {
 	let settings = crate::config::settings::get_settings();
 	apply_email_env_overrides(settings.email.clone())
 }
@@ -79,15 +84,14 @@ fn select_smtp_security(email: &EmailSettings) -> SmtpSecurity {
 	}
 }
 
-/// Build an SMTP email backend from the resolved `EmailSettings`.
+/// Construct an SMTP backend from a resolved `EmailSettings` snapshot.
 ///
-/// `REINHARDT_EMAIL__*` env vars override the TOML-loaded values; see
-/// [`resolved_email_settings`] for the full list of supported keys.
-pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
-	let email = resolved_email_settings()?;
-
+/// Extracted from the [`EmailService`] DI factory so the security-mode
+/// selection and timeout/credential plumbing stay in one place even as
+/// the factory grows.
+fn build_smtp_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, String> {
 	let mut config =
-		SmtpConfig::new(&email.host, email.port).with_security(select_smtp_security(&email));
+		SmtpConfig::new(&email.host, email.port).with_security(select_smtp_security(email));
 
 	if let (Some(username), Some(password)) = (&email.username, &email.password) {
 		config = config.with_credentials(username.clone(), password.clone());
@@ -101,87 +105,135 @@ pub fn get_email_backend() -> Result<Box<dyn EmailBackend>, String> {
 	Ok(Box::new(backend))
 }
 
-/// Send a verification email to a newly registered user.
-pub async fn send_verification_email(
-	to_email: &str,
-	username: &str,
-	verification_url: &str,
-	backend: &dyn EmailBackend,
-	from_email: &str,
-) -> Result<(), String> {
-	let mut ctx = TemplateContext::new();
-	ctx.insert("username".to_string(), username.into());
-	ctx.insert("verification_url".to_string(), verification_url.into());
+/// Resolved email settings captured at DI resolution time.
+///
+/// Wrapper newtype to satisfy the DI pseudo-orphan rule
+/// (kent8192/reinhardt-web#3468) — `EmailSettings` lives in the
+/// framework crate and cannot be registered directly. Singleton-scoped
+/// so settings + env-var overrides are read once at first resolve.
+pub struct ResolvedEmailSettings(pub EmailSettings);
 
-	let email = TemplateEmailBuilder::new()
-		.from(from_email)
-		.to(vec![to_email.to_string()])
-		.subject_template("Verify your email address")
-		.body_template(
-			"Hi {{username}},\n\n\
-			 Please verify your email address by visiting the following URL:\n\n\
-			 {{verification_url}}\n\n\
-			 This link will expire in 24 hours.\n\n\
-			 If you did not create an account, you can safely ignore this email.",
-		)
-		.html_template(
-			"<h2>Welcome, {{username}}!</h2>\
-			 <p>Please verify your email address by clicking the link below:</p>\
-			 <p><a href=\"{{verification_url}}\">Verify Email</a></p>\
-			 <p>This link will expire in 24 hours.</p>\
-			 <p>If you did not create an account, you can safely ignore this email.</p>",
-		)
-		.context(ctx)
-		.build()
-		.map_err(|e| format!("Failed to build verification email: {e}"))?;
-
-	email
-		.send(backend)
-		.await
-		.map_err(|e| format!("Failed to send verification email: {e}"))
+/// DI factory — resolves `EmailSettings` once, applying the
+/// `REINHARDT_EMAIL__*` env-var overrides on top of the active TOML
+/// profile. Panics on env-var parse errors, which are treated as
+/// deploy-time configuration errors rather than recoverable faults.
+#[injectable_factory(scope = "singleton")]
+async fn create_resolved_email_settings() -> ResolvedEmailSettings {
+	ResolvedEmailSettings(
+		resolved_email_settings()
+			.expect("Failed to resolve email settings: check REINHARDT_EMAIL__* env vars"),
+	)
 }
 
-/// Send a password reset email.
-pub async fn send_password_reset_email(
-	to_email: &str,
-	reset_url: &str,
-	backend: &dyn EmailBackend,
-	from_email: &str,
-) -> Result<(), String> {
-	let mut ctx = TemplateContext::new();
-	ctx.insert("reset_url".to_string(), reset_url.into());
+/// Email lifecycle service backed by an SMTP transport.
+///
+/// Constructs the SMTP backend once at factory time and shares it across
+/// all requests; individual `send_*` calls reuse the same connection
+/// pool instead of re-resolving settings on every call.
+pub struct EmailService {
+	backend: Arc<dyn EmailBackend>,
+	from_email: String,
+}
 
-	let email = TemplateEmailBuilder::new()
-		.from(from_email)
-		.to(vec![to_email.to_string()])
-		.subject_template("Reset your password")
-		.body_template(
-			"You requested a password reset.\n\n\
-			 Please visit the following URL to set a new password:\n\n\
-			 {{reset_url}}\n\n\
-			 This link will expire in 1 hour.\n\n\
-			 If you did not request a password reset, you can safely ignore this email.",
-		)
-		.html_template(
-			"<h2>Password Reset</h2>\
-			 <p>You requested a password reset. Click the link below to set a new password:</p>\
-			 <p><a href=\"{{reset_url}}\">Reset Password</a></p>\
-			 <p>This link will expire in 1 hour.</p>\
-			 <p>If you did not request a password reset, you can safely ignore this email.</p>",
-		)
-		.context(ctx)
-		.build()
-		.map_err(|e| format!("Failed to build reset email: {e}"))?;
+/// DI factory — `singleton` because the SMTP transport pool is reusable
+/// across requests and connection setup is expensive.
+#[injectable_factory(scope = "singleton")]
+async fn create_email_service(#[inject] settings: Depends<ResolvedEmailSettings>) -> EmailService {
+	let backend = build_smtp_backend(&settings.0)
+		.expect("Failed to build SMTP email backend: check REINHARDT_EMAIL__* env vars");
+	EmailService {
+		backend: Arc::from(backend),
+		from_email: settings.0.from_email.clone(),
+	}
+}
 
-	email
-		.send(backend)
-		.await
-		.map_err(|e| format!("Failed to send reset email: {e}"))
+impl EmailService {
+	/// Outbound `From:` address captured at factory time.
+	pub fn from_email(&self) -> &str {
+		&self.from_email
+	}
+
+	/// Send a verification email to a newly registered user.
+	pub async fn send_verification_email(
+		&self,
+		to_email: &str,
+		username: &str,
+		verification_url: &str,
+	) -> Result<(), String> {
+		let mut ctx = TemplateContext::new();
+		ctx.insert("username".to_string(), username.into());
+		ctx.insert("verification_url".to_string(), verification_url.into());
+
+		let email = TemplateEmailBuilder::new()
+			.from(&self.from_email)
+			.to(vec![to_email.to_string()])
+			.subject_template("Verify your email address")
+			.body_template(
+				"Hi {{username}},\n\n\
+				 Please verify your email address by visiting the following URL:\n\n\
+				 {{verification_url}}\n\n\
+				 This link will expire in 24 hours.\n\n\
+				 If you did not create an account, you can safely ignore this email.",
+			)
+			.html_template(
+				"<h2>Welcome, {{username}}!</h2>\
+				 <p>Please verify your email address by clicking the link below:</p>\
+				 <p><a href=\"{{verification_url}}\">Verify Email</a></p>\
+				 <p>This link will expire in 24 hours.</p>\
+				 <p>If you did not create an account, you can safely ignore this email.</p>",
+			)
+			.context(ctx)
+			.build()
+			.map_err(|e| format!("Failed to build verification email: {e}"))?;
+
+		email
+			.send(self.backend.as_ref())
+			.await
+			.map_err(|e| format!("Failed to send verification email: {e}"))
+	}
+
+	/// Send a password reset email.
+	pub async fn send_password_reset_email(
+		&self,
+		to_email: &str,
+		reset_url: &str,
+	) -> Result<(), String> {
+		let mut ctx = TemplateContext::new();
+		ctx.insert("reset_url".to_string(), reset_url.into());
+
+		let email = TemplateEmailBuilder::new()
+			.from(&self.from_email)
+			.to(vec![to_email.to_string()])
+			.subject_template("Reset your password")
+			.body_template(
+				"You requested a password reset.\n\n\
+				 Please visit the following URL to set a new password:\n\n\
+				 {{reset_url}}\n\n\
+				 This link will expire in 1 hour.\n\n\
+				 If you did not request a password reset, you can safely ignore this email.",
+			)
+			.html_template(
+				"<h2>Password Reset</h2>\
+				 <p>You requested a password reset. Click the link below to set a new password:</p>\
+				 <p><a href=\"{{reset_url}}\">Reset Password</a></p>\
+				 <p>This link will expire in 1 hour.</p>\
+				 <p>If you did not request a password reset, you can safely ignore this email.</p>",
+			)
+			.context(ctx)
+			.build()
+			.map_err(|e| format!("Failed to build reset email: {e}"))?;
+
+		email
+			.send(self.backend.as_ref())
+			.await
+			.map_err(|e| format!("Failed to send reset email: {e}"))
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::config::test_helpers::make_test_di_context;
 	use rstest::rstest;
 	use serial_test::serial;
 
@@ -233,6 +285,33 @@ mod tests {
 				}
 			}
 		}
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_email_service_factory_resolves_with_overridden_settings() {
+		// Arrange — override ResolvedEmailSettings so the factory wires
+		// the hand-built dependency. SmtpBackend::new only validates the
+		// configuration; it does not open a TCP connection until a send
+		// is attempted, so this works without a live SMTP server.
+		let mut email = EmailSettings::default();
+		email.host = "smtp.test.invalid".to_string();
+		email.port = 2525;
+		email.from_email = "test@example.test".to_string();
+		let ctx = make_test_di_context(|scope| {
+			scope.set(ResolvedEmailSettings(email));
+		});
+
+		// Act
+		let svc: Arc<EmailService> = ctx
+			.resolve::<EmailService>()
+			.await
+			.expect("EmailService factory should resolve when settings are registered");
+
+		// Assert — factory wired from_email through and the backend
+		// is constructible (full round-trip is exercised by integration
+		// tests against a live SMTP container).
+		assert_eq!(svc.from_email(), "test@example.test");
 	}
 
 	#[rstest]

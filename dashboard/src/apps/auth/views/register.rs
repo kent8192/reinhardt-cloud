@@ -6,6 +6,7 @@
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{BaseUser, Json, Response, StatusCode};
@@ -13,9 +14,7 @@ use tracing::{error, info};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::RegisterRequest;
-use crate::apps::auth::services::email::{
-	get_email_backend, resolved_email_settings, send_verification_email,
-};
+use crate::apps::auth::services::email::EmailService;
 use crate::apps::auth::services::registration::provision_personal_organization;
 use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 use crate::shared::AuthResponse;
@@ -25,15 +24,12 @@ use crate::shared::AuthResponse;
 /// Creates the user as inactive (`is_active = false`) and sends a
 /// verification email. No session is created until the email is verified.
 #[post("/register/", name = "register", pre_validate = true)]
-pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
+pub async fn register(
+	Json(body): Json<RegisterRequest>,
+	#[inject] email_service: Depends<EmailService>,
+) -> ViewResult<Response> {
 	let settings = crate::config::settings::get_settings();
 	let secret_key = settings.core.secret_key.clone();
-	let from_email = resolved_email_settings()
-		.map_err(|e| {
-			error!("Failed to resolve email settings: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?
-		.from_email;
 
 	// Create user as inactive — requires email verification to activate
 	let mut user = User::new(
@@ -92,19 +88,9 @@ pub async fn register(body: Json<RegisterRequest>) -> ViewResult<Response> {
 		.unwrap_or_else(|_| format!("http://localhost:{port}"));
 	let verification_url = format!("{base_url}/api/auth/verify-email/{token}/");
 
-	let backend = get_email_backend().map_err(|e| {
-		error!("Failed to create email backend: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-
-	if let Err(e) = send_verification_email(
-		&created.email,
-		&created.username,
-		&verification_url,
-		backend.as_ref(),
-		&from_email,
-	)
-	.await
+	if let Err(e) = email_service
+		.send_verification_email(&created.email, &created.username, &verification_url)
+		.await
 	{
 		error!(
 			"Failed to send verification email to {}: {e}",

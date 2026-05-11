@@ -7,6 +7,15 @@
 //! (Cluster, Deployment, …) can resolve via `current_organization_id_for_user`.
 //!
 //! Refs #415, #435.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! this module is a pure ORM-driven workflow. It does not read global
+//! settings or environment variables; all inputs are function parameters
+//! (`User` row, slug derivation rules). The framework-managed
+//! `Organization::objects()` / `OrganizationMembership::objects()` ORM
+//! entry points already encapsulate persistence, so wrapping the
+//! function in a DI service would add a layer without removing any
+//! global-state coupling.
 
 use chrono::Utc;
 use reinhardt::core::exception::Error as AppError;

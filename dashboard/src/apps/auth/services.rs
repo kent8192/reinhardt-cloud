@@ -14,4 +14,4 @@ pub mod token;
 pub use credentials::verify_credentials;
 pub use local_auth::LocalAuthService;
 pub use mailer::{EmailSender, LettreSmtpSender, MailerError, NullEmailSender};
-pub use session::{create_session, destroy_session, validate_session};
+pub use session::validate_session;

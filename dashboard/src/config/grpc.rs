@@ -6,6 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use reinhardt::di::{ContextLevel, get_di_context};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
@@ -18,7 +19,7 @@ use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServ
 use tonic::transport::Server;
 use tracing::info;
 
-use crate::apps::clusters::services::token_issuance::jwt_secret;
+use crate::apps::clusters::services::token_issuance::JwtSecret;
 
 /// Mark a gRPC service as SERVING in the health reporter.
 ///
@@ -44,8 +45,12 @@ pub async fn start_grpc_server(
 	// Resolve the JWT secret once at startup so a missing
 	// `REINHARDT_CLOUD_JWT_SECRET` fails fast instead of letting
 	// agents connect to an unauthenticated server.
-	let secret = jwt_secret().expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
-	let agent_interceptor = AgentJwtInterceptor::new(secret.as_bytes());
+	let di_ctx = get_di_context(ContextLevel::Root);
+	let jwt_secret = di_ctx
+		.resolve::<JwtSecret>()
+		.await
+		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
+	let agent_interceptor = AgentJwtInterceptor::new(jwt_secret.0.as_bytes());
 
 	let (mut health_reporter, health_service) = health::create_health_service();
 

@@ -16,6 +16,9 @@ pub async fn login(
 	password: String,
 	csrf_token: String,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] session_service: reinhardt::di::Depends<
+		crate::apps::auth::services::session::SessionService,
+	>,
 ) -> Result<AuthResponse, ServerFnError> {
 	#[cfg(native)]
 	{
@@ -41,7 +44,7 @@ pub async fn login(
 				ServerFnError::application("Invalid credentials")
 			})?;
 
-		let session_id = services::create_session(&user).await.map_err(|err| {
+		let session_id = session_service.create_session(&user).await.map_err(|err| {
 			error!("Failed to create session: {err}");
 			ServerFnError::application("Internal server error")
 		})?;
@@ -67,7 +70,13 @@ pub async fn login(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = (username, password, csrf_token, http_request);
+		let _ = (
+			username,
+			password,
+			csrf_token,
+			http_request,
+			session_service,
+		);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

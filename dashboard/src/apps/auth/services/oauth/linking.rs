@@ -17,6 +17,16 @@
 //! verification state) is treated the same as `Some(false)` — strictly
 //! safer, since it forbids automatically merging into an existing local
 //! account that the OAuth user might not actually own.
+//!
+//! No `#[injectable_factory]` conversion (kent8192/reinhardt-cloud#599):
+//! `link_or_create_user` is a pure ORM-driven decision tree. All inputs
+//! (`storage`, `provider`, `claims`, `current_user`) arrive as function
+//! parameters; nothing is read from global settings or env vars. The
+//! `SocialAccountStorage` trait object is supplied by the caller, which
+//! is where DI happens (today the caller hand-constructs
+//! `OrmSocialAccountStorage::new()` per request). A future refactor
+//! could elevate the storage to a DI-resolved service, but that change
+//! lives in `services::oauth::storage`, not here.
 
 use chrono::Utc;
 use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
