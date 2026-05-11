@@ -1,5 +1,6 @@
 //! Shared types and errors for WASM client and server communication.
 
+pub mod client;
 pub mod errors;
 pub mod types;
 pub mod ws_messages;

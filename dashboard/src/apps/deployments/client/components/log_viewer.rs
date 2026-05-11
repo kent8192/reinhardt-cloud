@@ -13,7 +13,7 @@ use reinhardt::pages::page;
 use crate::shared::ws_messages::{AppLogPayload, BuildLogPayload};
 
 #[cfg(wasm)]
-use crate::client::components::toast::html_escape;
+use crate::shared::client::components::toast::html_escape;
 
 /// Maximum number of log lines retained in the DOM buffer.
 #[cfg(any(wasm, test))]

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 ## Purpose
 
@@ -127,12 +127,12 @@ See instructions/TESTING_STANDARDS.md for comprehensive testing standards includ
 
 See instructions/DOCUMENTATION_STANDARDS.md for comprehensive documentation standards.
 
-**CLAUDE.md ↔ AGENTS.md Sync Policy:**
-- `CLAUDE.md` (Claude Code) and `AGENTS.md` (Codex) are deliberate mirror copies kept in sync
+**AGENTS.md ↔ CLAUDE.md Sync Policy:**
+- `AGENTS.md` (Codex) and `CLAUDE.md` (Claude Code) are deliberate mirror copies kept in sync
 - The two files MUST differ only on a small set of mechanical substitutions:
-  - `CLAUDE.md` ↔ `AGENTS.md` (title, references)
-  - `CLAUDE.local.md` ↔ `AGENTS.local.md`
-  - `Claude Code attribution` ↔ `Codex attribution`
+  - `AGENTS.md` ↔ `CLAUDE.md` (title, references)
+  - `AGENTS.local.md` ↔ `CLAUDE.local.md`
+  - `Codex attribution` ↔ `Claude Code attribution`
 - **MUST**: Any edit to one file MUST be mirrored into the other in the same commit
 - **MUST**: After editing, run `diff CLAUDE.md AGENTS.md` and confirm only the documented substitutions remain
 - **NEVER**: Commit a change that touches only one of the two files
@@ -194,7 +194,7 @@ Unchanged Quality Guardrails (apply equally to autonomous operations):
 
 - PR title and body MUST follow Conventional Commits and `.github/PULL_REQUEST_TEMPLATE.md`
 - Issue body MUST follow `.github/ISSUE_TEMPLATE/*.yml`
-- Branch naming, commit message format, Claude Code attribution footer, English-only policy, and all other rules in this document remain in force
+- Branch naming, commit message format, Codex attribution footer, English-only policy, and all other rules in this document remain in force
 
 **Branch Operations:**
 - When merging branches and resolving conflicts, execute immediately without entering Plan Mode
@@ -229,7 +229,7 @@ Unchanged Quality Guardrails (apply equally to autonomous operations):
 - **NEVER** post comments on PRs or Issues without authorization
 - Authorization = explicit user instruction OR Plan Mode approval
 - Self-initiated comments MUST be previewed and approved by user before posting
-- ALL comments MUST be in English and include Claude Code attribution footer
+- ALL comments MUST be in English and include Codex attribution footer
 - Comments MUST reference specific code locations with repository-relative paths
 - Comments MUST NOT contain user requests, AI interactions, or absolute local paths
 - **Reinhardt family scope note**: The Autonomous Operation Policy authorizes *creation* of Draft PRs and Issues without further confirmation in the four Reinhardt-family repos, but *commenting* on PRs/Issues remains fully subject to the rules above
@@ -510,7 +510,7 @@ Before submitting code:
 
 ## Additional Instructions
 
-@CLAUDE.local.md - Project-specific local preferences
+@AGENTS.local.md - Project-specific local preferences
 
 ---
 
@@ -525,7 +525,7 @@ Before submitting code:
 - Wait for explicit user instruction before commits (except where the Autonomous Operation Policy applies)
 - Understand that Plan Mode approval authorizes both implementation and commits
 - Treat the Autonomous Operation Policy (Reinhardt family) as a standing exception that allows commit and push on any non-protected branch (anything other than `main`/`master`/`develop/*`/`release/*`), Draft PR creation, Draft→Ready conversion (implementation-complete only — no CI requirement), and Issue creation without further confirmation
-- When editing `CLAUDE.md` or `AGENTS.md`, mirror the change into the other file in the same commit (CLAUDE.md ↔ AGENTS.md sync policy)
+- When editing `AGENTS.md` or `CLAUDE.md`, mirror the change into the other file in the same commit (AGENTS.md ↔ CLAUDE.md sync policy)
 - Mark placeholders with `todo!()` or `// TODO:`
 - Use `#[serial(group_name)]` for global state tests
 - Split commits by specific intent, not features
@@ -557,7 +557,7 @@ Before submitting code:
 - Use Mermaid diagrams (via `aquamarine`) for architecture documentation instead of ASCII art
 - Resolve all `todo!()` and `// TODO:` before merging PR (enforced by TODO Check CI)
 - Preview and get user confirmation before posting self-initiated GitHub comments
-- Include Claude Code attribution footer on all GitHub comments
+- Include Codex attribution footer on all GitHub comments
 - Use repository-relative paths (not absolute) in GitHub comments
 - Provide structured agent context using AC-2 template format
 - Fall back to `gh` CLI when GitHub MCP tools return errors
@@ -588,7 +588,7 @@ Before submitting code:
 - Force-push, rebase-and-push, or otherwise rewrite history without explicit user authorization (the Autonomous Operation Policy does NOT cover history-rewriting pushes)
 - Close, merge, or delete PRs / Issues / comments without explicit user authorization (autonomy covers creation only, not destruction)
 - Create release tags or any PR with the `release` label without explicit user authorization
-- Commit a change that touches only `CLAUDE.md` without mirroring it into `AGENTS.md` (and vice versa)
+- Commit a change that touches only `AGENTS.md` without mirroring it into `CLAUDE.md` (and vice versa)
 - Leave docs outdated after code changes
 - Document user requests or AI interactions in project documentation
 - Save files to project directory (use `/tmp`)
@@ -627,7 +627,7 @@ Before submitting code:
 - Post GitHub comments without authorization (explicit instruction or Plan Mode approval)
 - Include absolute local paths in GitHub comments (`/Users/...`, `/home/...`)
 - Post vague or non-actionable GitHub comments
-- Skip Claude Code attribution footer on GitHub comments
+- Skip Codex attribution footer on GitHub comments
 - Create PRs/Issues without following template structure
 - Enter Plan Mode for merge operations, branch deletion, or worktree cleanup
 - Retry GitHub MCP tools after errors instead of falling back to `gh` CLI
@@ -659,7 +659,7 @@ For comprehensive guidelines, see:
 - **GitHub Interactions**: instructions/GITHUB_INTERACTION.md
 - **Kubernetes Patterns**: instructions/KUBERNETES_PATTERNS.md
 - **Upstream Issue Reporting**: instructions/UPSTREAM_ISSUE_REPORTING.md
-- **App Crate Standards**: dashboard/CLAUDE.md (reinhardt-web application conventions)
+- **App Crate Standards**: dashboard/AGENTS.md (reinhardt-web application conventions)
 - **GitHub Discussions**: https://github.com/kent8192/reinhardt-cloud/discussions
 - **Security Policy**: SECURITY.md
 - **Code of Conduct**: CODE_OF_CONDUCT.md
@@ -668,4 +668,4 @@ For comprehensive guidelines, see:
 
 ---
 
-**Note**: This CLAUDE.md focuses on core rules and quick reference. All detailed standards, examples, and comprehensive guides are in the `instructions/` directory. Always review CLAUDE.md before starting work, and consult detailed documentation as needed.
+**Note**: This AGENTS.md focuses on core rules and quick reference. All detailed standards, examples, and comprehensive guides are in the `instructions/` directory. Always review AGENTS.md before starting work, and consult detailed documentation as needed.
