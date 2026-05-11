@@ -3,10 +3,8 @@
 //! Creates a new user with `is_active = false` and sends a verification
 //! email. The user must verify their email before they can log in.
 
-use reinhardt::di::Depends;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
-use crate::apps::auth::services::email::EmailService;
 use crate::shared::AuthResponse;
 
 /// Create a new user account with email verification.
@@ -22,7 +20,9 @@ pub async fn register(
 	password: String,
 	csrf_token: String,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] email_service: Depends<EmailService>,
+	#[inject] email_service: reinhardt::di::Depends<
+		crate::apps::auth::services::email::EmailService,
+	>,
 ) -> Result<AuthResponse, ServerFnError> {
 	#[cfg(native)]
 	{
