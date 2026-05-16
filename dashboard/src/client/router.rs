@@ -1,8 +1,8 @@
 //! SPA router configuration for the Reinhardt Cloud WASM client.
 //!
 //! Routes are declared as a pure function returning a
-//! [`reinhardt::urls::routers::ClientRouter`] built through
-//! [`reinhardt::urls::routers::UnifiedRouter`]. Calling
+//! [`reinhardt::urls::prelude::ClientRouter`] built through
+//! [`reinhardt::urls::prelude::UnifiedRouter`]. Calling
 //! [`UnifiedRouter::register_globally`] installs the server router
 //! (empty here — server-side routes live in `crate::config::urls`) and
 //! the `ClientUrlReverser` in one step, so callers of `url_for(name)`
@@ -28,7 +28,7 @@
 //! `apps/<app>/client/pages/list.rs` so the SPA pages can be filled in
 //! per app without further refactoring of this file.
 
-use reinhardt::urls::routers::{ClientRouter, UnifiedRouter};
+use reinhardt::urls::prelude::{ClientRouter, UnifiedRouter};
 
 use crate::apps::auth::client::pages::{login_page, register_page};
 use crate::apps::clusters::client::pages::clusters_list_page;
