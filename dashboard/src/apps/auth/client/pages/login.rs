@@ -34,13 +34,19 @@ pub fn login_page() -> Page {
 				});
 			}
 
-			// Redirect to the dashboard via the SPA URL resolver. Mirrors
-			// the hard reload that `redirect_on_success` would emit so the
-			// new session cookie is reloaded server-side.
-			if let Some(window) = web_sys::window() {
-				let _ = window
-					.location()
-					.set_href(&ResolvedUrls::from_global().client().dashboard().home());
+			// SPA-navigate to the dashboard via the upstream `pages::navigate`
+			// (reinhardt-web#4623). The browser stores the `Set-Cookie` from
+			// the login response before this callback fires, so subsequent
+			// server_fn calls from the dashboard pick up the new session
+			// without a full page reload. Falls back to `location.set_href`
+			// when no SPA router is installed (e.g. during SSR rehearsal).
+			let home_url = ResolvedUrls::from_global().client().dashboard().home();
+			if let Err(reinhardt::pages::NavigateError::RouterNotInstalled) =
+				reinhardt::pages::navigate(home_url.clone(), reinhardt::pages::NavigationType::Push)
+			{
+				if let Some(window) = web_sys::window() {
+					let _ = window.location().set_href(&home_url);
+				}
 			}
 		},
 		fields: {
