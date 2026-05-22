@@ -1,9 +1,10 @@
 //! SPA router configuration for the Reinhardt Cloud WASM client.
 //!
-//! Routes are declared as a pure function returning a
-//! [`reinhardt::urls::prelude::ClientRouter`] built through
-//! [`reinhardt::urls::prelude::UnifiedRouter`]. Calling
-//! [`UnifiedRouter::register_globally`] installs the server router
+//! Routes are declared in [`init_router`], which builds a
+//! [`reinhardt::urls::prelude::ClientRouter`] through
+//! [`reinhardt::urls::prelude::UnifiedRouter`] and installs it globally
+//! as a side effect. The terminating
+//! [`UnifiedRouter::register_globally`] call installs the server router
 //! (empty here — server-side routes live in `crate::config::urls`) and
 //! the `ClientUrlReverser` in one step, so callers of `url_for(name)`
 //! on either side can resolve every `named_route` declared below.
