@@ -61,9 +61,14 @@ impl RunserverHook for GrpcRunserverHook {
 	) -> Result<(), Box<dyn Error + Send + Sync>> {
 		let mut shutdown_rx = ctx.shutdown_coordinator.subscribe();
 		let grpc_config = GrpcServerConfig::default();
+		// `tokio::spawn` does not propagate task-local storage, so the
+		// gRPC startup task cannot rely on `get_di_context`. Capture the
+		// root DI context here and pass it explicitly into the spawned
+		// task instead.
+		let di_context = ctx.di_context.clone();
 
 		tokio::spawn(async move {
-			if let Err(e) = start_grpc_server(grpc_config, async move {
+			if let Err(e) = start_grpc_server(grpc_config, di_context, async move {
 				let _ = shutdown_rx.recv().await;
 			})
 			.await

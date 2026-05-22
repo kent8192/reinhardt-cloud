@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use reinhardt::di::{ContextLevel, get_di_context};
+use reinhardt::di::InjectionContext;
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
@@ -33,8 +33,15 @@ async fn mark_service_healthy(health_reporter: &mut health::HealthReporter, serv
 ///
 /// Registers health check and reflection services. The server
 /// runs until the provided shutdown signal completes.
+///
+/// `di_context` must be the root `InjectionContext` resolved at runserver
+/// startup (typically `RunserverContext::di_context`). Using the caller-
+/// supplied context avoids relying on the task-local resolve scope, which
+/// is only set inside `#[injectable_factory]` / `#[injectable]` execution
+/// and is therefore absent in spawned runserver-hook tasks.
 pub async fn start_grpc_server(
 	config: GrpcServerConfig,
+	di_context: Arc<InjectionContext>,
 	shutdown: impl std::future::Future<Output = ()>,
 ) -> Result<(), tonic::transport::Error> {
 	let addr: SocketAddr = config
@@ -45,8 +52,7 @@ pub async fn start_grpc_server(
 	// Resolve the JWT secret once at startup so a missing
 	// `REINHARDT_CLOUD_JWT_SECRET` fails fast instead of letting
 	// agents connect to an unauthenticated server.
-	let di_ctx = get_di_context(ContextLevel::Root);
-	let jwt_secret = di_ctx
+	let jwt_secret = di_context
 		.resolve::<JwtSecret>()
 		.await
 		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
