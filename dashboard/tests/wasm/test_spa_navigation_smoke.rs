@@ -17,10 +17,8 @@
 
 use js_sys::Reflect;
 use reinhardt::pages::ClientLauncher;
-use reinhardt::{ClientUrlReverser, register_client_reverser};
 use reinhardt_cloud_dashboard::client::router::init_router;
 use reinhardt_cloud_dashboard::shared::client::state;
-use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -40,36 +38,17 @@ fn ensure_mount_point(document: &web_sys::Document, body: &web_sys::HtmlElement)
 	body.append_child(&app_div).expect("append #app to body");
 }
 
-/// Register the SPA route names that the dashboard's `dashboard_shell`
-/// layout needs to resolve via `ResolvedUrls`. In production WASM this
-/// is wired up by the `#[routes]` macro through `UnifiedRouter::client(...)`
-/// (which calls `register_client_reverser` internally). The test bypasses
-/// that path because it never instantiates a `UnifiedRouter`, so we
-/// register a hand-built reverser that mirrors the route table from
-/// `dashboard/src/client/router.rs`. Refs #574.
-///
-/// Keep these patterns in sync with `init_router()`'s `named_route`
-/// calls — drift would cause the panic the test is here to prevent.
-fn register_dashboard_url_reverser() {
-	let patterns = HashMap::from([
-		("dashboard:home".to_string(), "/".to_string()),
-		("auth:login_page".to_string(), "/login".to_string()),
-		("auth:register_page".to_string(), "/register".to_string()),
-		("clusters:list".to_string(), "/clusters".to_string()),
-		("deployments:list".to_string(), "/deployments".to_string()),
-	]);
-	register_client_reverser(ClientUrlReverser::new(patterns));
-}
-
 /// Launch the dashboard's client just like `dashboard/src/client.rs`
 /// does in production, minus the `on_path` hooks that depend on a live
-/// notifications WebSocket. Reuses the same `init_router()` so route
-/// names and patterns match the production topology byte-for-byte.
+/// notifications WebSocket. Reuses the same `init_router()` and the same
+/// `before_launch(state::init_app_state)` hook so route names, patterns,
+/// and launcher topology match production byte-for-byte —
+/// `UnifiedRouter::register_globally()` inside `init_router` installs
+/// the `ClientUrlReverser` that `ResolvedUrls::from_global()` consumes.
 fn launch_dashboard_for_test() {
-	register_dashboard_url_reverser();
-	state::init_app_state();
 	ClientLauncher::new("#app")
-		.router(init_router)
+		.before_launch(state::init_app_state)
+		.router_client(init_router)
 		.launch()
 		.expect("ClientLauncher::launch must succeed");
 }
