@@ -20,14 +20,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::organizations::models::Organization;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -131,7 +131,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -148,7 +148,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 
@@ -166,13 +170,8 @@ mod tests {
 		assert_eq!(body["user"]["username"], "newuser");
 
 		// Assert — user persisted as inactive until email verification
-		use reinhardt::db::orm::{FilterOperator, FilterValue};
 		let user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String("newuser".to_string()),
-			)
+			.filter(User::field_username().eq("newuser".to_string()))
 			.first()
 			.await
 			.expect("Failed to query user")
@@ -197,7 +196,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -214,31 +213,26 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 		assert_eq!(response.status_code(), 201);
 
 		// Assert -- look up the new user, then look up the Personal Org by
 		// `created_by = user.id` and verify exactly one match
-		use reinhardt::db::orm::{FilterOperator, FilterValue};
 		let user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String("auditor".to_string()),
-			)
+			.filter(User::field_username().eq("auditor".to_string()))
 			.first()
 			.await
 			.expect("Failed to query user")
 			.expect("User should exist after successful registration");
 
 		let org = Organization::objects()
-			.filter(
-				Organization::field_created_by(),
-				FilterOperator::Eq,
-				FilterValue::String(user.id.to_string()),
-			)
+			.filter(Organization::field_created_by().eq(user.id.to_string()))
 			.first()
 			.await
 			.expect("Failed to query Organization by created_by")
@@ -263,7 +257,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -276,7 +270,11 @@ mod tests {
 			"password": "testpassword"
 		});
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 
@@ -296,7 +294,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -311,7 +309,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post(&urls.server().auth().register(), &first_user, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&first_user,
+				"json",
+			)
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -323,7 +325,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.server().auth().register(), &second_user, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&second_user,
+				"json",
+			)
 			.await
 			.expect("Second register request failed");
 
@@ -343,7 +349,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -356,7 +362,11 @@ mod tests {
 			"password": "wrongpassword"
 		});
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 
@@ -373,7 +383,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -388,19 +398,18 @@ mod tests {
 			"password": "securepassword"
 		});
 		let reg_response = client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 		assert_eq!(reg_response.status_code(), 201);
 
 		// Activate user via ORM (registration creates inactive user)
-		use reinhardt::db::orm::{FilterOperator, FilterValue};
 		let mut user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String("trimuser".to_string()),
-			)
+			.filter(User::field_username().eq("trimuser".to_string()))
 			.first()
 			.await
 			.expect("Failed to query user")
@@ -417,7 +426,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 

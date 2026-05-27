@@ -22,14 +22,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -91,7 +91,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -137,7 +137,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -162,7 +162,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -200,7 +200,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -224,7 +224,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -252,7 +252,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — same (provider, provider_user_id) must not link to two users.

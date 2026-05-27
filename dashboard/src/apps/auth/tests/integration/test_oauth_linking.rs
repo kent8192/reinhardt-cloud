@@ -11,7 +11,7 @@ mod tests {
 	use std::sync::Arc;
 
 	use reinhardt::BaseUser;
-	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -24,14 +24,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -89,7 +89,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -122,18 +122,14 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
 		let (_c, _conn, _cli, _urls) = db.await;
 		let user_id = seed_user("link_authed", "authed@example.com").await;
 		let current = User::objects()
-			.filter(
-				User::field_id(),
-				FilterOperator::Eq,
-				FilterValue::String(user_id.to_string()),
-			)
+			.filter(User::field_id().eq(user_id.to_string()))
 			.first()
 			.await
 			.unwrap()
@@ -163,7 +159,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -191,7 +187,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — an existing local user owns the email, and the OAuth
@@ -229,7 +225,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -263,7 +259,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — existing user already has the candidate username.
@@ -289,7 +285,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — a provider that asserts `email_verified == true` but
@@ -322,7 +318,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — claims with no `login` additional claim and no

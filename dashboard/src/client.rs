@@ -49,8 +49,8 @@ mod wasm_entry {
 		// interception, and re-mount on navigate to ClientLauncher.
 		// `router_client` consumes `init_router`'s `ClientRouter` (built
 		// via `UnifiedRouter::register_globally()`), which also installs
-		// the `ClientUrlReverser` consumed by `ResolvedUrls::from_global()`
-		// — no separate reverser registration is needed.
+		// the `ClientUrlReverser` — no separate reverser registration is
+		// needed.
 		// Path-driven side effects (toast container + notifications WS)
 		// run through `on_path` so they re-fire on every entry to "/".
 		ClientLauncher::new("#app")

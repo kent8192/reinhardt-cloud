@@ -14,14 +14,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::credentials::verify_credentials;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -62,7 +62,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -86,7 +86,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -118,7 +118,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -143,7 +143,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — create inactive user via ORM
@@ -175,7 +175,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange

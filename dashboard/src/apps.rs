@@ -6,9 +6,9 @@
 
 pub mod auth;
 // Each app's parent module is cross-target so its `urls` submodule is
-// reachable on wasm for `__url_resolver_support::ResolvedUrls`. Per-app
-// internals (admin, models, serializers, services, tests, views) remain
-// native-only via cfg gates inside each `<app>.rs`.
+// reachable on wasm. Per-app internals (admin, models, serializers,
+// services, tests, views) remain native-only via cfg gates inside each
+// `<app>.rs`.
 pub mod clusters;
 pub mod dashboard;
 pub mod deployments;

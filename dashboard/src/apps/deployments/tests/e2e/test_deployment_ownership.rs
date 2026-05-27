@@ -12,7 +12,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::config::test_helpers::{ResolvedUrls, force_login_user_with_org, session_backend};
+	use reinhardt::ServerRouter;
+
+	use crate::config::test_helpers::{force_login_user_with_org, session_backend};
 
 	#[fixture]
 	async fn db(
@@ -21,7 +23,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 		Arc<dyn AsyncSessionBackend>,
 	) {
 		// Start the TestContainers database first so that build_test_app() can
@@ -79,7 +81,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -118,7 +120,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -161,7 +163,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -215,7 +217,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 		#[case] cluster_exists: bool,

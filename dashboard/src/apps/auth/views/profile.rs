@@ -5,7 +5,8 @@ use rand::TryRngCore;
 use rand::rngs::OsRng;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue, Model};
+use reinhardt::FilterValue;
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Response, StatusCode};
 use reinhardt::{get, patch};
@@ -24,11 +25,7 @@ pub async fn profile(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {
@@ -58,11 +55,7 @@ pub async fn profile_update(
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let mut user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {
@@ -196,16 +189,8 @@ async fn issue_email_verification(
 	// on (user_id) WHERE consumed_at IS NULL (from migration 0004) to be used,
 	// avoiding a full table scan as the token table grows.
 	let prior = EmailVerificationToken::objects()
-		.filter(
-			EmailVerificationToken::field_user_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user.id.to_string()),
-		)
-		.filter(Filter::new(
-			EmailVerificationToken::field_consumed_at(),
-			FilterOperator::IsNull,
-			FilterValue::Null,
-		))
+		.filter(EmailVerificationToken::field_user_id().eq(user.id.to_string()))
+		.filter(EmailVerificationToken::field_consumed_at().eq(FilterValue::Null))
 		.all()
 		.await
 		.map_err(|e| {

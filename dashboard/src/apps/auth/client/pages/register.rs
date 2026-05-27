@@ -10,7 +10,6 @@ use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::{auth_layout, oauth_buttons};
 use crate::apps::auth::server::register::register;
-use crate::config::urls::ResolvedUrls;
 
 /// Render the registration page inside the shared auth layout.
 pub fn register_page() -> Page {
@@ -19,8 +18,10 @@ pub fn register_page() -> Page {
 		server_fn: register,
 		class: "space-y-4",
 		on_success: |result: crate::shared::AuthResponse| {
-			use reinhardt::pages::auth::{AuthData, auth_state};
-
+			use reinhardt::pages::auth:: {
+				AuthData,
+				auth_state
+			};
 			// Update reactive auth state for UI components
 			if let Some(ref user) = result.user {
 				auth_state().update(AuthData {
@@ -32,18 +33,14 @@ pub fn register_page() -> Page {
 					email: Some(user.email.clone()),
 					..Default::default()
 				});
-			}
-
-			// SPA-navigate to the dashboard via the upstream `pages::navigate`
+			}// SPA-navigate to the dashboard via the upstream `pages::navigate`
 			// (reinhardt-web#4623). The browser stores the `Set-Cookie` from
 			// the register response before this callback fires, so subsequent
 			// server_fn calls from the dashboard pick up the new session
 			// without a full page reload. Falls back to `location.set_href`
 			// when no SPA router is installed (e.g. during SSR rehearsal).
-			let home_url = ResolvedUrls::from_global().client().dashboard().home();
-			if let Err(reinhardt::pages::NavigateError::RouterNotInstalled) =
-				reinhardt::pages::navigate(home_url.clone(), reinhardt::pages::NavigationType::Push)
-			{
+			let home_url = "/".to_string();
+			if let Err(reinhardt::pages::NavigateError::RouterNotInstalled) =reinhardt::pages::navigate(home_url.clone(), reinhardt::pages::NavigationType::Push) {
 				if let Some(window) = web_sys::window() {
 					let _ = window.location().set_href(&home_url);
 				}
@@ -67,7 +64,10 @@ pub fn register_page() -> Page {
 				label: "Password",
 				placeholder: "Create a password (min 8 characters)",
 			},
-			submit: SubmitButton { label: "Create account", class: "btn-primary w-full py-2.5 text-base" },
+			submit: SubmitButton {
+				label: "Create account",
+				class: "btn-primary w-full py-2.5 text-base"
+			},
 		},
 		// Explicit CSRF wiring (reinhardt-web#3971) — reads the token from
 		// the cookie/meta/input chain at submit time and routes it to the
@@ -85,9 +85,8 @@ pub fn register_page() -> Page {
 			{ oauth_view }
 			div {
 				class: "mt-6 text-center text-sm text-gray-600",
-				"Already have an account? "
-				a {
-					href: ResolvedUrls::from_global().client().auth().login_page(),
+				"Already have an account? " a {
+					href: "/login".to_string(),
 					class: "text-blue-600 font-medium hover:underline",
 					"Sign in"
 				}

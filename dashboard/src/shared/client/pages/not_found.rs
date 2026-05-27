@@ -3,8 +3,6 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
-use crate::config::urls::ResolvedUrls;
-
 /// Render a centered 404 page with a link back to the dashboard.
 pub fn not_found_page() -> Page {
 	page!(|| {
@@ -21,7 +19,7 @@ pub fn not_found_page() -> Page {
 					"Page not found"
 				}
 				a {
-					href: ResolvedUrls::from_global().client().dashboard().home(),
+					href: "/".to_string(),
 					class: "px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors",
 					"Back to Dashboard"
 				}

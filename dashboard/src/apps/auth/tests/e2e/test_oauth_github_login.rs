@@ -30,7 +30,7 @@
 #[cfg(test)]
 mod tests {
 	use reinhardt::BaseUser;
-	use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -43,14 +43,14 @@ mod tests {
 	use wiremock::{Mock, MockServer, ResponseTemplate};
 
 	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -196,7 +196,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — fresh DB, fresh GitHub mock, env pointed at it.
@@ -240,11 +240,7 @@ mod tests {
 
 		// Assert — user persisted with no password (OAuth-only).
 		let user = User::objects()
-			.filter(
-				User::field_email(),
-				FilterOperator::Eq,
-				FilterValue::String("octotest@example.com".to_string()),
-			)
+			.filter(User::field_email().eq("octotest@example.com".to_string()))
 			.first()
 			.await
 			.unwrap()
@@ -261,7 +257,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — pre-existing user owns the email; provider does NOT
@@ -316,11 +312,7 @@ mod tests {
 			cb_resp.status_code()
 		);
 		let count = User::objects()
-			.filter(
-				User::field_email(),
-				FilterOperator::Eq,
-				FilterValue::String("contested@example.com".to_string()),
-			)
+			.filter(User::field_email().eq("contested@example.com".to_string()))
 			.all()
 			.await
 			.unwrap()

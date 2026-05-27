@@ -18,14 +18,14 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::ServerRouter;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -125,7 +125,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -137,7 +137,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 
@@ -159,7 +163,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -168,7 +172,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().login(), &empty_body, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&empty_body,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 
@@ -185,7 +193,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange
@@ -194,7 +202,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().register(), &empty_body, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&empty_body,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 
@@ -211,7 +223,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -226,7 +238,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post(&urls.server().auth().register(), &first_user, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&first_user,
+				"json",
+			)
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -238,7 +254,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.server().auth().register(), &second_user, "json")
+			.post(
+				&urls.reverse("auth:register", &[]).unwrap(),
+				&second_user,
+				"json",
+			)
 			.await
 			.expect("Second register request failed");
 
@@ -257,7 +277,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange -- create inactive user via ORM
@@ -276,7 +296,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse("auth:login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 

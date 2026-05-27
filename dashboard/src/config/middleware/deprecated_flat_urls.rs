@@ -24,15 +24,10 @@ use crate::apps::organizations::models::Organization;
 /// Resolve the personal org slug for a user, used by the redirect handlers.
 async fn personal_org_slug(user_id: Uuid) -> Result<String, AppError> {
 	use reinhardt::Model;
-	use reinhardt::db::orm::{FilterOperator, FilterValue};
 
 	let org_id = current_organization_id_for_user(user_id).await?;
 	let org = Organization::objects()
-		.filter(
-			Organization::field_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(org_id),
-		)
+		.filter(Organization::field_id().eq(org_id))
 		.first()
 		.await
 		.map_err(|e| AppError::Internal(format!("org lookup failed: {e}")))?

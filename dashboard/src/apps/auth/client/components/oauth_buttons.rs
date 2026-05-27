@@ -46,7 +46,9 @@ pub fn oauth_buttons(verb: &'static str) -> Page {
 				a {
 					href: "/api/auth/oauth/github/start/",
 					class: "inline-flex items-center justify-center w-full py-2.5 text-sm font-medium border border-gray-300 rounded-md hover:bg-gray-50",
-					{ format!("{verb} with GitHub") }
+					{
+						format!("{verb} with GitHub")
+					}
 				}
 			}
 		}

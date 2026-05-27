@@ -4,7 +4,7 @@
 //! regardless of whether the email exists (prevents user enumeration).
 
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{BaseUser, Json, Response, StatusCode, post};
@@ -31,11 +31,7 @@ pub async fn forgot_password(
 	// Look up user by email — but always return 200 either way
 	let email = body.email.trim().to_lowercase();
 	let user_result = User::objects()
-		.filter(
-			User::field_email(),
-			FilterOperator::Eq,
-			FilterValue::String(email.clone()),
-		)
+		.filter(User::field_email().eq(email.clone()))
 		.first()
 		.await;
 

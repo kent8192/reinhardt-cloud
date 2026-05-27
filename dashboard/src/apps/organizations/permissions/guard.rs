@@ -24,7 +24,6 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use tracing::error;
 use uuid::Uuid;
 
@@ -45,16 +44,8 @@ pub async fn resolve_membership_role(
 	organization_id: i64,
 ) -> Result<Option<MembershipRole>, AppError> {
 	let membership = OrganizationMembership::objects()
-		.filter(
-			OrganizationMembership::field_user_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
-		.filter(Filter::new(
-			OrganizationMembership::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		))
+		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+		.filter(OrganizationMembership::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| {

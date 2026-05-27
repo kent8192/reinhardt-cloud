@@ -19,7 +19,7 @@ pub mod models;
 pub mod serializers;
 #[cfg(native)]
 pub mod tests;
-// `urls` is cross-target so the `#[url_patterns]` macro emits the typed
+// `urls` is cross-target so the `#[routes]` macro emits the typed
 // accessor reachable from wasm SPA call sites. The closure body's
 // `views::*` references are cfg-gated inside `urls.rs`.
 pub mod urls;

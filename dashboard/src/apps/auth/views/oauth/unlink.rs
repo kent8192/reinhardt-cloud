@@ -7,7 +7,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, post};
 use reinhardt_auth::social::storage::SocialAccountStorage;
@@ -26,11 +26,7 @@ pub async fn oauth_unlink(
 		.map_err(|e| AppError::Authentication(format!("invalid user_id in token: {e}")))?;
 
 	let user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {
@@ -107,16 +103,18 @@ mod tests {
 	use serial_test::serial;
 	use uuid::Uuid;
 
-	use crate::config::test_helpers::{ResolvedUrls, test_app};
+	use reinhardt::ServerRouter;
+
+	use crate::config::test_helpers::test_app;
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, ResolvedUrls),
+		test_app: (APIClient, Arc<ServerRouter>),
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -207,7 +205,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — a syntactically valid UUID that does not match any
@@ -236,7 +234,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — user exists but has no social link for any provider.
@@ -264,7 +262,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — OAuth-only user (no password) with a single social
@@ -303,7 +301,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<ServerRouter>,
 		),
 	) {
 		// Arrange — user has a password, so removing the only social

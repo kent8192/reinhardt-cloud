@@ -3,7 +3,6 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Query, Response, StatusCode, get};
 use reinhardt_cloud_core::pagination::{PaginatedResponse, PaginationParams};
@@ -32,11 +31,7 @@ pub async fn list_clusters(
 		require_permission_for_org(user_id, &org_slug, Action::ClusterRead).await?;
 
 	let total = Cluster::objects()
-		.filter(
-			Cluster::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		)
+		.filter(Cluster::field_organization_id().eq(organization_id))
 		.count()
 		.await
 		.map_err(|e| {
@@ -46,11 +41,7 @@ pub async fn list_clusters(
 	let offset: usize = params.offset().try_into().unwrap_or(0);
 	let limit: usize = params.page_size().try_into().unwrap_or(20).min(100);
 	let clusters = Cluster::objects()
-		.filter(
-			Cluster::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		)
+		.filter(Cluster::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
 		.offset(offset)
 		.limit(limit)

@@ -18,15 +18,17 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::organizations::roles::MembershipRole;
+	use reinhardt::ServerRouter;
+
 	use crate::config::test_helpers::{
-		ResolvedUrls, force_login_user_with_org, session_backend, set_membership_role,
+		force_login_user_with_org, session_backend, set_membership_role,
 	};
 
 	type DbFixture = (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 		Arc<dyn AsyncSessionBackend>,
 	);
 

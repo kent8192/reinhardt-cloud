@@ -27,7 +27,7 @@
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt_auth::social::core::SocialAuthError;
 use reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 use uuid::Uuid;
@@ -79,9 +79,6 @@ fn map_orm_err(context: &'static str, err: impl std::fmt::Display) -> SocialAuth
 	SocialAuthError::Storage(format!("{context}: {err}"))
 }
 
-/// Field name for the ORM `id` column (no `field_id()` accessor exists).
-const ID_FIELD: &str = "id";
-
 #[async_trait]
 impl SocialAccountStorage for OrmSocialAccountStorage {
 	async fn find_by_provider_and_uid(
@@ -90,16 +87,8 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 		provider_user_id: &str,
 	) -> Result<Option<SocialAccount>, SocialAuthError> {
 		let row = OrmSocialAccount::objects()
-			.filter(
-				OrmSocialAccount::field_provider(),
-				FilterOperator::Eq,
-				FilterValue::String(provider.to_string()),
-			)
-			.filter(Filter::new(
-				OrmSocialAccount::field_provider_user_id().name(),
-				FilterOperator::Eq,
-				FilterValue::String(provider_user_id.to_string()),
-			))
+			.filter(OrmSocialAccount::field_provider().eq(provider.to_string()))
+			.filter(OrmSocialAccount::field_provider_user_id().eq(provider_user_id.to_string()))
 			.first()
 			.await
 			.map_err(|e| map_orm_err("find_by_provider_and_uid", e))?;
@@ -108,11 +97,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 
 	async fn find_by_user(&self, user_id: Uuid) -> Result<Vec<SocialAccount>, SocialAuthError> {
 		let rows = OrmSocialAccount::objects()
-			.filter(
-				OrmSocialAccount::field_user_id(),
-				FilterOperator::Eq,
-				FilterValue::String(user_id.to_string()),
-			)
+			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
 			.all()
 			.await
 			.map_err(|e| map_orm_err("find_by_user", e))?;
@@ -141,11 +126,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 		// picture fields are intentionally not written back. Mirror the
 		// framework In-memory impl by treating "row missing" as an error.
 		let exists = OrmSocialAccount::objects()
-			.filter(
-				ID_FIELD,
-				FilterOperator::Eq,
-				FilterValue::String(account.id.to_string()),
-			)
+			.filter(OrmSocialAccount::field_id().eq(account.id.to_string()))
 			.first()
 			.await
 			.map_err(|e| map_orm_err("update.lookup", e))?;
