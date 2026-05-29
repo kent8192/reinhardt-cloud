@@ -20,3 +20,6 @@
 // with `dashboard/CLAUDE.md` TD-3 without relying on `mod.rs`.
 #[path = "wasm/test_spa_navigation_smoke.rs"]
 mod test_spa_navigation_smoke;
+
+#[path = "wasm/test_spa_route_paths.rs"]
+mod test_spa_route_paths;
