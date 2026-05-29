@@ -204,7 +204,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -256,7 +256,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -269,7 +269,7 @@ mod tests {
 
 		// Act — verify email
 		let verify_url = urls
-			.reverse("auth:verify_email", &[("token", &token)])
+			.reverse("verify_email", &[("token", &token)])
 			.unwrap();
 		let verify_response = client
 			.get(&verify_url)
@@ -288,7 +288,7 @@ mod tests {
 		});
 		let login_response = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -322,7 +322,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -336,7 +336,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -374,7 +374,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -385,7 +385,7 @@ mod tests {
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_verify_token(&text).expect("Token not found");
 		let verify_url = urls
-			.reverse("auth:verify_email", &[("token", &token)])
+			.reverse("verify_email", &[("token", &token)])
 			.unwrap();
 
 		// Act — verify twice

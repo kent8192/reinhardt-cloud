@@ -111,7 +111,7 @@ async fn create_user_and_login(client: &APIClient, urls: &Arc<ServerRouter>) -> 
 	let login_resp = client
 		.post(
 			&urls
-				.reverse("auth:login", &[])
+				.reverse("login", &[])
 				.expect("auth:login must be reversible"),
 			&login_data,
 			"json",
@@ -201,7 +201,7 @@ async fn test_login_session_works_for_cluster_creation(
 	let login_resp = client
 		.post(
 			&urls
-				.reverse("auth:login", &[])
+				.reverse("login", &[])
 				.expect("auth:login must be reversible"),
 			&login_data,
 			"json",
@@ -278,7 +278,7 @@ async fn test_register_and_login_sessions_same_resources(
 	let login_resp = client
 		.post(
 			&urls
-				.reverse("auth:login", &[])
+				.reverse("login", &[])
 				.expect("auth:login must be reversible"),
 			&login_data,
 			"json",

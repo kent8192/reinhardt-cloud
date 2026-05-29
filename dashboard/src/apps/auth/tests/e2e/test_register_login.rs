@@ -149,7 +149,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -214,7 +214,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -271,7 +271,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -310,7 +310,7 @@ mod tests {
 		});
 		let first_response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&first_user,
 				"json",
 			)
@@ -326,7 +326,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&second_user,
 				"json",
 			)
@@ -363,7 +363,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -399,7 +399,7 @@ mod tests {
 		});
 		let reg_response = client
 			.post(
-				&urls.reverse("auth:register", &[]).unwrap(),
+				&urls.reverse("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -427,7 +427,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)

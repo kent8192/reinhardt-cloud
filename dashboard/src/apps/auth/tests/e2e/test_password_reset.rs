@@ -187,7 +187,7 @@ mod tests {
 			"password": password
 		});
 		client
-			.post(&urls.reverse("auth:register", &[]).unwrap(), &data, "json")
+			.post(&urls.reverse("register", &[]).unwrap(), &data, "json")
 			.await
 			.expect("Register failed");
 
@@ -201,7 +201,7 @@ mod tests {
 		let token = &rest[..end];
 
 		let verify_url = urls
-			.reverse("auth:verify_email", &[("token", token)])
+			.reverse("verify_email", &[("token", token)])
 			.unwrap();
 		client.get(&verify_url).await.expect("Verify failed");
 	}
@@ -239,7 +239,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reset@example.com" });
 		let response = client
 			.post(
-				&urls.reverse("auth:forgot_password", &[]).unwrap(),
+				&urls.reverse("forgot_password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -278,7 +278,7 @@ mod tests {
 		let forgot_data = json!({ "email": "noone@example.com" });
 		let response = client
 			.post(
-				&urls.reverse("auth:forgot_password", &[]).unwrap(),
+				&urls.reverse("forgot_password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -322,7 +322,7 @@ mod tests {
 		let forgot_data = json!({ "email": "resetpw@example.com" });
 		client
 			.post(
-				&urls.reverse("auth:forgot_password", &[]).unwrap(),
+				&urls.reverse("forgot_password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -335,7 +335,7 @@ mod tests {
 
 		// Act — reset password
 		let reset_url = urls
-			.reverse("auth:reset_password", &[("token", &token)])
+			.reverse("reset_password", &[("token", &token)])
 			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let response = client
@@ -353,7 +353,7 @@ mod tests {
 		});
 		let old_resp = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_old,
 				"json",
 			)
@@ -368,7 +368,7 @@ mod tests {
 		});
 		let new_resp = client
 			.post(
-				&urls.reverse("auth:login", &[]).unwrap(),
+				&urls.reverse("login", &[]).unwrap(),
 				&login_new,
 				"json",
 			)
@@ -409,7 +409,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reuse@example.com" });
 		client
 			.post(
-				&urls.reverse("auth:forgot_password", &[]).unwrap(),
+				&urls.reverse("forgot_password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -422,7 +422,7 @@ mod tests {
 
 		// Use the token once
 		let reset_url = urls
-			.reverse("auth:reset_password", &[("token", &token)])
+			.reverse("reset_password", &[("token", &token)])
 			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let first = client
