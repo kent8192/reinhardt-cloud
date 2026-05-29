@@ -3,6 +3,7 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
+use reinhardt::ServerRouter;
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -14,7 +15,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user_with_org, session_backend,
+	force_login_user_with_org, session_backend,
 };
 
 // ============================================================================
@@ -29,7 +30,7 @@ async fn db(
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	ResolvedUrls,
+	Arc<ServerRouter>,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
@@ -55,7 +56,7 @@ async fn test_create_deployment_with_cluster(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<ServerRouter>,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
