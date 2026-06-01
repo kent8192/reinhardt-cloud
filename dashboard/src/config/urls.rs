@@ -67,6 +67,9 @@ use reinhardt::{
 	SecurityMiddleware,
 };
 
+#[cfg(native)]
+const DASHBOARD_STATIC_URL_PREFIX: &str = "/api/static/";
+
 // ── DI-registered singletons ────────────────────────────────────────
 
 /// Allowed origins for the `OriginGuardMiddleware`.
@@ -160,6 +163,7 @@ async fn create_router_infrastructure(
 	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> RouterInfrastructure {
 	let di_ctx = get_di_context(ContextLevel::Root);
+	initialize_dashboard_static_resolver();
 
 	// Configure admin site with DI registration.
 	let admin_site = Arc::new(crate::config::admin::configure_admin());
@@ -223,6 +227,19 @@ pub async fn routes(
 	{
 		UnifiedRouter::new()
 	}
+}
+
+/// Initialize URL generation for assets served by the dashboard router.
+///
+/// The project router is mounted under `/api/`, so the admin shell must emit
+/// `/api/static/admin/...` URLs for assets served by `admin_static_routes()`.
+#[cfg(native)]
+fn initialize_dashboard_static_resolver() {
+	reinhardt::pages::init_static_resolver(
+		reinhardt::utils::staticfiles::TemplateStaticConfig::new(
+			DASHBOARD_STATIC_URL_PREFIX.to_string(),
+		),
+	);
 }
 
 /// Build the application router by resolving dependencies from DI.
@@ -314,4 +331,24 @@ pub async fn init_websocket_routes() {
 		.await
 		.expect("failed to register /ws/notifications route");
 	register_websocket_router(ws_router).await;
+}
+
+#[cfg(all(test, native))]
+mod tests {
+	use serial_test::serial;
+
+	use super::*;
+
+	#[test]
+	#[serial(admin_static_resolver)]
+	fn admin_static_assets_resolve_under_api_static_prefix() {
+		// Arrange
+		initialize_dashboard_static_resolver();
+
+		// Act
+		let url = reinhardt::pages::resolve_static("admin/main.js");
+
+		// Assert
+		assert_eq!(url, "/api/static/admin/main.js");
+	}
 }

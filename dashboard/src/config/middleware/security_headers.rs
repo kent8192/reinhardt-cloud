@@ -16,6 +16,12 @@ use reinhardt::{Handler, Middleware, Request, Response};
 /// Middleware that adds a path-based Content-Security-Policy header.
 pub struct CspPathMiddleware;
 
+fn is_admin_path(path: &str) -> bool {
+	matches!(path, "/admin" | "/api/admin")
+		|| path.starts_with("/admin/")
+		|| path.starts_with("/api/admin/")
+}
+
 #[async_trait]
 impl Middleware for CspPathMiddleware {
 	async fn process(
@@ -25,7 +31,7 @@ impl Middleware for CspPathMiddleware {
 	) -> reinhardt::core::exception::Result<Response> {
 		let path = request.uri.path();
 		let is_api = path.starts_with("/api/");
-		let is_admin = path.starts_with("/admin/");
+		let is_admin = is_admin_path(path);
 
 		// Detect HTTPS via X-Forwarded-Proto (set by trusted reverse proxy / LB).
 		// Only trust this header when SECURE_SSL_REDIRECT is enabled in settings,
@@ -84,5 +90,22 @@ impl Middleware for CspPathMiddleware {
 		}
 
 		Ok(response)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::is_admin_path;
+
+	#[test]
+	fn prefixed_admin_paths_are_detected_as_admin_routes() {
+		assert!(is_admin_path("/api/admin"));
+		assert!(is_admin_path("/api/admin/"));
+		assert!(is_admin_path("/api/admin/dashboard"));
+		assert!(is_admin_path("/admin"));
+		assert!(is_admin_path("/admin/"));
+		assert!(is_admin_path("/admin/dashboard"));
+		assert!(!is_admin_path("/api/auth/login"));
+		assert!(!is_admin_path("/api/static/admin/main.js"));
 	}
 }
