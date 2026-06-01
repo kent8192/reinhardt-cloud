@@ -14,9 +14,7 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::{
-	force_login_user_with_org, session_backend,
-};
+use reinhardt_cloud_dashboard::config::test_helpers::{force_login_user_with_org, session_backend};
 
 // ============================================================================
 // Test Fixtures

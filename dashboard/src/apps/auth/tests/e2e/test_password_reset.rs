@@ -200,9 +200,7 @@ mod tests {
 		let end = rest.find('/').expect("No trailing slash");
 		let token = &rest[..end];
 
-		let verify_url = urls
-			.reverse("verify_email", &[("token", token)])
-			.unwrap();
+		let verify_url = urls.reverse("verify_email", &[("token", token)]).unwrap();
 		client.get(&verify_url).await.expect("Verify failed");
 	}
 
@@ -352,11 +350,7 @@ mod tests {
 			"password": "oldpassword"
 		});
 		let old_resp = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_old,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_old, "json")
 			.await
 			.expect("Login failed");
 		assert_ne!(old_resp.status_code(), 200);
@@ -367,11 +361,7 @@ mod tests {
 			"password": "newpassword123"
 		});
 		let new_resp = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_new,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_new, "json")
 			.await
 			.expect("Login failed");
 		assert_eq!(new_resp.status_code(), 200);

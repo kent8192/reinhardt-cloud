@@ -268,9 +268,7 @@ mod tests {
 		let token = extract_verify_token(&text).expect("Token not found");
 
 		// Act — verify email
-		let verify_url = urls
-			.reverse("verify_email", &[("token", &token)])
-			.unwrap();
+		let verify_url = urls.reverse("verify_email", &[("token", &token)]).unwrap();
 		let verify_response = client
 			.get(&verify_url)
 			.await
@@ -287,11 +285,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let login_response = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_data,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 		assert_eq!(login_response.status_code(), 200);
@@ -335,11 +329,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_data,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -384,9 +374,7 @@ mod tests {
 		let messages = poll_messages(&mailpit, 1, Duration::from_secs(5)).await;
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_verify_token(&text).expect("Token not found");
-		let verify_url = urls
-			.reverse("verify_email", &[("token", &token)])
-			.unwrap();
+		let verify_url = urls.reverse("verify_email", &[("token", &token)]).unwrap();
 
 		// Act — verify twice
 		let first = client.get(&verify_url).await.expect("First verify failed");

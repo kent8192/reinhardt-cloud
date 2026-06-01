@@ -270,11 +270,7 @@ mod tests {
 			"password": "testpassword"
 		});
 		let response = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_data,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -309,11 +305,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let first_response = client
-			.post(
-				&urls.reverse("register", &[]).unwrap(),
-				&first_user,
-				"json",
-			)
+			.post(&urls.reverse("register", &[]).unwrap(), &first_user, "json")
 			.await
 			.expect("First register request failed");
 		assert_eq!(first_response.status_code(), 201);
@@ -362,11 +354,7 @@ mod tests {
 			"password": "wrongpassword"
 		});
 		let response = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_data,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
@@ -426,11 +414,7 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(
-				&urls.reverse("login", &[]).unwrap(),
-				&login_data,
-				"json",
-			)
+			.post(&urls.reverse("login", &[]).unwrap(), &login_data, "json")
 			.await
 			.expect("Login request failed");
 
