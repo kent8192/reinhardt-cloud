@@ -31,9 +31,13 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	}
 
 	println!("Syncing reinhardt-cloud.toml with project state...");
+	let existing_toml = std::fs::read_to_string(&reinhardt_cloud_toml_path)?;
+	let existing_config: reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml =
+		toml::from_str(&existing_toml)?;
 	let metadata = detect_project(&project_dir)?;
 	let db_config = read_database_config(&project_dir);
-	let config = generate_config(&metadata, db_config.as_ref())?;
+	let mut config = generate_config(&metadata, db_config.as_ref())?;
+	merge_existing_infrastructure(&existing_config, &mut config);
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
@@ -64,4 +68,123 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	}
 
 	Ok(())
+}
+
+fn merge_existing_infrastructure(
+	existing: &reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml,
+	generated: &mut reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml,
+) {
+	let Some(existing_infrastructure) = existing.infrastructure.as_ref() else {
+		return;
+	};
+
+	let Some(generated_infrastructure) = generated.infrastructure.as_mut() else {
+		generated.infrastructure = Some(existing_infrastructure.clone());
+		return;
+	};
+
+	if let Some(postgres) = existing_infrastructure.postgres.as_ref() {
+		generated_infrastructure.postgres = Some(postgres.clone());
+	}
+	if let Some(buckets) = existing_infrastructure.buckets.as_ref() {
+		generated_infrastructure.buckets = Some(buckets.clone());
+	}
+	if let Some(dns) = existing_infrastructure.dns.as_ref() {
+		generated_infrastructure.dns = Some(dns.clone());
+	}
+	if let Some(secrets) = existing_infrastructure.secrets.as_ref() {
+		generated_infrastructure.secrets = Some(secrets.clone());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
+
+	#[test]
+	fn merge_preserves_existing_infrastructure_sections() {
+		let existing: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[infrastructure.postgres]
+tier = "db-custom-2-4096"
+version = "15"
+backup_retention_days = 14
+"#,
+		)
+		.expect("existing config should parse");
+		let mut generated: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[infrastructure.postgres]
+version = "16"
+
+[[infrastructure.buckets]]
+name = "inventory-assets"
+public = false
+"#,
+		)
+		.expect("generated config should parse");
+
+		merge_existing_infrastructure(&existing, &mut generated);
+
+		let infrastructure = generated
+			.infrastructure
+			.expect("merged config should retain infrastructure");
+		let postgres = infrastructure
+			.postgres
+			.expect("existing postgres should be preserved");
+		assert_eq!(postgres.tier.as_deref(), Some("db-custom-2-4096"));
+		assert_eq!(postgres.version.as_deref(), Some("15"));
+		assert_eq!(postgres.backup_retention_days, Some(14));
+		let buckets = infrastructure
+			.buckets
+			.expect("generated buckets should remain when existing has none");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "inventory-assets");
+		assert!(!buckets[0].public);
+	}
+
+	#[test]
+	fn merge_copies_existing_infrastructure_when_generated_has_none() {
+		let existing: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[[infrastructure.buckets]]
+name = "inventory-uploads"
+public = true
+"#,
+		)
+		.expect("existing config should parse");
+		let mut generated: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+"#,
+		)
+		.expect("generated config should parse");
+
+		merge_existing_infrastructure(&existing, &mut generated);
+
+		let infrastructure = generated
+			.infrastructure
+			.expect("existing infrastructure should be copied");
+		let buckets = infrastructure
+			.buckets
+			.expect("existing buckets should be copied");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "inventory-uploads");
+		assert!(buckets[0].public);
+	}
 }
