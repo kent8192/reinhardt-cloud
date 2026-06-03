@@ -7,7 +7,9 @@ use clap::Args;
 use crate::dockerfile_generator::{self, SkipReason};
 use crate::feature_detector::detect_project;
 use crate::settings_reader::read_database_config;
-use crate::toml_generator::{generate_config, generate_reinhardt_cloud_toml_string};
+use crate::toml_generator::{
+	generate_config_preserving_explicit_infrastructure, generate_reinhardt_cloud_toml_string,
+};
 
 /// Re-synchronize `reinhardt-cloud.toml` with the current project state.
 #[derive(Debug, Args)]
@@ -36,8 +38,12 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 		toml::from_str(&existing_toml)?;
 	let metadata = detect_project(&project_dir)?;
 	let db_config = read_database_config(&project_dir);
-	let mut config = generate_config(&metadata, db_config.as_ref())?;
-	merge_existing_infrastructure(&existing_config, &mut config);
+	let mut config = generate_config_preserving_explicit_infrastructure(
+		&metadata,
+		db_config.as_ref(),
+		existing_config.infrastructure.as_ref(),
+	)?;
+	merge_existing_infrastructure(&existing_config, &mut config)?;
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
@@ -73,14 +79,15 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 fn merge_existing_infrastructure(
 	existing: &reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml,
 	generated: &mut reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml,
-) {
+) -> Result<(), String> {
 	let Some(existing_infrastructure) = existing.infrastructure.as_ref() else {
-		return;
+		return Ok(());
 	};
+	validate_infrastructure(existing_infrastructure)?;
 
 	let Some(generated_infrastructure) = generated.infrastructure.as_mut() else {
 		generated.infrastructure = Some(existing_infrastructure.clone());
-		return;
+		return Ok(());
 	};
 
 	if let Some(postgres) = existing_infrastructure.postgres.as_ref() {
@@ -95,6 +102,20 @@ fn merge_existing_infrastructure(
 	if let Some(secrets) = existing_infrastructure.secrets.as_ref() {
 		generated_infrastructure.secrets = Some(secrets.clone());
 	}
+
+	Ok(())
+}
+
+fn validate_infrastructure(
+	infrastructure: &reinhardt_cloud_types::crd::infrastructure::InfrastructureSpec,
+) -> Result<(), String> {
+	infrastructure.validate().map_err(|errors| {
+		errors
+			.into_iter()
+			.map(|error| error.to_string())
+			.collect::<Vec<_>>()
+			.join("; ")
+	})
 }
 
 #[cfg(test)]
@@ -133,7 +154,7 @@ public = false
 		)
 		.expect("generated config should parse");
 
-		merge_existing_infrastructure(&existing, &mut generated);
+		merge_existing_infrastructure(&existing, &mut generated).expect("merge should succeed");
 
 		let infrastructure = generated
 			.infrastructure
@@ -175,7 +196,7 @@ image = "inventory:latest"
 		)
 		.expect("generated config should parse");
 
-		merge_existing_infrastructure(&existing, &mut generated);
+		merge_existing_infrastructure(&existing, &mut generated).expect("merge should succeed");
 
 		let infrastructure = generated
 			.infrastructure
@@ -251,5 +272,107 @@ public = true
 		assert_eq!(buckets.len(), 1);
 		assert_eq!(buckets[0].name, "inventory-uploads");
 		assert!(buckets[0].public);
+	}
+
+	#[tokio::test]
+	async fn execute_preserves_existing_infrastructure_for_unsupported_database() {
+		let dir = tempfile::tempdir().expect("temp project should be created");
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "inventory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reinhardt-web = { version = "0.1.0", features = ["db-mysql"] }
+"#,
+		)
+		.expect("Cargo.toml should be written");
+		std::fs::write(
+			dir.path().join("reinhardt-cloud.toml"),
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[[infrastructure.buckets]]
+name = "inventory-assets"
+public = false
+"#,
+		)
+		.expect("existing config should be written");
+		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n")
+			.expect("existing Dockerfile should be written");
+
+		execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: false,
+		})
+		.await
+		.expect("explicit infrastructure should allow unsupported generated database signal");
+
+		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml"))
+			.expect("written config should be readable");
+		let config: ReinhardtCloudToml =
+			toml::from_str(&written).expect("written config should parse");
+		assert_eq!(
+			config
+				.database
+				.as_ref()
+				.map(|database| database.engine.as_str()),
+			Some("mysql")
+		);
+		let buckets = config
+			.infrastructure
+			.expect("existing infrastructure should be preserved")
+			.buckets
+			.expect("existing bucket should be preserved");
+		assert_eq!(buckets[0].name, "inventory-assets");
+	}
+
+	#[tokio::test]
+	async fn execute_rejects_invalid_existing_infrastructure() {
+		let dir = tempfile::tempdir().expect("temp project should be created");
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "inventory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reinhardt-web = { version = "0.1.0", features = ["db-mysql"] }
+"#,
+		)
+		.expect("Cargo.toml should be written");
+		std::fs::write(
+			dir.path().join("reinhardt-cloud.toml"),
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[[infrastructure.buckets]]
+name = ""
+public = false
+"#,
+		)
+		.expect("existing config should be written");
+
+		let error = execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: false,
+		})
+		.await
+		.expect_err("invalid existing infrastructure should fail early")
+		.to_string();
+
+		assert!(
+			error.contains("infrastructure.buckets[].name must be non-empty"),
+			"unexpected error: {error}"
+		);
 	}
 }

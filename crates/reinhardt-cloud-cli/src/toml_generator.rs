@@ -5,6 +5,7 @@ use crate::settings_reader::DatabaseConfig;
 use reinhardt_cloud_core::infrastructure_derivation::{
 	InfrastructureDerivationInput, derive_infrastructure_spec,
 };
+use reinhardt_cloud_types::crd::infrastructure::InfrastructureSpec;
 use reinhardt_cloud_types::introspect;
 use reinhardt_cloud_types::reinhardt_cloud_toml::{
 	AppSection, AuthSection, CacheSection, DatabaseSection, ReinhardtCloudToml, StorageSection,
@@ -16,12 +17,7 @@ pub(crate) fn generate_config(
 	metadata: &ProjectMetadata,
 	db_config: Option<&DatabaseConfig>,
 ) -> Result<ReinhardtCloudToml, String> {
-	let has_database = metadata.signals.database.is_some() || db_config.is_some();
-	let db_engine = db_config
-		.map(|d| d.engine.clone())
-		.or_else(|| metadata.signals.database.clone())
-		.unwrap_or_else(|| "postgresql".to_owned());
-
+	let (has_database, db_engine) = resolve_database(metadata, db_config);
 	let infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
 		app_name: metadata.name.clone(),
 		signals: convert_infra_signals(&metadata.signals, has_database.then(|| db_engine.clone())),
@@ -30,7 +26,60 @@ pub(crate) fn generate_config(
 	})
 	.map_err(|e| e.to_string())?;
 
-	Ok(ReinhardtCloudToml {
+	Ok(build_config(
+		metadata,
+		has_database,
+		db_engine,
+		infrastructure,
+	))
+}
+
+pub(crate) fn generate_config_preserving_explicit_infrastructure(
+	metadata: &ProjectMetadata,
+	db_config: Option<&DatabaseConfig>,
+	explicit_infrastructure: Option<&InfrastructureSpec>,
+) -> Result<ReinhardtCloudToml, String> {
+	if let Some(infrastructure) = explicit_infrastructure {
+		validate_infrastructure(infrastructure)?;
+	}
+
+	match generate_config(metadata, db_config) {
+		Ok(config) => Ok(config),
+		Err(error) => {
+			let Some(infrastructure) = explicit_infrastructure else {
+				return Err(error);
+			};
+			let (has_database, db_engine) = resolve_database(metadata, db_config);
+			Ok(build_config(
+				metadata,
+				has_database,
+				db_engine,
+				Some(infrastructure.clone()),
+			))
+		}
+	}
+}
+
+fn resolve_database(
+	metadata: &ProjectMetadata,
+	db_config: Option<&DatabaseConfig>,
+) -> (bool, String) {
+	let has_database = metadata.signals.database.is_some() || db_config.is_some();
+	let db_engine = db_config
+		.map(|d| d.engine.clone())
+		.or_else(|| metadata.signals.database.clone())
+		.unwrap_or_else(|| "postgresql".to_owned());
+
+	(has_database, db_engine)
+}
+
+fn build_config(
+	metadata: &ProjectMetadata,
+	has_database: bool,
+	db_engine: String,
+	infrastructure: Option<InfrastructureSpec>,
+) -> ReinhardtCloudToml {
+	ReinhardtCloudToml {
 		app: AppSection {
 			name: metadata.name.clone(),
 			image: format!("{}:latest", metadata.name),
@@ -64,6 +113,16 @@ pub(crate) fn generate_config(
 		},
 		infrastructure,
 		..Default::default()
+	}
+}
+
+fn validate_infrastructure(infrastructure: &InfrastructureSpec) -> Result<(), String> {
+	infrastructure.validate().map_err(|errors| {
+		errors
+			.into_iter()
+			.map(|error| error.to_string())
+			.collect::<Vec<_>>()
+			.join("; ")
 	})
 }
 
