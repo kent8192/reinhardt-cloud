@@ -75,7 +75,7 @@ fn convert_infra_signals(signals: &InfraSignals) -> introspect::InfraSignals {
 		grpc: signals.grpc,
 		storage: None,
 		mail: None,
-		session_backend: None,
+		session_backend: signals.sessions.then(|| "db".to_string()),
 		graphql: signals.graphql,
 		admin_panel: false,
 		i18n: false,
@@ -269,6 +269,23 @@ mod tests {
 				.and_then(|infrastructure| infrastructure.buckets.as_ref())
 				.is_none()
 		);
+	}
+
+	#[rstest]
+	fn test_convert_infra_signals_maps_sessions_to_db_without_storage_backend() {
+		// Arrange
+		let signals = InfraSignals {
+			object_storage: true,
+			sessions: true,
+			..Default::default()
+		};
+
+		// Act
+		let converted = convert_infra_signals(&signals);
+
+		// Assert
+		assert_eq!(converted.session_backend.as_deref(), Some("db"));
+		assert!(converted.storage.is_none());
 	}
 
 	#[rstest]
