@@ -45,8 +45,9 @@ operator owns reconciliation end-to-end. See **Agent Path** below.
 
 The CLI's `execute_inner` function in
 `crates/reinhardt-cloud-cli/src/commands/deploy.rs` always builds a
-`ReinhardtApp` CRD via `build_reinhardt_app_crd` (lines 242-299), then
-branches on flags:
+typed `ReinhardtAppSpec` from `reinhardt-cloud.toml`, CLI overrides, and
+optional introspect output, then renders a `ReinhardtApp` CRD via
+`build_reinhardt_app_crd` before branching on flags:
 
 - **`--dry-run`** (`deploy.rs:479-482`) — Serialises the CRD to YAML and
   prints it to stdout. No cluster contact, no API contact. **Status:
@@ -55,14 +56,19 @@ branches on flags:
   `kubectl apply -f -` against the operator's cluster. The operator's
   reconciler picks up the new `ReinhardtApp` resource via its watch and
   produces the owned Kubernetes resources. **Status: Current State.**
-- **default / API mode** (`deploy.rs:501-514`) — POSTs a JSON payload
-  `{app_name, image, cluster_id}` to the dashboard at `/api/deployments/`
-  via `ReinhardtCloudClient::deploy`. The dashboard then takes over.
+- **default / API mode** — POSTs a JSON payload containing `app_name`,
+  `image`, optional `cluster_id`, and the generated `ReinhardtApp` YAML as
+  `reinhardt_app_yaml` to the dashboard at `/api/deployments/` via
+  `ReinhardtCloudClient::deploy`. The dashboard accepts this payload, but
+  the generated CRD is not yet persisted or relayed to the agent.
   **Status: Current State.**
 
-The function signature `build_reinhardt_app_crd(name, namespace, image,
-replicas, introspect, api_version) -> serde_yaml::Value` is the *only*
-place CRD YAML is constructed in the codebase today.
+The function signature `build_reinhardt_app_crd(name, namespace, spec,
+api_version) -> serde_yaml::Value` is the CLI's CRD rendering boundary.
+The conversion from `reinhardt-cloud.toml` to `ReinhardtAppSpec` happens
+before that boundary so typed TOML sections such as `health`, `services`,
+`scale`, `env`, `database`, `cache`, `worker`, `storage`, and `mail` are
+not dropped during manifest construction.
 
 ### Dashboard-Relay Path
 
@@ -76,10 +82,12 @@ the following:
    authenticated user.
 2. Persists a `Deployment` ORM record. The model
    (`dashboard/src/apps/deployments/models/deployment.rs:9-40`) tracks:
-   `id`, `user_id`, `app_name`, `cluster_id`, `status` (one of
+   `id`, `organization_id`, `app_name`, `cluster_id`, `status` (one of
    `pending`/`running`/`failed`/`succeeded`), `image`, `created_at`,
    `updated_at`. Initial `status` is `pending`.
-3. Forwards a deploy command to the registered agent via the gRPC
+3. Accepts the optional `reinhardt_app_yaml` request field. At this stage,
+   the field is an API-boundary payload, not a persisted model column.
+4. Forwards a deploy command to the registered agent via the gRPC
    bidirectional stream that the agent opened on startup.
 
 **Status: Current State.** The dashboard does **not** apply Kubernetes
@@ -148,9 +156,10 @@ sequenceDiagram
         CLI->>Kubectl: kubectl apply -f (ReinhardtApp CRD)
         Kubectl->>Operator: watch event
         Operator->>Kubectl: reconcile -> Deployment, Service, Ingress, ...
-    else default / platform path (deploy.rs:501-514)
-        CLI->>Dashboard: POST /api/deployments/ {app_name, image, cluster_id}
+    else default / platform path
+        CLI->>Dashboard: POST /api/deployments/ {app_name, image, cluster_id, reinhardt_app_yaml}
         Dashboard->>PG: INSERT Deployment (status=pending)
+        Note over Dashboard: Current State: reinhardt_app_yaml is accepted at the API boundary<br/>but not persisted or relayed to Agent yet
         Dashboard->>Agent: gRPC stream command (main.rs:129)
         Note over Agent: Current State: execute_deploy applies a raw Deployment<br/>(NOT a ReinhardtApp CRD) -- main.rs:311-364
         Note over Agent: Intended: agent applies ReinhardtApp CRD; operator reconciles

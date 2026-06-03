@@ -15,6 +15,8 @@ mod tests {
 		let cluster_id = 42i64;
 		let status = "pending".to_string();
 		let image = "ghcr.io/my-app:latest".to_string();
+		let reinhardt_app_yaml =
+			"apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: ReinhardtApp\n".to_string();
 
 		// Act
 		let deployment = Deployment::build()
@@ -23,6 +25,7 @@ mod tests {
 			.cluster_id(cluster_id)
 			.status(status.clone())
 			.image(image.clone())
+			.reinhardt_app_yaml(Some(reinhardt_app_yaml.clone()))
 			.finish();
 
 		// Assert
@@ -31,6 +34,7 @@ mod tests {
 		assert_eq!(deployment.cluster_id, cluster_id);
 		assert_eq!(deployment.status, status);
 		assert_eq!(deployment.image, image);
+		assert_eq!(deployment.reinhardt_app_yaml, Some(reinhardt_app_yaml));
 	}
 
 	/// Deployment::new sets id to None (auto-increment on insert).
@@ -43,6 +47,7 @@ mod tests {
 			.cluster_id(1)
 			.status("pending".to_string())
 			.image("nginx:latest".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 
 		// Assert
@@ -63,6 +68,7 @@ mod tests {
 			.cluster_id(1)
 			.status(status.to_string())
 			.image("nginx:latest".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 
 		// Assert
@@ -79,6 +85,7 @@ mod tests {
 			.cluster_id(99)
 			.status("running".to_string())
 			.image("ghcr.io/roundtrip:v1".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 		deployment.id = Some(7);
 
@@ -93,5 +100,6 @@ mod tests {
 		assert_eq!(restored.cluster_id, deployment.cluster_id);
 		assert_eq!(restored.status, deployment.status);
 		assert_eq!(restored.image, deployment.image);
+		assert_eq!(restored.reinhardt_app_yaml, deployment.reinhardt_app_yaml);
 	}
 }

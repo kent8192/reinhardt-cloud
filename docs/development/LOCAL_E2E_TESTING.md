@@ -226,9 +226,11 @@ cargo run -p reinhardt-cloud-cli -- deploy \
   --name demo --image nginx:1.27 --replicas 2
 ```
 
-Expected: the Dashboard returns a 2xx for `POST /deployments`. **The Agent
-binary will not receive the deploy command yet** — see the first item in
-Known limitations.
+Expected: the Dashboard returns a 2xx for `POST /deployments`. The CLI
+includes the generated `ReinhardtApp` YAML in the request body as
+`reinhardt_app_yaml`, but the Dashboard does not yet persist or relay that
+manifest to the Agent. **The Agent binary will not receive the deploy command
+yet** — see the first item in Known limitations.
 
 ## Known limitations
 
@@ -253,7 +255,7 @@ Dashboard → Agent → Operator path. Each has a tracking Issue:
    validates against. Tracked in kent8192/reinhardt-cloud#361.
 
 Until each item is resolved, treat the "Dashboard-mediated deploy" scenario
-(section 8c) as a partial smoke test: HTTP path only.
+(section 8c) as a partial smoke test: HTTP path and payload acceptance only.
 
 ## Troubleshooting
 

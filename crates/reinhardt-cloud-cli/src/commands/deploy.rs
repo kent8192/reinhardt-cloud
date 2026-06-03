@@ -9,6 +9,7 @@ use crate::client::ReinhardtCloudClient;
 use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
 use crate::feature_detector::{InfraSignals as DetectedInfraSignals, detect_project};
 use crate::settings_reader::{DatabaseConfig, read_database_config};
+use reinhardt_cloud_types::crd::ReinhardtAppSpec;
 use reinhardt_cloud_types::introspect::{
 	AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals as IntrospectInfraSignals,
 	IntrospectOutput,
@@ -250,33 +251,56 @@ fn run_manage_introspect() -> Result<String, String> {
 	}
 }
 
-/// Builds a `ReinhardtApp` CRD YAML value with optional introspect data.
+/// Builds a `ReinhardtAppSpec` from `reinhardt-cloud.toml`, CLI overrides,
+/// and optional introspect data.
+fn build_reinhardt_app_spec(
+	toml_config: Option<&ReinhardtCloudToml>,
+	image: String,
+	replicas: i32,
+	introspect: Option<IntrospectOutput>,
+) -> ReinhardtAppSpec {
+	let mut spec = toml_config
+		.map(ReinhardtCloudToml::to_reinhardt_app_spec)
+		.unwrap_or_else(|| ReinhardtAppSpec {
+			image: image.clone(),
+			replicas: Some(replicas),
+			..Default::default()
+		});
+
+	spec.image = image;
+	spec.replicas = Some(replicas);
+	spec.introspect = introspect;
+	spec
+}
+
+/// Removes null values from serialized Kubernetes YAML so absent optional
+/// fields stay absent in dry-run output and server-side apply payloads.
+fn prune_yaml_nulls(value: &mut serde_yaml::Value) {
+	match value {
+		serde_yaml::Value::Mapping(mapping) => {
+			mapping.retain(|_, nested| !nested.is_null());
+			for nested in mapping.values_mut() {
+				prune_yaml_nulls(nested);
+			}
+		}
+		serde_yaml::Value::Sequence(items) => {
+			for item in items {
+				prune_yaml_nulls(item);
+			}
+		}
+		_ => {}
+	}
+}
+
+/// Builds a `ReinhardtApp` CRD YAML value with typed spec data.
 fn build_reinhardt_app_crd(
 	name: &str,
 	namespace: &str,
-	image: &str,
-	replicas: Option<i32>,
-	introspect: Option<IntrospectOutput>,
+	spec: &ReinhardtAppSpec,
 	api_version: &str,
 ) -> serde_yaml::Value {
-	let mut spec = serde_yaml::Mapping::new();
-	spec.insert(
-		serde_yaml::Value::String("image".to_string()),
-		serde_yaml::Value::String(image.to_string()),
-	);
-	if let Some(r) = replicas {
-		spec.insert(
-			serde_yaml::Value::String("replicas".to_string()),
-			serde_yaml::Value::Number(serde_yaml::Number::from(r)),
-		);
-	}
-	if let Some(intro) = introspect {
-		let intro_value = serde_yaml::to_value(&intro).unwrap_or(serde_yaml::Value::Null);
-		spec.insert(
-			serde_yaml::Value::String("introspect".to_string()),
-			intro_value,
-		);
-	}
+	let mut spec_value = serde_yaml::to_value(spec).unwrap_or(serde_yaml::Value::Null);
+	prune_yaml_nulls(&mut spec_value);
 
 	let mut metadata = serde_yaml::Mapping::new();
 	metadata.insert(
@@ -301,10 +325,7 @@ fn build_reinhardt_app_crd(
 		serde_yaml::Value::String("metadata".to_string()),
 		serde_yaml::Value::Mapping(metadata),
 	);
-	root.insert(
-		serde_yaml::Value::String("spec".to_string()),
-		serde_yaml::Value::Mapping(spec),
-	);
+	root.insert(serde_yaml::Value::String("spec".to_string()), spec_value);
 
 	serde_yaml::Value::Mapping(root)
 }
@@ -476,15 +497,22 @@ async fn execute_inner(
 	)
 	.await?;
 
-	// Step 5: Build CRD
-	let crd = build_reinhardt_app_crd(
-		&app_name,
-		&args.namespace,
-		&image,
-		Some(replicas_i32),
+	// Step 5: Build typed spec and CRD
+	let spec = build_reinhardt_app_spec(
+		toml_config.as_ref(),
+		image.clone(),
+		replicas_i32,
 		introspect,
-		&api_version,
 	);
+	if let Err(errors) = spec.validate() {
+		let messages = errors
+			.into_iter()
+			.map(|e| e.message)
+			.collect::<Vec<_>>()
+			.join("; ");
+		return Err(format!("invalid ReinhardtApp spec: {messages}").into());
+	}
+	let crd = build_reinhardt_app_crd(&app_name, &args.namespace, &spec, &api_version);
 
 	// Step 6: Output or apply
 	if args.dry_run {
@@ -511,7 +539,7 @@ async fn execute_inner(
 	} else {
 		// API mode: send JSON payload to the dashboard API
 		match client
-			.deploy(&app_name, &image, args.cluster.as_deref())
+			.deploy(&app_name, &image, args.cluster.as_deref(), Some(&yaml))
 			.await
 		{
 			Ok(response) => {
@@ -598,6 +626,10 @@ mod tests {
 	use reinhardt_cloud_types::introspect::{
 		AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals, MiddlewareMetadata,
 		RouteMetadata, SecuritySettings, ServerSettings, SettingsMetadata, TableMetadata,
+	};
+	use reinhardt_cloud_types::reinhardt_cloud_toml::{
+		AppSection, DatabaseSection, HealthSection, ReinhardtCloudToml, ReplicasSection,
+		ScaleSection, ServicesSection,
 	};
 	use rstest::rstest;
 
@@ -780,12 +812,11 @@ features:
 		};
 
 		// Act
+		let spec = build_reinhardt_app_spec(None, "my-app:v1".to_string(), 3, Some(introspect));
 		let crd = build_reinhardt_app_crd(
 			"my-app",
 			"production",
-			"my-app:v1",
-			Some(3),
-			Some(introspect),
+			&spec,
 			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 
@@ -842,13 +873,14 @@ features:
 
 	#[rstest]
 	fn test_build_reinhardt_app_crd_without_introspect() {
-		// Arrange & Act
+		// Arrange
+		let spec = build_reinhardt_app_spec(None, "simple:latest".to_string(), 1, None);
+
+		// Act
 		let crd = build_reinhardt_app_crd(
 			"simple-app",
 			"default",
-			"simple:latest",
-			Some(1),
-			None,
+			&spec,
 			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 
@@ -890,15 +922,101 @@ features:
 	}
 
 	#[rstest]
+	fn test_build_reinhardt_app_crd_preserves_typed_toml_sections() {
+		// Arrange
+		let mut config = ReinhardtCloudToml {
+			app: AppSection {
+				name: "dashboard".to_string(),
+				image: "dashboard:latest".to_string(),
+			},
+			database: Some(DatabaseSection {
+				engine: "postgresql".to_string(),
+				version: Some("16".to_string()),
+				..Default::default()
+			}),
+			health: Some(HealthSection {
+				path: Some("/api/healthz/".to_string()),
+				port: Some(8000),
+				interval_seconds: Some(10),
+			}),
+			services: Some(ServicesSection {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: None,
+			}),
+			replicas: Some(ReplicasSection { count: 2 }),
+			scale: Some(ScaleSection {
+				min_replicas: Some(2),
+				max_replicas: Some(6),
+				metric: Some("cpu".to_string()),
+				target_value: Some(70),
+			}),
+			..Default::default()
+		};
+		config.env.insert(
+			"DATABASE_URL".to_string(),
+			"secretRef:dashboard/database-url".to_string(),
+		);
+
+		// Act
+		let spec = build_reinhardt_app_spec(Some(&config), "dashboard:v1".to_string(), 2, None);
+		let crd = build_reinhardt_app_crd(
+			"dashboard",
+			"production",
+			&spec,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
+
+		// Assert
+		let spec = crd
+			.as_mapping()
+			.unwrap()
+			.get(serde_yaml::Value::String("spec".to_string()))
+			.unwrap()
+			.as_mapping()
+			.unwrap();
+		assert_eq!(
+			spec.get(serde_yaml::Value::String("image".to_string())),
+			Some(&serde_yaml::Value::String("dashboard:v1".to_string()))
+		);
+		assert!(
+			spec.get(serde_yaml::Value::String("database".to_string()))
+				.is_some()
+		);
+		assert!(
+			spec.get(serde_yaml::Value::String("health".to_string()))
+				.is_some()
+		);
+		assert!(
+			spec.get(serde_yaml::Value::String("services".to_string()))
+				.is_some()
+		);
+		assert!(
+			spec.get(serde_yaml::Value::String("scale".to_string()))
+				.is_some()
+		);
+		let env = spec
+			.get(serde_yaml::Value::String("env".to_string()))
+			.unwrap()
+			.as_mapping()
+			.unwrap();
+		assert_eq!(
+			env.get(serde_yaml::Value::String("DATABASE_URL".to_string())),
+			Some(&serde_yaml::Value::String(
+				"secretRef:dashboard/database-url".to_string()
+			))
+		);
+	}
+
+	#[rstest]
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
+		let spec = build_reinhardt_app_spec(None, "test:v1".to_string(), 2, None);
 		let crd = build_reinhardt_app_crd(
 			"test-app",
 			"staging",
-			"test:v1",
-			Some(2),
-			None,
+			&spec,
 			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
@@ -921,12 +1039,11 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
+		let spec = build_reinhardt_app_spec(None, "ctx:v1".to_string(), 1, None);
 		let crd = build_reinhardt_app_crd(
 			"ctx-app",
 			"prod",
-			"ctx:v1",
-			Some(1),
-			None,
+			&spec,
 			"paas.reinhardt-cloud.dev/v1alpha2",
 		);
 		let yaml = serde_yaml::to_string(&crd).unwrap();
