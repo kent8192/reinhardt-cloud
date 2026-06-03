@@ -34,9 +34,13 @@ pub enum DerivationError {
 	#[error("unsupported managed storage backend `{backend}`; supported values: s3, gcs")]
 	UnsupportedStorageBackend { backend: String },
 
-	/// Derived or explicit infrastructure failed validation.
+	/// Explicit infrastructure declaration failed validation.
+	#[error("invalid explicit infrastructure: {message}")]
+	InvalidExplicitInfrastructure { message: String },
+
+	/// Derived infrastructure failed validation.
 	#[error("invalid derived infrastructure: {message}")]
-	InvalidInfrastructure { message: String },
+	InvalidDerivedInfrastructure { message: String },
 }
 
 /// Derives an infrastructure spec from introspection signals.
@@ -44,7 +48,7 @@ pub fn derive_infrastructure_spec(
 	input: InfrastructureDerivationInput,
 ) -> Result<Option<InfrastructureSpec>, DerivationError> {
 	if let Some(explicit) = input.explicit {
-		validate_spec(&explicit)?;
+		validate_explicit_spec(&explicit)?;
 		return Ok(Some(explicit));
 	}
 
@@ -101,18 +105,27 @@ pub fn derive_infrastructure_spec(
 		return Ok(None);
 	}
 
-	validate_spec(&spec)?;
+	validate_derived_spec(&spec)?;
 	Ok(Some(spec))
 }
 
-fn validate_spec(spec: &InfrastructureSpec) -> Result<(), DerivationError> {
+fn validate_explicit_spec(spec: &InfrastructureSpec) -> Result<(), DerivationError> {
+	validation_message(spec)
+		.map_err(|message| DerivationError::InvalidExplicitInfrastructure { message })
+}
+
+fn validate_derived_spec(spec: &InfrastructureSpec) -> Result<(), DerivationError> {
+	validation_message(spec)
+		.map_err(|message| DerivationError::InvalidDerivedInfrastructure { message })
+}
+
+fn validation_message(spec: &InfrastructureSpec) -> Result<(), String> {
 	spec.validate().map_err(|errors| {
-		let message = errors
+		errors
 			.into_iter()
 			.map(|error| error.message)
 			.collect::<Vec<_>>()
-			.join("; ");
-		DerivationError::InvalidInfrastructure { message }
+			.join("; ")
 	})
 }
 
@@ -270,6 +283,48 @@ mod tests {
 
 		// Assert
 		assert_eq!(spec, Some(explicit));
+	}
+
+	#[rstest]
+	fn rejects_invalid_explicit_infrastructure_before_preservation() {
+		// Arrange
+		let explicit = InfrastructureSpec {
+			postgres: Some(PostgresSpec {
+				tier: Some("db-custom-2-4096".to_string()),
+				version: Some("15".to_string()),
+				backup_retention_days: Some(0),
+			}),
+			buckets: Some(vec![BucketSpec {
+				name: "custom-assets".to_string(),
+				public: true,
+			}]),
+			dns: None,
+			secrets: Some(vec![SecretSpec {
+				name: "api-token".to_string(),
+				description: Some("Provided by operator".to_string()),
+			}]),
+		};
+		let input = InfrastructureDerivationInput {
+			app_name: "inventory".to_string(),
+			signals: InfraSignals {
+				database: Some("postgres".to_string()),
+				storage: Some("s3".to_string()),
+				..Default::default()
+			},
+			explicit: Some(explicit),
+			typed_secret_refs: vec!["other-secret".to_string()],
+		};
+
+		// Act
+		let error = derive_infrastructure_spec(input).unwrap_err();
+
+		// Assert
+		assert_eq!(
+			error,
+			DerivationError::InvalidExplicitInfrastructure {
+				message: "infrastructure.postgres.backup_retention_days must be > 0".to_string(),
+			}
+		);
 	}
 
 	#[rstest]
