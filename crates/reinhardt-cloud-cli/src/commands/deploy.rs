@@ -538,9 +538,8 @@ async fn execute_inner(
 		);
 	} else {
 		// API mode: send JSON payload to the dashboard API
-		let crd_yaml = serde_yaml::to_string(&crd)?;
 		match client
-			.deploy(&app_name, &image, args.cluster.as_deref(), Some(&crd_yaml))
+			.deploy(&app_name, &image, args.cluster.as_deref(), Some(&yaml))
 			.await
 		{
 			Ok(response) => {

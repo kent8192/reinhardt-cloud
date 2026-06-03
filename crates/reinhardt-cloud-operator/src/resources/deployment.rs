@@ -36,6 +36,12 @@ fn build_main_container_probe(
 	let path = health.path.clone().unwrap_or_else(|| "/health".to_string());
 	let port = validate_port("health.port", health.port.unwrap_or(default_port))?;
 	let period_seconds = health.interval_seconds.unwrap_or(10);
+	if period_seconds < 1 {
+		return Err(Error::InvalidProbePeriod {
+			field: "health.interval_seconds",
+			seconds: period_seconds,
+		});
+	}
 
 	Ok(Some(Probe {
 		http_get: Some(HTTPGetAction {
@@ -479,6 +485,34 @@ mod tests {
 			assert_eq!(http.port, IntOrString::Int(8000));
 			assert_eq!(probe.period_seconds, Some(10));
 		}
+	}
+
+	#[rstest]
+	#[case(0)]
+	#[case(-1)]
+	fn test_build_deployment_rejects_invalid_health_interval(#[case] interval_seconds: i32) {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.health = Some(HealthSpec {
+			path: Some("/api/healthz/".to_string()),
+			port: Some(8000),
+			interval_seconds: Some(interval_seconds),
+		});
+
+		// Act
+		let result = build_deployment(&app, None, &Platform::Onpremise);
+
+		// Assert
+		assert!(
+			matches!(
+				result,
+				Err(Error::InvalidProbePeriod {
+					field: "health.interval_seconds",
+					seconds
+				}) if seconds == interval_seconds
+			),
+			"expected invalid probe period error, got {result:?}"
+		);
 	}
 
 	#[rstest]

@@ -35,6 +35,10 @@ pub(crate) enum Error {
 	#[error("invalid port {port} for field '{field}': must be between 1 and 65535")]
 	InvalidPort { field: &'static str, port: i32 },
 
+	/// A Kubernetes probe period is outside the valid range.
+	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
+	InvalidProbePeriod { field: &'static str, seconds: i32 },
+
 	/// Database provisioning failed.
 	/// Used by the inference engine when database resource creation fails.
 	#[allow(dead_code)]
@@ -114,7 +118,7 @@ impl BackoffClass {
 /// Classify a reconciliation error into a `BackoffClass`.
 ///
 /// Heuristics:
-/// - `MissingField`, `InvalidPort`: permanent — user must fix the spec.
+/// - `MissingField`, `InvalidPort`, probe periods: permanent — user must fix the spec.
 /// - `Kube` with HTTP 404/409: dependency not ready (object missing or
 ///   write conflicts) — wait a bit longer before retrying.
 /// - All other errors: transient — short backoff.
@@ -124,6 +128,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		// can possibly succeed.
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
+		| Error::InvalidProbePeriod { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_) => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
