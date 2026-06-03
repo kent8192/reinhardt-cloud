@@ -18,7 +18,6 @@ pub async fn register(
 	username: String,
 	email: String,
 	password: String,
-	csrf_token: String,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
 	#[inject] email_service: reinhardt::di::Depends<
 		crate::apps::auth::services::email::EmailService,
@@ -34,10 +33,6 @@ pub async fn register(
 		use crate::apps::auth::services::registration::provision_personal_organization;
 		use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 		use crate::shared::UserInfo;
-
-		// CSRF validation runs in middleware before this handler, so the
-		// token is consumed only to satisfy the form! contract here.
-		let _ = csrf_token;
 
 		let settings = crate::config::settings::get_settings();
 		let secret_key = settings.core.secret_key.clone();
@@ -126,14 +121,7 @@ pub async fn register(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = (
-			username,
-			email,
-			password,
-			csrf_token,
-			_http_request,
-			email_service,
-		);
+		let _ = (username, email, password, _http_request, email_service);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

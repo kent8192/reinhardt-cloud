@@ -64,12 +64,6 @@ pub fn login_page() -> Page {
 				class: "btn-primary w-full py-2.5 text-base"
 			},
 		},
-		// Explicit CSRF wiring (reinhardt-web#3971) — reads the token from
-		// the cookie/meta/input chain at submit time and routes it to the
-		// server_fn's `csrf_token` parameter.
-		strip_arguments: {
-			csrf_token: ::reinhardt::reinhardt_pages::csrf::get_csrf_token().unwrap_or_default(),
-		},
 	};
 	let form_view = login_form.into_page();
 	let oauth_view = oauth_buttons("Sign in");
