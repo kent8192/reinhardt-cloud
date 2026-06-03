@@ -35,9 +35,12 @@
 //!
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
-use reinhardt::conf::settings::builder::{BuildError, SettingsBuilder};
 use reinhardt::conf::settings::profile::Profile;
-use reinhardt::conf::settings::sources::{HighPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::settings::sources::{DefaultSource, HighPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::{
+	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
+	settings::builder::{BuildError, SettingsBuilder},
+};
 #[cfg(native)]
 use reinhardt::di::injectable_factory;
 use reinhardt::settings;
@@ -53,7 +56,8 @@ use std::path::PathBuf;
 /// - `[media]` → `MediaSettings`
 /// - `[cors]` → `CorsSettings` (includes `allow_origins` used by `OriginGuardMiddleware`)
 /// - `[email]` → `EmailSettings` (SMTP backend configuration for transactional emails)
-#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings)]
+/// - `[contacts]` → `ContactSettings` (required by settings-aware management commands)
+#[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings | contacts: ContactSettings)]
 pub struct ProjectSettings;
 
 /// Resolve the settings directory path.
@@ -75,6 +79,35 @@ fn profile_name() -> String {
 	env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string())
 }
 
+fn default_project_settings_source() -> DefaultSource {
+	DefaultSource::new()
+		.with_value(
+			"i18n",
+			serde_json::to_value(I18nSettings::default())
+				.expect("I18nSettings default should serialize"),
+		)
+		.with_value(
+			"static_files",
+			serde_json::to_value(StaticSettings::default())
+				.expect("StaticSettings default should serialize"),
+		)
+		.with_value(
+			"media",
+			serde_json::to_value(MediaSettings::default())
+				.expect("MediaSettings default should serialize"),
+		)
+		.with_value(
+			"email",
+			serde_json::to_value(EmailSettings::default())
+				.expect("EmailSettings default should serialize"),
+		)
+		.with_value(
+			"contacts",
+			serde_json::to_value(ContactSettings::default())
+				.expect("ContactSettings default should serialize"),
+		)
+}
+
 /// Build merged settings from all configuration sources, returning errors
 /// for missing required env vars (so callers — including tests — can
 /// distinguish a startup misconfiguration from an unrelated panic).
@@ -90,17 +123,11 @@ fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 
 	SettingsBuilder::new()
 		.profile(Profile::parse(&profile_str))
-		// `with_interpolation()` expands `${VAR}` / `${VAR:-default}` in TOML
-		// string values against process env at load time, so a single TOML
-		// file can host environment-specific knobs without a dedicated
-		// profile per environment. Combined with reinhardt-conf's typed
-		// coercion (kent8192/reinhardt-web#4232), interpolated strings also
-		// deserialize into typed fields (`port: u16`, `debug: bool`, ...).
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
-		.add_source(
-			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
-				.with_interpolation(),
-		)
+		.add_source(default_project_settings_source())
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
+		.add_source(TomlFileSource::new(
+			settings_dir.join(format!("{}.toml", profile_str)),
+		))
 		// Highest priority: Environment variables (for container/CI overrides)
 		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
@@ -187,11 +214,10 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
 	let from_toml = SettingsBuilder::new()
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
-		.add_source(
-			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
-				.with_interpolation(),
-		)
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
+		.add_source(TomlFileSource::new(
+			settings_dir.join(format!("{}.toml", profile_str)),
+		))
 		.build()
 		.ok()
 		.and_then(|merged| {
@@ -214,6 +240,8 @@ mod tests {
 	use rstest::rstest;
 	use serial_test::serial;
 	use std::ffi::OsString;
+	use std::fs;
+	use std::time::{SystemTime, UNIX_EPOCH};
 
 	/// Required env vars for the production profile after #588 made
 	/// `production.toml` self-contained via `${VAR:?msg}` interpolation.
@@ -340,6 +368,72 @@ mod tests {
 		// Assert
 		assert_eq!(settings.media.url, "/media/");
 		assert!(!settings.media.root.as_os_str().is_empty());
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_fragment_defaults_load_when_base_toml_is_absent() {
+		// Arrange
+		let watched: Vec<&'static str> = vec!["REINHARDT_CLOUD_CONFIG_DIR", "REINHARDT_ENV"];
+		let _guard = EnvSnapshot::new(&watched);
+		let unique = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.expect("system time should be after UNIX_EPOCH")
+			.as_nanos();
+		let config_dir =
+			env::temp_dir().join(format!("reinhardt-cloud-settings-defaults-{unique}"));
+		fs::create_dir_all(&config_dir).expect("temporary settings directory should be created");
+		fs::write(
+			config_dir.join("local.toml"),
+			r#"
+[core]
+debug = true
+secret_key = "test-secret"
+allowed_hosts = ["localhost"]
+root_urlconf = ""
+middleware = []
+
+[core.security]
+append_slash = true
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "test"
+user = "postgres"
+password = { secret = "test-password" }
+options = {}
+
+[cors]
+allow_origins = ["http://localhost:8000"]
+"#,
+		)
+		.expect("local settings file should be written");
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var` needs.
+		unsafe {
+			env::set_var("REINHARDT_CLOUD_CONFIG_DIR", &config_dir);
+			env::set_var("REINHARDT_ENV", "local");
+		}
+
+		// Act
+		let outcome = try_build_settings();
+		let _ = fs::remove_dir_all(&config_dir);
+
+		// Assert
+		let settings =
+			outcome.expect("fragment defaults should fill sections absent from local.toml");
+		assert_eq!(settings.i18n.language_code, "en-us");
+		assert_eq!(settings.static_files.url, "/static/");
+		assert_eq!(settings.media.url, "/media/");
+		assert_eq!(settings.email.port, 25);
 	}
 
 	#[rstest]

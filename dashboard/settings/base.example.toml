@@ -87,3 +87,8 @@ use_tls = false
 # username = ""
 # password = { secret = "CHANGE-ME" }
 # timeout = 30
+
+[contacts]
+# Contacts fragment required by settings-aware management commands.
+admins = []
+managers = []

@@ -74,7 +74,7 @@ The WASM client router (`dashboard/src/client/router.rs`) registers three top-le
 2. **Auth** (`/auth/`) — login and registration pages; JWT issuance
 3. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
 4. **Deployments** (`/deployments/`) — deployment records paired with operator `ReinhardtApp` CRDs
-5. **Admin panel** (`/admin/`) — operator-level administration UI (reinhardt-admin)
+5. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
 
 ---
 
@@ -88,7 +88,7 @@ The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cl
 
 > **For App Developers**: after running `reinhardt-cloud deploy`, navigate to `/deployments/` and locate your application by name. The record should appear within seconds. Cross-check the `Ready` condition by also running `reinhardt-cloud status --name <app>` from the terminal.
 
-> **For Platform Operators**: use the `/admin/` panel to list all deployments across all users. The `DeploymentAdmin` registered in `dashboard/src/config/admin.rs` exposes the full deployment table. Filter by cluster or by creation date to identify stale or failing entries.
+> **For Platform Operators**: use the `/api/admin/` panel to list all deployments across all users. The `DeploymentAdmin` registered in `dashboard/src/config/admin.rs` exposes the full deployment table. Filter by cluster or by creation date to identify stale or failing entries.
 
 ### Deployment details and history
 
@@ -115,7 +115,7 @@ There is an open issue [#366](https://github.com/kent8192/reinhardt-cloud/issues
 
 ### Settings
 
-The Dashboard exposes an admin panel at `/admin/` powered by reinhardt-admin. Three model types are registered (`dashboard/src/config/admin.rs`):
+The Dashboard exposes an admin panel at `/api/admin/` powered by reinhardt-admin. Three model types are registered (`dashboard/src/config/admin.rs`):
 
 - **User** — `UserAdmin` (auth app)
 - **Cluster** — `ClusterAdmin` (clusters app)
@@ -123,7 +123,7 @@ The Dashboard exposes an admin panel at `/admin/` powered by reinhardt-admin. Th
 
 There is no `settings` application module in `dashboard/src/apps/` at this commit. User-facing profile management and API token management are handled via the `auth` app (`/auth/`).
 
-> **For Platform Operators**: the `/admin/` panel requires the account to have staff/admin access as configured through the reinhardt-admin framework. User activation and deactivation can be managed from the User admin list. There is no formal per-tenant quota UI today.
+> **For Platform Operators**: the `/api/admin/` panel requires the account to have staff/admin access as configured through the reinhardt-admin framework. User activation and deactivation can be managed from the User admin list. There is no formal per-tenant quota UI today.
 
 ---
 
@@ -157,9 +157,9 @@ The migration command is provided by reinhardt-web's built-in `migrate` manageme
 
 ### Static asset / WASM asset caching
 
-The Dashboard serves admin static assets at `/static/admin/` via reinhardt-admin's built-in static file serving. The WASM bundle for the client SPA is loaded by `dashboard/index.html` (700 B shell HTML at repo root of the dashboard directory).
+The Dashboard serves admin static assets at `/api/static/admin/` via reinhardt-admin's built-in static file serving. The WASM bundle for the client SPA is loaded by `dashboard/index.html` (700 B shell HTML at repo root of the dashboard directory).
 
-**Outstanding verification**: the exact path from which the backend serves the compiled WASM `.wasm` and `.js` glue files (e.g. a `dist/` or `staticfiles/` directory) is not confirmed at this commit — `dashboard/build.rs` configures `cfg_aliases` only; no `trunk build` invocation is visible in `Makefile.toml`. Until this is confirmed, cache headers and versioning strategy for the WASM bundle cannot be documented authoritatively. Operators should configure their reverse proxy (nginx, ALB) to set a short `Cache-Control` max-age (e.g. 60 seconds) on `/static/` paths until the WASM serving path is documented.
+**Outstanding verification**: the exact path from which the backend serves the compiled WASM `.wasm` and `.js` glue files (e.g. a `dist/` or `staticfiles/` directory) is not confirmed at this commit — `dashboard/build.rs` configures `cfg_aliases` only; no `trunk build` invocation is visible in `Makefile.toml`. Until this is confirmed, cache headers and versioning strategy for the WASM bundle cannot be documented authoritatively. Operators should configure their reverse proxy (nginx, ALB) to set a short `Cache-Control` max-age (e.g. 60 seconds) on `/api/static/admin/` paths until the WASM serving path is documented.
 
 ### Configuration via `dashboard/settings/`
 
@@ -253,7 +253,7 @@ The Dashboard is multi-tenant at the application layer: every Cluster and Deploy
 
 **Symptom**: Submitting the login form at `/login` returns an error.
 
-- If the error message is "invalid credentials": double-check the username and password. Use the admin panel (`/admin/`) to verify the user exists and is active.
+- If the error message is "invalid credentials": double-check the username and password. Use the admin panel (`/api/admin/`) to verify the user exists and is active.
 - If the page returns a 500 error: the Dashboard cannot reach its database. Check that `core.databases.default` in `base.toml` points to a running PostgreSQL instance. Check Dashboard pod logs:
   ```bash
   kubectl logs -n <namespace> deployment/<dashboard> --tail=50
@@ -312,8 +312,8 @@ If the discrepancy persists beyond a few minutes, verify the agent's heartbeat i
 | `/auth/` | Auth app URL patterns | JWT issuance, login, registration API endpoints |
 | `/clusters/` | Clusters app URL patterns | Cluster CRUD API |
 | `/deployments/` | Deployments app URL patterns | Deployment record API |
-| `/admin/` | reinhardt-admin panel | Requires admin account |
-| `/static/admin/` | Admin static files | Served by reinhardt-admin |
+| `/api/admin/` | reinhardt-admin panel | Requires admin account |
+| `/api/static/admin/` | Admin static files | Served by reinhardt-admin |
 
 Source: `dashboard/src/config/urls.rs` and `dashboard/src/client/router.rs`.
 
@@ -345,7 +345,7 @@ The full action catalog (`OrgRead`, `OrgUpdate`, `OrgDelete`, `MemberInvite`, `M
 
 The `match` is exhaustive, so omitting any role for the new action is a compile error.
 
-The reinhardt-admin `/admin/` panel is still gated separately by the `is_staff` / `is_superuser` flags on the `User` model and is not part of the organization-scoped RBAC matrix.
+The reinhardt-admin `/api/admin/` panel is still gated separately by the `is_staff` / `is_superuser` flags on the `User` model and is not part of the organization-scoped RBAC matrix.
 
 ---
 
