@@ -9,6 +9,9 @@ use crate::client::ReinhardtCloudClient;
 use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
 use crate::feature_detector::{InfraSignals as DetectedInfraSignals, detect_project};
 use crate::settings_reader::{DatabaseConfig, read_database_config};
+use reinhardt_cloud_core::infrastructure_derivation::{
+	InfrastructureDerivationInput, derive_infrastructure_spec,
+};
 use reinhardt_cloud_types::crd::ReinhardtAppSpec;
 use reinhardt_cloud_types::introspect::{
 	AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals as IntrospectInfraSignals,
@@ -258,7 +261,7 @@ fn build_reinhardt_app_spec(
 	image: String,
 	replicas: i32,
 	introspect: Option<IntrospectOutput>,
-) -> ReinhardtAppSpec {
+) -> Result<ReinhardtAppSpec, String> {
 	let mut spec = toml_config
 		.map(ReinhardtCloudToml::to_reinhardt_app_spec)
 		.unwrap_or_else(|| ReinhardtAppSpec {
@@ -270,7 +273,38 @@ fn build_reinhardt_app_spec(
 	spec.image = image;
 	spec.replicas = Some(replicas);
 	spec.introspect = introspect;
-	spec
+	if spec.infrastructure.is_none()
+		&& let Some(introspect) = spec.introspect.as_ref()
+	{
+		spec.infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
+			app_name: introspect.app.name.clone(),
+			signals: introspect.features.infrastructure_signals.clone(),
+			explicit: None,
+			typed_secret_refs: typed_secret_refs(&spec),
+		})
+		.map_err(|e| e.to_string())?;
+	}
+
+	Ok(spec)
+}
+
+fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
+	[
+		spec.source
+			.as_ref()
+			.and_then(|source| source.credentials_secret.as_ref()),
+		spec.source
+			.as_ref()
+			.and_then(|source| source.webhook.as_ref())
+			.and_then(|webhook| webhook.secret_ref.as_ref()),
+		spec.mail
+			.as_ref()
+			.and_then(|mail| mail.credentials_secret.as_ref()),
+	]
+	.into_iter()
+	.flatten()
+	.cloned()
+	.collect()
 }
 
 /// Removes null values from serialized Kubernetes YAML so absent optional
@@ -503,7 +537,7 @@ async fn execute_inner(
 		image.clone(),
 		replicas_i32,
 		introspect,
-	);
+	)?;
 	if let Err(errors) = spec.validate() {
 		let messages = errors
 			.into_iter()
@@ -632,6 +666,20 @@ mod tests {
 		ScaleSection, ServicesSection,
 	};
 	use rstest::rstest;
+
+	fn introspect_with_infra_signals(app_name: &str, signals: InfraSignals) -> IntrospectOutput {
+		IntrospectOutput {
+			app: AppMetadata {
+				name: app_name.to_string(),
+				version: "1.0.0".to_string(),
+			},
+			features: FeaturesMetadata {
+				infrastructure_signals: signals,
+				..Default::default()
+			},
+			..Default::default()
+		}
+	}
 
 	#[rstest]
 	fn test_read_reinhardt_cloud_toml_exists() {
@@ -769,6 +817,54 @@ features:
 	}
 
 	#[rstest]
+	fn test_build_reinhardt_app_spec_derives_infrastructure_from_introspect() {
+		// Arrange
+		let introspect = introspect_with_infra_signals(
+			"orders",
+			InfraSignals {
+				database: Some("postgres".to_string()),
+				storage: Some("s3".to_string()),
+				..Default::default()
+			},
+		);
+
+		// Act
+		let spec = build_reinhardt_app_spec(None, "orders:v1".to_string(), 2, Some(introspect))
+			.expect("spec should build");
+
+		// Assert
+		let infrastructure = spec
+			.infrastructure
+			.expect("infrastructure should be derived");
+		assert!(infrastructure.postgres.is_some());
+		let buckets = infrastructure.buckets.expect("bucket should be derived");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "orders-assets");
+	}
+
+	#[rstest]
+	fn test_build_reinhardt_app_spec_fails_on_unsupported_storage() {
+		// Arrange
+		let introspect = introspect_with_infra_signals(
+			"orders",
+			InfraSignals {
+				storage: Some("local".to_string()),
+				..Default::default()
+			},
+		);
+
+		// Act
+		let result = build_reinhardt_app_spec(None, "orders:v1".to_string(), 2, Some(introspect));
+
+		// Assert
+		let error = result.expect_err("unsupported storage should fail");
+		assert!(
+			error.contains("unsupported managed storage backend `local`"),
+			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
 	fn test_build_reinhardt_app_crd_with_introspect() {
 		// Arrange
 		let introspect = IntrospectOutput {
@@ -812,7 +908,8 @@ features:
 		};
 
 		// Act
-		let spec = build_reinhardt_app_spec(None, "my-app:v1".to_string(), 3, Some(introspect));
+		let spec = build_reinhardt_app_spec(None, "my-app:v1".to_string(), 3, Some(introspect))
+			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"my-app",
 			"production",
@@ -874,7 +971,8 @@ features:
 	#[rstest]
 	fn test_build_reinhardt_app_crd_without_introspect() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "simple:latest".to_string(), 1, None);
+		let spec = build_reinhardt_app_spec(None, "simple:latest".to_string(), 1, None)
+			.expect("spec should build");
 
 		// Act
 		let crd = build_reinhardt_app_crd(
@@ -959,7 +1057,8 @@ features:
 		);
 
 		// Act
-		let spec = build_reinhardt_app_spec(Some(&config), "dashboard:v1".to_string(), 2, None);
+		let spec = build_reinhardt_app_spec(Some(&config), "dashboard:v1".to_string(), 2, None)
+			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"dashboard",
 			"production",
@@ -1012,7 +1111,8 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "test:v1".to_string(), 2, None);
+		let spec = build_reinhardt_app_spec(None, "test:v1".to_string(), 2, None)
+			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"test-app",
 			"staging",
@@ -1039,7 +1139,8 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "ctx:v1".to_string(), 1, None);
+		let spec = build_reinhardt_app_spec(None, "ctx:v1".to_string(), 1, None)
+			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"ctx-app",
 			"prod",
