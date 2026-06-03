@@ -290,6 +290,10 @@ fn build_reinhardt_app_spec(
 
 fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
 	[
+		spec.auth
+			.as_ref()
+			.and_then(|auth| auth.oauth.as_ref())
+			.and_then(|oauth| oauth.credentials_secret.as_ref()),
 		spec.source
 			.as_ref()
 			.and_then(|source| source.credentials_secret.as_ref()),
@@ -657,6 +661,9 @@ async fn resolve_deploy_api_version(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use reinhardt_cloud_types::crd::{
+		AuthSpec, MailSpec, OAuthSpec, SourceSpec, WebhookEvent, WebhookSpec,
+	};
 	use reinhardt_cloud_types::introspect::{
 		AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals, MiddlewareMetadata,
 		RouteMetadata, SecuritySettings, ServerSettings, SettingsMetadata, TableMetadata,
@@ -840,6 +847,54 @@ features:
 		let buckets = infrastructure.buckets.expect("bucket should be derived");
 		assert_eq!(buckets.len(), 1);
 		assert_eq!(buckets[0].name, "orders-assets");
+	}
+
+	#[rstest]
+	fn test_typed_secret_refs_collects_crd_secret_refs() {
+		// Arrange
+		let spec = ReinhardtAppSpec {
+			image: "orders:v1".to_string(),
+			auth: Some(AuthSpec {
+				jwt: true,
+				oauth: Some(OAuthSpec {
+					provider: "github".to_string(),
+					credentials_secret: Some("oauth-creds".to_string()),
+				}),
+			}),
+			source: Some(SourceSpec {
+				repository: "https://github.com/example/orders".to_string(),
+				branch: None,
+				provider: None,
+				credentials_secret: Some("git-creds".to_string()),
+				build: None,
+				webhook: Some(WebhookSpec {
+					enabled: true,
+					secret_ref: Some("webhook-secret".to_string()),
+					events: vec![WebhookEvent::Push],
+				}),
+				preview: None,
+			}),
+			mail: Some(MailSpec {
+				smtp_host: Some("smtp.example.com".to_string()),
+				smtp_port: Some(587),
+				credentials_secret: Some("mail-creds".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let refs = typed_secret_refs(&spec);
+
+		// Assert
+		assert_eq!(
+			refs,
+			vec![
+				"oauth-creds".to_string(),
+				"git-creds".to_string(),
+				"webhook-secret".to_string(),
+				"mail-creds".to_string()
+			]
+		);
 	}
 
 	#[rstest]
