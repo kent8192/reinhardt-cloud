@@ -16,6 +16,7 @@ colored = "3"
 dirs = "6"
 k8s-openapi = { workspace = true }
 kube = { workspace = true }
+reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-telemetry = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reqwest = { workspace = true }

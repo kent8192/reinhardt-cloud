@@ -6200,6 +6200,7 @@ dependencies = [
  "dirs",
  "k8s-openapi",
  "kube",
+ "reinhardt-cloud-core",
  "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "reqwest 0.12.28",

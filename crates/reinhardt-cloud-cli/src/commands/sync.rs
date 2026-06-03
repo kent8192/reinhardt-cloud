@@ -33,7 +33,7 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	println!("Syncing reinhardt-cloud.toml with project state...");
 	let metadata = detect_project(&project_dir)?;
 	let db_config = read_database_config(&project_dir);
-	let config = generate_config(&metadata, db_config.as_ref());
+	let config = generate_config(&metadata, db_config.as_ref())?;
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;

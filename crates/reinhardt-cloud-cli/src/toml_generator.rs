@@ -1,7 +1,11 @@
 //! Generates `reinhardt-cloud.toml` content from project metadata.
 
-use crate::feature_detector::ProjectMetadata;
+use crate::feature_detector::{InfraSignals, ProjectMetadata};
 use crate::settings_reader::DatabaseConfig;
+use reinhardt_cloud_core::infrastructure_derivation::{
+	InfrastructureDerivationInput, derive_infrastructure_spec,
+};
+use reinhardt_cloud_types::introspect;
 use reinhardt_cloud_types::reinhardt_cloud_toml::{
 	AppSection, AuthSection, CacheSection, DatabaseSection, ReinhardtCloudToml, StorageSection,
 	WorkerSection,
@@ -11,13 +15,21 @@ use reinhardt_cloud_types::reinhardt_cloud_toml::{
 pub(crate) fn generate_config(
 	metadata: &ProjectMetadata,
 	db_config: Option<&DatabaseConfig>,
-) -> ReinhardtCloudToml {
+) -> Result<ReinhardtCloudToml, String> {
 	let db_engine = db_config
 		.map(|d| d.engine.clone())
 		.or_else(|| metadata.signals.database.clone())
 		.unwrap_or_else(|| "postgresql".to_owned());
 
-	ReinhardtCloudToml {
+	let infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
+		app_name: metadata.name.clone(),
+		signals: convert_infra_signals(&metadata.signals),
+		explicit: None,
+		typed_secret_refs: Vec::new(),
+	})
+	.map_err(|e| e.to_string())?;
+
+	Ok(ReinhardtCloudToml {
 		app: AppSection {
 			name: metadata.name.clone(),
 			image: format!("{}:latest", metadata.name),
@@ -49,7 +61,25 @@ pub(crate) fn generate_config(
 		} else {
 			None
 		},
+		infrastructure,
 		..Default::default()
+	})
+}
+
+fn convert_infra_signals(signals: &InfraSignals) -> introspect::InfraSignals {
+	introspect::InfraSignals {
+		database: signals.database.clone(),
+		cache: signals.cache.clone(),
+		websocket: signals.websocket,
+		background_worker: signals.background_worker,
+		grpc: signals.grpc,
+		storage: None,
+		mail: None,
+		session_backend: None,
+		graphql: signals.graphql,
+		admin_panel: false,
+		i18n: false,
+		pages: signals.pages,
 	}
 }
 
@@ -85,7 +115,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert_eq!(config.app.name, "my-app");
@@ -116,7 +146,8 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, Some(&db_config));
+		let config =
+			generate_config(&metadata, Some(&db_config)).expect("config generation should succeed");
 
 		// Assert
 		assert_eq!(config.database.as_ref().unwrap().engine, "mysql");
@@ -133,7 +164,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert_eq!(config.app.name, "bare");
@@ -159,7 +190,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert_eq!(config.cache.as_ref().unwrap().backend, "redis");
@@ -180,10 +211,64 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert!(config.storage.is_some());
+	}
+
+	#[rstest]
+	fn test_generate_config_derives_postgres_infrastructure() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "postgres-app".into(),
+			version: "0.1.0".into(),
+			features: vec!["db-postgres".into()],
+			signals: InfraSignals {
+				database: Some("postgresql".into()),
+				..Default::default()
+			},
+		};
+
+		// Act
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
+
+		// Assert
+		let postgres = config
+			.infrastructure
+			.as_ref()
+			.and_then(|infrastructure| infrastructure.postgres.as_ref())
+			.expect("postgres infrastructure should be derived");
+		assert_eq!(postgres.version.as_deref(), Some("16"));
+		assert_eq!(postgres.backup_retention_days, Some(7));
+		assert_eq!(postgres.tier, None);
+	}
+
+	#[rstest]
+	fn test_generate_config_does_not_derive_bucket_from_boolean_storage_signal() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "storage-app".into(),
+			version: "0.1.0".into(),
+			features: vec!["storage".into()],
+			signals: InfraSignals {
+				object_storage: true,
+				..Default::default()
+			},
+		};
+
+		// Act
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
+
+		// Assert
+		assert!(config.storage.is_some());
+		assert!(
+			config
+				.infrastructure
+				.as_ref()
+				.and_then(|infrastructure| infrastructure.buckets.as_ref())
+				.is_none()
+		);
 	}
 
 	#[rstest]
@@ -200,7 +285,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert!(config.cache.is_some());
@@ -221,7 +306,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert!(config.worker.is_some());
@@ -238,7 +323,7 @@ mod tests {
 		};
 
 		// Act
-		let config = generate_config(&metadata, None);
+		let config = generate_config(&metadata, None).expect("config generation should succeed");
 
 		// Assert
 		assert!(config.database.is_none());
@@ -262,7 +347,8 @@ mod tests {
 		};
 
 		// Act
-		let mut config = generate_config(&metadata, None);
+		let mut config =
+			generate_config(&metadata, None).expect("config generation should succeed");
 		config
 			.env
 			.insert("MY_VAR".to_string(), "my_val".to_string());
