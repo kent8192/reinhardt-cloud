@@ -38,6 +38,8 @@
 use reinhardt::conf::settings::builder::{BuildError, SettingsBuilder};
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::sources::{HighPriorityEnvSource, TomlFileSource};
+#[cfg(native)]
+use reinhardt::di::injectable_factory;
 use reinhardt::settings;
 use std::env;
 use std::path::PathBuf;
@@ -139,6 +141,16 @@ fn build_settings() -> ProjectSettings {
 /// - Settings cannot be deserialized
 /// - Required settings are missing
 pub fn get_settings() -> ProjectSettings {
+	build_settings()
+}
+
+/// DI factory for the project settings snapshot.
+///
+/// Factories that need a settings fragment should inject this composed
+/// `ProjectSettings` value rather than rebuilding settings independently.
+#[cfg(native)]
+#[injectable_factory(scope = "singleton")]
+async fn create_project_settings() -> ProjectSettings {
 	build_settings()
 }
 

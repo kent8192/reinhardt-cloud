@@ -22,7 +22,13 @@ mod tests {
 			"[a-z0-9./:\\-]{1,128}",
 		)
 			.prop_map(|(organization_id, app_name, cluster_id, status, image)| {
-				let mut d = Deployment::new(organization_id, app_name, cluster_id, status, image);
+				let mut d = Deployment::build()
+					.organization_id(organization_id)
+					.app_name(app_name)
+					.cluster_id(cluster_id)
+					.status(status)
+					.image(image)
+					.finish();
 				d.id = Some(cluster_id);
 				d
 			})

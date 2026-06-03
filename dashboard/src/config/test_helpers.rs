@@ -4,7 +4,7 @@
 //! from the DI registry and returns an in-process [`APIClient`] that
 //! dispatches requests directly to the `Handler` without TCP.
 //!
-//! URL paths are resolved via [`ServerRouter::reverse()`], so tests pick
+//! URL paths are resolved via [`UrlReverser::from_global()`], so tests pick
 //! up path changes automatically and route renames become runtime errors
 //! caught by the `unwrap()` at each call site.
 
@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use reinhardt::OpenApiRouter;
 use reinhardt::RedisSessionBackend;
-use reinhardt::ServerRouter;
 use reinhardt::di::{InjectionContext, SingletonScope};
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
+use reinhardt::{UrlReverser, register_router_arc};
 use rstest::fixture;
 
 /// Build a fresh `InjectionContext` for factory unit tests.
@@ -51,7 +51,7 @@ use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slu
 use crate::config::urls::{AllowedOrigins, DashboardRouter};
 
 /// Build the dashboard router via DI and return an in-process test client
-/// together with the [`ServerRouter`] for URL reverse-resolution.
+/// together with the [`UrlReverser`] for URL reverse-resolution.
 ///
 /// `AllowedOrigins` is pre-registered with `"http://testserver"` so the
 /// `OriginGuardMiddleware` accepts requests from `APIClient::from_handler`.
@@ -70,7 +70,7 @@ use crate::config::urls::{AllowedOrigins, DashboardRouter};
 /// omitted; view handlers fall back to the global ORM connection, which will
 /// be pointed at the TestContainers DB once `reinitialize_database` is called.
 #[fixture]
-pub fn test_app() -> (APIClient, Arc<ServerRouter>) {
+pub fn test_app() -> (APIClient, Arc<UrlReverser>) {
 	build_test_app()
 }
 
@@ -90,10 +90,10 @@ pub fn test_app() -> (APIClient, Arc<ServerRouter>) {
 /// (e.g. `#[inject] Depends<DatabaseConnection>`) would not see the
 /// TestContainers database.
 ///
-/// The returned [`ServerRouter`] supports `reverse(name, params)` for URL
-/// resolution in tests. Concurrent callers receive independent router
-/// instances and do not race on global state.
-pub fn build_test_app() -> (APIClient, Arc<ServerRouter>) {
+/// The returned [`UrlReverser`] supports `reverse_with(name, params)` for URL
+/// resolution in tests. Registering the router mirrors production startup so
+/// tests exercise the same global URL reversal path as application code.
+pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 	let scope = Arc::new(SingletonScope::new());
 	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
 
@@ -121,13 +121,15 @@ pub fn build_test_app() -> (APIClient, Arc<ServerRouter>) {
 			.0
 			.into_server(),
 	);
+	register_router_arc(server_router.clone());
+	let url_reverser = UrlReverser::from_global();
 
 	// Wrap with OpenApiRouter to serve /api/openapi.json, /api/docs, /api/redoc.
 	// In production this is done by the `runserver` command; tests must do it explicitly.
 	let handler =
 		OpenApiRouter::wrap(server_router.clone()).expect("Failed to wrap with OpenApiRouter");
 	let client = APIClient::from_handler(handler);
-	(client, server_router)
+	(client, url_reverser)
 }
 
 /// Redis-backed session backend for force-login in tests.
@@ -168,16 +170,16 @@ pub async fn force_login_user(
 ) -> User {
 	use reinhardt::db::orm::Model;
 
-	let user = User::new(
-		username.to_string(),
-		email.to_string(),
-		String::new(),
-		String::new(),
-		None,
-		true,
-		false,
-		false,
-	);
+	let user = User::build()
+		.username(username.to_string())
+		.email(email.to_string())
+		.first_name(String::new())
+		.last_name(String::new())
+		.password_hash(None)
+		.is_active(true)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	let user = User::objects()
 		.create_with_conn(conn, &user)
 		.await
@@ -202,16 +204,16 @@ pub async fn force_login_user_with_org(
 ) -> (User, Organization) {
 	use reinhardt::db::orm::Model;
 
-	let user = User::new(
-		username.to_string(),
-		email.to_string(),
-		String::new(),
-		String::new(),
-		None,
-		true,
-		false,
-		false,
-	);
+	let user = User::build()
+		.username(username.to_string())
+		.email(email.to_string())
+		.first_name(String::new())
+		.last_name(String::new())
+		.password_hash(None)
+		.is_active(true)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	let user = User::objects()
 		.create_with_conn(conn, &user)
 		.await

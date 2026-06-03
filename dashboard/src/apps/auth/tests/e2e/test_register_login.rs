@@ -20,14 +20,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::organizations::models::Organization;
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -100,16 +100,16 @@ mod tests {
 
 	/// Helper: create a user directly via ORM (bypasses register endpoint and email).
 	async fn create_test_user(username: &str, email: &str, password: &str, active: bool) {
-		let mut user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			active,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(active)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		user.set_password(password)
 			.expect("Password hashing failed");
 		User::objects()
@@ -131,7 +131,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -149,7 +149,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -196,7 +196,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -214,7 +214,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -257,7 +257,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -271,7 +271,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -294,7 +294,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -310,7 +310,7 @@ mod tests {
 		});
 		let first_response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&first_user,
 				"json",
 			)
@@ -326,7 +326,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&second_user,
 				"json",
 			)
@@ -349,7 +349,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange -- create active user via ORM
@@ -363,7 +363,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -383,7 +383,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -399,7 +399,7 @@ mod tests {
 		});
 		let reg_response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -427,7 +427,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)

@@ -12,7 +12,7 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	use crate::config::test_helpers::{force_login_user_with_org, session_backend};
 
@@ -23,7 +23,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	) {
 		// Start the TestContainers database first so that build_test_app() can
@@ -47,7 +47,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {
@@ -73,7 +73,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 			Arc<dyn AsyncSessionBackend>,
 		),
 	) {

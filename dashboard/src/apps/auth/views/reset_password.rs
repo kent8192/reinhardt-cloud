@@ -20,7 +20,7 @@ use crate::apps::auth::services::token::{self, TokenError, TokenPurpose, verify_
 ///
 /// The token is in the URL path; the new password is in the request body.
 /// The token self-invalidates after use because the password hash changes.
-#[post("/reset-password/{token}/", name = "reset_password")]
+#[post("/reset-password/{token}/", name = "reset-password")]
 pub async fn reset_password(
 	Path(token_str): Path<String>,
 	body: Json<ResetPasswordRequest>,

@@ -16,7 +16,7 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Duration;
 
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	/// Mailpit API message summary.
 	#[derive(Debug, serde::Deserialize)]
@@ -53,7 +53,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -184,7 +184,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -204,7 +204,7 @@ mod tests {
 		// Act
 		let response = client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -238,7 +238,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -256,7 +256,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -269,7 +269,7 @@ mod tests {
 
 		// Act — verify email
 		let verify_url = urls
-			.reverse("verify_email", &[("token", &token)])
+			.reverse_with("verify-email", &[("token", &token)])
 			.unwrap();
 		let verify_response = client
 			.get(&verify_url)
@@ -288,7 +288,7 @@ mod tests {
 		});
 		let login_response = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -306,7 +306,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -322,7 +322,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -336,7 +336,7 @@ mod tests {
 		});
 		let response = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_data,
 				"json",
 			)
@@ -356,7 +356,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -374,7 +374,7 @@ mod tests {
 		});
 		client
 			.post(
-				&urls.reverse("register", &[]).unwrap(),
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
 				&register_data,
 				"json",
 			)
@@ -385,7 +385,7 @@ mod tests {
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_verify_token(&text).expect("Token not found");
 		let verify_url = urls
-			.reverse("verify_email", &[("token", &token)])
+			.reverse_with("verify-email", &[("token", &token)])
 			.unwrap();
 
 		// Act — verify twice

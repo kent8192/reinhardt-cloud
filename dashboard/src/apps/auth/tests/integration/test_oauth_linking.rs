@@ -24,14 +24,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -67,16 +67,16 @@ mod tests {
 	}
 
 	async fn seed_user(username: &str, email: &str) -> uuid::Uuid {
-		let mut user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		user.set_password("test-password-1234").unwrap();
 		User::objects().create(&user).await.expect("seed user").id
 	}
@@ -89,7 +89,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -122,7 +122,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -159,7 +159,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -187,7 +187,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — an existing local user owns the email, and the OAuth
@@ -225,7 +225,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -259,7 +259,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — existing user already has the candidate username.
@@ -285,7 +285,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — a provider that asserts `email_verified == true` but
@@ -318,7 +318,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — claims with no `login` additional claim and no

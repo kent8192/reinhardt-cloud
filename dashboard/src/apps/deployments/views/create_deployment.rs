@@ -47,13 +47,13 @@ pub async fn create_deployment(
 		)));
 	}
 
-	let new_deployment = Deployment::new(
-		organization_id,
-		body.app_name.clone(),
-		body.cluster_id,
-		"pending".to_string(),
-		body.image.clone(),
-	);
+	let new_deployment = Deployment::build()
+		.organization_id(organization_id)
+		.app_name(body.app_name.clone())
+		.cluster_id(body.cluster_id)
+		.status("pending".to_string())
+		.image(body.image.clone())
+		.finish();
 	let manager = Deployment::objects();
 	let created = manager.create(&new_deployment).await.map_err(|e| {
 		error!("Failed to create deployment: {e}");

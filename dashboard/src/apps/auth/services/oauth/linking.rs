@@ -129,16 +129,16 @@ pub async fn link_or_create_user(
 		}
 	}
 
-	let new_user = User::new(
-		username,
-		email,
-		claims.given_name.clone().unwrap_or_default(),
-		claims.family_name.clone().unwrap_or_default(),
-		None,  // password_hash: OAuth-only user has no usable password
-		true,  // is_active
-		false, // is_staff
-		false, // is_superuser
-	);
+	let new_user = User::build()
+		.username(username)
+		.email(email)
+		.first_name(claims.given_name.clone().unwrap_or_default())
+		.last_name(claims.family_name.clone().unwrap_or_default())
+		.password_hash(None)
+		.is_active(true)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	let created = User::objects()
 		.create(&new_user)
 		.await

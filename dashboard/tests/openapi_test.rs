@@ -7,7 +7,7 @@
 // Native-only — see `tests/wasm.rs` for browser tests. Refs #574.
 #![cfg(not(target_arch = "wasm32"))]
 
-use reinhardt::ServerRouter;
+use reinhardt::UrlReverser;
 use reinhardt::test::APIClient;
 use reinhardt_cloud_dashboard::config::test_helpers::test_app;
 use rstest::rstest;
@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_openapi_json_endpoint_returns_valid_spec(test_app: (APIClient, Arc<ServerRouter>)) {
+async fn test_openapi_json_endpoint_returns_valid_spec(test_app: (APIClient, Arc<UrlReverser>)) {
 	// Arrange
 	let (client, _urls) = test_app;
 
@@ -37,7 +37,7 @@ async fn test_openapi_json_endpoint_returns_valid_spec(test_app: (APIClient, Arc
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_openapi_spec_contains_registered_schemas(test_app: (APIClient, Arc<ServerRouter>)) {
+async fn test_openapi_spec_contains_registered_schemas(test_app: (APIClient, Arc<UrlReverser>)) {
 	// Arrange
 	let (client, _urls) = test_app;
 
@@ -96,7 +96,7 @@ async fn test_openapi_spec_contains_registered_schemas(test_app: (APIClient, Arc
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_swagger_ui_endpoint(test_app: (APIClient, Arc<ServerRouter>)) {
+async fn test_swagger_ui_endpoint(test_app: (APIClient, Arc<UrlReverser>)) {
 	// Arrange
 	let (client, _urls) = test_app;
 
@@ -114,7 +114,7 @@ async fn test_swagger_ui_endpoint(test_app: (APIClient, Arc<ServerRouter>)) {
 
 #[rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_redoc_endpoint(test_app: (APIClient, Arc<ServerRouter>)) {
+async fn test_redoc_endpoint(test_app: (APIClient, Arc<UrlReverser>)) {
 	// Arrange
 	let (client, _urls) = test_app;
 

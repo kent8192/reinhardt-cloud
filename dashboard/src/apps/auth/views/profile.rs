@@ -46,7 +46,7 @@ pub async fn profile(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response
 /// is generated, stored hashed (SHA-256), and a confirmation link is emailed
 /// to the new address. Only when the user clicks that link is `user.email`
 /// updated. This prevents unauthorized email takeover via a hijacked session.
-#[patch("/profile/", name = "profile_update", pre_validate = true)]
+#[patch("/profile/", name = "profile-update", pre_validate = true)]
 pub async fn profile_update(
 	body: Json<UpdateProfileRequest>,
 	#[inject] AuthInfo(state): AuthInfo,

@@ -16,7 +16,7 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Duration;
 
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	/// Mailpit API message summary.
 	#[derive(Debug, serde::Deserialize)]
@@ -53,7 +53,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -173,7 +173,7 @@ mod tests {
 	/// The caller must have already called `set_mailpit_env()`.
 	async fn register_and_verify_user(
 		client: &APIClient,
-		urls: &Arc<ServerRouter>,
+		urls: &Arc<UrlReverser>,
 		mailpit: &MailpitContainer,
 		username: &str,
 		email: &str,
@@ -187,7 +187,11 @@ mod tests {
 			"password": password
 		});
 		client
-			.post(&urls.reverse("register", &[]).unwrap(), &data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&data,
+				"json",
+			)
 			.await
 			.expect("Register failed");
 
@@ -201,7 +205,7 @@ mod tests {
 		let token = &rest[..end];
 
 		let verify_url = urls
-			.reverse("verify_email", &[("token", token)])
+			.reverse_with("verify-email", &[("token", token)])
 			.unwrap();
 		client.get(&verify_url).await.expect("Verify failed");
 	}
@@ -215,7 +219,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -239,7 +243,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reset@example.com" });
 		let response = client
 			.post(
-				&urls.reverse("forgot_password", &[]).unwrap(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -268,7 +272,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -278,7 +282,7 @@ mod tests {
 		let forgot_data = json!({ "email": "noone@example.com" });
 		let response = client
 			.post(
-				&urls.reverse("forgot_password", &[]).unwrap(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -298,7 +302,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -322,7 +326,7 @@ mod tests {
 		let forgot_data = json!({ "email": "resetpw@example.com" });
 		client
 			.post(
-				&urls.reverse("forgot_password", &[]).unwrap(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -335,7 +339,7 @@ mod tests {
 
 		// Act — reset password
 		let reset_url = urls
-			.reverse("reset_password", &[("token", &token)])
+			.reverse_with("reset-password", &[("token", &token)])
 			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let response = client
@@ -353,7 +357,7 @@ mod tests {
 		});
 		let old_resp = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_old,
 				"json",
 			)
@@ -368,7 +372,7 @@ mod tests {
 		});
 		let new_resp = client
 			.post(
-				&urls.reverse("login", &[]).unwrap(),
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
 				&login_new,
 				"json",
 			)
@@ -386,7 +390,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -409,7 +413,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reuse@example.com" });
 		client
 			.post(
-				&urls.reverse("forgot_password", &[]).unwrap(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -422,7 +426,7 @@ mod tests {
 
 		// Use the token once
 		let reset_url = urls
-			.reverse("reset_password", &[("token", &token)])
+			.reverse_with("reset-password", &[("token", &token)])
 			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let first = client

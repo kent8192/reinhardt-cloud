@@ -42,7 +42,7 @@ pub struct VerifyEmailChangeRequest {
 }
 
 /// Confirm a pending email change.
-#[post("/verify-email-change/", name = "verify_email_change")]
+#[post("/verify-email-change/", name = "verify-email-change")]
 pub async fn verify_email_change(body: Json<VerifyEmailChangeRequest>) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(&body.user_id)
 		.map_err(|_| AppError::Validation("invalid user_id".to_string()))?;

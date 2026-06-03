@@ -17,13 +17,13 @@ mod tests {
 		let image = "ghcr.io/my-app:latest".to_string();
 
 		// Act
-		let deployment = Deployment::new(
-			organization_id,
-			app_name.clone(),
-			cluster_id,
-			status.clone(),
-			image.clone(),
-		);
+		let deployment = Deployment::build()
+			.organization_id(organization_id)
+			.app_name(app_name.clone())
+			.cluster_id(cluster_id)
+			.status(status.clone())
+			.image(image.clone())
+			.finish();
 
 		// Assert
 		assert_eq!(deployment.organization_id, organization_id);
@@ -37,13 +37,13 @@ mod tests {
 	#[rstest]
 	fn test_deployment_new_id_is_none() {
 		// Arrange & Act
-		let deployment = Deployment::new(
-			1,
-			"app".to_string(),
-			1,
-			"pending".to_string(),
-			"nginx:latest".to_string(),
-		);
+		let deployment = Deployment::build()
+			.organization_id(1)
+			.app_name("app".to_string())
+			.cluster_id(1)
+			.status("pending".to_string())
+			.image("nginx:latest".to_string())
+			.finish();
 
 		// Assert
 		assert_eq!(deployment.id, None);
@@ -57,13 +57,13 @@ mod tests {
 	#[case("succeeded")]
 	fn test_deployment_status_values(#[case] status: &str) {
 		// Arrange & Act
-		let deployment = Deployment::new(
-			1,
-			"app".to_string(),
-			1,
-			status.to_string(),
-			"nginx:latest".to_string(),
-		);
+		let deployment = Deployment::build()
+			.organization_id(1)
+			.app_name("app".to_string())
+			.cluster_id(1)
+			.status(status.to_string())
+			.image("nginx:latest".to_string())
+			.finish();
 
 		// Assert
 		assert_eq!(deployment.status, status);
@@ -73,13 +73,13 @@ mod tests {
 	#[rstest]
 	fn test_deployment_serialization_roundtrip() {
 		// Arrange
-		let mut deployment = Deployment::new(
-			7,
-			"roundtrip-app".to_string(),
-			99,
-			"running".to_string(),
-			"ghcr.io/roundtrip:v1".to_string(),
-		);
+		let mut deployment = Deployment::build()
+			.organization_id(7)
+			.app_name("roundtrip-app".to_string())
+			.cluster_id(99)
+			.status("running".to_string())
+			.image("ghcr.io/roundtrip:v1".to_string())
+			.finish();
 		deployment.id = Some(7);
 
 		// Act

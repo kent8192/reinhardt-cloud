@@ -39,14 +39,14 @@ pub async fn create_cluster(
 	// without the corresponding token hash. The cluster UUID used as
 	// `cluster_id` is derived from the DB-generated `id` once known;
 	// we therefore first insert the cluster, then mint and update.
-	let new_cluster = Cluster::new(
-		organization_id,
-		body.name.clone(),
-		body.api_url.clone(),
-		true,
-		None,
-		None,
-	);
+	let new_cluster = Cluster::build()
+		.organization_id(organization_id)
+		.name(body.name.clone())
+		.api_url(body.api_url.clone())
+		.is_active(true)
+		.token_hash(None)
+		.token_last_rotated_at(None)
+		.finish();
 	let manager = Cluster::objects();
 	let mut created = match manager.create(&new_cluster).await {
 		Ok(c) => c,

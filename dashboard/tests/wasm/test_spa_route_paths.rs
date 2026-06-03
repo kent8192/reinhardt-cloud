@@ -1,7 +1,7 @@
 //! Client SPA route reverse-resolution coverage.
 //!
-//! v0.2.0-rc.2 removed the native typed `ResolvedUrls` client accessors
-//! (`urls.client().<app>().<route>()`). The SPA routes are now declared in
+//! v0.2.0-rc.2 removed the native typed client URL accessors. The SPA
+//! routes are now declared in
 //! [`crate::client::router::init_router`] (wasm-only) and are reversible there
 //! through the merged [`ClientRouter`] under their `<app>:<route>` names.
 //!
@@ -9,7 +9,7 @@
 //! accidental path change (or a regression in `init_router` registration) is
 //! caught at the unit layer, complementing the click-through coverage in
 //! `test_spa_navigation_smoke`. This is the v0.2.0 home for the coverage that
-//! previously lived in the native `tests/unit/test_resolved_urls_spa_paths.rs`.
+//! previously lived in the native SPA path test module.
 //!
 //! `init_router()` registers the client routes with fully-qualified names, so
 //! `clusters:list` and `deployments:list` do not collide (a bare `list` would).

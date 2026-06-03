@@ -43,14 +43,14 @@ mod tests {
 	use wiremock::{Mock, MockServer, ResponseTemplate};
 
 	use crate::apps::auth::models::User;
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -196,7 +196,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — fresh DB, fresh GitHub mock, env pointed at it.
@@ -257,7 +257,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — pre-existing user owns the email; provider does NOT
@@ -266,16 +266,16 @@ mod tests {
 		// UNIQUE crash into an EmailConflict (mapped to 422 in the
 		// callback view).
 		let (_c, _conn, client, _u) = db.await;
-		let mut local = User::new(
-			"original_owner".to_string(),
-			"contested@example.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut local = User::build()
+			.username("original_owner".to_string())
+			.email("contested@example.com".to_string())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		local.set_password("password-1234").unwrap();
 		User::objects().create(&local).await.unwrap();
 
