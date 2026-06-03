@@ -353,13 +353,6 @@ cargo test -p reinhardt-cloud-core infrastructure_derivation
 
 Expected: PASS for all infrastructure derivation tests.
 
-- [ ] **Step 6: Commit**
-
-```bash
-git add crates/reinhardt-cloud-core/src/infrastructure_derivation.rs crates/reinhardt-cloud-core/src/lib.rs
-git commit -m "feat(core): derive infrastructure specs"
-```
-
 ---
 
 ### Task 2: Add Infrastructure to `reinhardt-cloud.toml`
@@ -471,13 +464,6 @@ cargo test -p reinhardt-cloud-types reinhardt_cloud_toml
 ```
 
 Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add crates/reinhardt-cloud-types/src/reinhardt_cloud_toml.rs
-git commit -m "feat(types): persist infrastructure in cloud toml"
-```
 
 ---
 
@@ -711,13 +697,6 @@ cargo test -p reinhardt-cloud-cli toml_generator
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
-
-```bash
-git add crates/reinhardt-cloud-cli/Cargo.toml crates/reinhardt-cloud-cli/src/toml_generator.rs crates/reinhardt-cloud-cli/src/commands/init.rs crates/reinhardt-cloud-cli/src/commands/sync.rs
-git commit -m "feat(cli): generate infrastructure toml baseline"
-```
-
 ---
 
 ### Task 4: Wire Fail-Early Derivation into Deploy
@@ -899,13 +878,6 @@ cargo test -p reinhardt-cloud-cli commands::deploy
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
-
-```bash
-git add crates/reinhardt-cloud-cli/src/commands/deploy.rs
-git commit -m "feat(deploy): derive infrastructure spec"
-```
-
 ---
 
 ### Task 5: Preserve Existing Infrastructure During Sync
@@ -1040,13 +1012,6 @@ cargo test -p reinhardt-cloud-cli commands::sync
 ```
 
 Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add crates/reinhardt-cloud-cli/src/commands/sync.rs
-git commit -m "feat(sync): preserve infrastructure config"
-```
 
 ---
 
@@ -1223,13 +1188,6 @@ cargo test -p reinhardt-cloud-cli commands::terraform
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
-
-```bash
-git add crates/reinhardt-cloud-cli/src/commands/terraform.rs
-git commit -m "feat(terraform): derive infrastructure fallback"
-```
-
 ---
 
 ### Task 7: Update CLI Documentation
@@ -1286,13 +1244,6 @@ rg -n "Infrastructure Derivation|--app-crd|fail early|spec.infrastructure" docs/
 
 Expected: All new terms are present.
 
-- [ ] **Step 4: Commit**
-
-```bash
-git add docs/tools/cli.md
-git commit -m "docs(cli): explain infrastructure derivation"
-```
-
 ---
 
 ### Task 8: Final Verification
@@ -1334,23 +1285,3 @@ cargo make clippy-check
 ```
 
 Expected: PASS.
-
-- [ ] **Step 4: Check working tree**
-
-Run:
-
-```bash
-git status --short
-```
-
-Expected: no output.
-
-- [ ] **Step 5: Save GitWhy context**
-
-Run:
-
-```bash
-git-why save --domain reinhardt-cloud --topic issue-625-infrastructure-derivation --commits "$(git log --format=%H --reverse 57fa57131..HEAD | paste -sd, -)"
-```
-
-Then enter XML context summarizing the implementation decisions, verification commands, and any residual risks.
