@@ -77,7 +77,8 @@ impl ReinhardtCloudClient {
 	/// Deploys an application by sending JSON to the dashboard API.
 	///
 	/// The dashboard create-deployment endpoint expects a JSON body with
-	/// `app_name`, `image`, and optionally `cluster_id`.
+	/// `app_name`, `image`, optionally `cluster_id`, and optionally the
+	/// generated `ReinhardtApp` manifest YAML.
 	///
 	/// Returns the response body on success.
 	pub(crate) async fn deploy(
@@ -85,6 +86,7 @@ impl ReinhardtCloudClient {
 		app_name: &str,
 		image: &str,
 		cluster_id: Option<&str>,
+		reinhardt_app_yaml: Option<&str>,
 	) -> Result<String, ClientError> {
 		let mut payload = serde_json::json!({
 			"app_name": app_name,
@@ -92,6 +94,9 @@ impl ReinhardtCloudClient {
 		});
 		if let Some(cid) = cluster_id {
 			payload["cluster_id"] = serde_json::Value::String(cid.to_string());
+		}
+		if let Some(manifest) = reinhardt_app_yaml {
+			payload["reinhardt_app_yaml"] = serde_json::Value::String(manifest.to_string());
 		}
 
 		let response = self

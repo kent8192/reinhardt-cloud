@@ -232,6 +232,7 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 | `--dry-run` | — | no | `false` | Print the generated CRD YAML to stdout without applying. |
 | `--direct` | — | no | `false` | Skip the platform API; apply the CRD directly via `kubectl apply`. |
 | `--introspect-only` | — | no | `false` | Run `manage introspect --format yaml`, print the output, and exit without deploying. |
+| `--api-version <GROUP/VERSION>` | — | no | Served CRD storage version for `--direct`; compile-time default otherwise | Override the generated manifest `apiVersion`. Must be fully qualified, for example `paas.reinhardt-cloud.dev/v1alpha2`. |
 
 \* `--name` and `--image` are required at runtime if they cannot be resolved from `manage introspect` output or `reinhardt-cloud.toml` (see resolution order below).
 
@@ -242,18 +243,20 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 3. `reinhardt-cloud.toml` (`ReinhardtCloudToml`)
 4. Built-in default: `replicas = 1`
 
+When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ReinhardtAppSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
+
 **Three submission modes**
 
 | Mode | Flag(s) | Contacted endpoint | Typical use-case |
 |------|---------|--------------------|-----------------|
-| Default (API) | neither `--dry-run` nor `--direct` | Platform API (`REINHARDT_CLOUD_API_URL`) via `ReinhardtCloudClient::deploy` | Standard developer deploy through the control plane |
+| Default (API) | neither `--dry-run` nor `--direct` | Platform API (`REINHARDT_CLOUD_API_URL`) via `ReinhardtCloudClient::deploy`; payload includes app metadata and generated `ReinhardtApp` YAML | Standard developer deploy through the control plane |
 | Direct (kubectl) | `--direct` | Kubernetes API server via `kubectl apply -f -` | Bypassing the control plane; useful when the platform API is unavailable or during operator bootstrap |
 | Dry run | `--dry-run` | None — YAML is printed to stdout | Pre-flight check, GitOps manifest review, CI validation |
 | Introspect only | `--introspect-only` | Runs `manage introspect` locally; no Kubernetes contact | Debugging introspect output without deploying |
 
-`--dry-run` and `--direct` are mutually exclusive in effect: `--dry-run` is checked first (`deploy.rs:301`) and causes early return before `--direct` is evaluated.
+`--dry-run` and `--direct` are mutually exclusive in effect: `--dry-run` is checked first and causes early return before `--direct` is evaluated.
 
-The generated CRD always carries `apiVersion: paas.reinhardt-cloud.dev/v1alpha2`. Multi-version support is tracked at [#367](https://github.com/kent8192/reinhardt-cloud/issues/367).
+For `--direct`, the CLI discovers the served CRD version from the target cluster unless `--api-version` is provided. For dry-run and API mode, it uses the explicit `--api-version` value when set, otherwise the compile-time default.
 
 **Example: CI pipeline pattern**
 
@@ -285,7 +288,7 @@ The `crd` command reference (covered in a later section of this guide) explains 
 
 > **For App Developers**: Use `--dry-run` before every deploy in CI to catch name or image resolution errors before they reach the cluster. A dry-run exit code of `0` means the CRD YAML is valid and `--name` / `--image` were resolved; it does not guarantee the cluster will accept the resource. Add `--dry-run` to a pre-commit hook or CI step for early feedback.
 
-> **For Platform Operators**: `--direct` bypasses the platform API and calls `kubectl apply` on the developer's machine, which means the developer needs `patch` / `create` RBAC on `reinhardtapps` in the target namespace. Prefer the default API mode to keep RBAC enforcement centralized. When `--direct` is used with `--cluster`, the value is passed as `--context` to `kubectl`; ensure the developer's kubeconfig contains the named context. Note that the CRD `apiVersion` is currently hardcoded to `v1alpha2` in the CLI — if your cluster serves a different storage version, server-side apply conflicts may occur. This is tracked at [#367](https://github.com/kent8192/reinhardt-cloud/issues/367).
+> **For Platform Operators**: `--direct` bypasses the platform API and calls `kubectl apply` on the developer's machine, which means the developer needs `patch` / `create` RBAC on `reinhardtapps` in the target namespace. Prefer the default API mode to keep RBAC enforcement centralized. When `--direct` is used with `--cluster`, the value is passed as `--context` to `kubectl`; ensure the developer's kubeconfig contains the named context. Pass `--api-version` only when discovery is unavailable or you intentionally need to pin a served CRD version.
 
 **Troubleshooting**
 
@@ -578,7 +581,7 @@ spec:
       ...
 ```
 
-> **For Platform Operators**: The `apiVersion` embedded in generated `ReinhardtApp` manifests (produced by `deploy --dry-run` and the operator itself) is currently hardcoded to `paas.reinhardt-cloud.dev/v1alpha2`. This is an active design area — see [#367](https://github.com/kent8192/reinhardt-cloud/issues/367) for the ongoing discussion on multi-version support. If your cluster serves a different storage version, re-generate and re-apply the CRD after each CLI upgrade. Long-lived GitOps repositories that pin the CRD YAML should monitor #367 and update when the storage version changes.
+> **For Platform Operators**: `crd generate` emits the CRD schema compiled into the CLI. `deploy --direct` separately resolves the served `ReinhardtApp` resource `apiVersion` from the target cluster unless you pass `--api-version`. Re-generate and re-apply the CRD schema after CLI upgrades that change the CRD type definitions.
 
 **Troubleshooting**
 
@@ -814,5 +817,3 @@ For the complete and current field list, refer to:
 - `crates/reinhardt-cloud-types/src/reinhardt_cloud_toml.rs` — the schema definition.
 
 The config is generated by analyzing your Reinhardt project's `Cargo.toml`, `Cargo.lock`, and `settings/base.toml` — there is no manual schema file to read. Run `init` on a sample project to see what is produced, then customize as needed.
-
-

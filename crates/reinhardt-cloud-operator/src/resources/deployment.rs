@@ -26,6 +26,28 @@ use crate::inference::env_vars::{
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
+fn build_main_container_probe(
+	app: &ReinhardtApp,
+	default_port: i32,
+) -> Result<Option<Probe>, Error> {
+	let Some(health) = app.spec.health.as_ref() else {
+		return Ok(None);
+	};
+	let path = health.path.clone().unwrap_or_else(|| "/health".to_string());
+	let port = validate_port("health.port", health.port.unwrap_or(default_port))?;
+	let period_seconds = health.interval_seconds.unwrap_or(10);
+
+	Ok(Some(Probe {
+		http_get: Some(HTTPGetAction {
+			path: Some(path),
+			port: IntOrString::Int(port),
+			..Default::default()
+		}),
+		period_seconds: Some(period_seconds),
+		..Default::default()
+	}))
+}
+
 /// Builds a `Deployment` for the given `ReinhardtApp`.
 ///
 /// Uses the app's own namespace as the single source of truth.
@@ -261,6 +283,7 @@ pub(crate) fn build_deployment(
 	} else {
 		Some(init_containers)
 	};
+	let main_container_probe = build_main_container_probe(app, port)?;
 
 	let mut containers = vec![Container {
 		name: app.name_any(),
@@ -271,6 +294,8 @@ pub(crate) fn build_deployment(
 		}]),
 		env: Some(merged_env),
 		volume_mounts: Some(volume_mounts),
+		readiness_probe: main_container_probe.clone(),
+		liveness_probe: main_container_probe,
 		security_context: if isolated {
 			Some(build_container_security_context())
 		} else {
@@ -339,7 +364,7 @@ mod tests {
 	use kube::api::ObjectMeta;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
-	use reinhardt_cloud_types::crd::{ReinhardtAppSpec, ServicesSpec};
+	use reinhardt_cloud_types::crd::{HealthSpec, ReinhardtAppSpec, ServicesSpec};
 	use rstest::rstest;
 
 	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> ReinhardtApp {
@@ -412,6 +437,48 @@ mod tests {
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 		let port = &container.ports.as_ref().unwrap()[0];
 		assert_eq!(port.container_port, 8000);
+	}
+
+	#[rstest]
+	fn test_build_deployment_omits_main_container_probe_without_health() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+
+		// Assert
+		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+		assert!(container.readiness_probe.is_none());
+		assert!(container.liveness_probe.is_none());
+	}
+
+	#[rstest]
+	fn test_build_deployment_applies_health_to_main_container_probes() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.health = Some(HealthSpec {
+			path: Some("/api/healthz/".to_string()),
+			port: Some(8000),
+			interval_seconds: Some(10),
+		});
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+
+		// Assert
+		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+		for probe in [
+			container.readiness_probe.as_ref().unwrap(),
+			container.liveness_probe.as_ref().unwrap(),
+		] {
+			let http = probe.http_get.as_ref().unwrap();
+			assert_eq!(http.path.as_deref(), Some("/api/healthz/"));
+			assert_eq!(http.port, IntOrString::Int(8000));
+			assert_eq!(probe.period_seconds, Some(10));
+		}
 	}
 
 	#[rstest]
