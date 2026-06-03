@@ -243,7 +243,7 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 3. `reinhardt-cloud.toml` (`ReinhardtCloudToml`)
 4. Built-in default: `replicas = 1`
 
-When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ReinhardtAppSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
+When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ReinhardtAppSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, `infrastructure`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
 
 **Three submission modes**
 
@@ -803,6 +803,14 @@ replicas = 3
 
 [service]
 port = 8000
+
+[infrastructure.postgres]
+version = "16"
+backup_retention_days = 7
+
+[[infrastructure.buckets]]
+name = "my-app-assets"
+public = false
 ```
 
 **Field notes**:
@@ -810,6 +818,7 @@ port = 8000
 - `[database]` — Optional. If present, `engine` (e.g. `"postgresql"`, `"mysql"`) and storage configuration drive the operator's database resource generation.
 - `[deployment]` — Optional. Controls replica count and resource requests/limits.
 - `[service]` — Optional. Configures ports and ingress exposure.
+- `[infrastructure]` — Optional. Preserves managed infrastructure requests, such as Postgres settings and bucket declarations, in the generated `ReinhardtAppSpec`.
 - Other sections like `[source]`, `[health]`, `[isolation]` — Optional, context-specific.
 
 For the complete and current field list, refer to:

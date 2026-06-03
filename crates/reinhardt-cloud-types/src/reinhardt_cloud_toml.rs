@@ -829,11 +829,12 @@ public = false
 		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
 
 		let infrastructure = config.infrastructure.expect("infrastructure should parse");
-		assert!(infrastructure.postgres.is_some());
-		assert_eq!(
-			infrastructure.buckets.as_ref().unwrap()[0].name,
-			"infra-app-assets"
-		);
+		let postgres = infrastructure.postgres.expect("postgres should parse");
+		assert_eq!(postgres.version.as_deref(), Some("16"));
+		assert_eq!(postgres.backup_retention_days, Some(7));
+		let bucket = &infrastructure.buckets.as_ref().unwrap()[0];
+		assert_eq!(bucket.name, "infra-app-assets");
+		assert!(!bucket.public);
 	}
 
 	#[rstest]
