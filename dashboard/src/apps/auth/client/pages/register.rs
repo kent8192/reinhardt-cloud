@@ -17,35 +17,7 @@ pub fn register_page() -> Page {
 		name: RegisterForm,
 		server_fn: register,
 		class: "space-y-4",
-		on_success: |result: crate::shared::AuthResponse| {
-			use reinhardt::pages::auth:: {
-				AuthData,
-				auth_state
-			};
-			// Update reactive auth state for UI components
-			if let Some(ref user) = result.user {
-				auth_state().update(AuthData {
-					is_authenticated: true,
-					// UUID-based user IDs cannot be represented as i64;
-					// use username and email for client-side identification.
-					user_id: None,
-					username: Some(user.username.clone()),
-					email: Some(user.email.clone()),
-					..Default::default()
-				});
-			}// SPA-navigate to the dashboard via the upstream `pages::navigate`
-			// (reinhardt-web#4623). The browser stores the `Set-Cookie` from
-			// the register response before this callback fires, so subsequent
-			// server_fn calls from the dashboard pick up the new session
-			// without a full page reload. Falls back to `location.set_href`
-			// when no SPA router is installed (e.g. during SSR rehearsal).
-			let home_url = "/".to_string();
-			if let Err(reinhardt::pages::NavigateError::RouterNotInstalled) =reinhardt::pages::navigate(home_url.clone(), reinhardt::pages::NavigationType::Push) {
-				if let Some(window) = web_sys::window() {
-					let _ = window.location().set_href(&home_url);
-				}
-			}
-		},
+		redirect_on_success: "/",
 		fields: {
 			username: CharField {
 				required,
