@@ -109,7 +109,12 @@ pub(crate) fn build_deployment(
 		} else {
 			format!("{app_name}-postgresql")
 		};
-		auto_vars.extend(build_database_env_vars_from_secret(app, platform, &db_host));
+		auto_vars.extend(build_database_env_vars_from_secret(
+			app,
+			platform,
+			&db_host,
+			&app.spec.env,
+		));
 	}
 	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
 	// Append OTel variables after user-supplied vars. OTel vars are skipped

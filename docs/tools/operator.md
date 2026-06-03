@@ -664,6 +664,30 @@ streaming.
 
 To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
 
+##### Managed database environment
+
+When a `ReinhardtApp` provisions a PostgreSQL database, the operator injects:
+
+- `REINHARDT_DATABASE_HOST`
+- `REINHARDT_DATABASE_PORT`
+- `REINHARDT_DATABASE_NAME`
+- `REINHARDT_DATABASE_USER`
+- `REINHARDT_DATABASE_PASSWORD` from the operator-managed credentials `Secret`
+- `DATABASE_URL`, built from the values above and the password env reference
+
+`spec.env.DATABASE_URL` remains the highest-priority override. If it is absent,
+non-secret `spec.env.REINHARDT_DATABASE_HOST/PORT/NAME/USER` values override the
+operator defaults before `DATABASE_URL` is built. The CLI materializes those
+non-secret values from composed Reinhardt settings (`settings/base.toml` plus
+the active profile TOML), including `${VAR:-default}` interpolation. Passwords
+from settings are not copied into the CRD or generated TOML.
+
+On AWS and GCP, the operator still falls back to the deterministic service-style
+placeholder host when no `REINHARDT_DATABASE_HOST` or explicit `DATABASE_URL` is
+provided. In that fallback case, provide the managed RDS/Cloud SQL endpoint via
+settings-derived `REINHARDT_DATABASE_HOST` or an explicit secret-backed
+`DATABASE_URL`.
+
 **Shipping logs to Loki**
 
 Set `logging.loki.enabled=true` in the Helm chart to deploy a Promtail DaemonSet that tails
@@ -1209,4 +1233,3 @@ These variants are marked `#[allow(dead_code)]` and may be activated in future r
 ## Appendix D: Metrics catalog
 
 The Reinhardt Cloud operator does not emit custom Prometheus metrics at this time. See [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for planned metrics support. Indirect signals are available through kube-state-metrics on the operator Deployment (restart count, pod status), pod resource usage, and condition status on the ReinhardtApp resource itself.
-

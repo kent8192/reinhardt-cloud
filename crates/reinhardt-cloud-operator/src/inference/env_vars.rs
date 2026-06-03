@@ -36,41 +36,45 @@ pub(crate) fn build_database_env_vars_from_secret(
 	app: &ReinhardtApp,
 	platform: &Platform,
 	db_host: &str,
+	user_vars: &BTreeMap<String, String>,
 ) -> Vec<EnvVar> {
 	let app_name = app.name_any();
 	let secret_name = format!("{app_name}-db-credentials");
 
-	// Port follows the standard PostgreSQL convention. For cloud platforms
-	// (AWS RDS, GCP CloudSQL), the db_host must be supplied by the caller
-	// based on the managed instance endpoint; until cloud endpoint resolution
-	// is implemented, the host should be overridden via `spec.env.DATABASE_URL`.
-	//
-	// NOTE: For Platform::Aws and Platform::Gcp, cloud-managed database
-	// endpoints are not yet resolved automatically. The db_host passed here
-	// is a best-effort placeholder. Apps on cloud platforms that require
-	// the correct RDS/CloudSQL endpoint should override DATABASE_URL via
-	// `spec.env` until automatic cloud endpoint resolution is implemented.
-	let port = match platform {
-		Platform::Onpremise => 5432,
-		Platform::Aws | Platform::Gcp => {
-			tracing::warn!(
-				app = %app_name,
-				"Cloud-managed database endpoint resolution is not yet implemented. \
-				 DATABASE_URL and REINHARDT_DATABASE_HOST will use the placeholder host \
-				 '{}'. Override via spec.env.DATABASE_URL until cloud endpoint \
-				 resolution is supported.",
-				db_host
-			);
-			5432
-		}
-	};
-	let host = db_host.to_string();
+	let default_port = 5432;
+	let host = user_vars
+		.get("REINHARDT_DATABASE_HOST")
+		.filter(|value| !value.is_empty())
+		.cloned()
+		.unwrap_or_else(|| db_host.to_string());
+	if matches!(platform, Platform::Aws | Platform::Gcp) && host == db_host {
+		tracing::warn!(
+			app = %app_name,
+			"Cloud-managed database endpoint resolution is not yet implemented. \
+			 DATABASE_URL and REINHARDT_DATABASE_HOST will use the placeholder host \
+			 '{}'. Provide REINHARDT_DATABASE_HOST or DATABASE_URL via spec.env \
+			 until cloud endpoint resolution is supported.",
+			db_host
+		);
+	}
 
 	// Both identifiers use replace('-', "_") to produce valid SQL identifiers,
 	// matching the convention used by infer_database_resources in inference/database.rs.
 	let sanitized_name = app_name.replace('-', "_");
-	let db_name = format!("{sanitized_name}_db");
-	let db_user = sanitized_name;
+	let db_name = user_vars
+		.get("REINHARDT_DATABASE_NAME")
+		.filter(|value| !value.is_empty())
+		.cloned()
+		.unwrap_or_else(|| format!("{sanitized_name}_db"));
+	let db_user = user_vars
+		.get("REINHARDT_DATABASE_USER")
+		.filter(|value| !value.is_empty())
+		.cloned()
+		.unwrap_or(sanitized_name);
+	let port = user_vars
+		.get("REINHARDT_DATABASE_PORT")
+		.and_then(|value| value.parse::<u16>().ok())
+		.unwrap_or(default_port);
 
 	// DATABASE_URL provides a single-connection-string alternative to the
 	// individual REINHARDT_DATABASE_* vars. The password is embedded via
@@ -313,7 +317,12 @@ mod tests {
 		let app = make_app_with_db("myapp");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "myapp-db");
+		let vars = build_database_env_vars_from_secret(
+			&app,
+			&Platform::Onpremise,
+			"myapp-db",
+			&BTreeMap::new(),
+		);
 
 		// Assert — password is injected via SecretKeyRef, never inlined
 		let password_var = vars
@@ -339,7 +348,12 @@ mod tests {
 		let app = make_app_with_db("my-app");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
+		let vars = build_database_env_vars_from_secret(
+			&app,
+			&Platform::Onpremise,
+			"my-app-db",
+			&BTreeMap::new(),
+		);
 
 		// Assert — non-secret identifiers are safe as plain values
 		let host = vars
@@ -373,7 +387,12 @@ mod tests {
 		let app = make_app_with_db("my-app");
 
 		// Act
-		let vars = build_database_env_vars_from_secret(&app, &Platform::Onpremise, "my-app-db");
+		let vars = build_database_env_vars_from_secret(
+			&app,
+			&Platform::Onpremise,
+			"my-app-db",
+			&BTreeMap::new(),
+		);
 
 		// Assert — DATABASE_URL must be present and contain the connection params
 		let url_var = vars
@@ -395,6 +414,45 @@ mod tests {
 		assert!(
 			url.contains("my_app_db"),
 			"DATABASE_URL must include the db name"
+		);
+	}
+
+	#[rstest]
+	fn build_database_env_vars_from_secret_uses_settings_derived_overrides() {
+		// Arrange
+		let app = make_app_with_db("my-app");
+		let user_vars = BTreeMap::from([
+			(
+				"REINHARDT_DATABASE_HOST".to_string(),
+				"cloudsql.internal".to_string(),
+			),
+			("REINHARDT_DATABASE_PORT".to_string(), "6543".to_string()),
+			("REINHARDT_DATABASE_NAME".to_string(), "prod_db".to_string()),
+			(
+				"REINHARDT_DATABASE_USER".to_string(),
+				"prod_user".to_string(),
+			),
+		]);
+
+		// Act
+		let vars =
+			build_database_env_vars_from_secret(&app, &Platform::Gcp, "my-app-db", &user_vars);
+
+		// Assert
+		let host = vars
+			.iter()
+			.find(|v| v.name == "REINHARDT_DATABASE_HOST")
+			.unwrap();
+		assert_eq!(host.value.as_deref(), Some("cloudsql.internal"));
+
+		let url = vars
+			.iter()
+			.find(|v| v.name == "DATABASE_URL")
+			.and_then(|v| v.value.as_deref())
+			.unwrap();
+		assert_eq!(
+			url,
+			"postgres://prod_user:$(REINHARDT_DATABASE_PASSWORD)@cloudsql.internal:6543/prod_db"
 		);
 	}
 

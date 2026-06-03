@@ -17,7 +17,7 @@ pub(crate) fn generate_config(
 		.or_else(|| metadata.signals.database.clone())
 		.unwrap_or_else(|| "postgresql".to_owned());
 
-	ReinhardtCloudToml {
+	let mut config = ReinhardtCloudToml {
 		app: AppSection {
 			name: metadata.name.clone(),
 			image: format!("{}:latest", metadata.name),
@@ -50,7 +50,13 @@ pub(crate) fn generate_config(
 			None
 		},
 		..Default::default()
+	};
+
+	if let Some(db_config) = db_config {
+		config.env.extend(db_config.deployment_env());
 	}
+
+	config
 }
 
 /// Serialize `ReinhardtCloudToml` to a TOML string with a header comment
@@ -110,9 +116,10 @@ mod tests {
 		};
 		let db_config = DatabaseConfig {
 			engine: "mysql".into(),
-			host: "db.local".into(),
-			port: 3306,
+			host: Some("db.local".into()),
+			port: Some(3306),
 			name: "mydb".into(),
+			user: Some("dbuser".into()),
 		};
 
 		// Act
@@ -120,6 +127,22 @@ mod tests {
 
 		// Assert
 		assert_eq!(config.database.as_ref().unwrap().engine, "mysql");
+		assert_eq!(
+			config
+				.env
+				.get("REINHARDT_DATABASE_HOST")
+				.map(String::as_str),
+			Some("db.local")
+		);
+		assert_eq!(
+			config
+				.env
+				.get("REINHARDT_DATABASE_USER")
+				.map(String::as_str),
+			Some("dbuser")
+		);
+		assert!(!config.env.contains_key("DATABASE_URL"));
+		assert!(!config.env.contains_key("REINHARDT_DATABASE_PASSWORD"));
 	}
 
 	#[rstest]
