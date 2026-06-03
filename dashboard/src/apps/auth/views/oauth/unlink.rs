@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::apps::auth::models::User;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 
-#[post("/oauth/{provider}/unlink/", name = "oauth_unlink")]
+#[post("/oauth/{provider}/unlink/", name = "oauth-unlink")]
 pub async fn oauth_unlink(
 	Path(provider): Path<String>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -103,18 +103,18 @@ mod tests {
 	use serial_test::serial;
 	use uuid::Uuid;
 
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	use crate::config::test_helpers::test_app;
 
 	#[fixture]
 	async fn db(
-		test_app: (APIClient, Arc<ServerRouter>),
+		test_app: (APIClient, Arc<UrlReverser>),
 	) -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 	) {
 		let (client, urls) = test_app;
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -125,31 +125,31 @@ mod tests {
 	}
 
 	async fn seed_user_with_password(username: &str, email: &str) -> Uuid {
-		let mut user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		user.set_password("test-password-1234").unwrap();
 		User::objects().create(&user).await.expect("seed user").id
 	}
 
 	async fn seed_user_no_password(username: &str, email: &str) -> Uuid {
-		let user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		User::objects().create(&user).await.expect("seed user").id
 	}
 
@@ -205,7 +205,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — a syntactically valid UUID that does not match any
@@ -234,7 +234,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — user exists but has no social link for any provider.
@@ -262,7 +262,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — OAuth-only user (no password) with a single social
@@ -301,7 +301,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			Arc<ServerRouter>,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — user has a password, so removing the only social

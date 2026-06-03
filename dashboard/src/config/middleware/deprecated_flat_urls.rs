@@ -37,7 +37,7 @@ async fn personal_org_slug(user_id: Uuid) -> Result<String, AppError> {
 
 // ── Clusters redirect handlers ───────────────────────────────────────────────
 
-#[get("/", name = "clusters_list_redirect")]
+#[get("/", name = "clusters-list-redirect")]
 async fn clusters_list_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID: {e}")))?;
@@ -47,7 +47,7 @@ async fn clusters_list_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewResu
 	)))
 }
 
-#[post("/", name = "clusters_create_redirect")]
+#[post("/", name = "clusters-create-redirect")]
 async fn clusters_create_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID: {e}")))?;
@@ -57,7 +57,7 @@ async fn clusters_create_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewRe
 	)))
 }
 
-#[get("/{id}/", name = "clusters_retrieve_redirect")]
+#[get("/{id}/", name = "clusters-retrieve-redirect")]
 async fn clusters_retrieve_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -70,7 +70,7 @@ async fn clusters_retrieve_redirect(
 	)))
 }
 
-#[patch("/{id}/", name = "clusters_update_redirect")]
+#[patch("/{id}/", name = "clusters-update-redirect")]
 async fn clusters_update_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -83,7 +83,7 @@ async fn clusters_update_redirect(
 	)))
 }
 
-#[delete("/{id}/", name = "clusters_delete_redirect")]
+#[delete("/{id}/", name = "clusters-delete-redirect")]
 async fn clusters_delete_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -96,7 +96,7 @@ async fn clusters_delete_redirect(
 	)))
 }
 
-#[post("/{id}/rotate-token/", name = "clusters_rotate_token_redirect")]
+#[post("/{id}/rotate-token/", name = "clusters-rotate-token-redirect")]
 async fn clusters_rotate_token_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -111,7 +111,7 @@ async fn clusters_rotate_token_redirect(
 
 // ── Deployments redirect handlers ────────────────────────────────────────────
 
-#[get("/", name = "deployments_list_redirect")]
+#[get("/", name = "deployments-list-redirect")]
 async fn deployments_list_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID: {e}")))?;
@@ -121,7 +121,7 @@ async fn deployments_list_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewR
 	)))
 }
 
-#[post("/", name = "deployments_create_redirect")]
+#[post("/", name = "deployments-create-redirect")]
 async fn deployments_create_redirect(#[inject] AuthInfo(state): AuthInfo) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(state.user_id())
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID: {e}")))?;
@@ -131,7 +131,7 @@ async fn deployments_create_redirect(#[inject] AuthInfo(state): AuthInfo) -> Vie
 	)))
 }
 
-#[get("/{id}/", name = "deployments_retrieve_redirect")]
+#[get("/{id}/", name = "deployments-retrieve-redirect")]
 async fn deployments_retrieve_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -144,7 +144,7 @@ async fn deployments_retrieve_redirect(
 	)))
 }
 
-#[put("/{id}/", name = "deployments_update_redirect")]
+#[put("/{id}/", name = "deployments-update-redirect")]
 async fn deployments_update_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -157,7 +157,7 @@ async fn deployments_update_redirect(
 	)))
 }
 
-#[delete("/{id}/", name = "deployments_delete_redirect")]
+#[delete("/{id}/", name = "deployments-delete-redirect")]
 async fn deployments_delete_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -170,7 +170,7 @@ async fn deployments_delete_redirect(
 	)))
 }
 
-#[post("/{id}/status/", name = "deployments_status_redirect")]
+#[post("/{id}/status/", name = "deployments-status-redirect")]
 async fn deployments_status_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -183,7 +183,7 @@ async fn deployments_status_redirect(
 	)))
 }
 
-#[get("/{id}/logs/", name = "deployments_logs_redirect")]
+#[get("/{id}/logs/", name = "deployments-logs-redirect")]
 async fn deployments_logs_redirect(
 	Path(id): Path<i64>,
 	#[inject] AuthInfo(state): AuthInfo,

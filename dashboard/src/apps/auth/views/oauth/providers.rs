@@ -35,7 +35,7 @@ pub fn label_for(id: &str) -> &'static str {
 	}
 }
 
-#[get("/oauth/providers/", name = "oauth_providers")]
+#[get("/oauth/providers/", name = "oauth-providers")]
 pub async fn oauth_providers(
 	#[inject] settings: Depends<OAuthSettings>,
 ) -> ViewResult<Response> {

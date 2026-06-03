@@ -23,7 +23,7 @@ struct MessageResponse {
 ///
 /// Requires the current (old) password for verification before
 /// setting the new password.
-#[post("/change-password/", name = "change_password", pre_validate = true)]
+#[post("/change-password/", name = "change-password", pre_validate = true)]
 pub async fn change_password(
 	body: Json<ChangePasswordRequest>,
 	#[inject] AuthInfo(state): AuthInfo,

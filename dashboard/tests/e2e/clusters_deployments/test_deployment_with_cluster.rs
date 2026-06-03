@@ -3,7 +3,7 @@
 //! Tests that span multiple apps (e.g., creating a deployment
 //! requires a cluster) belong here.
 
-use reinhardt::ServerRouter;
+use reinhardt::UrlReverser;
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -28,7 +28,7 @@ async fn db(
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	Arc<ServerRouter>,
+	Arc<UrlReverser>,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
@@ -54,7 +54,7 @@ async fn test_create_deployment_with_cluster(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {

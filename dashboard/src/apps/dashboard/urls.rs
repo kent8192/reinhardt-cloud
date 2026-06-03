@@ -2,7 +2,7 @@
 //!
 //! Declares the project-level SPA `home` route reachable from the
 //! top-level navigation. Server-side reverse URL resolution uses
-//! `ServerRouter::reverse()` and SPA navigation uses hardcoded paths.
+//! `UrlReverser::from_global()` and SPA navigation uses hardcoded paths.
 //! Per-section routes (`clusters:list`, `deployments:list`) are owned by
 //! their respective apps' `url_patterns`.
 

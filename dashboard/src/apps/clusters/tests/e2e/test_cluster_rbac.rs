@@ -18,7 +18,7 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::organizations::roles::MembershipRole;
-	use reinhardt::ServerRouter;
+	use reinhardt::UrlReverser;
 
 	use crate::config::test_helpers::{
 		force_login_user_with_org, session_backend, set_membership_role,
@@ -28,7 +28,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	);
 

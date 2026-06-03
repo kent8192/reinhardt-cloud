@@ -10,16 +10,16 @@ mod tests {
 		use crate::apps::auth::models::User;
 		use reinhardt::BaseUser;
 
-		let mut user = User::new(
-			"hashtest".to_string(),
-			"hash@test.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username("hashtest".to_string())
+			.email("hash@test.com".to_string())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 
 		// Act
 		user.set_password("secure-password-123").unwrap();

@@ -4,7 +4,7 @@
 //! deployment -> list deployments, and ensures two independent users
 //! have complete resource isolation.
 
-use reinhardt::ServerRouter;
+use reinhardt::UrlReverser;
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -30,7 +30,7 @@ async fn db(
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	Arc<ServerRouter>,
+	Arc<UrlReverser>,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
@@ -56,7 +56,7 @@ async fn test_full_user_journey(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
@@ -143,10 +143,10 @@ async fn test_two_users_independent_workflows(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		Arc<ServerRouter>,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
-	test_app: (APIClient, Arc<ServerRouter>),
+	test_app: (APIClient, Arc<UrlReverser>),
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;

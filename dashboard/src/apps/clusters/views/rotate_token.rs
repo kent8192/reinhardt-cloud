@@ -25,7 +25,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Returns the new plaintext JWT exactly once. Old tokens are rejected
 /// on next verify because the stored hash has changed.
-#[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate_token")]
+#[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate-token")]
 pub async fn rotate_token(
 	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
