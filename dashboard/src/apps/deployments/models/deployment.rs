@@ -29,6 +29,10 @@ pub struct Deployment {
 	#[field(max_length = 512)]
 	pub image: String,
 
+	/// Submitted `ReinhardtApp` manifest YAML for operator-driven deployment.
+	#[field(max_length = 65535)]
+	pub reinhardt_app_yaml: Option<String>,
+
 	/// Deployment creation timestamp
 	#[field(auto_now_add = true)]
 	pub created_at: chrono::DateTime<chrono::Utc>,

@@ -229,6 +229,17 @@ mod tests {
 		}
 	}
 
+	fn config_with_source_build(build: Option<BuildSection>) -> ReinhardtCloudToml {
+		ReinhardtCloudToml {
+			source: Some(SourceSection {
+				repository: String::new(),
+				build,
+				..Default::default()
+			}),
+			..Default::default()
+		}
+	}
+
 	// G1
 	#[rstest]
 	fn snapshot_api_minimal() {
@@ -418,15 +429,10 @@ mod tests {
 	fn skip_when_custom_dockerfile_set() {
 		// Arrange
 		let dir = std::env::temp_dir();
-		let mut config = ReinhardtCloudToml::default();
-		config.source = Some(SourceSection {
-			repository: String::new(),
-			build: Some(BuildSection {
-				dockerfile: Some("docker/Dockerfile.prod".to_string()),
-				..Default::default()
-			}),
+		let config = config_with_source_build(Some(BuildSection {
+			dockerfile: Some("docker/Dockerfile.prod".to_string()),
 			..Default::default()
-		});
+		}));
 
 		// Act
 		let result = should_skip_dockerfile(&dir, &config, false);
@@ -484,15 +490,10 @@ mod tests {
 	fn custom_dockerfile_empty_string() {
 		// Arrange
 		let dir = std::env::temp_dir();
-		let mut config = ReinhardtCloudToml::default();
-		config.source = Some(SourceSection {
-			repository: String::new(),
-			build: Some(BuildSection {
-				dockerfile: Some(String::new()),
-				..Default::default()
-			}),
+		let config = config_with_source_build(Some(BuildSection {
+			dockerfile: Some(String::new()),
 			..Default::default()
-		});
+		}));
 
 		// Act
 		let result = should_skip_dockerfile(&dir, &config, false);
@@ -517,15 +518,10 @@ mod tests {
 	fn no_skip_when_default_dockerfile_path() {
 		// Arrange
 		let dir = std::env::temp_dir();
-		let mut config = ReinhardtCloudToml::default();
-		config.source = Some(SourceSection {
-			repository: String::new(),
-			build: Some(BuildSection {
-				dockerfile: Some("Dockerfile".to_string()),
-				..Default::default()
-			}),
+		let config = config_with_source_build(Some(BuildSection {
+			dockerfile: Some("Dockerfile".to_string()),
 			..Default::default()
-		});
+		}));
 
 		// Act
 		let result = should_skip_dockerfile(&dir, &config, false);
@@ -539,15 +535,10 @@ mod tests {
 	fn no_skip_when_dot_slash_dockerfile_path() {
 		// Arrange
 		let dir = std::env::temp_dir();
-		let mut config = ReinhardtCloudToml::default();
-		config.source = Some(SourceSection {
-			repository: String::new(),
-			build: Some(BuildSection {
-				dockerfile: Some("./Dockerfile".to_string()),
-				..Default::default()
-			}),
+		let config = config_with_source_build(Some(BuildSection {
+			dockerfile: Some("./Dockerfile".to_string()),
 			..Default::default()
-		});
+		}));
 
 		// Act
 		let result = should_skip_dockerfile(&dir, &config, false);
@@ -561,12 +552,7 @@ mod tests {
 	fn build_section_missing() {
 		// Arrange
 		let dir = std::env::temp_dir();
-		let mut config = ReinhardtCloudToml::default();
-		config.source = Some(SourceSection {
-			repository: String::new(),
-			build: None,
-			..Default::default()
-		});
+		let config = config_with_source_build(None);
 
 		// Act
 		let result = should_skip_dockerfile(&dir, &config, false);

@@ -12,6 +12,9 @@ pub struct CreateDeploymentRequest {
 	pub cluster_id: i64,
 	#[validate(length(min = 1, max = 512))]
 	pub image: String,
+	#[serde(default)]
+	#[validate(length(max = 65535))]
+	pub reinhardt_app_yaml: Option<String>,
 }
 
 /// Request body for updating a deployment (all fields optional).

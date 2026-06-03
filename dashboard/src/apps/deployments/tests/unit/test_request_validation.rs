@@ -19,6 +19,7 @@ mod tests {
 			app_name: app_name.to_string(),
 			cluster_id: 1,
 			image: "nginx:latest".to_string(),
+			reinhardt_app_yaml: None,
 		};
 
 		// Act
@@ -44,6 +45,7 @@ mod tests {
 			app_name: "my-app".to_string(),
 			cluster_id,
 			image: "nginx:latest".to_string(),
+			reinhardt_app_yaml: None,
 		};
 
 		// Act
@@ -69,6 +71,7 @@ mod tests {
 			app_name: "my-app".to_string(),
 			cluster_id: 1,
 			image: image.to_string(),
+			reinhardt_app_yaml: None,
 		};
 
 		// Act

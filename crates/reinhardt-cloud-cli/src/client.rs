@@ -16,6 +16,9 @@ pub(crate) enum ClientError {
 
 	#[error("invalid URL: {0}")]
 	InvalidUrl(#[from] url::ParseError),
+
+	#[error("invalid cluster id '{value}': expected a positive 64-bit integer")]
+	InvalidClusterId { value: String },
 }
 
 /// REST API client for the Reinhardt Cloud platform.
@@ -77,7 +80,8 @@ impl ReinhardtCloudClient {
 	/// Deploys an application by sending JSON to the dashboard API.
 	///
 	/// The dashboard create-deployment endpoint expects a JSON body with
-	/// `app_name`, `image`, and optionally `cluster_id`.
+	/// `app_name`, `image`, optionally `cluster_id`, and optionally the
+	/// generated `ReinhardtApp` manifest YAML.
 	///
 	/// Returns the response body on success.
 	pub(crate) async fn deploy(
@@ -85,14 +89,9 @@ impl ReinhardtCloudClient {
 		app_name: &str,
 		image: &str,
 		cluster_id: Option<&str>,
+		reinhardt_app_yaml: Option<&str>,
 	) -> Result<String, ClientError> {
-		let mut payload = serde_json::json!({
-			"app_name": app_name,
-			"image": image,
-		});
-		if let Some(cid) = cluster_id {
-			payload["cluster_id"] = serde_json::Value::String(cid.to_string());
-		}
+		let payload = build_deploy_payload(app_name, image, cluster_id, reinhardt_app_yaml)?;
 
 		let response = self
 			.request(reqwest::Method::POST, "/api/deployments/")?
@@ -202,6 +201,33 @@ impl ReinhardtCloudClient {
 			})
 		}
 	}
+}
+
+fn build_deploy_payload(
+	app_name: &str,
+	image: &str,
+	cluster_id: Option<&str>,
+	reinhardt_app_yaml: Option<&str>,
+) -> Result<serde_json::Value, ClientError> {
+	let mut payload = serde_json::json!({
+		"app_name": app_name,
+		"image": image,
+	});
+	if let Some(cid) = cluster_id {
+		let parsed = cid
+			.parse::<i64>()
+			.ok()
+			.filter(|value| *value > 0)
+			.ok_or_else(|| ClientError::InvalidClusterId {
+				value: cid.to_string(),
+			})?;
+		payload["cluster_id"] = serde_json::json!(parsed);
+	}
+	if let Some(manifest) = reinhardt_app_yaml {
+		payload["reinhardt_app_yaml"] = serde_json::Value::String(manifest.to_string());
+	}
+
+	Ok(payload)
 }
 
 #[cfg(test)]
@@ -330,6 +356,39 @@ mod tests {
 		// Assert
 		assert_eq!(req.url().as_str(), "http://localhost:8000/api/deployments/");
 		assert_eq!(req.method(), reqwest::Method::POST);
+	}
+
+	#[rstest]
+	fn test_build_deploy_payload_serializes_cluster_id_as_number() {
+		// Arrange
+		let manifest = "apiVersion: paas.reinhardt-cloud.dev/v1\nkind: ReinhardtApp\n";
+
+		// Act
+		let payload = build_deploy_payload("web", "web:v1", Some("42"), Some(manifest)).unwrap();
+
+		// Assert
+		assert_eq!(payload["app_name"], serde_json::json!("web"));
+		assert_eq!(payload["image"], serde_json::json!("web:v1"));
+		assert_eq!(payload["cluster_id"], serde_json::json!(42));
+		assert_eq!(payload["reinhardt_app_yaml"], serde_json::json!(manifest));
+	}
+
+	#[rstest]
+	#[case("abc")]
+	#[case("0")]
+	#[case("-1")]
+	fn test_build_deploy_payload_rejects_invalid_cluster_id(#[case] cluster_id: &str) {
+		// Arrange
+		let invalid_cluster_id = cluster_id;
+
+		// Act
+		let result = build_deploy_payload("web", "web:v1", Some(invalid_cluster_id), None);
+
+		// Assert
+		assert!(
+			matches!(result, Err(ClientError::InvalidClusterId { .. })),
+			"expected invalid cluster id error, got {result:?}"
+		);
 	}
 
 	#[rstest]
