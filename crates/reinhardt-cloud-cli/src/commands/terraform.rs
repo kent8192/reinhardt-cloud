@@ -122,30 +122,60 @@ fn infrastructure_from_crd_yaml(
 	let spec: ReinhardtAppSpec =
 		serde_yaml::from_value(spec_value.clone()).map_err(|err| err.to_string())?;
 
-	if spec.infrastructure.is_some() {
-		return Ok(spec.infrastructure);
+	if let Some(infra) = spec.infrastructure {
+		validate_infrastructure(&infra)?;
+		return Ok(Some(infra));
 	}
 
-	if let Some(introspect) = spec.introspect {
+	if let Some(introspect) = spec.introspect.as_ref() {
 		eprintln!(
 			"warning: spec.infrastructure is absent; deriving from spec.introspect for compatibility. Persist the generated infrastructure block for repeatable Terraform."
 		);
 		let app_name = if introspect.app.name.trim().is_empty() {
 			app.to_string()
 		} else {
-			introspect.app.name
+			introspect.app.name.clone()
 		};
 
 		return derive_infrastructure_spec(InfrastructureDerivationInput {
 			app_name,
-			signals: introspect.features.infrastructure_signals,
+			signals: introspect.features.infrastructure_signals.clone(),
 			explicit: None,
-			typed_secret_refs: Vec::new(),
+			typed_secret_refs: typed_secret_refs(&spec),
 		})
 		.map_err(|err| err.to_string());
 	}
 
 	Ok(None)
+}
+
+fn validate_infrastructure(infra: &InfrastructureSpec) -> Result<(), String> {
+	infra.validate().map_err(|errors| {
+		errors
+			.into_iter()
+			.map(|error| error.to_string())
+			.collect::<Vec<_>>()
+			.join("; ")
+	})
+}
+
+fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
+	[
+		spec.source
+			.as_ref()
+			.and_then(|source| source.credentials_secret.as_ref()),
+		spec.source
+			.as_ref()
+			.and_then(|source| source.webhook.as_ref())
+			.and_then(|webhook| webhook.secret_ref.as_ref()),
+		spec.mail
+			.as_ref()
+			.and_then(|mail| mail.credentials_secret.as_ref()),
+	]
+	.into_iter()
+	.flatten()
+	.cloned()
+	.collect()
 }
 
 /// Renders the per-app `main.tf` content for the given provider.
@@ -679,6 +709,33 @@ spec:
 	}
 
 	#[rstest]
+	fn rejects_invalid_explicit_infrastructure_from_crd_yaml() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  infrastructure:
+    buckets:
+      - name: ""
+        public: false
+"#;
+
+		// Act
+		let error = infrastructure_from_crd_yaml("orders", yaml)
+			.expect_err("invalid explicit infrastructure should fail early");
+
+		// Assert
+		assert!(
+			error.contains("infrastructure.buckets[].name must be non-empty"),
+			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
 	fn falls_back_to_introspect_when_infrastructure_missing() {
 		// Arrange
 		let yaml = r#"
@@ -703,6 +760,58 @@ spec:
 
 		// Assert
 		assert!(infra.postgres.is_some());
+	}
+
+	#[rstest]
+	fn fallback_preserves_typed_secret_refs() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  source:
+    repository: https://github.com/example/orders
+    credentials_secret: git-creds
+    webhook:
+      enabled: true
+      secret_ref: webhook-secret
+      events:
+        - push
+  mail:
+    smtp_host: smtp.example.com
+    smtp_port: 587
+    credentials_secret: mail-creds
+  introspect:
+    app:
+      name: orders
+    features:
+      infrastructure_signals:
+        database: postgres
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("orders", yaml)
+			.expect("introspect fallback should succeed")
+			.expect("postgres signal should derive infrastructure");
+
+		// Assert
+		let secret_names: Vec<_> = infra
+			.secrets
+			.expect("typed secret refs should be preserved")
+			.into_iter()
+			.map(|secret| secret.name)
+			.collect();
+		assert_eq!(
+			secret_names,
+			vec![
+				"git-creds".to_string(),
+				"mail-creds".to_string(),
+				"webhook-secret".to_string()
+			]
+		);
 	}
 
 	#[rstest]
