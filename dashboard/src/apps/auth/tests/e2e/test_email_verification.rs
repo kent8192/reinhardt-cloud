@@ -16,7 +16,7 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Duration;
 
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::UrlReverser;
 
 	/// Mailpit API message summary.
 	#[derive(Debug, serde::Deserialize)]
@@ -53,7 +53,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -184,7 +184,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -203,7 +203,11 @@ mod tests {
 
 		// Act
 		let response = client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 
@@ -234,7 +238,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -251,7 +255,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 
@@ -260,7 +268,9 @@ mod tests {
 		let token = extract_verify_token(&text).expect("Token not found");
 
 		// Act — verify email
-		let verify_url = urls.server().auth().verify_email(&token);
+		let verify_url = urls
+			.reverse_with("verify-email", &[("token", &token)])
+			.unwrap();
 		let verify_response = client
 			.get(&verify_url)
 			.await
@@ -277,7 +287,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let login_response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 		assert_eq!(login_response.status_code(), 200);
@@ -292,7 +306,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -307,7 +321,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register request failed");
 
@@ -317,7 +335,11 @@ mod tests {
 			"password": "securepassword"
 		});
 		let response = client
-			.post(&urls.server().auth().login(), &login_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
+				&login_data,
+				"json",
+			)
 			.await
 			.expect("Login request failed");
 
@@ -334,7 +356,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -351,14 +373,20 @@ mod tests {
 			"password": "securepassword"
 		});
 		client
-			.post(&urls.server().auth().register(), &register_data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&register_data,
+				"json",
+			)
 			.await
 			.expect("Register failed");
 
 		let messages = poll_messages(&mailpit, 1, Duration::from_secs(5)).await;
 		let text = fetch_message_text(&mailpit, &messages[0].id).await;
 		let token = extract_verify_token(&text).expect("Token not found");
-		let verify_url = urls.server().auth().verify_email(&token);
+		let verify_url = urls
+			.reverse_with("verify-email", &[("token", &token)])
+			.unwrap();
 
 		// Act — verify twice
 		let first = client.get(&verify_url).await.expect("First verify failed");

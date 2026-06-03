@@ -7,7 +7,6 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, post};
@@ -26,7 +25,7 @@ use crate::apps::organizations::permissions::{Action, require_permission_for_org
 /// `Action::ClusterUpdate` (Developer or higher); Viewers receive 403.
 /// Returns the new plaintext JWT exactly once. Old tokens are rejected
 /// on next verify because the stored hash has changed.
-#[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate_token")]
+#[post("/orgs/{org}/clusters/{cluster_id}/rotate-token/", name = "rotate-token")]
 pub async fn rotate_token(
 	Path((org, cluster_id)): Path<(String, i64)>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -39,16 +38,8 @@ pub async fn rotate_token(
 
 	let manager = Cluster::objects();
 	let mut cluster = manager
-		.filter(
-			Cluster::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		)
-		.filter(Filter::new(
-			Cluster::field_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(cluster_id),
-		))
+		.filter(Cluster::field_organization_id().eq(organization_id))
+		.filter(Cluster::field_id().eq(cluster_id))
 		.first()
 		.await
 		.map_err(|e| {

@@ -22,14 +22,14 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::UrlReverser;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -42,16 +42,16 @@ mod tests {
 	}
 
 	async fn create_test_user(username: &str, email: &str) -> Uuid {
-		let mut user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		// OAuth-only users have no password, but providing one keeps the
 		// fixture realistic and matches Argon2 hash expectations.
 		user.set_password("test-password-1234").unwrap();
@@ -91,7 +91,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -137,7 +137,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -162,7 +162,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -200,7 +200,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -224,7 +224,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -252,7 +252,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange — same (provider, provider_user_id) must not link to two users.

@@ -12,13 +12,13 @@ mod tests {
 	#[rstest]
 	fn test_deployment_response_status_serializes_to_string() {
 		// Arrange
-		let deployment = Deployment::new(
-			1,
-			"my-app".to_string(),
-			1,
-			"pending".to_string(),
-			"ghcr.io/my-app:latest".to_string(),
-		);
+		let deployment = Deployment::build()
+			.organization_id(1)
+			.app_name("my-app".to_string())
+			.cluster_id(1)
+			.status("pending".to_string())
+			.image("ghcr.io/my-app:latest".to_string())
+			.finish();
 
 		// Act
 		let response = DeploymentResponse::from(deployment);
@@ -32,13 +32,13 @@ mod tests {
 	#[rstest]
 	fn test_deployment_response_with_none_id_serializes_to_null() {
 		// Arrange
-		let deployment = Deployment::new(
-			1,
-			"my-app".to_string(),
-			1,
-			"pending".to_string(),
-			"ghcr.io/my-app:latest".to_string(),
-		);
+		let deployment = Deployment::build()
+			.organization_id(1)
+			.app_name("my-app".to_string())
+			.cluster_id(1)
+			.status("pending".to_string())
+			.image("ghcr.io/my-app:latest".to_string())
+			.finish();
 
 		// Act
 		let response = DeploymentResponse::from(deployment);
@@ -52,13 +52,13 @@ mod tests {
 	#[rstest]
 	fn test_deployment_response_with_some_id_serializes_to_number() {
 		// Arrange
-		let mut deployment = Deployment::new(
-			1,
-			"my-app".to_string(),
-			1,
-			"running".to_string(),
-			"ghcr.io/my-app:v2".to_string(),
-		);
+		let mut deployment = Deployment::build()
+			.organization_id(1)
+			.app_name("my-app".to_string())
+			.cluster_id(1)
+			.status("running".to_string())
+			.image("ghcr.io/my-app:v2".to_string())
+			.finish();
 		deployment.id = Some(42);
 
 		// Act

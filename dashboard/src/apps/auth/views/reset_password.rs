@@ -5,7 +5,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::{BaseUser, Json, Path, Response, StatusCode, post};
 use tracing::{error, info};
@@ -20,7 +20,7 @@ use crate::apps::auth::services::token::{self, TokenError, TokenPurpose, verify_
 ///
 /// The token is in the URL path; the new password is in the request body.
 /// The token self-invalidates after use because the password hash changes.
-#[post("/reset-password/{token}/", name = "reset_password")]
+#[post("/reset-password/{token}/", name = "reset-password")]
 pub async fn reset_password(
 	Path(token_str): Path<String>,
 	body: Json<ResetPasswordRequest>,
@@ -46,11 +46,7 @@ pub async fn reset_password(
 	})?;
 
 	let user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {

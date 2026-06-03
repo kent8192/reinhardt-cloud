@@ -23,7 +23,8 @@
 use chrono::Utc;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue, Model};
+use reinhardt::FilterValue;
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::{Json, Response, StatusCode, post};
 use serde::Deserialize;
@@ -41,7 +42,7 @@ pub struct VerifyEmailChangeRequest {
 }
 
 /// Confirm a pending email change.
-#[post("/verify-email-change/", name = "verify_email_change")]
+#[post("/verify-email-change/", name = "verify-email-change")]
 pub async fn verify_email_change(body: Json<VerifyEmailChangeRequest>) -> ViewResult<Response> {
 	let user_id = Uuid::parse_str(&body.user_id)
 		.map_err(|_| AppError::Validation("invalid user_id".to_string()))?;
@@ -56,21 +57,9 @@ pub async fn verify_email_change(body: Json<VerifyEmailChangeRequest>) -> ViewRe
 	// (modulo the user_id check below). No application-side scan.
 	let now = Utc::now();
 	let token = EmailVerificationToken::objects()
-		.filter(
-			EmailVerificationToken::field_token_hash(),
-			FilterOperator::Eq,
-			FilterValue::String(submitted_hash),
-		)
-		.filter(Filter::new(
-			EmailVerificationToken::field_consumed_at(),
-			FilterOperator::IsNull,
-			FilterValue::Null,
-		))
-		.filter(Filter::new(
-			EmailVerificationToken::field_expires_at(),
-			FilterOperator::Gt,
-			FilterValue::String(now.to_rfc3339()),
-		))
+		.filter(EmailVerificationToken::field_token_hash().eq(submitted_hash))
+		.filter(EmailVerificationToken::field_consumed_at().eq(FilterValue::Null))
+		.filter(EmailVerificationToken::field_expires_at().gt(now.to_rfc3339()))
 		.first()
 		.await
 		.map_err(|e| {
@@ -90,11 +79,7 @@ pub async fn verify_email_change(body: Json<VerifyEmailChangeRequest>) -> ViewRe
 
 	// Load the user and apply the new email.
 	let mut user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {

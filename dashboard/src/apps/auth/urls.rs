@@ -1,30 +1,26 @@
 //! URL configuration for the auth app.
 //!
 //! Server endpoints and client SPA routes are merged into the single
-//! `url_patterns()` function below via `mode = unified`. WebSocket
+//! `url_patterns()` function below as a `UnifiedRouter`. WebSocket
 //! patterns live in `ws_urls.rs` because the `#[routes]` macro
 //! discovers them at the fixed path
 //! `crate::apps::<app>::urls::ws_urls::ws_url_resolvers`.
 
 pub mod ws_urls;
 
-use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
 #[cfg(native)]
 use crate::apps::auth::views;
-use crate::config::apps::InstalledApp;
 
 /// Returns the unified URL patterns for the auth app.
 ///
 /// Combines server endpoints (REST API + server functions) and the SPA
-/// client route table in a single `UnifiedRouter`. The `#[url_patterns]`
-/// macro applies the `auth` namespace once to both sides; named routes
-/// declared inside `.client(|c| c.named_route("login_page", ...))` are
+/// client route table in a single `UnifiedRouter`. Named routes
+/// declared inside `.client(|c| c.route("login_page", ...))` are
 /// globally reversible as `auth:login_page` after `mount_unified`
 /// merges them into the project router (kent8192/reinhardt-web#4077).
-#[url_patterns(InstalledApp::auth, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| {
@@ -45,7 +41,10 @@ pub fn url_patterns() -> UnifiedRouter {
 			s
 		})
 		.client(|c| {
-			c.named_route("login_page", "/login", login_page)
-				.named_route("register_page", "/register", register_page)
+			c.route("login_page", "/login", login_page).route(
+				"register_page",
+				"/register",
+				register_page,
+			)
 		})
 }

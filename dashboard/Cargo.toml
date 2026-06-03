@@ -37,7 +37,7 @@ thiserror = { workspace = true }
 reinhardt = { workspace = true }
 # Direct dependency on reinhardt-auth so we can enable the `social` feature,
 # which is not exposed through the reinhardt meta-crate's auth-* features.
-reinhardt-auth = { package = "reinhardt-auth", git = "https://github.com/kent8192/reinhardt-web", branch = "main", features = ["social"] }
+reinhardt-auth = { package = "reinhardt-auth", git = "https://github.com/kent8192/reinhardt-web", branch = "develop/0.2.0", features = ["social"] }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }

@@ -3,7 +3,6 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, get};
 use tracing::error;
@@ -28,16 +27,8 @@ pub async fn retrieve_cluster(
 	let organization_id = require_permission_for_org(user_id, &org, Action::ClusterRead).await?;
 
 	let cluster = Cluster::objects()
-		.filter(
-			Cluster::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		)
-		.filter(Filter::new(
-			Cluster::field_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(cluster_id),
-		))
+		.filter(Cluster::field_organization_id().eq(organization_id))
+		.filter(Cluster::field_id().eq(cluster_id))
 		.first()
 		.await
 		.map_err(|e| {

@@ -25,14 +25,14 @@ mod tests {
 	#[rstest]
 	fn test_cluster_response_with_none_id_serializes_to_null() {
 		// Arrange
-		let cluster = Cluster::new(
-			1i64,
-			"staging".to_string(),
-			"https://staging.k8s.io:6443".to_string(),
-			true,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(1i64)
+			.name("staging".to_string())
+			.api_url("https://staging.k8s.io:6443".to_string())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Act
 		let resp = ClusterResponse::from(cluster);
@@ -46,14 +46,14 @@ mod tests {
 	#[rstest]
 	fn test_cluster_response_with_some_id_serializes_to_number() {
 		// Arrange
-		let mut cluster = Cluster::new(
-			1i64,
-			"production".to_string(),
-			"https://prod.k8s.io:6443".to_string(),
-			true,
-			None,
-			None,
-		);
+		let mut cluster = Cluster::build()
+			.organization_id(1i64)
+			.name("production".to_string())
+			.api_url("https://prod.k8s.io:6443".to_string())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 		cluster.id = Some(42);
 
 		// Act
@@ -68,14 +68,14 @@ mod tests {
 	#[rstest]
 	fn test_cluster_response_from_orm_model() {
 		// Arrange
-		let cluster = Cluster::new(
-			1i64,
-			"staging".to_string(),
-			"https://staging.k8s.io:6443".to_string(),
-			true,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(1i64)
+			.name("staging".to_string())
+			.api_url("https://staging.k8s.io:6443".to_string())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Act
 		let resp = ClusterResponse::from(cluster);

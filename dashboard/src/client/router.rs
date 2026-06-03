@@ -7,7 +7,7 @@
 //! [`UnifiedRouter::register_globally`] call installs the server router
 //! (empty here — server-side routes live in `crate::config::urls`) and
 //! the `ClientUrlReverser` in one step, so callers of `url_for(name)`
-//! on either side can resolve every `named_route` declared below.
+//! on either side can resolve every `route` declared below.
 //!
 //! Global access at runtime is provided by `reinhardt::pages::with_router`,
 //! which is installed by `ClientLauncher::launch()`. This module no
@@ -15,12 +15,11 @@
 //!
 //! # Route names
 //!
-//! Every SPA route is registered via [`ClientRouter::named_route`] so that
-//! the typed `crate::config::urls::ResolvedUrls` accessor can resolve
-//! `href` and `redirect_on_success` values. Names follow the
-//! `<app>:<name>` namespace convention used by server-side view macros.
-//! SPA names use a `_page` suffix where a server-side route already owns
-//! the unsuffixed name (e.g. `auth:login` is the POST API, while
+//! Every SPA route is registered via [`ClientRouter::route`] so that
+//! client-side URL resolution works. Names follow the `<app>:<name>`
+//! namespace convention used by server-side view macros. SPA names use
+//! a `_page` suffix where a server-side route already owns the
+//! unsuffixed name (e.g. `auth:login` is the POST API, while
 //! `auth:login_page` is the SPA page).
 //!
 //! `clusters:list` and `deployments:list` currently resolve to a
@@ -41,16 +40,16 @@ use crate::shared::client::pages::not_found::not_found_page;
 ///
 /// Passed to `ClientLauncher::router_client(init_router)` from
 /// `client.rs`. The returned [`ClientRouter`] carries the named-route
-/// table that drives both SPA navigation and `ResolvedUrls`-backed
-/// reverse URL lookup on the WASM client.
+/// table that drives both SPA navigation and reverse URL lookup on the
+/// WASM client.
 pub fn init_router() -> ClientRouter {
 	UnifiedRouter::new()
 		.client(|c| {
-			c.named_route("dashboard:home", "/", dashboard_shell)
-				.named_route("auth:login_page", "/login", login_page)
-				.named_route("auth:register_page", "/register", register_page)
-				.named_route("clusters:list", "/clusters", clusters_list_page)
-				.named_route("deployments:list", "/deployments", deployments_list_page)
+			c.route("dashboard:home", "/", dashboard_shell)
+				.route("auth:login_page", "/login", login_page)
+				.route("auth:register_page", "/register", register_page)
+				.route("clusters:list", "/clusters", clusters_list_page)
+				.route("deployments:list", "/deployments", deployments_list_page)
 				.not_found(not_found_page)
 		})
 		.register_globally()

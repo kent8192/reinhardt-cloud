@@ -2,7 +2,6 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, delete};
 use tracing::error;
@@ -27,12 +26,8 @@ pub async fn delete_deployment(
 		require_permission_for_org(user_id, &org, Action::DeploymentDelete).await?;
 
 	Deployment::objects()
-		.filter("id", FilterOperator::Eq, FilterValue::Integer(deployment_id))
-		.filter(Filter::new(
-			Deployment::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		))
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| {

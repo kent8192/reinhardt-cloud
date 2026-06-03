@@ -2,7 +2,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
@@ -22,11 +22,7 @@ pub async fn login(
 ) -> ViewResult<Response> {
 	// Find user by username
 	let user = User::objects()
-		.filter(
-			User::field_username(),
-			FilterOperator::Eq,
-			FilterValue::String(body.username.trim().to_string()),
-		)
+		.filter(User::field_username().eq(body.username.trim().to_string()))
 		.first()
 		.await
 		.map_err(|e| {

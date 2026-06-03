@@ -11,7 +11,6 @@ mod tests {
 	use chrono::Utc;
 	use reinhardt::BaseUser;
 	use reinhardt::db::orm::Model;
-	use reinhardt::db::orm::{FilterOperator, FilterValue};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -24,14 +23,14 @@ mod tests {
 	use crate::apps::auth::services::registration::provision_personal_organization;
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::sanitize_username_to_slug;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::UrlReverser;
 
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -46,16 +45,16 @@ mod tests {
 	/// Helper: insert a `User` row directly via ORM, bypassing the register
 	/// endpoint (no email verification, no rollback semantics).
 	async fn create_user(username: &str, email: &str) -> User {
-		let mut user = User::new(
-			username.to_string(),
-			email.to_lowercase(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username(username.to_string())
+			.email(email.to_lowercase())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 		user.set_password("test-password")
 			.expect("Password hashing failed");
 		User::objects()
@@ -74,7 +73,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -89,11 +88,7 @@ mod tests {
 
 		// Assert -- exactly one Organization with the derived slug, owned by `user`
 		let org = Organization::objects()
-			.filter(
-				Organization::field_slug(),
-				FilterOperator::Eq,
-				FilterValue::String(expected_slug.clone()),
-			)
+			.filter(Organization::field_slug().eq(expected_slug.clone()))
 			.first()
 			.await
 			.expect("query Organization by slug")
@@ -103,11 +98,7 @@ mod tests {
 
 		// Assert -- exactly one Owner membership wiring user to org
 		let membership = OrganizationMembership::objects()
-			.filter(
-				OrganizationMembership::field_user_id(),
-				FilterOperator::Eq,
-				FilterValue::String(user.id.to_string()),
-			)
+			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
 			.first()
 			.await
 			.expect("query membership")
@@ -132,7 +123,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange -- pre-occupy the slug the new user's username will derive to
@@ -168,11 +159,7 @@ mod tests {
 		// Assert -- the new user's Organization exists with a uuid-suffixed slug
 		// and records `new_user.id` as creator (NOT `squatter.id`)
 		let new_org = Organization::objects()
-			.filter(
-				Organization::field_created_by(),
-				FilterOperator::Eq,
-				FilterValue::String(new_user.id.to_string()),
-			)
+			.filter(Organization::field_created_by().eq(new_user.id.to_string()))
 			.first()
 			.await
 			.expect("query Organization by created_by")

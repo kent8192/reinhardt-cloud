@@ -16,16 +16,16 @@ mod tests {
 		let last_name = "User".to_string();
 
 		// Act
-		let user = User::new(
-			username.clone(),
-			email.clone(),
-			first_name.clone(),
-			last_name.clone(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let user = User::build()
+			.username(username.clone())
+			.email(email.clone())
+			.first_name(first_name.clone())
+			.last_name(last_name.clone())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 
 		// Assert
 		assert_eq!(user.get_username(), username);
@@ -41,16 +41,16 @@ mod tests {
 	#[rstest]
 	fn test_user_default_is_active_true() {
 		// Arrange & Act
-		let user = User::new(
-			"activeuser".to_string(),
-			"active@example.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let user = User::build()
+			.username("activeuser".to_string())
+			.email("active@example.com".to_string())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 
 		// Assert
 		assert!(
@@ -62,16 +62,16 @@ mod tests {
 	#[rstest]
 	fn test_user_password_hash_starts_with_argon2() {
 		// Arrange
-		let mut user = User::new(
-			"hashuser".to_string(),
-			"hash@example.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let mut user = User::build()
+			.username("hashuser".to_string())
+			.email("hash@example.com".to_string())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 
 		// Act
 		user.set_password("my-secure-password").unwrap();
@@ -90,16 +90,16 @@ mod tests {
 	#[rstest]
 	fn test_user_check_password_no_hash() {
 		// Arrange
-		let user = User::new(
-			"nohash".to_string(),
-			"nohash@example.com".to_string(),
-			String::new(),
-			String::new(),
-			None,
-			true,
-			false,
-			false,
-		);
+		let user = User::build()
+			.username("nohash".to_string())
+			.email("nohash@example.com".to_string())
+			.first_name(String::new())
+			.last_name(String::new())
+			.password_hash(None)
+			.is_active(true)
+			.is_staff(false)
+			.is_superuser(false)
+			.finish();
 
 		// Act
 		let result = user.check_password("anypassword");
@@ -113,16 +113,16 @@ mod tests {
 	#[rstest]
 	fn test_user_serialization_roundtrip() {
 		// Arrange
-		let user = User::new(
-			"serdeuser".to_string(),
-			"serde@example.com".to_string(),
-			"Serde".to_string(),
-			"Test".to_string(),
-			Some("$argon2id$fakehash".to_string()),
-			true,
-			true,
-			false,
-		);
+		let user = User::build()
+			.username("serdeuser".to_string())
+			.email("serde@example.com".to_string())
+			.first_name("Serde".to_string())
+			.last_name("Test".to_string())
+			.password_hash(Some("$argon2id$fakehash".to_string()))
+			.is_active(true)
+			.is_staff(true)
+			.is_superuser(false)
+			.finish();
 
 		// Act
 		let json = serde_json::to_string(&user).expect("Failed to serialize User");

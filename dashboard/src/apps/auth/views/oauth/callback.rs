@@ -34,7 +34,7 @@ pub struct OAuthCallbackQuery {
 	pub state: String,
 }
 
-#[get("/oauth/{provider}/callback/", name = "oauth_callback")]
+#[get("/oauth/{provider}/callback/", name = "oauth-callback")]
 pub async fn oauth_callback(
 	Path(provider): Path<String>,
 	Query(q): Query<OAuthCallbackQuery>,

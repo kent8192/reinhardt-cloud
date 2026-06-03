@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use reinhardt::BaseUser;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::di::injectable_factory;
 use tracing::error;
 use uuid::Uuid;
@@ -67,11 +67,7 @@ impl LocalAuthService {
 impl AuthService for LocalAuthService {
 	async fn authenticate(&self, username: &str, password: &str) -> Result<Claims, ApiError> {
 		let user = User::objects()
-			.filter(
-				User::field_username(),
-				FilterOperator::Eq,
-				FilterValue::String(username.trim().to_string()),
-			)
+			.filter(User::field_username().eq(username.trim().to_string()))
 			.first()
 			.await
 			.map_err(|e| {
@@ -115,11 +111,7 @@ impl AuthService for LocalAuthService {
 			.map_err(|e| ApiError::BadRequest(format!("Invalid user ID: {e}")))?;
 
 		let user = User::objects()
-			.filter(
-				User::field_id(),
-				FilterOperator::Eq,
-				FilterValue::String(user_id.to_string()),
-			)
+			.filter(User::field_id().eq(user_id.to_string()))
 			.first()
 			.await
 			.map_err(|e| {

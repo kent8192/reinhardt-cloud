@@ -4,7 +4,7 @@
 //! regardless of whether the email exists (prevents user enumeration).
 
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{BaseUser, Json, Response, StatusCode, post};
@@ -20,7 +20,7 @@ use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 /// `POST /api/auth/forgot-password/`
 ///
 /// Always returns 200 with a generic message to prevent user enumeration.
-#[post("/forgot-password/", name = "forgot_password", pre_validate = true)]
+#[post("/forgot-password/", name = "forgot-password", pre_validate = true)]
 pub async fn forgot_password(
 	Json(body): Json<ForgotPasswordRequest>,
 	#[inject] email_service: Depends<EmailService>,
@@ -31,11 +31,7 @@ pub async fn forgot_password(
 	// Look up user by email — but always return 200 either way
 	let email = body.email.trim().to_lowercase();
 	let user_result = User::objects()
-		.filter(
-			User::field_email(),
-			FilterOperator::Eq,
-			FilterValue::String(email.clone()),
-		)
+		.filter(User::field_email().eq(email.clone()))
 		.first()
 		.await;
 

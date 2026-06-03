@@ -6,6 +6,7 @@
 //! requiring an SMTP server.
 
 use reinhardt::BaseUser;
+use reinhardt::UrlReverser;
 use reinhardt::db::orm::Model;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -17,8 +18,6 @@ use serde_json::json;
 use serial_test::serial;
 use std::sync::Arc;
 
-use reinhardt_cloud_dashboard::config::test_helpers::ResolvedUrls;
-
 // ============================================================================
 // Fixtures & Helpers
 // ============================================================================
@@ -28,7 +27,7 @@ async fn db() -> (
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	ResolvedUrls,
+	Arc<UrlReverser>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
 	// in the DI scope. Fixes #459.
@@ -47,7 +46,7 @@ async fn db() -> (
 /// satisfies the post-#415 invariant that every user must have an
 /// `OrganizationMembership` (otherwise the views' organization-scoping
 /// helpers return 404).
-async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> (String, String) {
+async fn create_user_and_login(client: &APIClient, urls: &Arc<UrlReverser>) -> (String, String) {
 	use reinhardt_cloud_dashboard::apps::organizations::models::{
 		Organization, OrganizationMembership,
 	};
@@ -56,16 +55,16 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> (Stri
 	};
 
 	// Create active user via ORM (bypasses register endpoint and email)
-	let mut user = User::new(
-		"testuser".to_string(),
-		"test@example.com".to_lowercase(),
-		String::new(),
-		String::new(),
-		None,
-		true,
-		false,
-		false,
-	);
+	let mut user = User::build()
+		.username("testuser".to_string())
+		.email("test@example.com".to_lowercase())
+		.first_name(String::new())
+		.last_name(String::new())
+		.password_hash(None)
+		.is_active(true)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	user.set_password("securepassword123")
 		.expect("Password hashing failed");
 	let created_user = User::objects()
@@ -110,7 +109,13 @@ async fn create_user_and_login(client: &APIClient, urls: &ResolvedUrls) -> (Stri
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.server().auth().login(), &login_data, "json")
+		.post(
+			&urls
+				.reverse_with::<&str>("login", &[])
+				.expect("auth:login must be reversible"),
+			&login_data,
+			"json",
+		)
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -146,7 +151,7 @@ async fn test_register_session_works_for_cluster_creation(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	),
 ) {
 	// Arrange
@@ -181,7 +186,7 @@ async fn test_login_session_works_for_cluster_creation(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	),
 ) {
 	// Arrange
@@ -194,7 +199,13 @@ async fn test_login_session_works_for_cluster_creation(
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.server().auth().login(), &login_data, "json")
+		.post(
+			&urls
+				.reverse_with::<&str>("login", &[])
+				.expect("auth:login must be reversible"),
+			&login_data,
+			"json",
+		)
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -236,7 +247,7 @@ async fn test_register_and_login_sessions_same_resources(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	),
 ) {
 	// Arrange
@@ -265,7 +276,13 @@ async fn test_register_and_login_sessions_same_resources(
 		"password": "securepassword123"
 	});
 	let login_resp = client
-		.post(&urls.server().auth().login(), &login_data, "json")
+		.post(
+			&urls
+				.reverse_with::<&str>("login", &[])
+				.expect("auth:login must be reversible"),
+			&login_data,
+			"json",
+		)
 		.await
 		.expect("Login request failed");
 	assert_eq!(login_resp.status_code(), 200);
@@ -303,7 +320,7 @@ async fn test_invalid_session_rejected_at_resource_endpoint(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	),
 ) {
 	// Arrange

@@ -9,9 +9,8 @@
 //! This module compiles on both native and wasm. On native it carries
 //! the full router build (DI factories, admin routes, middleware,
 //! WebSocket setup). On wasm only the `#[routes]`-decorated `routes()`
-//! stub remains, which is sufficient for the macro to emit
-//! `__url_resolver_support::ResolvedUrls` so SPA call sites can use
-//! the typed accessor `ResolvedUrls::from_global().client().<app>().<route>()`.
+//! stub remains, which is sufficient for the macro to emit the URL
+//! resolver support used by SPA call sites.
 //!
 //! ## DI-based configuration (native only)
 //!
@@ -42,8 +41,6 @@ use reinhardt::di::{
 };
 #[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
-#[cfg(native)]
-use reinhardt::register_client_reverser;
 use reinhardt::routes;
 #[cfg(native)]
 use reinhardt::urls::prelude::UnifiedRouter;
@@ -206,9 +203,8 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 ///
 /// On wasm the function reduces to a stub that returns an empty
 /// `UnifiedRouter`. The body is never executed in a browser context —
-/// the macro only needs the function to exist so it can emit
-/// `__url_resolver_support::ResolvedUrls` adjacent to it, which is what
-/// SPA call sites consume via the typed accessor.
+/// the macro only needs the function to exist so it can emit URL
+/// resolver support adjacent to it.
 #[routes]
 #[allow(private_interfaces)] // DashboardRouter is pub(crate) by design; #[routes] macro requires pub fn
 pub async fn routes(
@@ -254,7 +250,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.with_di_registrations(infra.admin_di)
 			// Per-app unified routers — `mount_unified` carries server
 			// endpoints (mounted under the given prefix) AND merges client
-			// SPA `named_route` entries into the parent's client router so
+			// SPA `route` entries into the parent's client router so
 			// the global reverser sees `auth:login_page`,
 			// `dashboard:home`, etc.
 			.mount_unified("/", crate::apps::dashboard::urls::url_patterns())
@@ -295,12 +291,6 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 				infra.session_backend,
 				infra.session_config,
 			));
-
-	// Register the client reverser globally so server-side callers of
-	// `url_for(name)` (SSR `href`, redirect-after-login, etc.) can
-	// reverse-resolve SPA route names. Idempotent across DI resolutions
-	// because the global slot is replaced atomically.
-	register_client_reverser(unified.client_ref().to_reverser());
 
 	DashboardRouter(unified)
 }

@@ -4,6 +4,7 @@
 //! deployment -> list deployments, and ensures two independent users
 //! have complete resource isolation.
 
+use reinhardt::UrlReverser;
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -15,7 +16,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	force_login_user_with_org, session_backend, test_app,
 };
 
 // ============================================================================
@@ -29,7 +30,7 @@ async fn db(
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	ResolvedUrls,
+	Arc<UrlReverser>,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
@@ -55,7 +56,7 @@ async fn test_full_user_journey(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {
@@ -142,10 +143,10 @@ async fn test_two_users_independent_workflows(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
-	test_app: (APIClient, ResolvedUrls),
+	test_app: (APIClient, Arc<UrlReverser>),
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;

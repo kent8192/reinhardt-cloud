@@ -9,7 +9,7 @@
 
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use tracing::error;
 
 use crate::apps::auth::models::User;
@@ -20,11 +20,7 @@ use crate::apps::auth::models::User;
 /// on failure (invalid credentials, inactive account, or DB error).
 pub async fn verify_credentials(username: &str, password: &str) -> Result<User, AppError> {
 	let user = User::objects()
-		.filter(
-			User::field_username(),
-			FilterOperator::Eq,
-			FilterValue::String(username.trim().to_string()),
-		)
+		.filter(User::field_username().eq(username.trim().to_string()))
 		.first()
 		.await
 		.map_err(|e| {

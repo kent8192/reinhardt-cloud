@@ -18,7 +18,7 @@ use tracing::error;
 use crate::apps::auth::services::oauth::backend::OAuthBackendBox;
 use crate::apps::auth::services::oauth::config::OAuthSettings;
 
-#[get("/oauth/{provider}/start/", name = "oauth_start")]
+#[get("/oauth/{provider}/start/", name = "oauth-start")]
 pub async fn oauth_start(
 	Path(provider): Path<String>,
 	#[inject] settings: Depends<OAuthSettings>,

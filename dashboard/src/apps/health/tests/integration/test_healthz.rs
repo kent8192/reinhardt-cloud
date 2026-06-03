@@ -25,7 +25,7 @@ mod tests {
 	use serial_test::serial;
 
 	use crate::config::grpc_client::GrpcChannelSingleton;
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::UrlReverser;
 
 	/// gRPC endpoint used by test probes.
 	///
@@ -39,7 +39,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -66,7 +66,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -107,7 +107,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		use crate::config::urls::{AllowedOrigins, DashboardRouter};

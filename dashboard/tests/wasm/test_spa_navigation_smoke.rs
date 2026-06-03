@@ -44,7 +44,7 @@ fn ensure_mount_point(document: &web_sys::Document, body: &web_sys::HtmlElement)
 /// `before_launch(state::init_app_state)` hook so route names, patterns,
 /// and launcher topology match production byte-for-byte —
 /// `UnifiedRouter::register_globally()` inside `init_router` installs
-/// the `ClientUrlReverser` that `ResolvedUrls::from_global()` consumes.
+/// the `ClientUrlReverser` used by client-side route reversal.
 fn launch_dashboard_for_test() {
 	ClientLauncher::new("#app")
 		.before_launch(state::init_app_state)

@@ -3,18 +3,12 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
-use crate::config::urls::ResolvedUrls;
-
 /// Render the main dashboard shell with navigation sidebar and overview cards.
 pub fn dashboard_shell() -> Page {
-	// Resolve all SPA URLs once per render. `ResolvedUrls::from_global()`
-	// clones two `Arc`s on each call, so we hoist it out of the rsx tree
-	// to avoid repeating that work for every `href`.
-	let urls = ResolvedUrls::from_global();
-	let login_href = urls.client().auth().login_page();
-	let home_href = urls.client().dashboard().home();
-	let clusters_href = urls.client().clusters().list();
-	let deployments_href = urls.client().deployments().list();
+	let login_href = "/login".to_string();
+	let home_href = "/".to_string();
+	let clusters_href = "/clusters".to_string();
+	let deployments_href = "/deployments".to_string();
 	page!(|login_href: String, home_href: String, clusters_href: String, deployments_href: String| {
 		div {
 			class: "min-h-screen flex flex-col bg-gray-50",

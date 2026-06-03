@@ -29,7 +29,7 @@
 //! lives in `services::oauth::storage`, not here.
 
 use chrono::Utc;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt_auth::social::core::claims::StandardClaims;
 use reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 use uuid::Uuid;
@@ -95,11 +95,7 @@ pub async fn link_or_create_user(
 	{
 		let normalized = email.to_lowercase();
 		let existing = User::objects()
-			.filter(
-				User::field_email(),
-				FilterOperator::Eq,
-				FilterValue::String(normalized),
-			)
+			.filter(User::field_email().eq(normalized))
 			.first()
 			.await
 			.map_err(|e| LinkError::Database(e.to_string()))?;
@@ -121,11 +117,7 @@ pub async fn link_or_create_user(
 	// link-from-existing-account flow.
 	if !email.is_empty() {
 		let conflict = User::objects()
-			.filter(
-				User::field_email(),
-				FilterOperator::Eq,
-				FilterValue::String(email.clone()),
-			)
+			.filter(User::field_email().eq(email.clone()))
 			.first()
 			.await
 			.map_err(|e| LinkError::Database(e.to_string()))?;
@@ -137,16 +129,16 @@ pub async fn link_or_create_user(
 		}
 	}
 
-	let new_user = User::new(
-		username,
-		email,
-		claims.given_name.clone().unwrap_or_default(),
-		claims.family_name.clone().unwrap_or_default(),
-		None,  // password_hash: OAuth-only user has no usable password
-		true,  // is_active
-		false, // is_staff
-		false, // is_superuser
-	);
+	let new_user = User::build()
+		.username(username)
+		.email(email)
+		.first_name(claims.given_name.clone().unwrap_or_default())
+		.last_name(claims.family_name.clone().unwrap_or_default())
+		.password_hash(None)
+		.is_active(true)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	let created = User::objects()
 		.create(&new_user)
 		.await
@@ -158,11 +150,7 @@ pub async fn link_or_create_user(
 
 async fn load_user_by_id(user_id: Uuid) -> Result<User, LinkError> {
 	User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| LinkError::Database(e.to_string()))?
@@ -232,11 +220,7 @@ async fn generate_unique_username(claims: &StandardClaims) -> Result<String, Lin
 
 async fn username_exists(name: &str) -> Result<bool, LinkError> {
 	let hit = User::objects()
-		.filter(
-			User::field_username(),
-			FilterOperator::Eq,
-			FilterValue::String(name.to_string()),
-		)
+		.filter(User::field_username().eq(name.to_string()))
 		.first()
 		.await
 		.map_err(|e| LinkError::Database(e.to_string()))?;

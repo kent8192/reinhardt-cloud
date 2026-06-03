@@ -16,7 +16,7 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Duration;
 
-	use crate::config::test_helpers::ResolvedUrls;
+	use reinhardt::UrlReverser;
 
 	/// Mailpit API message summary.
 	#[derive(Debug, serde::Deserialize)]
@@ -53,7 +53,7 @@ mod tests {
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 	) {
 		// Start TestContainers first so build_test_app() registers DatabaseConnection
 		// in the DI scope. Fixes #459.
@@ -173,7 +173,7 @@ mod tests {
 	/// The caller must have already called `set_mailpit_env()`.
 	async fn register_and_verify_user(
 		client: &APIClient,
-		urls: &ResolvedUrls,
+		urls: &Arc<UrlReverser>,
 		mailpit: &MailpitContainer,
 		username: &str,
 		email: &str,
@@ -187,7 +187,11 @@ mod tests {
 			"password": password
 		});
 		client
-			.post(&urls.server().auth().register(), &data, "json")
+			.post(
+				&urls.reverse_with::<&str>("register", &[]).unwrap(),
+				&data,
+				"json",
+			)
 			.await
 			.expect("Register failed");
 
@@ -200,7 +204,9 @@ mod tests {
 		let end = rest.find('/').expect("No trailing slash");
 		let token = &rest[..end];
 
-		let verify_url = urls.server().auth().verify_email(token);
+		let verify_url = urls
+			.reverse_with("verify-email", &[("token", token)])
+			.unwrap();
 		client.get(&verify_url).await.expect("Verify failed");
 	}
 
@@ -213,7 +219,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -237,7 +243,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reset@example.com" });
 		let response = client
 			.post(
-				&urls.server().auth().forgot_password(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -266,7 +272,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 	) {
 		// Arrange
@@ -276,7 +282,7 @@ mod tests {
 		let forgot_data = json!({ "email": "noone@example.com" });
 		let response = client
 			.post(
-				&urls.server().auth().forgot_password(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -296,7 +302,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -320,7 +326,7 @@ mod tests {
 		let forgot_data = json!({ "email": "resetpw@example.com" });
 		client
 			.post(
-				&urls.server().auth().forgot_password(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -332,7 +338,9 @@ mod tests {
 		let token = extract_reset_token(&text).expect("Token not found");
 
 		// Act — reset password
-		let reset_url = urls.server().auth().reset_password(&token);
+		let reset_url = urls
+			.reverse_with("reset-password", &[("token", &token)])
+			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let response = client
 			.post(&reset_url, &reset_data, "json")
@@ -348,7 +356,11 @@ mod tests {
 			"password": "oldpassword"
 		});
 		let old_resp = client
-			.post(&urls.server().auth().login(), &login_old, "json")
+			.post(
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
+				&login_old,
+				"json",
+			)
 			.await
 			.expect("Login failed");
 		assert_ne!(old_resp.status_code(), 200);
@@ -359,7 +371,11 @@ mod tests {
 			"password": "newpassword123"
 		});
 		let new_resp = client
-			.post(&urls.server().auth().login(), &login_new, "json")
+			.post(
+				&urls.reverse_with::<&str>("login", &[]).unwrap(),
+				&login_new,
+				"json",
+			)
 			.await
 			.expect("Login failed");
 		assert_eq!(new_resp.status_code(), 200);
@@ -374,7 +390,7 @@ mod tests {
 			ContainerAsync<GenericImage>,
 			Arc<DatabaseConnection>,
 			APIClient,
-			ResolvedUrls,
+			Arc<UrlReverser>,
 		),
 		#[future] mailpit: MailpitContainer,
 	) {
@@ -397,7 +413,7 @@ mod tests {
 		let forgot_data = json!({ "email": "reuse@example.com" });
 		client
 			.post(
-				&urls.server().auth().forgot_password(),
+				&urls.reverse_with::<&str>("forgot-password", &[]).unwrap(),
 				&forgot_data,
 				"json",
 			)
@@ -409,7 +425,9 @@ mod tests {
 		let token = extract_reset_token(&text).expect("Token not found");
 
 		// Use the token once
-		let reset_url = urls.server().auth().reset_password(&token);
+		let reset_url = urls
+			.reverse_with("reset-password", &[("token", &token)])
+			.unwrap();
 		let reset_data = json!({ "new_password": "newpassword123" });
 		let first = client
 			.post(&reset_url, &reset_data, "json")

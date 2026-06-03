@@ -11,7 +11,6 @@
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use tracing::error;
 use uuid::Uuid;
 
@@ -31,11 +30,7 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 /// call `resolve_org_by_slug` instead.
 pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppError> {
 	let m = OrganizationMembership::objects()
-		.filter(
-			OrganizationMembership::field_user_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
 		.order_by(&["created_at"])
 		.first()
 		.await
@@ -62,11 +57,7 @@ pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppE
 /// - 500 (`AppError::Internal`) — database failure.
 pub async fn resolve_org_by_slug(user_id: Uuid, slug: &str) -> Result<i64, AppError> {
 	let org = Organization::objects()
-		.filter(
-			Organization::field_slug(),
-			FilterOperator::Eq,
-			FilterValue::String(slug.to_string()),
-		)
+		.filter(Organization::field_slug().eq(slug.to_string()))
 		.first()
 		.await
 		.map_err(|e| {
@@ -87,16 +78,8 @@ pub async fn resolve_org_by_slug(user_id: Uuid, slug: &str) -> Result<i64, AppEr
 	})?;
 
 	let membership = OrganizationMembership::objects()
-		.filter(
-			OrganizationMembership::field_user_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
-		.filter(Filter::new(
-			OrganizationMembership::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(org_id),
-		))
+		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+		.filter(OrganizationMembership::field_organization_id().eq(org_id))
 		.first()
 		.await
 		.map_err(|e| {

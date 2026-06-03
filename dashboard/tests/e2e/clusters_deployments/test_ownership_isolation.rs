@@ -3,6 +3,7 @@
 //! Verifies that users cannot see each other's clusters or deployments,
 //! and that multiple deployments on the same cluster are handled correctly.
 
+use reinhardt::UrlReverser;
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -14,7 +15,7 @@ use serial_test::serial;
 use std::sync::Arc;
 
 use reinhardt_cloud_dashboard::config::test_helpers::{
-	ResolvedUrls, force_login_user_with_org, session_backend, test_app,
+	force_login_user_with_org, session_backend, test_app,
 };
 
 // ============================================================================
@@ -28,7 +29,7 @@ async fn db(
 	ContainerAsync<GenericImage>,
 	Arc<DatabaseConnection>,
 	APIClient,
-	ResolvedUrls,
+	Arc<UrlReverser>,
 	Arc<dyn AsyncSessionBackend>,
 ) {
 	// Start TestContainers first so build_test_app() registers DatabaseConnection
@@ -88,10 +89,10 @@ async fn test_two_users_full_isolation(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
-	test_app: (APIClient, ResolvedUrls),
+	test_app: (APIClient, Arc<UrlReverser>),
 ) {
 	// Arrange
 	let (_container, conn, client, _urls, backend) = db.await;
@@ -182,7 +183,7 @@ async fn test_multiple_deployments_same_cluster(
 		ContainerAsync<GenericImage>,
 		Arc<DatabaseConnection>,
 		APIClient,
-		ResolvedUrls,
+		Arc<UrlReverser>,
 		Arc<dyn AsyncSessionBackend>,
 	),
 ) {

@@ -2,7 +2,7 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{FilterOperator, FilterValue, Model};
+use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
 use reinhardt::{AuthInfo, BaseUser, Json, Response, StatusCode};
@@ -23,7 +23,7 @@ struct MessageResponse {
 ///
 /// Requires the current (old) password for verification before
 /// setting the new password.
-#[post("/change-password/", name = "change_password", pre_validate = true)]
+#[post("/change-password/", name = "change-password", pre_validate = true)]
 pub async fn change_password(
 	body: Json<ChangePasswordRequest>,
 	#[inject] AuthInfo(state): AuthInfo,
@@ -32,11 +32,7 @@ pub async fn change_password(
 		.map_err(|e| AppError::Authentication(format!("Invalid user ID in token: {e}")))?;
 
 	let mut user = User::objects()
-		.filter(
-			User::field_id(),
-			FilterOperator::Eq,
-			FilterValue::String(user_id.to_string()),
-		)
+		.filter(User::field_id().eq(user_id.to_string()))
 		.first()
 		.await
 		.map_err(|e| {

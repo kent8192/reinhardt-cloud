@@ -3,7 +3,6 @@
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::{Filter, FilterOperator, FilterValue};
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Json, Path, Response, StatusCode, post};
 use tracing::error;
@@ -32,16 +31,8 @@ pub async fn create_deployment(
 
 	// Validate cluster exists and belongs to the specified organization.
 	let cluster_exists = Cluster::objects()
-		.filter(
-			Cluster::field_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(body.cluster_id),
-		)
-		.filter(Filter::new(
-			Cluster::field_organization_id(),
-			FilterOperator::Eq,
-			FilterValue::Integer(organization_id),
-		))
+		.filter(Cluster::field_id().eq(body.cluster_id))
+		.filter(Cluster::field_organization_id().eq(organization_id))
 		.exists()
 		.await
 		.map_err(|e| {
@@ -56,13 +47,13 @@ pub async fn create_deployment(
 		)));
 	}
 
-	let new_deployment = Deployment::new(
-		organization_id,
-		body.app_name.clone(),
-		body.cluster_id,
-		"pending".to_string(),
-		body.image.clone(),
-	);
+	let new_deployment = Deployment::build()
+		.organization_id(organization_id)
+		.app_name(body.app_name.clone())
+		.cluster_id(body.cluster_id)
+		.status("pending".to_string())
+		.image(body.image.clone())
+		.finish();
 	let manager = Deployment::objects();
 	let created = manager.create(&new_deployment).await.map_err(|e| {
 		error!("Failed to create deployment: {e}");

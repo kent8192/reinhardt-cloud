@@ -6,10 +6,7 @@
 
 pub mod ws_urls;
 
-use reinhardt::url_patterns;
 use reinhardt::urls::prelude::UnifiedRouter;
-
-use crate::config::apps::InstalledApp;
 
 /// Returns the unified URL patterns for the organizations app.
 ///
@@ -17,7 +14,6 @@ use crate::config::apps::InstalledApp;
 /// HTTP endpoints will be introduced in #418. The empty `.server` and
 /// `.client` blocks keep the file aligned with the per-app
 /// `mount_unified` composition pattern.
-#[url_patterns(InstalledApp::organizations, mode = unified)]
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new().server(|s| s).client(|c| c)
 }

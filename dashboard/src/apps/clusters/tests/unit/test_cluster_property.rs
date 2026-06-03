@@ -16,14 +16,14 @@ mod tests {
 			is_active in proptest::bool::ANY,
 		) {
 			// Arrange
-			let cluster = Cluster::new(
-				1i64,
-				name.clone(),
-				api_url.clone(),
-				is_active,
-				None,
-				None,
-			);
+			let cluster = Cluster::build()
+				.organization_id(1i64)
+				.name(name.clone())
+				.api_url(api_url.clone())
+				.is_active(is_active)
+				.token_hash(None)
+				.token_last_rotated_at(None)
+				.finish();
 
 			// Act
 			let resp = ClusterResponse::from(cluster);

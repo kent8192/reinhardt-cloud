@@ -32,16 +32,16 @@ pub async fn register(
 	let secret_key = settings.core.secret_key.clone();
 
 	// Create user as inactive — requires email verification to activate
-	let mut user = User::new(
-		body.username.trim().to_string(),
-		body.email.trim().to_lowercase(),
-		String::new(),
-		String::new(),
-		None,
-		false,
-		false,
-		false,
-	);
+	let mut user = User::build()
+		.username(body.username.trim().to_string())
+		.email(body.email.trim().to_lowercase())
+		.first_name(String::new())
+		.last_name(String::new())
+		.password_hash(None)
+		.is_active(false)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
 	user.set_password(&body.password).map_err(|e| {
 		error!("Password hashing failed during registration: {e}");
 		AppError::Internal("Internal server error".to_string())

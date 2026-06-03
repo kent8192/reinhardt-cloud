@@ -16,14 +16,14 @@ mod tests {
 		let api_url = "https://k8s.example.com:6443".to_string();
 
 		// Act
-		let cluster = Cluster::new(
-			organization_id,
-			name.clone(),
-			api_url.clone(),
-			true,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(organization_id)
+			.name(name.clone())
+			.api_url(api_url.clone())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Assert
 		assert_eq!(cluster.organization_id, organization_id);
@@ -38,14 +38,14 @@ mod tests {
 		let organization_id: i64 = 7;
 
 		// Act
-		let cluster = Cluster::new(
-			organization_id,
-			"test-cluster".to_string(),
-			"https://k8s.example.com:6443".to_string(),
-			true,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(organization_id)
+			.name("test-cluster".to_string())
+			.api_url("https://k8s.example.com:6443".to_string())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Assert
 		assert_eq!(cluster.id, None);
@@ -59,14 +59,14 @@ mod tests {
 		let organization_id: i64 = 1;
 
 		// Act
-		let cluster = Cluster::new(
-			organization_id,
-			"flag-test".to_string(),
-			"https://k8s.example.com:6443".to_string(),
-			active,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(organization_id)
+			.name("flag-test".to_string())
+			.api_url("https://k8s.example.com:6443".to_string())
+			.is_active(active)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Assert
 		assert_eq!(cluster.is_active, active);
@@ -437,14 +437,14 @@ mod tests {
 	#[rstest]
 	fn test_cluster_serialization_roundtrip() {
 		// Arrange
-		let cluster = Cluster::new(
-			99,
-			"roundtrip".to_string(),
-			"https://k8s.example.com:6443".to_string(),
-			true,
-			None,
-			None,
-		);
+		let cluster = Cluster::build()
+			.organization_id(99)
+			.name("roundtrip".to_string())
+			.api_url("https://k8s.example.com:6443".to_string())
+			.is_active(true)
+			.token_hash(None)
+			.token_last_rotated_at(None)
+			.finish();
 
 		// Act
 		let json = serde_json::to_string(&cluster).expect("serialize should succeed");
