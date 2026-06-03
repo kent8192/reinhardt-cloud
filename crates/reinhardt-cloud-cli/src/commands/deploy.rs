@@ -258,6 +258,7 @@ fn run_manage_introspect() -> Result<String, String> {
 /// and optional introspect data.
 fn build_reinhardt_app_spec(
 	toml_config: Option<&ReinhardtCloudToml>,
+	app_name: &str,
 	image: String,
 	replicas: i32,
 	introspect: Option<IntrospectOutput>,
@@ -277,7 +278,7 @@ fn build_reinhardt_app_spec(
 		&& let Some(introspect) = spec.introspect.as_ref()
 	{
 		spec.infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
-			app_name: introspect.app.name.clone(),
+			app_name: app_name.to_string(),
 			signals: introspect.features.infrastructure_signals.clone(),
 			explicit: None,
 			typed_secret_refs: typed_secret_refs(&spec),
@@ -538,6 +539,7 @@ async fn execute_inner(
 	// Step 5: Build typed spec and CRD
 	let spec = build_reinhardt_app_spec(
 		toml_config.as_ref(),
+		&app_name,
 		image.clone(),
 		replicas_i32,
 		introspect,
@@ -836,8 +838,9 @@ features:
 		);
 
 		// Act
-		let spec = build_reinhardt_app_spec(None, "orders:v1".to_string(), 2, Some(introspect))
-			.expect("spec should build");
+		let spec =
+			build_reinhardt_app_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect))
+				.expect("spec should build");
 
 		// Assert
 		let infrastructure = spec
@@ -847,6 +850,35 @@ features:
 		let buckets = infrastructure.buckets.expect("bucket should be derived");
 		assert_eq!(buckets.len(), 1);
 		assert_eq!(buckets[0].name, "orders-assets");
+	}
+
+	#[rstest]
+	fn test_build_reinhardt_app_spec_uses_resolved_app_name_for_infrastructure() {
+		// Arrange
+		let introspect = introspect_with_infra_signals(
+			"introspected-name",
+			InfraSignals {
+				storage: Some("s3".to_string()),
+				..Default::default()
+			},
+		);
+
+		// Act
+		let spec = build_reinhardt_app_spec(
+			None,
+			"cli-name",
+			"orders:v1".to_string(),
+			2,
+			Some(introspect),
+		)
+		.expect("spec should build");
+
+		// Assert
+		let infrastructure = spec
+			.infrastructure
+			.expect("infrastructure should be derived");
+		let buckets = infrastructure.buckets.expect("bucket should be derived");
+		assert_eq!(buckets[0].name, "cli-name-assets");
 	}
 
 	#[rstest]
@@ -909,7 +941,8 @@ features:
 		);
 
 		// Act
-		let result = build_reinhardt_app_spec(None, "orders:v1".to_string(), 2, Some(introspect));
+		let result =
+			build_reinhardt_app_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect));
 
 		// Assert
 		let error = result.expect_err("unsupported storage should fail");
@@ -963,8 +996,9 @@ features:
 		};
 
 		// Act
-		let spec = build_reinhardt_app_spec(None, "my-app:v1".to_string(), 3, Some(introspect))
-			.expect("spec should build");
+		let spec =
+			build_reinhardt_app_spec(None, "my-app", "my-app:v1".to_string(), 3, Some(introspect))
+				.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"my-app",
 			"production",
@@ -1026,8 +1060,9 @@ features:
 	#[rstest]
 	fn test_build_reinhardt_app_crd_without_introspect() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "simple:latest".to_string(), 1, None)
-			.expect("spec should build");
+		let spec =
+			build_reinhardt_app_spec(None, "simple-app", "simple:latest".to_string(), 1, None)
+				.expect("spec should build");
 
 		// Act
 		let crd = build_reinhardt_app_crd(
@@ -1112,8 +1147,14 @@ features:
 		);
 
 		// Act
-		let spec = build_reinhardt_app_spec(Some(&config), "dashboard:v1".to_string(), 2, None)
-			.expect("spec should build");
+		let spec = build_reinhardt_app_spec(
+			Some(&config),
+			"dashboard",
+			"dashboard:v1".to_string(),
+			2,
+			None,
+		)
+		.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"dashboard",
 			"production",
@@ -1166,7 +1207,7 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "test:v1".to_string(), 2, None)
+		let spec = build_reinhardt_app_spec(None, "test-app", "test:v1".to_string(), 2, None)
 			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"test-app",
@@ -1194,7 +1235,7 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "ctx:v1".to_string(), 1, None)
+		let spec = build_reinhardt_app_spec(None, "ctx-app", "ctx:v1".to_string(), 1, None)
 			.expect("spec should build");
 		let crd = build_reinhardt_app_crd(
 			"ctx-app",

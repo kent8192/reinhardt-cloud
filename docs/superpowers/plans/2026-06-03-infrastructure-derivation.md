@@ -1,7 +1,5 @@
 # Infrastructure Derivation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Derive fail-early `spec.infrastructure` baselines from Reinhardt introspection/settings and use them as the Terraform input contract.
 
 **Architecture:** Put derivation in `reinhardt-cloud-core` as pure functions returning `Result<InfrastructureSpec, DerivationError>`. CLI commands call those functions from `deploy`, `sync`, and the `terraform generate` compatibility fallback. The operator stays unchanged.
