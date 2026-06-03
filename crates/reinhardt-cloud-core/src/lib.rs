@@ -7,6 +7,7 @@
 pub mod auth;
 pub mod error;
 pub mod inference;
+pub mod infrastructure_derivation;
 pub mod mocks;
 pub mod pagination;
 pub mod plugin;
