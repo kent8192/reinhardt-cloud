@@ -161,6 +161,10 @@ fn validate_infrastructure(infra: &InfrastructureSpec) -> Result<(), String> {
 
 fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
 	[
+		spec.auth
+			.as_ref()
+			.and_then(|auth| auth.oauth.as_ref())
+			.and_then(|oauth| oauth.credentials_secret.as_ref()),
 		spec.source
 			.as_ref()
 			.and_then(|source| source.credentials_secret.as_ref()),
@@ -772,6 +776,11 @@ metadata:
   name: orders
 spec:
   image: ghcr.io/example/orders:latest
+  auth:
+    jwt: true
+    oauth:
+      provider: github
+      credentials_secret: oauth-creds
   source:
     repository: https://github.com/example/orders
     credentials_secret: git-creds
@@ -809,6 +818,7 @@ spec:
 			vec![
 				"git-creds".to_string(),
 				"mail-creds".to_string(),
+				"oauth-creds".to_string(),
 				"webhook-secret".to_string()
 			]
 		);
