@@ -103,6 +103,20 @@ For the exact feature-to-field mapping used during config and Dockerfile generat
 - `crates/reinhardt-cloud-cli/src/toml_generator.rs` — `reinhardt-cloud.toml` generation
 - `crates/reinhardt-cloud-cli/src/dockerfile_generator.rs` — Dockerfile generation
 
+### Managed infrastructure derivation
+
+`spec.infrastructure` is the Terraform input contract for managed resources. `init`, `sync`, and `deploy` can derive a baseline `spec.infrastructure` block when it is absent, but only from signals that have a safe provider-independent mapping.
+
+Supported derived resources:
+
+- PostgreSQL: `postgres` or `postgresql` database signals produce a Postgres request with version `16` and `backup_retention_days = 7`.
+- Object storage: `s3` or `gcs` storage signals produce one private app-scoped bucket named `<app>-assets`.
+- Typed secrets: secret references already declared in the app spec are preserved as managed secret references.
+
+Unsupported managed signals fail early instead of generating guessed Terraform. MySQL, SQLite, local storage, PVC storage, and unknown storage engines return an error. Use an explicit `[infrastructure]` block when the app needs resources that cannot be safely derived.
+
+`sync` preserves existing `[infrastructure]` subsections section-by-section, so a manually tuned Postgres, bucket, DNS, or secret block is not replaced by feature-derived defaults.
+
 ## Commands
 
 ### `reinhardt-cloud init`
@@ -430,6 +444,57 @@ echo "$REINHARDT_PASSWORD" | reinhardt-cloud login --username ci-bot
 
 ---
 
+### reinhardt-cloud terraform
+
+Generate per-app Terraform HCL from a `ReinhardtApp` infrastructure spec.
+
+**Synopsis**
+
+```
+reinhardt-cloud terraform generate --app <APP> --provider <PROVIDER> [--output <PATH>] [--app-crd <PATH>]
+```
+
+**Subcommands**
+
+#### terraform generate
+
+Generate `main.tf` and `versions.tf` for one application.
+
+| Flag | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `--app` | `string` | Yes | - | Application name. Also used as the Terraform resource name prefix and as the fallback app name when deriving from an older manifest with an empty introspection app name. |
+| `--provider` | `gcp` or `aws` | Yes | - | Target cloud provider for generated HCL. |
+| `--output` | `path` | No | `./<app>-terraform` | Output directory for generated Terraform files. Created automatically when missing. |
+| `--app-crd` | `path` | No | - | Read a `ReinhardtApp` YAML manifest and use `spec.infrastructure` as the Terraform input. |
+
+Input precedence is:
+
+1. `--app-crd`, when provided.
+2. Empty infrastructure spec.
+
+When `--app-crd` is used, `terraform generate` reads the manifest's top-level `spec` field and deserializes it as `ReinhardtAppSpec`. If `spec.infrastructure` is present, that explicit block is used directly. If `spec.infrastructure` is absent but `spec.introspect` is present, the CLI prints a warning to stderr and derives a compatibility baseline using the same managed infrastructure derivation rules as `init`, `sync`, and `deploy`.
+
+The introspection fallback is for compatibility with older manifests. Persist the generated or manually reviewed infrastructure block back into `reinhardt-cloud.toml` or the `ReinhardtApp` manifest before treating the Terraform as repeatable infrastructure. Unsupported storage signals in the fallback path fail early instead of producing placeholder Terraform.
+
+**Example**
+
+```bash
+# Generate Terraform from an explicit infrastructure block in a ReinhardtApp manifest
+reinhardt-cloud terraform generate \
+  --app my-app \
+  --provider gcp \
+  --app-crd deploy/my-app.yaml \
+  --output deploy/terraform/my-app
+```
+
+**Troubleshooting**
+
+- **`ReinhardtApp YAML is missing spec`** - The file passed to `--app-crd` is not a `ReinhardtApp` manifest, or it has no top-level `spec` field.
+- **`unsupported managed database engine ...`** - Add an explicit `[infrastructure]` block instead of relying on derivation for an unsupported database engine.
+- **`unsupported managed storage backend ...`** - Add explicit bucket or storage infrastructure instead of relying on derivation for local, PVC, or unknown storage.
+
+---
+
 ### reinhardt-cloud credentials
 
 > **Note**: This command was previously undocumented. It is the supported path for managing Git provider and container registry credentials stored as Kubernetes Secrets. Use it to grant the operator access to private repositories and registries.
@@ -750,6 +815,7 @@ This table lists all flags accepted by each command.
 | `deploy` | `--name`, `--image`, `--replicas`, `--dir`, `--namespace`, `--cluster`, `--dry-run`, `--direct`, `--introspect-only` |
 | `status` | `--name`, `--namespace`, `--cluster` |
 | `login` | `--username` |
+| `terraform generate` | `--app`, `--provider`, `--output`, `--app-crd` |
 | `credentials set` | `--git-token`, `--registry-auth`, `--webhook-secret`, `--api-token`, `--secret-name`, `--namespace` |
 | `credentials check` | `--namespace` |
 | `crd generate` | `--output` |
