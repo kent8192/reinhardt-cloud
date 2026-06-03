@@ -71,6 +71,21 @@ image = "my-app:latest"
 [database]
 engine = "postgresql"
 storage_gb = 20
+
+[health]
+path = "/api/healthz/"
+port = 8000
+interval_seconds = 10
+
+[services]
+port = 80
+target_port = 8000
+
+[scale]
+min_replicas = 2
+max_replicas = 6
+metric = "cpu"
+target_value = 70
 ```
 
 ### 2. Preview and deploy
