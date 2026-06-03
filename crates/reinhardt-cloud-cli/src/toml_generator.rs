@@ -16,6 +16,7 @@ pub(crate) fn generate_config(
 	metadata: &ProjectMetadata,
 	db_config: Option<&DatabaseConfig>,
 ) -> Result<ReinhardtCloudToml, String> {
+	let has_database = metadata.signals.database.is_some() || db_config.is_some();
 	let db_engine = db_config
 		.map(|d| d.engine.clone())
 		.or_else(|| metadata.signals.database.clone())
@@ -23,7 +24,7 @@ pub(crate) fn generate_config(
 
 	let infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
 		app_name: metadata.name.clone(),
-		signals: convert_infra_signals(&metadata.signals),
+		signals: convert_infra_signals(&metadata.signals, has_database.then(|| db_engine.clone())),
 		explicit: None,
 		typed_secret_refs: Vec::new(),
 	})
@@ -34,7 +35,7 @@ pub(crate) fn generate_config(
 			name: metadata.name.clone(),
 			image: format!("{}:latest", metadata.name),
 		},
-		database: if metadata.signals.database.is_some() || db_config.is_some() {
+		database: if has_database {
 			Some(DatabaseSection {
 				engine: db_engine,
 				..Default::default()
@@ -66,9 +67,12 @@ pub(crate) fn generate_config(
 	})
 }
 
-fn convert_infra_signals(signals: &InfraSignals) -> introspect::InfraSignals {
+fn convert_infra_signals(
+	signals: &InfraSignals,
+	effective_database: Option<String>,
+) -> introspect::InfraSignals {
 	introspect::InfraSignals {
-		database: signals.database.clone(),
+		database: effective_database,
 		cache: signals.cache.clone(),
 		websocket: signals.websocket,
 		background_worker: signals.background_worker,
@@ -127,7 +131,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_generate_config_db_config_overrides_signal() {
+	fn test_generate_config_db_config_mysql_override_fails_early() {
 		// Arrange
 		let metadata = ProjectMetadata {
 			name: "app".into(),
@@ -146,11 +150,11 @@ mod tests {
 		};
 
 		// Act
-		let config =
-			generate_config(&metadata, Some(&db_config)).expect("config generation should succeed");
+		let error = generate_config(&metadata, Some(&db_config)).unwrap_err();
 
 		// Assert
-		assert_eq!(config.database.as_ref().unwrap().engine, "mysql");
+		assert!(error.contains("unsupported managed database engine"));
+		assert!(error.contains("mysql"));
 	}
 
 	#[rstest]
@@ -245,6 +249,37 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_generate_config_db_config_only_postgresql_derives_postgres_infrastructure() {
+		// Arrange
+		let metadata = ProjectMetadata {
+			name: "settings-db-app".into(),
+			version: "0.1.0".into(),
+			features: vec!["core".into()],
+			signals: InfraSignals::default(),
+		};
+		let db_config = DatabaseConfig {
+			engine: "postgresql".into(),
+			host: "db.local".into(),
+			port: 5432,
+			name: "mydb".into(),
+		};
+
+		// Act
+		let config =
+			generate_config(&metadata, Some(&db_config)).expect("config generation should succeed");
+
+		// Assert
+		assert_eq!(config.database.as_ref().unwrap().engine, "postgresql");
+		assert!(
+			config
+				.infrastructure
+				.as_ref()
+				.and_then(|infrastructure| infrastructure.postgres.as_ref())
+				.is_some()
+		);
+	}
+
+	#[rstest]
 	fn test_generate_config_does_not_derive_bucket_from_boolean_storage_signal() {
 		// Arrange
 		let metadata = ProjectMetadata {
@@ -281,7 +316,7 @@ mod tests {
 		};
 
 		// Act
-		let converted = convert_infra_signals(&signals);
+		let converted = convert_infra_signals(&signals, None);
 
 		// Assert
 		assert_eq!(converted.session_backend.as_deref(), Some("db"));
