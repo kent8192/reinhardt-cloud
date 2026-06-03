@@ -187,7 +187,7 @@ reinhardt-cloud sync [--dir <PATH>] [--force]
 reinhardt-cloud.toml not found. Run `reinhardt-cloud init` first.
 ```
 
-When the file exists, `sync` performs a **full regeneration**: it calls `feature_detector::detect_project`, reads `settings/base.toml`, runs `generate_config` + `generate_reinhardt_cloud_toml_string`, and **overwrites** `reinhardt-cloud.toml` entirely. Manual edits to `reinhardt-cloud.toml` that are not re-derivable from your Cargo features or `settings/base.toml` will be lost. Before running `sync`, commit or back up any manual edits.
+When the file exists, `sync` regenerates `reinhardt-cloud.toml` from the current project state: it calls `feature_detector::detect_project`, reads `settings/base.toml`, runs `generate_config`, merges explicitly preserved sections from the existing file, and writes the result with `generate_reinhardt_cloud_toml_string`. Existing `[infrastructure]` subsections are preserved section-by-section, so user-refined Terraform inputs such as `[infrastructure.postgres]`, `[[infrastructure.buckets]]`, `[[infrastructure.dns]]`, and `[[infrastructure.secrets]]` are not clobbered by feature-derived defaults. Other manual edits may still be overwritten unless the sync path explicitly preserves them. Before running `sync`, commit or back up manual edits that are not part of those preserved sections.
 
 Dockerfile handling follows the same skip-or-write logic as `init`:
 - Skipped if a custom Dockerfile path is set in `[source.build]`.
@@ -196,12 +196,12 @@ Dockerfile handling follows the same skip-or-write logic as `init`:
 
 `sync` uses synchronous I/O (`std::fs::write`) whereas `init` uses async I/O (`tokio::fs::write`); the observable behavior is the same.
 
-> **For App Developers**: Run `sync` after adding, removing, or changing reinhardt-web feature flags in `Cargo.toml`, or after editing `settings/base.toml`. It is safe to run repeatedly. Be aware that any manual edits to `reinhardt-cloud.toml` beyond what the generators produce will be overwritten — store custom overrides in environment variables or in the fields that `generate_config` does preserve from your project settings.
+> **For App Developers**: Run `sync` after adding, removing, or changing reinhardt-web feature flags in `Cargo.toml`, or after editing `settings/base.toml`. It is safe to run repeatedly. Existing `[infrastructure]` subsections are preserved section-by-section, but other manual edits to `reinhardt-cloud.toml` beyond what the generators produce may be overwritten unless the sync path explicitly preserves them.
 
 **Troubleshooting**
 
 - **`reinhardt-cloud.toml not found. Run \`reinhardt-cloud init\` first.`** — `sync` requires an existing `reinhardt-cloud.toml`. Run `init` first to create it.
-- **Manual edits to `reinhardt-cloud.toml` were lost after sync** — `sync` performs a full overwrite. Edits that differ from what the generators produce cannot survive a sync run. Use `[source.build]` with a custom Dockerfile path, or keep overrides in environment variables, to work around this.
+- **Manual edits to `reinhardt-cloud.toml` were lost after sync** — `sync` regenerates the file from project state and only preserves sections with explicit merge behavior. Existing `[infrastructure]` subsections are preserved section-by-section; other edits that differ from what the generators produce may not survive a sync run. Use supported preserved fields, `[source.build]` with a custom Dockerfile path, or environment variables where appropriate.
 - **Dockerfile was not updated after adding a new Cargo feature** — If a `Dockerfile` already exists, `sync` skips it unless `--force` is passed. Run `reinhardt-cloud sync --force` to regenerate the Dockerfile.
 - **`Detecting reinhardt-web project...` outputs unexpected features** — `detect_project` reads `Cargo.toml` in `--dir`. If you are running from a workspace root rather than the specific crate, the detected features may differ. Pass `--dir <crate-path>` to point at the correct crate.
 

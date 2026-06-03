@@ -187,4 +187,69 @@ image = "inventory:latest"
 		assert_eq!(buckets[0].name, "inventory-uploads");
 		assert!(buckets[0].public);
 	}
+
+	#[tokio::test]
+	async fn execute_preserves_existing_infrastructure_in_written_toml() {
+		let dir = tempfile::tempdir().expect("temp project should be created");
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "inventory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reinhardt-web = { version = "0.1.0", features = ["db-postgres", "storage"] }
+"#,
+		)
+		.expect("Cargo.toml should be written");
+		std::fs::write(
+			dir.path().join("reinhardt-cloud.toml"),
+			r#"
+[app]
+name = "inventory"
+image = "inventory:latest"
+
+[infrastructure.postgres]
+tier = "db-custom-4-8192"
+version = "15"
+backup_retention_days = 30
+
+[[infrastructure.buckets]]
+name = "inventory-uploads"
+public = true
+"#,
+		)
+		.expect("existing config should be written");
+		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n")
+			.expect("existing Dockerfile should be written");
+
+		execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: false,
+		})
+		.await
+		.expect("sync should succeed");
+
+		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml"))
+			.expect("written config should be readable");
+		let config: ReinhardtCloudToml =
+			toml::from_str(&written).expect("written config should parse");
+		let infrastructure = config
+			.infrastructure
+			.expect("written config should retain infrastructure");
+		let postgres = infrastructure
+			.postgres
+			.expect("existing postgres should be preserved through execute");
+		assert_eq!(postgres.tier.as_deref(), Some("db-custom-4-8192"));
+		assert_eq!(postgres.version.as_deref(), Some("15"));
+		assert_eq!(postgres.backup_retention_days, Some(30));
+		let buckets = infrastructure
+			.buckets
+			.expect("existing buckets should be preserved through execute");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "inventory-uploads");
+		assert!(buckets[0].public);
+	}
 }
