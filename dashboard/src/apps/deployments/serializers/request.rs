@@ -13,7 +13,7 @@ pub struct CreateDeploymentRequest {
 	#[validate(length(min = 1, max = 512))]
 	pub image: String,
 	#[serde(default)]
-	#[validate(length(max = 65536))]
+	#[validate(length(max = 65535))]
 	pub reinhardt_app_yaml: Option<String>,
 }
 

@@ -28,6 +28,7 @@ mod tests {
 					.cluster_id(cluster_id)
 					.status(status)
 					.image(image)
+					.reinhardt_app_yaml(None)
 					.finish();
 				d.id = Some(cluster_id);
 				d

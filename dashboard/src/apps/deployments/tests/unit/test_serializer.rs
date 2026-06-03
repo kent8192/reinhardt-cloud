@@ -18,6 +18,7 @@ mod tests {
 			.cluster_id(1)
 			.status("pending".to_string())
 			.image("ghcr.io/my-app:latest".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 
 		// Act
@@ -38,6 +39,7 @@ mod tests {
 			.cluster_id(1)
 			.status("pending".to_string())
 			.image("ghcr.io/my-app:latest".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 
 		// Act
@@ -58,6 +60,7 @@ mod tests {
 			.cluster_id(1)
 			.status("running".to_string())
 			.image("ghcr.io/my-app:v2".to_string())
+			.reinhardt_app_yaml(None)
 			.finish();
 		deployment.id = Some(42);
 
