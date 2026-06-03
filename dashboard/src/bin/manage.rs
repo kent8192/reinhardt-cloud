@@ -18,9 +18,9 @@
 //! target. Refs `kent8192/reinhardt-cloud#574`.
 
 #[cfg(not(target_arch = "wasm32"))]
-use reinhardt::commands::execute_from_command_line;
+use reinhardt::commands::execute_from_command_line_with_settings;
 #[cfg(not(target_arch = "wasm32"))]
-use reinhardt_cloud_dashboard as _;
+use reinhardt_cloud_dashboard::config::settings::get_settings;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process;
 
@@ -36,7 +36,7 @@ async fn main() {
 		);
 	}
 
-	if let Err(e) = execute_from_command_line().await {
+	if let Err(e) = execute_from_command_line_with_settings(get_settings()).await {
 		eprintln!("Error: {e}");
 		process::exit(1);
 	}
