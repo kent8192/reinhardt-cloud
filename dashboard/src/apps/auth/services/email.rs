@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use reinhardt::EmailSettings as SmtpEmailSettings;
 use reinhardt::conf::EmailSettings;
 use reinhardt::di::{Depends, injectable_factory};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
@@ -75,38 +74,9 @@ fn resolved_email_settings(settings: &ProjectSettings) -> Result<EmailSettings, 
 /// Extracted from the [`EmailService`] DI factory so backend construction
 /// stays on the settings-first API exposed by `reinhardt-mail`.
 fn build_smtp_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, String> {
-	let smtp_settings = smtp_email_settings(email);
-	let backend = create_smtp_backend_from_settings(&smtp_settings)
-		.map_err(|e| format!("SMTP backend error: {e}"))?;
+	let backend =
+		create_smtp_backend_from_settings(email).map_err(|e| format!("SMTP backend error: {e}"))?;
 	Ok(Box::new(backend))
-}
-
-// Workaround for kent8192/reinhardt-web#5126 (tracked in reinhardt-cloud#629)
-// Remove this workaround when the SMTP backend helper accepts the `#[settings]`
-// EmailSettings fragment directly.
-//
-// Ideal implementation (without workaround):
-//   let backend = create_smtp_backend_from_settings(email)
-//       .map_err(|e| format!("SMTP backend error: {e}"))?;
-fn smtp_email_settings(email: &EmailSettings) -> SmtpEmailSettings {
-	let mut settings = SmtpEmailSettings::default();
-	settings.backend = email.backend.clone();
-	settings.host = email.host.clone();
-	settings.port = email.port;
-	settings.username = email.username.clone();
-	settings.password = email.password.clone();
-	settings.use_tls = email.use_tls;
-	settings.use_ssl = email.use_ssl;
-	settings.from_email = email.from_email.clone();
-	settings.admins = email.admins.clone();
-	settings.managers = email.managers.clone();
-	settings.server_email = email.server_email.clone();
-	settings.subject_prefix = email.subject_prefix.clone();
-	settings.timeout = email.timeout;
-	settings.ssl_certfile = email.ssl_certfile.clone();
-	settings.ssl_keyfile = email.ssl_keyfile.clone();
-	settings.file_path = email.file_path.clone();
-	settings
 }
 
 /// Resolved email settings captured at DI resolution time.
