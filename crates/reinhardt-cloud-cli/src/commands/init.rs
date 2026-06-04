@@ -50,7 +50,7 @@ pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 	}
 
 	// Generate and write reinhardt-cloud.toml
-	let config = generate_config(&metadata, db_config.as_ref());
+	let config = generate_config(&metadata, db_config.as_ref())?;
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 	tokio::fs::write(&reinhardt_cloud_toml_path, &toml_string).await?;
 	println!("Created reinhardt-cloud.toml");

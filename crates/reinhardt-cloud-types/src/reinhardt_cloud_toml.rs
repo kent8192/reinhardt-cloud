@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
 	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec,
@@ -49,6 +50,9 @@ pub struct ReinhardtCloudToml {
 	/// Mail (SMTP) configuration
 	#[serde(default)]
 	pub mail: Option<MailSection>,
+	/// Per-application managed cloud infrastructure used by Terraform generation
+	#[serde(default)]
+	pub infrastructure: Option<InfrastructureSpec>,
 	/// Git source and CI/CD pipeline configuration
 	#[serde(default)]
 	pub source: Option<SourceSection>,
@@ -367,7 +371,7 @@ impl ReinhardtCloudToml {
 			plugins: None,
 			image_pull_secrets: None,
 			service_account: None,
-			infrastructure: None,
+			infrastructure: self.infrastructure.clone(),
 			tenant: None,
 		}
 	}
@@ -804,6 +808,58 @@ replicas = 1
 		assert_eq!(overrides.replicas, Some(2));
 		assert!(overrides.database.is_none());
 		assert!(overrides.cache.is_none());
+	}
+
+	#[rstest]
+	fn test_parse_infrastructure_section() {
+		let toml_str = r#"
+[app]
+name = "infra-app"
+image = "infra-app:latest"
+
+[infrastructure.postgres]
+version = "16"
+backup_retention_days = 7
+
+[[infrastructure.buckets]]
+name = "infra-app-assets"
+public = false
+"#;
+
+		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
+
+		let infrastructure = config.infrastructure.expect("infrastructure should parse");
+		let postgres = infrastructure.postgres.expect("postgres should parse");
+		assert_eq!(postgres.version.as_deref(), Some("16"));
+		assert_eq!(postgres.backup_retention_days, Some(7));
+		let bucket = &infrastructure.buckets.as_ref().unwrap()[0];
+		assert_eq!(bucket.name, "infra-app-assets");
+		assert!(!bucket.public);
+	}
+
+	#[rstest]
+	fn test_reinhardt_cloud_toml_to_spec_preserves_infrastructure() {
+		let config = ReinhardtCloudToml {
+			app: AppSection {
+				name: "infra-app".into(),
+				image: "infra-app:latest".into(),
+			},
+			infrastructure: Some(InfrastructureSpec {
+				postgres: Some(crate::crd::PostgresSpec {
+					tier: None,
+					version: Some("16".into()),
+					backup_retention_days: Some(7),
+				}),
+				buckets: None,
+				dns: None,
+				secrets: None,
+			}),
+			..Default::default()
+		};
+
+		let spec = config.to_reinhardt_app_spec();
+
+		assert_eq!(spec.infrastructure, config.infrastructure);
 	}
 
 	#[rstest]
