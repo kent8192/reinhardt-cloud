@@ -44,11 +44,12 @@ place:
 4. **Secrets pre-populated.** A `Secret` named
    `reinhardt-cloud-dashboard-secrets` exists in the
    `reinhardt-cloud-system` namespace with at least these keys:
-   - `jwt-secret` — the JWT signing secret used by the dashboard.
-   - `database-url` — the URL of the dashboard's PostgreSQL database.
+   - `email-host` — the SMTP host used for outbound dashboard email.
 
    The operator resolves the `secretRef:<secret>/<key>` values declared in
-   `spec.env` against this `Secret` at reconciliation time.
+   `spec.env` against this `Secret` at reconciliation time. Dashboard JWT,
+   core secret, database credentials, and Redis URL env vars are generated
+   from the typed `auth`, `database`, and `cache` sections.
 
 ## Operator bootstrap
 
@@ -121,8 +122,7 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
 
    kubectl -n reinhardt-cloud-system create secret generic \
      reinhardt-cloud-dashboard-secrets \
-     --from-literal=jwt-secret='<random-64-bytes>' \
-     --from-literal=database-url='postgres://user:pass@host:5432/dashboard'
+     --from-literal=email-host='<smtp-provider-host>'
    ```
 
 3. Render the manifest locally and apply it to bootstrap the first version:

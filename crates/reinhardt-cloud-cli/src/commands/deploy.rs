@@ -215,27 +215,17 @@ fn parse_introspect_output(yaml: &str) -> Result<IntrospectOutput, String> {
 	serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse introspect YAML: {e}"))
 }
 
-/// Runs `manage introspect --format yaml` and returns stdout.
-///
-/// Tries the production binary first, then falls back to
-/// `cargo run -- introspect --format yaml` for development mode.
-fn run_manage_introspect(dir: &Path) -> Result<String, String> {
-	// Try production binary first
-	let result = Command::new("manage")
-		.current_dir(dir)
+fn manage_introspect_command(project_dir: &Path) -> Command {
+	let mut command = Command::new("manage");
+	command
 		.args(["introspect", "--format", "yaml"])
-		.output();
+		.current_dir(project_dir);
+	command
+}
 
-	if let Ok(output) = result
-		&& output.status.success()
-	{
-		return String::from_utf8(output.stdout)
-			.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
-	}
-
-	// Fall back to cargo run for development mode
-	let result = Command::new("cargo")
-		.current_dir(dir)
+fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
+	let mut command = Command::new("cargo");
+	command
 		.args([
 			"run",
 			"--bin",
@@ -245,6 +235,27 @@ fn run_manage_introspect(dir: &Path) -> Result<String, String> {
 			"--format",
 			"yaml",
 		])
+		.current_dir(project_dir);
+	command
+}
+
+/// Runs `manage introspect --format yaml` and returns stdout.
+///
+/// Tries the production binary first, then falls back to
+/// `cargo run -- introspect --format yaml` for development mode.
+fn run_manage_introspect(project_dir: &Path) -> Result<String, String> {
+	// Try production binary first
+	let result = manage_introspect_command(project_dir).output();
+
+	if let Ok(output) = result
+		&& output.status.success()
+	{
+		return String::from_utf8(output.stdout)
+			.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
+	}
+
+	// Fall back to cargo run for development mode
+	let result = cargo_manage_introspect_command(project_dir)
 		.output()
 		.map_err(|e| format!("Failed to run cargo: {e}"))?;
 
@@ -825,6 +836,41 @@ features:
 		assert!(result.is_err());
 		let err = result.unwrap_err();
 		assert!(err.starts_with("Failed to parse introspect YAML:"));
+	}
+
+	#[rstest]
+	fn test_manage_introspect_commands_use_project_dir() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+
+		// Act
+		let manage = manage_introspect_command(dir.path());
+		let cargo = cargo_manage_introspect_command(dir.path());
+
+		// Assert
+		assert_eq!(manage.get_current_dir(), Some(dir.path()));
+		assert_eq!(cargo.get_current_dir(), Some(dir.path()));
+		let manage_args: Vec<String> = manage
+			.get_args()
+			.map(|arg| arg.to_string_lossy().into_owned())
+			.collect();
+		assert_eq!(manage_args, vec!["introspect", "--format", "yaml"]);
+		let cargo_args: Vec<String> = cargo
+			.get_args()
+			.map(|arg| arg.to_string_lossy().into_owned())
+			.collect();
+		assert_eq!(
+			cargo_args,
+			vec![
+				"run",
+				"--bin",
+				"manage",
+				"--",
+				"introspect",
+				"--format",
+				"yaml"
+			]
+		);
 	}
 
 	#[rstest]
