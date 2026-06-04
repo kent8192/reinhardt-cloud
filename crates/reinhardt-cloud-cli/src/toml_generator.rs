@@ -8,9 +8,18 @@ use reinhardt_cloud_core::infrastructure_derivation::{
 use reinhardt_cloud_types::crd::infrastructure::InfrastructureSpec;
 use reinhardt_cloud_types::introspect;
 use reinhardt_cloud_types::reinhardt_cloud_toml::{
-	AppSection, AuthSection, CacheSection, DatabaseSection, ReinhardtCloudToml, StorageSection,
-	WorkerSection,
+	AppSection, AuthSection, CacheSection, DatabaseSection, HealthSection, ReinhardtCloudToml,
+	ScaleSection, ServicesSection, StorageSection, WorkerSection,
 };
+
+const DEFAULT_HEALTH_PATH: &str = "/api/healthz/";
+const DEFAULT_APP_PORT: i32 = 8000;
+const DEFAULT_HEALTH_INTERVAL_SECONDS: i32 = 10;
+const DEFAULT_SERVICE_PORT: i32 = 80;
+const DEFAULT_MIN_REPLICAS: i32 = 2;
+const DEFAULT_MAX_REPLICAS: i32 = 6;
+const DEFAULT_SCALE_METRIC: &str = "cpu";
+const DEFAULT_SCALE_TARGET_VALUE: i32 = 70;
 
 /// Generate a `ReinhardtCloudToml` from project metadata and optional database config
 pub(crate) fn generate_config(
@@ -97,6 +106,22 @@ fn build_config(
 		} else {
 			None
 		},
+		health: Some(HealthSection {
+			path: Some(DEFAULT_HEALTH_PATH.to_owned()),
+			port: Some(DEFAULT_APP_PORT),
+			interval_seconds: Some(DEFAULT_HEALTH_INTERVAL_SECONDS),
+		}),
+		services: Some(ServicesSection {
+			port: Some(DEFAULT_SERVICE_PORT),
+			target_port: Some(DEFAULT_APP_PORT),
+			ingress_host: None,
+		}),
+		scale: Some(ScaleSection {
+			min_replicas: Some(DEFAULT_MIN_REPLICAS),
+			max_replicas: Some(DEFAULT_MAX_REPLICAS),
+			metric: Some(DEFAULT_SCALE_METRIC.to_owned()),
+			target_value: Some(DEFAULT_SCALE_TARGET_VALUE),
+		}),
 		cache: metadata.signals.cache.as_ref().map(|backend| CacheSection {
 			backend: backend.clone(),
 			..Default::default()
@@ -163,6 +188,27 @@ mod tests {
 	use crate::feature_detector::InfraSignals;
 	use rstest::rstest;
 
+	fn assert_default_runtime_sections(config: &ReinhardtCloudToml) {
+		let health = config.health.as_ref().expect("health section");
+		assert_eq!(health.path.as_deref(), Some(DEFAULT_HEALTH_PATH));
+		assert_eq!(health.port, Some(DEFAULT_APP_PORT));
+		assert_eq!(
+			health.interval_seconds,
+			Some(DEFAULT_HEALTH_INTERVAL_SECONDS)
+		);
+
+		let services = config.services.as_ref().expect("services section");
+		assert_eq!(services.port, Some(DEFAULT_SERVICE_PORT));
+		assert_eq!(services.target_port, Some(DEFAULT_APP_PORT));
+		assert!(services.ingress_host.is_none());
+
+		let scale = config.scale.as_ref().expect("scale section");
+		assert_eq!(scale.min_replicas, Some(DEFAULT_MIN_REPLICAS));
+		assert_eq!(scale.max_replicas, Some(DEFAULT_MAX_REPLICAS));
+		assert_eq!(scale.metric.as_deref(), Some(DEFAULT_SCALE_METRIC));
+		assert_eq!(scale.target_value, Some(DEFAULT_SCALE_TARGET_VALUE));
+	}
+
 	#[rstest]
 	fn test_generate_config_with_database() {
 		// Arrange
@@ -185,6 +231,7 @@ mod tests {
 		assert_eq!(config.app.image, "my-app:latest");
 		assert_eq!(config.database.as_ref().unwrap().engine, "postgresql");
 		assert!(config.auth.as_ref().unwrap().jwt);
+		assert_default_runtime_sections(&config);
 		assert!(config.cache.is_none());
 		assert!(config.worker.is_none());
 	}
@@ -236,6 +283,7 @@ mod tests {
 		assert!(config.cache.is_none());
 		assert!(config.worker.is_none());
 		assert!(config.storage.is_none());
+		assert_default_runtime_sections(&config);
 	}
 
 	#[rstest]
@@ -504,6 +552,22 @@ mod tests {
 				..Default::default()
 			}),
 			auth: Some(AuthSection { jwt: true }),
+			health: Some(HealthSection {
+				path: Some(DEFAULT_HEALTH_PATH.to_owned()),
+				port: Some(DEFAULT_APP_PORT),
+				interval_seconds: Some(DEFAULT_HEALTH_INTERVAL_SECONDS),
+			}),
+			services: Some(ServicesSection {
+				port: Some(DEFAULT_SERVICE_PORT),
+				target_port: Some(DEFAULT_APP_PORT),
+				ingress_host: None,
+			}),
+			scale: Some(ScaleSection {
+				min_replicas: Some(DEFAULT_MIN_REPLICAS),
+				max_replicas: Some(DEFAULT_MAX_REPLICAS),
+				metric: Some(DEFAULT_SCALE_METRIC.to_owned()),
+				target_value: Some(DEFAULT_SCALE_TARGET_VALUE),
+			}),
 			..Default::default()
 		};
 
@@ -519,7 +583,11 @@ mod tests {
 
 		// Assert
 		assert_eq!(parsed.app.name, "rt");
-		assert_eq!(parsed.database.unwrap().engine, "postgresql");
-		assert!(parsed.auth.unwrap().jwt);
+		assert_eq!(
+			parsed.database.as_ref().expect("database section").engine,
+			"postgresql"
+		);
+		assert!(parsed.auth.as_ref().expect("auth section").jwt);
+		assert_default_runtime_sections(&parsed);
 	}
 }
