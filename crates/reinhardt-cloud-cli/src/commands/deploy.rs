@@ -1,7 +1,7 @@
 //! Deploy command: deploys an application to the Reinhardt Cloud platform.
 
 use clap::Args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
@@ -219,9 +219,10 @@ fn parse_introspect_output(yaml: &str) -> Result<IntrospectOutput, String> {
 ///
 /// Tries the production binary first, then falls back to
 /// `cargo run -- introspect --format yaml` for development mode.
-fn run_manage_introspect() -> Result<String, String> {
+fn run_manage_introspect(dir: &Path) -> Result<String, String> {
 	// Try production binary first
 	let result = Command::new("manage")
+		.current_dir(dir)
 		.args(["introspect", "--format", "yaml"])
 		.output();
 
@@ -234,6 +235,7 @@ fn run_manage_introspect() -> Result<String, String> {
 
 	// Fall back to cargo run for development mode
 	let result = Command::new("cargo")
+		.current_dir(dir)
 		.args([
 			"run",
 			"--bin",
@@ -453,7 +455,7 @@ async fn execute_inner(
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
-	let introspect = match run_manage_introspect() {
+	let introspect = match run_manage_introspect(&project_dir) {
 		Ok(yaml_output) => {
 			if args.introspect_only {
 				println!("{yaml_output}");

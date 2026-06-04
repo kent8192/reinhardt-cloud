@@ -90,16 +90,21 @@ mod tests {
 	#[case("postgres")]
 	#[case("postgresql")]
 	fn derives_postgres_for_supported_engines(#[case] engine: &str) {
-		let spec = derive_infrastructure_spec(input(
+		// Arrange
+		let input = input(
 			"orders",
 			InfraSignals {
 				database: Some(engine.to_string()),
 				..Default::default()
 			},
-		))
+		);
+
+		// Act
+		let spec = derive_infrastructure_spec(input)
 		.expect("supported engine should derive")
 		.expect("infrastructure should be present");
 
+		// Assert
 		let postgres = spec.postgres.expect("postgres should be derived");
 		assert_eq!(postgres.version.as_deref(), Some("16"));
 		assert_eq!(postgres.backup_retention_days, Some(7));
@@ -110,15 +115,20 @@ mod tests {
 	#[case("mysql")]
 	#[case("sqlite")]
 	fn rejects_unsupported_database_engines(#[case] engine: &str) {
-		let err = derive_infrastructure_spec(input(
+		// Arrange
+		let input = input(
 			"orders",
 			InfraSignals {
 				database: Some(engine.to_string()),
 				..Default::default()
 			},
-		))
+		);
+
+		// Act
+		let err = derive_infrastructure_spec(input)
 		.expect_err("unsupported engine should fail early");
 
+		// Assert
 		assert_eq!(
 			err,
 			DerivationError::UnsupportedDatabaseEngine {
@@ -131,16 +141,21 @@ mod tests {
 	#[case("s3")]
 	#[case("gcs")]
 	fn derives_bucket_for_supported_storage(#[case] backend: &str) {
-		let spec = derive_infrastructure_spec(input(
+		// Arrange
+		let input = input(
 			"orders",
 			InfraSignals {
 				storage: Some(backend.to_string()),
 				..Default::default()
 			},
-		))
+		);
+
+		// Act
+		let spec = derive_infrastructure_spec(input)
 		.expect("supported storage should derive")
 		.expect("infrastructure should be present");
 
+		// Assert
 		let buckets = spec.buckets.expect("bucket should be derived");
 		assert_eq!(buckets.len(), 1);
 		assert_eq!(buckets[0].name, "orders-assets");
@@ -152,15 +167,20 @@ mod tests {
 	#[case("pvc")]
 	#[case("minio")]
 	fn rejects_unsupported_storage_backends(#[case] backend: &str) {
-		let err = derive_infrastructure_spec(input(
+		// Arrange
+		let input = input(
 			"orders",
 			InfraSignals {
 				storage: Some(backend.to_string()),
 				..Default::default()
 			},
-		))
+		);
+
+		// Act
+		let err = derive_infrastructure_spec(input)
 		.expect_err("unsupported storage should fail early");
 
+		// Assert
 		assert_eq!(
 			err,
 			DerivationError::UnsupportedStorageBackend {
@@ -171,14 +191,19 @@ mod tests {
 
 	#[rstest]
 	fn returns_none_when_no_managed_signals_exist() {
-		let spec = derive_infrastructure_spec(input("orders", InfraSignals::default()))
-			.expect("empty signals should not fail");
+		// Arrange
+		let input = input("orders", InfraSignals::default());
 
+		// Act
+		let spec = derive_infrastructure_spec(input).expect("empty signals should not fail");
+
+		// Assert
 		assert!(spec.is_none());
 	}
 
 	#[rstest]
 	fn preserves_explicit_infrastructure() {
+		// Arrange
 		let explicit = InfrastructureSpec {
 			postgres: Some(PostgresSpec {
 				tier: Some("db-custom-2-4096".to_string()),
@@ -192,7 +217,7 @@ mod tests {
 			dns: None,
 			secrets: None,
 		};
-		let spec = derive_infrastructure_spec(InfrastructureDerivationInput {
+		let input = InfrastructureDerivationInput {
 			app_name: "orders".to_string(),
 			signals: InfraSignals {
 				database: Some("postgres".to_string()),
@@ -201,16 +226,21 @@ mod tests {
 			},
 			explicit: Some(explicit.clone()),
 			typed_secret_refs: Vec::new(),
-		})
+		};
+
+		// Act
+		let spec = derive_infrastructure_spec(input)
 		.expect("explicit infrastructure should validate")
 		.expect("explicit infrastructure should be returned");
 
+		// Assert
 		assert_eq!(spec, explicit);
 	}
 
 	#[rstest]
 	fn derives_typed_secret_refs() {
-		let spec = derive_infrastructure_spec(InfrastructureDerivationInput {
+		// Arrange
+		let input = InfrastructureDerivationInput {
 			app_name: "orders".to_string(),
 			signals: InfraSignals::default(),
 			explicit: None,
@@ -219,10 +249,14 @@ mod tests {
 				"webhook-secret".to_string(),
 				"git-creds".to_string(),
 			],
-		})
+		};
+
+		// Act
+		let spec = derive_infrastructure_spec(input)
 		.expect("typed secret refs should derive")
 		.expect("infrastructure should be present");
 
+		// Assert
 		assert_eq!(
 			spec.secrets,
 			Some(vec![

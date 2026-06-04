@@ -450,7 +450,7 @@ Generate per-app Terraform HCL from a `ReinhardtApp` infrastructure spec.
 
 **Synopsis**
 
-```
+```bash
 reinhardt-cloud terraform generate --app <APP> --provider <PROVIDER> [--output <PATH>] [--app-crd <PATH>]
 ```
 

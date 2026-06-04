@@ -122,9 +122,11 @@ fn validate_infrastructure(
 mod tests {
 	use super::*;
 	use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
+	use rstest::rstest;
 
-	#[test]
+	#[rstest]
 	fn merge_preserves_existing_infrastructure_sections() {
+		// Arrange
 		let existing: ReinhardtCloudToml = toml::from_str(
 			r#"
 [app]
@@ -154,8 +156,10 @@ public = false
 		)
 		.expect("generated config should parse");
 
+		// Act
 		merge_existing_infrastructure(&existing, &mut generated).expect("merge should succeed");
 
+		// Assert
 		let infrastructure = generated
 			.infrastructure
 			.expect("merged config should retain infrastructure");
@@ -173,8 +177,9 @@ public = false
 		assert!(!buckets[0].public);
 	}
 
-	#[test]
+	#[rstest]
 	fn merge_copies_existing_infrastructure_when_generated_has_none() {
+		// Arrange
 		let existing: ReinhardtCloudToml = toml::from_str(
 			r#"
 [app]
@@ -196,8 +201,10 @@ image = "inventory:latest"
 		)
 		.expect("generated config should parse");
 
+		// Act
 		merge_existing_infrastructure(&existing, &mut generated).expect("merge should succeed");
 
+		// Assert
 		let infrastructure = generated
 			.infrastructure
 			.expect("existing infrastructure should be copied");
@@ -209,8 +216,10 @@ image = "inventory:latest"
 		assert!(buckets[0].public);
 	}
 
+	#[rstest]
 	#[tokio::test]
 	async fn execute_preserves_existing_infrastructure_in_written_toml() {
+		// Arrange
 		let dir = tempfile::tempdir().expect("temp project should be created");
 		std::fs::write(
 			dir.path().join("Cargo.toml"),
@@ -246,6 +255,7 @@ public = true
 		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n")
 			.expect("existing Dockerfile should be written");
 
+		// Act
 		execute(&SyncArgs {
 			dir: Some(dir.path().to_path_buf()),
 			force: false,
@@ -253,6 +263,7 @@ public = true
 		.await
 		.expect("sync should succeed");
 
+		// Assert
 		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml"))
 			.expect("written config should be readable");
 		let config: ReinhardtCloudToml =
@@ -274,8 +285,10 @@ public = true
 		assert!(buckets[0].public);
 	}
 
+	#[rstest]
 	#[tokio::test]
 	async fn execute_preserves_existing_infrastructure_for_unsupported_database() {
+		// Arrange
 		let dir = tempfile::tempdir().expect("temp project should be created");
 		std::fs::write(
 			dir.path().join("Cargo.toml"),
@@ -306,6 +319,7 @@ public = false
 		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n")
 			.expect("existing Dockerfile should be written");
 
+		// Act
 		execute(&SyncArgs {
 			dir: Some(dir.path().to_path_buf()),
 			force: false,
@@ -313,6 +327,7 @@ public = false
 		.await
 		.expect("explicit infrastructure should allow unsupported generated database signal");
 
+		// Assert
 		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml"))
 			.expect("written config should be readable");
 		let config: ReinhardtCloudToml =
@@ -332,8 +347,10 @@ public = false
 		assert_eq!(buckets[0].name, "inventory-assets");
 	}
 
+	#[rstest]
 	#[tokio::test]
 	async fn execute_rejects_invalid_existing_infrastructure() {
+		// Arrange
 		let dir = tempfile::tempdir().expect("temp project should be created");
 		std::fs::write(
 			dir.path().join("Cargo.toml"),
@@ -362,6 +379,7 @@ public = false
 		)
 		.expect("existing config should be written");
 
+		// Act
 		let error = execute(&SyncArgs {
 			dir: Some(dir.path().to_path_buf()),
 			force: false,
@@ -370,6 +388,7 @@ public = false
 		.expect_err("invalid existing infrastructure should fail early")
 		.to_string();
 
+		// Assert
 		assert!(
 			error.contains("infrastructure.buckets[].name must be non-empty"),
 			"unexpected error: {error}"

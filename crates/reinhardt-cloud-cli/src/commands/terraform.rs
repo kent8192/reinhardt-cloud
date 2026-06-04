@@ -74,7 +74,12 @@ pub(crate) async fn execute(args: &TerraformArgs) -> Result<(), Box<dyn std::err
 
 async fn generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let infra: InfrastructureSpec = match &args.infra_json {
-		Some(json) => serde_json::from_str(json)?,
+		Some(json) => {
+			let infra: InfrastructureSpec = serde_json::from_str(json)?;
+			validate_infrastructure(&infra)
+				.map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
+			infra
+		}
 		None if args.app_crd.is_some() => {
 			let app_crd = args.app_crd.as_ref().expect("app_crd is checked above");
 			let yaml = std::fs::read_to_string(app_crd)?;
@@ -131,11 +136,7 @@ fn infrastructure_from_crd_yaml(
 		eprintln!(
 			"warning: spec.infrastructure is absent; deriving from spec.introspect for compatibility. Persist the generated infrastructure block for repeatable Terraform."
 		);
-		let app_name = if introspect.app.name.trim().is_empty() {
-			app.to_string()
-		} else {
-			introspect.app.name.clone()
-		};
+		let app_name = app.to_owned();
 
 		return derive_infrastructure_spec(InfrastructureDerivationInput {
 			app_name,
@@ -740,6 +741,33 @@ spec:
 	}
 
 	#[rstest]
+	#[tokio::test]
+	async fn rejects_invalid_infra_json_before_rendering_hcl() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let args = GenerateArgs {
+			app: "orders".to_string(),
+			provider: Provider::Gcp,
+			output: Some(dir.path().to_path_buf()),
+			infra_json: Some(r#"{"buckets":[{"name":"","public":false}]}"#.to_string()),
+			app_crd: None,
+		};
+
+		// Act
+		let error = generate(&args)
+			.await
+			.expect_err("invalid infra JSON should fail early");
+
+		// Assert
+		assert!(
+			error
+				.to_string()
+				.contains("infrastructure.buckets[].name must be non-empty"),
+			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
 	fn falls_back_to_introspect_when_infrastructure_missing() {
 		// Arrange
 		let yaml = r#"
@@ -764,6 +792,35 @@ spec:
 
 		// Assert
 		assert!(infra.postgres.is_some());
+	}
+
+	#[rstest]
+	fn fallback_uses_cli_app_name_for_bucket_prefixes() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  introspect:
+    app:
+      name: introspected-name
+    features:
+      infrastructure_signals:
+        storage: s3
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("fallback-app", yaml)
+			.expect("introspect fallback should succeed")
+			.expect("storage signal should derive infrastructure");
+
+		// Assert
+		let buckets = infra.buckets.expect("bucket should be derived");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "fallback-app-assets");
 	}
 
 	#[rstest]

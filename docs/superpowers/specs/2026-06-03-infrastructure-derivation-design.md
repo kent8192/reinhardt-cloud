@@ -29,9 +29,9 @@ authoring input.
 ## Non-Goals
 
 - Do not make the operator patch `spec.infrastructure`.
-- Do not infer undeclared secrets from naming conventions or environment names.
-- Do not support every possible backend in the first iteration.
-- Do not silently map local or PVC storage to managed cloud buckets.
+- Avoid inferring undeclared secrets from naming conventions or environment names.
+- Not intended to support every possible backend in the first iteration.
+- Will not silently map local or PVC storage to managed cloud buckets.
 
 ## Recommended Approach
 
