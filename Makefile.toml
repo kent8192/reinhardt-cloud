@@ -300,6 +300,11 @@ args = [
 	"charts/reinhardt-cloud-operator/crds/reinhardtapp-crd.yaml",
 ]
 
+[tasks.dashboard-self-deploy-e2e]
+description = "Run the local Dashboard self-deploy E2E harness against the active Kubernetes context"
+command = "bash"
+args = ["scripts/dashboard_self_deploy_e2e.sh"]
+
 # ============================================================================
 # Combined Checks (run before PR)
 # ============================================================================

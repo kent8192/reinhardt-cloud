@@ -52,6 +52,13 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// CLI --direct constructs kube rustls clients before invoking kubectl.
+	// Install the provider explicitly so local E2E runs do not depend on
+	// transitive rustls feature unification (Refs #638).
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.ok();
+
 	// Initialize OpenTelemetry tracing. The guard must live for the duration of
 	// `main` so the OTLP span exporter is flushed on shutdown. When
 	// `OTEL_EXPORTER_OTLP_ENDPOINT` is unset the path is effectively zero-cost.

@@ -72,6 +72,7 @@ pub(crate) fn build_db_credentials_secret(
 	namespace: &str,
 	user: &str,
 	password: &str,
+	database: &str,
 ) -> Secret {
 	Secret {
 		metadata: ObjectMeta {
@@ -85,6 +86,18 @@ pub(crate) fn build_db_credentials_secret(
 			(
 				"password".to_string(),
 				ByteString(password.as_bytes().to_vec()),
+			),
+			(
+				"POSTGRES_USER".to_string(),
+				ByteString(user.as_bytes().to_vec()),
+			),
+			(
+				"POSTGRES_PASSWORD".to_string(),
+				ByteString(password.as_bytes().to_vec()),
+			),
+			(
+				"POSTGRES_DB".to_string(),
+				ByteString(database.as_bytes().to_vec()),
 			),
 		])),
 		type_: Some("Opaque".to_string()),
@@ -200,7 +213,8 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_correct_name() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "prod", "admin", &test_credential());
+		let secret =
+			build_db_credentials_secret("webapp", "prod", "admin", &test_credential(), "webapp_db");
 
 		// Assert
 		assert_eq!(
@@ -213,7 +227,7 @@ mod tests {
 	fn db_credentials_secret_stores_username_and_password() {
 		// Arrange & Act
 		let cred = test_credential();
-		let secret = build_db_credentials_secret("webapp", "default", "dbuser", &cred);
+		let secret = build_db_credentials_secret("webapp", "default", "dbuser", &cred, "webapp_db");
 
 		// Assert
 		let data = secret.data.as_ref().unwrap();
@@ -222,9 +236,28 @@ mod tests {
 	}
 
 	#[rstest]
+	fn db_credentials_secret_includes_postgres_bootstrap_keys() {
+		// Arrange & Act
+		let cred = test_credential();
+		let secret = build_db_credentials_secret("webapp", "default", "dbuser", &cred, "webapp_db");
+
+		// Assert
+		let data = secret.data.as_ref().unwrap();
+		assert_eq!(data["POSTGRES_USER"].0, b"dbuser");
+		assert_eq!(data["POSTGRES_PASSWORD"].0, cred.as_bytes());
+		assert_eq!(data["POSTGRES_DB"].0, b"webapp_db");
+	}
+
+	#[rstest]
 	fn db_credentials_secret_has_correct_namespace() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "production", "u", &test_credential());
+		let secret = build_db_credentials_secret(
+			"webapp",
+			"production",
+			"u",
+			&test_credential(),
+			"webapp_db",
+		);
 
 		// Assert
 		assert_eq!(secret.metadata.namespace.as_deref(), Some("production"));
@@ -233,7 +266,8 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_standard_labels() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("webapp", "default", "u", &test_credential());
+		let secret =
+			build_db_credentials_secret("webapp", "default", "u", &test_credential(), "webapp_db");
 
 		// Assert
 		let labels = secret.metadata.labels.as_ref().unwrap();
@@ -247,7 +281,13 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_has_correct_metadata() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("myapp", "staging", "dbadmin", &test_credential());
+		let secret = build_db_credentials_secret(
+			"myapp",
+			"staging",
+			"dbadmin",
+			&test_credential(),
+			"myapp_db",
+		);
 
 		// Assert
 		assert_eq!(
@@ -275,7 +315,8 @@ mod tests {
 	#[rstest]
 	fn db_credentials_secret_labels_are_correct() {
 		// Arrange & Act
-		let secret = build_db_credentials_secret("test-app", "ns1", "u", &test_credential());
+		let secret =
+			build_db_credentials_secret("test-app", "ns1", "u", &test_credential(), "test_app_db");
 
 		// Assert
 		let labels = secret.metadata.labels.as_ref().unwrap();

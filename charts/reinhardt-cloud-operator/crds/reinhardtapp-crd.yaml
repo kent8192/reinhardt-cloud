@@ -159,6 +159,96 @@ spec:
                   type: object
                 nullable: true
                 type: array
+              infrastructure:
+                description: |-
+                  Per-app managed cloud resources (Postgres, buckets, DNS, secrets).
+
+                  When present, `reinhardt-cloud terraform generate` reads this block
+                  and emits provider-scoped HCL so that per-app infrastructure stays
+                  in sync with the CRD spec. Omit this field for apps that rely
+                  solely on cluster-level shared infrastructure provisioned by #411.
+                nullable: true
+                properties:
+                  buckets:
+                    description: Object storage buckets (GCS / S3).
+                    items:
+                      description: Object storage bucket declaration.
+                      properties:
+                        name:
+                          description: |-
+                            Logical bucket name. The operator appends a namespace-scoped suffix
+                            to prevent collisions across tenants.
+                          type: string
+                        public:
+                          default: false
+                          description: |-
+                            When `true` the bucket allows anonymous read access (e.g., for
+                            static asset hosting). Defaults to `false`.
+                          type: boolean
+                      required:
+                      - name
+                      type: object
+                    nullable: true
+                    type: array
+                  dns:
+                    description: DNS records (Cloud DNS / Route 53).
+                    items:
+                      description: DNS record declaration (Cloud DNS / Route 53).
+                      properties:
+                        host:
+                          description: Fully-qualified hostname (e.g., `"orders.acme.example.com"`).
+                          type: string
+                        type:
+                          description: 'DNS record type. Supported values: `"A"`, `"CNAME"`, `"TXT"`.'
+                          type: string
+                      required:
+                      - host
+                      - type
+                      type: object
+                    nullable: true
+                    type: array
+                  postgres:
+                    description: Managed Postgres database (Cloud SQL / RDS).
+                    nullable: true
+                    properties:
+                      backup_retention_days:
+                        description: Number of days to retain automated backups.
+                        format: uint32
+                        minimum: 0.0
+                        nullable: true
+                        type: integer
+                      tier:
+                        description: |-
+                          Provider-specific tier or instance class.
+
+                          GCP example: `"db-custom-2-4096"`. AWS example: `"db.t3.micro"`.
+                        nullable: true
+                        type: string
+                      version:
+                        description: PostgreSQL major version (e.g., `"16"`).
+                        nullable: true
+                        type: string
+                    type: object
+                  secrets:
+                    description: Application-scoped secrets (Secret Manager / AWS Secrets Manager).
+                    items:
+                      description: Application-scoped secret declaration (Secret Manager / AWS Secrets Manager).
+                      properties:
+                        description:
+                          description: Optional human-readable description stored as secret metadata.
+                          nullable: true
+                          type: string
+                        name:
+                          description: |-
+                            Logical secret name. Combined with namespace and app name to form the
+                            provider-specific secret path.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    nullable: true
+                    type: array
+                type: object
               introspect:
                 description: |-
                   Introspect metadata from `manage introspect` output.

@@ -37,6 +37,11 @@ pub(crate) struct DockerfileSignals {
 	///
 	/// See kent8192/reinhardt-cloud#486 (issue 2).
 	pub(crate) has_settings_dir: bool,
+	/// When true, the project has a `migrations/` directory next to its
+	/// `Cargo.toml`. The runtime stage will COPY it into `/app/migrations`
+	/// so the `manage migrate` binary can discover migration files from the
+	/// runtime working directory.
+	pub(crate) has_migrations_dir: bool,
 	/// Path to the project crate relative to the Docker build context
 	/// (typically the workspace root). When `Some("dashboard")`, the
 	/// builder stage's `COPY . .` puts the project sources at
@@ -298,6 +303,17 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 			dst: "/app/settings".to_string(),
 		});
 	}
+	if signals.has_migrations_dir {
+		let migrations_src = match signals.project_relative_path.as_deref() {
+			Some(rel) => format!("/app/{rel}/migrations"),
+			None => "/app/migrations".to_string(),
+		};
+		instructions.push(Instruction::Copy {
+			from: Some("builder".to_string()),
+			src: migrations_src,
+			dst: "/app/migrations".to_string(),
+		});
+	}
 
 	if is_custom_image {
 		// Custom image: use numeric UID (65534 = nobody) since useradd is
@@ -398,6 +414,7 @@ mod tests {
 			tracing: false,
 			protoc_needed: false,
 			has_settings_dir: false,
+			has_migrations_dir: false,
 			project_relative_path: None,
 		}
 	}
@@ -1100,6 +1117,45 @@ mod tests {
 		assert!(
 			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").is_none(),
 			"must not set REINHARDT_CLOUD_CONFIG_DIR when has_settings_dir is false"
+		);
+	}
+
+	#[rstest]
+	fn runtime_stage_bundles_migrations_for_workspace_member(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.has_migrations_dir = true;
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_copy(
+				&stage,
+				"builder",
+				"/app/dashboard/migrations",
+				"/app/migrations"
+			),
+			"runtime stage must COPY workspace-member migrations into /app/migrations"
+		);
+	}
+
+	#[rstest]
+	fn runtime_stage_bundles_migrations_for_root_project(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.has_migrations_dir = true;
+		minimal_signals.project_relative_path = None;
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_copy(&stage, "builder", "/app/migrations", "/app/migrations"),
+			"runtime stage must COPY root-project migrations into /app/migrations"
 		);
 	}
 
