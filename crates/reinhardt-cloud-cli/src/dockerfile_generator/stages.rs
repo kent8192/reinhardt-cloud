@@ -255,6 +255,11 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		src: format!("/app/target/release/{}", signals.app_name),
 		dst: "/app/".to_string(),
 	});
+	instructions.push(Instruction::Copy {
+		from: Some("builder".to_string()),
+		src: "/app/target/release/manage".to_string(),
+		dst: "/app/".to_string(),
+	});
 
 	if signals.pages {
 		instructions.push(Instruction::Copy {
@@ -424,6 +429,16 @@ mod tests {
 		})
 	}
 
+	fn stage_contains_copy(stage: &Stage, from_name: &str, src_path: &str, dst_path: &str) -> bool {
+		stage.instructions.iter().any(|inst| {
+			matches!(
+				inst,
+				Instruction::Copy { from: Some(f), src, dst }
+					if f == from_name && src == src_path && dst == dst_path
+			)
+		})
+	}
+
 	// S1
 	#[rstest]
 	fn chef_stage_basic(minimal_signals: DockerfileSignals) {
@@ -557,6 +572,21 @@ mod tests {
 		// Assert
 		assert!(!stage_contains_run(&stage, "libpq5"));
 		assert!(!stage_contains_run(&stage, "mysql"));
+	}
+
+	// S10b (Refs #637): generated runtime images must include the
+	// management binary that operator init containers execute.
+	#[rstest]
+	fn runtime_stage_copies_manage_binary(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_copy(&stage, "builder", "/app/target/release/manage", "/app/"),
+			"runtime stage must COPY /app/target/release/manage -> /app/; \
+			 see kent8192/reinhardt-cloud#637"
+		);
 	}
 
 	// S11

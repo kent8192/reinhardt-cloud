@@ -26,6 +26,7 @@ RUN apt-get update && \
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
+COPY --from=builder /app/target/release/manage /app/
 RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser

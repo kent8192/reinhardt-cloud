@@ -32,6 +32,7 @@ RUN apt-get update && \
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
+COPY --from=builder /app/target/release/manage /app/
 COPY --from=wasm /wasm-dist /app/static/wasm/
 COPY --from=builder /app/index.html /app/static/wasm/index.html
 RUN chown -R appuser:appuser /app
