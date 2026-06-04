@@ -38,6 +38,7 @@ RUN apt-get update && \
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/reinhardt-cloud-dashboard /app/
+COPY --from=builder /app/target/release/manage /app/
 COPY --from=wasm /wasm-dist /app/static/wasm/
 COPY --from=builder /app/dashboard/index.html /app/static/wasm/index.html
 COPY --from=builder /app/dashboard/settings /app/settings
