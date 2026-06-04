@@ -32,6 +32,7 @@ RUN apt-get update && \
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
+COPY --from=builder /app/target/release/manage /app/
 COPY --from=wasm /wasm-dist /app/static/wasm/
 COPY --from=builder /app/dashboard/index.html /app/static/wasm/index.html
 COPY --from=builder /app/dashboard/settings /app/settings
@@ -39,6 +40,7 @@ RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser
 ENV RUST_LOG=info \
+    PATH=/app:$PATH \
     REINHARDT_CLOUD_CONFIG_DIR=/app/settings
 EXPOSE 8000
 ENTRYPOINT ["tini", "--", "/app/my-app"]
