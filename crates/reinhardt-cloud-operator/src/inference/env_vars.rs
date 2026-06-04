@@ -166,16 +166,22 @@ pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
 	vec![env_var("REINHARDT_ENV", "production")]
 }
 
-/// Build the `REINHARDT_CLOUD_SECRET_KEY` env var referencing the per-app
-/// `<app>-core-secret-key` Secret created by
-/// `inference::secrets::build_core_secret_key_secret`.
+/// Build env vars referencing the per-app `<app>-core-secret-key` Secret
+/// created by `inference::secrets::build_core_secret_key_secret`.
 ///
-/// The generated `production.toml` reads this back via `${VAR}` interpolation
-/// in the `[core] secret_key` field, so the actual key value is never stored
-/// in a ConfigMap.
-pub(crate) fn build_core_secret_key_env_var(app_name: &str) -> EnvVar {
+/// Both names reference the same Secret data key. `REINHARDT_CORE__SECRET_KEY`
+/// matches Dashboard production settings, while `REINHARDT_CLOUD_SECRET_KEY`
+/// preserves the existing generated-settings contract.
+pub(crate) fn build_core_secret_key_env_vars(app_name: &str) -> Vec<EnvVar> {
+	vec![
+		build_core_secret_key_env_var("REINHARDT_CORE__SECRET_KEY", app_name),
+		build_core_secret_key_env_var("REINHARDT_CLOUD_SECRET_KEY", app_name),
+	]
+}
+
+fn build_core_secret_key_env_var(name: &str, app_name: &str) -> EnvVar {
 	EnvVar {
-		name: "REINHARDT_CLOUD_SECRET_KEY".to_string(),
+		name: name.to_string(),
 		value: None,
 		value_from: Some(EnvVarSource {
 			secret_key_ref: Some(SecretKeySelector {
@@ -186,6 +192,31 @@ pub(crate) fn build_core_secret_key_env_var(app_name: &str) -> EnvVar {
 			..Default::default()
 		}),
 	}
+}
+
+/// Build the `REINHARDT_CLOUD_JWT_SECRET` env var referencing the per-app
+/// `<app>-jwt-secret` Secret created when `spec.auth.jwt` is enabled.
+pub(crate) fn build_jwt_secret_env_var(app_name: &str) -> EnvVar {
+	EnvVar {
+		name: "REINHARDT_CLOUD_JWT_SECRET".to_string(),
+		value: None,
+		value_from: Some(EnvVarSource {
+			secret_key_ref: Some(SecretKeySelector {
+				name: format!("{app_name}-jwt-secret"),
+				key: "jwt-secret".to_string(),
+				optional: Some(false),
+			}),
+			..Default::default()
+		}),
+	}
+}
+
+/// Build the Redis URL env var for the operator-managed Redis Service.
+pub(crate) fn build_redis_cache_env_var(app_name: &str) -> EnvVar {
+	env_var(
+		"REINHARDT_CLOUD_REDIS_URL",
+		&format!("redis://{app_name}-redis:6379/0"),
+	)
 }
 
 /// Merge auto-generated and user-supplied environment variables.
@@ -621,37 +652,76 @@ mod tests {
 	}
 
 	#[rstest]
-	fn core_secret_key_env_var_references_per_app_secret() {
+	fn core_secret_key_env_vars_reference_per_app_secret() {
 		// Arrange & Act
-		let var = build_core_secret_key_env_var("myapp");
+		let vars = build_core_secret_key_env_vars("myapp");
 
 		// Assert — the actual key bytes must come from the Secret, never
-		// be inlined into the Pod spec.
-		assert_eq!(var.name, "REINHARDT_CLOUD_SECRET_KEY");
+		// be inlined into the Pod spec. Dashboard production settings read
+		// `REINHARDT_CORE__SECRET_KEY`; the legacy cloud name remains for
+		// generated-settings compatibility.
+		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
+		assert_eq!(
+			names,
+			vec!["REINHARDT_CORE__SECRET_KEY", "REINHARDT_CLOUD_SECRET_KEY"]
+		);
+		for var in vars {
+			assert!(var.value.is_none());
+			let key_ref = var
+				.value_from
+				.as_ref()
+				.and_then(|vf| vf.secret_key_ref.as_ref())
+				.expect("must use SecretKeyRef so the key value is never inlined");
+			assert_eq!(key_ref.name, "myapp-core-secret-key");
+			assert_eq!(key_ref.key, "secret-key");
+			assert_eq!(key_ref.optional, Some(false));
+		}
+	}
+
+	#[rstest]
+	fn core_secret_key_env_vars_secret_name_tracks_app_name() {
+		// Arrange & Act — a different app must reference its own Secret;
+		// the helper must NOT share a single Secret across apps.
+		let vars = build_core_secret_key_env_vars("other-app");
+
+		// Assert
+		for var in vars {
+			let key_ref = var
+				.value_from
+				.as_ref()
+				.and_then(|vf| vf.secret_key_ref.as_ref())
+				.unwrap();
+			assert_eq!(key_ref.name, "other-app-core-secret-key");
+		}
+	}
+
+	#[rstest]
+	fn jwt_secret_env_var_references_per_app_secret() {
+		// Arrange & Act
+		let var = build_jwt_secret_env_var("dashboard");
+
+		// Assert
+		assert_eq!(var.name, "REINHARDT_CLOUD_JWT_SECRET");
 		assert!(var.value.is_none());
 		let key_ref = var
 			.value_from
 			.as_ref()
 			.and_then(|vf| vf.secret_key_ref.as_ref())
-			.expect("must use SecretKeyRef so the key value is never inlined");
-		assert_eq!(key_ref.name, "myapp-core-secret-key");
-		assert_eq!(key_ref.key, "secret-key");
+			.expect("JWT secret must be Secret-backed");
+		assert_eq!(key_ref.name, "dashboard-jwt-secret");
+		assert_eq!(key_ref.key, "jwt-secret");
 		assert_eq!(key_ref.optional, Some(false));
 	}
 
 	#[rstest]
-	fn core_secret_key_env_var_secret_name_tracks_app_name() {
-		// Arrange & Act — a different app must reference its own Secret;
-		// the helper must NOT share a single Secret across apps.
-		let var = build_core_secret_key_env_var("other-app");
+	fn redis_cache_env_var_uses_operator_managed_service() {
+		// Arrange & Act
+		let var = build_redis_cache_env_var("dashboard");
 
 		// Assert
-		let key_ref = var
-			.value_from
-			.as_ref()
-			.and_then(|vf| vf.secret_key_ref.as_ref())
-			.unwrap();
-		assert_eq!(key_ref.name, "other-app-core-secret-key");
+		assert_eq!(var.name, "REINHARDT_CLOUD_REDIS_URL");
+		assert_eq!(var.value.as_deref(), Some("redis://dashboard-redis:6379/0"));
+		assert!(var.value_from.is_none());
 	}
 
 	#[rstest]

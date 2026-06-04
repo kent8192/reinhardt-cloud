@@ -27,4 +27,8 @@ max_replicas = 6
 metric = "cpu"
 target_value = 70
 
+[cache]
+backend = "redis"
+
 [env]
+REINHARDT_EMAIL__HOST = "secretRef:reinhardt-cloud-dashboard-secrets/email-host"

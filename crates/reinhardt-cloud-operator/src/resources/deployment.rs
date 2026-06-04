@@ -20,8 +20,8 @@ use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
 use crate::inference::env_vars::{
-	build_core_secret_key_env_var, build_database_env_vars_from_secret, build_otel_env_vars,
-	build_system_env_vars, merge_env_vars,
+	build_core_secret_key_env_vars, build_database_env_vars_from_secret, build_jwt_secret_env_var,
+	build_otel_env_vars, build_redis_cache_env_var, build_system_env_vars, merge_env_vars,
 };
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
@@ -97,12 +97,26 @@ pub(crate) fn build_deployment(
 		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
 	});
 	let needs_db_env = explicit_db || introspect_db;
+	let explicit_cache = app.spec.cache.is_some();
+	let introspect_cache = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
+	});
+	let redis_session_backend = app.spec.introspect.as_ref().is_some_and(|i| {
+		i.features.infrastructure_signals.session_backend.as_deref() == Some("redis")
+	});
+	let needs_redis_env = explicit_cache || introspect_cache || redis_session_backend;
 	let mut auto_vars = build_system_env_vars();
 	// Inject the per-app `core.secret_key` env var unconditionally so the
-	// generated `production.toml` can resolve `${REINHARDT_CLOUD_SECRET_KEY}`
-	// at startup; the value lives in the operator-managed
-	// `<app>-core-secret-key` Secret, never in the Pod spec.
-	auto_vars.push(build_core_secret_key_env_var(&app_name));
+	// generated `production.toml` can resolve its secret-key interpolation at
+	// startup; the value lives in the operator-managed `<app>-core-secret-key`
+	// Secret, never in the Pod spec.
+	auto_vars.extend(build_core_secret_key_env_vars(&app_name));
+	if app.spec.auth.as_ref().is_some_and(|auth| auth.jwt) {
+		auto_vars.push(build_jwt_secret_env_var(&app_name));
+	}
+	if needs_redis_env {
+		auto_vars.push(build_redis_cache_env_var(&app_name));
+	}
 	if needs_db_env {
 		let db_host = if explicit_db {
 			format!("{app_name}-db")
@@ -373,6 +387,8 @@ mod tests {
 	use super::*;
 	use crate::inference::platform::Platform;
 	use kube::api::ObjectMeta;
+	use reinhardt_cloud_types::crd::auth::AuthSpec;
+	use reinhardt_cloud_types::crd::cache::{CacheBackend, CacheSpec};
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
 	use reinhardt_cloud_types::crd::{HealthSpec, ReinhardtAppSpec, ServicesSpec};
@@ -717,6 +733,89 @@ mod tests {
 			!env.iter().any(|e| e.name == "REINHARDT_CLOUD_CONFIG_DIR"),
 			"REINHARDT_CLOUD_CONFIG_DIR must not be auto-injected after #589",
 		);
+	}
+
+	#[rstest]
+	fn test_build_deployment_injects_core_secret_key_aliases() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		for name in ["REINHARDT_CORE__SECRET_KEY", "REINHARDT_CLOUD_SECRET_KEY"] {
+			let var = env.iter().find(|e| e.name == name).expect("env must exist");
+			let key_ref = var
+				.value_from
+				.as_ref()
+				.and_then(|vf| vf.secret_key_ref.as_ref())
+				.expect("core secret key must be Secret-backed");
+			assert_eq!(key_ref.name, "web-core-secret-key");
+			assert_eq!(key_ref.key, "secret-key");
+		}
+	}
+
+	#[rstest]
+	fn test_build_deployment_injects_jwt_secret_when_auth_jwt_enabled() {
+		// Arrange
+		let mut app = make_test_app("web", "web:v1", None);
+		app.spec.auth = Some(AuthSpec {
+			jwt: true,
+			oauth: None,
+		});
+
+		// Act
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let containers = deployment.spec.unwrap().template.spec.unwrap().containers;
+		let env = containers[0].env.as_ref().unwrap();
+
+		// Assert
+		let var = env
+			.iter()
+			.find(|e| e.name == "REINHARDT_CLOUD_JWT_SECRET")
+			.expect("JWT secret env must exist");
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("JWT secret must be Secret-backed");
+		assert_eq!(key_ref.name, "web-jwt-secret");
+		assert_eq!(key_ref.key, "jwt-secret");
+	}
+
+	#[rstest]
+	fn test_build_deployment_injects_redis_url_when_cache_enabled() {
+		// Arrange
+		let mut app = make_test_app_with_database();
+		app.spec.cache = Some(CacheSpec {
+			backend: CacheBackend::Redis,
+			instance_type: None,
+		});
+
+		// Act
+		let deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
+		let main_env = pod_spec.containers[0].env.as_ref().unwrap();
+		let init_env = pod_spec.init_containers.as_ref().unwrap()[0]
+			.env
+			.as_ref()
+			.unwrap();
+
+		// Assert
+		for env in [main_env, init_env] {
+			let var = env
+				.iter()
+				.find(|e| e.name == "REINHARDT_CLOUD_REDIS_URL")
+				.expect("Redis URL env must exist");
+			assert_eq!(var.value.as_deref(), Some("redis://web-redis:6379/0"));
+			assert!(var.value_from.is_none());
+		}
 	}
 
 	#[rstest]
