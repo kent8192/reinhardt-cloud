@@ -52,7 +52,7 @@ The platform operator publishes the Dashboard behind a Kubernetes `Ingress` reso
 
 **Option 2 — `kubectl port-forward` (local / development access)**
 
-The `manage` binary starts an HTTP server on port 8000 by default (reinhardt-web framework default; confirmed by `cors.allow_origins = ["http://localhost:8000", ...]` in `dashboard/settings/base.example.toml`). To forward that port from a running Dashboard pod:
+The Dashboard HTTP server listens on port 8000 by default (reinhardt-web framework default; confirmed by `cors.allow_origins = ["http://localhost:8000", ...]` in `dashboard/settings/base.example.toml`). To forward that port from a running Dashboard pod:
 
 ```bash
 kubectl port-forward -n <namespace> deployment/<dashboard-deployment-name> 8000:8000
@@ -131,14 +131,18 @@ There is no `settings` application module in `dashboard/src/apps/` at this commi
 
 ### Installation options
 
-There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying a manifest directly. At the time of this audit, no pre-built manifests exist under `dashboard/infra/` — operators must write a `Deployment` + `Service` YAML that:
+There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying the canonical `ReinhardtApp` manifest in `manifests/dashboard-app.yaml`.
 
-1. Runs the `manage` binary from the `reinhardt-cloud-dashboard` container image
-2. Sets `REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings`
-3. Mounts or injects the settings files (`base.toml`, `local.toml`) or environment overrides
-4. Exposes port 8000 (HTTP) and port 50051 (gRPC) from the same container
+The published Dashboard image contains two runtime binaries:
 
-**Outstanding verification**: whether the HTTP server and gRPC server run in the same process (most likely, based on `dashboard/src/config/grpc.rs` `start_grpc_server` being called from within the `manage runserver` path) needs confirming against the full `manage` command implementation before writing an authoritative install manifest.
+1. `/app/reinhardt-cloud-dashboard` — production server entrypoint for the main container
+2. `/app/manage` — management command binary used by operator init containers for migrations and static collection
+
+The image also:
+
+1. Sets `REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings` at process startup
+2. Bundles Dashboard settings under `/app/settings`
+3. Exposes port 8000 for the HTTP API
 
 ### Database requirements
 
