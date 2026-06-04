@@ -312,7 +312,10 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		instructions.push(Instruction::User("appuser".to_string()));
 	}
 
-	let mut env_pairs = vec![("RUST_LOG".to_string(), "info".to_string())];
+	let mut env_pairs = vec![
+		("RUST_LOG".to_string(), "info".to_string()),
+		("PATH".to_string(), "/app:$PATH".to_string()),
+	];
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
 	}
@@ -762,6 +765,22 @@ mod tests {
 			Instruction::Env(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()),
 			_ => None,
 		})
+	}
+
+	// S10c (Refs #637): operator init containers execute `manage` by
+	// name, so `/app` must be on PATH for `/app/manage` to resolve.
+	#[rstest]
+	fn runtime_stage_adds_app_dir_to_path(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert_eq!(
+			stage_env_value(&stage, "PATH").as_deref(),
+			Some("/app:$PATH"),
+			"runtime stage must add /app to PATH so bare `manage` resolves; \
+			 see kent8192/reinhardt-cloud#637"
+		);
 	}
 
 	// S19 (Refs #372): redis cache installs redis-tools in runtime

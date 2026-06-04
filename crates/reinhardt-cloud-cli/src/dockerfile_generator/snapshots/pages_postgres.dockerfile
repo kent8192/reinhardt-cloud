@@ -38,6 +38,7 @@ COPY --from=builder /app/index.html /app/static/wasm/index.html
 RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser
-ENV RUST_LOG=info
+ENV RUST_LOG=info \
+    PATH=/app:$PATH
 EXPOSE 8000
 ENTRYPOINT ["tini", "--", "/app/my-app"]
