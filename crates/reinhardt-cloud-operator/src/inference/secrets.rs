@@ -41,8 +41,8 @@ pub(crate) fn build_jwt_secret(app_name: &str, namespace: &str) -> Secret {
 /// cannot be populated through the `REINHARDT_*` env-var override path
 /// because `HighPriorityEnvSource` does not expand `__` into nested keys.
 /// Instead, the Secret holds a 256-bit random value, the operator injects
-/// it as `REINHARDT_CLOUD_SECRET_KEY`, and the generated `production.toml`
-/// references it via `${REINHARDT_CLOUD_SECRET_KEY}` interpolation.
+/// it as Secret-backed env vars, and bundled production settings reference
+/// those env vars through `${VAR}` interpolation.
 ///
 /// Generates a 256-bit random key, base64-encodes it, and stores the
 /// result under the `secret-key` data key.

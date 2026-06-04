@@ -1,7 +1,7 @@
 //! Deploy command: deploys an application to the Reinhardt Cloud platform.
 
 use clap::Args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
@@ -212,25 +212,17 @@ fn parse_introspect_output(yaml: &str) -> Result<IntrospectOutput, String> {
 	serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse introspect YAML: {e}"))
 }
 
-/// Runs `manage introspect --format yaml` and returns stdout.
-///
-/// Tries the production binary first, then falls back to
-/// `cargo run -- introspect --format yaml` for development mode.
-fn run_manage_introspect() -> Result<String, String> {
-	// Try production binary first
-	let result = Command::new("manage")
+fn manage_introspect_command(project_dir: &Path) -> Command {
+	let mut command = Command::new("manage");
+	command
 		.args(["introspect", "--format", "yaml"])
-		.output();
+		.current_dir(project_dir);
+	command
+}
 
-	if let Ok(output) = result
-		&& output.status.success()
-	{
-		return String::from_utf8(output.stdout)
-			.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
-	}
-
-	// Fall back to cargo run for development mode
-	let result = Command::new("cargo")
+fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
+	let mut command = Command::new("cargo");
+	command
 		.args([
 			"run",
 			"--bin",
@@ -240,6 +232,27 @@ fn run_manage_introspect() -> Result<String, String> {
 			"--format",
 			"yaml",
 		])
+		.current_dir(project_dir);
+	command
+}
+
+/// Runs `manage introspect --format yaml` and returns stdout.
+///
+/// Tries the production binary first, then falls back to
+/// `cargo run -- introspect --format yaml` for development mode.
+fn run_manage_introspect(project_dir: &Path) -> Result<String, String> {
+	// Try production binary first
+	let result = manage_introspect_command(project_dir).output();
+
+	if let Ok(output) = result
+		&& output.status.success()
+	{
+		return String::from_utf8(output.stdout)
+			.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"));
+	}
+
+	// Fall back to cargo run for development mode
+	let result = cargo_manage_introspect_command(project_dir)
 		.output()
 		.map_err(|e| format!("Failed to run cargo: {e}"))?;
 
@@ -414,7 +427,7 @@ async fn execute_inner(
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
-	let introspect = match run_manage_introspect() {
+	let introspect = match run_manage_introspect(&project_dir) {
 		Ok(yaml_output) => {
 			if args.introspect_only {
 				println!("{yaml_output}");
@@ -766,6 +779,41 @@ features:
 		assert!(result.is_err());
 		let err = result.unwrap_err();
 		assert!(err.starts_with("Failed to parse introspect YAML:"));
+	}
+
+	#[rstest]
+	fn test_manage_introspect_commands_use_project_dir() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+
+		// Act
+		let manage = manage_introspect_command(dir.path());
+		let cargo = cargo_manage_introspect_command(dir.path());
+
+		// Assert
+		assert_eq!(manage.get_current_dir(), Some(dir.path()));
+		assert_eq!(cargo.get_current_dir(), Some(dir.path()));
+		let manage_args: Vec<String> = manage
+			.get_args()
+			.map(|arg| arg.to_string_lossy().into_owned())
+			.collect();
+		assert_eq!(manage_args, vec!["introspect", "--format", "yaml"]);
+		let cargo_args: Vec<String> = cargo
+			.get_args()
+			.map(|arg| arg.to_string_lossy().into_owned())
+			.collect();
+		assert_eq!(
+			cargo_args,
+			vec![
+				"run",
+				"--bin",
+				"manage",
+				"--",
+				"introspect",
+				"--format",
+				"yaml"
+			]
+		);
 	}
 
 	#[rstest]

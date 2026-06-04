@@ -239,8 +239,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 	// Create the per-app `core.secret_key` Secret unconditionally, so every
 	// reinhardt-web app reconciled by this operator can resolve
-	// `core.secret_key` from `production.toml` via the
-	// `${REINHARDT_CLOUD_SECRET_KEY}` env-var interpolation. Use idempotent
+	// `core.secret_key` from `production.toml` via Secret-backed env-var
+	// interpolation. Use idempotent
 	// get-or-create so we never rotate the key on a follow-up reconcile —
 	// rotating the signing key would invalidate every active session and
 	// CSRF token in the running Pod.

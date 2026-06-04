@@ -12,7 +12,7 @@
 #     is registered (v1alpha2).
 #   - The `reinhardt-cloud-system` namespace exists.
 #   - A Secret named `reinhardt-cloud-dashboard-secrets` with keys
-#     `jwt-secret` and `database-url` exists in `reinhardt-cloud-system`.
+#     `email-host` exists in `reinhardt-cloud-system`.
 #
 # See docs/self-hosting.md for the full bootstrap, upgrade, and rollback flow.
 ---
@@ -43,6 +43,12 @@ spec:
     max_replicas: 6
     metric: Cpu
     target_value: 70
+  database:
+    engine: postgresql
+  auth:
+    jwt: true
+  cache:
+    backend: redis
   # Health probe configuration. The operator translates this into
   # readiness/liveness probes on the owned Deployment.
   health:
@@ -57,6 +63,5 @@ spec:
   # secret values are referenced by name and resolved by the operator
   # from the Secret pre-provisioned in this namespace (see prerequisites).
   env:
-    REINHARDT_CLOUD_JWT_SECRET: secretRef:reinhardt-cloud-dashboard-secrets/jwt-secret
-    DATABASE_URL: secretRef:reinhardt-cloud-dashboard-secrets/database-url
+    REINHARDT_EMAIL__HOST: secretRef:reinhardt-cloud-dashboard-secrets/email-host
     GRPC_ENDPOINT: http://reinhardt-cloud-operator.reinhardt-cloud-system.svc.cluster.local:50051
