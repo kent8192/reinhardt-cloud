@@ -19,6 +19,7 @@ kube = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-telemetry = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
+reinhardt = { workspace = true }
 reqwest = { workspace = true }
 rpassword = "7"
 serde = { workspace = true }

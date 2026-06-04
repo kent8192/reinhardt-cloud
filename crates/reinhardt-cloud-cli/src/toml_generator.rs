@@ -37,6 +37,7 @@ pub(crate) fn generate_config(
 
 	Ok(build_config(
 		metadata,
+		db_config,
 		has_database,
 		db_engine,
 		infrastructure,
@@ -61,6 +62,7 @@ pub(crate) fn generate_config_preserving_explicit_infrastructure(
 			let (has_database, db_engine) = resolve_database(metadata, db_config);
 			Ok(build_config(
 				metadata,
+				db_config,
 				has_database,
 				db_engine,
 				Some(infrastructure.clone()),
@@ -84,11 +86,12 @@ fn resolve_database(
 
 fn build_config(
 	metadata: &ProjectMetadata,
+	db_config: Option<&DatabaseConfig>,
 	has_database: bool,
 	db_engine: String,
 	infrastructure: Option<InfrastructureSpec>,
 ) -> ReinhardtCloudToml {
-	ReinhardtCloudToml {
+	let mut config = ReinhardtCloudToml {
 		app: AppSection {
 			name: metadata.name.clone(),
 			image: format!("{}:latest", metadata.name),
@@ -138,7 +141,13 @@ fn build_config(
 		},
 		infrastructure,
 		..Default::default()
+	};
+
+	if let Some(db_config) = db_config {
+		config.env.extend(db_config.deployment_env());
 	}
+
+	config
 }
 
 fn validate_infrastructure(infrastructure: &InfrastructureSpec) -> Result<(), String> {
@@ -250,9 +259,10 @@ mod tests {
 		};
 		let db_config = DatabaseConfig {
 			engine: "mysql".into(),
-			host: "db.local".into(),
-			port: 3306,
+			host: Some("db.local".into()),
+			port: Some(3306),
 			name: "mydb".into(),
+			user: Some("dbuser".into()),
 		};
 
 		// Act
@@ -366,9 +376,10 @@ mod tests {
 		};
 		let db_config = DatabaseConfig {
 			engine: "postgresql".into(),
-			host: "db.local".into(),
-			port: 5432,
+			host: Some("db.local".into()),
+			port: Some(5432),
 			name: "mydb".into(),
+			user: Some("dbuser".into()),
 		};
 
 		// Act
@@ -384,6 +395,22 @@ mod tests {
 				.and_then(|infrastructure| infrastructure.postgres.as_ref())
 				.is_some()
 		);
+		assert_eq!(
+			config
+				.env
+				.get("REINHARDT_DATABASE_HOST")
+				.map(String::as_str),
+			Some("db.local")
+		);
+		assert_eq!(
+			config
+				.env
+				.get("REINHARDT_DATABASE_USER")
+				.map(String::as_str),
+			Some("dbuser")
+		);
+		assert!(!config.env.contains_key("DATABASE_URL"));
+		assert!(!config.env.contains_key("REINHARDT_DATABASE_PASSWORD"));
 	}
 
 	#[rstest]

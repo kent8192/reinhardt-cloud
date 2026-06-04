@@ -6203,6 +6203,7 @@ dependencies = [
  "reinhardt-cloud-core",
  "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
+ "reinhardt-web",
  "reqwest 0.12.28",
  "rpassword",
  "rstest",
