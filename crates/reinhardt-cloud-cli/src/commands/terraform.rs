@@ -3,8 +3,12 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use reinhardt_cloud_types::crd::infrastructure::{
-	BucketSpec, DnsRecordSpec, InfrastructureSpec, PostgresSpec, SecretSpec,
+use reinhardt_cloud_core::infrastructure_derivation::{
+	InfrastructureDerivationInput, derive_infrastructure_spec,
+};
+use reinhardt_cloud_types::crd::{
+	ReinhardtAppSpec,
+	infrastructure::{BucketSpec, DnsRecordSpec, InfrastructureSpec, PostgresSpec, SecretSpec},
 };
 
 /// Supported cloud providers for HCL generation.
@@ -55,6 +59,10 @@ pub(crate) struct GenerateArgs {
 	/// If omitted, a minimal empty InfrastructureSpec is used.
 	#[arg(long, hide = true)]
 	pub(crate) infra_json: Option<String>,
+
+	/// ReinhardtApp YAML manifest. Preferred source for spec.infrastructure.
+	#[arg(long)]
+	pub(crate) app_crd: Option<PathBuf>,
 }
 
 /// Execute the `terraform` subcommand.
@@ -66,7 +74,19 @@ pub(crate) async fn execute(args: &TerraformArgs) -> Result<(), Box<dyn std::err
 
 async fn generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let infra: InfrastructureSpec = match &args.infra_json {
-		Some(json) => serde_json::from_str(json)?,
+		Some(json) => {
+			let infra: InfrastructureSpec = serde_json::from_str(json)?;
+			validate_infrastructure(&infra)
+				.map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
+			infra
+		}
+		None if args.app_crd.is_some() => {
+			let app_crd = args.app_crd.as_ref().expect("app_crd is checked above");
+			let yaml = std::fs::read_to_string(app_crd)?;
+			infrastructure_from_crd_yaml(&args.app, &yaml)
+				.map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?
+				.unwrap_or_default()
+		}
 		None => InfrastructureSpec::default(),
 	};
 
@@ -92,6 +112,75 @@ async fn generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>>
 	);
 
 	Ok(())
+}
+
+fn infrastructure_from_crd_yaml(
+	app: &str,
+	yaml: &str,
+) -> Result<Option<InfrastructureSpec>, String> {
+	let value: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|err| err.to_string())?;
+	let spec_key = serde_yaml::Value::String("spec".to_string());
+	let spec_value = value
+		.as_mapping()
+		.and_then(|mapping| mapping.get(&spec_key))
+		.ok_or_else(|| "ReinhardtApp YAML is missing spec".to_string())?;
+	let spec: ReinhardtAppSpec =
+		serde_yaml::from_value(spec_value.clone()).map_err(|err| err.to_string())?;
+
+	if let Some(infra) = spec.infrastructure {
+		validate_infrastructure(&infra)?;
+		return Ok(Some(infra));
+	}
+
+	if let Some(introspect) = spec.introspect.as_ref() {
+		eprintln!(
+			"warning: spec.infrastructure is absent; deriving from spec.introspect for compatibility. Persist the generated infrastructure block for repeatable Terraform."
+		);
+		let app_name = app.to_owned();
+
+		return derive_infrastructure_spec(InfrastructureDerivationInput {
+			app_name,
+			signals: introspect.features.infrastructure_signals.clone(),
+			explicit: None,
+			typed_secret_refs: typed_secret_refs(&spec),
+		})
+		.map_err(|err| err.to_string());
+	}
+
+	Ok(None)
+}
+
+fn validate_infrastructure(infra: &InfrastructureSpec) -> Result<(), String> {
+	infra.validate().map_err(|errors| {
+		errors
+			.into_iter()
+			.map(|error| error.to_string())
+			.collect::<Vec<_>>()
+			.join("; ")
+	})
+}
+
+fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
+	[
+		spec.auth
+			.as_ref()
+			.and_then(|auth| auth.oauth.as_ref())
+			.and_then(|oauth| oauth.credentials_secret.as_ref()),
+		spec.source
+			.as_ref()
+			.and_then(|source| source.credentials_secret.as_ref()),
+		spec.source
+			.as_ref()
+			.and_then(|source| source.webhook.as_ref())
+			.and_then(|webhook| webhook.secret_ref.as_ref()),
+		spec.mail
+			.as_ref()
+			.and_then(|mail| mail.credentials_secret.as_ref()),
+	]
+	.into_iter()
+	.flatten()
+	.cloned()
+	.collect()
 }
 
 /// Renders the per-app `main.tf` content for the given provider.
@@ -597,5 +686,227 @@ mod tests {
 		assert!(hcl.contains("module \"sample_bucket_uploads\""));
 		assert!(hcl.contains("module \"sample_dns_api_example_com\""));
 		assert!(hcl.contains("module \"sample_secret_db-creds\""));
+	}
+
+	#[rstest]
+	fn extracts_explicit_infrastructure_from_crd_yaml() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  infrastructure:
+    postgres:
+      version: "16"
+      backup_retention_days: 7
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("orders", yaml)
+			.expect("CRD YAML should parse")
+			.expect("explicit infrastructure should be extracted");
+
+		// Assert
+		assert!(infra.postgres.is_some());
+	}
+
+	#[rstest]
+	fn rejects_invalid_explicit_infrastructure_from_crd_yaml() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  infrastructure:
+    buckets:
+      - name: ""
+        public: false
+"#;
+
+		// Act
+		let error = infrastructure_from_crd_yaml("orders", yaml)
+			.expect_err("invalid explicit infrastructure should fail early");
+
+		// Assert
+		assert!(
+			error.contains("infrastructure.buckets[].name must be non-empty"),
+			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn rejects_invalid_infra_json_before_rendering_hcl() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let args = GenerateArgs {
+			app: "orders".to_string(),
+			provider: Provider::Gcp,
+			output: Some(dir.path().to_path_buf()),
+			infra_json: Some(r#"{"buckets":[{"name":"","public":false}]}"#.to_string()),
+			app_crd: None,
+		};
+
+		// Act
+		let error = generate(&args)
+			.await
+			.expect_err("invalid infra JSON should fail early");
+
+		// Assert
+		assert!(
+			error
+				.to_string()
+				.contains("infrastructure.buckets[].name must be non-empty"),
+			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
+	fn falls_back_to_introspect_when_infrastructure_missing() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  introspect:
+    app:
+      name: orders
+    features:
+      infrastructure_signals:
+        database: postgres
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("fallback-app", yaml)
+			.expect("introspect fallback should succeed")
+			.expect("postgres signal should derive infrastructure");
+
+		// Assert
+		assert!(infra.postgres.is_some());
+	}
+
+	#[rstest]
+	fn fallback_uses_cli_app_name_for_bucket_prefixes() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  introspect:
+    app:
+      name: introspected-name
+    features:
+      infrastructure_signals:
+        storage: s3
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("fallback-app", yaml)
+			.expect("introspect fallback should succeed")
+			.expect("storage signal should derive infrastructure");
+
+		// Assert
+		let buckets = infra.buckets.expect("bucket should be derived");
+		assert_eq!(buckets.len(), 1);
+		assert_eq!(buckets[0].name, "fallback-app-assets");
+	}
+
+	#[rstest]
+	fn fallback_preserves_typed_secret_refs() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  auth:
+    jwt: true
+    oauth:
+      provider: github
+      credentials_secret: oauth-creds
+  source:
+    repository: https://github.com/example/orders
+    credentials_secret: git-creds
+    webhook:
+      enabled: true
+      secret_ref: webhook-secret
+      events:
+        - push
+  mail:
+    smtp_host: smtp.example.com
+    smtp_port: 587
+    credentials_secret: mail-creds
+  introspect:
+    app:
+      name: orders
+    features:
+      infrastructure_signals:
+        database: postgres
+"#;
+
+		// Act
+		let infra = infrastructure_from_crd_yaml("orders", yaml)
+			.expect("introspect fallback should succeed")
+			.expect("postgres signal should derive infrastructure");
+
+		// Assert
+		let secret_names: Vec<_> = infra
+			.secrets
+			.expect("typed secret refs should be preserved")
+			.into_iter()
+			.map(|secret| secret.name)
+			.collect();
+		assert_eq!(
+			secret_names,
+			vec![
+				"git-creds".to_string(),
+				"mail-creds".to_string(),
+				"oauth-creds".to_string(),
+				"webhook-secret".to_string()
+			]
+		);
+	}
+
+	#[rstest]
+	fn fallback_fails_on_unsupported_storage() {
+		// Arrange
+		let yaml = r#"
+apiVersion: cloud.reinhardt.dev/v1alpha1
+kind: ReinhardtApp
+metadata:
+  name: orders
+spec:
+  image: ghcr.io/example/orders:latest
+  introspect:
+    app:
+      name: orders
+    features:
+      infrastructure_signals:
+        storage: local
+"#;
+
+		// Act
+		let error =
+			infrastructure_from_crd_yaml("orders", yaml).expect_err("local storage should fail");
+
+		// Assert
+		assert!(
+			error.contains("unsupported managed storage backend `local`"),
+			"unexpected error: {error}"
+		);
 	}
 }
