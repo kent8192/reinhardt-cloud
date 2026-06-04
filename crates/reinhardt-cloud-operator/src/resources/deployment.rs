@@ -627,10 +627,12 @@ mod tests {
 		let init_containers = pod_spec.init_containers.unwrap();
 		assert_eq!(init_containers.len(), 1);
 		assert_eq!(init_containers[0].name, "migrate");
-		assert_eq!(
-			init_containers[0].command.as_ref().unwrap().last().unwrap(),
-			"--run"
-		);
+		let expected_command = vec![
+			"manage".to_string(),
+			"migrate".to_string(),
+			"--run".to_string(),
+		];
+		assert_eq!(init_containers[0].command.as_ref(), Some(&expected_command));
 	}
 
 	#[rstest]
@@ -869,8 +871,16 @@ mod tests {
 		let inits = pod_spec.init_containers.unwrap();
 
 		// Assert
-		let collectstatic = inits.iter().find(|c| c.name == "collectstatic");
-		assert!(collectstatic.is_some());
+		let collectstatic = inits
+			.iter()
+			.find(|c| c.name == "collectstatic")
+			.expect("collectstatic init container should be present");
+		let expected_command = vec![
+			"manage".to_string(),
+			"collectstatic".to_string(),
+			"--noinput".to_string(),
+		];
+		assert_eq!(collectstatic.command.as_ref(), Some(&expected_command));
 	}
 
 	#[rstest]
