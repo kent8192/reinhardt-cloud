@@ -54,7 +54,10 @@ when no in-cluster Operator is already installed, generates the Dashboard
 `ReinhardtApp` with `reinhardt-cloud deploy --dir dashboard --dry-run`, requires
 Dashboard `manage introspect` to succeed, applies the same contract through
 `--direct`, waits for the Operator-owned Deployment, Service, cache/database
-resources, Pods, and live `ReinhardtApp`, then removes the temporary namespace.
+resources, Pods, and live `ReinhardtApp`, seeds an active Dashboard user with
+its Personal Organization, verifies login through the deployed frontend server
+function, checks authenticated Dashboard pages, then removes the temporary
+namespace.
 
 Useful overrides:
 
@@ -74,12 +77,19 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_ARTIFACT_DIR` | `target/dashboard-self-deploy-e2e/<namespace>` | Failure diagnostics and generated YAML. |
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
 | `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context | Explicit `kind load docker-image` target. |
+| `DASHBOARD_SELF_DEPLOY_E2E_USERNAME` | `e2e-user` | Username seeded inside the deployed Dashboard Pod for authenticated flow checks. |
+| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | `e2e-password-123456` | Password assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_E2E_EMAIL` | `e2e@example.test` | Email assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT` | `18080` | Local port used for Dashboard health, login, and authenticated page checks. |
+| `DASHBOARD_SELF_DEPLOY_ORIGIN` | `http://127.0.0.1:8000` | Origin/Referer used for server function POSTs. The default matches the CI `OriginGuardMiddleware` allow-list. |
 
 On failure the harness writes events, live `ReinhardtApp` YAML, owned resource
 YAML, Pod logs, Operator logs, and the generated CRD YAML under the artifact
-directory before cleanup. This harness validates the generated-config →
-`--direct` → Operator reconciliation contract. The Dashboard → Agent relay is
-still limited as described in [Known limitations](#known-limitations).
+directory before cleanup. Login responses, cookies, and authenticated page
+responses are also preserved there. This harness validates the generated-config
+→ `--direct` → Operator reconciliation → authenticated Dashboard contract. The
+Dashboard → Agent relay is still limited as described in
+[Known limitations](#known-limitations).
 
 ## 1. Bring up a local Kubernetes cluster
 

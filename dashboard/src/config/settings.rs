@@ -184,12 +184,12 @@ async fn create_project_settings() -> ProjectSettings {
 /// Get Redis URL from settings or environment.
 ///
 /// Priority (highest to lowest):
-/// 1. `redis_url` key in the active TOML settings file
-/// 2. `REINHARDT_CLOUD_REDIS_URL` environment variable (fallback for CI/container overrides)
+/// 1. `REINHARDT_CLOUD_REDIS_URL` environment variable (container/operator override)
+/// 2. `redis_url` key in the active TOML settings file
 ///
 /// Returns `None` if the Redis URL is not configured in either source.
 pub fn get_redis_url() -> Option<String> {
-	get_top_level_string("redis_url", "REINHARDT_CLOUD_REDIS_URL")
+	get_env_or_top_level_string("REINHARDT_CLOUD_REDIS_URL", "redis_url")
 }
 
 /// Get the JWT signing secret from settings or environment.
@@ -232,6 +232,17 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	}
 
 	env::var(env_var).ok()
+}
+
+/// Resolve an environment variable with a top-level TOML string fallback.
+///
+/// Containerized deployments inject runtime infrastructure endpoints after
+/// TOML settings are selected, so these env vars must be able to override
+/// profile defaults such as `ci.toml`.
+fn get_env_or_top_level_string(env_var: &str, key: &str) -> Option<String> {
+	env::var(env_var)
+		.ok()
+		.or_else(|| get_top_level_string(key, env_var))
 }
 
 #[cfg(test)]
@@ -447,6 +458,33 @@ allow_origins = ["http://localhost:8000"]
 		// Assert
 		assert!(secret.is_some(), "expected jwt_secret from local.toml");
 		assert!(!secret.unwrap().is_empty());
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_get_redis_url_prefers_runtime_env_over_profile_toml() {
+		// Arrange — `ci.toml` contains a localhost Redis fallback, but deployed
+		// pods receive the real Redis endpoint from the operator at runtime.
+		let watched = [
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CLOUD_REDIS_URL",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::remove_var("REINHARDT_CLOUD_CONFIG_DIR");
+			env::set_var("REINHARDT_ENV", "ci");
+			env::set_var("REINHARDT_CLOUD_REDIS_URL", "redis://operator-redis:6379/0");
+		}
+
+		// Act
+		let redis_url = get_redis_url();
+
+		// Assert
+		assert_eq!(redis_url.as_deref(), Some("redis://operator-redis:6379/0"));
 	}
 
 	/// `production.toml` rewritten in #588 must fail-fast at startup if any
