@@ -947,6 +947,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
+name = "camino"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e629a66d692cb9ff1a1c664e41771b3dcaf961985a9774c0eb0bd1b51cf60a48"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef987d17b0a113becdd19d3d0022d04d7ef41f9efe4f3fb63ac44ba61df3ade9"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5330,7 +5363,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "reinhardt-admin"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5381,7 +5414,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-apps"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5411,7 +5444,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5458,7 +5491,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5752,9 +5785,10 @@ dependencies = [
 [[package]]
 name = "reinhardt-commands"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
+ "cargo_metadata",
  "chrono",
  "clap",
  "colored",
@@ -5808,7 +5842,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-conf"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5836,7 +5870,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-core"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "aquamarine 0.6.0",
@@ -5882,7 +5916,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-db"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
@@ -5935,7 +5969,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5959,7 +5993,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -5970,7 +6004,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-forms"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "aquamarine 0.5.0",
@@ -5987,7 +6021,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-http"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6008,7 +6042,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "ctor 0.8.0",
  "inventory",
@@ -6022,7 +6056,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-mail"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6043,7 +6077,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-manouche"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
@@ -6056,7 +6090,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-middleware"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6089,7 +6123,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "reinhardt-http",
@@ -6101,7 +6135,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6112,7 +6146,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "aquamarine 0.5.0",
  "async-trait",
@@ -6155,7 +6189,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-ast"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
@@ -6169,7 +6203,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "convert_case",
  "darling 0.20.11",
@@ -6183,7 +6217,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6197,7 +6231,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -6208,7 +6242,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-rest"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6258,12 +6292,12 @@ dependencies = [
 [[package]]
 name = "reinhardt-router"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 
 [[package]]
 name = "reinhardt-routers-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6273,7 +6307,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-server"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6294,7 +6328,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-shortcuts"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "bytes",
  "hyper",
@@ -6312,7 +6346,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-test"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "cfg_aliases",
  "reinhardt-auth",
@@ -6332,7 +6366,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "astral-tokio-tar",
  "async-dropper",
@@ -6389,7 +6423,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6399,7 +6433,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-throttling"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -6410,7 +6444,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-urls"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -6444,7 +6478,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-utils"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6480,7 +6514,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-views"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6515,7 +6549,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-web"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6556,7 +6590,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-websockets"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#b5bae75a5a3f93b42960e756304d01770b3c23c3"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#5b97f2727752c6a8375631ab25167e8c980b47d8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7182,6 +7216,10 @@ name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+dependencies = [
+ "serde",
+ "serde_core",
+]
 
 [[package]]
 name = "serde"
