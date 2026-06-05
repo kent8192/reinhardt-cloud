@@ -16,6 +16,8 @@ OPERATOR_MODE="${DASHBOARD_SELF_DEPLOY_OPERATOR_MODE:-auto}"
 OPERATOR_METRICS_ADDR="${DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR:-127.0.0.1:19090}"
 OPERATOR_BIN="${DASHBOARD_SELF_DEPLOY_OPERATOR_BIN:-${ROOT_DIR}/target/debug/reinhardt-cloud-operator}"
 CLI_BIN="${DASHBOARD_SELF_DEPLOY_CLI_BIN:-${ROOT_DIR}/target/debug/reinhardt-cloud}"
+MANAGE_BIN="${DASHBOARD_SELF_DEPLOY_MANAGE_BIN:-${ROOT_DIR}/target/debug/manage}"
+MANAGE_ENV="${DASHBOARD_SELF_DEPLOY_REINHARDT_ENV:-${REINHARDT_ENV:-ci}}"
 RUNTIME_SECRET="${DASHBOARD_SELF_DEPLOY_RUNTIME_SECRET:-reinhardt-cloud-dashboard-secrets}"
 KUBECTL_CONTEXT="${DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT:-}"
 KIND_CLUSTER="${DASHBOARD_SELF_DEPLOY_KIND_CLUSTER:-}"
@@ -185,11 +187,18 @@ build_dashboard_image() {
 
 build_local_binaries() {
 	local packages=()
+	local build_manage=0
 
 	if [[ -z "${DASHBOARD_SELF_DEPLOY_CLI_BIN:-}" ]]; then
 		packages+=(-p reinhardt-cloud-cli)
 	else
 		log "using CLI binary ${CLI_BIN}"
+	fi
+
+	if [[ -z "${DASHBOARD_SELF_DEPLOY_MANAGE_BIN:-}" ]]; then
+		build_manage=1
+	else
+		log "using dashboard manage binary ${MANAGE_BIN}"
 	fi
 
 	if [[ -z "${DASHBOARD_SELF_DEPLOY_OPERATOR_BIN:-}" && "${OPERATOR_MODE}" != "existing" && "${OPERATOR_MODE}" != "skip" ]]; then
@@ -198,15 +207,21 @@ build_local_binaries() {
 		log "using operator binary ${OPERATOR_BIN}"
 	fi
 
-	if [[ "${#packages[@]}" -eq 0 ]]; then
-		return
+	if [[ "${#packages[@]}" -ne 0 ]]; then
+		log "building local cloud binaries"
+		(
+			cd "${ROOT_DIR}"
+			cargo build --locked "${packages[@]}"
+		)
 	fi
 
-	log "building local binaries"
-	(
-		cd "${ROOT_DIR}"
-		cargo build --locked "${packages[@]}"
-	)
+	if [[ "${build_manage}" == "1" ]]; then
+		log "building dashboard manage binary"
+		(
+			cd "${ROOT_DIR}"
+			cargo build --locked -p reinhardt-cloud-dashboard --bin manage
+		)
+	fi
 }
 
 operator_deployment_exists() {
@@ -259,11 +274,14 @@ generate_reinhardt_app_yaml() {
 	log "generating dry-run ReinhardtApp YAML"
 	(
 		cd "${ROOT_DIR}"
+		export REINHARDT_ENV="${MANAGE_ENV}"
 		"${CLI_BIN}" deploy \
 			--dir "${PROJECT_DIR}" \
 			--name "${APP_NAME}" \
 			--image "${IMAGE}" \
 			--namespace "${NAMESPACE}" \
+			--manage-bin "${MANAGE_BIN}" \
+			--require-introspect \
 			--dry-run
 	) >"${DRY_RUN_YAML}"
 
@@ -274,11 +292,14 @@ apply_reinhardt_app_direct() {
 	log "applying ReinhardtApp through the CLI --direct path"
 	(
 		cd "${ROOT_DIR}"
+		export REINHARDT_ENV="${MANAGE_ENV}"
 		"${CLI_BIN}" deploy \
 			--dir "${PROJECT_DIR}" \
 			--name "${APP_NAME}" \
 			--image "${IMAGE}" \
 			--namespace "${NAMESPACE}" \
+			--manage-bin "${MANAGE_BIN}" \
+			--require-introspect \
 			"${cli_cluster_args[@]}" \
 			--direct
 	)
@@ -379,6 +400,7 @@ main() {
 	log "namespace=${NAMESPACE}"
 	log "app=${APP_NAME}"
 	log "image=${IMAGE}"
+	log "manage-env=${MANAGE_ENV}"
 	log "artifacts=${ARTIFACT_DIR}"
 	export REINHARDT_CLOUD_DEPLOY_INTROSPECT_TIMEOUT_SECONDS="${INTROSPECT_TIMEOUT_SECONDS}"
 

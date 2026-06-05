@@ -232,6 +232,7 @@ Build a `ReinhardtApp` CRD from `reinhardt-cloud.toml` and apply it.
 ```
 reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
                        [--dir <PATH>] [--namespace <NS>] [--cluster <NAME>]
+                       [--manage-bin <PATH>] [--require-introspect]
                        [--dry-run] [--direct] [--introspect-only]
 ```
 
@@ -248,6 +249,8 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 | `--dry-run` | — | no | `false` | Print the generated CRD YAML to stdout without applying. |
 | `--direct` | — | no | `false` | Skip the platform API; apply the CRD directly via `kubectl apply`. |
 | `--introspect-only` | — | no | `false` | Run `manage introspect --format yaml`, print the output, and exit without deploying. |
+| `--manage-bin <PATH>` | — | no | — | Use a specific project `manage` binary for introspection instead of PATH or `cargo run` discovery. |
+| `--require-introspect` | — | no | `false` | Fail deploy when `manage introspect` fails instead of continuing with zero-config inference. Useful for CI and self-deploy contract checks. |
 | `--api-version <GROUP/VERSION>` | — | no | Served CRD storage version for `--direct`; compile-time default otherwise | Override the generated manifest `apiVersion`. Must be fully qualified, for example `paas.reinhardt-cloud.dev/v1alpha2`. |
 
 \* `--name` and `--image` are required at runtime if they cannot be resolved from `manage introspect` output or `reinhardt-cloud.toml` (see resolution order below).
@@ -258,6 +261,8 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 2. `manage introspect --format yaml` output (`IntrospectOutput`)
 3. `reinhardt-cloud.toml` (`ReinhardtCloudToml`)
 4. Built-in default: `replicas = 1`
+
+For introspection, `deploy` uses `--manage-bin` when provided, then a `manage` binary in the project directory, then `manage` on `PATH`, and finally `cargo run --bin manage -- introspect --format yaml` for development checkouts. Pass `--require-introspect` when a fallback manifest would hide a broken management command.
 
 When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ReinhardtAppSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, `infrastructure`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
 
@@ -313,7 +318,7 @@ The `crd` command reference (covered in a later section of this guide) explains 
 - **`failed to run kubectl (is it installed?): ...`** — `--direct` was used but `kubectl` is not on `PATH`. Install `kubectl` and ensure it is accessible.
 - **`kubectl apply failed: ...`** — The apply was rejected by the API server. Common causes: the `ReinhardtApp` CRD is not installed in the cluster (`kubectl apply -f charts/reinhardt-cloud-operator/crds/`), the namespace does not exist, or the resource spec violates a validation rule. Inspect the `kubectl` error message for the specific field that failed.
 - **`failed to deploy via API: ...`** — The platform API returned an error or was unreachable. Check that `REINHARDT_CLOUD_API_URL` is set correctly and the Dashboard server is running. The default is `http://localhost:8000`.
-- **`manage introspect failed: ...` warning, then deploy continues** — `deploy` treats introspect failure as non-fatal. If the deploy then fails with `--name is required`, run `reinhardt-cloud deploy --introspect-only` to diagnose the introspect error separately before retrying.
+- **`manage introspect failed: ...` warning, then deploy continues** — `deploy` treats introspect failure as non-fatal unless `--require-introspect` is set. If the deploy then fails with `--name is required`, run `reinhardt-cloud deploy --introspect-only` to diagnose the introspect error separately before retrying. In CI, pass `--require-introspect` so fallback manifests cannot mask a broken management command.
 - **`replicas value N exceeds i32::MAX`** — The `--replicas` value is larger than `2147483647`. Use a sane replica count.
 
 ---
@@ -814,7 +819,7 @@ This table lists all flags accepted by each command.
 |---------|-------|
 | `init` | `--dir`, `--force` |
 | `sync` | `--dir`, `--force` |
-| `deploy` | `--name`, `--image`, `--replicas`, `--dir`, `--namespace`, `--cluster`, `--dry-run`, `--direct`, `--introspect-only` |
+| `deploy` | `--name`, `--image`, `--replicas`, `--dir`, `--namespace`, `--cluster`, `--dry-run`, `--direct`, `--introspect-only`, `--manage-bin`, `--require-introspect` |
 | `status` | `--name`, `--namespace`, `--cluster` |
 | `login` | `--username` |
 | `terraform generate` | `--app`, `--provider`, `--output`, `--app-crd` |
