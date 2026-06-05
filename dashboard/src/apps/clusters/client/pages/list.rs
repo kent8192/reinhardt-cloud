@@ -37,7 +37,9 @@ fn alert(error: Signal<Option<String>>) -> Page {
 					page!(|message: String| {
 						div {
 							class: "rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700",
-							{ self::format_server_error(&message) }
+							{
+								self::format_server_error(&message)
+							}
 						}
 					})(message)
 				})
@@ -189,21 +191,7 @@ pub fn clusters_list_page() -> Page {
 
 	let health = cluster_health_container();
 
-	page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>,
-			create_view: Page,
-			create_error: Signal<Option<String>>,
-			create_submitting: Signal<bool>,
-			edit_view: Page,
-			edit_error: Signal<Option<String>>,
-			edit_dirty: Signal<bool>,
-			edit_submitting: Signal<bool>,
-			delete_view: Page,
-			delete_error: Signal<Option<String>>,
-			delete_submitting: Signal<bool>,
-			rotate_view: Page,
-			rotate_error: Signal<Option<String>>,
-			rotate_submitting: Signal<bool>,
-			health: Page| {
+	page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, health: Page| {
 		div {
 			class: "min-h-screen bg-gray-50",
 			div {
@@ -211,10 +199,20 @@ pub fn clusters_list_page() -> Page {
 				div {
 					class: "mb-6 flex items-center justify-between",
 					div {
-						h1 { class: "text-2xl font-semibold text-gray-950", "Clusters" }
-						p { class: "mt-1 text-sm text-gray-600", "Registered Kubernetes clusters and agent health." }
+						h1 {
+							class: "text-2xl font-semibold text-gray-950",
+							"Clusters"
+						}
+						p {
+							class: "mt-1 text-sm text-gray-600",
+							"Registered Kubernetes clusters and agent health."
+						}
 					}
-					a { href: "/deployments".to_string(), class: "text-sm font-medium text-blue-700 hover:underline", "Deployments" }
+					a {
+						href: "/deployments".to_string(),
+						class: "text-sm font-medium text-blue-700 hover:underline",
+						"Deployments"
+					}
 				}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_360px]",
@@ -222,40 +220,99 @@ pub fn clusters_list_page() -> Page {
 						class: "space-y-6",
 						section {
 							class: "rounded border border-gray-200 bg-white",
-							div { class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700", "Cluster Inventory" }
+							div {
+								class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700",
+								"Cluster Inventory"
+							}
 							{
 								match clusters.get() {
 									ResourceState::Loading => page!(|| {
-										div { class: "px-4 py-8 text-sm text-gray-500", "Loading clusters..." }
+										div {
+											class: "px-4 py-8 text-sm text-gray-500",
+											"Loading clusters..."
+										}
 									})(),
 									ResourceState::Error(message) => page!(|message: String| {
-										div { class: "px-4 py-8 text-sm text-red-700", { self::format_server_error(&message) } }
+										div {
+											class: "px-4 py-8 text-sm text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
 									})(message),
 									ResourceState::Success(items) => {
 										if items.is_empty() {
-											page!(|| { div { class: "px-4 py-8 text-sm text-gray-500", "No clusters registered." } })()
+											page!(|| {
+												div {
+													class: "px-4 py-8 text-sm text-gray-500",
+													"No clusters registered."
+												}
+											})()
 										} else {
 											page!(|items: Vec<ClusterInfo>| {
-												div { class: "overflow-x-auto",
-													table { class: "min-w-full divide-y divide-gray-200 text-sm",
-														thead { class: "bg-gray-50",
+												div {
+													class: "overflow-x-auto",
+													table {
+														class: "min-w-full divide-y divide-gray-200 text-sm",
+														thead {
+															class: "bg-gray-50",
 															tr {
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "ID" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Name" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "API URL" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Active" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Token Rotated" }
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"ID"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Name"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"API URL"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Active"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Token Rotated"
+																}
 															}
 														}
-														tbody { class: "divide-y divide-gray-100 bg-white",
+														tbody {
+															class: "divide-y divide-gray-100 bg-white",
 															{
 																items.clone().into_iter().map(|cluster| page!(|cluster: ClusterInfo| {
 																	tr {
-																		td { class: "px-4 py-2 font-mono text-xs text-gray-700", { cluster.id.to_string() } }
-																		td { class: "px-4 py-2 font-medium text-gray-950", { cluster.name } }
-																		td { class: "px-4 py-2 text-gray-600", { cluster.api_url } }
-																		td { class: "px-4 py-2", span { class: if cluster.is_active { "rounded bg-green-100 px-2 py-0.5 text-xs text-green-800" } else { "rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700" }, { if cluster.is_active { "Active" } else { "Inactive" } } } }
-																		td { class: "px-4 py-2 text-gray-500", { cluster.token_last_rotated_at.clone().unwrap_or_else(|| "never".to_string()) } }
+																		td {
+																			class: "px-4 py-2 font-mono text-xs text-gray-700",
+																			{
+																				cluster.id.to_string()
+																			}
+																		}
+																		td {
+																			class: "px-4 py-2 font-medium text-gray-950",
+																			{ cluster.name }
+																		}
+																		td {
+																			class: "px-4 py-2 text-gray-600",
+																			{ cluster.api_url }
+																		}
+																		td {
+																			class: "px-4 py-2",
+																			span {
+																				class: if cluster.is_active { "rounded bg-green-100 px-2 py-0.5 text-xs text-green-800" } else { "rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700" },
+																				{
+																					if cluster.is_active { "Active" } else { "Inactive" }
+																				}
+																			}
+																		}
+																		td {
+																			class: "px-4 py-2 text-gray-500",
+																			{
+																				cluster.token_last_rotated_at.clone().unwrap_or_else(||"never".to_string())
+																			}
+																		}
 																	}
 																})(cluster)).collect::<Vec<_>>()
 															}
@@ -270,35 +327,108 @@ pub fn clusters_list_page() -> Page {
 						}
 						section {
 							class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Agent Health" }
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Agent Health"
+							}
 							{ health }
 						}
 					}
 					aside {
 						class: "space-y-4",
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Create Cluster" }
-							{ self::alert(create_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Create Cluster"
+							}
+							{
+								self::alert(create_error.clone())
+							}
 							{ create_view }
-							{ if create_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Submitting..." } })() } else { Page::Empty } }
+							{
+								if create_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Submitting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Edit Cluster" }
-							p { class: "mb-3 text-xs text-gray-500", "Enter an ID from the table, then submit updated values." }
-							{ self::alert(edit_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Edit Cluster"
+							}
+							p {
+								class: "mb-3 text-xs text-gray-500",
+								"Enter an ID from the table, then submit updated values."
+							}
+							{
+								self::alert(edit_error.clone())
+							}
 							{ edit_view }
-							{ if edit_dirty.get() { page!(|| { p { class: "mt-2 text-xs text-amber-700", "Unsaved changes" } })() } else { Page::Empty } }
-							{ if edit_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Submitting..." } })() } else { Page::Empty } }
+							{
+								if edit_dirty.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-amber-700",
+											"Unsaved changes"
+										}
+									})()
+								} else { Page::Empty }
+							}
+							{
+								if edit_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Submitting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Token / Delete" }
-							{ self::alert(rotate_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Token / Delete"
+							}
+							{
+								self::alert(rotate_error.clone())
+							}
 							{ rotate_view }
-							{ if rotate_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Rotating..." } })() } else { Page::Empty } }
-							div { class: "my-4 border-t border-gray-200" }
-							{ self::alert(delete_error.clone()) }
+							{
+								if rotate_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Rotating..."
+										}
+									})()
+								} else { Page::Empty }
+							}
+							div {
+								class: "my-4 border-t border-gray-200"
+							}
+							{
+								self::alert(delete_error.clone())
+							}
 							{ delete_view }
-							{ if delete_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Deleting..." } })() } else { Page::Empty } }
+							{
+								if delete_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Deleting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
 					}
 				}

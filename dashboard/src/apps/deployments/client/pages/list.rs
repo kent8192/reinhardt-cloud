@@ -49,7 +49,9 @@ fn alert(error: Signal<Option<String>>) -> Page {
 					page!(|message: String| {
 						div {
 							class: "rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700",
-							{ self::format_server_error(&message) }
+							{
+								self::format_server_error(&message)
+							}
 						}
 					})(message)
 				})
@@ -237,21 +239,7 @@ pub fn deployments_list_page() -> Page {
 
 	let logs = log_viewer_container();
 
-	page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>,
-			create_view: Page,
-			create_error: Signal<Option<String>>,
-			create_submitting: Signal<bool>,
-			edit_view: Page,
-			edit_error: Signal<Option<String>>,
-			edit_dirty: Signal<bool>,
-			edit_submitting: Signal<bool>,
-			status_view: Page,
-			status_error: Signal<Option<String>>,
-			status_submitting: Signal<bool>,
-			delete_view: Page,
-			delete_error: Signal<Option<String>>,
-			delete_submitting: Signal<bool>,
-			logs: Page| {
+	page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, logs: Page| {
 		div {
 			class: "min-h-screen bg-gray-50",
 			div {
@@ -259,58 +247,127 @@ pub fn deployments_list_page() -> Page {
 				div {
 					class: "mb-6 flex items-center justify-between",
 					div {
-						h1 { class: "text-2xl font-semibold text-gray-950", "Deployments" }
-						p { class: "mt-1 text-sm text-gray-600", "Applications deployed through Reinhardt Cloud." }
+						h1 {
+							class: "text-2xl font-semibold text-gray-950",
+							"Deployments"
+						}
+						p {
+							class: "mt-1 text-sm text-gray-600",
+							"Applications deployed through Reinhardt Cloud."
+						}
 					}
-					a { href: "/clusters".to_string(), class: "text-sm font-medium text-blue-700 hover:underline", "Clusters" }
+					a {
+						href: "/clusters".to_string(),
+						class: "text-sm font-medium text-blue-700 hover:underline",
+						"Clusters"
+					}
 				}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_380px]",
-					div { class: "space-y-6",
-						section { class: "rounded border border-gray-200 bg-white",
-							div { class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700", "Deployment Inventory" }
+					div {
+						class: "space-y-6",
+						section {
+							class: "rounded border border-gray-200 bg-white",
+							div {
+								class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700",
+								"Deployment Inventory"
+							}
 							{
 								match deployments.get() {
 									ResourceState::Loading => page!(|| {
-										div { class: "px-4 py-8 text-sm text-gray-500", "Loading deployments..." }
+										div {
+											class: "px-4 py-8 text-sm text-gray-500",
+											"Loading deployments..."
+										}
 									})(),
 									ResourceState::Error(message) => page!(|message: String| {
-										div { class: "px-4 py-8 text-sm text-red-700", { self::format_server_error(&message) } }
+										div {
+											class: "px-4 py-8 text-sm text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
 									})(message),
 									ResourceState::Success(items) => {
 										self::track_visible_deployments(&items);
 										if items.is_empty() {
-											page!(|| { div { class: "px-4 py-8 text-sm text-gray-500", "No deployments created." } })()
+											page!(|| {
+												div {
+													class: "px-4 py-8 text-sm text-gray-500",
+													"No deployments created."
+												}
+											})()
 										} else {
 											page!(|items: Vec<DeploymentInfo>| {
-												div { class: "overflow-x-auto",
-													table { class: "min-w-full divide-y divide-gray-200 text-sm",
-														thead { class: "bg-gray-50",
+												div {
+													class: "overflow-x-auto",
+													table {
+														class: "min-w-full divide-y divide-gray-200 text-sm",
+														thead {
+															class: "bg-gray-50",
 															tr {
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "ID" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "App" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Cluster" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Status" }
-																th { class: "px-4 py-2 text-left font-medium text-gray-600", "Image" }
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"ID"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"App"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Cluster"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Status"
+																}
+																th {
+																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	"Image"
+																}
 															}
 														}
-														tbody { class: "divide-y divide-gray-100 bg-white",
+														tbody {
+															class: "divide-y divide-gray-100 bg-white",
 															{
 																items.clone().into_iter().map(|deployment| page!(|deployment: DeploymentInfo| {
 																	tr {
 																		data_deployment_id: deployment.id.to_string(),
-																		td { class: "px-4 py-2 font-mono text-xs text-gray-700", { deployment.id.to_string() } }
-																		td { class: "px-4 py-2 font-medium text-gray-950", { deployment.app_name.clone() } }
-																		td { class: "px-4 py-2 font-mono text-xs text-gray-700", { deployment.cluster_id.to_string() } }
-																		td { class: "px-4 py-2",
+																		td {
+																			class: "px-4 py-2 font-mono text-xs text-gray-700",
 																			{
-																				let (color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
+																				deployment.id.to_string()
+																			}
+																		}
+																		td {
+																			class: "px-4 py-2 font-medium text-gray-950",
+																			{
+																				deployment.app_name.clone()
+																			}
+																		}
+																		td {
+																			class: "px-4 py-2 font-mono text-xs text-gray-700",
+																			{
+																				deployment.cluster_id.to_string()
+																			}
+																		}
+																		td {
+																			class: "px-4 py-2",
+																			{
+																				let(color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
 																				page!(|color: &'static str, label: &'static str| {
-																					span { class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {color}"), { label } }
+																					span {
+																						class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {color}"),
+																						{ label }
+																					}
 																				})(color, label)
 																			}
 																		}
-																		td { class: "max-w-xs truncate px-4 py-2 text-gray-600", { deployment.image } }
+																		td {
+																			class: "max-w-xs truncate px-4 py-2 text-gray-600",
+																			{ deployment.image }
+																		}
 																	}
 																})(deployment)).collect::<Vec<_>>()
 															}
@@ -323,36 +380,110 @@ pub fn deployments_list_page() -> Page {
 								}
 							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Live Logs" }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Live Logs"
+							}
 							{ logs }
 						}
 					}
-					aside { class: "space-y-4",
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Create Deployment" }
-							{ self::alert(create_error.clone()) }
+					aside {
+						class: "space-y-4",
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Create Deployment"
+							}
+							{
+								self::alert(create_error.clone())
+							}
 							{ create_view }
-							{ if create_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Submitting..." } })() } else { Page::Empty } }
+							{
+								if create_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Submitting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Edit Deployment" }
-							{ self::alert(edit_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Edit Deployment"
+							}
+							{
+								self::alert(edit_error.clone())
+							}
 							{ edit_view }
-							{ if edit_dirty.get() { page!(|| { p { class: "mt-2 text-xs text-amber-700", "Unsaved changes" } })() } else { Page::Empty } }
-							{ if edit_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Submitting..." } })() } else { Page::Empty } }
+							{
+								if edit_dirty.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-amber-700",
+											"Unsaved changes"
+										}
+									})()
+								} else { Page::Empty }
+							}
+							{
+								if edit_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Submitting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Status" }
-							{ self::alert(status_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Status"
+							}
+							{
+								self::alert(status_error.clone())
+							}
 							{ status_view }
-							{ if status_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Updating..." } })() } else { Page::Empty } }
+							{
+								if status_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Updating..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
-						section { class: "rounded border border-gray-200 bg-white p-4",
-							h2 { class: "mb-3 text-sm font-semibold text-gray-900", "Delete" }
-							{ self::alert(delete_error.clone()) }
+						section {
+							class: "rounded border border-gray-200 bg-white p-4",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-gray-900",
+								"Delete"
+							}
+							{
+								self::alert(delete_error.clone())
+							}
 							{ delete_view }
-							{ if delete_submitting.get() { page!(|| { p { class: "mt-2 text-xs text-gray-500", "Deleting..." } })() } else { Page::Empty } }
+							{
+								if delete_submitting.get() {
+									page!(|| {
+										p {
+											class: "mt-2 text-xs text-gray-500",
+											"Deleting..."
+										}
+									})()
+								} else { Page::Empty }
+							}
 						}
 					}
 				}
