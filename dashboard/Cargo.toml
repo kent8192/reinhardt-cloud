@@ -38,6 +38,12 @@ reinhardt = { workspace = true }
 # Direct dependency on reinhardt-auth so we can enable the `social` feature,
 # which is not exposed through the reinhardt meta-crate's auth-* features.
 reinhardt-auth = { package = "reinhardt-auth", git = "https://github.com/kent8192/reinhardt-web", branch = "develop/0.2.0", features = ["social"] }
+# Runserver hook types live behind the command crate's server feature.
+reinhardt-commands = { package = "reinhardt-commands", git = "https://github.com/kent8192/reinhardt-web", branch = "develop/0.2.0", default-features = false, features = ["server"] }
+# Static resolver configuration is provided by reinhardt-utils; enabling the
+# umbrella crate's static-files feature would make deploy fallback infer
+# managed object storage for this local dashboard asset path.
+reinhardt-utils = { package = "reinhardt-utils", git = "https://github.com/kent8192/reinhardt-web", branch = "develop/0.2.0", default-features = false, features = ["staticfiles"] }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }

@@ -236,7 +236,7 @@ pub async fn routes(
 #[cfg(native)]
 fn initialize_dashboard_static_resolver() {
 	reinhardt::pages::init_static_resolver(
-		reinhardt::utils::staticfiles::TemplateStaticConfig::new(
+		reinhardt_utils::staticfiles::TemplateStaticConfig::new(
 			DASHBOARD_STATIC_URL_PREFIX.to_string(),
 		),
 	);

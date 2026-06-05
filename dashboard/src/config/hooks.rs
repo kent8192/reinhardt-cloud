@@ -9,8 +9,8 @@
 use std::error::Error;
 
 use async_trait::async_trait;
-use reinhardt::commands::{RunserverContext, RunserverHook, RunserverHookRegistration};
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
+use reinhardt_commands::{RunserverContext, RunserverHook, RunserverHookRegistration};
 
 use super::grpc::start_grpc_server;
 use super::settings::get_redis_url;
