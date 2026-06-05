@@ -8,11 +8,11 @@ use crate::shared::UserInfo;
 ///
 /// Authentication is handled by the cookie session middleware which
 /// validates the `sessionid` cookie and sets `AuthState` in request
-/// extensions. `AuthUser<User>` resolves the full user model from
+/// extensions. `CurrentUser<User>` resolves the full user model from
 /// the database via dependency injection.
 #[server_fn]
 pub async fn me(
-	#[inject] reinhardt::AuthUser(user): reinhardt::AuthUser<crate::apps::auth::models::User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<UserInfo, ServerFnError> {
 	Ok(UserInfo::from(&user))
 }

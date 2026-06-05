@@ -34,6 +34,11 @@ pub fn log_viewer_container() -> Page {
 	})()
 }
 
+#[cfg(not(wasm))]
+pub fn log_viewer_container() -> reinhardt::pages::component::Page {
+	reinhardt::pages::component::Page::Empty
+}
+
 /// Append an application log line to the viewer.
 #[cfg(wasm)]
 pub fn append(payload: AppLogPayload) {

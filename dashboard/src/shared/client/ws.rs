@@ -131,6 +131,19 @@ pub fn connect_notifications() {
 	on_close.forget();
 }
 
+/// Ensure the notification WebSocket exists without forcing a reconnect.
+#[cfg(wasm)]
+pub fn ensure_notifications_connected() {
+	let connected = CURRENT_WS.with(|prev| prev.borrow().is_some());
+	if !connected {
+		connect_notifications();
+	}
+}
+
+/// Native builds render server-side HTML and do not open browser WebSockets.
+#[cfg(not(wasm))]
+pub fn ensure_notifications_connected() {}
+
 /// Record deployment IDs that should be re-subscribed after reconnect.
 #[cfg(wasm)]
 pub fn track_subscriptions(deployment_ids: &[String]) {

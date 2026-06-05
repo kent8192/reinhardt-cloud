@@ -31,6 +31,11 @@ pub fn cluster_health_container() -> Page {
 	})()
 }
 
+#[cfg(not(wasm))]
+pub fn cluster_health_container() -> reinhardt::pages::component::Page {
+	reinhardt::pages::component::Page::Empty
+}
+
 /// Insert or replace a cluster health row for the given payload.
 #[cfg(wasm)]
 pub fn update(payload: ClusterHealthPayload) {
