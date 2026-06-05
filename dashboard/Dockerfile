@@ -20,16 +20,16 @@ COPY . .
 RUN cargo build --release -p reinhardt-cloud-dashboard
 
 FROM rust:1.94.0-bookworm AS wasm
-RUN apt-get update && \
-    apt-get install -y binaryen && \
-    rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli@0.2.118
 WORKDIR /app
 COPY . .
 RUN cargo build --release --target wasm32-unknown-unknown --lib -p reinhardt-cloud-dashboard
 RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm && \
-    wasm-opt -Oz -o /wasm-dist/optimized.wasm /wasm-dist/*.wasm
+    asset_hash="$(sha256sum /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm | sha256sum | cut -c1-16)" && \
+    cp /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}.js && \
+    cp /wasm-dist/reinhardt_cloud_dashboard_bg.wasm /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}_bg.wasm && \
+    rm /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \

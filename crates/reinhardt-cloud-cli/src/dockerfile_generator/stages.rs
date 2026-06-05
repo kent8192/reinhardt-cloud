@@ -192,11 +192,6 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 		name: Some("wasm".to_string()),
 		platform: None,
 		instructions: vec![
-			Instruction::RunMulti(vec![
-				"apt-get update".to_string(),
-				"apt-get install -y binaryen".to_string(),
-				"rm -rf /var/lib/apt/lists/*".to_string(),
-			]),
 			Instruction::Run("rustup target add wasm32-unknown-unknown".to_string()),
 			Instruction::Run(format!("cargo install wasm-bindgen-cli@{version}")),
 			Instruction::Workdir("/app".to_string()),
@@ -221,7 +216,22 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 					"wasm-bindgen --out-dir /wasm-dist --target web \
                      target/wasm32-unknown-unknown/release/{app_name_underscored}.wasm"
 				),
-				"wasm-opt -Oz -o /wasm-dist/optimized.wasm /wasm-dist/*.wasm".to_string(),
+				format!(
+					"asset_hash=\"$(sha256sum /wasm-dist/{app_name_underscored}.js \
+                     /wasm-dist/{app_name_underscored}_bg.wasm | sha256sum | cut -c1-16)\""
+				),
+				format!(
+					"cp /wasm-dist/{app_name_underscored}.js \
+                     /wasm-dist/{app_name_underscored}.${{asset_hash}}.js"
+				),
+				format!(
+					"cp /wasm-dist/{app_name_underscored}_bg.wasm \
+                     /wasm-dist/{app_name_underscored}.${{asset_hash}}_bg.wasm"
+				),
+				format!(
+					"rm /wasm-dist/{app_name_underscored}.js \
+                     /wasm-dist/{app_name_underscored}_bg.wasm"
+				),
 			]),
 		],
 	}
@@ -530,7 +540,7 @@ mod tests {
 
 	// S6
 	#[rstest]
-	fn wasm_stage_with_wasm_opt(mut minimal_signals: DockerfileSignals) {
+	fn wasm_stage_hashes_wasm_asset_filenames(mut minimal_signals: DockerfileSignals) {
 		// Arrange
 		minimal_signals.pages = true;
 		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
@@ -539,8 +549,10 @@ mod tests {
 		let stage = build_wasm_stage(&minimal_signals);
 
 		// Assert
-		assert!(stage_contains_run(&stage, "binaryen"));
-		assert!(stage_contains_run(&stage, "wasm-opt"));
+		assert!(stage_contains_run(&stage, "asset_hash="));
+		assert!(stage_contains_run(&stage, "my_app.${asset_hash}.js"));
+		assert!(stage_contains_run(&stage, "my_app.${asset_hash}_bg.wasm"));
+		assert!(stage_contains_run(&stage, "rm /wasm-dist/my_app.js"));
 	}
 
 	// S7
