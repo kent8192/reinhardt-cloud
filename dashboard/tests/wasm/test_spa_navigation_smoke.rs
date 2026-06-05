@@ -39,10 +39,10 @@ fn ensure_mount_point(document: &web_sys::Document, body: &web_sys::HtmlElement)
 }
 
 /// Launch the dashboard's client just like `dashboard/src/client.rs`
-/// does in production, minus the `on_path` hooks that depend on a live
-/// notifications WebSocket. Reuses the same `init_router()` and the same
-/// `before_launch(state::init_app_state)` hook so route names, patterns,
-/// and launcher topology match production byte-for-byte —
+/// does in production, minus the notification WebSocket bootstrap and
+/// `on_path` hooks that depend on the deployed dashboard runtime. Reuses
+/// the same `init_router()` and the same `before_launch(state::init_app_state)`
+/// hook so route names, patterns, and launcher topology match production —
 /// `UnifiedRouter::register_globally()` inside `init_router` installs
 /// the `ClientUrlReverser` used by client-side route reversal.
 fn launch_dashboard_for_test() {

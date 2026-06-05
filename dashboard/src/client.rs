@@ -36,7 +36,7 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 
 	use super::router;
-	use crate::shared::client::{components, state};
+	use crate::shared::client::{components, state, ws};
 
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
@@ -55,6 +55,7 @@ mod wasm_entry {
 		// on every entry to "/".
 		ClientLauncher::new("#app")
 			.before_launch(state::init_app_state)
+			.before_launch(ws::ensure_notifications_connected)
 			.router_client(router::init_router)
 			.on_path("/", |ctx: &PathCtx<'_>| {
 				ctx.ensure_portal("toast-container", components::toast::toast_container);
