@@ -142,6 +142,7 @@ pub(crate) fn collect_signals(
 	// does not fall back to `CARGO_MANIFEST_DIR` (host build path) at
 	// runtime.
 	let has_settings_dir = project_dir.join("settings").is_dir();
+	let has_migrations_dir = project_dir.join("migrations").is_dir();
 
 	// Compute the project's path relative to the Docker build context.
 	// The build context is the workspace root (where `Cargo.lock` lives
@@ -164,6 +165,7 @@ pub(crate) fn collect_signals(
 		tracing: signals.tracing,
 		protoc_needed,
 		has_settings_dir,
+		has_migrations_dir,
 		project_relative_path,
 	})
 }
@@ -225,6 +227,7 @@ mod tests {
 			tracing: false,
 			protoc_needed: false,
 			has_settings_dir: false,
+			has_migrations_dir: false,
 			project_relative_path: None,
 		}
 	}
@@ -387,6 +390,7 @@ mod tests {
 			wasm_bindgen_version: Some("0.2.100".into()),
 			database: Some("postgresql".into()),
 			has_settings_dir: true,
+			has_migrations_dir: true,
 			project_relative_path: Some("dashboard".to_string()),
 			..minimal_signals()
 		};

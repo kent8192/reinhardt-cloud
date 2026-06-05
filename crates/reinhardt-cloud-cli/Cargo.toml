@@ -22,6 +22,7 @@ reinhardt-cloud-types = { workspace = true }
 reinhardt = { workspace = true }
 reqwest = { workspace = true }
 rpassword = "7"
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -34,7 +35,6 @@ url = "2"
 
 [dev-dependencies]
 rstest = { workspace = true }
-rustls = { workspace = true }
 serial_test = "3.2"
 
 [lints]

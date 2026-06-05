@@ -159,11 +159,7 @@ pub(crate) fn build_deployment(
 		vec![Container {
 			name: "migrate".to_string(),
 			image: Some(app.spec.image.clone()),
-			command: Some(vec![
-				"manage".to_string(),
-				"migrate".to_string(),
-				"--run".to_string(),
-			]),
+			command: Some(vec!["manage".to_string(), "migrate".to_string()]),
 			env: Some(merged_env.clone()),
 			volume_mounts: Some(volume_mounts.clone()),
 			resources: Some(ResourceRequirements {
@@ -218,7 +214,7 @@ pub(crate) fn build_deployment(
 			command: Some(vec![
 				"manage".to_string(),
 				"collectstatic".to_string(),
-				"--noinput".to_string(),
+				"--no-input".to_string(),
 			]),
 			env: Some(collectstatic_env),
 			volume_mounts: Some(collectstatic_mounts),
@@ -279,6 +275,11 @@ pub(crate) fn build_deployment(
 				EnvVar {
 					name: "SERVER_COMPRESSION_STATIC".to_string(),
 					value: Some((config.brotli || config.gzip).to_string()),
+					..Default::default()
+				},
+				EnvVar {
+					name: "SERVER_HEALTH".to_string(),
+					value: Some("true".to_string()),
 					..Default::default()
 				},
 			]),
@@ -643,11 +644,7 @@ mod tests {
 		let init_containers = pod_spec.init_containers.unwrap();
 		assert_eq!(init_containers.len(), 1);
 		assert_eq!(init_containers[0].name, "migrate");
-		let expected_command = vec![
-			"manage".to_string(),
-			"migrate".to_string(),
-			"--run".to_string(),
-		];
+		let expected_command = vec!["manage".to_string(), "migrate".to_string()];
 		assert_eq!(init_containers[0].command.as_ref(), Some(&expected_command));
 	}
 
@@ -956,6 +953,14 @@ mod tests {
 			sidecar.image.as_deref(),
 			Some("joseluisq/static-web-server:2-alpine")
 		);
+		assert!(
+			sidecar
+				.env
+				.as_ref()
+				.unwrap()
+				.iter()
+				.any(|env| { env.name == "SERVER_HEALTH" && env.value.as_deref() == Some("true") })
+		);
 	}
 
 	#[rstest]
@@ -977,7 +982,7 @@ mod tests {
 		let expected_command = vec![
 			"manage".to_string(),
 			"collectstatic".to_string(),
-			"--noinput".to_string(),
+			"--no-input".to_string(),
 		];
 		assert_eq!(collectstatic.command.as_ref(), Some(&expected_command));
 	}

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand, auto_register_router};
+use reinhardt::db::orm;
 
 /// Delegate to the upstream [`auto_register_router`] helper, which walks
 /// the `#[routes]` inventory and registers the discovered router into the
@@ -68,6 +69,40 @@ pub(crate) fn build_context(bind_addr: &str) -> CommandContext {
 	CommandContext::new(vec![bind_addr.to_string()]).with_options(options)
 }
 
+/// Initialize the global ORM pool before handing control to `RunServerCommand`.
+///
+/// The normal `manage runserver` path initializes the ORM before command
+/// dispatch. The container entrypoint calls `RunServerCommand` directly so it
+/// can avoid the management CLI parser, which means it must perform the same
+/// database setup explicitly before runserver registers `DatabaseConnection`
+/// in DI and before health probes exercise the ORM.
+async fn initialize_orm_database() -> Result<(), Box<dyn Error>> {
+	let env_database_url = std::env::var("DATABASE_URL").ok();
+	let settings = crate::config::settings::get_settings();
+	let url = match env_database_url.as_deref() {
+		Some(url) if !url.is_empty() => url.to_string(),
+		_ => settings
+			.core
+			.databases
+			.get("default")
+			.ok_or("settings must define core.databases.default")?
+			.to_url(),
+	};
+
+	if env_database_url.as_deref() != Some(url.as_str()) {
+		// SAFETY: `run` calls this before spawning runserver tasks, so no other
+		// application thread is concurrently reading or mutating environment.
+		unsafe {
+			std::env::set_var("DATABASE_URL", &url);
+		}
+	}
+
+	orm::init_database(&url)
+		.await
+		.map_err(|e| format!("failed to initialize ORM database: {e}"))?;
+	Ok(())
+}
+
 /// Boot the dashboard HTTP server on `bind_addr`.
 ///
 /// This is what `src/main.rs` calls in the container ENTRYPOINT and
@@ -76,6 +111,7 @@ pub(crate) fn build_context(bind_addr: &str) -> CommandContext {
 /// `RunServerCommand`.
 pub async fn run(bind_addr: &str) -> Result<(), Box<dyn Error>> {
 	register_router_from_inventory().await?;
+	initialize_orm_database().await?;
 
 	let ctx = build_context(bind_addr);
 	let cmd = RunServerCommand;

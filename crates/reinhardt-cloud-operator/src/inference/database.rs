@@ -13,8 +13,9 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
-	ConfigMap, Container, ContainerPort, PersistentVolumeClaim, PersistentVolumeClaimSpec, PodSpec,
-	PodTemplateSpec, Secret, Service, ServicePort, ServiceSpec, VolumeMount,
+	ConfigMap, Container, ContainerPort, EnvFromSource, PersistentVolumeClaim,
+	PersistentVolumeClaimSpec, PodSpec, PodTemplateSpec, Secret, SecretEnvSource, Service,
+	ServicePort, ServiceSpec, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -177,6 +178,7 @@ fn build_onprem_postgres(
 		},
 		spec: Some(StatefulSetSpec {
 			replicas: Some(1),
+			service_name: Some(format!("{app_name}-db")),
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([(
 					"app.kubernetes.io/name".to_string(),
@@ -206,8 +208,25 @@ fn build_onprem_postgres(
 							mount_path: "/var/lib/postgresql/data".to_string(),
 							..Default::default()
 						}]),
+						env_from: Some(vec![EnvFromSource {
+							secret_ref: Some(SecretEnvSource {
+								name: format!("{app_name}-db-credentials"),
+								..Default::default()
+							}),
+							..Default::default()
+						}]),
 						..Default::default()
 					}],
+					volumes: Some(vec![Volume {
+						name: "data".to_string(),
+						persistent_volume_claim: Some(
+							k8s_openapi::api::core::v1::PersistentVolumeClaimVolumeSource {
+								claim_name: format!("{app_name}-db-data"),
+								..Default::default()
+							},
+						),
+						..Default::default()
+					}]),
 					..Default::default()
 				}),
 			},
@@ -286,7 +305,7 @@ fn build_onprem_postgres(
 	};
 
 	// Credentials secret
-	let secret = build_db_credentials_secret(app_name, namespace, &db_user, &db_password);
+	let secret = build_db_credentials_secret(app_name, namespace, &db_user, &db_password, &db_name);
 
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
@@ -355,7 +374,8 @@ fn build_aws_rds(
 	};
 
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, &master_username, &password);
+	let secret =
+		build_db_credentials_secret(app_name, namespace, &master_username, &password, &db_name);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(db_instance)),
@@ -385,6 +405,7 @@ fn build_gcp_cloud_sql(
 		.unwrap_or("db-f1-micro")
 		.to_string();
 	let region = &platform.defaults.database.region;
+	let db_name = sanitize_identifier(&format!("{app_name}_db"), &db.engine);
 
 	let sql_instance = DynamicObject {
 		metadata: ObjectMeta {
@@ -466,7 +487,8 @@ fn build_gcp_cloud_sql(
 
 	let sanitized_user = sanitize_identifier(app_name, &db.engine);
 	let password = generate_random_password(24);
-	let secret = build_db_credentials_secret(app_name, namespace, &sanitized_user, &password);
+	let secret =
+		build_db_credentials_secret(app_name, namespace, &sanitized_user, &password, &db_name);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(sql_instance)),
@@ -596,6 +618,72 @@ mod tests {
 		} else {
 			panic!("Expected StatefulSet as first resource");
 		}
+	}
+
+	#[rstest]
+	fn onprem_statefulset_mounts_generated_pvc() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
+			panic!("Expected StatefulSet as first resource");
+		};
+		let pod_spec = ss.spec.as_ref().unwrap().template.spec.as_ref().unwrap();
+		let volume = pod_spec
+			.volumes
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|volume| volume.name == "data")
+			.unwrap();
+		assert_eq!(
+			volume.persistent_volume_claim.as_ref().unwrap().claim_name,
+			"myapp-db-data"
+		);
+		assert_eq!(
+			pod_spec.containers[0].volume_mounts.as_ref().unwrap()[0].name,
+			"data"
+		);
+	}
+
+	#[rstest]
+	fn onprem_statefulset_injects_credentials_secret() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
+			panic!("Expected StatefulSet as first resource");
+		};
+		let spec = ss.spec.as_ref().unwrap();
+		assert_eq!(spec.service_name.as_deref(), Some("myapp-db"));
+		let container = &spec.template.spec.as_ref().unwrap().containers[0];
+		let secret_ref = container.env_from.as_ref().unwrap()[0]
+			.secret_ref
+			.as_ref()
+			.unwrap();
+		assert_eq!(secret_ref.name, "myapp-db-credentials");
 	}
 
 	#[rstest]

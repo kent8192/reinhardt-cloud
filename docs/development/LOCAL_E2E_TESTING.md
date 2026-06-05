@@ -39,6 +39,46 @@ kubectl version --client
 cargo --version
 ```
 
+## Automated Dashboard self-deploy harness
+
+For the Dashboard dogfood path, prefer the first-class harness before walking
+the manual checklist:
+
+```bash
+cargo make dashboard-self-deploy-e2e
+```
+
+The task builds or selects the Dashboard image, applies the `ReinhardtApp`
+CRD, creates a temporary namespace and runtime Secret, starts a local Operator
+when no in-cluster Operator is already installed, generates the Dashboard
+`ReinhardtApp` with `reinhardt-cloud deploy --dir dashboard --dry-run`, applies
+the same contract through `--direct`, waits for the Operator-owned Deployment,
+Service, cache/database resources, Pods, and live `ReinhardtApp`, then removes
+the temporary namespace.
+
+Useful overrides:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DASHBOARD_SELF_DEPLOY_NAMESPACE` | `reinhardt-dashboard-e2e-<timestamp>` | Reuse or name the test namespace. |
+| `DASHBOARD_SELF_DEPLOY_IMAGE` | `reinhardt-cloud-dashboard:e2e` | Dashboard image used in the generated CRD. |
+| `DASHBOARD_SELF_DEPLOY_BUILD_IMAGE` | `1` | Set to `0` to use an already-built image. |
+| `DASHBOARD_SELF_DEPLOY_OPERATOR_MODE` | `auto` | `auto`, `existing`, `local`, or `skip`. |
+| `DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR` | `127.0.0.1:19090` | Metrics/health bind address for the local Operator process. |
+| `DASHBOARD_SELF_DEPLOY_OPERATOR_BIN` | `target/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
+| `DASHBOARD_SELF_DEPLOY_CLI_BIN` | `target/debug/reinhardt-cloud` | Override the local CLI binary path. |
+| `DASHBOARD_SELF_DEPLOY_KEEP_RESOURCES` | `0` | Set to `1` to keep the namespace after the run. |
+| `DASHBOARD_SELF_DEPLOY_INTROSPECT_TIMEOUT_SECONDS` | `30` | Timeout for each CLI `manage introspect` attempt before zero-config fallback. |
+| `DASHBOARD_SELF_DEPLOY_ARTIFACT_DIR` | `target/dashboard-self-deploy-e2e/<namespace>` | Failure diagnostics and generated YAML. |
+| `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
+| `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context | Explicit `kind load docker-image` target. |
+
+On failure the harness writes events, live `ReinhardtApp` YAML, owned resource
+YAML, Pod logs, Operator logs, and the generated CRD YAML under the artifact
+directory before cleanup. This harness validates the generated-config →
+`--direct` → Operator reconciliation contract. The Dashboard → Agent relay is
+still limited as described in [Known limitations](#known-limitations).
+
 ## 1. Bring up a local Kubernetes cluster
 
 Pick one of the two options.

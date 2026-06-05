@@ -2,7 +2,9 @@
 
 use clap::Args;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 
 use crate::client::ReinhardtCloudClient;
@@ -18,6 +20,11 @@ use reinhardt_cloud_types::introspect::{
 	IntrospectOutput,
 };
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+const INTROSPECT_TIMEOUT_ENV: &str = "REINHARDT_CLOUD_DEPLOY_INTROSPECT_TIMEOUT_SECONDS";
 
 /// Deploy an application.
 #[derive(Debug, Args)]
@@ -239,13 +246,100 @@ fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
 	command
 }
 
+fn parse_introspect_timeout_seconds(raw: &str) -> Option<Duration> {
+	let seconds = raw.parse::<u64>().ok()?;
+	if seconds == 0 {
+		return None;
+	}
+	Some(Duration::from_secs(seconds))
+}
+
+fn introspect_timeout() -> Option<Duration> {
+	std::env::var(INTROSPECT_TIMEOUT_ENV)
+		.ok()
+		.and_then(|raw| parse_introspect_timeout_seconds(&raw))
+}
+
+fn terminate_child(child: &mut std::process::Child) {
+	#[cfg(unix)]
+	{
+		let process_group = format!("-{}", child.id());
+		let _ = Command::new("kill")
+			.args(["-TERM", &process_group])
+			.status();
+		for _ in 0..20 {
+			if matches!(child.try_wait(), Ok(Some(_))) {
+				return;
+			}
+			thread::sleep(Duration::from_millis(50));
+		}
+		let _ = Command::new("kill")
+			.args(["-KILL", &process_group])
+			.status();
+	}
+
+	#[cfg(not(unix))]
+	{
+		let _ = child.kill();
+	}
+
+	let _ = child.wait();
+}
+
+fn command_output_with_optional_timeout(
+	mut command: Command,
+	label: &str,
+	timeout: Option<Duration>,
+) -> Result<Output, String> {
+	if let Some(timeout) = timeout {
+		command.stdout(Stdio::piped()).stderr(Stdio::piped());
+		#[cfg(unix)]
+		{
+			command.process_group(0);
+		}
+
+		let mut child = command
+			.spawn()
+			.map_err(|e| format!("Failed to run {label}: {e}"))?;
+		let started = Instant::now();
+		loop {
+			match child.try_wait() {
+				Ok(Some(_)) => {
+					return child
+						.wait_with_output()
+						.map_err(|e| format!("Failed to collect {label} output: {e}"));
+				}
+				Ok(None) if started.elapsed() >= timeout => {
+					terminate_child(&mut child);
+					return Err(format!(
+						"{label} timed out after {} seconds",
+						timeout.as_secs()
+					));
+				}
+				Ok(None) => thread::sleep(Duration::from_millis(100)),
+				Err(e) => return Err(format!("Failed to wait for {label}: {e}")),
+			}
+		}
+	}
+
+	command
+		.output()
+		.map_err(|e| format!("Failed to run {label}: {e}"))
+}
+
 /// Runs `manage introspect --format yaml` and returns stdout.
 ///
 /// Tries the production binary first, then falls back to
 /// `cargo run -- introspect --format yaml` for development mode.
 fn run_manage_introspect(project_dir: &Path) -> Result<String, String> {
+	let timeout = introspect_timeout();
+
 	// Try production binary first
-	let result = manage_introspect_command(project_dir).output();
+	let result = command_output_with_optional_timeout(
+		manage_introspect_command(project_dir),
+		"manage introspect",
+		timeout,
+	);
 
 	if let Ok(output) = result
 		&& output.status.success()
@@ -255,9 +349,11 @@ fn run_manage_introspect(project_dir: &Path) -> Result<String, String> {
 	}
 
 	// Fall back to cargo run for development mode
-	let result = cargo_manage_introspect_command(project_dir)
-		.output()
-		.map_err(|e| format!("Failed to run cargo: {e}"))?;
+	let result = command_output_with_optional_timeout(
+		cargo_manage_introspect_command(project_dir),
+		"cargo manage introspect",
+		timeout,
+	)?;
 
 	if result.status.success() {
 		String::from_utf8(result.stdout).map_err(|e| format!("Invalid UTF-8 in cargo output: {e}"))
@@ -688,6 +784,17 @@ mod tests {
 		ScaleSection, ServicesSection,
 	};
 	use rstest::rstest;
+
+	#[rstest]
+	#[case::positive("30", Some(Duration::from_secs(30)))]
+	#[case::zero_disabled("0", None)]
+	#[case::invalid("abc", None)]
+	fn test_parse_introspect_timeout_seconds(
+		#[case] raw: &str,
+		#[case] expected: Option<Duration>,
+	) {
+		assert_eq!(parse_introspect_timeout_seconds(raw), expected);
+	}
 
 	fn introspect_with_infra_signals(app_name: &str, signals: InfraSignals) -> IntrospectOutput {
 		IntrospectOutput {
