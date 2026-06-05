@@ -303,6 +303,8 @@ apply_reinhardt_app_direct() {
 			"${cli_cluster_args[@]}" \
 			--direct
 	)
+	kubectl_cmd patch reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" --type merge \
+		-p "{\"spec\":{\"env\":{\"REINHARDT_ENV\":\"${MANAGE_ENV}\"}}}" >/dev/null
 }
 
 wait_for_resource_exists() {
