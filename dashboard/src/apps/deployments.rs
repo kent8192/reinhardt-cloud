@@ -17,6 +17,7 @@ pub mod admin;
 pub mod models;
 #[cfg(native)]
 pub mod serializers;
+pub mod server;
 #[cfg(native)]
 pub mod tests;
 // `urls` is cross-target so the `#[routes]` macro emits the typed

@@ -18,6 +18,7 @@ pub mod client;
 pub mod models;
 #[cfg(native)]
 pub mod serializers;
+pub mod server;
 #[cfg(native)]
 pub mod services;
 #[cfg(native)]
