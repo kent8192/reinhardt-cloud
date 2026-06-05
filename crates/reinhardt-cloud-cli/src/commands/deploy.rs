@@ -57,6 +57,14 @@ pub(crate) struct DeployArgs {
 	#[arg(long)]
 	pub introspect_only: bool,
 
+	/// Path to the project manage binary used for introspection
+	#[arg(long)]
+	pub manage_bin: Option<PathBuf>,
+
+	/// Fail deploy when manage introspect is unavailable instead of using zero-config fallback
+	#[arg(long)]
+	pub require_introspect: bool,
+
 	/// Kubernetes namespace
 	#[arg(long, default_value = "default")]
 	pub namespace: String,
@@ -222,12 +230,36 @@ fn parse_introspect_output(yaml: &str) -> Result<IntrospectOutput, String> {
 	serde_yaml::from_str(yaml).map_err(|e| format!("Failed to parse introspect YAML: {e}"))
 }
 
-fn manage_introspect_command(project_dir: &Path) -> Command {
-	let mut command = Command::new("manage");
+fn manage_introspect_command(manage_bin: &Path, project_dir: &Path) -> Command {
+	let mut command = Command::new(manage_bin);
 	command
 		.args(["introspect", "--format", "yaml"])
 		.current_dir(project_dir);
 	command
+}
+
+fn resolve_manage_bin_path(manage_bin: &Path) -> PathBuf {
+	if manage_bin.is_absolute() {
+		manage_bin.to_path_buf()
+	} else {
+		std::env::current_dir()
+			.unwrap_or_else(|_| PathBuf::from("."))
+			.join(manage_bin)
+	}
+}
+
+fn project_manage_bin(project_dir: &Path) -> Option<PathBuf> {
+	let candidate = project_dir.join("manage");
+	if !candidate.is_file() {
+		return None;
+	}
+	Some(candidate.canonicalize().unwrap_or(candidate))
+}
+
+fn path_manage_introspect_command(project_dir: &Path) -> Option<Command> {
+	project_manage_bin(project_dir)
+		.as_ref()
+		.map(|manage_bin| manage_introspect_command(manage_bin, project_dir))
 }
 
 fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
@@ -258,6 +290,10 @@ fn introspect_timeout() -> Option<Duration> {
 	std::env::var(INTROSPECT_TIMEOUT_ENV)
 		.ok()
 		.and_then(|raw| parse_introspect_timeout_seconds(&raw))
+}
+
+fn should_fail_on_introspect_error(args: &DeployArgs) -> bool {
+	args.introspect_only || args.require_introspect
 }
 
 fn terminate_child(child: &mut std::process::Child) {
@@ -331,12 +367,38 @@ fn command_output_with_optional_timeout(
 ///
 /// Tries the production binary first, then falls back to
 /// `cargo run -- introspect --format yaml` for development mode.
-fn run_manage_introspect(project_dir: &Path) -> Result<String, String> {
+fn run_manage_introspect(project_dir: &Path, manage_bin: Option<&Path>) -> Result<String, String> {
 	let timeout = introspect_timeout();
 
-	// Try production binary first
+	if let Some(manage_bin) = manage_bin {
+		let manage_bin = resolve_manage_bin_path(manage_bin);
+		let output = command_output_with_optional_timeout(
+			manage_introspect_command(&manage_bin, project_dir),
+			"manage introspect",
+			timeout,
+		)?;
+		return if output.status.success() {
+			String::from_utf8(output.stdout)
+				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
+		} else {
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			Err(format!("manage introspect failed: {stderr}"))
+		};
+	}
+
+	if let Some(command) = path_manage_introspect_command(project_dir) {
+		let output = command_output_with_optional_timeout(command, "manage introspect", timeout)?;
+		return if output.status.success() {
+			String::from_utf8(output.stdout)
+				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
+		} else {
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			Err(format!("manage introspect failed: {stderr}"))
+		};
+	}
+
 	let result = command_output_with_optional_timeout(
-		manage_introspect_command(project_dir),
+		manage_introspect_command(Path::new("manage"), project_dir),
 		"manage introspect",
 		timeout,
 	);
@@ -562,7 +624,7 @@ async fn execute_inner(
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
 
 	// Step 1: Try to run manage introspect
-	let introspect = match run_manage_introspect(&project_dir) {
+	let introspect = match run_manage_introspect(&project_dir, args.manage_bin.as_deref()) {
 		Ok(yaml_output) => {
 			if args.introspect_only {
 				println!("{yaml_output}");
@@ -571,7 +633,7 @@ async fn execute_inner(
 			Some(parse_introspect_output(&yaml_output)?)
 		}
 		Err(e) => {
-			if args.introspect_only {
+			if should_fail_on_introspect_error(args) {
 				return Err(e.into());
 			}
 			eprintln!("Warning: manage introspect failed: {e}");
@@ -949,14 +1011,16 @@ features:
 	fn test_manage_introspect_commands_use_project_dir() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
+		let manage_bin = dir.path().join("custom-manage");
 
 		// Act
-		let manage = manage_introspect_command(dir.path());
+		let manage = manage_introspect_command(&manage_bin, dir.path());
 		let cargo = cargo_manage_introspect_command(dir.path());
 
 		// Assert
 		assert_eq!(manage.get_current_dir(), Some(dir.path()));
 		assert_eq!(cargo.get_current_dir(), Some(dir.path()));
+		assert_eq!(manage.get_program(), manage_bin.as_os_str());
 		let manage_args: Vec<String> = manage
 			.get_args()
 			.map(|arg| arg.to_string_lossy().into_owned())
@@ -978,6 +1042,98 @@ features:
 				"yaml"
 			]
 		);
+	}
+
+	#[rstest]
+	fn test_path_manage_introspect_command_prefers_project_manage_binary() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let manage_bin = dir.path().join("manage");
+		std::fs::write(&manage_bin, "").unwrap();
+		let expected_manage_bin = manage_bin.canonicalize().unwrap();
+
+		// Act
+		let command = path_manage_introspect_command(dir.path())
+			.expect("project manage binary should be detected");
+
+		// Assert
+		assert_eq!(command.get_current_dir(), Some(dir.path()));
+		assert_eq!(command.get_program(), expected_manage_bin.as_os_str());
+		let args: Vec<String> = command
+			.get_args()
+			.map(|arg| arg.to_string_lossy().into_owned())
+			.collect();
+		assert_eq!(args, vec!["introspect", "--format", "yaml"]);
+	}
+
+	#[rstest]
+	fn test_path_manage_introspect_command_absent_without_project_manage_binary() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+
+		// Act
+		let command = path_manage_introspect_command(dir.path());
+
+		// Assert
+		assert!(command.is_none());
+	}
+
+	#[rstest]
+	fn test_resolve_manage_bin_path_absolutizes_relative_paths() {
+		// Arrange
+		let manage_bin = Path::new("target/debug/manage");
+
+		// Act
+		let resolved = resolve_manage_bin_path(manage_bin);
+
+		// Assert
+		assert!(resolved.is_absolute());
+		assert!(resolved.ends_with(manage_bin));
+	}
+
+	#[rstest]
+	fn test_resolve_manage_bin_path_preserves_absolute_paths() {
+		// Arrange
+		let manage_bin = Path::new("/tmp/reinhardt-cloud-manage");
+
+		// Act
+		let resolved = resolve_manage_bin_path(manage_bin);
+
+		// Assert
+		assert_eq!(resolved, manage_bin);
+	}
+
+	#[rstest]
+	#[case::regular_deploy(false, false, false)]
+	#[case::introspect_only(true, false, true)]
+	#[case::require_introspect(false, true, true)]
+	#[case::both(true, true, true)]
+	fn test_should_fail_on_introspect_error(
+		#[case] introspect_only: bool,
+		#[case] require_introspect: bool,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let args = DeployArgs {
+			name: None,
+			image: None,
+			replicas: None,
+			dir: None,
+			dry_run: false,
+			direct: false,
+			introspect_only,
+			manage_bin: None,
+			require_introspect,
+			namespace: "default".to_string(),
+			cluster: None,
+			api_version: None,
+		};
+
+		// Act
+		let actual = should_fail_on_introspect_error(&args);
+
+		// Assert
+		assert_eq!(actual, expected);
 	}
 
 	#[rstest]

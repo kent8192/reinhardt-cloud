@@ -51,10 +51,10 @@ cargo make dashboard-self-deploy-e2e
 The task builds or selects the Dashboard image, applies the `ReinhardtApp`
 CRD, creates a temporary namespace and runtime Secret, starts a local Operator
 when no in-cluster Operator is already installed, generates the Dashboard
-`ReinhardtApp` with `reinhardt-cloud deploy --dir dashboard --dry-run`, applies
-the same contract through `--direct`, waits for the Operator-owned Deployment,
-Service, cache/database resources, Pods, and live `ReinhardtApp`, then removes
-the temporary namespace.
+`ReinhardtApp` with `reinhardt-cloud deploy --dir dashboard --dry-run`, requires
+Dashboard `manage introspect` to succeed, applies the same contract through
+`--direct`, waits for the Operator-owned Deployment, Service, cache/database
+resources, Pods, and live `ReinhardtApp`, then removes the temporary namespace.
 
 Useful overrides:
 
@@ -67,8 +67,10 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR` | `127.0.0.1:19090` | Metrics/health bind address for the local Operator process. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_BIN` | `target/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
 | `DASHBOARD_SELF_DEPLOY_CLI_BIN` | `target/debug/reinhardt-cloud` | Override the local CLI binary path. |
+| `DASHBOARD_SELF_DEPLOY_MANAGE_BIN` | `target/debug/manage` | Override the Dashboard `manage` binary used for strict introspection. |
+| `DASHBOARD_SELF_DEPLOY_REINHARDT_ENV` | `ci` | `REINHARDT_ENV` used by local Dashboard `manage introspect`. |
 | `DASHBOARD_SELF_DEPLOY_KEEP_RESOURCES` | `0` | Set to `1` to keep the namespace after the run. |
-| `DASHBOARD_SELF_DEPLOY_INTROSPECT_TIMEOUT_SECONDS` | `30` | Timeout for each CLI `manage introspect` attempt before zero-config fallback. |
+| `DASHBOARD_SELF_DEPLOY_INTROSPECT_TIMEOUT_SECONDS` | `30` | Timeout for each CLI `manage introspect` attempt. The harness fails instead of using zero-config fallback. |
 | `DASHBOARD_SELF_DEPLOY_ARTIFACT_DIR` | `target/dashboard-self-deploy-e2e/<namespace>` | Failure diagnostics and generated YAML. |
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
 | `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context | Explicit `kind load docker-image` target. |

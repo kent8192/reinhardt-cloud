@@ -69,10 +69,13 @@ pub(crate) fn build_service(app: &ReinhardtApp, pages_enabled: bool) -> Result<S
 			..Default::default()
 		},
 		spec: Some(ServiceSpec {
-			selector: Some(BTreeMap::from([(
-				"app.kubernetes.io/name".to_string(),
-				app.name_any(),
-			)])),
+			selector: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), app.name_any()),
+				(
+					"app.kubernetes.io/component".to_string(),
+					Component::Web.as_str().to_string(),
+				),
+			])),
 			ports: Some(ports),
 			..Default::default()
 		}),
@@ -137,6 +140,28 @@ mod tests {
 		let svc_port = &svc_spec.ports.as_ref().unwrap()[0];
 		assert_eq!(svc_port.port, 80);
 		assert_eq!(svc_port.target_port, Some(IntOrString::Int(8000)));
+	}
+
+	#[rstest]
+	fn test_build_service_selects_web_component() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let svc = build_service(&app, false).expect("build should succeed");
+
+		// Assert
+		let selector = svc.spec.unwrap().selector.expect("selector");
+		assert_eq!(
+			selector.get("app.kubernetes.io/name").map(String::as_str),
+			Some("web")
+		);
+		assert_eq!(
+			selector
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("web")
+		);
 	}
 
 	#[rstest]
