@@ -2,16 +2,14 @@
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::post;
-use reinhardt::{BaseUser, Json, Response, StatusCode};
+use reinhardt::{Json, Response, StatusCode};
 use tracing::error;
 
-use crate::apps::auth::models::User;
 use crate::apps::auth::serializers::LoginRequest;
-use crate::apps::auth::services::session::SessionService;
+use crate::apps::auth::services::session::{SessionService, session_cookie_header};
 use crate::shared::AuthResponse;
 
 /// Authenticate user against database and create a session.
@@ -20,30 +18,8 @@ pub async fn login(
 	Json(body): Json<LoginRequest>,
 	#[inject] session_service: Depends<SessionService>,
 ) -> ViewResult<Response> {
-	// Find user by username
-	let user = User::objects()
-		.filter(User::field_username().eq(body.username.trim().to_string()))
-		.first()
-		.await
-		.map_err(|e| {
-			error!("Failed to query user during login: {e}");
-			AppError::Internal("Internal server error".to_string())
-		})?
-		.ok_or_else(|| AppError::Authentication("Invalid credentials".to_string()))?;
-
-	// Verify password
-	let valid = user.check_password(&body.password).map_err(|e| {
-		error!("Password verification failed during login: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-	if !valid {
-		return Err(AppError::Authentication("Invalid credentials".to_string()));
-	}
-
-	// Check if user is active (use same generic message to prevent user enumeration)
-	if !user.is_active() {
-		return Err(AppError::Authentication("Invalid credentials".to_string()));
-	}
+	let user =
+		crate::apps::auth::services::verify_credentials(&body.username, &body.password).await?;
 
 	// Create session in Redis
 	let session_id = session_service.create_session(&user).await.map_err(|e| {
@@ -58,10 +34,7 @@ pub async fn login(
 
 	// Set session cookie on the response
 	let is_debug = crate::config::settings::get_settings().core.debug;
-	let secure_flag = if is_debug { "" } else { "; Secure" };
-	let cookie = format!(
-		"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
-	);
+	let cookie = session_cookie_header(&session_id, is_debug);
 
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")

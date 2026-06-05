@@ -5,6 +5,9 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
+#[cfg(native)]
+use reinhardt::core::exception::Error as AppError;
+
 use crate::shared::AuthResponse;
 
 /// Create a new user account with email verification.
@@ -25,89 +28,12 @@ pub async fn register(
 ) -> Result<AuthResponse, ServerFnError> {
 	#[cfg(native)]
 	{
-		use reinhardt::BaseUser;
-		use reinhardt::db::orm::Model;
-		use tracing::{error, info};
-
-		use crate::apps::auth::models::User;
-		use crate::apps::auth::services::registration::provision_personal_organization;
-		use crate::apps::auth::services::token::{TokenPurpose, generate_token};
+		use crate::apps::auth::services::registration::register_inactive_user;
 		use crate::shared::UserInfo;
 
-		let settings = crate::config::settings::get_settings();
-		let secret_key = settings.core.secret_key.clone();
-
-		// Create user as inactive — requires email verification to activate
-		let mut user = User::build()
-			.username(username.trim().to_string())
-			.email(email.trim().to_lowercase())
-			.first_name(String::new())
-			.last_name(String::new())
-			.password_hash(None)
-			.is_active(false)
-			.is_staff(false)
-			.is_superuser(false)
-			.finish();
-		user.set_password(&password).map_err(|e| {
-			error!("Password hashing failed during registration: {e}");
-			ServerFnError::application("Internal server error")
-		})?;
-
-		// Attempt to create -- database unique constraint prevents duplicates
-		let created = match User::objects().create(&user).await {
-			Ok(user) => user,
-			Err(e) => {
-				let err_lower = e.to_string().to_lowercase();
-				if err_lower.contains("unique") || err_lower.contains("duplicate") {
-					let message = if err_lower.contains("auth_user_email_uniq") {
-						"Email already exists"
-					} else {
-						"Username already exists"
-					};
-					return Err(ServerFnError::application(message));
-				}
-				error!("Failed to create user in database: {e}");
-				return Err(ServerFnError::application("Internal server error"));
-			}
-		};
-
-		// Provision a Personal Organization for the new user (refs #415, #435).
-		// Shared with the REST register flow; slug derivation, retry, and
-		// rollback are handled by the shared service.
-		provision_personal_organization(&created)
+		let created = register_inactive_user(&username, &email, &password, email_service.as_ref())
 			.await
-			.map_err(|e| ServerFnError::application(e.to_string()))?;
-
-		// Generate verification token and send email
-		let token = generate_token(
-			TokenPurpose::EmailVerification,
-			&created.id,
-			"",
-			&secret_key,
-		);
-
-		let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
-		let base_url = std::env::var("REINHARDT_CLOUD_BASE_URL")
-			.unwrap_or_else(|_| format!("http://localhost:{port}"));
-		let verification_url = format!("{base_url}/api/auth/verify-email/{token}/");
-
-		if let Err(e) = email_service
-			.send_verification_email(&created.email, &created.username, &verification_url)
-			.await
-		{
-			error!(
-				"Failed to send verification email to {}: {e}",
-				created.email
-			);
-			// Roll back user creation to avoid stranding an inactive account
-			if let Err(del_err) = User::objects().delete(created.id).await {
-				error!("Failed to roll back user after email failure: {del_err}");
-			}
-			return Err(ServerFnError::application(
-				"Registration failed — please try again later",
-			));
-		}
-		info!("Verification email sent to {}", created.email);
+			.map_err(server_fn_error_from_app_error)?;
 
 		// No session cookie — user must verify email first
 		let user_info = UserInfo::from(&created);
@@ -123,5 +49,17 @@ pub async fn register(
 		// declaration on both targets.
 		let _ = (username, email, password, _http_request, email_service);
 		unreachable!("server_fn body is replaced on wasm")
+	}
+}
+
+#[cfg(native)]
+fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
+	match err {
+		AppError::Authentication(message)
+		| AppError::Conflict(message)
+		| AppError::Validation(message)
+		| AppError::Http(message) => ServerFnError::application(message),
+		AppError::Internal(message) => ServerFnError::application(message),
+		_ => ServerFnError::application("Internal server error"),
 	}
 }
