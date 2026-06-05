@@ -109,6 +109,12 @@ impl SessionService {
 	}
 }
 
+/// Build the `Set-Cookie` header value for a persisted session id.
+pub fn session_cookie_header(session_id: &str, debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!("sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400")
+}
+
 /// Validate a session and return `(user_id, username)`.
 ///
 /// Retained as a free-function adapter because the WebSocket
