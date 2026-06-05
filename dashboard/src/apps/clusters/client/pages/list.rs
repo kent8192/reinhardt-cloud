@@ -62,8 +62,6 @@ async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
 
 /// Render the clusters page.
 pub fn clusters_list_page() -> Page {
-	crate::shared::client::ws::ensure_notifications_connected();
-
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
 
 	let create_form = form! {

@@ -86,8 +86,6 @@ async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
 
 /// Render the deployments page.
 pub fn deployments_list_page() -> Page {
-	crate::shared::client::ws::ensure_notifications_connected();
-
 	let deployments = use_resource(|| async move { self::load_deployments().await }, ());
 
 	let create_form = form! {

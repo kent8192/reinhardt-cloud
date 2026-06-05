@@ -5,8 +5,8 @@
 //! mount on `#app`, re-mount on every
 //! [`reinhardt::pages::Router::on_navigate`] event, and built-in SPA
 //! link interception. Dashboard-specific concerns (app state init,
-//! toast container, WebSocket bootstrap) plug in through the launcher
-//! lifecycle hooks (`before_launch`, `on_path`).
+//! toast container) plug in through the launcher lifecycle hooks
+//! (`before_launch`, `on_path`).
 //!
 //! Re-mount on navigation went through a reactive `Effect` until
 //! upstream PR kent8192/reinhardt-web#4114 replaced the Effect with a
@@ -36,7 +36,7 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 
 	use super::router;
-	use crate::shared::client::{components, state, ws};
+	use crate::shared::client::{components, state};
 
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
@@ -51,14 +51,13 @@ mod wasm_entry {
 		// via `UnifiedRouter::register_globally()`), which also installs
 		// the `ClientUrlReverser` — no separate reverser registration is
 		// needed.
-		// Path-driven side effects (toast container + notifications WS)
-		// run through `on_path` so they re-fire on every entry to "/".
+		// Path-driven side effects run through `on_path` so they re-fire
+		// on every entry to "/".
 		ClientLauncher::new("#app")
 			.before_launch(state::init_app_state)
 			.router_client(router::init_router)
 			.on_path("/", |ctx: &PathCtx<'_>| {
 				ctx.ensure_portal("toast-container", components::toast::toast_container);
-				ws::connect_notifications();
 			})
 			.launch()?;
 
