@@ -18,15 +18,94 @@
 //! global-state coupling.
 
 use chrono::Utc;
+use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::db::orm::Model;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::apps::auth::models::User;
+use crate::apps::auth::services::email::EmailService;
+use crate::apps::auth::services::token::{TokenPurpose, generate_token};
 use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{
 	MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
 };
+
+/// Register an inactive user, provision the personal organization, and send
+/// the verification email.
+pub async fn register_inactive_user(
+	username: &str,
+	email: &str,
+	password: &str,
+	email_service: &EmailService,
+) -> Result<User, AppError> {
+	let settings = crate::config::settings::get_settings();
+	let secret_key = settings.core.secret_key.clone();
+
+	let mut user = User::build()
+		.username(username.trim().to_string())
+		.email(email.trim().to_lowercase())
+		.first_name(String::new())
+		.last_name(String::new())
+		.password_hash(None)
+		.is_active(false)
+		.is_staff(false)
+		.is_superuser(false)
+		.finish();
+	user.set_password(password).map_err(|e| {
+		error!("Password hashing failed during registration: {e}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
+
+	let created = match User::objects().create(&user).await {
+		Ok(user) => user,
+		Err(e) => {
+			let err_lower = e.to_string().to_lowercase();
+			if err_lower.contains("unique") || err_lower.contains("duplicate") {
+				let message = if err_lower.contains("auth_user_email_uniq") {
+					"Email already exists"
+				} else {
+					"Username already exists"
+				};
+				return Err(AppError::Conflict(message.to_string()));
+			}
+			error!("Failed to create user in database: {e}");
+			return Err(AppError::Internal("Internal server error".to_string()));
+		}
+	};
+
+	provision_personal_organization(&created).await?;
+
+	let token = generate_token(
+		TokenPurpose::EmailVerification,
+		&created.id,
+		"",
+		&secret_key,
+	);
+	let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+	let base_url = std::env::var("REINHARDT_CLOUD_BASE_URL")
+		.unwrap_or_else(|_| format!("http://localhost:{port}"));
+	let verification_url = format!("{base_url}/api/auth/verify-email/{token}/");
+
+	if let Err(e) = email_service
+		.send_verification_email(&created.email, &created.username, &verification_url)
+		.await
+	{
+		error!(
+			"Failed to send verification email to {}: {e}",
+			created.email
+		);
+		if let Err(del_err) = User::objects().delete(created.id).await {
+			error!("Failed to roll back user after email failure: {del_err}");
+		}
+		return Err(AppError::Internal(
+			"Registration failed - please try again later".to_string(),
+		));
+	}
+	info!("Verification email sent to {}", created.email);
+
+	Ok(created)
+}
 
 /// Create a Personal `Organization` and Owner `OrganizationMembership` for
 /// a freshly-registered user. Rolls the user creation back on failure so

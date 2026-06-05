@@ -1,8 +1,8 @@
 //! Register page with username, email, and password form.
 //!
-//! Uses `form!` macro for declarative form rendering with automatic
-//! server function integration. On successful registration, the auth state
-//! is updated via `AuthState` and the user is redirected to the dashboard.
+//! Uses `form!` for the static field/server_fn definition. Registration creates
+//! an inactive account and sends a verification email; it does not establish a
+//! login session.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
@@ -16,8 +16,9 @@ pub fn register_page() -> Page {
 	let register_form = form! {
 		name: RegisterForm,
 		server_fn: register,
+		method: Post,
 		class: "space-y-4",
-		redirect_on_success: "/",
+		redirect_on_success: "/login",
 		fields: {
 			username: CharField {
 				required,

@@ -24,6 +24,7 @@ pub async fn login(
 		use tracing::error;
 
 		use crate::apps::auth::services;
+		use crate::apps::auth::services::session::session_cookie_header;
 		use crate::shared::UserInfo;
 
 		let user = services::verify_credentials(&username, &password)
@@ -48,10 +49,7 @@ pub async fn login(
 		// The server_fn router reads SharedResponseCookies after the handler
 		// and applies them as Set-Cookie response headers.
 		let is_debug = crate::config::settings::get_settings().core.debug;
-		let secure_flag = if is_debug { "" } else { "; Secure" };
-		let cookie = format!(
-			"sessionid={session_id}; HttpOnly; SameSite=Lax; Path=/{secure_flag}; Max-Age=86400"
-		);
+		let cookie = session_cookie_header(&session_id, is_debug);
 		http_request.add_response_cookie(cookie);
 
 		let user_info = UserInfo::from(&user);
