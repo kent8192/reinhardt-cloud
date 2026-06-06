@@ -83,6 +83,13 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT` | `18080` | Local port used for Dashboard health, login, and authenticated page checks. |
 | `DASHBOARD_SELF_DEPLOY_ORIGIN` | `http://127.0.0.1:8000` | Origin/Referer used for server function POSTs. The default matches the CI `OriginGuardMiddleware` allow-list. |
 
+When running the Dashboard development server on a port other than 8000,
+set `PORT` to the served port or add the exact origin under
+`[cors].allow_origins`. In debug profiles the router augments configured
+origins with `http://localhost:$PORT` and `http://127.0.0.1:$PORT` so
+same-origin server-function POSTs do not fail OriginGuard validation after
+switching to ports such as 8001.
+
 On failure the harness writes events, live `ReinhardtApp` YAML, owned resource
 YAML, Pod logs, Operator logs, and the generated CRD YAML under the artifact
 directory before cleanup. Login responses, cookies, and authenticated page

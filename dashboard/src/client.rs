@@ -39,6 +39,12 @@ mod wasm_entry {
 	use crate::apps::auth::client::components as auth_components;
 	use crate::shared::client::{components, state, ws};
 
+	fn ensure_notifications_for_path(ctx: &PathCtx<'_>) {
+		if ws::should_connect_notifications_for_path(ctx.path()) {
+			ws::ensure_notifications_connected();
+		}
+	}
+
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
 	pub(super) fn main() -> Result<(), JsValue> {
@@ -56,11 +62,13 @@ mod wasm_entry {
 		// on every entry to "/".
 		ClientLauncher::new("#app")
 			.before_launch(state::init_app_state)
-			.before_launch(ws::ensure_notifications_connected)
 			.router_client(router::init_router)
 			.on_path("/", |ctx: &PathCtx<'_>| {
 				ctx.ensure_portal("toast-container", components::toast::toast_container);
+				ensure_notifications_for_path(ctx);
 			})
+			.on_path("/clusters", ensure_notifications_for_path)
+			.on_path("/deployments", ensure_notifications_for_path)
 			.on_path("/login", |_ctx: &PathCtx<'_>| {
 				auth_components::ensure_oauth_buttons_connected("oauth-login-providers", "Sign in");
 			})
