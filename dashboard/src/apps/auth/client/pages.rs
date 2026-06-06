@@ -19,3 +19,13 @@ pub(crate) fn auth_href(route_name: &str, fallback: &str) -> String {
 		fallback.to_string()
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[rstest::rstest]
+	fn auth_href_uses_fallback_on_native() {
+		assert_eq!(auth_href("auth:login_page", "/login"), "/login");
+	}
+}
