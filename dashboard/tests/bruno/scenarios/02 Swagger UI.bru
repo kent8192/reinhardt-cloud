@@ -1,0 +1,21 @@
+meta {
+  name: 02 Swagger UI
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/docs
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should expose Swagger UI", function() {
+    expect(res.getBody()).to.include("swagger");
+  });
+}

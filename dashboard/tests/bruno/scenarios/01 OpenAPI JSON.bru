@@ -1,0 +1,28 @@
+meta {
+  name: 01 OpenAPI JSON
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/openapi.json
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.openapi: isString
+}
+
+tests {
+  test("should expose the current public HTTP surface", function() {
+    const body = res.getBody();
+    expect(body.openapi).to.match(/^3\./);
+    expect(body.paths).to.be.an("object");
+    expect(body.paths).to.not.have.property("/api/auth/register/");
+    expect(body.paths).to.not.have.property("/api/auth/login/");
+    expect(body.paths).to.not.have.property("/api/clusters/");
+    expect(body.paths).to.not.have.property("/api/deployments/");
+  });
+}

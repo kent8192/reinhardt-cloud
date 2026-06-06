@@ -1,0 +1,22 @@
+meta {
+  name: 03 ReDoc
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/redoc
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("should expose ReDoc UI", function() {
+    const body = res.getBody();
+    expect(body).to.satisfy(text => text.includes("redoc") || text.includes("Redoc") || text.includes("ReDoc"));
+  });
+}
