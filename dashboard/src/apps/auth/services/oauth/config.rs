@@ -16,7 +16,6 @@
 use std::env;
 
 use reinhardt::di::injectable_factory;
-
 /// Credentials for a single OAuth provider, populated from env vars.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCredentials {
@@ -41,8 +40,7 @@ impl OAuthSettings {
 	/// For each provider, all three env vars (`CLIENT_ID`, `CLIENT_SECRET`,
 	/// `REDIRECT_URI`) must be present and non-empty for the provider to be
 	/// enabled. If any of them is missing, the provider entry is `None` and
-	/// the corresponding REST endpoints will return 404 / the login button
-	/// will not appear.
+	/// provider discovery omits that provider.
 	pub fn from_env() -> Self {
 		Self {
 			github: read_provider("GITHUB"),

@@ -4,7 +4,6 @@ use reinhardt::{Schema, ToSchema};
 use serde::Serialize;
 
 use crate::apps::deployments::models::Deployment;
-
 /// Deployment API response.
 #[derive(Debug, Serialize, Schema)]
 pub struct DeploymentResponse {

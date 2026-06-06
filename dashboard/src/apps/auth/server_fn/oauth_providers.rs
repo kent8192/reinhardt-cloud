@@ -10,8 +10,7 @@ pub struct OAuthProviderInfo {
 	pub label: String,
 }
 
-#[cfg(native)]
-fn label_for_provider(id: &str) -> &'static str {
+pub(crate) fn label_for_provider(id: &str) -> &'static str {
 	match id {
 		"github" => "GitHub",
 		_ => "OAuth",

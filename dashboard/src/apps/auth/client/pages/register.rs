@@ -8,7 +8,8 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 
-use crate::apps::auth::server::register::register;
+use crate::apps::auth::client::pages::auth_href;
+use crate::apps::auth::server_fn::register::register;
 
 /// Render the registration page inside the shared auth layout.
 pub fn register_page() -> Page {
@@ -46,8 +47,9 @@ pub fn register_page() -> Page {
 		},
 	};
 	let form_view = register_form.into_page();
+	let login_href = auth_href("auth:login_page", "/login");
 
-	page!(|form_view: Page| {
+	page!(|form_view: Page, login_href: String| {
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -75,12 +77,9 @@ pub fn register_page() -> Page {
 					}
 					{ form_view }
 					div {
-						id: "oauth-register-providers",
-					}
-					div {
 						class: "mt-6 text-center text-sm text-ink-600",
 						"Already have an account? " a {
-							href: "/login".to_string(),
+							href: login_href,
 							class: "font-semibold text-control-700 underline-offset-4 hover:underline",
 							"Sign in"
 						}
@@ -88,5 +87,5 @@ pub fn register_page() -> Page {
 				}
 			}
 		}
-	})(form_view)
+	})(form_view, login_href)
 }

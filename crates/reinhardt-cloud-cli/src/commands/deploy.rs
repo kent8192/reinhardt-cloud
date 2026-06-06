@@ -76,10 +76,10 @@ pub(crate) struct DeployArgs {
 	/// Override the apiVersion field in the generated `ReinhardtApp` manifest
 	/// (e.g. `paas.reinhardt-cloud.dev/v1`). Only meaningful in `--direct`
 	/// mode (where the manifest is applied to the cluster) or with `--dry-run`
-	/// (where the manifest is printed for review). In API mode without
-	/// `--direct`, the deploy call does not transmit a CRD manifest, so this
-	/// flag has no effect. When unset and `--direct` is used, the CLI queries
-	/// the cluster's CRD and selects the served storage version automatically.
+	/// (where the manifest is printed for review). Default API mode is
+	/// unsupported after the dashboard moved deploy submissions to server
+	/// functions. When unset and `--direct` is used, the CLI queries the
+	/// cluster's CRD and selects the served storage version automatically.
 	/// The value MUST be a fully-qualified `group/version` — short forms like
 	/// `v1` are rejected so we never produce manifests with a missing API group.
 	#[arg(long, value_parser = validate_api_version)]
@@ -622,6 +622,9 @@ async fn execute_inner(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	eprintln!("Target: {}", client.base_url());
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
+	if !args.dry_run && !args.direct && !args.introspect_only {
+		return Err(unsupported_dashboard_deploy_error());
+	}
 
 	// Step 1: Try to run manage introspect
 	let introspect = match run_manage_introspect(&project_dir, args.manage_bin.as_deref()) {
@@ -748,22 +751,17 @@ async fn execute_inner(
 			args.namespace
 		);
 	} else {
-		// API mode: send JSON payload to the dashboard API
-		match client
-			.deploy(&app_name, &image, args.cluster.as_deref(), Some(&yaml))
-			.await
-		{
-			Ok(response) => {
-				println!("Deployment submitted via API.");
-				tracing::debug!("API response: {response}");
-			}
-			Err(e) => {
-				return Err(format!("failed to deploy via API: {e}").into());
-			}
-		}
+		let _ = yaml;
+		return Err(unsupported_dashboard_deploy_error());
 	}
 
 	Ok(())
+}
+
+fn unsupported_dashboard_deploy_error() -> Box<dyn std::error::Error> {
+	"default deploy via dashboard REST is no longer supported; use --direct or --dry-run. \
+	The dashboard Pages UI submits deployments through server functions."
+		.into()
 }
 
 /// Decide which apiVersion to embed in the generated `ReinhardtApp` CRD.
@@ -1134,6 +1132,39 @@ features:
 
 		// Assert
 		assert_eq!(actual, expected);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_default_deploy_returns_unsupported_before_project_inspection() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let args = DeployArgs {
+			name: None,
+			image: None,
+			replicas: None,
+			dir: Some(dir.path().to_path_buf()),
+			dry_run: false,
+			direct: false,
+			introspect_only: false,
+			manage_bin: None,
+			require_introspect: true,
+			namespace: "default".to_string(),
+			cluster: None,
+			api_version: None,
+		};
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
+
+		// Act
+		let error = execute_inner(&args, &client)
+			.await
+			.expect_err("default dashboard REST deploy should be unsupported");
+
+		// Assert
+		assert_eq!(
+			error.to_string(),
+			"default deploy via dashboard REST is no longer supported; use --direct or --dry-run. The dashboard Pages UI submits deployments through server functions."
+		);
 	}
 
 	#[rstest]

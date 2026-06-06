@@ -1,7 +1,7 @@
 //! SSE (Server-Sent Events) adapter for gRPC streams.
 //!
 //! Converts gRPC streaming responses into SSE-compatible event streams
-//! for consumption by the CLI client via REST API endpoints.
+//! for consumption by control-plane clients.
 
 use serde::Serialize;
 

@@ -193,8 +193,8 @@ pub async fn force_login_user(
 
 /// Like [`force_login_user`], but also returns the Personal `Organization`.
 ///
-/// Use this when the test needs the org slug to construct org-scoped API
-/// URLs (e.g. `/api/orgs/{slug}/clusters/`).
+/// Use this when the test needs the Personal Org identity for server
+/// function input or direct database assertions.
 pub async fn force_login_user_with_org(
 	client: &APIClient,
 	conn: &Arc<DatabaseConnection>,

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(native)]
 use reinhardt::CurrentUser;
 #[cfg(wasm)]
+// CurrentUser is a WASM placeholder for the `#[server_fn]` signature; native
+// builds resolve the real injected user type.
 #[allow(dead_code)]
 struct CurrentUser<U>(pub U);
 

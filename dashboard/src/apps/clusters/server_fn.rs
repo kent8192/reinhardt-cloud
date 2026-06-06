@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(native)]
 use reinhardt::CurrentUser;
+#[cfg(native)]
+use uuid::Uuid;
 #[cfg(wasm)]
+// CurrentUser is a WASM placeholder for the `#[server_fn]` signature; native
+// builds resolve the real injected user type.
 #[allow(dead_code)]
 struct CurrentUser<U>(pub U);
 
@@ -40,6 +44,17 @@ fn cluster_info(cluster: crate::apps::clusters::models::Cluster) -> ClusterInfo 
 		is_active: cluster.is_active,
 		token_last_rotated_at: cluster.token_last_rotated_at.map(|ts| ts.to_rfc3339()),
 	}
+}
+
+#[cfg(native)]
+fn cluster_id_from_pk(id: Option<i64>) -> Result<Uuid, ServerFnError> {
+	let pk = id.ok_or_else(|| {
+		ServerFnError::application("Cluster row missing primary key after insert")
+	})?;
+	let mut bytes = [0u8; 16];
+	bytes[..8].copy_from_slice(b"RHCL-CID");
+	bytes[8..].copy_from_slice(&pk.to_be_bytes());
+	Ok(Uuid::from_bytes(bytes))
 }
 
 #[server_fn]
@@ -114,9 +129,7 @@ pub async fn create_cluster_for_current_org(
 				ServerFnError::application(format!("Failed to create cluster: {msg}"))
 			}
 		})?;
-		let cluster_uuid =
-			crate::apps::clusters::views::create_cluster::cluster_id_from_pk(created.id)
-				.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let cluster_uuid = cluster_id_from_pk(created.id)?;
 		let issued = agent_token_service
 			.issue(cluster_uuid)
 			.map_err(|e| ServerFnError::application(format!("Failed to issue agent token: {e}")))?;
@@ -266,9 +279,7 @@ pub async fn rotate_cluster_token_for_current_org(
 			.await
 			.map_err(|e| ServerFnError::application(format!("Failed to load cluster: {e}")))?
 			.ok_or_else(|| ServerFnError::server(404, "Cluster not found"))?;
-		let cluster_uuid =
-			crate::apps::clusters::views::create_cluster::cluster_id_from_pk(cluster.id)
-				.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let cluster_uuid = cluster_id_from_pk(cluster.id)?;
 		let issued = agent_token_service
 			.issue(cluster_uuid)
 			.map_err(|e| ServerFnError::application(format!("Failed to issue agent token: {e}")))?;

@@ -314,11 +314,11 @@ Dashboard → Agent → Operator path. Each has a tracking Issue:
 3. **No Agent Helm chart.** `charts/` contains only the Operator chart;
    there is no production-shaped `reinhardt-cloud-agent` chart.
    Tracked in kent8192/reinhardt-cloud#359.
-4. **No `AUTH_TOKEN` issuance on cluster registration.**
-   `dashboard/src/apps/clusters/views/create_cluster.rs` does not emit an
-   Agent bearer token. `AUTH_TOKEN` must currently be minted manually using
-   the JWT secret that `crates/reinhardt-cloud-grpc/src/interceptor.rs`
-   validates against. Tracked in kent8192/reinhardt-cloud#361.
+4. **Manual Agent token wiring is still required in this flow.**
+   `dashboard/src/apps/clusters/server_fn.rs` returns `ClusterTokenInfo` with
+   an `auth_token` during cluster creation. Ensure that token is surfaced to
+   the Agent process as `AUTH_TOKEN` for local runs. Tracked in
+   kent8192/reinhardt-cloud#361.
 
 Until each item is resolved, treat the "Dashboard-mediated deploy" scenario
 (section 8c) as a partial smoke test: HTTP path and payload acceptance only.

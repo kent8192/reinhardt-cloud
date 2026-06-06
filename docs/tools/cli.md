@@ -6,17 +6,16 @@
 
 ## Overview
 
-`reinhardt-cloud` is the end-user command-line interface for the Reinhardt Cloud PaaS. It speaks to the platform API server (or, with `--direct`, to the Kubernetes API directly) and operates on one `ReinhardtApp` resource at a time.
+`reinhardt-cloud` is the end-user command-line interface for the Reinhardt Cloud PaaS. It operates on one `ReinhardtApp` resource at a time. Direct cluster operations use the Kubernetes API; dashboard browser workflows use Pages server functions.
 
 ### Placement in the architecture
 
 ```
 Developer machine
   └── reinhardt-cloud CLI
-        ├── (default) ──► Platform API (Dashboard server)
-        │                       └──► Kubernetes cluster
-        │                               └──► Operator reconciles ReinhardtApp
+        ├── (default) ──► unsupported dashboard REST path
         └── (--direct) ──────────────────► Kubernetes cluster (kubectl apply)
+                                          └──► Operator reconciles ReinhardtApp
 ```
 
 The CLI does not watch resources after submitting them — use `status` or the [Dashboard](dashboard.md) for ongoing visibility.
@@ -33,10 +32,10 @@ All subcommands accept these shared inputs:
 
 | Input | Form | Description |
 |-------|------|-------------|
-| `--server <URL>` | CLI flag (long only, no short form) | Override the API server URL for this invocation |
-| `REINHARDT_CLOUD_API_URL` | Environment variable | Set the API server URL persistently for all invocations |
+| `--server <URL>` | CLI flag (long only, no short form) | Override the configured control-plane target URL for this invocation |
+| `REINHARDT_CLOUD_API_URL` | Environment variable | Set the control-plane target URL persistently for all invocations |
 
-Resolution order for the effective API server URL (highest priority first):
+Resolution order for the effective control-plane target URL (highest priority first):
 
 1. `--server <URL>` CLI flag
 2. `<platform config dir>/reinhardt-cloud/config.toml` (`api_url` key)
@@ -53,7 +52,7 @@ The platform config dir is resolved by [`dirs::config_dir()`](https://docs.rs/di
 
 ### Credential auto-load
 
-After resolving the API URL, the CLI calls `load_token()` and, when credentials exist at `<platform config dir>/reinhardt-cloud/credentials.json`, attaches the stored JWT to the HTTP client via `ReinhardtCloudClient::with_token`. Authenticated subcommands (`deploy`, `status`) automatically send `Authorization: Bearer <token>` on every request — no manual re-login is required between invocations. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
+After resolving the configured target URL, the CLI calls `load_token()` and, when credentials exist at `<platform config dir>/reinhardt-cloud/credentials.json`, stores the JWT in the command target metadata. The removed dashboard REST paths no longer receive authenticated CLI requests; dashboard browser flows call server functions directly. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
 
 ### Exit codes
 
@@ -245,9 +244,9 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 | `--replicas <N>` | `-r` | no | `1` | Number of replicas. |
 | `--dir <PATH>` | `-d` | no | `.` | Project directory used to locate `reinhardt-cloud.toml`. |
 | `--namespace <NS>` | — | no | `"default"` | Kubernetes namespace for the `ReinhardtApp` resource. |
-| `--cluster <NAME>` | — | no | — | Target cluster name. Passed as `--context` to `kubectl` (`--direct`) or forwarded to the API. |
+| `--cluster <NAME>` | — | no | — | Target cluster name. Passed as `--context` to `kubectl` when `--direct` is used. |
 | `--dry-run` | — | no | `false` | Print the generated CRD YAML to stdout without applying. |
-| `--direct` | — | no | `false` | Skip the platform API; apply the CRD directly via `kubectl apply`. |
+| `--direct` | — | no | `false` | Apply the CRD directly via `kubectl apply`. |
 | `--introspect-only` | — | no | `false` | Run `manage introspect --format yaml`, print the output, and exit without deploying. |
 | `--manage-bin <PATH>` | — | no | — | Use a specific project `manage` binary for introspection instead of PATH or `cargo run` discovery. |
 | `--require-introspect` | — | no | `false` | Fail deploy when `manage introspect` fails instead of continuing with zero-config inference. Useful for CI and self-deploy contract checks. |
@@ -270,14 +269,14 @@ When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections int
 
 | Mode | Flag(s) | Contacted endpoint | Typical use-case |
 |------|---------|--------------------|-----------------|
-| Default (API) | neither `--dry-run` nor `--direct` | Platform API (`REINHARDT_CLOUD_API_URL`) via `ReinhardtCloudClient::deploy`; payload includes app metadata and generated `ReinhardtApp` YAML | Standard developer deploy through the control plane |
-| Direct (kubectl) | `--direct` | Kubernetes API server via `kubectl apply -f -` | Bypassing the control plane; useful when the platform API is unavailable or during operator bootstrap |
+| Default (API) | neither `--dry-run` nor `--direct` | None; returns an unsupported-operation error because dashboard deploy REST was removed | Legacy invocation shape; use `--direct` or `--dry-run` |
+| Direct (kubectl) | `--direct` | Kubernetes API server via `kubectl apply -f -` | CLI-driven cluster submission; useful during operator bootstrap |
 | Dry run | `--dry-run` | None — YAML is printed to stdout | Pre-flight check, GitOps manifest review, CI validation |
 | Introspect only | `--introspect-only` | Runs `manage introspect` locally; no Kubernetes contact | Debugging introspect output without deploying |
 
 `--dry-run` and `--direct` are mutually exclusive in effect: `--dry-run` is checked first and causes early return before `--direct` is evaluated.
 
-For `--direct`, the CLI discovers the served CRD version from the target cluster unless `--api-version` is provided. For dry-run and API mode, it uses the explicit `--api-version` value when set, otherwise the compile-time default.
+For `--direct`, the CLI discovers the served CRD version from the target cluster unless `--api-version` is provided. For `--dry-run`, it uses the explicit `--api-version` value when set, otherwise the compile-time default. The unsupported default API mode does not submit a manifest.
 
 **Example: CI pipeline pattern**
 
@@ -288,11 +287,12 @@ reinhardt-cloud deploy \
   --image registry.example.com/my-app:${GIT_SHA} \
   --dry-run
 
-# 2. If validation passes, deploy for real via the platform API
+# 2. If validation passes, deploy for real via direct cluster submission
 reinhardt-cloud deploy \
   --name my-app \
   --image registry.example.com/my-app:${GIT_SHA} \
-  --replicas 3
+  --replicas 3 \
+  --direct
 ```
 
 **Example: GitOps with `crd`**
@@ -309,7 +309,7 @@ The `crd` command reference (covered in a later section of this guide) explains 
 
 > **For App Developers**: Use `--dry-run` before every deploy in CI to catch name or image resolution errors before they reach the cluster. A dry-run exit code of `0` means the CRD YAML is valid and `--name` / `--image` were resolved; it does not guarantee the cluster will accept the resource. Add `--dry-run` to a pre-commit hook or CI step for early feedback.
 
-> **For Platform Operators**: `--direct` bypasses the platform API and calls `kubectl apply` on the developer's machine, which means the developer needs `patch` / `create` RBAC on `reinhardtapps` in the target namespace. Prefer the default API mode to keep RBAC enforcement centralized. When `--direct` is used with `--cluster`, the value is passed as `--context` to `kubectl`; ensure the developer's kubeconfig contains the named context. Pass `--api-version` only when discovery is unavailable or you intentionally need to pin a served CRD version.
+> **For Platform Operators**: `--direct` calls `kubectl apply` on the developer's machine, which means the developer needs `patch` / `create` RBAC on `reinhardtapps` in the target namespace. The default dashboard REST deploy path is unsupported. When `--direct` is used with `--cluster`, the value is passed as `--context` to `kubectl`; ensure the developer's kubeconfig contains the named context. Pass `--api-version` only when discovery is unavailable or you intentionally need to pin a served CRD version.
 
 **Troubleshooting**
 
@@ -317,7 +317,10 @@ The `crd` command reference (covered in a later section of this guide) explains 
 - **`--image is required`** — The image could not be resolved from CLI flags or `reinhardt-cloud.toml`. Pass `--image <registry/image:tag>` or ensure `reinhardt-cloud.toml` has `app.image` set.
 - **`failed to run kubectl (is it installed?): ...`** — `--direct` was used but `kubectl` is not on `PATH`. Install `kubectl` and ensure it is accessible.
 - **`kubectl apply failed: ...`** — The apply was rejected by the API server. Common causes: the `ReinhardtApp` CRD is not installed in the cluster (`kubectl apply -f charts/reinhardt-cloud-operator/crds/`), the namespace does not exist, or the resource spec violates a validation rule. Inspect the `kubectl` error message for the specific field that failed.
-- **`failed to deploy via API: ...`** — The platform API returned an error or was unreachable. Check that `REINHARDT_CLOUD_API_URL` is set correctly and the Dashboard server is running. The default is `http://localhost:8000`.
+- **`default deploy via dashboard REST is no longer supported...`** — The
+  default API submission path was removed when the dashboard deploy flow moved
+  to Pages server functions. Use `--direct` for cluster submission or
+  `--dry-run` for manifest preview.
 - **`manage introspect failed: ...` warning, then deploy continues** — `deploy` treats introspect failure as non-fatal unless `--require-introspect` is set. If the deploy then fails with `--name is required`, run `reinhardt-cloud deploy --introspect-only` to diagnose the introspect error separately before retrying. In CI, pass `--require-introspect` so fallback manifests cannot mask a broken management command.
 - **`replicas value N exceeds i32::MAX`** — The `--replicas` value is larger than `2147483647`. Use a sane replica count.
 
@@ -343,7 +346,7 @@ reinhardt-cloud status [OPTIONS]
 
 **Behavior**
 
-`status` tries the platform dashboard API first. If the API is unreachable (connection refused or timeout — transport-level errors only), it falls back to `kubectl get reinhardtapp <name> -n <namespace> -o json` and renders the result locally. Other API errors (4xx, 5xx) are returned directly without falling back.
+`status` tries the dashboard client boundary first. Because dashboard REST status is no longer exposed by the Pages app, it falls back to `kubectl get reinhardtapp <name> -n <namespace> -o json` and renders the result locally. Other client errors are returned directly without falling back.
 
 Output shape (kubectl fallback path):
 
@@ -367,7 +370,7 @@ Status label derivation (priority order):
 3. `Progressing` — condition type `Progressing` with status `True`
 4. `Unknown` — none of the above matched, or no status reported yet
 
-When the dashboard API path succeeds, the raw JSON from the API response is printed to stdout instead of the formatted output above.
+When a future dashboard status API path succeeds, the raw JSON from the API response will be printed to stdout instead of the formatted output above.
 
 **Example**
 
@@ -381,19 +384,20 @@ reinhardt-cloud status --name my-app --cluster staging-context
 
 > **For App Developers**: Use `status` immediately after `deploy` to confirm the rollout reached `Ready`. The `Ready: N/N` line tells you how many replicas are up. If the status stays `Progressing` for more than a few minutes, inspect the pod logs or check `kubectl describe reinhardtapp <name>` for event details.
 
-> **For Platform Operators**: `status` is a lightweight read-only command that works without cluster credentials when the dashboard API is reachable. Compare its output with `kubectl get reinhardtapp -A` to verify the CLI and the operator agree on the current state. If they diverge, the dashboard API may be serving stale cache — restart the Dashboard server.
+> **For Platform Operators**: `status` is a lightweight read-only command that currently uses `kubectl` because dashboard REST status is unsupported. Compare its output with `kubectl get reinhardtapp -A` to verify the CLI and the operator agree on the current state.
 
 **Troubleshooting**
 
 - **`kubectl get reinhardtapp failed: Error from server (NotFound): ...`** — The application name or namespace is wrong, or the resource has not been deployed yet. Verify with `kubectl get reinhardtapp -A`.
-- **`Dashboard API unreachable, falling back to kubectl...`** — The Dashboard server is not running or `REINHARDT_CLOUD_API_URL` points to an unreachable address. Either start the Dashboard server or ensure `kubectl` is configured for the target cluster.
-- **`failed to run kubectl: ...`** — `kubectl` is not on `PATH`. Install `kubectl` when using the `status` command without a running dashboard API.
+- **`Dashboard status REST operation unsupported, falling back to kubectl...`** — The dashboard status REST path was removed. Ensure `kubectl` is configured for the target cluster.
+- **`failed to run kubectl: ...`** — `kubectl` is not on `PATH`. Install `kubectl` when using the `status` command.
 
 ---
 
 ### reinhardt-cloud login
 
-Authenticate with the Reinhardt Cloud platform and save credentials locally.
+Legacy CLI login command. Dashboard credential submission now lives in the
+Pages login form and calls the login server function directly.
 
 **Synopsis**
 
@@ -405,18 +409,17 @@ reinhardt-cloud login --username <USERNAME>
 
 | Flag | Short | Type | Required | Description |
 |------|-------|------|----------|-------------|
-| `--username` | `-u` | `string` | Yes | Username for authentication |
+| `--username` | `-u` | `string` | Yes | Username retained for compatibility; no REST login request is sent |
 
-The password is read interactively via a hidden prompt written to stderr (so it does not appear in shell history or interfere with stdout capture). There is no `--password` flag; the password cannot be passed as a CLI argument.
+The CLI login command is retained as a legacy invocation shape, but dashboard login REST is no longer supported. Use the Dashboard Pages login form for browser authentication.
 
 **Behavior**
 
-1. Prompts for password on stderr (`Password: `).
-2. Sends credentials to the platform API (`/auth/login` or equivalent).
-3. On success, saves the returned JWT token to the credentials file (`<platform config dir>/reinhardt-cloud/credentials.json`, where the platform config dir is platform-dependent — see [Configuration Discovery](#configuration-discovery)).
-4. Prints the JWT token to stdout so callers can capture it (e.g. `TOKEN=$(reinhardt-cloud login --username alice)`). The success message is on stderr and does not pollute the captured value.
+1. Does not prompt for a password.
+2. Returns an explicit unsupported-operation error because dashboard login REST was removed.
+3. Browser login remains available through the Dashboard Pages form, which calls the login server function directly.
 
-> **Security note**: The credentials file is currently written using the process umask and is not automatically restricted to the owner. On shared hosts (multi-user Linux, some CI runners with a shared user home) other local users may be able to read it. After your first login, run (Unix only):
+> **Security note**: Existing credentials files are read using normal filesystem permissions. The removed CLI login path no longer writes fresh credentials.
 > ```bash
 > chmod 600 "<platform config dir>/reinhardt-cloud/credentials"*
 > ```
@@ -425,29 +428,18 @@ The password is read interactively via a hidden prompt written to stderr (so it 
 **Example**
 
 ```bash
-# Interactive login
+# Legacy invocation, currently unsupported
 reinhardt-cloud login --username alice
-
-# Capture the token for use in scripts
-TOKEN=$(reinhardt-cloud login --username alice 2>/dev/null)
 ```
 
 **CI pattern**
 
-`login` always prompts interactively for the password; it does not read from an environment variable or stdin. For non-interactive CI use, pipe the password via a here-string or use a wrapper:
-
-```bash
-# Pipe password from a secret variable (CI)
-echo "$REINHARDT_PASSWORD" | reinhardt-cloud login --username ci-bot
-# Note: some shells echo stdin to tty even for piped input; verify your CI
-# runner's behavior and prefer a credential helper if available.
-```
+Do not use `login` in CI. Configure any required credentials through the
+supported credential/config commands for the workflow being tested.
 
 **Troubleshooting**
 
-- **`login failed: ...`** — Invalid username or password, or the platform API is unreachable. Verify `REINHARDT_CLOUD_API_URL` is set and the Dashboard server is running.
-- **`password must not be empty`** — An empty password was entered at the prompt. Re-run and enter a non-empty password.
-- **Token expiry** — The CLI does not currently perform automatic token refresh. If API calls start failing with authentication errors after a period of inactivity, re-run `reinhardt-cloud login` to obtain a fresh token.
+- **`dashboard login REST is no longer supported...`** — Use the Dashboard Pages login form; it calls the login server function directly.
 
 ---
 
@@ -692,37 +684,35 @@ feature is not yet implemented in the current phase.
 
 This section covers issues that span multiple commands or affect the CLI as a whole.
 
-### Cannot reach API server
+### Removed dashboard REST operations
 
-**Symptoms**: `deploy`, `status`, and `login` fail with connection errors like `failed to deploy via API: ...`, `Dashboard API unreachable`, or `login failed: ...`.
+**Symptoms**: `deploy`, `status`, and `login` report unsupported dashboard REST operations.
 
 **Diagnosis**:
 
-1. Check the configured API server URL:
+1. Check whether the invocation is using the removed default API mode:
    ```bash
-   echo $REINHARDT_CLOUD_API_URL
+   reinhardt-cloud deploy --help
    ```
-   If unset, the default is `http://localhost:8000`.
+   `deploy` without `--direct` or `--dry-run` does not submit to the dashboard
+   anymore.
 
-2. Verify the dashboard is running:
+2. Use `--direct` when the CLI should apply the generated `ReinhardtApp` CRD:
    ```bash
-   curl http://localhost:8000/healthz
-   ```
-   or with a custom server:
-   ```bash
-   curl "$REINHARDT_CLOUD_API_URL/healthz"
+   reinhardt-cloud deploy --direct --name my-app --image ghcr.io/example/my-app:latest
    ```
 
-3. If using `--direct` mode (kubectl), confirm cluster connectivity:
+3. Confirm cluster connectivity before direct mode:
    ```bash
    kubectl cluster-info
    kubectl auth can-i create reinhardtapps
    ```
 
 **Resolution**:
-- Ensure `REINHARDT_CLOUD_API_URL` is set to the correct dashboard address (e.g. `http://dashboard.example.com:8000` in production).
-- Start the Dashboard server or deploy the canonical Dashboard manifest, then verify `REINHARDT_CLOUD_API_URL` points to it.
-- For `--direct` mode, verify `kubectl` is configured and can reach the cluster.
+- Use `--dry-run` for manifest preview.
+- Use `--direct` for CLI-driven cluster submission.
+- Use the Dashboard Pages UI for browser-driven deploy/login flows; those call
+  dashboard server functions directly.
 
 ### `reinhardt-cloud.toml` parse errors
 
@@ -828,7 +818,7 @@ This table lists all flags accepted by each command.
 | `crd generate` | `--output` |
 
 Global flags (apply to all commands):
-- `--server <URL>` — Override the API server URL (environment variable: `REINHARDT_CLOUD_API_URL`)
+- `--server <URL>` — Override the configured control-plane target URL (environment variable: `REINHARDT_CLOUD_API_URL`)
 
 ---
 
@@ -849,7 +839,7 @@ All error handling flows through Rust's standard `Result<(), Box<dyn Error>>` re
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `REINHARDT_CLOUD_API_URL` | Dashboard API server URL (e.g., `http://localhost:8000` or `https://api.reinhardt-cloud.dev`). Used by `deploy`, `status`, and `login` commands. | `http://localhost:8000` |
+| `REINHARDT_CLOUD_API_URL` | Configured control-plane target URL retained for CLI target metadata. Removed dashboard REST operations no longer send deploy/login/status HTTP requests. | `http://localhost:8000` |
 | `KUBECONFIG` | Path to kubeconfig file. Used by `deploy --direct`, `status` (kubectl fallback), and `credentials` commands to locate cluster credentials. | `~/.kube/config` (or in-cluster service account if running inside a pod) |
 
 ---

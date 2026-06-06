@@ -1,6 +1,7 @@
-//! Email verification view.
+//! Server-side URLs for auth flows that cannot be expressed as server functions.
 //!
-//! Activates a user account when they visit the verification URL from their email.
+//! Browser navigation and email-link callbacks use regular server routes.
+//! Interactive form submission remains implemented through `server_fn`.
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
@@ -17,7 +18,7 @@ use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token}
 /// `GET /api/auth/verify-email/{token}/`
 ///
 /// On success, sets `is_active = true` for the user. Returns 200 even
-/// if the user is already active (idempotent).
+/// if the user is already active.
 #[get("/verify-email/{token}/", name = "verify-email")]
 pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
 	let secret_key = crate::config::settings::get_settings()
@@ -44,7 +45,6 @@ pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
 		})?
 		.ok_or_else(|| AppError::Validation("Invalid verification link".to_string()))?;
 
-	// Idempotent: if already active, just return success
 	if !user.is_active() {
 		let mut updated = user;
 		updated.is_active = true;

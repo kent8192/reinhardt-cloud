@@ -304,6 +304,6 @@ The agent and control plane share proto definitions from `reinhardt-cloud-proto`
 The agent is infrastructure managed by Platform Ops. You should be aware of its impact only in these situations:
 
 - **Dashboard log streaming stops**: if the agent is disconnected, real-time log tailing in the Dashboard will be unavailable. Escalate to Platform Ops to check agent pod health (`kubectl get pod -n reinhardt-cloud-system -l app.kubernetes.io/name=reinhardt-cloud-agent`).
-- **`reinhardt-cloud status` still works**: the CLI talks directly to the platform API (not through the agent), so deployment status queries succeed even when the agent is down.
+- **`reinhardt-cloud status` still works**: the CLI falls back to `kubectl` because dashboard REST status is unsupported, so deployment status queries can still succeed even when the agent is down.
 - **Application pods keep running**: an agent outage does not affect running workloads. Only the cluster-to-control-plane synchronization (remote deploy commands and live telemetry) is interrupted. If you deployed via `reinhardt-cloud deploy` before the outage, your pods are unaffected.
 - **Remote deploy commands will queue or fail**: if Platform Ops uses the Dashboard to push a new deploy while the agent is offline, the command cannot reach the cluster. Coordinate with Platform Ops before expecting a Dashboard-initiated rollout to take effect.

@@ -70,7 +70,7 @@ pub(crate) fn jwt_secret() -> String {
 }
 ```
 
-Helper functions MUST be placed in a dedicated file (e.g., `views/utils.rs`).
+Helper functions MUST be placed in a dedicated file (e.g., `server_fn/utils.rs`).
 
 ---
 
@@ -79,7 +79,7 @@ Helper functions MUST be placed in a dedicated file (e.g., `views/utils.rs`).
 ### AC-1 (MUST): Use reinhardt-admin
 
 - New applications MUST be created using `reinhardt-admin startapp <app_name>`
-- The `--restful` template SHOULD be used for REST API applications
+- The Pages app template SHOULD be used for dashboard applications
 - After creation, register the app in `config/apps.rs`
 
 ---
@@ -194,14 +194,14 @@ impl From<Cluster> for ClusterResponse {
 
 ---
 
-## View Patterns
+## Server Function Patterns
 
-### VP-1 (MUST): One Endpoint Per File
+### SF-1 (MUST): Keep Server Functions Focused
 
-- Each API endpoint MUST be in its own file within the `views/` directory
-- File names SHOULD match the endpoint action (e.g., `create_cluster.rs`, `list_clusters.rs`)
+- Browser-facing mutations SHOULD be implemented as `server_fn` handlers
+- Regular server URLs are reserved for browser navigation callbacks such as email verification
 
-### VP-2 (SHOULD): Use `pre_validate = true`
+### SF-2 (SHOULD): Validate Inputs at the Boundary
 
 - Use `pre_validate = true` in endpoint macros to enable automatic request validation:
 
@@ -293,7 +293,7 @@ pub fn routes() -> ServerRouter {
 - Organize tests by type (`unit/`, `e2e/`, `integration/`)
 - Name test files after the specific feature being tested
 - Use ORM for all database operations
-- One endpoint per file in `views/`
+- Prefer server functions over per-app REST views
 - Load secrets from environment variables
 - Define URL patterns per application
 

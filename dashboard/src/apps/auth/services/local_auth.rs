@@ -7,13 +7,12 @@ use async_trait::async_trait;
 use reinhardt::BaseUser;
 use reinhardt::db::orm::Model;
 use reinhardt::di::injectable_factory;
-use tracing::error;
-use uuid::Uuid;
-
 use reinhardt_cloud_core::auth::{self, Claims};
 use reinhardt_cloud_core::error::ApiError;
 use reinhardt_cloud_core::traits::AuthService;
 use reinhardt_cloud_types::User as DomainUser;
+use tracing::error;
+use uuid::Uuid;
 
 use crate::apps::auth::models::User;
 

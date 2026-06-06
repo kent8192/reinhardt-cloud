@@ -6,8 +6,8 @@ use reinhardt::pages::page;
 use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, use_resource};
 
 #[cfg(wasm)]
-use crate::apps::clusters::server::list_clusters_for_current_org;
-use crate::apps::clusters::server::{
+use crate::apps::clusters::server_fn::list_clusters_for_current_org;
+use crate::apps::clusters::server_fn::{
 	ClusterInfo, create_cluster_for_current_org, delete_cluster_for_current_org,
 	rotate_cluster_token_for_current_org, update_cluster_for_current_org,
 };

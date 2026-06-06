@@ -49,7 +49,6 @@ pub struct LettreSmtpSender {
 	transport: OnceLock<AsyncSmtpTransport<Tokio1Executor>>,
 	from: OnceLock<Mailbox>,
 }
-
 impl LettreSmtpSender {
 	pub fn new() -> Self {
 		Self {

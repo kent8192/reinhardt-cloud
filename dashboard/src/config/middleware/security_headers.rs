@@ -96,8 +96,9 @@ impl Middleware for CspPathMiddleware {
 #[cfg(test)]
 mod tests {
 	use super::is_admin_path;
+	use rstest::rstest;
 
-	#[test]
+	#[rstest]
 	fn prefixed_admin_paths_are_detected_as_admin_routes() {
 		assert!(is_admin_path("/api/admin"));
 		assert!(is_admin_path("/api/admin/"));
@@ -105,7 +106,7 @@ mod tests {
 		assert!(is_admin_path("/admin"));
 		assert!(is_admin_path("/admin/"));
 		assert!(is_admin_path("/admin/dashboard"));
-		assert!(!is_admin_path("/api/auth/login"));
+		assert!(!is_admin_path("/api/auth/verify-email/token/"));
 		assert!(!is_admin_path("/api/static/admin/main.js"));
 	}
 }
