@@ -12,7 +12,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 
 - **Backend framework**: reinhardt-web (`reinhardt` workspace crate, native feature set including `reinhardt::url_patterns`, `reinhardt::ServerRouter`) — source: `dashboard/Cargo.toml` native dependencies
 - **ORM and migrations**: reinhardt's built-in ORM (`reinhardt::db`) with Rust-source migration files under `dashboard/migrations/` — no raw SQL files, no sqlx/diesel/sea-orm dependencies declared
-- **Database engine**: PostgreSQL (inferred from `FieldType::TimestampTz`, `FieldType::Uuid` in migration source, and `engine = "postgresql"` in `dashboard/settings/base.example.toml`)
+- **Database engine**: PostgreSQL (inferred from `FieldType::TimestampTz`, `FieldType::Uuid` in migration source, and `engine = "postgresql"` in `dashboard/settings/base.toml`)
 - **Frontend framework**: reinhardt-pages + reinhardt-admin features of the `reinhardt` crate — not Yew, Leptos, or Dioxus
 - **WASM build**: The library crate declares `crate-type = ["cdylib", "rlib"]` for dual native/WASM compilation. The `dashboard/index.html` file is the WASM shell HTML; `build.rs` uses `cfg_aliases` to set `cfg(wasm)` / `cfg(native)` compile-time flags. WASM bundle build tooling is not declared in `Cargo.toml` — see §7.8 of the source audit (outstanding verification: WASM bundler invocation, e.g. `trunk build`, is not documented in Makefile.toml and must be verified from the broader build pipeline before documenting the exact command)
 - **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on port 50051 by default (`crates/reinhardt-cloud-grpc/src/config.rs`)
@@ -32,7 +32,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 |-------|-----------|-----------------|
 | Backend web framework | reinhardt (native features) | `dashboard/Cargo.toml` `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` |
 | ORM | reinhardt::db | `dashboard/migrations/auth/0001_initial.rs` `use reinhardt::db::migrations::prelude::*` |
-| DB engine (production) | PostgreSQL | `dashboard/settings/base.example.toml` `engine = "postgresql"` |
+| DB engine (production) | PostgreSQL | `dashboard/settings/base.toml` `engine = "postgresql"` |
 | Frontend framework | reinhardt pages + admin | `dashboard/Cargo.toml` WASM deps `reinhardt = { features = ["pages", "admin"] }` |
 | WASM build tooling | Outstanding verification (see §7.8) | `dashboard/index.html` exists; bundler not confirmed |
 | gRPC server | tonic 0.13, default port 50051 | `crates/reinhardt-cloud-grpc/src/config.rs` line 25 |
@@ -52,7 +52,7 @@ The platform operator publishes the Dashboard behind a Kubernetes `Ingress` reso
 
 **Option 2 — `kubectl port-forward` (local / development access)**
 
-The Dashboard HTTP server listens on port 8000 by default (reinhardt-web framework default; confirmed by `cors.allow_origins = ["http://localhost:8000", ...]` in `dashboard/settings/base.example.toml`). To forward that port from a running Dashboard pod:
+The Dashboard HTTP server listens on port 8000 by default (reinhardt-web framework default; confirmed by `cors.allow_origins = ["http://localhost:8000", ...]` in `dashboard/settings/base.toml`). To forward that port from a running Dashboard pod:
 
 ```bash
 kubectl port-forward -n <namespace> deployment/<dashboard-deployment-name> 8000:8000
@@ -147,7 +147,7 @@ The image also:
 ### Database requirements
 
 - **ORM**: reinhardt::db (built-in ORM from the `reinhardt` crate)
-- **Supported engines**: PostgreSQL — the only engine declared in `dashboard/settings/base.example.toml` (`engine = "postgresql"`)
+- **Supported engines**: PostgreSQL — the only engine declared in `dashboard/settings/base.toml` (`engine = "postgresql"`)
 - **Migration source**: `dashboard/migrations/` — four app-level sub-directories (`auth/`, `clusters/`, `deployments/`, `default/`); all migrations are Rust source files
 - **Migration tooling**: run via the `manage` binary:
 
@@ -171,9 +171,11 @@ The Dashboard uses reinhardt-web's standard TOML settings loader — not a Rust 
 
 | File | Purpose |
 |------|---------|
-| `dashboard/settings/base.example.toml` | Template for `base.toml`; shared across all environments |
-| `dashboard/settings/local.example.toml` | Template for `local.toml`; development overrides (gitignored) |
-| `dashboard/settings/ci.example.toml` | Template for `ci.toml`; CI-specific overrides |
+| `dashboard/settings/base.toml` | Shared settings across all environments |
+| `dashboard/settings/local.toml` | Development overrides |
+| `dashboard/settings/ci.toml` | CI-specific overrides |
+| `dashboard/settings/staging.toml` | Staging overrides |
+| `dashboard/settings/production.toml` | Production overrides |
 
 The active settings module is selected at startup via:
 
@@ -183,7 +185,7 @@ REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings
 
 This is set unconditionally by `dashboard/src/bin/manage.rs` before delegating to `execute_from_command_line()`.
 
-**Representative configuration keys** (from `dashboard/settings/base.example.toml`):
+**Representative configuration keys** (from `dashboard/settings/base.toml`):
 
 | Key | Description |
 |-----|-------------|

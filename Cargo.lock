@@ -5363,7 +5363,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "reinhardt-admin"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5414,7 +5414,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-apps"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5444,7 +5444,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5491,7 +5491,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5574,7 +5574,6 @@ dependencies = [
  "jsonwebtoken 9.3.1",
  "proptest",
  "reinhardt-cloud-types",
- "reinhardt-test",
  "rstest",
  "serde",
  "serde_json",
@@ -5608,14 +5607,11 @@ dependencies = [
  "proptest",
  "prost-types 0.13.5",
  "rand 0.9.3",
- "reinhardt-auth",
  "reinhardt-cloud-core",
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
- "reinhardt-commands",
- "reinhardt-utils",
  "reinhardt-web",
  "reqwest 0.12.28",
  "rstest",
@@ -5655,7 +5651,6 @@ dependencies = [
  "reinhardt-cloud-core",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
- "reinhardt-test",
  "rstest",
  "serde",
  "serde_json",
@@ -5682,7 +5677,6 @@ dependencies = [
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
- "reinhardt-test",
  "rstest",
  "serde_json",
  "tokio",
@@ -5798,7 +5792,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-commands"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "cargo_metadata",
@@ -5855,7 +5849,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-conf"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5883,7 +5877,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-core"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "aquamarine 0.6.0",
@@ -5929,7 +5923,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-db"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
@@ -5982,7 +5976,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6006,7 +6000,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6017,7 +6011,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-forms"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "aquamarine 0.5.0",
@@ -6034,7 +6028,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-http"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6055,7 +6049,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "ctor 0.8.0",
  "inventory",
@@ -6069,7 +6063,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-mail"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6090,7 +6084,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-manouche"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
@@ -6103,7 +6097,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-middleware"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6136,7 +6130,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "reinhardt-http",
@@ -6148,7 +6142,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6159,7 +6153,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "aquamarine 0.5.0",
  "async-trait",
@@ -6202,7 +6196,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-ast"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
@@ -6216,7 +6210,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "convert_case",
  "darling 0.20.11",
@@ -6230,7 +6224,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6244,7 +6238,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -6255,7 +6249,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-rest"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6305,12 +6299,12 @@ dependencies = [
 [[package]]
 name = "reinhardt-router"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 
 [[package]]
 name = "reinhardt-routers-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6320,7 +6314,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-server"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6341,7 +6335,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-shortcuts"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "bytes",
  "hyper",
@@ -6359,7 +6353,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-test"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "cfg_aliases",
  "reinhardt-auth",
@@ -6379,7 +6373,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "astral-tokio-tar",
  "async-dropper",
@@ -6436,7 +6430,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6446,7 +6440,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-throttling"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -6457,7 +6451,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-urls"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -6491,7 +6485,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-utils"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6527,7 +6521,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-views"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6562,7 +6556,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-web"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6593,6 +6587,7 @@ dependencies = [
  "reinhardt-shortcuts",
  "reinhardt-test",
  "reinhardt-urls",
+ "reinhardt-utils",
  "reinhardt-views",
  "reinhardt-websockets",
  "thiserror 2.0.18",
@@ -6603,7 +6598,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-websockets"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Fauth-facade-alias#c7dae13a64ce2995d0c0edae1554c6d8b410b06d"
 dependencies = [
  "anyhow",
  "async-trait",

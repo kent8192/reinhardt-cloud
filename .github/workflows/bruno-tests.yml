@@ -90,12 +90,6 @@ jobs:
       - name: Install Bruno CLI
         run: npm install -g @usebruno/cli@3.1.3
 
-      - name: Prepare settings files
-        # base.toml is .gitignored; create it from the example so the settings
-        # loader can merge [i18n]/[static_files]/[media]/[email] into the
-        # tracked ci.toml (which only carries CI-specific overrides).
-        run: cp dashboard/settings/base.example.toml dashboard/settings/base.toml
-
       - name: Build application
         run: cargo build --locked --package reinhardt-cloud-dashboard --bin manage
 
@@ -106,6 +100,8 @@ jobs:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
           REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
+          REINHARDT_CORE__SECRET_KEY: "ci-test-core-secret-key-minimum-32-bytes"
+          REINHARDT_DATABASE_PASSWORD: "postgres"
 
       - name: Start application server
         working-directory: dashboard
@@ -128,6 +124,8 @@ jobs:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
           REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
+          REINHARDT_CORE__SECRET_KEY: "ci-test-core-secret-key-minimum-32-bytes"
+          REINHARDT_DATABASE_PASSWORD: "postgres"
           # Point registration at the Mailpit SMTP service so the verification
           # email step succeeds without a real mail server.
           REINHARDT_EMAIL__BACKEND: smtp

@@ -189,11 +189,10 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
-		delete_all_messages(&mailpit).await;
-
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
+		delete_all_messages(&mailpit).await;
 
 		let register_data = json!({
 			"username": "verifyuser",
@@ -243,11 +242,10 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
-		delete_all_messages(&mailpit).await;
-
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
+		delete_all_messages(&mailpit).await;
 
 		let register_data = json!({
 			"username": "activateuser",
@@ -311,9 +309,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		let register_data = json!({
 			"username": "noverify",
@@ -361,11 +359,10 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
-		delete_all_messages(&mailpit).await;
-
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
+		delete_all_messages(&mailpit).await;
 
 		let register_data = json!({
 			"username": "doubleuser",

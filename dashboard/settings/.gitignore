@@ -1,12 +1,10 @@
-# Ignore all TOML files (contain environment-specific secrets)
+# Ignore untracked TOML files unless explicitly allowed below.
 *.toml
 
-# Except for example templates
-!*.example.toml
-
-# Except for environment templates that ship with the repo. These files MUST
-# contain only placeholder values; real secrets are injected at deploy time
-# via REINHARDT_* environment variables.
+# Tracked settings files MUST contain no literal secrets. Secrets are injected
+# at runtime via REINHARDT_* environment variables.
+!base.toml
+!local.toml
 !ci.toml
 !staging.toml
 !production.toml

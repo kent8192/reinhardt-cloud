@@ -6,13 +6,13 @@
 # - staging.toml (staging environment)
 # - production.toml (production environment)
 #
-# Getting started:
-#   cp base.example.toml base.toml
-#   # Edit base.toml and fill in sensitive values.
+# Required env vars:
+#   REINHARDT_CORE__SECRET_KEY
+#   REINHARDT_DATABASE_PASSWORD
 
 [core]
 debug = false
-secret_key = "CHANGE-ME-to-a-random-string"
+secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
 allowed_hosts = []
 root_urlconf = ""
 
@@ -35,7 +35,7 @@ host = "localhost"
 port = 5432
 name = "reinhardt_cloud_db"
 user = "postgres"
-password = { secret = "CHANGE-ME" }
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 options = {}
 
 [i18n]
@@ -85,7 +85,7 @@ from_email = "noreply@reinhardt-cloud.dev"
 use_ssl = false
 use_tls = false
 # username = ""
-# password = { secret = "CHANGE-ME" }
+# Set REINHARDT_EMAIL__PASSWORD in the runtime environment when SMTP auth is required.
 # timeout = 30
 
 [contacts]

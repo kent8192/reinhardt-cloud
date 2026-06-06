@@ -51,12 +51,12 @@
 use std::env;
 use std::sync::Arc;
 
+use reinhardt::auth::social::backend::SocialAuthBackend;
+use reinhardt::auth::social::core::config::ProviderConfig;
+use reinhardt::auth::social::core::error::SocialAuthError;
+use reinhardt::auth::social::flow::state::InMemoryStateStore;
+use reinhardt::auth::social::providers::github::GitHubProvider;
 use reinhardt::di::{Depends, injectable_factory};
-use reinhardt_auth::social::backend::SocialAuthBackend;
-use reinhardt_auth::social::core::config::ProviderConfig;
-use reinhardt_auth::social::core::error::SocialAuthError;
-use reinhardt_auth::social::flow::state::InMemoryStateStore;
-use reinhardt_auth::social::providers::github::GitHubProvider;
 
 use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
 

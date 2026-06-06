@@ -90,11 +90,6 @@ jobs:
         with:
           tool: nextest
 
-      - name: Setup application settings
-        run: |
-          cp dashboard/settings/base.example.toml dashboard/settings/base.toml
-          cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
-
       - name: Clean coverage artifacts
         run: |
           cargo llvm-cov clean --workspace
@@ -111,6 +106,8 @@ jobs:
           REINHARDT_ENV: ci
           REINHARDT_CLOUD_JWT_SECRET: "ci-test-secret-minimum-32-bytes-long!!"
           REINHARDT_CLOUD_REDIS_URL: "redis://localhost:6379/0"
+          REINHARDT_CORE__SECRET_KEY: "ci-test-core-secret-key-minimum-32-bytes"
+          REINHARDT_DATABASE_PASSWORD: "postgres"
 
       - name: Generate coverage report
         run: |

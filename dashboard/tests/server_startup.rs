@@ -131,3 +131,22 @@ async fn init_websocket_routes_registers_notifications_endpoint()
 
 	Ok(())
 }
+
+/// The management `runserver` path reaches WebSocket setup through a
+/// runserver startup hook, not through `server::run`. Keep the hook
+/// inventory-visible so local development does not regress to the SPA
+/// fallback returning HTTP 200 for `/ws/notifications`. Refs #666.
+#[rstest]
+fn websocket_runserver_hook_is_registered() {
+	// Arrange / Act
+	let registered = inventory::iter::<reinhardt::commands::RunserverHookRegistration>
+		.into_iter()
+		.any(|registration| registration.type_name == "WebSocketRunserverHook");
+
+	// Assert
+	assert!(
+		registered,
+		"WebSocketRunserverHook must be registered for manage runserver; \
+		 see kent8192/reinhardt-cloud#655"
+	);
+}

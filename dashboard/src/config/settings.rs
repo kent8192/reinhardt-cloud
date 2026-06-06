@@ -180,7 +180,7 @@ fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 
 	let builder = add_dashboard_dotenv_sources(SettingsBuilder::new(), &dotenv_dir, &profile_str);
 
-	builder
+	let mut settings: ProjectSettings = builder
 		.profile(Profile::parse(&profile_str))
 		.add_source(default_project_settings_source())
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
@@ -189,7 +189,55 @@ fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 		))
 		// Highest priority: process environment values for container/CI overrides.
 		.add_source(EnvSource::new().with_prefix("REINHARDT_"))
-		.build_composed()
+		.build_composed()?;
+	apply_email_env_overrides(&mut settings)?;
+	Ok(settings)
+}
+
+fn parse_email_env<T>(name: &str) -> Result<Option<T>, BuildError>
+where
+	T: std::str::FromStr,
+	T::Err: std::fmt::Display,
+{
+	match env::var(name) {
+		Ok(value) => value
+			.parse::<T>()
+			.map(Some)
+			.map_err(|e| BuildError::Deserialization(format!("Invalid {name}: {e}"))),
+		Err(env::VarError::NotPresent) => Ok(None),
+		Err(e) => Err(BuildError::Deserialization(format!("Invalid {name}: {e}"))),
+	}
+}
+
+fn apply_email_env_overrides(settings: &mut ProjectSettings) -> Result<(), BuildError> {
+	if let Ok(v) = env::var("REINHARDT_EMAIL__BACKEND") {
+		settings.email.backend = v;
+	}
+	if let Ok(v) = env::var("REINHARDT_EMAIL__HOST") {
+		settings.email.host = v;
+	}
+	if let Some(v) = parse_email_env("REINHARDT_EMAIL__PORT")? {
+		settings.email.port = v;
+	}
+	if let Ok(v) = env::var("REINHARDT_EMAIL__USERNAME") {
+		settings.email.username = Some(v);
+	}
+	if let Ok(v) = env::var("REINHARDT_EMAIL__PASSWORD") {
+		settings.email.password = Some(v);
+	}
+	if let Some(v) = parse_email_env("REINHARDT_EMAIL__USE_TLS")? {
+		settings.email.use_tls = v;
+	}
+	if let Some(v) = parse_email_env("REINHARDT_EMAIL__USE_SSL")? {
+		settings.email.use_ssl = v;
+	}
+	if let Ok(v) = env::var("REINHARDT_EMAIL__FROM_EMAIL") {
+		settings.email.from_email = v;
+	}
+	if let Some(v) = parse_email_env("REINHARDT_EMAIL__TIMEOUT")? {
+		settings.email.timeout = Some(v);
+	}
+	Ok(())
 }
 
 /// Build merged settings or panic.
@@ -684,15 +732,31 @@ allow_origins = ["http://localhost:8000"]
 
 	#[rstest]
 	#[serial(env_settings_load)]
-	fn test_get_jwt_secret_reads_from_local_toml() {
-		// Arrange / Act — local.toml ships with `jwt_secret = "test-secret-..."`,
-		// which `get_jwt_secret` MUST surface even when no env var is set.
+	fn test_get_jwt_secret_reads_from_runtime_env() {
+		// Arrange — committed settings files must not contain literal JWT
+		// secrets, so runtime env is the expected source for local/CI profiles.
 		// Issue: #494
+		let watched = ["REINHARDT_CLOUD_CONFIG_DIR", "REINHARDT_CLOUD_JWT_SECRET"];
+		let _guard = EnvSnapshot::new(&watched);
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::remove_var("REINHARDT_CLOUD_CONFIG_DIR");
+			env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"runtime-jwt-secret-minimum-32-bytes",
+			);
+		}
+
+		// Act
 		let secret = get_jwt_secret();
 
 		// Assert
-		assert!(secret.is_some(), "expected jwt_secret from local.toml");
-		assert!(!secret.unwrap().is_empty());
+		assert_eq!(
+			secret.as_deref(),
+			Some("runtime-jwt-secret-minimum-32-bytes"),
+		);
 	}
 
 	#[rstest]
@@ -720,6 +784,52 @@ allow_origins = ["http://localhost:8000"]
 
 		// Assert
 		assert_eq!(redis_url.as_deref(), Some("redis://operator-redis:6379/0"));
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_email_runtime_env_overrides_profile_toml() {
+		// Arrange — `ci.toml` uses the console backend for generic unit tests,
+		// but Mailpit-backed auth tests and deployed runtimes must be able to
+		// override the full email fragment via `REINHARDT_EMAIL__*`.
+		let watched = [
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CLOUD_JWT_SECRET",
+			"REINHARDT_CORE__SECRET_KEY",
+			"REINHARDT_DATABASE_PASSWORD",
+			"REINHARDT_EMAIL__BACKEND",
+			"REINHARDT_EMAIL__HOST",
+			"REINHARDT_EMAIL__PORT",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::remove_var("REINHARDT_CLOUD_CONFIG_DIR");
+			env::set_var("REINHARDT_ENV", "ci");
+			env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"ci-test-secret-minimum-32-bytes-long!!",
+			);
+			env::set_var(
+				"REINHARDT_CORE__SECRET_KEY",
+				"ci-test-core-secret-key-minimum-32-bytes",
+			);
+			env::set_var("REINHARDT_DATABASE_PASSWORD", "postgres");
+			env::set_var("REINHARDT_EMAIL__BACKEND", "smtp");
+			env::set_var("REINHARDT_EMAIL__HOST", "127.0.0.1");
+			env::set_var("REINHARDT_EMAIL__PORT", "2525");
+		}
+
+		// Act
+		let settings = try_build_settings().expect("ci settings should load with email overrides");
+
+		// Assert
+		assert_eq!(settings.email.backend, "smtp");
+		assert_eq!(settings.email.host, "127.0.0.1");
+		assert_eq!(settings.email.port, 2525);
 	}
 
 	/// `production.toml` rewritten in #588 must fail-fast at startup if any

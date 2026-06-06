@@ -11,13 +11,13 @@ mod tests {
 	use std::sync::Arc;
 
 	use reinhardt::BaseUser;
+	use reinhardt::auth::social::core::claims::StandardClaims;
+	use reinhardt::auth::social::storage::{InMemorySocialAccountStorage, SocialAccountStorage};
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt_auth::social::core::claims::StandardClaims;
-	use reinhardt_auth::social::storage::{InMemorySocialAccountStorage, SocialAccountStorage};
 	use rstest::*;
 	use serial_test::serial;
 	use std::collections::HashMap;

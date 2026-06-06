@@ -27,9 +27,9 @@
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
+use reinhardt::auth::social::core::SocialAuthError;
+use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 use reinhardt::db::orm::Model;
-use reinhardt_auth::social::core::SocialAuthError;
-use reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 use uuid::Uuid;
 
 use crate::apps::auth::models::SocialAccount as OrmSocialAccount;

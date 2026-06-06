@@ -224,9 +224,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		register_and_verify_user(
 			&client,
@@ -307,9 +307,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		register_and_verify_user(
 			&client,
@@ -395,9 +395,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		register_and_verify_user(
 			&client,

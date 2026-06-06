@@ -19,7 +19,7 @@
 #   REINHARDT_CLOUD_JWT_SECRET                       — top-level jwt_secret (>= 32 random bytes)
 #   REINHARDT_CLOUD_REDIS_URL                        — top-level redis_url
 #   REINHARDT_CORE__SECRET_KEY                       — [core].secret_key
-#   REINHARDT_DATABASE_PASSWORD                      — both [core.databases.default].password.secret and [database].password
+#   REINHARDT_DATABASE_PASSWORD                      — both [core.databases.default].password and [database].password
 #   REINHARDT_EMAIL__HOST                            — [email].host (outbound provider; Cloudflare Email Routing is inbound-only)
 #
 # Optional env vars (have a documented default):
@@ -62,7 +62,7 @@ host = "${REINHARDT_DATABASE_HOST:-db.production.internal}"
 port = 5432
 name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
 user = "${REINHARDT_DATABASE_USER:-reinhardt}"
-password = { secret = "${REINHARDT_DATABASE_PASSWORD:?must be supplied via Secret-backed env var}" }
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 options = {}
 
 # Top-level [database] section required by reinhardt-web's runserver/migrate commands.
@@ -73,7 +73,7 @@ host = "${REINHARDT_DATABASE_HOST:-db.production.internal}"
 port = 5432
 name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
 user = "${REINHARDT_DATABASE_USER:-reinhardt}"
-password = "${REINHARDT_DATABASE_PASSWORD:?must be supplied via Secret-backed env var}"
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 
 [cors]
 allow_origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"]
