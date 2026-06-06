@@ -472,6 +472,23 @@ start_dashboard_port_forward() {
 	die "dashboard health endpoint was not reachable through port-forward"
 }
 
+fetch_authenticated_dashboard_page() {
+	local base_url="$1"
+	local cookie_jar="$2"
+	local path="$3"
+	local output="$4"
+	local marker="$5"
+	local status
+
+	status="$(curl -sS -L -o "${output}" -w "%{http_code}" \
+		-b "${cookie_jar}" "${base_url}${path}" || true)"
+	[[ "${status}" == "200" ]] \
+		|| die "authenticated ${path} page returned HTTP ${status}; see ${output}"
+
+	grep -Fq -- "${marker}" "${output}" \
+		|| die "authenticated ${path} page did not render ${marker}; see ${output}"
+}
+
 verify_authenticated_frontend_flows() {
 	local base_url="http://127.0.0.1:${PORT_FORWARD_PORT}"
 	local cookie_jar="${ARTIFACT_DIR}/dashboard-cookie.jar"
@@ -496,12 +513,10 @@ verify_authenticated_frontend_flows() {
 	grep -Eq '"success"[[:space:]]*:[[:space:]]*true' "${login_body}" \
 		|| die "login server function did not return success=true; see ${login_body}"
 
-	curl -fsS -b "${cookie_jar}" "${base_url}/clusters" \
-		>"${ARTIFACT_DIR}/clusters.html" \
-		|| die "authenticated /clusters request failed"
-	curl -fsS -b "${cookie_jar}" "${base_url}/deployments" \
-		>"${ARTIFACT_DIR}/deployments.html" \
-		|| die "authenticated /deployments request failed"
+	fetch_authenticated_dashboard_page \
+		"${base_url}" "${cookie_jar}" "/clusters/" "${ARTIFACT_DIR}/clusters.html" "Cluster Inventory"
+	fetch_authenticated_dashboard_page \
+		"${base_url}" "${cookie_jar}" "/deployments/" "${ARTIFACT_DIR}/deployments.html" "Deployment Inventory"
 }
 
 main() {

@@ -102,6 +102,7 @@ async fn upsert_active_user(username: &str, password: &str, email: &str) -> Comm
 		.await
 		.map_err(|e| CommandError::ExecutionError(format!("failed to query E2E user: {e}")))?;
 
+	let user_exists = existing.is_some();
 	let mut user = existing.unwrap_or_else(|| {
 		User::build()
 			.username(username.to_string())
@@ -123,7 +124,7 @@ async fn upsert_active_user(username: &str, password: &str, email: &str) -> Comm
 		CommandError::ExecutionError(format!("failed to hash E2E user password: {e}"))
 	})?;
 
-	if existing_user_exists(&user).await? {
+	if user_exists {
 		User::objects()
 			.update(&user)
 			.await
@@ -134,15 +135,6 @@ async fn upsert_active_user(username: &str, password: &str, email: &str) -> Comm
 			.await
 			.map_err(|e| CommandError::ExecutionError(format!("failed to create E2E user: {e}")))
 	}
-}
-
-async fn existing_user_exists(user: &User) -> CommandResult<bool> {
-	User::objects()
-		.filter(User::field_id().eq(user.id.to_string()))
-		.first()
-		.await
-		.map(|maybe| maybe.is_some())
-		.map_err(|e| CommandError::ExecutionError(format!("failed to check E2E user id: {e}")))
 }
 
 async fn ensure_membership(user: &User) -> CommandResult<()> {
