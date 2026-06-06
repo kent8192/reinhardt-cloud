@@ -8,7 +8,6 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 
-use crate::apps::auth::client::components::oauth_buttons;
 use crate::apps::auth::server::login::login;
 
 /// Render the login page.
@@ -39,22 +38,43 @@ pub fn login_page() -> Page {
 		},
 	};
 	let form_view = login_form.into_page();
-	let oauth_view = oauth_buttons("Sign in");
 
-	let content = page!(|form_view: Page, oauth_view: Page| {
+	page!(|form_view: Page| {
 		div {
-			{ form_view }
-			{ oauth_view }
+			class: "min-h-screen flex items-center justify-center bg-gray-50",
 			div {
-				class: "mt-6 text-center text-sm text-gray-600",
-				"Don't have an account? " a {
-					href: "/register".to_string(),
-					class: "text-blue-600 font-medium hover:underline",
-					"Create one"
+				class: "w-full max-w-md",
+				div {
+					class: "text-center mb-8",
+					h1 {
+						class: "text-3xl font-bold text-blue-600",
+						"Reinhardt Cloud"
+					}
+					p {
+						class: "text-sm text-gray-500 mt-1",
+						"Cloud Platform"
+					}
+				}
+				div {
+					class: "bg-white rounded-lg border border-gray-200 shadow-sm p-8",
+					h2 {
+						class: "text-xl font-semibold text-gray-800 mb-6 text-center",
+						"Sign in to your account"
+					}
+					{ form_view }
+					div {
+						id: "oauth-login-providers",
+					}
+					div {
+						class: "mt-6 text-center text-sm text-gray-600",
+						"Don't have an account? " a {
+							href: "/register".to_string(),
+							class: "text-blue-600 font-medium hover:underline",
+							"Create one"
+						}
+					}
 				}
 			}
 		}
-	})(form_view, oauth_view);
-
-	crate::apps::auth::client::components::auth_layout("Sign in to your account", content)
+	})(form_view)
 }
