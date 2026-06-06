@@ -22,7 +22,7 @@ jwt_secret = "CHANGE-ME-to-a-random-string"
 # `.devcontainer/` sets `RC_REDIS_HOST=redis` to point at the compose
 # service) and falls back to `localhost` for host-native development.
 # The `RC_*` prefix is intentionally outside the `REINHARDT_*` namespace
-# consumed by `HighPriorityEnvSource` so interpolation helpers do not
+# consumed by the dashboard `EnvSource` so interpolation helpers do not
 # leak into the merged settings as unknown top-level keys.
 redis_url = "redis://${RC_REDIS_HOST:-localhost}:6379/1"
 
@@ -50,7 +50,7 @@ secure_hsts_preload = false
 # Numeric/bool fields (port) keep their native types and are overridden
 # via the `REINHARDT_CORE__DATABASES__DEFAULT__PORT` env var when needed.
 # The `RC_*` prefix is intentionally outside the `REINHARDT_*` namespace
-# consumed by `HighPriorityEnvSource` so interpolation helpers do not
+# consumed by the dashboard `EnvSource` so interpolation helpers do not
 # leak into the merged settings as unknown top-level keys.
 [core.databases.default]
 engine = "postgresql"

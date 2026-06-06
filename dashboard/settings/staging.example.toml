@@ -20,9 +20,8 @@
 # ${VAR:?message} interpolation that fails fast at startup if the env var is
 # missing. Optional fields use ${VAR:-default} so deployers can override
 # without forking the file. Numeric, boolean, and array fields keep TOML
-# literals here and are overridden at the HighPriorityEnvSource layer
-# (priority 60 > TomlFileSource priority 50) when the corresponding REINHARDT_*
-# env var is set.
+# literals here and are overridden at the dashboard `EnvSource` layer
+# when the corresponding REINHARDT_* env var is set.
 #
 # Required env vars (no default — startup fails if unset):
 #   REINHARDT_CLOUD_JWT_SECRET                       — top-level jwt_secret
@@ -37,7 +36,7 @@
 #   REINHARDT_DATABASE_USER                          — [core.databases.default].user and [database].user (default: reinhardt)
 #   REINHARDT_EMAIL__FROM_EMAIL                      — [email].from_email (default: noreply@staging.reinhardt-cloud.dev)
 #
-# Numeric/boolean/array overrides via HighPriorityEnvSource:
+# Numeric/boolean/array overrides via the dashboard `EnvSource`:
 #   REINHARDT_CORE__ALLOWED_HOSTS                    — [core].allowed_hosts (Vec<String>; pass JSON-array literal)
 #   REINHARDT_DATABASE_PORT                          — [core.databases.default].port and [database].port (u16)
 #   REINHARDT_EMAIL__BACKEND                         — backend type (e.g., "smtp")

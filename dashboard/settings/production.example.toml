@@ -17,7 +17,7 @@
 # ${VAR:?message} interpolation that fails fast at startup if the env var is
 # missing. Optional fields use ${VAR:-default} so deployers can override
 # without forking the file. Numeric, boolean, and array fields keep TOML
-# literals here and are overridden by the HighPriorityEnvSource layer
+# literals here and are overridden by the dashboard `EnvSource` layer
 # (env vars take precedence over TOML) when the corresponding REINHARDT_*
 # env var is set.
 #
@@ -34,7 +34,7 @@
 #   REINHARDT_DATABASE_USER                          — [core.databases.default].user and [database].user (default: reinhardt)
 #   REINHARDT_EMAIL__FROM_EMAIL                      — [email].from_email (default: noreply@reinhardt-cloud.dev)
 #
-# Overrides via HighPriorityEnvSource (env vars take precedence over TOML):
+# Overrides via the dashboard `EnvSource` (env vars take precedence over TOML):
 #   REINHARDT_CORE__ALLOWED_HOSTS                    — [core].allowed_hosts (Vec<String>; pass JSON-array literal)
 #   REINHARDT_DATABASE_PORT                          — [core.databases.default].port and [database].port (u16)
 #   REINHARDT_EMAIL__BACKEND                         — backend type (string, e.g., "smtp")
