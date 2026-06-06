@@ -88,8 +88,8 @@ pub async fn resolve_membership_role(
 ///   action.
 /// - 500 (`AppError::Internal`) — database or data-integrity failure.
 ///
-/// Used only by the deprecated flat-URL redirect middleware. New code should
-/// call `require_permission_for_org` instead.
+/// Verify that `user_id` is permitted to perform `action` in the user's
+/// current Personal Org.
 pub async fn require_permission(user_id: Uuid, action: Action) -> Result<i64, AppError> {
 	use crate::apps::organizations::helpers::current_organization_id_for_user;
 
@@ -113,9 +113,8 @@ pub async fn require_permission(user_id: Uuid, action: Action) -> Result<i64, Ap
 /// Verify that `user_id` is permitted to perform `action` in the organization
 /// identified by `org_slug`, returning that organization's id on success.
 ///
-/// This is the canonical guard for org-scoped URL endpoints introduced by
-/// issue #418 (`/api/orgs/{org_slug}/...`). It resolves the slug to an
-/// `organization_id`, asserts membership, and checks the RBAC matrix.
+/// This guard resolves the slug to an `organization_id`, asserts membership,
+/// and checks the RBAC matrix.
 ///
 /// # Errors
 ///

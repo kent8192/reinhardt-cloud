@@ -137,13 +137,15 @@ fn display_status(resource: &ReinhardtAppResource) {
 	}
 }
 
-/// Returns `true` when the error looks like a transport-level failure
-/// (connection refused, timeout, DNS resolution) rather than an API error.
-fn is_transport_error(err: &ClientError) -> bool {
-	match err {
-		ClientError::RequestError(e) => e.is_connect() || e.is_timeout(),
-		_ => false,
-	}
+/// Returns `true` when the dashboard status API is unavailable and the
+/// command should fall back to `kubectl`.
+fn should_fallback_to_kubectl(err: &ClientError) -> bool {
+	matches!(
+		err,
+		ClientError::UnsupportedDashboardRestOperation {
+			operation: "status"
+		}
+	)
 }
 
 /// Executes the status command.
@@ -184,7 +186,7 @@ async fn execute_inner(
 			println!("{formatted}");
 			Ok(())
 		}
-		Err(e) if is_transport_error(&e) => {
+		Err(e) if should_fallback_to_kubectl(&e) => {
 			tracing::warn!("Dashboard API unreachable, falling back to kubectl: {e}");
 			eprintln!("Dashboard API unreachable, falling back to kubectl...");
 			kubectl_status(app_name, &args.namespace, args.cluster.as_deref()).await

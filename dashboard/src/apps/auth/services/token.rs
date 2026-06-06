@@ -184,14 +184,6 @@ fn password_hash_prefix(hash: &str) -> String {
 	chars[start..].iter().collect()
 }
 
-/// Compute HMAC-SHA256 for pre-DB validation in reset_password view.
-///
-/// This allows the view to verify the token signature before hitting
-/// the database, rejecting tampered tokens cheaply.
-pub(crate) fn compute_hmac_for_validation(secret_key: &str, data: &str) -> Vec<u8> {
-	compute_hmac(secret_key, data)
-}
-
 fn compute_hmac(secret_key: &str, data: &str) -> Vec<u8> {
 	let mut mac =
 		HmacSha256::new_from_slice(secret_key.as_bytes()).expect("HMAC accepts any key length");

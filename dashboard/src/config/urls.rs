@@ -1,8 +1,7 @@
 //! URL configuration for Reinhardt Cloud.
 //!
 //! The `routes` function defines all URL patterns for this project,
-//! including REST API endpoints and server function registrations
-//! for the WASM frontend.
+//! including server function registrations for the WASM frontend.
 //!
 //! ## Cross-target compilation
 //!
@@ -52,7 +51,7 @@ use crate::shared::client::pages::not_found::not_found_page;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 #[cfg(native)]
-use crate::apps::auth::server;
+use crate::apps::auth::server_fn;
 #[cfg(native)]
 use crate::apps::auth::services::local_auth::LocalAuthService;
 #[cfg(native)]
@@ -291,45 +290,30 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			// `dashboard:home`, etc.
 			.mount_unified("/", crate::apps::dashboard::urls::url_patterns())
 			.mount_unified("/auth/", crate::apps::auth::urls::url_patterns())
-			// Mount at "/" and embed the full `/orgs/{org}/...` path in each
-			// view macro. This is intentional: parameter-prefixed mount
-			// (e.g. `.mount_unified("/orgs/{org}/", ...)`) would create an
-			// implicit, non-local URL contract — a view's accepted path
-			// params would depend on which mount it was attached to,
-			// breaking locality and refactor safety. Upstream surfaces the
-			// mistake loudly via kent8192/reinhardt-web#4012 (PR #4015
-			// panics on `{` / `}` in the prefix); the broader feature was
-			// rejected on design grounds in kent8192/reinhardt-web#4023.
+			// Cluster and deployment data mutations are exposed through
+			// registered server functions; the unified app mounts only
+			// contribute SPA client routes.
 			.mount_unified("/", crate::apps::clusters::urls::url_patterns())
 			.mount_unified("/", crate::apps::deployments::urls::url_patterns())
-			// Deprecated flat-URL redirects: 307 to org-scoped URL (removed after next release)
-			.mount(
-				"/clusters/",
-				crate::config::middleware::deprecated_flat_urls::clusters_redirect_patterns(),
-			)
-			.mount(
-				"/deployments/",
-				crate::config::middleware::deprecated_flat_urls::deployments_redirect_patterns(),
-			)
 			.mount_unified("/", crate::apps::health::urls::url_patterns())
 			.mount_unified("/", crate::apps::organizations::urls::url_patterns())
 			.server(|s| {
-				s.server_fn(server::login::login::marker)
-					.server_fn(server::register::register::marker)
-					.server_fn(server::logout::logout::marker)
-					.server_fn(server::me::me::marker)
-					.server_fn(server::oauth_providers::list_oauth_providers::marker)
-					.server_fn(crate::apps::clusters::server::list_clusters_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server::create_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server::update_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server::delete_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server::rotate_cluster_token_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::list_deployments_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::create_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::update_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::delete_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::update_deployment_status_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server::deployment_logs_for_current_org::marker)
+				s.server_fn(server_fn::login::login::marker)
+					.server_fn(server_fn::register::register::marker)
+					.server_fn(server_fn::logout::logout::marker)
+					.server_fn(server_fn::me::me::marker)
+					.server_fn(server_fn::oauth_providers::list_oauth_providers::marker)
+					.server_fn(crate::apps::clusters::server_fn::list_clusters_for_current_org::marker)
+					.server_fn(crate::apps::clusters::server_fn::create_cluster_for_current_org::marker)
+					.server_fn(crate::apps::clusters::server_fn::update_cluster_for_current_org::marker)
+					.server_fn(crate::apps::clusters::server_fn::delete_cluster_for_current_org::marker)
+					.server_fn(crate::apps::clusters::server_fn::rotate_cluster_token_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::list_deployments_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::create_deployment_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::update_deployment_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::delete_deployment_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::update_deployment_status_for_current_org::marker)
+					.server_fn(crate::apps::deployments::server_fn::deployment_logs_for_current_org::marker)
 			})
 			.with_di_context(infra.di_ctx)
 			.with_middleware(SecurityMiddleware::new())

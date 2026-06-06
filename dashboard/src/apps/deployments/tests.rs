@@ -1,11 +1,5 @@
 //! Tests for deployments app.
 
-pub mod e2e {
-	pub mod test_deployment_crud;
-	pub mod test_deployment_ownership;
-	pub mod test_deployment_pagination;
-	pub mod test_deployment_rbac;
-}
 pub mod integration {
 	pub mod test_lazy_grpc;
 }

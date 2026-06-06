@@ -58,9 +58,9 @@ optional introspect output, then renders a `ReinhardtApp` CRD via
   produces the owned Kubernetes resources. **Status: Current State.**
 - **default / API mode** — POSTs a JSON payload containing `app_name`,
   `image`, optional `cluster_id`, and the generated `ReinhardtApp` YAML as
-  `reinhardt_app_yaml` to the dashboard at `/api/deployments/` via
-  `ReinhardtCloudClient::deploy`. The dashboard accepts this payload, but
-  the generated CRD is not yet persisted or relayed to the agent.
+  `reinhardt_app_yaml` to the control-plane client boundary. The dashboard
+  Pages app handles browser submissions through server functions; a direct
+  CLI-to-dashboard deploy API boundary is separate from the Pages app surface.
   **Status: Current State.**
 
 The function signature `build_reinhardt_app_crd(name, namespace, spec,
@@ -70,13 +70,10 @@ before that boundary so typed TOML sections such as `health`, `services`,
 `scale`, `env`, `database`, `cache`, `worker`, `storage`, and `mail` are
 not dropped during manifest construction.
 
-### Dashboard-Relay Path
+### Dashboard Server-Function Relay Path
 
-The dashboard endpoint `POST /api/deployments/` (defined by
-`create_deployment` in
-`dashboard/src/apps/deployments/views/create_deployment.rs`, mounted under
-the `deployments` app via `dashboard/src/apps/deployments/urls.rs`) does
-the following:
+The dashboard server function `create_deployment_for_current_org` in
+`dashboard/src/apps/deployments/server_fn.rs` does the following:
 
 1. Validates that the target cluster exists and is owned by the
    authenticated user.
@@ -91,13 +88,12 @@ the following:
    bidirectional stream that the agent opened on startup.
 
 **Status: Current State.** The dashboard does **not** apply Kubernetes
-resources directly. It does **not** import `kube` in its view layer.
+resources directly. It does **not** import `kube` in its dashboard app
+handlers.
 
-The remaining deployment endpoints — `GET/PUT/DELETE /api/deployments/`,
-`/api/deployments/<id>/logs`, `/api/deployments/<id>/status` — are
-registered alongside `create_deployment` in `urls.rs` and read from the
-dashboard DB or proxy log/status streams via gRPC clients
-(`dashboard/src/apps/deployments/client.rs` uses `LogServiceClient`).
+The remaining deployment browser operations are server functions registered
+from `dashboard/src/config/urls.rs`. They read from the dashboard DB or
+proxy log/status streams via gRPC clients.
 
 ### Agent Path
 
@@ -142,7 +138,7 @@ sequenceDiagram
     participant CLI as reinhardt-cloud CLI<br/>(deploy.rs)
     participant Stdout as stdout
     participant Kubectl as kubectl / kube-apiserver
-    participant Dashboard as Dashboard<br/>(POST /api/deployments/)
+    participant Dashboard as Dashboard<br/>(deployment server_fn)
     participant PG as PostgreSQL<br/>(Deployment ORM)
     participant Agent as reinhardt-cloud-agent<br/>(execute_deploy)
     participant Operator as reinhardt-cloud-operator<br/>(reconciler.rs)
@@ -157,7 +153,7 @@ sequenceDiagram
         Kubectl->>Operator: watch event
         Operator->>Kubectl: reconcile -> Deployment, Service, Ingress, ...
     else default / platform path
-        CLI->>Dashboard: POST /api/deployments/ {app_name, image, cluster_id, reinhardt_app_yaml}
+        CLI->>Dashboard: control-plane deploy request
         Dashboard->>PG: INSERT Deployment (status=pending)
         Note over Dashboard: Current State: reinhardt_app_yaml is accepted at the API boundary<br/>but not persisted or relayed to Agent yet
         Dashboard->>Agent: gRPC stream command (main.rs:129)
@@ -207,7 +203,7 @@ flowchart TD
 | Component | Owns | Does NOT own |
 |---|---|---|
 | CLI (`deploy.rs`) | `ReinhardtApp` CRD YAML construction (`build_reinhardt_app_crd`, lines 242-299) | Cluster state, deployment audit records |
-| Dashboard (`/api/deployments/`) | `Deployment` ORM record + relay status to UI | Kubernetes resources, CRD YAML construction |
+| Dashboard server functions | `Deployment` ORM record + relay status to UI | Kubernetes resources, CRD YAML construction |
 | Agent (`execute_deploy`) | Imperative cluster apply (**Current State: raw Deployment**; **Intended: `ReinhardtApp` CRD**) | CRD schema, ORM records |
 | Operator (`reconciler.rs`) | All Kubernetes resources derived from `ReinhardtApp` (Deployment, Service, Ingress, ConfigMap, JWT Secret, database StatefulSet/Service/Secret, migration Job, Kaniko build Job, HPA, NetworkPolicy) | Deploy trigger, ORM records |
 | `ReinhardtApp` CRD | Desired application state — single source of truth for the operator | Deployment history, logs |
@@ -216,11 +212,11 @@ flowchart TD
 
 Concrete, code-level rules that protect the source-of-truth split above:
 
-1. **No `kube::Client` in dashboard view code.**
-   `dashboard/src/apps/deployments/views/` should only do ORM operations
-   and gRPC calls. A `use kube` import inside the view layer is the
-   canary that this rule has been broken — the dashboard is no longer a
-   relay, it is a kube client.
+1. **No `kube::Client` in dashboard app handlers.**
+   `dashboard/src/apps/deployments/server_fn.rs` should only do ORM
+   operations and gRPC calls. A `use kube` import inside the dashboard
+   handler layer is the canary that this rule has been broken — the
+   dashboard is no longer a relay, it is a kube client.
 2. **No duplicate `build_reinhardt_app_crd`.** The CLI is the only
    caller today. If a second caller needs CRD construction (for
    example, an Intended agent that applies the CRD directly), extract
@@ -233,11 +229,10 @@ Concrete, code-level rules that protect the source-of-truth split above:
    imperative `Deployment` builder in `execute_deploy` must be removed —
    leaving it would create a stale duplicate code path that contradicts
    the operator's CRD-driven reconciliation.
-4. **No kube-API polling from the dashboard.** The endpoint
-   `GET /api/deployments/<id>/status` reads from the dashboard's
-   PostgreSQL `Deployment` table. That table is updated from gRPC events
-   sent by the agent. The dashboard must not poll the kube-apiserver
-   directly to derive deployment status.
+4. **No kube-API polling from the dashboard.** Dashboard status server
+   functions read from the PostgreSQL `Deployment` table. That table is
+   updated from gRPC events sent by the agent. The dashboard must not poll
+   the kube-apiserver directly to derive deployment status.
 
 ## Decision: When to Give the Dashboard a CRD Writer
 

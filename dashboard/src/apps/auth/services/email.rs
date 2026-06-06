@@ -49,7 +49,6 @@ impl EmailService {
 	pub fn from_email(&self) -> &str {
 		&self.from_email
 	}
-
 	/// Send a verification email to a newly registered user.
 	pub async fn send_verification_email(
 		&self,

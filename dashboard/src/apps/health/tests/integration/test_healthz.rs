@@ -95,7 +95,7 @@ mod tests {
 	///
 	/// Brings up an in-process gRPC server via `TestGrpcServer` whose
 	/// default `Health/Check` returns `SERVING` for the empty service
-	/// name (matching the probe in `views::healthz::probe_grpc`). The
+	/// name (matching the probe in `server_urls::probe_grpc`). The
 	/// `GrpcChannelSingleton` is pre-registered in the DI scope so the
 	/// view's RPC targets the test server. With live Postgres + serving
 	/// gRPC, the response must be HTTP 200 with `"status": "ok"`.

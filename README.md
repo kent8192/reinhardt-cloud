@@ -131,7 +131,7 @@ C4Container
     }
 
     Container_Boundary(cp_plane, "Control Plane") {
-        Container(dashboard, "Dashboard", "Rust, reinhardt-web", "REST API, authentication, project management")
+        Container(dashboard, "Dashboard", "Rust, reinhardt-web", "Pages UI, server functions, authentication, project management")
         ContainerDb(pg, "PostgreSQL", "", "Users, projects, deployments")
     }
 
@@ -155,7 +155,7 @@ C4Container
 | Plane | Crate | Role |
 |---|---|---|
 | **CLI** | `reinhardt-cloud-cli` | Developer-facing tool. Analyzes projects via `manage introspect`, generates CRDs, communicates with the control plane. |
-| **Control Plane** | `dashboard` | A [reinhardt-web](https://github.com/kent8192/reinhardt-web) application providing REST API, authentication, and project management. |
+| **Control Plane** | `dashboard` | A [reinhardt-web](https://github.com/kent8192/reinhardt-web) application providing a Pages UI, server functions, authentication, and project management. |
 | **Operator** | `reinhardt-cloud-operator` | Kubernetes controller that watches `ReinhardtApp` CRDs and reconciles them into infrastructure resources. |
 
 **Supporting services:**

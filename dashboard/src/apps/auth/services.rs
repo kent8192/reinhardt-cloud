@@ -1,6 +1,6 @@
 //! Auth business logic services.
 //!
-//! Shared between REST API views and frontend server functions.
+//! Shared by auth server functions.
 
 pub mod credentials;
 pub mod email;

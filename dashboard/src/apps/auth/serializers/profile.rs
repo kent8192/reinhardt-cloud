@@ -21,7 +21,6 @@ pub struct ProfileResponse {
 	pub date_joined: DateTime<Utc>,
 	pub updated_at: DateTime<Utc>,
 }
-
 impl From<User> for ProfileResponse {
 	fn from(u: User) -> Self {
 		Self {

@@ -1,13 +1,11 @@
-//! Organization helper functions for view-layer use.
+//! Organization helper functions for dashboard app handlers.
 //!
-//! `current_organization_id_for_user` is kept for the deprecated flat-URL
-//! redirect middleware that issues 307s during the one-release transition
-//! window introduced by issue #418.
+//! `current_organization_id_for_user` resolves the user's Personal Org for
+//! server functions that operate on the current dashboard context.
 //!
-//! `resolve_org_by_slug` is the canonical helper for org-scoped endpoints
-//! introduced by issue #418 (`/api/orgs/{org_slug}/...`). It validates that
-//! the requesting user is a member of the specified organization, returning
-//! 403 rather than 404 on unknown slugs to prevent org-existence leakage.
+//! `resolve_org_by_slug` validates that the requesting user is a member of
+//! the specified organization, returning 403 rather than 404 on unknown
+//! slugs to prevent org-existence leakage.
 
 use reinhardt::Model;
 use reinhardt::core::exception::Error as AppError;
@@ -26,8 +24,7 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 /// a partial-failure rollback bug or a pre-#415 dev account that needs
 /// re-registration.
 ///
-/// Used only by the deprecated flat-URL redirect middleware. New code should
-/// call `resolve_org_by_slug` instead.
+/// Used by server functions that operate on the user's current Personal Org.
 pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppError> {
 	let m = OrganizationMembership::objects()
 		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))

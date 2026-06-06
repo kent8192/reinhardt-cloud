@@ -1,9 +1,9 @@
-//! Tests for the `oauth_providers` discovery endpoint helpers.
+//! Tests for OAuth provider discovery server function helpers.
 //!
 //! The discovery endpoint MUST NOT leak provider secrets, redirect URIs,
 //! or client IDs into the response body — only the public-facing `id` and
 //! human-readable `label` per provider. These tests pin that contract on
-//! the response struct itself so a future field added to `ProviderEntry`
+//! the response struct itself so a future field added to `OAuthProviderInfo`
 //! cannot silently start exposing secrets.
 
 #[cfg(test)]
@@ -11,14 +11,14 @@ mod tests {
 	use rstest::rstest;
 	use serde_json::Value;
 
-	use crate::apps::auth::views::oauth::providers::{ProviderEntry, ProvidersResponse, label_for};
+	use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, label_for_provider};
 
 	#[rstest]
 	fn test_provider_entry_serializes_only_id_and_label() {
 		// Arrange
-		let entry = ProviderEntry {
-			id: "github",
-			label: "GitHub",
+		let entry = OAuthProviderInfo {
+			id: "github".to_string(),
+			label: "GitHub".to_string(),
 		};
 
 		// Act
@@ -31,7 +31,7 @@ mod tests {
 		assert_eq!(
 			obj.len(),
 			2,
-			"ProviderEntry must serialize to exactly 2 fields, got {}: {json:?}",
+			"OAuthProviderInfo must serialize to exactly 2 fields, got {}: {json:?}",
 			obj.len()
 		);
 		assert_eq!(obj.get("id").and_then(Value::as_str), Some("github"));
@@ -41,12 +41,10 @@ mod tests {
 	#[rstest]
 	fn test_providers_response_does_not_contain_secret_keywords() {
 		// Arrange — populate with one entry to mirror the runtime shape.
-		let resp = ProvidersResponse {
-			providers: vec![ProviderEntry {
-				id: "github",
-				label: "GitHub",
-			}],
-		};
+		let resp = vec![OAuthProviderInfo {
+			id: "github".to_string(),
+			label: "GitHub".to_string(),
+		}];
 
 		// Act
 		let json = serde_json::to_string(&resp).expect("serialize response");
@@ -75,18 +73,18 @@ mod tests {
 	#[case("", "OAuth")]
 	fn test_label_for_maps_known_ids(#[case] id: &str, #[case] expected: &str) {
 		// Act / Assert
-		assert_eq!(label_for(id), expected);
+		assert_eq!(label_for_provider(id), expected);
 	}
 
 	#[rstest]
 	fn test_empty_providers_response_serializes_to_empty_array() {
 		// Arrange
-		let resp = ProvidersResponse { providers: vec![] };
+		let resp: Vec<OAuthProviderInfo> = vec![];
 
 		// Act
 		let json = serde_json::to_value(&resp).expect("serialize empty");
 
 		// Assert
-		assert_eq!(json["providers"], Value::Array(vec![]));
+		assert_eq!(json, Value::Array(vec![]));
 	}
 }

@@ -1,9 +1,6 @@
 //! Health application module.
 //!
-//! Exposes an unauthenticated `/api/healthz/` endpoint for Kubernetes
-//! liveness and readiness probes. The endpoint verifies the health of
-//! the database connection and the gRPC channel. The `urls` submodule
-//! is cross-target so the typed SPA accessor reaches it on wasm.
+//! Exposes the unauthenticated `/api/healthz/` infrastructure endpoint.
 
 #[cfg(native)]
 use reinhardt::app_config;
@@ -13,10 +10,10 @@ pub mod models;
 #[cfg(native)]
 pub mod serializers;
 #[cfg(native)]
+pub mod server_urls;
+#[cfg(native)]
 pub mod tests;
 pub mod urls;
-#[cfg(native)]
-pub mod views;
 
 #[cfg(native)]
 #[app_config(name = "health", label = "health")]

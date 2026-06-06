@@ -105,7 +105,7 @@ mod tests {
 		assert!(is_admin_path("/admin"));
 		assert!(is_admin_path("/admin/"));
 		assert!(is_admin_path("/admin/dashboard"));
-		assert!(!is_admin_path("/api/auth/login"));
+		assert!(!is_admin_path("/api/auth/verify-email/token/"));
 		assert!(!is_admin_path("/api/static/admin/main.js"));
 	}
 }

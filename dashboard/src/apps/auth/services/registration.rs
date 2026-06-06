@@ -1,10 +1,10 @@
 //! Personal Organization provisioning during user registration.
 //!
-//! Shared between the REST API (`apps::auth::views::register`) and the
-//! frontend server function (`apps::auth::server::register`). Both flows
-//! must provision an `Organization` + Owner `OrganizationMembership` for
-//! every freshly-registered user so that organization-scoped resources
-//! (Cluster, Deployment, …) can resolve via `current_organization_id_for_user`.
+//! Shared by auth server functions. This workflow provisions an
+//! `Organization` + Owner `OrganizationMembership` for every
+//! freshly-registered user so that organization-scoped resources
+//! (Cluster, Deployment, ...) can resolve via
+//! `current_organization_id_for_user`.
 //!
 //! Refs #415, #435.
 //!

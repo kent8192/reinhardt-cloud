@@ -4,7 +4,6 @@ use reinhardt::{Schema, ToSchema};
 use serde::Serialize;
 
 use crate::apps::clusters::models::Cluster;
-
 /// Cluster API response.
 ///
 /// Used for list/retrieve/update endpoints. **Never** carries the agent

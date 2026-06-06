@@ -7,8 +7,8 @@ use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, us
 
 use crate::apps::deployments::client::components::log_viewer::log_viewer_container;
 #[cfg(wasm)]
-use crate::apps::deployments::server::list_deployments_for_current_org;
-use crate::apps::deployments::server::{
+use crate::apps::deployments::server_fn::list_deployments_for_current_org;
+use crate::apps::deployments::server_fn::{
 	DeploymentInfo, create_deployment_for_current_org, delete_deployment_for_current_org,
 	update_deployment_for_current_org, update_deployment_status_for_current_org,
 };
