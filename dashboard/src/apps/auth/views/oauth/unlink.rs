@@ -10,7 +10,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::http::ViewResult;
 use reinhardt::{AuthInfo, Path, Response, StatusCode, post};
-use reinhardt_auth::social::storage::SocialAccountStorage;
+use reinhardt::reinhardt_auth::social::storage::SocialAccountStorage;
 use tracing::error;
 use uuid::Uuid;
 
@@ -97,8 +97,8 @@ mod tests {
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt_auth::AuthInfo;
-	use reinhardt_auth::social::storage::SocialAccount;
+	use reinhardt::reinhardt_auth::AuthInfo;
+	use reinhardt::reinhardt_auth::social::storage::SocialAccount;
 	use rstest::*;
 	use serial_test::serial;
 	use uuid::Uuid;

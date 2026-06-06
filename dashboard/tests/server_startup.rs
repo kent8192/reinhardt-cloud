@@ -139,7 +139,7 @@ async fn init_websocket_routes_registers_notifications_endpoint()
 #[rstest]
 fn websocket_runserver_hook_is_registered() {
 	// Arrange / Act
-	let registered = inventory::iter::<reinhardt_commands::RunserverHookRegistration>
+	let registered = inventory::iter::<reinhardt::commands::RunserverHookRegistration>
 		.into_iter()
 		.any(|registration| registration.type_name == "WebSocketRunserverHook");
 

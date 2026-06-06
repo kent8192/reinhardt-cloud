@@ -30,8 +30,8 @@
 
 use chrono::Utc;
 use reinhardt::db::orm::Model;
-use reinhardt_auth::social::core::claims::StandardClaims;
-use reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
+use reinhardt::reinhardt_auth::social::core::claims::StandardClaims;
+use reinhardt::reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 use uuid::Uuid;
 
 use crate::apps::auth::models::User;
