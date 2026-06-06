@@ -90,7 +90,7 @@ pub fn deployments_list_page() -> Page {
 		server_fn: create_deployment_for_current_org,
 		method: Post,
 		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		class: "grid gap-3 md:grid-cols-2",
 		fields: {
 			app_name: CharField {
 				required,
@@ -116,11 +116,11 @@ pub fn deployments_list_page() -> Page {
 				max_length: 65535,
 				label: "ReinhardtApp YAML",
 				widget: Textarea,
-				class: "rc-input min-h-32 font-mono text-xs",
+				class: "rc-input min-h-40 font-mono text-xs md:col-span-2",
 			}
 			submit: SubmitButton {
 				label: "Create deployment",
-				class: "btn-primary"
+				class: "btn-primary md:justify-self-start"
 			}
 		}
 	};
@@ -262,7 +262,7 @@ pub fn deployments_list_page() -> Page {
 					}
 				}
 				div {
-					class: "grid gap-6 lg:grid-cols-[1fr_380px]",
+					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {
 						class: "space-y-6",
 						section {
@@ -383,17 +383,6 @@ pub fn deployments_list_page() -> Page {
 							class: "rc-panel-pad",
 							h2 {
 								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Live Logs"
-							}
-							{ logs }
-						}
-					}
-					aside {
-						class: "space-y-4",
-						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Create Deployment"
 							}
 							{
@@ -415,7 +404,18 @@ pub fn deployments_list_page() -> Page {
 							class: "rc-panel-pad",
 							h2 {
 								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Edit Deployment"
+								"Live Logs"
+							}
+							{ logs }
+						}
+					}
+					aside {
+						class: "space-y-4",
+						section {
+							class: "rc-panel-pad",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-ink-950",
+								"Deployment Operations"
 							}
 							{
 								self::alert(edit_error.clone())
@@ -441,12 +441,8 @@ pub fn deployments_list_page() -> Page {
 									})()
 								} else { Page::Empty }
 							}
-						}
-						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Status"
+							div {
+								class: "my-4 border-t border-cloud-200"
 							}
 							{
 								self::alert(status_error.clone())
@@ -462,12 +458,8 @@ pub fn deployments_list_page() -> Page {
 									})()
 								} else { Page::Empty }
 							}
-						}
-						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Delete"
+							div {
+								class: "my-4 border-t border-cloud-200"
 							}
 							{
 								self::alert(delete_error.clone())

@@ -66,7 +66,7 @@ pub fn clusters_list_page() -> Page {
 		server_fn: create_cluster_for_current_org,
 		method: Post,
 		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		class: "grid gap-3 md:grid-cols-2",
 		fields: {
 			name: CharField {
 				required,
@@ -84,7 +84,7 @@ pub fn clusters_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Create cluster",
-				class: "btn-primary"
+				class: "btn-primary md:justify-self-start"
 			}
 		}
 	};
@@ -214,7 +214,7 @@ pub fn clusters_list_page() -> Page {
 					}
 				}
 				div {
-					class: "grid gap-6 lg:grid-cols-[1fr_360px]",
+					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {
 						class: "space-y-6",
 						section {
@@ -328,18 +328,7 @@ pub fn clusters_list_page() -> Page {
 							class: "rc-panel-pad",
 							h2 {
 								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Agent Health"
-							}
-							{ health }
-						}
-					}
-					aside {
-						class: "space-y-4",
-						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Create Cluster"
+								"Register Cluster"
 							}
 							{
 								self::alert(create_error.clone())
@@ -360,11 +349,18 @@ pub fn clusters_list_page() -> Page {
 							class: "rc-panel-pad",
 							h2 {
 								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Edit Cluster"
+								"Agent Health"
 							}
-							p {
-								class: "mb-3 text-xs text-ink-600",
-								"Enter an ID from the table, then submit updated values."
+							{ health }
+						}
+					}
+					aside {
+						class: "space-y-4",
+						section {
+							class: "rc-panel-pad",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-ink-950",
+								"Cluster Operations"
 							}
 							{
 								self::alert(edit_error.clone())
@@ -390,12 +386,8 @@ pub fn clusters_list_page() -> Page {
 									})()
 								} else { Page::Empty }
 							}
-						}
-						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Token / Delete"
+							div {
+								class: "my-4 border-t border-cloud-200"
 							}
 							{
 								self::alert(rotate_error.clone())
