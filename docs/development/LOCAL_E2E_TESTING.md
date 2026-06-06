@@ -90,6 +90,11 @@ origins with `http://localhost:$PORT` and `http://127.0.0.1:$PORT` so
 same-origin server-function POSTs do not fail OriginGuard validation after
 switching to ports such as 8001.
 
+Dashboard startup also loads `.env.<profile>` and `.env` from the Dashboard
+crate root before TOML interpolation. For the default local profile, values in
+`dashboard/.env.local` such as `PORT=8001` are available without exporting them
+manually; variables already present in the shell still take precedence.
+
 On failure the harness writes events, live `ReinhardtApp` YAML, owned resource
 YAML, Pod logs, Operator logs, and the generated CRD YAML under the artifact
 directory before cleanup. Login responses, cookies, and authenticated page
