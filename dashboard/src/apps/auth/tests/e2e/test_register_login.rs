@@ -136,9 +136,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		let register_data = json!({
 			"username": "newuser",
@@ -201,9 +201,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		let register_data = json!({
 			"username": "auditor",
@@ -299,9 +299,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange -- register first user (needs Mailpit for email sending)
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		let first_user = json!({
 			"username": "emailuser1",
@@ -388,9 +388,9 @@ mod tests {
 		#[future] mailpit: MailpitContainer,
 	) {
 		// Arrange
-		let (_container, _conn, client, urls) = db.await;
 		let mailpit = mailpit.await;
 		let _env = set_mailpit_env(&mailpit);
+		let (_container, _conn, client, urls) = db.await;
 
 		let register_data = json!({
 			"username": "  trimuser  ",

@@ -13,7 +13,7 @@
 # Resolved by `dashboard::config::settings::get_jwt_secret()`, which reads
 # this top-level TOML key first and falls back to the
 # `REINHARDT_CLOUD_JWT_SECRET` env var for container/CI overrides.
-jwt_secret = "ci-only-jwt-secret-not-for-production"
+jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of random data}"
 
 # Redis URL for cookie session storage. Resolved by
 # `dashboard::config::settings::get_redis_url()`, which reads
@@ -27,7 +27,7 @@ redis_url = "redis://localhost:6379/0"
 debug = true
 
 # Secret key for CI (not used in production)
-secret_key = "ci-only-secret-key-not-for-production"
+secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
 
 # Allow all hosts in CI
 allowed_hosts = ["*"]
@@ -43,7 +43,7 @@ host = "localhost"
 port = 5432
 name = "reinhardt_cloud_ci"
 user = "postgres"
-password = "postgres"
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 
 # Security settings (relaxed for CI)
 [core.security]
@@ -61,7 +61,7 @@ host = "localhost"
 port = 5432
 name = "reinhardt_cloud_ci"
 user = "postgres"
-password = { secret = "postgres" }
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 options = {}
 
 [email]

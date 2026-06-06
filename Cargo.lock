@@ -5363,7 +5363,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "reinhardt-admin"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5382,17 +5382,17 @@ dependencies = [
  "percent-encoding",
  "rayon",
  "reinhardt-apps",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-pages 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-macros",
+ "reinhardt-pages",
+ "reinhardt-query",
+ "reinhardt-urls",
+ "reinhardt-utils",
  "reqwest 0.13.2",
  "serde",
  "serde-wasm-bindgen",
@@ -5414,7 +5414,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-apps"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5428,11 +5428,11 @@ dependencies = [
  "inventory",
  "linkme",
  "pin-project",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-http",
+ "reinhardt-server",
+ "reinhardt-utils",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
@@ -5444,48 +5444,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "argon2",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "clap",
- "console",
- "data-encoding",
- "dialoguer",
- "hex",
- "hmac 0.12.1",
- "hyper",
- "inventory",
- "jsonwebtoken 10.3.0",
- "password-hash",
- "rand 0.9.3",
- "reinhardt-auth-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reqwest 0.13.2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "totp-lite",
- "tracing",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-auth"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5506,14 +5465,14 @@ dependencies = [
  "password-hash",
  "rand 0.9.3",
  "reinhardt-apps",
- "reinhardt-auth-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth-macros",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-query",
+ "reinhardt-utils",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
@@ -5532,18 +5491,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-auth-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
- "winnow 1.0.1",
-]
-
-[[package]]
-name = "reinhardt-auth-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5614,7 +5562,7 @@ dependencies = [
  "jsonwebtoken 9.3.1",
  "proptest",
  "reinhardt-cloud-types",
- "reinhardt-test 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
+ "reinhardt-test",
  "rstest",
  "serde",
  "serde_json",
@@ -5692,7 +5640,7 @@ dependencies = [
  "reinhardt-cloud-core",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
- "reinhardt-test 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
+ "reinhardt-test",
  "rstest",
  "serde",
  "serde_json",
@@ -5719,7 +5667,7 @@ dependencies = [
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
- "reinhardt-test 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
+ "reinhardt-test",
  "rstest",
  "serde_json",
  "tokio",
@@ -5835,7 +5783,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-commands"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "cargo_metadata",
@@ -5859,19 +5807,19 @@ dependencies = [
  "regex",
  "reinhardt-admin",
  "reinhardt-apps",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-conf",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
  "reinhardt-mail",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-middleware",
  "reinhardt-openapi",
- "reinhardt-pages 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-rest 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-pages",
+ "reinhardt-rest",
+ "reinhardt-server",
+ "reinhardt-urls",
+ "reinhardt-utils",
  "reqwest 0.13.2",
  "rust-embed",
  "rustls",
@@ -5892,7 +5840,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-conf"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5902,37 +5850,9 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "secrecy",
- "serde",
- "serde_json",
- "subtle",
- "tempfile",
- "thiserror 2.0.18",
- "toml 1.1.2+spec-1.1.0",
- "url",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "reinhardt-conf"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "dotenv",
- "indexmap 2.14.0",
- "nom 8.0.0",
- "parking_lot",
- "percent-encoding",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
+ "reinhardt-macros",
+ "reinhardt-utils",
  "secrecy",
  "serde",
  "serde_json",
@@ -5948,7 +5868,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-core"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "aquamarine 0.6.0",
@@ -5973,53 +5893,7 @@ dependencies = [
  "prost 0.14.3",
  "rand 0.9.3",
  "regex",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "rmp-serde",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sha2 0.10.9",
- "smallvec",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "typed-arena",
- "url",
- "urlencoding",
- "uuid",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "reinhardt-core"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "anyhow",
- "aquamarine 0.6.0",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "cfg_aliases",
- "chrono",
- "futures-util",
- "getrandom 0.3.4",
- "hex",
- "hmac 0.12.1",
- "http",
- "hyper",
- "inventory",
- "ipnet",
- "mime",
- "multer",
- "once_cell",
- "parking_lot",
- "percent-encoding",
- "prost 0.14.3",
- "rand 0.9.3",
- "regex",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-macros",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -6040,7 +5914,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-db"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
@@ -6070,62 +5944,10 @@ dependencies = [
  "rand 0.9.3",
  "refinery",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "rust_decimal",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smallvec",
- "sqlx",
- "strsim",
- "syn 2.0.117",
- "thiserror 2.0.18",
- "tokio",
- "toml 1.1.2+spec-1.1.0",
- "tracing",
- "uuid",
- "walkdir",
-]
-
-[[package]]
-name = "reinhardt-db"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "aes-gcm",
- "aho-corasick",
- "anyhow",
- "aquamarine 0.6.0",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "clap",
- "console",
- "dashmap",
- "dialoguer",
- "futures",
- "indexmap 2.14.0",
- "indicatif",
- "lazy_static",
- "linkme",
- "once_cell",
- "parking_lot",
- "paste",
- "petgraph 0.8.3",
- "pg_escape",
- "phonenumber",
- "prettyplease",
- "proc-macro2",
- "quote",
- "rand 0.9.3",
- "refinery",
- "regex",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-di",
+ "reinhardt-query",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -6145,7 +5967,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6155,32 +5977,9 @@ dependencies = [
  "inventory",
  "once_cell",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "thiserror 2.0.18",
- "tokio",
- "urlencoding",
-]
-
-[[package]]
-name = "reinhardt-di"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "async-trait",
- "bytes",
- "dashmap",
- "form_urlencoded",
- "http",
- "inventory",
- "once_cell",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
  "reinhardt-di-macros",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-http",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -6192,7 +5991,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-di-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6203,30 +6002,13 @@ dependencies = [
 [[package]]
 name = "reinhardt-forms"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "aquamarine 0.5.0",
  "chrono",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "reinhardt-forms"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "anyhow",
- "aquamarine 0.5.0",
- "chrono",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6237,35 +6019,14 @@ dependencies = [
 [[package]]
 name = "reinhardt-http"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "bytes",
  "futures",
  "hyper",
  "percent-encoding",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-http"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "async-trait",
- "bytes",
- "futures",
- "hyper",
- "percent-encoding",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -6279,21 +6040,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "ctor 0.8.0",
- "inventory",
- "nom 8.0.0",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "ctor 0.8.0",
  "inventory",
@@ -6307,7 +6054,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-mail"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6316,8 +6063,8 @@ dependencies = [
  "mime",
  "mime_guess",
  "native-tls",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6328,20 +6075,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-manouche"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "aquamarine 0.6.0",
- "convert_case",
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-manouche"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
@@ -6354,39 +6088,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-middleware"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "colored",
- "hex",
- "httpdate",
- "hyper",
- "ipnet",
- "log",
- "rand 0.9.3",
- "regex",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-middleware"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6401,11 +6103,11 @@ dependencies = [
  "rand 0.9.3",
  "redis 0.27.6",
  "regex",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-di",
+ "reinhardt-http",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6419,19 +6121,19 @@ dependencies = [
 [[package]]
 name = "reinhardt-openapi"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-rest 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-http",
+ "reinhardt-rest",
+ "reinhardt-urls",
  "serde_json",
 ]
 
 [[package]]
 name = "reinhardt-openapi-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6442,7 +6144,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "aquamarine 0.5.0",
  "async-trait",
@@ -6454,59 +6156,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-forms 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-pages-ast 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-pages-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reqwest 0.13.2",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "serde_urlencoded",
- "smallvec",
- "subtle",
- "syn 2.0.117",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "urlencoding",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "reinhardt-pages"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "aquamarine 0.5.0",
- "async-trait",
- "bon",
- "cfg_aliases",
- "getrandom 0.3.4",
- "hyper",
- "js-sys",
- "proc-macro2",
- "quote",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-forms 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-pages-ast 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-pages-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
+ "reinhardt-di",
+ "reinhardt-forms",
+ "reinhardt-http",
+ "reinhardt-middleware",
+ "reinhardt-pages-ast",
+ "reinhardt-pages-macros",
+ "reinhardt-server",
+ "reinhardt-urls",
+ "reinhardt-utils",
  "reqwest 0.13.2",
  "serde",
  "serde-wasm-bindgen",
@@ -6528,81 +6187,39 @@ dependencies = [
 [[package]]
 name = "reinhardt-pages-ast"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "aquamarine 0.6.0",
  "convert_case",
  "darling 0.20.11",
  "proc-macro2",
  "quote",
- "reinhardt-manouche 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-pages-ast"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "aquamarine 0.6.0",
- "convert_case",
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "reinhardt-manouche 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-manouche",
  "syn 2.0.117",
 ]
 
 [[package]]
 name = "reinhardt-pages-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "convert_case",
  "darling 0.20.11",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "reinhardt-manouche 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-pages-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "convert_case",
- "darling 0.20.11",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "reinhardt-manouche 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-manouche",
  "syn 2.0.117",
 ]
 
 [[package]]
 name = "reinhardt-query"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "bigdecimal",
  "chrono",
- "reinhardt-query-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "rust_decimal",
- "serde_json",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-query"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "bigdecimal",
- "chrono",
- "reinhardt-query-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-query-macros",
  "rust_decimal",
  "serde_json",
  "thiserror 2.0.18",
@@ -6612,18 +6229,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-query-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-query-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -6634,7 +6240,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-rest"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6656,62 +6262,15 @@ dependencies = [
  "parking_lot",
  "quick-xml",
  "regex",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-router 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-throttling 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "serde_yaml",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "typed-arena",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-rest"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "csv",
- "futures-util",
- "geo-types",
- "hex",
- "http",
- "hyper",
- "indexmap 2.14.0",
- "inventory",
- "log",
- "mime",
- "multer",
- "once_cell",
- "parking_lot",
- "quick-xml",
- "regex",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-http",
  "reinhardt-openapi-macros",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-router 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-throttling 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-query",
+ "reinhardt-router",
+ "reinhardt-throttling",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -6731,27 +6290,12 @@ dependencies = [
 [[package]]
 name = "reinhardt-router"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-
-[[package]]
-name = "reinhardt-router"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 
 [[package]]
 name = "reinhardt-routers-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-routers-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6761,7 +6305,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-server"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6770,31 +6314,10 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnet",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "reinhardt-server"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "async-trait",
- "bytes",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "ipnet",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-di",
+ "reinhardt-http",
  "serde",
  "serde_json",
  "tokio",
@@ -6803,15 +6326,15 @@ dependencies = [
 [[package]]
 name = "reinhardt-shortcuts"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "bytes",
  "hyper",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-views 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-http",
+ "reinhardt-urls",
+ "reinhardt-views",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6821,36 +6344,16 @@ dependencies = [
 [[package]]
 name = "reinhardt-test"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "cfg_aliases",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-pages 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-testkit 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-test"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "cfg_aliases",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-pages 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-testkit 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-pages",
+ "reinhardt-query",
+ "reinhardt-testkit",
  "rstest",
  "serde",
  "serde_json",
@@ -6861,7 +6364,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "astral-tokio-tar",
  "async-dropper",
@@ -6883,75 +6386,18 @@ dependencies = [
  "mockall",
  "paste",
  "redis 1.2.0",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-testkit-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-views 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reqwest 0.13.2",
- "rstest",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sqlx",
- "tempfile",
- "testcontainers",
- "testcontainers-modules",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "totp-lite",
- "tracing",
- "url",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-testkit"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "astral-tokio-tar",
- "async-dropper",
- "async-trait",
- "base64-simd",
- "bytes",
- "cfg_aliases",
- "chrono",
- "cookie",
- "env_logger",
- "fs2",
- "futures",
- "http",
- "http-body-util",
- "hyper",
- "lapin",
- "memcache-async",
- "mime",
- "mockall",
- "paste",
- "redis 1.2.0",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-testkit-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-views 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-middleware",
+ "reinhardt-query",
+ "reinhardt-server",
+ "reinhardt-testkit-macros",
+ "reinhardt-urls",
+ "reinhardt-utils",
+ "reinhardt-views",
  "reqwest 0.13.2",
  "rstest",
  "serde",
@@ -6975,17 +6421,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-testkit-macros"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "reinhardt-testkit-macros"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6995,18 +6431,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-throttling"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
-dependencies = [
- "async-trait",
- "parking_lot",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "reinhardt-throttling"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -7017,7 +6442,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-urls"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -7031,46 +6456,13 @@ dependencies = [
  "nom 8.0.0",
  "once_cell",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-router 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-routers-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.18",
- "tracing",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "reinhardt-urls"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "aho-corasick",
- "async-trait",
- "cfg_aliases",
- "chrono",
- "futures",
- "hyper",
- "inventory",
- "js-sys",
- "matchit 0.9.2",
- "nom 8.0.0",
- "once_cell",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-router 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-routers-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-views 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-middleware",
+ "reinhardt-router",
+ "reinhardt-routers-macros",
+ "reinhardt-views",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -7084,7 +6476,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-utils"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7102,44 +6494,8 @@ dependencies = [
  "once_cell",
  "rand 0.9.3",
  "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reqwest 0.13.2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sourcemap",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
- "walkdir",
-]
-
-[[package]]
-name = "reinhardt-utils"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "chrono-tz 0.10.4",
- "futures",
- "glob",
- "hex",
- "http",
- "hyper",
- "inventory",
- "mime_guess",
- "once_cell",
- "rand 0.9.3",
- "regex",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-core",
+ "reinhardt-http",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
@@ -7156,7 +6512,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-views"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#48e4168eb583c327d74769a7d1c2c10da97b1158"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7167,48 +6523,14 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "quick-xml",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-rest 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0)",
- "rust-embed",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "reinhardt-views"
-version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
-dependencies = [
- "async-trait",
- "bytes",
- "http-body-util",
- "hyper",
- "inventory",
- "lazy_static",
- "once_cell",
- "parking_lot",
- "quick-xml",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-rest 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-http",
+ "reinhardt-query",
+ "reinhardt-rest",
+ "reinhardt-utils",
  "rust-embed",
  "serde",
  "serde_json",
@@ -7225,7 +6547,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-web"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7237,27 +6559,27 @@ dependencies = [
  "paste",
  "reinhardt-admin",
  "reinhardt-apps",
- "reinhardt-auth 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-auth",
  "reinhardt-commands",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-db 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-di 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-forms 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-http 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-macros 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
+ "reinhardt-db",
+ "reinhardt-di",
+ "reinhardt-forms",
+ "reinhardt-http",
+ "reinhardt-macros",
  "reinhardt-mail",
- "reinhardt-middleware 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-middleware",
  "reinhardt-openapi",
- "reinhardt-pages 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-query 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-rest 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-server 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-pages",
+ "reinhardt-query",
+ "reinhardt-rest",
+ "reinhardt-server",
  "reinhardt-shortcuts",
- "reinhardt-test 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-urls 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-utils 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-views 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-test",
+ "reinhardt-urls",
+ "reinhardt-utils",
+ "reinhardt-views",
  "reinhardt-websockets",
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
@@ -7267,7 +6589,7 @@ dependencies = [
 [[package]]
 name = "reinhardt-websockets"
 version = "0.2.0-rc.3"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features#0a7228c0adf09706493e5d8b57d009c31db32a2e"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#eaf53665f17aa0d125c3312674aef9f2e5fc7bc6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7276,8 +6598,8 @@ dependencies = [
  "futures-util",
  "inventory",
  "once_cell",
- "reinhardt-conf 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
- "reinhardt-core 0.2.0-rc.3 (git+https://github.com/kent8192/reinhardt-web?branch=fix%2Ffacade-social-runserver-features)",
+ "reinhardt-conf",
+ "reinhardt-core",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

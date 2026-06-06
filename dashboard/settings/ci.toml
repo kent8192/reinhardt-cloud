@@ -12,7 +12,7 @@
 # real secrets are injected at workflow runtime via REINHARDT_* env vars.
 
 # JWT secret for cluster-agent and gRPC AuthService token signing.
-jwt_secret = "ci-only-jwt-secret-not-for-production"
+jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of random data}"
 
 # Redis URL for cookie session storage. Matches GitHub Actions Redis service
 # and `REINHARDT_CLOUD_REDIS_URL` (database 0) used across CI workflows.
@@ -20,7 +20,7 @@ redis_url = "redis://localhost:6379/0"
 
 [core]
 debug = true
-secret_key = "ci-only-secret-key-not-for-production"
+secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
 allowed_hosts = ["*"]
 root_urlconf = ""
 
@@ -43,7 +43,7 @@ host = "localhost"
 port = 5432
 name = "reinhardt_cloud_ci"
 user = "postgres"
-password = { secret = "postgres" }
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 options = {}
 
 # Top-level [database] section required by reinhardt-web's runserver/migrate commands.
@@ -53,7 +53,7 @@ host = "localhost"
 port = 5432
 name = "reinhardt_cloud_ci"
 user = "postgres"
-password = "postgres"
+password = { env = "REINHARDT_DATABASE_PASSWORD" }
 
 [cors]
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
