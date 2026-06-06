@@ -15,8 +15,8 @@
 jwt_secret = "CHANGE-ME-to-a-random-string"
 
 # Redis URL for cookie session storage. Resolved by
-# `dashboard::config::settings::get_redis_url()`, which reads this TOML key
-# first and falls back to the `REINHARDT_CLOUD_REDIS_URL` env var.
+# `dashboard::config::settings::get_redis_url()`, which reads
+# `REINHARDT_CLOUD_REDIS_URL` first and falls back to this TOML key.
 #
 # `${RC_REDIS_HOST:-localhost}` expands to the env var if set (the
 # `.devcontainer/` sets `RC_REDIS_HOST=redis` to point at the compose

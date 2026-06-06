@@ -18,7 +18,9 @@
 //! target. Refs `kent8192/reinhardt-cloud#574`.
 
 #[cfg(not(target_arch = "wasm32"))]
-use reinhardt::commands::execute_from_command_line_with_settings;
+use reinhardt::commands::{CommandRegistry, execute_from_command_line_with_registry_and_settings};
+#[cfg(not(target_arch = "wasm32"))]
+use reinhardt_cloud_dashboard::config::management::SeedSelfDeployUserCommand;
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt_cloud_dashboard::config::settings::get_settings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,7 +38,12 @@ async fn main() {
 		);
 	}
 
-	if let Err(e) = execute_from_command_line_with_settings(get_settings()).await {
+	let mut registry = CommandRegistry::new();
+	registry.register(Box::new(SeedSelfDeployUserCommand));
+
+	if let Err(e) =
+		execute_from_command_line_with_registry_and_settings(registry, get_settings()).await
+	{
 		eprintln!("Error: {e}");
 		process::exit(1);
 	}

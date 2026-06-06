@@ -10,6 +10,8 @@ pub mod grpc_client;
 #[cfg(native)]
 pub mod hooks;
 #[cfg(native)]
+pub mod management;
+#[cfg(native)]
 pub mod middleware;
 #[cfg(native)]
 pub mod settings;

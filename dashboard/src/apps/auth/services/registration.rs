@@ -117,6 +117,19 @@ pub async fn register_inactive_user(
 /// - On unique-violation (rare race between two simultaneous registrations),
 ///   retry once with a 6-char uuid suffix appended to the slug
 pub async fn provision_personal_organization(created: &User) -> Result<(), AppError> {
+	provision_personal_organization_inner(created, true).await
+}
+
+/// Create a Personal `Organization` and Owner membership for an existing
+/// active user without rolling the user back on failure.
+pub async fn ensure_personal_organization(user: &User) -> Result<(), AppError> {
+	provision_personal_organization_inner(user, false).await
+}
+
+async fn provision_personal_organization_inner(
+	created: &User,
+	rollback_on_failure: bool,
+) -> Result<(), AppError> {
 	let now = Utc::now();
 	let mut slug = sanitize_username_to_slug(&created.username);
 	if is_reserved_slug(&slug) || validate_slug(&slug).is_err() {
@@ -158,7 +171,9 @@ pub async fn provision_personal_organization(created: &User) -> Result<(), AppEr
 							"Failed to provision Personal Org for user {} after retry: {e2}",
 							created.id
 						);
-						rollback_user(created).await;
+						if rollback_on_failure {
+							rollback_user(created).await;
+						}
 						return Err(AppError::Internal("Internal server error".to_string()));
 					}
 				}
@@ -167,7 +182,9 @@ pub async fn provision_personal_organization(created: &User) -> Result<(), AppEr
 					"Failed to provision Personal Org for user {}: {e}",
 					created.id
 				);
-				rollback_user(created).await;
+				if rollback_on_failure {
+					rollback_user(created).await;
+				}
 				return Err(AppError::Internal("Internal server error".to_string()));
 			}
 		}
@@ -196,7 +213,9 @@ pub async fn provision_personal_organization(created: &User) -> Result<(), AppEr
 		{
 			error!("Failed to roll back Organization after membership failure: {del_err}");
 		}
-		rollback_user(created).await;
+		if rollback_on_failure {
+			rollback_user(created).await;
+		}
 		return Err(AppError::Internal("Internal server error".to_string()));
 	}
 

@@ -21,9 +21,16 @@ MANAGE_ENV="${DASHBOARD_SELF_DEPLOY_REINHARDT_ENV:-${REINHARDT_ENV:-ci}}"
 RUNTIME_SECRET="${DASHBOARD_SELF_DEPLOY_RUNTIME_SECRET:-reinhardt-cloud-dashboard-secrets}"
 KUBECTL_CONTEXT="${DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT:-}"
 KIND_CLUSTER="${DASHBOARD_SELF_DEPLOY_KIND_CLUSTER:-}"
+E2E_USERNAME="${DASHBOARD_SELF_DEPLOY_E2E_USERNAME:-e2e-user}"
+E2E_PASSWORD="${DASHBOARD_SELF_DEPLOY_E2E_PASSWORD:-e2e-password-123456}"
+E2E_EMAIL="${DASHBOARD_SELF_DEPLOY_E2E_EMAIL:-e2e@example.test}"
+PORT_FORWARD_PORT="${DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT:-18080}"
+E2E_ORIGIN="${DASHBOARD_SELF_DEPLOY_ORIGIN:-http://127.0.0.1:8000}"
 
 OPERATOR_PID=""
+PORT_FORWARD_PID=""
 OPERATOR_LOG="${ARTIFACT_DIR}/operator.log"
+PORT_FORWARD_LOG="${ARTIFACT_DIR}/port-forward.log"
 DRY_RUN_YAML="${ARTIFACT_DIR}/reinhardt-app.yaml"
 CREATED_NAMESPACE=0
 
@@ -94,6 +101,12 @@ cleanup() {
 		wait "${OPERATOR_PID}" >/dev/null 2>&1 || true
 	fi
 
+	if [[ -n "${PORT_FORWARD_PID}" ]]; then
+		log "stopping port-forward process ${PORT_FORWARD_PID}"
+		stop_process_tree "${PORT_FORWARD_PID}"
+		wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
+	fi
+
 	if [[ "${KEEP_RESOURCES}" == "1" ]]; then
 		log "keeping namespace ${NAMESPACE} and artifacts ${ARTIFACT_DIR}"
 		exit "${status}"
@@ -114,6 +127,7 @@ require_prerequisites() {
 	command_exists docker || die "docker is required"
 	command_exists kubectl || die "kubectl is required"
 	command_exists cargo || die "cargo is required"
+	command_exists curl || die "curl is required"
 
 	docker info >/dev/null || die "Docker is not reachable"
 	kubectl_cmd version --client >/dev/null || die "kubectl client is not usable"
@@ -152,12 +166,16 @@ ensure_runtime_secret() {
 			if [[ -z "${secret_name}" || -z "${secret_key}" ]]; then
 				continue
 			fi
+			local secret_value="e2e-placeholder"
+			if [[ "${secret_name}" == "${RUNTIME_SECRET}" && "${secret_key}" == "email-host" ]]; then
+				secret_value="localhost"
+			fi
 			kubectl_cmd create secret generic "${secret_name}" -n "${NAMESPACE}" \
 				--from-literal=placeholder=unused \
 				--dry-run=client -o yaml | kubectl_cmd apply -f -
 			kubectl_cmd patch secret "${secret_name}" -n "${NAMESPACE}" \
 				--type merge \
-				-p "{\"stringData\":{\"${secret_key}\":\"e2e-placeholder\"}}" >/dev/null
+				-p "{\"stringData\":{\"${secret_key}\":\"${secret_value}\"}}" >/dev/null
 		done
 }
 
@@ -398,6 +416,109 @@ wait_for_reconciliation() {
 		-l "app.kubernetes.io/name=${APP_NAME}" -o wide >"${ARTIFACT_DIR}/ready-resources.txt"
 }
 
+dashboard_pod_name() {
+	local deadline
+	local pods
+	deadline=$((SECONDS + $(timeout_seconds)))
+
+	while (( SECONDS < deadline )); do
+		pods="$(kubectl_cmd get pod -n "${NAMESPACE}" \
+			-l "app.kubernetes.io/name=${APP_NAME},app.kubernetes.io/component=web" \
+			-o go-template='{{range .items}}{{ $name := .metadata.name }}{{ if not .metadata.deletionTimestamp }}{{ range .status.conditions }}{{ if and (eq .type "Ready") (eq .status "True") }}{{ $name }}{{ "\n" }}{{ end }}{{ end }}{{ end }}{{ end }}' \
+			2>/dev/null || true)"
+		if [[ -n "${pods}" ]]; then
+			printf '%s\n' "${pods}" | head -n 1
+			return
+		fi
+		sleep 3
+	done
+}
+
+seed_authenticated_user() {
+	local pod
+	pod="$(dashboard_pod_name)"
+	if [[ -z "${pod}" ]]; then
+		die "could not find dashboard web pod"
+	fi
+
+	log "seeding authenticated dashboard user in pod ${pod}"
+	kubectl_cmd exec -n "${NAMESPACE}" "${pod}" -c "${APP_NAME}" -- env \
+		DASHBOARD_SELF_DEPLOY_E2E_USERNAME="${E2E_USERNAME}" \
+		DASHBOARD_SELF_DEPLOY_E2E_PASSWORD="${E2E_PASSWORD}" \
+		DASHBOARD_SELF_DEPLOY_E2E_EMAIL="${E2E_EMAIL}" \
+		/app/manage seed-self-deploy-user
+}
+
+start_dashboard_port_forward() {
+	mkdir -p "${ARTIFACT_DIR}"
+	log "starting dashboard port-forward on 127.0.0.1:${PORT_FORWARD_PORT}; logs: ${PORT_FORWARD_LOG}"
+	kubectl_cmd port-forward -n "${NAMESPACE}" "service/${APP_NAME}" "${PORT_FORWARD_PORT}:80" \
+		>"${PORT_FORWARD_LOG}" 2>&1 &
+	PORT_FORWARD_PID=$!
+
+	local deadline
+	deadline=$((SECONDS + 30))
+	while ((SECONDS < deadline)); do
+		if curl -fsS "http://127.0.0.1:${PORT_FORWARD_PORT}/api/healthz/" \
+			>"${ARTIFACT_DIR}/healthz.json" 2>"${ARTIFACT_DIR}/healthz.err"; then
+			return
+		fi
+		if ! kill -0 "${PORT_FORWARD_PID}" >/dev/null 2>&1; then
+			die "dashboard port-forward exited during startup; see ${PORT_FORWARD_LOG}"
+		fi
+		sleep 1
+	done
+
+	die "dashboard health endpoint was not reachable through port-forward"
+}
+
+fetch_authenticated_dashboard_page() {
+	local base_url="$1"
+	local cookie_jar="$2"
+	local path="$3"
+	local output="$4"
+	local marker="$5"
+	local status
+
+	status="$(curl -sS -L -o "${output}" -w "%{http_code}" \
+		-b "${cookie_jar}" "${base_url}${path}" || true)"
+	[[ "${status}" == "200" ]] \
+		|| die "authenticated ${path} page returned HTTP ${status}; see ${output}"
+
+	grep -Fq -- "${marker}" "${output}" \
+		|| die "authenticated ${path} page did not render ${marker}; see ${output}"
+}
+
+verify_authenticated_frontend_flows() {
+	local base_url="http://127.0.0.1:${PORT_FORWARD_PORT}"
+	local cookie_jar="${ARTIFACT_DIR}/dashboard-cookie.jar"
+	local login_body="${ARTIFACT_DIR}/login-response.json"
+	local login_error="${ARTIFACT_DIR}/login.err"
+	local login_status
+
+	log "verifying authenticated dashboard frontend flows"
+	login_status="$(curl -sS -o "${login_body}" -w "%{http_code}" -c "${cookie_jar}" \
+		-H "Content-Type: application/x-www-form-urlencoded" \
+		-H "Origin: ${E2E_ORIGIN}" \
+		-H "Referer: ${E2E_ORIGIN}/login" \
+		--data-urlencode "username=${E2E_USERNAME}" \
+		--data-urlencode "password=${E2E_PASSWORD}" \
+		"${base_url}/api/server_fn/login" \
+		2>"${login_error}" \
+		|| true)"
+	if [[ "${login_status}" != "200" ]]; then
+		die "login server function returned HTTP ${login_status}; see ${login_error} and ${login_body}"
+	fi
+
+	grep -Eq '"success"[[:space:]]*:[[:space:]]*true' "${login_body}" \
+		|| die "login server function did not return success=true; see ${login_body}"
+
+	fetch_authenticated_dashboard_page \
+		"${base_url}" "${cookie_jar}" "/clusters/" "${ARTIFACT_DIR}/clusters.html" "Cluster Inventory"
+	fetch_authenticated_dashboard_page \
+		"${base_url}" "${cookie_jar}" "/deployments/" "${ARTIFACT_DIR}/deployments.html" "Deployment Inventory"
+}
+
 main() {
 	log "namespace=${NAMESPACE}"
 	log "app=${APP_NAME}"
@@ -416,6 +537,9 @@ main() {
 	generate_reinhardt_app_yaml
 	apply_reinhardt_app_direct
 	wait_for_reconciliation
+	seed_authenticated_user
+	start_dashboard_port_forward
+	verify_authenticated_frontend_flows
 
 	log "completed successfully"
 	log "artifacts kept at ${ARTIFACT_DIR}"

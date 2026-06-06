@@ -16,8 +16,8 @@
 jwt_secret = "ci-only-jwt-secret-not-for-production"
 
 # Redis URL for cookie session storage. Resolved by
-# `dashboard::config::settings::get_redis_url()`, which reads this TOML key
-# first and falls back to the `REINHARDT_CLOUD_REDIS_URL` env var.
+# `dashboard::config::settings::get_redis_url()`, which reads
+# `REINHARDT_CLOUD_REDIS_URL` first and falls back to this TOML key.
 # In CI, the env var typically points to a Redis service container or
 # TestContainers-managed instance.
 redis_url = "redis://localhost:6379/0"
