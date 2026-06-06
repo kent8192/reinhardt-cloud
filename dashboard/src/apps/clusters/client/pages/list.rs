@@ -31,19 +31,16 @@ fn format_server_error(raw: &str) -> String {
 fn alert(error: Signal<Option<String>>) -> Page {
 	page!(|error: Signal<Option<String>>| {
 		{
-			error
-				.get()
-				.map(|message| {
-					page!(|message: String| {
-						div {
-							class: "rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700",
-							{
-								self::format_server_error(&message)
-							}
-						}
-					})(message)
-				})
-				.unwrap_or(Page::Empty)
+			error.get().map(|message| {
+			page!(|message: String| {
+				div {
+					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+					{
+						self::format_server_error(&message)
+					}
+				}
+			})(message)
+		}).unwrap_or(Page::Empty)
 		}
 	})(error)
 }
@@ -76,18 +73,18 @@ pub fn clusters_list_page() -> Page {
 				max_length: 63,
 				label: "Name",
 				placeholder: "prod-us-east",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			api_url: UrlField {
 				required,
 				max_length: 2048,
 				label: "API URL",
 				placeholder: "https://kubernetes.example.com:6443",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Create cluster",
-				class: "rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-primary"
 			}
 		}
 	};
@@ -111,23 +108,23 @@ pub fn clusters_list_page() -> Page {
 				max_length: 63,
 				label: "Name",
 				placeholder: "cluster id required below",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			api_url: UrlField {
 				required,
 				max_length: 2048,
 				label: "API URL",
 				placeholder: "https://kubernetes.example.com:6443",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			is_active: BooleanField {
 				label: "Active",
 				initial: true,
-				class: "h-4 w-4 rounded border-gray-300",
+				class: "h-4 w-4 rounded border-cloud-200 text-control-600 focus:ring-control-500",
 			}
 			submit: SubmitButton {
 				label: "Update cluster",
-				class: "rounded bg-gray-900 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-dark"
 			}
 		}
 	};
@@ -150,11 +147,11 @@ pub fn clusters_list_page() -> Page {
 				required,
 				label: "Cluster ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Delete cluster",
-				class: "rounded bg-red-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-danger"
 			}
 		}
 	};
@@ -174,11 +171,11 @@ pub fn clusters_list_page() -> Page {
 				required,
 				label: "Cluster ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Rotate token",
-				class: "rounded bg-amber-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-warning"
 			}
 		}
 	};
@@ -191,24 +188,28 @@ pub fn clusters_list_page() -> Page {
 
 	page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, health: Page| {
 		div {
-			class: "min-h-screen bg-gray-50",
+			class: "rc-app",
 			div {
-				class: "mx-auto max-w-7xl px-6 py-6",
+				class: "rc-shell",
 				div {
-					class: "mb-6 flex items-center justify-between",
+					class: "rc-topline",
 					div {
+						p {
+							class: "rc-kicker",
+							"Infrastructure"
+						}
 						h1 {
-							class: "text-2xl font-semibold text-gray-950",
+							class: "rc-title",
 							"Clusters"
 						}
 						p {
-							class: "mt-1 text-sm text-gray-600",
+							class: "rc-muted mt-1",
 							"Registered Kubernetes clusters and agent health."
 						}
 					}
 					a {
 						href: "/deployments".to_string(),
-						class: "text-sm font-medium text-blue-700 hover:underline",
+						class: "rc-link",
 						"Deployments"
 					}
 				}
@@ -217,22 +218,22 @@ pub fn clusters_list_page() -> Page {
 					div {
 						class: "space-y-6",
 						section {
-							class: "rounded border border-gray-200 bg-white",
+							class: "rc-panel",
 							div {
-								class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700",
+								class: "rc-panel-head",
 								"Cluster Inventory"
 							}
 							{
 								match clusters.get() {
 									ResourceState::Loading => page!(|| {
 										div {
-											class: "px-4 py-8 text-sm text-gray-500",
+											class: "rc-empty",
 											"Loading clusters..."
 										}
 									})(),
 									ResourceState::Error(message) => page!(|message: String| {
 										div {
-											class: "px-4 py-8 text-sm text-red-700",
+											class: "px-4 py-8 text-sm font-medium text-red-700",
 											{
 												self::format_server_error(&message)
 											}
@@ -242,7 +243,7 @@ pub fn clusters_list_page() -> Page {
 										if items.is_empty() {
 											page!(|| {
 												div {
-													class: "px-4 py-8 text-sm text-gray-500",
+													class: "rc-empty",
 													"No clusters registered."
 												}
 											})()
@@ -251,62 +252,62 @@ pub fn clusters_list_page() -> Page {
 												div {
 													class: "overflow-x-auto",
 													table {
-														class: "min-w-full divide-y divide-gray-200 text-sm",
+														class: "rc-table",
 														thead {
-															class: "bg-gray-50",
+															class: "bg-cloud-50",
 															tr {
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"ID"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Name"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"API URL"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Active"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Token Rotated"
 																}
 															}
 														}
 														tbody {
-															class: "divide-y divide-gray-100 bg-white",
+															class: "divide-y divide-cloud-100 bg-white",
 															{
 																items.clone().into_iter().map(|cluster| page!(|cluster: ClusterInfo| {
 																	tr {
 																		td {
-																			class: "px-4 py-2 font-mono text-xs text-gray-700",
+																			class: "px-4 py-2 font-mono text-xs text-ink-600",
 																			{
 																				cluster.id.to_string()
 																			}
 																		}
 																		td {
-																			class: "px-4 py-2 font-medium text-gray-950",
+																			class: "px-4 py-2 font-semibold text-ink-950",
 																			{ cluster.name }
 																		}
 																		td {
-																			class: "px-4 py-2 text-gray-600",
+																			class: "px-4 py-2 text-ink-600",
 																			{ cluster.api_url }
 																		}
 																		td {
 																			class: "px-4 py-2",
 																			span {
-																				class: if cluster.is_active { "rounded bg-green-100 px-2 py-0.5 text-xs text-green-800" } else { "rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700" },
+																				class: if cluster.is_active { "rounded-full bg-control-500/10 px-2 py-0.5 text-xs font-semibold text-control-700" } else { "rounded-full bg-cloud-100 px-2 py-0.5 text-xs font-semibold text-ink-600" },
 																				{
 																					if cluster.is_active { "Active" } else { "Inactive" }
 																				}
 																			}
 																		}
 																		td {
-																			class: "px-4 py-2 text-gray-500",
+																			class: "px-4 py-2 text-ink-600",
 																			{
 																				cluster.token_last_rotated_at.clone().unwrap_or_else(||"never".to_string())
 																			}
@@ -324,9 +325,9 @@ pub fn clusters_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Agent Health"
 							}
 							{ health }
@@ -335,9 +336,9 @@ pub fn clusters_list_page() -> Page {
 					aside {
 						class: "space-y-4",
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Create Cluster"
 							}
 							{
@@ -348,7 +349,7 @@ pub fn clusters_list_page() -> Page {
 								if create_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Submitting..."
 										}
 									})()
@@ -356,13 +357,13 @@ pub fn clusters_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Edit Cluster"
 							}
 							p {
-								class: "mb-3 text-xs text-gray-500",
+								class: "mb-3 text-xs text-ink-600",
 								"Enter an ID from the table, then submit updated values."
 							}
 							{
@@ -383,7 +384,7 @@ pub fn clusters_list_page() -> Page {
 								if edit_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Submitting..."
 										}
 									})()
@@ -391,9 +392,9 @@ pub fn clusters_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Token / Delete"
 							}
 							{
@@ -404,14 +405,14 @@ pub fn clusters_list_page() -> Page {
 								if rotate_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Rotating..."
 										}
 									})()
 								} else { Page::Empty }
 							}
 							div {
-								class: "my-4 border-t border-gray-200"
+								class: "my-4 border-t border-cloud-200"
 							}
 							{
 								self::alert(delete_error.clone())
@@ -421,7 +422,7 @@ pub fn clusters_list_page() -> Page {
 								if delete_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Deleting..."
 										}
 									})()

@@ -4,10 +4,59 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Reinhardt Cloud — Dashboard</title>
+	<script>
+		window.__unocss = {
+			theme: {
+				colors: {
+					ink: {
+						950: "#111827",
+						800: "#1f2937",
+						600: "#4b5563",
+						400: "#9ca3af",
+					},
+					cloud: {
+						50: "#f8fafc",
+						100: "#eef2f6",
+						200: "#dbe3ea",
+					},
+					control: {
+						500: "#0f766e",
+						600: "#0d665e",
+						700: "#0b4f49",
+					},
+					signal: {
+						500: "#d97706",
+						600: "#b45309",
+					},
+				},
+			},
+			shortcuts: [
+				["rc-app", "min-h-screen bg-cloud-50 text-ink-950 antialiased"],
+				["rc-shell", "box-border mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8"],
+				["rc-topline", "mb-5 flex flex-col gap-3 border-b border-cloud-200 pb-4 sm:flex-row sm:items-end sm:justify-between"],
+				["rc-kicker", "text-[11px] font-semibold uppercase tracking-[0.12em] text-control-700"],
+				["rc-title", "text-2xl font-semibold text-ink-950"],
+				["rc-muted", "text-sm text-ink-600"],
+				["rc-panel", "rounded-md border border-cloud-200 bg-white shadow-[0_1px_2px_rgba(17,24,39,0.04)]"],
+				["rc-panel-pad", "rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_2px_rgba(17,24,39,0.04)]"],
+				["rc-panel-head", "border-b border-cloud-200 bg-cloud-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-ink-600"],
+				["rc-input", "w-full rounded-md border border-cloud-200 bg-white px-3 py-2 text-sm text-ink-950 outline-none transition focus:border-control-500 focus:ring-2 focus:ring-control-500/15"],
+				["btn-primary", "inline-flex items-center justify-center rounded-md bg-control-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-control-700 focus:outline-none focus:ring-2 focus:ring-control-500/30"],
+				["btn-dark", "inline-flex items-center justify-center rounded-md bg-ink-950 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-ink-800 focus:outline-none focus:ring-2 focus:ring-ink-400/30"],
+				["btn-warning", "inline-flex items-center justify-center rounded-md bg-signal-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-signal-500 focus:outline-none focus:ring-2 focus:ring-signal-500/30"],
+				["btn-danger", "inline-flex items-center justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500/25"],
+				["rc-link", "text-sm font-semibold text-control-700 underline-offset-4 hover:underline"],
+				["rc-table", "min-w-full divide-y divide-cloud-200 text-sm"],
+				["rc-th", "px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-600"],
+				["rc-td", "px-4 py-2 text-ink-600"],
+				["rc-empty", "px-4 py-8 text-sm text-ink-600"],
+			],
+		};
+	</script>
 	<script src="https://cdn.jsdelivr.net/npm/@unocss/runtime@66.6.7/uno.global.js" integrity="sha384-AO39wtQWix8ti0gjIXwhJ2rkQmmFJS5sUUSS6qmWUd/m/7PpY450fgUBBKUcXNvC" crossorigin="anonymous"></script>
 	<style>
 		[un-cloak] { display: none; }
-		body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+		body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 	</style>
 </head>
 <body un-cloak>

@@ -7,20 +7,20 @@ use reinhardt::pages::page;
 pub fn not_found_page() -> Page {
 	page!(|| {
 		div {
-			class: "min-h-screen flex items-center justify-center bg-gray-50",
+			class: "rc-app flex items-center justify-center px-4",
 			div {
 				class: "text-center",
 				h1 {
-					class: "text-6xl font-bold text-gray-300 mb-4",
+					class: "mb-4 text-6xl font-semibold text-cloud-200",
 					"404"
 				}
 				p {
-					class: "text-xl text-gray-600 mb-8",
+					class: "mb-8 text-xl text-ink-600",
 					"Page not found"
 				}
 				a {
 					href: "/".to_string(),
-					class: "px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors",
+					class: "btn-primary px-6 py-3",
 					"Back to Dashboard"
 				}
 			}

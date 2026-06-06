@@ -49,7 +49,7 @@ fn render_oauth_buttons(container_id: &str, verb: &str, providers: Vec<OAuthProv
 	};
 	let _ = divider.set_attribute("class", "relative");
 	divider.set_inner_html(
-		r#"<div class="absolute inset-0 flex items-center"><span class="w-full border-t border-gray-200"></span></div><div class="relative flex justify-center text-xs uppercase"><span class="bg-white px-2 text-gray-500">Or continue with</span></div>"#,
+		r#"<div class="absolute inset-0 flex items-center"><span class="w-full border-t border-cloud-200"></span></div><div class="relative flex justify-center text-xs uppercase"><span class="bg-white px-2 text-ink-600">Or continue with</span></div>"#,
 	);
 	let _ = wrapper.append_child(&divider);
 
@@ -65,7 +65,7 @@ fn render_oauth_buttons(container_id: &str, verb: &str, providers: Vec<OAuthProv
 		let _ = anchor.set_attribute("href", &format!("/api/auth/oauth/{}/start/", provider.id));
 		let _ = anchor.set_attribute(
 			"class",
-			"inline-flex items-center justify-center w-full py-2.5 text-sm font-medium border border-gray-300 rounded-md hover:bg-gray-50",
+			"inline-flex w-full items-center justify-center rounded-md border border-cloud-200 py-2.5 text-sm font-semibold text-ink-800 transition hover:bg-cloud-50",
 		);
 		anchor.set_text_content(Some(&format!("{verb} with {}", provider.label)));
 		let _ = grid.append_child(&anchor);

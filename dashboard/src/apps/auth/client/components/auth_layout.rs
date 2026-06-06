@@ -14,24 +14,28 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 	let title = title.to_string();
 	page!(|title: String, form_content: Page| {
 		div {
-			class: "min-h-screen flex items-center justify-center bg-gray-50",
+			class: "rc-app flex items-center justify-center px-4",
 			div {
 				class: "w-full max-w-md",
 				div {
 					class: "text-center mb-8",
+					p {
+						class: "rc-kicker mb-2",
+						"Control plane"
+					}
 					h1 {
-						class: "text-3xl font-bold text-blue-600",
+						class: "text-3xl font-semibold text-ink-950",
 						"Reinhardt Cloud"
 					}
 					p {
-						class: "text-sm text-gray-500 mt-1",
+						class: "rc-muted mt-1",
 						"Cloud Platform"
 					}
 				}
 				div {
-					class: "bg-white rounded-lg border border-gray-200 shadow-sm p-8",
+					class: "rc-panel-pad p-8",
 					h2 {
-						class: "text-xl font-semibold text-gray-800 mb-6 text-center",
+						class: "text-xl font-semibold text-ink-950 mb-6 text-center",
 						{ title }
 					}
 					{ form_content }

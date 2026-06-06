@@ -43,19 +43,16 @@ fn state_from_status(status: &str) -> DeploymentState {
 fn alert(error: Signal<Option<String>>) -> Page {
 	page!(|error: Signal<Option<String>>| {
 		{
-			error
-				.get()
-				.map(|message| {
-					page!(|message: String| {
-						div {
-							class: "rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700",
-							{
-								self::format_server_error(&message)
-							}
-						}
-					})(message)
-				})
-				.unwrap_or(Page::Empty)
+			error.get().map(|message| {
+			page!(|message: String| {
+				div {
+					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+					{
+						self::format_server_error(&message)
+					}
+				}
+			})(message)
+		}).unwrap_or(Page::Empty)
 		}
 	})(error)
 }
@@ -100,30 +97,30 @@ pub fn deployments_list_page() -> Page {
 				max_length: 63,
 				label: "App Name",
 				placeholder: "web",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			cluster_id: CharField {
 				required,
 				label: "Cluster ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			image: CharField {
 				required,
 				max_length: 512,
 				label: "Image",
 				placeholder: "ghcr.io/example/web:latest",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			reinhardt_app_yaml: TextField {
 				max_length: 65535,
 				label: "ReinhardtApp YAML",
 				widget: Textarea,
-				class: "min-h-32 w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs",
+				class: "rc-input min-h-32 font-mono text-xs",
 			}
 			submit: SubmitButton {
 				label: "Create deployment",
-				class: "rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-primary"
 			}
 		}
 	};
@@ -143,32 +140,32 @@ pub fn deployments_list_page() -> Page {
 				required,
 				label: "Deployment ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			app_name: CharField {
 				required,
 				max_length: 63,
 				label: "App Name",
 				placeholder: "web",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			image: CharField {
 				required,
 				max_length: 512,
 				label: "Image",
 				placeholder: "ghcr.io/example/web:latest",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			status: CharField {
 				required,
 				max_length: 50,
 				label: "Status",
 				initial: "pending".to_string(),
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Update deployment",
-				class: "rounded bg-gray-900 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-dark"
 			}
 		}
 	};
@@ -191,18 +188,18 @@ pub fn deployments_list_page() -> Page {
 				required,
 				label: "Deployment ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			status: CharField {
 				required,
 				max_length: 50,
 				label: "Status",
 				placeholder: "running",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Set status",
-				class: "rounded bg-amber-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-warning"
 			}
 		}
 	};
@@ -222,11 +219,11 @@ pub fn deployments_list_page() -> Page {
 				required,
 				label: "Deployment ID",
 				placeholder: "1",
-				class: "w-full rounded border border-gray-300 px-3 py-2 text-sm",
+				class: "rc-input",
 			}
 			submit: SubmitButton {
 				label: "Delete deployment",
-				class: "rounded bg-red-600 px-3 py-2 text-sm font-medium text-white"
+				class: "btn-danger"
 			}
 		}
 	};
@@ -239,24 +236,28 @@ pub fn deployments_list_page() -> Page {
 
 	page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, logs: Page| {
 		div {
-			class: "min-h-screen bg-gray-50",
+			class: "rc-app",
 			div {
-				class: "mx-auto max-w-7xl px-6 py-6",
+				class: "rc-shell",
 				div {
-					class: "mb-6 flex items-center justify-between",
+					class: "rc-topline",
 					div {
+						p {
+							class: "rc-kicker",
+							"Release surface"
+						}
 						h1 {
-							class: "text-2xl font-semibold text-gray-950",
+							class: "rc-title",
 							"Deployments"
 						}
 						p {
-							class: "mt-1 text-sm text-gray-600",
+							class: "rc-muted mt-1",
 							"Applications deployed through Reinhardt Cloud."
 						}
 					}
 					a {
 						href: "/clusters".to_string(),
-						class: "text-sm font-medium text-blue-700 hover:underline",
+						class: "rc-link",
 						"Clusters"
 					}
 				}
@@ -265,22 +266,22 @@ pub fn deployments_list_page() -> Page {
 					div {
 						class: "space-y-6",
 						section {
-							class: "rounded border border-gray-200 bg-white",
+							class: "rc-panel",
 							div {
-								class: "border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-700",
+								class: "rc-panel-head",
 								"Deployment Inventory"
 							}
 							{
 								match deployments.get() {
 									ResourceState::Loading => page!(|| {
 										div {
-											class: "px-4 py-8 text-sm text-gray-500",
+											class: "rc-empty",
 											"Loading deployments..."
 										}
 									})(),
 									ResourceState::Error(message) => page!(|message: String| {
 										div {
-											class: "px-4 py-8 text-sm text-red-700",
+											class: "px-4 py-8 text-sm font-medium text-red-700",
 											{
 												self::format_server_error(&message)
 											}
@@ -291,7 +292,7 @@ pub fn deployments_list_page() -> Page {
 										if items.is_empty() {
 											page!(|| {
 												div {
-													class: "px-4 py-8 text-sm text-gray-500",
+													class: "rc-empty",
 													"No deployments created."
 												}
 											})()
@@ -300,52 +301,52 @@ pub fn deployments_list_page() -> Page {
 												div {
 													class: "overflow-x-auto",
 													table {
-														class: "min-w-full divide-y divide-gray-200 text-sm",
+														class: "rc-table",
 														thead {
-															class: "bg-gray-50",
+															class: "bg-cloud-50",
 															tr {
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"ID"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"App"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Cluster"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Status"
 																}
 																th {
-																	class: "px-4 py-2 text-left font-medium text-gray-600",
+																	class: "rc-th",
 																	"Image"
 																}
 															}
 														}
 														tbody {
-															class: "divide-y divide-gray-100 bg-white",
+															class: "divide-y divide-cloud-100 bg-white",
 															{
 																items.clone().into_iter().map(|deployment| page!(|deployment: DeploymentInfo| {
 																	tr {
 																		data_deployment_id: deployment.id.to_string(),
 																		td {
-																			class: "px-4 py-2 font-mono text-xs text-gray-700",
+																			class: "px-4 py-2 font-mono text-xs text-ink-600",
 																			{
 																				deployment.id.to_string()
 																			}
 																		}
 																		td {
-																			class: "px-4 py-2 font-medium text-gray-950",
+																			class: "px-4 py-2 font-semibold text-ink-950",
 																			{
 																				deployment.app_name.clone()
 																			}
 																		}
 																		td {
-																			class: "px-4 py-2 font-mono text-xs text-gray-700",
+																			class: "px-4 py-2 font-mono text-xs text-ink-600",
 																			{
 																				deployment.cluster_id.to_string()
 																			}
@@ -356,14 +357,14 @@ pub fn deployments_list_page() -> Page {
 																				let(color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
 																				page!(|color: &'static str, label: &'static str| {
 																					span {
-																						class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {color}"),
+																						class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"),
 																						{ label }
 																					}
 																				})(color, label)
 																			}
 																		}
 																		td {
-																			class: "max-w-xs truncate px-4 py-2 text-gray-600",
+																			class: "max-w-xs truncate px-4 py-2 text-ink-600",
 																			{ deployment.image }
 																		}
 																	}
@@ -379,9 +380,9 @@ pub fn deployments_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Live Logs"
 							}
 							{ logs }
@@ -390,9 +391,9 @@ pub fn deployments_list_page() -> Page {
 					aside {
 						class: "space-y-4",
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Create Deployment"
 							}
 							{
@@ -403,7 +404,7 @@ pub fn deployments_list_page() -> Page {
 								if create_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Submitting..."
 										}
 									})()
@@ -411,9 +412,9 @@ pub fn deployments_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Edit Deployment"
 							}
 							{
@@ -434,7 +435,7 @@ pub fn deployments_list_page() -> Page {
 								if edit_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Submitting..."
 										}
 									})()
@@ -442,9 +443,9 @@ pub fn deployments_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Status"
 							}
 							{
@@ -455,7 +456,7 @@ pub fn deployments_list_page() -> Page {
 								if status_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Updating..."
 										}
 									})()
@@ -463,9 +464,9 @@ pub fn deployments_list_page() -> Page {
 							}
 						}
 						section {
-							class: "rounded border border-gray-200 bg-white p-4",
+							class: "rc-panel-pad",
 							h2 {
-								class: "mb-3 text-sm font-semibold text-gray-900",
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Delete"
 							}
 							{
@@ -476,7 +477,7 @@ pub fn deployments_list_page() -> Page {
 								if delete_submitting.get() {
 									page!(|| {
 										p {
-											class: "mt-2 text-xs text-gray-500",
+											class: "mt-2 text-xs text-ink-600",
 											"Deleting..."
 										}
 									})()

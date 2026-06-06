@@ -24,17 +24,20 @@ pub fn register_page() -> Page {
 				max_length: 150,
 				label: "Username",
 				placeholder: "Choose a username",
+				class: "rc-input",
 			},
 			email: EmailField {
 				required,
 				label: "Email",
 				placeholder: "Enter your email",
+				class: "rc-input",
 			},
 			password: PasswordField {
 				required,
 				min_length: 8,
 				label: "Password",
 				placeholder: "Create a password (min 8 characters)",
+				class: "rc-input",
 			},
 			submit: SubmitButton {
 				label: "Create account",
@@ -46,24 +49,28 @@ pub fn register_page() -> Page {
 
 	page!(|form_view: Page| {
 		div {
-			class: "min-h-screen flex items-center justify-center bg-gray-50",
+			class: "rc-app flex items-center justify-center px-4",
 			div {
 				class: "w-full max-w-md",
 				div {
 					class: "text-center mb-8",
+					p {
+						class: "rc-kicker mb-2",
+						"Control plane"
+					}
 					h1 {
-						class: "text-3xl font-bold text-blue-600",
+						class: "text-3xl font-semibold text-ink-950",
 						"Reinhardt Cloud"
 					}
 					p {
-						class: "text-sm text-gray-500 mt-1",
+						class: "rc-muted mt-1",
 						"Cloud Platform"
 					}
 				}
 				div {
-					class: "bg-white rounded-lg border border-gray-200 shadow-sm p-8",
+					class: "rc-panel-pad p-8",
 					h2 {
-						class: "text-xl font-semibold text-gray-800 mb-6 text-center",
+						class: "text-xl font-semibold text-ink-950 mb-6 text-center",
 						"Create your account"
 					}
 					{ form_view }
@@ -71,10 +78,10 @@ pub fn register_page() -> Page {
 						id: "oauth-register-providers",
 					}
 					div {
-						class: "mt-6 text-center text-sm text-gray-600",
+						class: "mt-6 text-center text-sm text-ink-600",
 						"Already have an account? " a {
 							href: "/login".to_string(),
-							class: "text-blue-600 font-medium hover:underline",
+							class: "font-semibold text-control-700 underline-offset-4 hover:underline",
 							"Sign in"
 						}
 					}

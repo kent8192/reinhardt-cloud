@@ -40,7 +40,7 @@ pub fn show_toast(level: &NotificationLevel, title: &str, message: &str) {
 	toast
 		.set_attribute(
 			"class",
-			&format!("{bg} {border} border rounded-lg shadow-lg p-4"),
+			&format!("{bg} {border} border rounded-md shadow-lg p-4"),
 		)
 		.unwrap();
 
@@ -48,7 +48,7 @@ pub fn show_toast(level: &NotificationLevel, title: &str, message: &str) {
 	let message_escaped = html_escape(message);
 
 	toast.set_inner_html(&format!(
-		r#"<div class="flex items-start gap-3"><span class="text-lg shrink-0">{icon}</span><div class="min-w-0"><p class="font-semibold text-sm text-gray-900">{title_escaped}</p><p class="text-sm text-gray-600 mt-0.5">{message_escaped}</p></div></div>"#
+		r#"<div class="flex items-start gap-3"><span class="text-lg shrink-0">{icon}</span><div class="min-w-0"><p class="font-semibold text-sm text-ink-950">{title_escaped}</p><p class="text-sm text-ink-600 mt-0.5">{message_escaped}</p></div></div>"#
 	));
 
 	container.append_child(&toast).unwrap();
