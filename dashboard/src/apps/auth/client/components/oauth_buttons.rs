@@ -26,7 +26,7 @@ pub fn ensure_oauth_buttons_connected(container_id: &'static str, verb: &'static
 
 /// Non-WASM stub so native builds can share the same client entry wiring.
 #[cfg(not(wasm))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Called from WASM route wiring only; native builds keep the shared API surface.
 pub fn ensure_oauth_buttons_connected(_container_id: &'static str, _verb: &'static str) {}
 
 #[cfg(wasm)]
