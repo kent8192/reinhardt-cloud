@@ -29,7 +29,7 @@ pub fn log_viewer_container() -> Page {
 	page!(|| {
 		pre {
 			id: "log-viewer",
-			class: "log-viewer bg-gray-900 text-gray-100 text-xs font-mono p-3 rounded overflow-auto max-h-96 whitespace-pre-wrap",
+			class: "log-viewer max-h-96 overflow-auto rounded-md bg-ink-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap",
 		}
 	})()
 }

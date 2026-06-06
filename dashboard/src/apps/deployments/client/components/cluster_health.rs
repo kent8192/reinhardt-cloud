@@ -69,7 +69,7 @@ pub fn update(payload: ClusterHealthPayload) {
 	let _ = row.set_attribute(
 		"class",
 		&format!(
-			"cluster-health-row border rounded p-2 text-sm flex items-center gap-3 {status_class}"
+			"cluster-health-row border rounded-md p-2 text-sm flex items-center gap-3 {status_class}"
 		),
 	);
 
@@ -86,7 +86,7 @@ pub fn update(payload: ClusterHealthPayload) {
 	let pods = payload.pod_count;
 
 	row.set_inner_html(&format!(
-		r#"<strong>{cluster}</strong><span class="text-gray-500">agent={agent}</span><span>status={status}</span><span>cpu={cpu}%</span><span>mem={mem}%</span><span>pods={pods}</span><span class="text-gray-400 ml-auto">{ts}</span>"#
+		r#"<strong class="text-ink-950">{cluster}</strong><span class="text-ink-600">agent={agent}</span><span>status={status}</span><span>cpu={cpu}%</span><span>mem={mem}%</span><span>pods={pods}</span><span class="text-ink-400 ml-auto">{ts}</span>"#
 	));
 }
 

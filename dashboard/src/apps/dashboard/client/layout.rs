@@ -11,53 +11,56 @@ pub fn dashboard_shell() -> Page {
 	let deployments_href = "/deployments".to_string();
 	page!(|login_href: String, home_href: String, clusters_href: String, deployments_href: String| {
 		div {
-			class: "min-h-screen flex flex-col bg-gray-50",
+			class: "rc-app flex flex-col",
 			header {
-				class: "h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0",
+				class: "h-14 border-b border-cloud-200 bg-white/95 flex items-center justify-between px-6 shrink-0",
 				div {
-					class: "flex items-center gap-2",
+					class: "flex items-center gap-3",
 					span {
-						class: "text-lg font-bold text-blue-600",
+						class: "h-2.5 w-2.5 rounded-full bg-control-500 shadow-[0_0_0_4px_rgba(15,118,110,0.12)]",
+					}
+					span {
+						class: "text-lg font-semibold text-ink-950",
 						"Reinhardt Cloud"
 					}
 				}
 				div {
 					class: "flex items-center gap-4",
 					span {
-						class: "text-sm text-gray-600",
+						class: "text-sm text-ink-600",
 						"Dashboard"
 					}
 					a {
 						href: login_href,
-						class: "text-sm text-blue-600 hover:underline",
+						class: "rc-link",
 						"Login"
 					}
 				}
 			}
 			div {
-				class: "flex flex-1",
+				class: "flex flex-1 flex-col md:flex-row",
 				nav {
-					class: "w-56 bg-white border-r border-gray-200 p-4 shrink-0",
+					class: "box-border w-full border-b border-cloud-200 bg-white p-4 shrink-0 md:w-56 md:border-b-0 md:border-r",
 					ul {
 						class: "space-y-1",
 						li {
 							a {
 								href: home_href,
-								class: "block px-3 py-2 text-sm rounded-md bg-blue-50 text-blue-700 font-medium",
+								class: "block rounded-md bg-control-500/10 px-3 py-2 text-sm font-semibold text-control-700",
 								"Overview"
 							}
 						}
 						li {
 							a {
 								href: clusters_href,
-								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+								class: "block rounded-md px-3 py-2 text-sm font-medium text-ink-600 hover:bg-cloud-100 hover:text-ink-950",
 								"Clusters"
 							}
 						}
 						li {
 							a {
 								href: deployments_href,
-								class: "block px-3 py-2 text-sm rounded-md text-gray-700 hover:bg-gray-100",
+								class: "block rounded-md px-3 py-2 text-sm font-medium text-ink-600 hover:bg-cloud-100 hover:text-ink-950",
 								"Deployments"
 							}
 						}
@@ -65,42 +68,55 @@ pub fn dashboard_shell() -> Page {
 				}
 				main {
 					class: "flex-1 p-6",
-					h1 {
-						class: "text-2xl font-bold text-gray-900 mb-6",
-						"Dashboard"
+					div {
+						class: "rc-topline",
+						div {
+							p {
+								class: "rc-kicker",
+								"Control plane"
+							}
+							h1 {
+								class: "rc-title mt-1",
+								"Dashboard"
+							}
+						}
+						p {
+							class: "rc-muted max-w-xl",
+							"Operational entry point for clusters, deployments, and platform health."
+						}
 					}
 					div {
-						class: "grid grid-cols-1 md:grid-cols-3 gap-6",
+						class: "grid grid-cols-1 gap-4 md:grid-cols-3",
 						div {
-							class: "bg-white rounded-lg border border-gray-200 p-6",
+							class: "rc-panel-pad",
 							h3 {
-								class: "text-sm font-medium text-gray-500 mb-1",
+								class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
 								"Clusters"
 							}
 							p {
-								class: "text-3xl font-bold text-gray-900",
+								class: "mt-3 text-3xl font-semibold text-ink-950",
 								"0"
 							}
 						}
 						div {
-							class: "bg-white rounded-lg border border-gray-200 p-6",
+							class: "rc-panel-pad",
 							h3 {
-								class: "text-sm font-medium text-gray-500 mb-1",
+								class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
 								"Deployments"
 							}
 							p {
-								class: "text-3xl font-bold text-gray-900",
+								class: "mt-3 text-3xl font-semibold text-ink-950",
 								"0"
 							}
 						}
 						div {
-							class: "bg-white rounded-lg border border-gray-200 p-6",
+							class: "rc-panel-pad",
 							h3 {
-								class: "text-sm font-medium text-gray-500 mb-1",
+								class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
 								"System Status"
 							}
 							p {
-								class: "text-lg font-semibold text-green-600",
+								class: "mt-3 inline-flex rounded-full bg-control-500/10 px-2.5 py-1 text-sm font-semibold text-control-700",
 								"Healthy"
 							}
 						}
