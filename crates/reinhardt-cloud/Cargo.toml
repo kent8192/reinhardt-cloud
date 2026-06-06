@@ -1,0 +1,18 @@
+[package]
+name = "reinhardt-cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-grpc = { workspace = true }
+reinhardt-cloud-k8s = { workspace = true }
+reinhardt-cloud-proto = { workspace = true }
+reinhardt-cloud-telemetry = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+
+[lints]
+workspace = true

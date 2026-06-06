@@ -407,6 +407,7 @@ CUSTOM_VAR = "custom_value"
 
 | Crate | Type | Description |
 |---|---|---|
+| `reinhardt-cloud` | Library | Facade crate that re-exports public library components |
 | `reinhardt-cloud-types` | Library | CRD types, config schema, validation, introspect types |
 | `reinhardt-cloud-core` | Library | Business logic, plugin system, auth, pagination |
 | `reinhardt-cloud-k8s` | Library | Kubernetes client helpers and resource builders |
