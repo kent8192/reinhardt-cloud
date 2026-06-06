@@ -3,7 +3,8 @@
 //!
 //! The functions here boot the HTTP server the same way the production
 //! container does: register the URL router from the `#[routes]`
-//! inventory, then drive `RunServerCommand::execute`. Sharing this code
+//! inventory, register WebSocket routes, then drive
+//! `RunServerCommand::execute`. Sharing this code
 //! lets tests assert that the binary's startup path actually wires up a
 //! router instead of duplicating reconnaissance into a parallel
 //! implementation that drifts from production.
@@ -111,6 +112,7 @@ async fn initialize_orm_database() -> Result<(), Box<dyn Error>> {
 /// `RunServerCommand`.
 pub async fn run(bind_addr: &str) -> Result<(), Box<dyn Error>> {
 	register_router_from_inventory().await?;
+	crate::config::urls::init_websocket_routes().await;
 	initialize_orm_database().await?;
 
 	let ctx = build_context(bind_addr);

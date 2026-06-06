@@ -342,10 +342,13 @@ pub(crate) fn build_deployment(
 		spec: Some(DeploymentSpec {
 			replicas: Some(replicas),
 			selector: LabelSelector {
-				match_labels: Some(BTreeMap::from([(
-					"app.kubernetes.io/name".to_string(),
-					app.name_any(),
-				)])),
+				match_labels: Some(BTreeMap::from([
+					("app.kubernetes.io/name".to_string(), app.name_any()),
+					(
+						"app.kubernetes.io/component".to_string(),
+						Component::Web.as_str().to_string(),
+					),
+				])),
 				..Default::default()
 			},
 			template: PodTemplateSpec {
@@ -465,6 +468,43 @@ mod tests {
 		let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
 		let port = &container.ports.as_ref().unwrap()[0];
 		assert_eq!(port.container_port, 8000);
+	}
+
+	#[rstest]
+	fn test_build_deployment_selector_targets_web_component() {
+		// Arrange
+		let app = make_test_app("web", "web:v1", None);
+
+		// Act
+		let deploy =
+			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let spec = deploy.spec.expect("deployment spec");
+		let selector = spec.selector.match_labels.expect("selector labels");
+		let template_labels = spec
+			.template
+			.metadata
+			.expect("template metadata")
+			.labels
+			.expect("template labels");
+
+		// Assert
+		assert_eq!(selector.len(), 2);
+		assert_eq!(
+			selector.get("app.kubernetes.io/name").map(String::as_str),
+			Some("web")
+		);
+		assert_eq!(
+			selector
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("web")
+		);
+		assert_eq!(
+			template_labels
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("web")
+		);
 	}
 
 	#[rstest]
