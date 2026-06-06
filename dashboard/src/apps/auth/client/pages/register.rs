@@ -8,7 +8,6 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 
-use crate::apps::auth::client::components::{auth_layout, oauth_buttons};
 use crate::apps::auth::server::register::register;
 
 /// Render the registration page inside the shared auth layout.
@@ -44,22 +43,43 @@ pub fn register_page() -> Page {
 		},
 	};
 	let form_view = register_form.into_page();
-	let oauth_view = oauth_buttons("Sign up");
 
-	let content = page!(|form_view: Page, oauth_view: Page| {
+	page!(|form_view: Page| {
 		div {
-			{ form_view }
-			{ oauth_view }
+			class: "min-h-screen flex items-center justify-center bg-gray-50",
 			div {
-				class: "mt-6 text-center text-sm text-gray-600",
-				"Already have an account? " a {
-					href: "/login".to_string(),
-					class: "text-blue-600 font-medium hover:underline",
-					"Sign in"
+				class: "w-full max-w-md",
+				div {
+					class: "text-center mb-8",
+					h1 {
+						class: "text-3xl font-bold text-blue-600",
+						"Reinhardt Cloud"
+					}
+					p {
+						class: "text-sm text-gray-500 mt-1",
+						"Cloud Platform"
+					}
+				}
+				div {
+					class: "bg-white rounded-lg border border-gray-200 shadow-sm p-8",
+					h2 {
+						class: "text-xl font-semibold text-gray-800 mb-6 text-center",
+						"Create your account"
+					}
+					{ form_view }
+					div {
+						id: "oauth-register-providers",
+					}
+					div {
+						class: "mt-6 text-center text-sm text-gray-600",
+						"Already have an account? " a {
+							href: "/login".to_string(),
+							class: "text-blue-600 font-medium hover:underline",
+							"Sign in"
+						}
+					}
 				}
 			}
 		}
-	})(form_view, oauth_view);
-
-	auth_layout("Create your account", content)
+	})(form_view)
 }

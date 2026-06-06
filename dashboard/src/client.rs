@@ -36,6 +36,7 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 
 	use super::router;
+	use crate::apps::auth::client::components as auth_components;
 	use crate::shared::client::{components, state, ws};
 
 	/// WASM entry point — invoked automatically when the module loads.
@@ -59,6 +60,15 @@ mod wasm_entry {
 			.router_client(router::init_router)
 			.on_path("/", |ctx: &PathCtx<'_>| {
 				ctx.ensure_portal("toast-container", components::toast::toast_container);
+			})
+			.on_path("/login", |_ctx: &PathCtx<'_>| {
+				auth_components::ensure_oauth_buttons_connected("oauth-login-providers", "Sign in");
+			})
+			.on_path("/register", |_ctx: &PathCtx<'_>| {
+				auth_components::ensure_oauth_buttons_connected(
+					"oauth-register-providers",
+					"Sign up",
+				);
 			})
 			.launch()?;
 
