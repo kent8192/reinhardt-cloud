@@ -11,7 +11,7 @@
 # ${VAR:?message} interpolation that fails fast at startup if the env var
 # is missing. Optional fields use ${VAR:-default} so deployers can override
 # without forking this file. Numeric, boolean, and array fields keep TOML
-# literals here and are overridden by the HighPriorityEnvSource layer
+# literals here and are overridden by the dashboard `EnvSource` layer
 # (env vars take precedence over TOML) when the corresponding REINHARDT_*
 # env var is set — see dashboard/src/config/settings.rs for the source order.
 #

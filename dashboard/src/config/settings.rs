@@ -14,10 +14,14 @@
 //! ## Priority Order
 //!
 //! Settings are merged with the following priority (highest to lowest):
-//! 1. Environment-specific TOML file (e.g., `production.toml`)
-//! 2. Base TOML file (`base.toml`)
-//! 3. Environment variables with `REINHARDT_` prefix
+//! 1. Environment variables with `REINHARDT_` prefix
+//! 2. Environment-specific TOML file (e.g., `production.toml`)
+//! 3. Base TOML file (`base.toml`)
 //! 4. Default values
+//!
+//! `.env.<profile>` and `.env` files in the dashboard crate root are loaded
+//! before TOML files so `${VAR}` interpolation can consume local dotenv values.
+//! Existing process environment variables are never overwritten by dotenv files.
 //!
 //! ## Settings Directory Resolution
 //!
@@ -36,7 +40,9 @@
 //! If `REINHARDT_ENV` is not set, it defaults to `local`.
 
 use reinhardt::conf::settings::profile::Profile;
-use reinhardt::conf::settings::sources::{DefaultSource, HighPriorityEnvSource, TomlFileSource};
+use reinhardt::conf::settings::sources::{
+	ConfigSource, DefaultSource, DotEnvSource, EnvSource, SourceError, TomlFileSource,
+};
 use reinhardt::conf::{
 	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
 	settings::builder::{BuildError, SettingsBuilder},
@@ -45,7 +51,7 @@ use reinhardt::conf::{
 use reinhardt::di::injectable_factory;
 use reinhardt::settings;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Composable project settings using the `#[settings]` macro.
 ///
@@ -70,6 +76,13 @@ fn resolve_settings_dir() -> PathBuf {
 		Ok(dir) => PathBuf::from(dir),
 		Err(_) => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("settings"),
 	}
+}
+
+fn resolve_dotenv_dir(settings_dir: &Path) -> PathBuf {
+	settings_dir
+		.parent()
+		.map(Path::to_path_buf)
+		.unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
 /// Get the active environment profile name.
@@ -108,28 +121,74 @@ fn default_project_settings_source() -> DefaultSource {
 		)
 }
 
+struct DashboardDotEnvSource {
+	path: PathBuf,
+}
+
+impl DashboardDotEnvSource {
+	fn new(path: impl Into<PathBuf>) -> Self {
+		Self { path: path.into() }
+	}
+}
+
+impl ConfigSource for DashboardDotEnvSource {
+	fn load(&self) -> Result<indexmap::IndexMap<String, serde_json::Value>, SourceError> {
+		DotEnvSource::new().with_path(&self.path).load()
+	}
+
+	fn priority(&self) -> u8 {
+		20
+	}
+
+	fn description(&self) -> String {
+		format!("Dashboard dotenv file: {}", self.path.display())
+	}
+}
+
+fn add_dashboard_dotenv_sources(
+	builder: SettingsBuilder,
+	dotenv_dir: &Path,
+	profile_str: &str,
+) -> SettingsBuilder {
+	let profile_path = dotenv_dir.join(format!(".env.{profile_str}"));
+	builder
+		.add_source(DashboardDotEnvSource::new(profile_path))
+		.add_source(DashboardDotEnvSource::new(dotenv_dir.join(".env")))
+}
+
+fn load_dashboard_dotenv_files(settings_dir: &Path, profile_str: &str) -> Result<(), SourceError> {
+	let dotenv_dir = resolve_dotenv_dir(settings_dir);
+	DashboardDotEnvSource::new(dotenv_dir.join(format!(".env.{profile_str}"))).load()?;
+	DashboardDotEnvSource::new(dotenv_dir.join(".env")).load()?;
+	Ok(())
+}
+
 /// Build merged settings from all configuration sources, returning errors
 /// for missing required env vars (so callers — including tests — can
 /// distinguish a startup misconfiguration from an unrelated panic).
 ///
 /// Sources are merged in priority order (lowest to highest):
 /// 1. Default values (CoreSettings provides its own defaults via serde)
-/// 2. Base TOML file (`base.toml`)
-/// 3. Environment-specific TOML file (e.g., `local.toml`)
-/// 4. Environment variables with `REINHARDT_` prefix (highest)
+/// 2. Dashboard dotenv files (`.env`, `.env.<profile>`)
+/// 3. Base TOML file (`base.toml`)
+/// 4. Environment-specific TOML file (e.g., `local.toml`)
+/// 5. Environment variables with `REINHARDT_` prefix (highest)
 fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
+	let dotenv_dir = resolve_dotenv_dir(&settings_dir);
 
-	SettingsBuilder::new()
+	let builder = add_dashboard_dotenv_sources(SettingsBuilder::new(), &dotenv_dir, &profile_str);
+
+	builder
 		.profile(Profile::parse(&profile_str))
 		.add_source(default_project_settings_source())
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
 		))
-		// Highest priority: Environment variables (for container/CI overrides)
-		.add_source(HighPriorityEnvSource::new().with_prefix("REINHARDT_"))
+		// Highest priority: process environment values for container/CI overrides.
+		.add_source(EnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()
 }
 
@@ -213,7 +272,10 @@ pub fn get_jwt_secret() -> Option<String> {
 fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let profile_str = profile_name();
 	let settings_dir = resolve_settings_dir();
-	let from_toml = SettingsBuilder::new()
+	let dotenv_dir = resolve_dotenv_dir(&settings_dir);
+	let builder = add_dashboard_dotenv_sources(SettingsBuilder::new(), &dotenv_dir, &profile_str);
+
+	let from_toml = builder
 		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
 		.add_source(TomlFileSource::new(
 			settings_dir.join(format!("{}.toml", profile_str)),
@@ -240,6 +302,10 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 /// TOML settings are selected, so these env vars must be able to override
 /// profile defaults such as `ci.toml`.
 fn get_env_or_top_level_string(env_var: &str, key: &str) -> Option<String> {
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
+	let _ = load_dashboard_dotenv_files(&settings_dir, &profile_str);
+
 	env::var(env_var)
 		.ok()
 		.or_else(|| get_top_level_string(key, env_var))
@@ -295,6 +361,44 @@ mod tests {
 				}
 			}
 		}
+	}
+
+	fn write_minimal_local_settings(config_dir: &Path, secret_key_expr: &str) {
+		fs::create_dir_all(config_dir).expect("temporary settings directory should be created");
+		fs::write(
+			config_dir.join("local.toml"),
+			format!(
+				r#"
+[core]
+debug = true
+secret_key = "{secret_key_expr}"
+allowed_hosts = ["localhost"]
+root_urlconf = ""
+middleware = []
+
+[core.security]
+append_slash = true
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+
+[core.databases.default]
+engine = "postgresql"
+host = "localhost"
+port = 5432
+name = "test"
+user = "postgres"
+password = {{ secret = "test-password" }}
+options = {{}}
+
+[cors]
+allow_origins = ["http://localhost:8000"]
+"#
+			),
+		)
+		.expect("local settings file should be written");
 	}
 
 	#[rstest]
@@ -445,6 +549,137 @@ allow_origins = ["http://localhost:8000"]
 		assert_eq!(settings.static_files.url, "/static/");
 		assert_eq!(settings.media.url, "/media/");
 		assert_eq!(settings.email.port, 25);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn dotenv_profile_file_feeds_toml_interpolation() {
+		// Arrange
+		let watched: Vec<&'static str> = vec![
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CORE__SECRET_KEY",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+		let unique = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.expect("system time should be after UNIX_EPOCH")
+			.as_nanos();
+		let root = env::temp_dir().join(format!("reinhardt-cloud-dotenv-local-{unique}"));
+		let config_dir = root.join("settings");
+		write_minimal_local_settings(
+			&config_dir,
+			"${REINHARDT_CORE__SECRET_KEY:?missing test secret}",
+		);
+		fs::write(
+			root.join(".env.local"),
+			"REINHARDT_CORE__SECRET_KEY=dotenv-profile-secret\n",
+		)
+		.expect("profile dotenv file should be written");
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::set_var("REINHARDT_CLOUD_CONFIG_DIR", &config_dir);
+			env::set_var("REINHARDT_ENV", "local");
+			env::remove_var("REINHARDT_CORE__SECRET_KEY");
+		}
+
+		// Act
+		let outcome = try_build_settings();
+		let _ = fs::remove_dir_all(&root);
+
+		// Assert
+		let settings = outcome.expect(".env.local should feed TOML interpolation");
+		assert_eq!(settings.core.secret_key, "dotenv-profile-secret");
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn process_env_overrides_dotenv_profile_file() {
+		// Arrange
+		let watched: Vec<&'static str> = vec![
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CORE__SECRET_KEY",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+		let unique = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.expect("system time should be after UNIX_EPOCH")
+			.as_nanos();
+		let root = env::temp_dir().join(format!("reinhardt-cloud-dotenv-direct-{unique}"));
+		let config_dir = root.join("settings");
+		write_minimal_local_settings(
+			&config_dir,
+			"${REINHARDT_CORE__SECRET_KEY:?missing test secret}",
+		);
+		fs::write(
+			root.join(".env.local"),
+			"REINHARDT_CORE__SECRET_KEY=dotenv-profile-secret\n",
+		)
+		.expect("profile dotenv file should be written");
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var` needs.
+		unsafe {
+			env::set_var("REINHARDT_CLOUD_CONFIG_DIR", &config_dir);
+			env::set_var("REINHARDT_ENV", "local");
+			env::set_var("REINHARDT_CORE__SECRET_KEY", "direct-env-secret");
+		}
+
+		// Act
+		let outcome = try_build_settings();
+		let _ = fs::remove_dir_all(&root);
+
+		// Assert
+		let settings = outcome.expect("direct env should survive dotenv loading");
+		assert_eq!(settings.core.secret_key, "direct-env-secret");
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn get_redis_url_prefers_dotenv_env_over_profile_toml() {
+		// Arrange
+		let watched: Vec<&'static str> = vec![
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CLOUD_REDIS_URL",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+		let unique = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.expect("system time should be after UNIX_EPOCH")
+			.as_nanos();
+		let root = env::temp_dir().join(format!("reinhardt-cloud-dotenv-redis-{unique}"));
+		let config_dir = root.join("settings");
+		fs::create_dir_all(&config_dir).expect("temporary settings directory should be created");
+		fs::write(
+			config_dir.join("local.toml"),
+			r#"redis_url = "redis://toml-redis:6379/0"
+"#,
+		)
+		.expect("local settings file should be written");
+		fs::write(
+			root.join(".env.local"),
+			"REINHARDT_CLOUD_REDIS_URL=redis://dotenv-redis:6379/0\n",
+		)
+		.expect("profile dotenv file should be written");
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::set_var("REINHARDT_CLOUD_CONFIG_DIR", &config_dir);
+			env::set_var("REINHARDT_ENV", "local");
+			env::remove_var("REINHARDT_CLOUD_REDIS_URL");
+		}
+
+		// Act
+		let redis_url = get_redis_url();
+		let _ = fs::remove_dir_all(&root);
+
+		// Assert
+		assert_eq!(redis_url.as_deref(), Some("redis://dotenv-redis:6379/0"));
 	}
 
 	#[rstest]
