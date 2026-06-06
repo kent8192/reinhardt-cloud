@@ -299,6 +299,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 					.server_fn(server::register::register::marker)
 					.server_fn(server::logout::logout::marker)
 					.server_fn(server::me::me::marker)
+					.server_fn(server::oauth_providers::list_oauth_providers::marker)
 					.server_fn(crate::apps::clusters::server::list_clusters_for_current_org::marker)
 					.server_fn(crate::apps::clusters::server::create_cluster_for_current_org::marker)
 					.server_fn(crate::apps::clusters::server::update_cluster_for_current_org::marker)
