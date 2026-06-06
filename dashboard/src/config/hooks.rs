@@ -4,7 +4,8 @@
 //! `RunServerCommand` at two lifecycle points:
 //!
 //! 1. **Validation** — [`RedisValidationHook`] checks required config before DI setup.
-//! 2. **Startup** — [`GrpcRunserverHook`] spawns the gRPC server alongside HTTP.
+//! 2. **Startup** — [`WebSocketRunserverHook`] registers Dashboard WebSocket routes.
+//! 3. **Startup** — [`GrpcRunserverHook`] spawns the gRPC server alongside HTTP.
 
 use std::error::Error;
 
@@ -36,6 +37,34 @@ impl RunserverHook for RedisValidationHook {
 			 or redis_url in settings TOML"
 				.into(),
 		)?;
+		Ok(())
+	}
+}
+
+/// Registers Dashboard WebSocket routes for the management `runserver` path.
+///
+/// The container entrypoint calls `server::run`, which registers WebSocket
+/// routes directly before delegating to `RunServerCommand`. Local development
+/// starts through `manage runserver`, so the same registration must also run
+/// as a framework startup hook; otherwise `/ws/notifications` falls through to
+/// the SPA fallback and returns HTTP 200 instead of upgrading. Refs #666.
+pub struct WebSocketRunserverHook;
+
+inventory::submit! {
+	RunserverHookRegistration::__macro_new(
+		|| Box::new(WebSocketRunserverHook),
+		"WebSocketRunserverHook",
+	)
+}
+
+#[async_trait]
+impl RunserverHook for WebSocketRunserverHook {
+	async fn on_server_start(
+		&self,
+		ctx: &RunserverContext,
+	) -> Result<(), Box<dyn Error + Send + Sync>> {
+		let _ = ctx;
+		crate::config::urls::init_websocket_routes().await;
 		Ok(())
 	}
 }

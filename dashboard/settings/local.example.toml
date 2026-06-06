@@ -65,3 +65,10 @@ options = {}
 # Allowed origins for OriginGuardMiddleware (exact match, no wildcards).
 # OriginGuard filters out "*" — use explicit URLs.
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+[email]
+# Local development prints verification/reset messages to stdout instead of
+# requiring Mailpit. Override with `REINHARDT_EMAIL__BACKEND=smtp` plus the
+# usual host/port settings when testing real SMTP delivery.
+backend = "console"
+from_email = "noreply@reinhardt-cloud.dev"

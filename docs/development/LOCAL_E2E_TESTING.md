@@ -189,7 +189,9 @@ Required / useful environment variables:
 |---|---|
 | `REINHARDT_CLOUD_REDIS_URL` | Required. Validated at startup by `RedisValidationHook` in `dashboard/src/config/hooks.rs`. |
 | `REINHARDT_CLOUD_CONFIG_DIR` | Optional. Overrides the directory scanned for settings TOML. |
+| `REINHARDT_EMAIL__BACKEND` | Optional. Use `console` for local registration without Mailpit, or `smtp` with `REINHARDT_EMAIL__HOST` / `REINHARDT_EMAIL__PORT` when testing real delivery. |
 
+The notification WebSocket route is registered by `WebSocketRunserverHook`.
 The gRPC server is spawned alongside HTTP by `GrpcRunserverHook`
 (`dashboard/src/config/hooks.rs`) and binds to `127.0.0.1:50051` using
 `GrpcServerConfig::default()` (`crates/reinhardt-cloud-grpc/src/config.rs`).

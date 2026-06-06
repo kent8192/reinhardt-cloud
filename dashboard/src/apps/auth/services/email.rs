@@ -8,7 +8,7 @@ use std::sync::Arc;
 use reinhardt::conf::EmailSettings;
 use reinhardt::di::{Depends, injectable_factory};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
-use reinhardt::mail::{EmailBackend, create_smtp_backend_from_settings};
+use reinhardt::mail::{EmailBackend, backend_from_settings};
 
 use crate::config::settings::ProjectSettings;
 
@@ -69,14 +69,14 @@ fn resolved_email_settings(settings: &ProjectSettings) -> Result<EmailSettings, 
 	apply_email_env_overrides(settings.email.clone())
 }
 
-/// Construct an SMTP backend from a resolved `EmailSettings` snapshot.
+/// Construct an email backend from a resolved `EmailSettings` snapshot.
 ///
 /// Extracted from the [`EmailService`] DI factory so backend construction
-/// stays on the settings-first API exposed by `reinhardt-mail`.
-fn build_smtp_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, String> {
-	let backend =
-		create_smtp_backend_from_settings(email).map_err(|e| format!("SMTP backend error: {e}"))?;
-	Ok(Box::new(backend))
+/// stays on the settings-first API exposed by `reinhardt-mail` and honors
+/// non-SMTP development backends such as `console` and `memory`. Refs #666.
+fn build_email_backend(email: &EmailSettings) -> Result<Box<dyn EmailBackend>, String> {
+	let backend = backend_from_settings(email).map_err(|e| format!("email backend error: {e}"))?;
+	Ok(backend)
 }
 
 /// Resolved email settings captured at DI resolution time.
@@ -116,8 +116,8 @@ pub struct EmailService {
 /// across requests and connection setup is expensive.
 #[injectable_factory(scope = "singleton")]
 async fn create_email_service(#[inject] settings: Depends<ResolvedEmailSettings>) -> EmailService {
-	let backend = build_smtp_backend(&settings.0)
-		.expect("Failed to build SMTP email backend: check REINHARDT_EMAIL__* env vars");
+	let backend = build_email_backend(&settings.0)
+		.expect("Failed to build email backend: check REINHARDT_EMAIL__* env vars");
 	EmailService {
 		backend: Arc::from(backend),
 		from_email: settings.0.from_email.clone(),
@@ -289,6 +289,34 @@ mod tests {
 		// is constructible (full round-trip is exercised by integration
 		// tests against a live SMTP container).
 		assert_eq!(svc.from_email(), "test@example.test");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_email_service_factory_honors_console_backend() {
+		// Arrange
+		let mut email = EmailSettings::default();
+		email.backend = "console".to_string();
+		email.from_email = "test@example.test".to_string();
+		let ctx = make_test_di_context(|scope| {
+			scope.set(ResolvedEmailSettings(email));
+		});
+
+		// Act
+		let svc: Arc<EmailService> = ctx
+			.resolve::<EmailService>()
+			.await
+			.expect("EmailService factory should resolve console backend");
+		let result = svc
+			.send_verification_email(
+				"user@example.test",
+				"dev-user",
+				"http://localhost:8000/api/auth/verify-email/token/",
+			)
+			.await;
+
+		// Assert
+		assert_eq!(result, Ok(()));
 	}
 
 	#[rstest]
