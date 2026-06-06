@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
 	# Library crates
+	"crates/reinhardt-cloud",
 	"crates/reinhardt-cloud-types",
 	"crates/reinhardt-cloud-core",
 	"crates/reinhardt-cloud-k8s",
@@ -85,6 +86,7 @@ schemars = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 # Internal workspace crates
+reinhardt-cloud = { path = "crates/reinhardt-cloud" }
 reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
 reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core" }
 reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s" }
