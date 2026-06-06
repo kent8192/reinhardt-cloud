@@ -9,9 +9,9 @@
 mod tests {
 	use chrono::{Duration, Utc};
 	use reinhardt::BaseUser;
+	use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
-	use reinhardt::reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};

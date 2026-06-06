@@ -9,8 +9,8 @@
 mod tests {
 	use std::collections::HashMap;
 
-	use reinhardt::reinhardt_auth::social::core::claims::StandardClaims;
-	use reinhardt::reinhardt_auth::social::storage::InMemorySocialAccountStorage;
+	use reinhardt::auth::social::core::claims::StandardClaims;
+	use reinhardt::auth::social::storage::InMemorySocialAccountStorage;
 	use rstest::rstest;
 
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};

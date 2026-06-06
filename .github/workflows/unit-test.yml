@@ -84,11 +84,6 @@ jobs:
         with:
           tool: cargo-make
 
-      - name: Setup application settings
-        run: |
-          cp dashboard/settings/base.example.toml dashboard/settings/base.toml
-          cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
-
       # Pre-pull testcontainers-rs images via authenticated docker CLI.
       # bollard (used by testcontainers-rs) does not read ~/.docker/config.json,
       # so without this step it would pull anonymously and hit Docker Hub's

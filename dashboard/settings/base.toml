@@ -6,9 +6,9 @@
 # - staging.toml (staging environment)
 # - production.toml (production environment)
 #
-# Getting started:
-#   cp base.example.toml base.toml
-#   # Export REINHARDT_CORE__SECRET_KEY and REINHARDT_DATABASE_PASSWORD.
+# Required env vars:
+#   REINHARDT_CORE__SECRET_KEY
+#   REINHARDT_DATABASE_PASSWORD
 
 [core]
 debug = false

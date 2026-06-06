@@ -90,11 +90,6 @@ jobs:
         with:
           tool: nextest
 
-      - name: Setup application settings
-        run: |
-          cp dashboard/settings/base.example.toml dashboard/settings/base.toml
-          cp dashboard/settings/ci.example.toml dashboard/settings/ci.toml
-
       - name: Clean coverage artifacts
         run: |
           cargo llvm-cov clean --workspace

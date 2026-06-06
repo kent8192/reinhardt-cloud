@@ -4,10 +4,10 @@
 # Note: env-specific TOML replaces the entire [core] section from base.toml,
 # so all required core fields must be specified here.
 #
-# Getting started:
-#   cp local.example.toml local.toml
-#   # Export REINHARDT_CLOUD_JWT_SECRET, REINHARDT_CORE__SECRET_KEY, and
-#   # REINHARDT_DATABASE_PASSWORD; edit local.toml as needed.
+# Required env vars:
+#   REINHARDT_CLOUD_JWT_SECRET
+#   REINHARDT_CORE__SECRET_KEY
+#   REINHARDT_DATABASE_PASSWORD
 
 # JWT secret for cluster-agent and gRPC AuthService token signing.
 # Resolved by `dashboard::config::settings::get_jwt_secret()`, which reads

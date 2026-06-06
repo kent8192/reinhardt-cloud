@@ -25,13 +25,7 @@ CONFIG="$DASHBOARD_DIR/settings/${PROFILE}.toml"
 
 if [ ! -f "$CONFIG" ]; then
 	echo "Error: settings file for profile '${PROFILE}' not found at: $CONFIG" >&2
-	if [ -f "$DASHBOARD_DIR/settings/${PROFILE}.example.toml" ]; then
-		echo "  Run: cp $DASHBOARD_DIR/settings/${PROFILE}.example.toml $CONFIG" >&2
-		echo "       and fill in any required secrets before retrying." >&2
-	else
-		echo "  No example template exists for profile '${PROFILE}'." >&2
-		echo "  Either create $CONFIG manually or unset REINHARDT_ENV to use 'local'." >&2
-	fi
+	echo "  Either create $CONFIG manually or unset REINHARDT_ENV to use 'local'." >&2
 	exit 1
 fi
 

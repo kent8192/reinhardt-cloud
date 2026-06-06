@@ -9,7 +9,6 @@ reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-grpc = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
-reinhardt-test = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = "0.1"
 tonic = "0.13"

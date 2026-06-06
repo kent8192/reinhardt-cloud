@@ -29,9 +29,9 @@
 //! lives in `services::oauth::storage`, not here.
 
 use chrono::Utc;
+use reinhardt::auth::social::core::claims::StandardClaims;
+use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 use reinhardt::db::orm::Model;
-use reinhardt::reinhardt_auth::social::core::claims::StandardClaims;
-use reinhardt::reinhardt_auth::social::storage::{SocialAccount, SocialAccountStorage};
 use uuid::Uuid;
 
 use crate::apps::auth::models::User;
