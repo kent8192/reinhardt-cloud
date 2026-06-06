@@ -84,17 +84,36 @@ pub(crate) struct AllowedOrigins(pub Vec<String>);
 #[injectable_factory(scope = "singleton")]
 async fn create_allowed_origins() -> AllowedOrigins {
 	let settings = crate::config::settings::get_settings();
-	let mut origins = settings.cors.allow_origins.clone();
-	origins.retain(|o| o != "*");
-	if origins.is_empty() {
-		let port = std::env::var("PORT").unwrap_or("8000".to_string());
-		AllowedOrigins(vec![
+	let port = std::env::var("PORT").ok();
+	AllowedOrigins(build_allowed_origins(
+		&settings.cors.allow_origins,
+		settings.core.debug,
+		port.as_deref(),
+	))
+}
+
+#[cfg(native)]
+fn build_allowed_origins(configured: &[String], debug: bool, port: Option<&str>) -> Vec<String> {
+	let mut origins = Vec::new();
+	for origin in configured {
+		if origin != "*" && !origins.contains(origin) {
+			origins.push(origin.clone());
+		}
+	}
+
+	if debug {
+		let port = port.unwrap_or("8000");
+		for origin in [
 			format!("http://localhost:{port}"),
 			format!("http://127.0.0.1:{port}"),
-		])
-	} else {
-		AllowedOrigins(origins)
+		] {
+			if !origins.contains(&origin) {
+				origins.push(origin);
+			}
+		}
 	}
+
+	origins
 }
 
 /// Application-specific cookie session configuration.
@@ -362,5 +381,58 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, "/api/static/admin/main.js");
+	}
+
+	#[rstest::rstest]
+	fn debug_allowed_origins_include_configured_and_active_port() {
+		// Arrange
+		let configured = vec![
+			"http://localhost:8000".to_string(),
+			"http://127.0.0.1:8000".to_string(),
+		];
+
+		// Act
+		let origins = build_allowed_origins(&configured, true, Some("8001"));
+
+		// Assert
+		assert_eq!(
+			origins,
+			vec![
+				"http://localhost:8000".to_string(),
+				"http://127.0.0.1:8000".to_string(),
+				"http://localhost:8001".to_string(),
+				"http://127.0.0.1:8001".to_string(),
+			]
+		);
+	}
+
+	#[rstest::rstest]
+	fn debug_allowed_origins_fall_back_when_configured_only_wildcard() {
+		// Arrange
+		let configured = vec!["*".to_string()];
+
+		// Act
+		let origins = build_allowed_origins(&configured, true, Some("8001"));
+
+		// Assert
+		assert_eq!(
+			origins,
+			vec![
+				"http://localhost:8001".to_string(),
+				"http://127.0.0.1:8001".to_string(),
+			]
+		);
+	}
+
+	#[rstest::rstest]
+	fn production_allowed_origins_do_not_add_localhost_fallbacks() {
+		// Arrange
+		let configured = vec!["https://reinhardt-cloud.dev".to_string()];
+
+		// Act
+		let origins = build_allowed_origins(&configured, false, Some("8001"));
+
+		// Assert
+		assert_eq!(origins, vec!["https://reinhardt-cloud.dev".to_string()]);
 	}
 }

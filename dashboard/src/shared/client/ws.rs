@@ -41,6 +41,12 @@ thread_local! {
 #[cfg(wasm)]
 const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 
+/// Return whether a SPA path should keep the authenticated notifications
+/// WebSocket connected.
+pub fn should_connect_notifications_for_path(path: &str) -> bool {
+	matches!(path, "/" | "/clusters" | "/deployments")
+}
+
 /// Open a WebSocket to `/ws/notifications` and wire up event handlers.
 ///
 /// Session cookies are sent automatically with the WebSocket handshake,
@@ -211,4 +217,28 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 		)
 		.unwrap();
 	badge.set_text_content(Some(label));
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	#[case::home("/", true)]
+	#[case::clusters("/clusters", true)]
+	#[case::deployments("/deployments", true)]
+	#[case::login("/login", false)]
+	#[case::register("/register", false)]
+	#[case::unknown("/missing", false)]
+	fn notification_connection_paths_match_authenticated_spa_routes(
+		#[case] path: &str,
+		#[case] expected: bool,
+	) {
+		// Arrange + Act
+		let should_connect = should_connect_notifications_for_path(path);
+
+		// Assert
+		assert_eq!(should_connect, expected);
+	}
 }
