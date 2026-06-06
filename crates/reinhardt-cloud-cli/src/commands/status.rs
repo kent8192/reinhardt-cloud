@@ -5,7 +5,7 @@ use colored::Colorize;
 use serde::Deserialize;
 use tokio::process::Command;
 
-use crate::client::{ClientError, ReinhardtCloudClient};
+use crate::client::ReinhardtCloudClient;
 
 /// Check deployment status.
 #[derive(Debug, Args)]
@@ -137,22 +137,10 @@ fn display_status(resource: &ReinhardtAppResource) {
 	}
 }
 
-/// Returns `true` when the dashboard status API is unavailable and the
-/// command should fall back to `kubectl`.
-fn should_fallback_to_kubectl(err: &ClientError) -> bool {
-	matches!(
-		err,
-		ClientError::UnsupportedDashboardRestOperation {
-			operation: "status"
-		}
-	)
-}
-
 /// Executes the status command.
 ///
-/// Tries the dashboard API first; falls back to `kubectl` only when the
-/// API is unreachable (transport-level errors). Other errors are propagated
-/// directly so they are not masked by the fallback.
+/// Falls back to `kubectl` because the dashboard status REST operation is
+/// no longer exposed by the Pages app.
 pub(crate) async fn execute(
 	args: &StatusArgs,
 	client: &ReinhardtCloudClient,
@@ -168,31 +156,18 @@ pub(crate) async fn execute(
 		app.name = app_name,
 		app.namespace = %args.namespace,
 	);
-	execute_inner(app_name, args, client).instrument(span).await
+	execute_inner(app_name, args).instrument(span).await
 }
 
 async fn execute_inner(
 	app_name: &str,
 	args: &StatusArgs,
-	client: &ReinhardtCloudClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	println!("Checking status of {app_name}...\n");
 
-	// Try the dashboard API first
-	match client.get_status(app_name).await {
-		Ok(status) => {
-			let formatted =
-				serde_json::to_string_pretty(&status).unwrap_or_else(|_| status.to_string());
-			println!("{formatted}");
-			Ok(())
-		}
-		Err(e) if should_fallback_to_kubectl(&e) => {
-			tracing::warn!("Dashboard API unreachable, falling back to kubectl: {e}");
-			eprintln!("Dashboard API unreachable, falling back to kubectl...");
-			kubectl_status(app_name, &args.namespace, args.cluster.as_deref()).await
-		}
-		Err(e) => Err(format!("API error: {e}").into()),
-	}
+	tracing::warn!("Dashboard status REST operation unsupported, falling back to kubectl");
+	eprintln!("Dashboard status REST operation unsupported, falling back to kubectl...");
+	kubectl_status(app_name, &args.namespace, args.cluster.as_deref()).await
 }
 
 /// Queries deployment status directly via `kubectl` with rich display.

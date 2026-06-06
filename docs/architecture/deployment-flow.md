@@ -56,12 +56,10 @@ optional introspect output, then renders a `ReinhardtApp` CRD via
   `kubectl apply -f -` against the operator's cluster. The operator's
   reconciler picks up the new `ReinhardtApp` resource via its watch and
   produces the owned Kubernetes resources. **Status: Current State.**
-- **default / API mode** — POSTs a JSON payload containing `app_name`,
-  `image`, optional `cluster_id`, and the generated `ReinhardtApp` YAML as
-  `reinhardt_app_yaml` to the control-plane client boundary. The dashboard
-  Pages app handles browser submissions through server functions; a direct
-  CLI-to-dashboard deploy API boundary is separate from the Pages app surface.
-  **Status: Current State.**
+- **default / API mode** — returns an explicit unsupported-operation error for
+  the removed dashboard deploy REST path. No stale HTTP request is sent.
+  Browser submissions are handled by the dashboard Pages app through server
+  functions. **Status: Unsupported.**
 
 The function signature `build_reinhardt_app_crd(name, namespace, spec,
 api_version) -> serde_yaml::Value` is the CLI's CRD rendering boundary.
@@ -153,16 +151,8 @@ sequenceDiagram
         Kubectl->>Operator: watch event
         Operator->>Kubectl: reconcile -> Deployment, Service, Ingress, ...
     else default / platform path
-        CLI->>Dashboard: control-plane deploy request
-        Dashboard->>PG: INSERT Deployment (status=pending)
-        Note over Dashboard: Current State: reinhardt_app_yaml is accepted at the API boundary<br/>but not persisted or relayed to Agent yet
-        Dashboard->>Agent: gRPC stream command (main.rs:129)
-        Note over Agent: Current State: execute_deploy applies a raw Deployment<br/>(NOT a ReinhardtApp CRD) -- main.rs:311-364
-        Note over Agent: Intended: agent applies ReinhardtApp CRD; operator reconciles
-        Agent->>Kubectl: server-side apply (raw Deployment, today)
-        Kubectl-->>Agent: status
-        Agent-->>Dashboard: gRPC stream status update
-        Dashboard->>PG: UPDATE Deployment.status (running|failed|succeeded)
+        CLI-->>Dev: unsupported dashboard deploy REST operation (no HTTP request)
+        Note over CLI,Dashboard: Browser deploy submissions use dashboard server functions,<br/>not the removed CLI-to-dashboard REST deploy boundary
     end
 ```
 

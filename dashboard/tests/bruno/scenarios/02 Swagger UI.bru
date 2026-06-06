@@ -16,6 +16,6 @@ assert {
 
 tests {
   test("should expose Swagger UI", function() {
-    expect(res.getBody()).to.include("swagger");
+    expect(res.getBody().toLowerCase()).to.include("swagger");
   });
 }

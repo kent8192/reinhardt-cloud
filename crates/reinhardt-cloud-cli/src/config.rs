@@ -17,7 +17,7 @@ pub(crate) enum ConfigError {
 /// CLI-specific configuration (read from `config.toml` or environment).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct CliConfig {
-	/// API server base URL
+	/// Control-plane target base URL
 	pub api_url: Option<String>,
 	/// Application name
 	pub app_name: Option<String>,
@@ -31,7 +31,8 @@ impl CliConfig {
 		Ok(config)
 	}
 
-	/// Returns the API URL, falling back to the REINHARDT_CLOUD_API_URL env var or default.
+	/// Returns the target URL, falling back to the `REINHARDT_CLOUD_API_URL`
+	/// environment variable or default.
 	pub(crate) fn api_url(&self) -> String {
 		self.api_url
 			.clone()
@@ -40,10 +41,10 @@ impl CliConfig {
 	}
 }
 
-/// Stored credentials for the Reinhardt Cloud platform.
+/// Stored credentials for Reinhardt Cloud commands.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Credentials {
-	/// JWT token received from the login endpoint.
+	/// Stored JWT token.
 	pub token: String,
 	/// Username associated with the token.
 	pub username: String,
@@ -85,21 +86,6 @@ pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Er
 	let creds: Credentials =
 		serde_json::from_str(&content).map_err(|e| format!("Failed to parse credentials: {e}"))?;
 	Ok(Some(creds))
-}
-
-/// Saves credentials to the credentials file.
-///
-/// Creates the parent directory if it does not exist.
-pub(crate) fn save_token(creds: &Credentials) -> Result<(), Box<dyn std::error::Error>> {
-	let path = credentials_path();
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent)
-			.map_err(|e| format!("Failed to create config directory: {e}"))?;
-	}
-	let json = serde_json::to_string_pretty(creds)
-		.map_err(|e| format!("Failed to serialize credentials: {e}"))?;
-	std::fs::write(&path, json).map_err(|e| format!("Failed to write credentials file: {e}"))?;
-	Ok(())
 }
 
 #[cfg(test)]

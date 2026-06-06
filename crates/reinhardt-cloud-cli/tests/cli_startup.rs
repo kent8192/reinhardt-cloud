@@ -33,9 +33,8 @@ fn test_cli_runs_with_missing_config_file() {
 #[cfg(not(windows))]
 fn test_cli_loads_api_url_from_config_file() {
 	// Arrange: create config.toml with a distinctive api_url the CLI must pick
-	// up. `status --name nonexistent` will try to reach it and fail, but the
-	// resolved URL surfaces either in the `Target:` banner (stdout) or in the
-	// connect-refused error from reqwest (stderr).
+	// up. `status --name nonexistent` prints the resolved target URL before
+	// falling back to `kubectl`.
 	let home = tempfile::tempdir().unwrap();
 	// Write config.toml into the two directory layouts that `dirs::config_dir()`
 	// can return on Unix-like platforms:

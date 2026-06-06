@@ -70,9 +70,6 @@ pub fn login_page() -> Page {
 					}
 					{ form_view }
 					div {
-						id: "oauth-login-providers",
-					}
-					div {
 						class: "mt-6 text-center text-sm text-ink-600",
 						"Don't have an account? " a {
 							href: register_href,

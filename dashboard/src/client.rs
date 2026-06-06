@@ -36,7 +36,6 @@ mod wasm_entry {
 	use reinhardt::pages::{ClientLauncher, PathCtx};
 
 	use super::router;
-	use crate::apps::auth::client::components as auth_components;
 	use crate::shared::client::{components, state, ws};
 
 	fn ensure_notifications_for_path(ctx: &PathCtx<'_>) {
@@ -69,15 +68,6 @@ mod wasm_entry {
 			})
 			.on_path("/clusters", ensure_notifications_for_path)
 			.on_path("/deployments", ensure_notifications_for_path)
-			.on_path("/login", |_ctx: &PathCtx<'_>| {
-				auth_components::ensure_oauth_buttons_connected("oauth-login-providers", "Sign in");
-			})
-			.on_path("/register", |_ctx: &PathCtx<'_>| {
-				auth_components::ensure_oauth_buttons_connected(
-					"oauth-register-providers",
-					"Sign up",
-				);
-			})
 			.launch()?;
 
 		Ok(())

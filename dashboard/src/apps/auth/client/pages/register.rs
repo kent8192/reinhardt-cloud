@@ -77,9 +77,6 @@ pub fn register_page() -> Page {
 					}
 					{ form_view }
 					div {
-						id: "oauth-register-providers",
-					}
-					div {
 						class: "mt-6 text-center text-sm text-ink-600",
 						"Already have an account? " a {
 							href: login_href,

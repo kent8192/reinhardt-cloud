@@ -22,7 +22,7 @@ use crate::config::CliConfig;
 	about = "Manage applications on the Reinhardt Cloud PaaS platform"
 )]
 struct Cli {
-	/// API server URL
+	/// Control-plane target URL
 	#[arg(long, global = true)]
 	server: Option<String>,
 
