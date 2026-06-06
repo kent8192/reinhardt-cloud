@@ -5500,6 +5500,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "reinhardt-cloud"
+version = "0.1.0"
+dependencies = [
+ "reinhardt-cloud-core",
+ "reinhardt-cloud-grpc",
+ "reinhardt-cloud-k8s",
+ "reinhardt-cloud-proto",
+ "reinhardt-cloud-telemetry",
+ "reinhardt-cloud-types",
+]
+
+[[package]]
 name = "reinhardt-cloud-agent"
 version = "0.1.0"
 dependencies = [
