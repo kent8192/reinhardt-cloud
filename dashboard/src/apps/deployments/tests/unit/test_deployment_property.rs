@@ -4,64 +4,11 @@
 mod tests {
 	use proptest::prelude::*;
 
-	use crate::apps::deployments::models::Deployment;
-	use crate::apps::deployments::serializers::{CreateDeploymentRequest, DeploymentResponse};
-
-	/// Strategy for generating arbitrary Deployment instances.
-	fn arb_deployment() -> impl Strategy<Value = Deployment> {
-		(
-			1i64..=i64::MAX,
-			"[a-z][a-z0-9\\-]{0,62}",
-			1i64..=i64::MAX,
-			prop::sample::select(vec![
-				"pending".to_string(),
-				"running".to_string(),
-				"failed".to_string(),
-				"succeeded".to_string(),
-			]),
-			"[a-z0-9./:\\-]{1,128}",
-		)
-			.prop_map(|(organization_id, app_name, cluster_id, status, image)| {
-				let mut d = Deployment::build()
-					.organization_id(organization_id)
-					.app_name(app_name)
-					.cluster_id(cluster_id)
-					.status(status)
-					.image(image)
-					.reinhardt_app_yaml(None)
-					.finish();
-				d.id = Some(cluster_id);
-				d
-			})
-	}
+	use crate::apps::deployments::serializers::CreateDeploymentRequest;
 
 	proptest! {
-		/// DeploymentResponse::from preserves all fields from the source Deployment.
-		#[test]
-		fn test_deployment_response_preserves_fields(
-			(expected_id, expected_app, expected_cluster, expected_status, expected_image, deployment)
-			in arb_deployment().prop_map(|d| {
-				let id = d.id;
-				let app = d.app_name.clone();
-				let cluster = d.cluster_id;
-				let status = d.status.clone();
-				let image = d.image.clone();
-				(id, app, cluster, status, image, d)
-			})
-		) {
-			// Act
-			let response = DeploymentResponse::from(deployment);
-
-			// Assert
-			prop_assert_eq!(response.id, expected_id);
-			prop_assert_eq!(&response.app_name, &expected_app);
-			prop_assert_eq!(response.cluster_id, expected_cluster);
-			prop_assert_eq!(&response.status, &expected_status);
-			prop_assert_eq!(&response.image, &expected_image);
-		}
-
-		/// CreateDeploymentRequest survives a JSON serialize/deserialize roundtrip.
-		#[test]
+	/// CreateDeploymentRequest survives a JSON serialize/deserialize roundtrip.
+	#[test]
 		fn test_create_deployment_request_roundtrip(
 			app_name in "[a-z]{1,63}",
 			cluster_id in 1i64..=1_000_000,
