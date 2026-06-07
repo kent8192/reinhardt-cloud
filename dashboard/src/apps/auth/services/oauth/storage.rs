@@ -116,6 +116,19 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 			.provider_user_id(account.provider_user_id.clone())
 			.provider_username(account.display_name.clone())
 			.finish();
+		// Workaround for kent8192/reinhardt-web#5201 (tracked in reinhardt-cloud#677)
+		// Remove this workaround when generated model builders can set
+		// macro-managed primary keys without making them required for normal
+		// construction.
+		//
+		// Ideal implementation (without workaround):
+		//   let orm = OrmSocialAccount::build()
+		//       .id(account.id)
+		//       .user(&account)
+		//       .provider(account.provider.clone())
+		//       .provider_user_id(account.provider_user_id.clone())
+		//       .provider_username(account.display_name.clone())
+		//       .finish();
 		orm.id = account.id;
 		orm.created_at = account.created_at;
 		orm.updated_at = account.updated_at;
@@ -148,6 +161,19 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 			.provider_user_id(account.provider_user_id.clone())
 			.provider_username(account.display_name.clone())
 			.finish();
+		// Workaround for kent8192/reinhardt-web#5201 (tracked in reinhardt-cloud#677)
+		// Remove this workaround when generated model builders can set
+		// macro-managed primary keys without making them required for normal
+		// construction.
+		//
+		// Ideal implementation (without workaround):
+		//   let mut orm = OrmSocialAccount::build()
+		//       .id(account.id)
+		//       .user(&account)
+		//       .provider(account.provider.clone())
+		//       .provider_user_id(account.provider_user_id.clone())
+		//       .provider_username(account.display_name.clone())
+		//       .finish();
 		orm.id = account.id;
 		orm.created_at = account.created_at;
 		// Refresh updated_at so observers can detect the change even
