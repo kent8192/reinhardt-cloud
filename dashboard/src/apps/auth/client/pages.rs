@@ -26,6 +26,14 @@ mod tests {
 
 	#[rstest::rstest]
 	fn auth_href_uses_fallback_on_native() {
-		assert_eq!(auth_href("auth:login_page", "/login"), "/login");
+		// Arrange
+		let route_name = "auth:login_page";
+		let fallback = "/login";
+
+		// Act
+		let href = auth_href(route_name, fallback);
+
+		// Assert
+		assert_eq!(href, "/login");
 	}
 }
