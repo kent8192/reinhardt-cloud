@@ -47,7 +47,7 @@ pub async fn list_oauth_providers(
 ) -> Result<Vec<OAuthProviderInfo>, ServerFnError> {
 	#[cfg(native)]
 	{
-		Ok(settings
+		settings
 			.enabled_provider_ids()
 			.into_iter()
 			.map(|id| {
@@ -57,7 +57,7 @@ pub async fn list_oauth_providers(
 					start_url: oauth_start_url(id)?,
 				})
 			})
-			.collect::<Result<Vec<_>, ServerFnError>>()?)
+			.collect::<Result<Vec<_>, ServerFnError>>()
 	}
 	#[cfg(wasm)]
 	{
