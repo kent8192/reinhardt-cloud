@@ -30,6 +30,7 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{
 	MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
 };
+use crate::config::settings::ProjectSettings;
 
 /// Register an inactive user, provision the personal organization, and send
 /// the verification email.
@@ -38,10 +39,8 @@ pub async fn register_inactive_user(
 	email: &str,
 	password: &str,
 	email_service: &EmailService,
+	settings: &ProjectSettings,
 ) -> Result<User, AppError> {
-	let settings = crate::config::settings::get_settings();
-	let secret_key = settings.core.secret_key.clone();
-
 	let mut user = User::build()
 		.username(username.trim().to_string())
 		.email(email.trim().to_lowercase())
@@ -80,7 +79,7 @@ pub async fn register_inactive_user(
 		TokenPurpose::EmailVerification,
 		&created.id,
 		"",
-		&secret_key,
+		&settings.core.secret_key,
 	);
 	let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
 	let base_url = std::env::var("REINHARDT_CLOUD_BASE_URL")

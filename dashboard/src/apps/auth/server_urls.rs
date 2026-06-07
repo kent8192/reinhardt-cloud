@@ -6,12 +6,14 @@
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{BaseUser, Path, Response, StatusCode, get};
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
+use crate::config::settings::ProjectSettings;
 
 /// Verify email address via URL token.
 ///
@@ -20,20 +22,20 @@ use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token}
 /// On success, sets `is_active = true` for the user. Returns 200 even
 /// if the user is already active.
 #[get("/verify-email/{token}/", name = "verify-email")]
-pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
-	let secret_key = crate::config::settings::get_settings()
-		.core
-		.secret_key
-		.clone();
-
-	let user_id = verify_token(&token, TokenPurpose::EmailVerification, "", &secret_key).map_err(
-		|e| match e {
-			TokenError::Expired => {
-				AppError::Validation("Verification link has expired".to_string())
-			}
-			_ => AppError::Validation("Invalid verification link".to_string()),
-		},
-	)?;
+pub async fn verify_email(
+	Path(token): Path<String>,
+	#[inject] settings: Depends<ProjectSettings>,
+) -> ViewResult<Response> {
+	let user_id = verify_token(
+		&token,
+		TokenPurpose::EmailVerification,
+		"",
+		&settings.core.secret_key,
+	)
+	.map_err(|e| match e {
+		TokenError::Expired => AppError::Validation("Verification link has expired".to_string()),
+		_ => AppError::Validation("Invalid verification link".to_string()),
+	})?;
 
 	let user = User::objects()
 		.filter(User::field_id().eq(user_id.to_string()))
