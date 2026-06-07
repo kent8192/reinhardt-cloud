@@ -19,6 +19,7 @@ use crate::apps::auth::services::oauth::linking::link_or_create_user;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::auth::services::session::{SessionService, session_cookie_header};
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
+use crate::config::settings::ProjectSettings;
 
 /// OAuth callback query parameters returned by the provider.
 #[derive(Debug, Deserialize)]
@@ -107,20 +108,20 @@ pub async fn oauth_callback(
 /// On success, sets `is_active = true` for the user. Returns 200 even
 /// if the user is already active.
 #[get("/verify-email/{token}/", name = "verify-email")]
-pub async fn verify_email(Path(token): Path<String>) -> ViewResult<Response> {
-	let secret_key = crate::config::settings::get_settings()
-		.core
-		.secret_key
-		.clone();
-
-	let user_id = verify_token(&token, TokenPurpose::EmailVerification, "", &secret_key).map_err(
-		|e| match e {
-			TokenError::Expired => {
-				AppError::Validation("Verification link has expired".to_string())
-			}
-			_ => AppError::Validation("Invalid verification link".to_string()),
-		},
-	)?;
+pub async fn verify_email(
+	Path(token): Path<String>,
+	#[inject] settings: Depends<ProjectSettings>,
+) -> ViewResult<Response> {
+	let user_id = verify_token(
+		&token,
+		TokenPurpose::EmailVerification,
+		"",
+		&settings.core.secret_key,
+	)
+	.map_err(|e| match e {
+		TokenError::Expired => AppError::Validation("Verification link has expired".to_string()),
+		_ => AppError::Validation("Invalid verification link".to_string()),
+	})?;
 
 	let user = User::objects()
 		.filter(User::field_id().eq(user_id.to_string()))

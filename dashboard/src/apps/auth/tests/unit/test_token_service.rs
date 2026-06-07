@@ -2,8 +2,8 @@
 //!
 //! The primary token tests live as inline `#[cfg(test)]` in
 //! `services/token.rs`. This module provides additional coverage
-//! using the project's `settings.core.secret_key` to verify
-//! integration with the actual settings system.
+//! for representative auth token flows without rebuilding the project
+//! settings snapshot.
 
 #[cfg(test)]
 mod tests {
@@ -15,10 +15,7 @@ mod tests {
 	};
 
 	fn test_secret() -> String {
-		crate::config::settings::get_settings()
-			.core
-			.secret_key
-			.clone()
+		"test-token-secret-32-bytes-minimum".to_string()
 	}
 
 	#[rstest]
