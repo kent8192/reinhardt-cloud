@@ -18,10 +18,6 @@ async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
 	Ok(Vec::new())
 }
 
-pub(crate) fn oauth_start_path(provider_id: &str) -> String {
-	format!("/api/auth/oauth/{provider_id}/start/")
-}
-
 fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 	if providers.is_empty() {
 		return Page::Empty;
@@ -50,14 +46,13 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 				class: "grid gap-2",
 				{
 					providers.clone().into_iter().map(|provider| {
-						let href = self::oauth_start_path(&provider.id);
 						page!(|href: String, label: String| {
 							a {
 								href: href,
 								class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
 								{ label }
 							}
-						})(href, provider.label)
+						})(provider.start_url, provider.label)
 					}).collect::<Vec<_>>()
 				}
 			}
@@ -77,14 +72,4 @@ pub fn oauth_buttons() -> Page {
 			}
 		}
 	})(providers)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[rstest::rstest]
-	fn oauth_start_path_targets_provider_start_endpoint() {
-		assert_eq!(oauth_start_path("github"), "/api/auth/oauth/github/start/");
-	}
 }
