@@ -15,6 +15,7 @@ pub async fn login(
 	username: String,
 	password: String,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] settings: reinhardt::di::Depends<crate::config::settings::ProjectSettings>,
 	#[inject] session_service: reinhardt::di::Depends<
 		crate::apps::auth::services::session::SessionService,
 	>,
@@ -48,7 +49,7 @@ pub async fn login(
 		// Set session cookie via the SharedResponseCookies jar.
 		// The server_fn router reads SharedResponseCookies after the handler
 		// and applies them as Set-Cookie response headers.
-		let is_debug = crate::config::settings::get_settings().core.debug;
+		let is_debug = settings.core.debug;
 		let cookie = session_cookie_header(&session_id, is_debug);
 		http_request.add_response_cookie(cookie);
 
@@ -63,7 +64,7 @@ pub async fn login(
 		// The #[server_fn] macro replaces this body with an HTTP POST stub on
 		// wasm; this branch exists only so the function compiles as a single
 		// declaration on both targets.
-		let _ = (username, password, http_request, session_service);
+		let _ = (username, password, http_request, settings, session_service);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
