@@ -29,10 +29,10 @@ use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
-use reinhardt::db::orm::Model;
+use reinhardt::db::orm::{IntoPrimaryKey, Model};
 use uuid::Uuid;
 
-use crate::apps::auth::models::SocialAccount as OrmSocialAccount;
+use crate::apps::auth::models::{SocialAccount as OrmSocialAccount, User};
 /// Maps an ORM record to the framework `SocialAccount` shape with empty
 /// token-bearing fields. The storage layer never returns persisted tokens.
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
@@ -78,6 +78,12 @@ fn map_orm_err(context: &'static str, err: impl std::fmt::Display) -> SocialAuth
 	SocialAuthError::Storage(format!("{context}: {err}"))
 }
 
+impl IntoPrimaryKey<User> for &SocialAccount {
+	fn into_primary_key(self) -> Uuid {
+		self.user_id
+	}
+}
+
 #[async_trait]
 impl SocialAccountStorage for OrmSocialAccountStorage {
 	async fn find_by_provider_and_uid(
@@ -105,7 +111,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 
 	async fn create(&self, account: SocialAccount) -> Result<SocialAccount, SocialAuthError> {
 		let mut orm = OrmSocialAccount::build()
-			.user(account.user_id)
+			.user(&account)
 			.provider(account.provider.clone())
 			.provider_user_id(account.provider_user_id.clone())
 			.provider_username(account.display_name.clone())
@@ -137,7 +143,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 		}
 
 		let mut orm = OrmSocialAccount::build()
-			.user(account.user_id)
+			.user(&account)
 			.provider(account.provider.clone())
 			.provider_user_id(account.provider_user_id.clone())
 			.provider_username(account.display_name.clone())
