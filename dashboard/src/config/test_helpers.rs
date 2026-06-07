@@ -269,13 +269,11 @@ pub async fn provision_personal_org_for_user(
 	OrganizationMembership::objects()
 		.create_with_conn(
 			conn,
-			&OrganizationMembership {
-				id: None,
-				organization_id: org.id.expect("created Organization has id"),
-				user_id: user.id,
-				role: MembershipRole::Owner.as_db_str().to_string(),
-				created_at: now,
-			},
+			&OrganizationMembership::build()
+				.organization(org.id.expect("created Organization has id"))
+				.user(user.id)
+				.role(MembershipRole::Owner.as_db_str().to_string())
+				.finish(),
 		)
 		.await
 		.expect("Failed to create Owner membership for test user");

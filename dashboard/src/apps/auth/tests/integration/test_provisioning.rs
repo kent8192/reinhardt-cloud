@@ -104,7 +104,7 @@ mod tests {
 			.expect("query membership")
 			.expect("Owner membership should exist");
 		assert_eq!(
-			membership.organization_id,
+			*membership.organization_id(),
 			org.id.expect("created Organization has id"),
 		);
 		assert_eq!(membership.role, "owner");

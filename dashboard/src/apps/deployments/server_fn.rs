@@ -36,10 +36,11 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 
 #[cfg(native)]
 fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> DeploymentInfo {
+	let cluster_id = *deployment.cluster_id();
 	DeploymentInfo {
 		id: deployment.id.unwrap_or_default(),
 		app_name: deployment.app_name,
-		cluster_id: deployment.cluster_id,
+		cluster_id,
 		status: deployment.status,
 		image: deployment.image,
 	}
@@ -140,9 +141,9 @@ pub async fn create_deployment_for_current_org(
 			Some(reinhardt_app_yaml)
 		};
 		let new_deployment = crate::apps::deployments::models::Deployment::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.app_name(app_name)
-			.cluster_id(cluster_id)
+			.cluster(cluster_id)
 			.status("pending".to_string())
 			.image(image)
 			.reinhardt_app_yaml(manifest)

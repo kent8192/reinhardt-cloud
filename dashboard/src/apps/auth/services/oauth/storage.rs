@@ -38,7 +38,7 @@ use crate::apps::auth::models::SocialAccount as OrmSocialAccount;
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
 	SocialAccount {
 		id: orm.id,
-		user_id: orm.user_id,
+		user_id: *orm.user_id(),
 		provider: orm.provider,
 		provider_user_id: orm.provider_user_id,
 		email: None,
@@ -104,15 +104,15 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 	}
 
 	async fn create(&self, account: SocialAccount) -> Result<SocialAccount, SocialAuthError> {
-		let orm = OrmSocialAccount {
-			id: account.id,
-			user_id: account.user_id,
-			provider: account.provider.clone(),
-			provider_user_id: account.provider_user_id.clone(),
-			provider_username: account.display_name.clone(),
-			created_at: account.created_at,
-			updated_at: account.updated_at,
-		};
+		let mut orm = OrmSocialAccount::build()
+			.user(account.user_id)
+			.provider(account.provider.clone())
+			.provider_user_id(account.provider_user_id.clone())
+			.provider_username(account.display_name.clone())
+			.finish();
+		orm.id = account.id;
+		orm.created_at = account.created_at;
+		orm.updated_at = account.updated_at;
 		let created = OrmSocialAccount::objects()
 			.create(&orm)
 			.await
@@ -136,17 +136,17 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 			)));
 		}
 
-		let orm = OrmSocialAccount {
-			id: account.id,
-			user_id: account.user_id,
-			provider: account.provider.clone(),
-			provider_user_id: account.provider_user_id.clone(),
-			provider_username: account.display_name.clone(),
-			created_at: account.created_at,
-			// Refresh updated_at so observers can detect the change even
-			// though we ignored token-bearing fields.
-			updated_at: chrono::Utc::now(),
-		};
+		let mut orm = OrmSocialAccount::build()
+			.user(account.user_id)
+			.provider(account.provider.clone())
+			.provider_user_id(account.provider_user_id.clone())
+			.provider_username(account.display_name.clone())
+			.finish();
+		orm.id = account.id;
+		orm.created_at = account.created_at;
+		// Refresh updated_at so observers can detect the change even
+		// though we ignored token-bearing fields.
+		orm.updated_at = chrono::Utc::now();
 		let saved = OrmSocialAccount::objects()
 			.update(&orm)
 			.await

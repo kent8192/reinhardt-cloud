@@ -10,15 +10,16 @@ mod tests {
 
 	fn sample_account() -> SocialAccount {
 		let now = Utc::now();
-		SocialAccount {
-			id: Uuid::new_v4(),
-			user_id: Uuid::new_v4(),
-			provider: "github".to_string(),
-			provider_user_id: "12345".to_string(),
-			provider_username: Some("octocat".to_string()),
-			created_at: now,
-			updated_at: now,
-		}
+		let mut account = SocialAccount::build()
+			.user(Uuid::new_v4())
+			.provider("github".to_string())
+			.provider_user_id("12345".to_string())
+			.provider_username(Some("octocat".to_string()))
+			.finish();
+		account.id = Uuid::new_v4();
+		account.created_at = now;
+		account.updated_at = now;
+		account
 	}
 
 	#[rstest]
@@ -28,7 +29,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(account.id, Uuid::nil());
-		assert_eq!(account.user_id, Uuid::nil());
+		assert_eq!(*account.user_id(), Uuid::nil());
 		assert!(account.provider.is_empty());
 		assert!(account.provider_user_id.is_empty());
 		assert!(account.provider_username.is_none());
@@ -46,7 +47,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(deserialized.id, account.id);
-		assert_eq!(deserialized.user_id, account.user_id);
+		assert_eq!(deserialized.user_id(), account.user_id());
 		assert_eq!(deserialized.provider, account.provider);
 		assert_eq!(deserialized.provider_user_id, account.provider_user_id);
 		assert_eq!(deserialized.provider_username, account.provider_username);

@@ -17,7 +17,7 @@ mod tests {
 
 		// Act
 		let cluster = Cluster::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.name(name.clone())
 			.api_url(api_url.clone())
 			.is_active(true)
@@ -26,7 +26,7 @@ mod tests {
 			.finish();
 
 		// Assert
-		assert_eq!(cluster.organization_id, organization_id);
+		assert_eq!(*cluster.organization_id(), organization_id);
 		assert_eq!(cluster.name, name);
 		assert_eq!(cluster.api_url, api_url);
 		assert!(cluster.is_active);
@@ -39,7 +39,7 @@ mod tests {
 
 		// Act
 		let cluster = Cluster::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.name("test-cluster".to_string())
 			.api_url("https://k8s.example.com:6443".to_string())
 			.is_active(true)
@@ -60,7 +60,7 @@ mod tests {
 
 		// Act
 		let cluster = Cluster::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.name("flag-test".to_string())
 			.api_url("https://k8s.example.com:6443".to_string())
 			.is_active(active)
@@ -438,7 +438,7 @@ mod tests {
 	fn test_cluster_serialization_roundtrip() {
 		// Arrange
 		let cluster = Cluster::build()
-			.organization_id(99)
+			.organization(99)
 			.name("roundtrip".to_string())
 			.api_url("https://k8s.example.com:6443".to_string())
 			.is_active(true)
@@ -454,7 +454,7 @@ mod tests {
 		// Assert
 		assert_eq!(deserialized.name, cluster.name);
 		assert_eq!(deserialized.api_url, cluster.api_url);
-		assert_eq!(deserialized.organization_id, cluster.organization_id);
+		assert_eq!(deserialized.organization_id(), cluster.organization_id());
 		assert_eq!(deserialized.is_active, cluster.is_active);
 		assert_eq!(deserialized.id, cluster.id);
 	}

@@ -5601,6 +5601,7 @@ dependencies = [
  "inventory",
  "js-sys",
  "lettre",
+ "linkme",
  "percent-encoding",
  "proptest",
  "prost-types 0.13.5",

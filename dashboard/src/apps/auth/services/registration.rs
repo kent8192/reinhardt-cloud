@@ -189,13 +189,11 @@ async fn provision_personal_organization_inner(
 		}
 	};
 
-	let membership_input = OrganizationMembership {
-		id: None,
-		organization_id: org.id.expect("created Organization has id"),
-		user_id: created.id,
-		role: MembershipRole::Owner.as_db_str().to_string(),
-		created_at: now,
-	};
+	let membership_input = OrganizationMembership::build()
+		.organization(org.id.expect("created Organization has id"))
+		.user(created.id)
+		.role(MembershipRole::Owner.as_db_str().to_string())
+		.finish();
 	if let Err(e) = OrganizationMembership::objects()
 		.create(&membership_input)
 		.await
