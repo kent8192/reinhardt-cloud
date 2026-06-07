@@ -1,41 +1,48 @@
 //! Tests for OAuth provider discovery server function helpers.
 //!
 //! The discovery endpoint MUST NOT leak provider secrets, redirect URIs,
-//! or client IDs into the response body — only the public-facing `id` and
-//! human-readable `label` per provider. These tests pin that contract on
-//! the response struct itself so a future field added to `OAuthProviderInfo`
-//! cannot silently start exposing secrets.
+//! or client IDs into the response body — only the public-facing `id`,
+//! human-readable `label`, and reversed OAuth start URL per provider. These
+//! tests pin that contract on the response struct itself so a future field
+//! added to `OAuthProviderInfo` cannot silently start exposing secrets.
 
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
 	use serde_json::Value;
 
-	use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, label_for_provider};
+	use crate::apps::auth::server_fn::oauth_providers::{
+		OAuthProviderInfo, label_for_provider, oauth_start_url,
+	};
 
 	#[rstest]
-	fn test_provider_entry_serializes_only_id_and_label() {
+	fn test_provider_entry_serializes_only_public_provider_fields() {
 		// Arrange
 		let entry = OAuthProviderInfo {
 			id: "github".to_string(),
 			label: "GitHub".to_string(),
+			start_url: "/api/auth/oauth/github/start/".to_string(),
 		};
 
 		// Act
 		let json = serde_json::to_value(&entry).expect("serialize entry");
 
-		// Assert — the object has exactly the two public fields and nothing
-		// else. If a future change adds a credential-bearing field, this
-		// assertion fails.
+		// Assert — the object has exactly the public fields and nothing else.
+		// If a future change adds a credential-bearing field, this assertion
+		// fails.
 		let obj = json.as_object().expect("entry is object");
 		assert_eq!(
 			obj.len(),
-			2,
-			"OAuthProviderInfo must serialize to exactly 2 fields, got {}: {json:?}",
+			3,
+			"OAuthProviderInfo must serialize to exactly 3 fields, got {}: {json:?}",
 			obj.len()
 		);
 		assert_eq!(obj.get("id").and_then(Value::as_str), Some("github"));
 		assert_eq!(obj.get("label").and_then(Value::as_str), Some("GitHub"));
+		assert_eq!(
+			obj.get("start_url").and_then(Value::as_str),
+			Some("/api/auth/oauth/github/start/")
+		);
 	}
 
 	#[rstest]
@@ -44,6 +51,7 @@ mod tests {
 		let resp = vec![OAuthProviderInfo {
 			id: "github".to_string(),
 			label: "GitHub".to_string(),
+			start_url: "/api/auth/oauth/github/start/".to_string(),
 		}];
 
 		// Act
@@ -86,5 +94,14 @@ mod tests {
 
 		// Assert
 		assert_eq!(json, Value::Array(vec![]));
+	}
+
+	#[rstest]
+	fn test_oauth_start_url_uses_registered_route_reverse() {
+		// Act
+		let url = oauth_start_url("github").expect("reverse OAuth start URL");
+
+		// Assert
+		assert_eq!(url, "/api/auth/oauth/github/start/");
 	}
 }

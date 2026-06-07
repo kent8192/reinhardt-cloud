@@ -3,17 +3,103 @@
 //! Browser navigation and email-link callbacks use regular server routes.
 //! Interactive form submission remains implemented through `server_fn`.
 
+use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
-use reinhardt::{BaseUser, Path, Response, StatusCode, get};
+use reinhardt::{BaseUser, Path, Query, Response, StatusCode, get};
+use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
+use crate::apps::auth::services::oauth::backend::OAuthBackendBox;
+use crate::apps::auth::services::oauth::linking::link_or_create_user;
+use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
+use crate::apps::auth::services::session::{SessionService, session_cookie_header};
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
 use crate::config::settings::ProjectSettings;
+
+/// OAuth callback query parameters returned by the provider.
+#[derive(Debug, Deserialize)]
+pub struct OAuthCallbackQuery {
+	code: String,
+	state: String,
+}
+
+fn oauth_backend(
+	backend: &OAuthBackendBox,
+	provider_id: &str,
+) -> Result<std::sync::Arc<reinhardt::auth::social::backend::SocialAuthBackend>, AppError> {
+	backend
+		.0
+		.clone()
+		.filter(|backend| backend.get_provider(provider_id).is_some())
+		.ok_or_else(|| AppError::NotFound(format!("OAuth provider not configured: {provider_id}")))
+}
+
+fn map_oauth_error(err: SocialAuthError) -> AppError {
+	match err {
+		SocialAuthError::Provider(_)
+		| SocialAuthError::InvalidState
+		| SocialAuthError::StateValidation(_)
+		| SocialAuthError::PkceValidation(_) => AppError::Validation(err.to_string()),
+		_ => AppError::Internal("OAuth authentication failed".to_string()),
+	}
+}
+
+fn map_session_error(err: impl std::fmt::Display) -> AppError {
+	error!("Failed to create OAuth session: {err}");
+	AppError::Internal("Internal server error".to_string())
+}
+
+/// Start an OAuth authorization flow for a configured provider.
+///
+/// `GET /api/auth/oauth/{provider_id}/start/`
+#[get("/oauth/{provider_id}/start/", name = "oauth-start")]
+pub async fn oauth_start(
+	Path(provider_id): Path<String>,
+	#[inject] backend: Depends<OAuthBackendBox>,
+) -> ViewResult<Response> {
+	let backend = oauth_backend(&backend, &provider_id)?;
+	let auth = backend
+		.begin_auth(&provider_id, None, None)
+		.await
+		.map_err(map_oauth_error)?;
+	Ok(Response::temporary_redirect(auth.authorization_url))
+}
+
+/// Complete an OAuth authorization flow and establish a dashboard session.
+///
+/// `GET /api/auth/oauth/{provider_id}/callback/`
+#[get("/oauth/{provider_id}/callback/", name = "oauth-callback")]
+pub async fn oauth_callback(
+	Path(provider_id): Path<String>,
+	Query(query): Query<OAuthCallbackQuery>,
+	#[inject] backend: Depends<OAuthBackendBox>,
+	#[inject] session_service: Depends<SessionService>,
+) -> ViewResult<Response> {
+	let backend = oauth_backend(&backend, &provider_id)?;
+	let result = backend
+		.handle_callback(&provider_id, &query.code, &query.state)
+		.await
+		.map_err(map_oauth_error)?;
+	let claims = result.claims.ok_or_else(|| {
+		AppError::Validation("OAuth provider did not return user claims".to_string())
+	})?;
+	let storage = OrmSocialAccountStorage::new();
+	let user = link_or_create_user(&storage, &provider_id, &claims, None)
+		.await
+		.map_err(|err| AppError::Validation(err.to_string()))?;
+	let session_id = session_service
+		.create_session(&user)
+		.await
+		.map_err(map_session_error)?;
+	let is_debug = crate::config::settings::get_settings().core.debug;
+	Ok(Response::temporary_redirect("/")
+		.append_header("Set-Cookie", &session_cookie_header(&session_id, is_debug)))
+}
 
 /// Verify email address via URL token.
 ///

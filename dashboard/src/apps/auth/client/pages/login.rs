@@ -8,6 +8,7 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 
+use crate::apps::auth::client::components::oauth_buttons;
 use crate::apps::auth::client::pages::auth_href;
 use crate::apps::auth::server_fn::login::login;
 
@@ -41,8 +42,9 @@ pub fn login_page() -> Page {
 		},
 	};
 	let form_view = login_form.into_page();
+	let oauth_buttons = oauth_buttons();
 	let register_href = auth_href("auth:register_page", "/register");
-	page!(|form_view: Page, register_href: String| {
+	page!(|form_view: Page, oauth_buttons: Page, register_href: String| {
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -69,6 +71,7 @@ pub fn login_page() -> Page {
 						"Sign in to your account"
 					}
 					{ form_view }
+					{ oauth_buttons }
 					div {
 						class: "mt-6 text-center text-sm text-ink-600",
 						"Don't have an account? " a {
@@ -80,5 +83,5 @@ pub fn login_page() -> Page {
 				}
 			}
 		}
-	})(form_view, register_href)
+	})(form_view, oauth_buttons, register_href)
 }
