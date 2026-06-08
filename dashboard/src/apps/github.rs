@@ -11,6 +11,8 @@ pub mod models;
 pub mod server_fn;
 #[cfg(native)]
 pub mod services;
+#[cfg(native)]
+pub mod tests;
 
 #[cfg(native)]
 #[app_config(name = "github", label = "github")]
