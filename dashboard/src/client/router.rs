@@ -34,6 +34,7 @@ use crate::apps::auth::client::pages::{account_page, login_page, register_page};
 use crate::apps::clusters::client::pages::clusters_list_page;
 use crate::apps::dashboard::client::layout::dashboard_shell;
 use crate::apps::deployments::client::pages::deployments_list_page;
+use crate::apps::github::client::pages::github_repositories_page;
 use crate::shared::client::pages::not_found::not_found_page;
 
 /// Build the SPA router and register the client URL reverser globally.
@@ -51,6 +52,7 @@ pub fn init_router() -> ClientRouter {
 				.route("auth:register_page", "/register", register_page)
 				.route("clusters:list", "/clusters", clusters_list_page)
 				.route("deployments:list", "/deployments", deployments_list_page)
+				.route("github:repositories", "/github", github_repositories_page)
 				.not_found(not_found_page)
 		})
 		.register_globally()

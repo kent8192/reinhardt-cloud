@@ -61,4 +61,10 @@ fn spa_routes_reverse_to_expected_paths() {
 			.expect("deployments:list must be reversible"),
 		"/deployments"
 	);
+	assert_eq!(
+		router
+			.reverse("github:repositories", &[])
+			.expect("github:repositories must be reversible"),
+		"/github"
+	);
 }

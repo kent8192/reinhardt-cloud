@@ -1015,7 +1015,9 @@ pub mod server_fn_tests {
 	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
 	use crate::apps::github::server_fn::{
 		github_installation_info, github_project_info, github_repository_info,
+		repository_from_installation_repository,
 	};
+	use crate::apps::github::services::client::GitHubInstallationRepository;
 
 	#[rstest]
 	fn test_github_installation_info_maps_display_fields() {
@@ -1068,6 +1070,33 @@ pub mod server_fn_tests {
 		assert_eq!(info.default_branch, "main");
 		assert!(info.private);
 		assert!(!info.selected);
+	}
+
+	#[rstest]
+	fn test_repository_from_installation_repository_maps_cache_row() {
+		// Arrange
+		let repository = GitHubInstallationRepository {
+			owner_login: "kent8192".to_string(),
+			id: 123_456_789,
+			full_name: "kent8192/reinhardt-cloud".to_string(),
+			name: "reinhardt-cloud".to_string(),
+			private: true,
+			default_branch: "develop/0.2.0".to_string(),
+		};
+
+		// Act
+		let row = repository_from_installation_repository(7, repository);
+
+		// Assert
+		assert_eq!(row.id, None);
+		assert_eq!(*row.installation_id(), 7);
+		assert_eq!(row.github_repository_id, 123_456_789);
+		assert_eq!(row.full_name, "kent8192/reinhardt-cloud");
+		assert_eq!(row.owner_login, "kent8192");
+		assert_eq!(row.name, "reinhardt-cloud");
+		assert_eq!(row.default_branch, "develop/0.2.0");
+		assert!(row.private);
+		assert!(!row.selected);
 	}
 
 	#[rstest]

@@ -92,6 +92,84 @@ pub(crate) fn github_project_info(
 	}
 }
 
+#[cfg(native)]
+pub(crate) fn repository_from_installation_repository(
+	installation_row_id: i64,
+	repository: crate::apps::github::services::client::GitHubInstallationRepository,
+) -> crate::apps::github::models::GitHubRepository {
+	crate::apps::github::models::GitHubRepository::build()
+		.installation(installation_row_id)
+		.github_repository_id(repository.id)
+		.full_name(repository.full_name)
+		.owner_login(repository.owner_login)
+		.name(repository.name)
+		.default_branch(repository.default_branch)
+		.private(repository.private)
+		.selected(false)
+		.finish()
+}
+
+#[cfg(native)]
+async fn sync_repositories_for_installation(
+	installation: &crate::apps::github::models::GitHubInstallation,
+) -> Result<(), ServerFnError> {
+	use crate::apps::github::services::client::{GitHubAppClient, ReqwestGitHubAppClient};
+	use crate::apps::github::services::config::GitHubAppSettings;
+	use reinhardt::Model;
+
+	let installation_row_id = installation
+		.id
+		.ok_or_else(|| ServerFnError::application("GitHub installation row missing primary key"))?;
+	let settings = GitHubAppSettings::from_env()
+		.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
+	let client = ReqwestGitHubAppClient::new(settings);
+	let repositories = client
+		.list_repositories(installation.installation_id)
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to sync GitHub repositories: {e}"))
+		})?;
+	for repository in repositories {
+		let mut next = repository_from_installation_repository(installation_row_id, repository);
+		let existing = crate::apps::github::models::GitHubRepository::objects()
+			.filter(
+				crate::apps::github::models::GitHubRepository::field_github_repository_id()
+					.eq(next.github_repository_id),
+			)
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to load cached GitHub repository: {e}"))
+			})?;
+		if let Some(mut existing) = existing {
+			next.id = existing.id;
+			next.selected = existing.selected;
+			existing.installation = next.installation;
+			existing.full_name = next.full_name;
+			existing.owner_login = next.owner_login;
+			existing.name = next.name;
+			existing.default_branch = next.default_branch;
+			existing.private = next.private;
+			crate::apps::github::models::GitHubRepository::objects()
+				.update(&existing)
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!(
+						"Failed to update cached GitHub repository: {e}"
+					))
+				})?;
+		} else {
+			crate::apps::github::models::GitHubRepository::objects()
+				.create(&next)
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to cache GitHub repository: {e}"))
+				})?;
+		}
+	}
+	Ok(())
+}
+
 #[server_fn]
 pub async fn list_github_installations_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
@@ -126,7 +204,7 @@ pub async fn list_github_installations_for_current_org(
 
 #[server_fn]
 pub async fn import_github_repository_for_current_org(
-	repository_id: i64,
+	repository_id: String,
 	cluster_id: String,
 	app_name: String,
 	registry: String,
@@ -137,6 +215,9 @@ pub async fn import_github_repository_for_current_org(
 		use reinhardt::Model;
 
 		let organization_id = current_org_id(&user).await?;
+		let repository_id: i64 = repository_id
+			.parse()
+			.map_err(|_| ServerFnError::application("Invalid repository_id"))?;
 		let cluster_id: i64 = cluster_id
 			.parse()
 			.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
@@ -256,6 +337,59 @@ pub async fn import_github_repository_for_current_org(
 }
 
 #[server_fn]
+pub async fn list_github_repositories_for_current_org(
+	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<GitHubRepositoryInfo>, ServerFnError> {
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		let organization_id = current_org_id(&user).await?;
+		let installations = crate::apps::github::models::GitHubInstallation::objects()
+			.filter(
+				crate::apps::github::models::GitHubInstallation::field_organization_id()
+					.eq(organization_id),
+			)
+			.filter(crate::apps::github::models::GitHubInstallation::field_status().eq("active"))
+			.order_by(&["account_login", "id"])
+			.all()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to list GitHub installations: {e}"))
+			})?;
+		let mut repositories = Vec::new();
+		for installation in installations {
+			let row_id = installation.id.ok_or_else(|| {
+				ServerFnError::application("GitHub installation row missing primary key")
+			})?;
+			sync_repositories_for_installation(&installation).await?;
+			let mut current = crate::apps::github::models::GitHubRepository::objects()
+				.filter(
+					crate::apps::github::models::GitHubRepository::field_installation_id()
+						.eq(row_id),
+				)
+				.order_by(&["full_name", "id"])
+				.all()
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to list GitHub repositories: {e}"))
+				})?;
+			repositories.append(&mut current);
+		}
+		repositories.sort_by(|a, b| a.full_name.cmp(&b.full_name).then(a.id.cmp(&b.id)));
+		Ok(repositories
+			.into_iter()
+			.map(github_repository_info)
+			.collect())
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user;
+		unreachable!("server_fn body is replaced on wasm")
+	}
+}
+
+#[server_fn]
 pub async fn list_github_repositories_for_installation(
 	installation_id: i64,
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
@@ -280,6 +414,7 @@ pub async fn list_github_repositories_for_installation(
 		let row_id = installation.id.ok_or_else(|| {
 			ServerFnError::application("GitHub installation row missing primary key")
 		})?;
+		sync_repositories_for_installation(&installation).await?;
 		let repositories = crate::apps::github::models::GitHubRepository::objects()
 			.filter(
 				crate::apps::github::models::GitHubRepository::field_installation_id().eq(row_id),

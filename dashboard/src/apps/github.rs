@@ -6,6 +6,7 @@
 #[cfg(native)]
 use reinhardt::app_config;
 
+pub mod client;
 #[cfg(native)]
 pub mod models;
 pub mod server_fn;

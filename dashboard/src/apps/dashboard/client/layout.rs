@@ -17,7 +17,8 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 	let home_href = "/".to_string();
 	let clusters_href = "/clusters".to_string();
 	let deployments_href = "/deployments".to_string();
-	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String| {
+	let github_href = "/github".to_string();
+	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String, github_href: String| {
 		div {
 			class: "rc-app flex flex-col",
 			header {
@@ -79,6 +80,13 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 						}
 						li {
 							a {
+								href: github_href,
+								class: self::nav_item_class(active_item == "github"),
+								"GitHub"
+							}
+						}
+						li {
+							a {
 								href: account_href,
 								class: self::nav_item_class(active_item == "account"),
 								"Account"
@@ -99,6 +107,7 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 		home_href,
 		clusters_href,
 		deployments_href,
+		github_href,
 	)
 }
 
