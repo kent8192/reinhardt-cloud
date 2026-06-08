@@ -201,6 +201,11 @@ pub async fn import_github_repository_for_current_org(
 		let manifest =
 			crate::apps::github::services::import::source_reinhardt_app_yaml(&import_spec)
 				.map_err(|e| ServerFnError::server(400, e))?;
+		crate::apps::github::services::deploy::apply_reinhardt_app_yaml(&manifest)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to apply ReinhardtApp manifest: {e}"))
+			})?;
 		let deployment = crate::apps::deployments::models::Deployment::build()
 			.organization(organization_id)
 			.app_name(import_spec.app_name.clone())

@@ -18,6 +18,15 @@ pub enum K8sError {
 
 	#[error("API error: {0}")]
 	Api(String),
+
+	#[error("Invalid ReinhardtApp manifest: {0}")]
+	Manifest(String),
+
+	#[error("Invalid ReinhardtApp spec: {0}")]
+	Validation(String),
+
+	#[error("ReinhardtApp metadata.name is required")]
+	MissingName,
 }
 
 /// Thin wrapper around the kube-rs `Client` with a default namespace.

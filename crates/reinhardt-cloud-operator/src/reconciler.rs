@@ -525,13 +525,20 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				.and_then(|a| a.get("reinhardt.dev/pr-number"))
 				.cloned()
 				.unwrap_or_default();
+			let pr_branch = app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
+				.map(String::as_str);
 			let preview_name = preview::preview_app_name(&name, &pr_number);
 			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
 
 			match action.as_str() {
 				"create" | "update" => {
 					let image_tag = format!("pr-{pr_number}-latest");
-					let preview_spec = preview::build_preview_spec(&app, &pr_number, &image_tag)?;
+					let preview_spec =
+						preview::build_preview_spec(&app, &pr_number, &image_tag, pr_branch)?;
 					let preview_labels = preview::preview_labels(&name, &pr_number);
 					let preview_app = ReinhardtApp {
 						metadata: kube::api::ObjectMeta {

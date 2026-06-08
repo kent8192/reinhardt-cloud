@@ -68,6 +68,7 @@ pub(crate) fn build_preview_spec(
 	parent: &ReinhardtApp,
 	pr_number: &str,
 	image_tag: &str,
+	branch_override: Option<&str>,
 ) -> Result<ReinhardtAppSpec, Error> {
 	let parent_spec = &parent.spec;
 
@@ -107,10 +108,14 @@ pub(crate) fn build_preview_spec(
 
 	// Build ingress host from url_template if available
 	let app_name = preview_app_name(&kube::ResourceExt::name_any(parent), pr_number);
-	let branch = parent_spec
-		.source
-		.as_ref()
-		.and_then(|s| s.branch.as_deref())
+	let branch = branch_override
+		.filter(|branch| !branch.trim().is_empty())
+		.or_else(|| {
+			parent_spec
+				.source
+				.as_ref()
+				.and_then(|s| s.branch.as_deref())
+		})
 		.unwrap_or("main");
 
 	let ingress_host = preview_config
@@ -272,7 +277,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert — parent has 3, preview overrides to 1
 		assert_eq!(spec.replicas, Some(1));
@@ -284,7 +289,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.image, "ghcr.io/org/app:sha-abc123");
@@ -296,7 +301,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.env.get("APP_ENV").unwrap(), "production");
@@ -308,7 +313,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Delete);
@@ -320,7 +325,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		let host = spec
@@ -331,6 +336,30 @@ mod tests {
 			.as_ref()
 			.unwrap();
 		assert_eq!(host, "pr-42.my-app-pr-42.preview.example.com");
+	}
+
+	#[rstest]
+	fn test_build_preview_spec_uses_branch_override_for_ingress_template() {
+		// Arrange
+		let mut parent = test_app_with_preview("my-app");
+		if let Some(source) = parent.spec.source.as_mut()
+			&& let Some(preview) = source.preview.as_mut()
+		{
+			preview.url_template = Some("{branch}.pr-{pr_number}.{app}.example.com".to_string());
+		}
+
+		// Act
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", Some("feature/login")).unwrap();
+
+		// Assert
+		let host = spec
+			.services
+			.as_ref()
+			.unwrap()
+			.ingress_host
+			.as_ref()
+			.unwrap();
+		assert_eq!(host, "feature/login.pr-42.my-app-pr-42.example.com");
 	}
 
 	#[rstest]

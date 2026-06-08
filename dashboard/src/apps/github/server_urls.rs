@@ -124,6 +124,16 @@ pub async fn github_webhook(
 
 	deployment.reinhardt_app_yaml = Some(next_yaml);
 	deployment.status = "pending".to_string();
+	let manifest = deployment
+		.reinhardt_app_yaml
+		.as_deref()
+		.ok_or_else(|| AppError::Internal("Updated deployment missing manifest".to_string()))?;
+	crate::apps::github::services::deploy::apply_reinhardt_app_yaml(manifest)
+		.await
+		.map_err(|e| {
+			error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
+			AppError::Internal("Failed to apply ReinhardtApp manifest".to_string())
+		})?;
 	Deployment::objects()
 		.update(&deployment)
 		.await
