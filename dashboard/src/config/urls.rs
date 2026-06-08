@@ -295,6 +295,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			// contribute SPA client routes.
 			.mount_unified("/", crate::apps::clusters::urls::url_patterns())
 			.mount_unified("/", crate::apps::deployments::urls::url_patterns())
+			.mount_unified("/github/", crate::apps::github::urls::url_patterns())
 			.mount_unified("/", crate::apps::health::urls::url_patterns())
 			.mount_unified("/", crate::apps::organizations::urls::url_patterns())
 			.server(|s| {

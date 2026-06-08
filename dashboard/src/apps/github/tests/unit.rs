@@ -146,10 +146,10 @@ pub mod client_tests {
 		assert_eq!(repositories[0].id, 1);
 		assert_eq!(repositories[0].full_name, "kent8192/reinhardt-cloud");
 		assert_eq!(repositories[0].name, "reinhardt-cloud");
-		assert_eq!(repositories[0].private, true);
+		assert!(repositories[0].private);
 		assert_eq!(repositories[0].default_branch, "main");
 		assert_eq!(repositories[100].full_name, "kent8192/repo-101");
-		assert_eq!(repositories[100].private, false);
+		assert!(!repositories[100].private);
 		assert_eq!(repositories[100].default_branch, "trunk");
 	}
 }
@@ -160,9 +160,11 @@ pub mod import_tests {
 
 	use crate::apps::github::models::GitHubRepository;
 	use crate::apps::github::services::import::{
-		import_spec_from_repository, source_reinhardt_app_yaml, validate_app_name,
-		validate_registry, with_build_trigger, with_preview_create, with_preview_delete,
+		apply_webhook_action_to_manifest, import_spec_from_repository, source_reinhardt_app_yaml,
+		validate_app_name, validate_registry, with_build_trigger, with_preview_create,
+		with_preview_delete,
 	};
+	use crate::utils::vcs::events::WebhookAction;
 
 	fn repository(name: &str) -> GitHubRepository {
 		GitHubRepository::build()
@@ -302,6 +304,127 @@ pub mod import_tests {
 			Some("delete")
 		);
 		assert!(deleted_value["metadata"]["annotations"]["reinhardt.dev/pr-branch"].is_null());
+	}
+
+	#[rstest]
+	fn test_webhook_action_applies_production_push_only_for_tracked_branch() {
+		// Arrange
+		let repository = repository("reinhardt-cloud");
+		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
+			.expect("import spec should build");
+		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let production_push = WebhookAction::BuildTrigger {
+			branch: "main".to_string(),
+			commit_sha: "abc123".to_string(),
+		};
+		let feature_push = WebhookAction::BuildTrigger {
+			branch: "feature/login".to_string(),
+			commit_sha: "def456".to_string(),
+		};
+
+		// Act
+		let updated = apply_webhook_action_to_manifest(&yaml, &production_push, "main")
+			.expect("production push should be valid")
+			.expect("production push should update manifest");
+		let ignored = apply_webhook_action_to_manifest(&yaml, &feature_push, "main")
+			.expect("feature push should be valid");
+		let value: serde_yaml::Value =
+			serde_yaml::from_str(&updated).expect("updated yaml should parse");
+
+		// Assert
+		assert_eq!(ignored, None);
+		assert_eq!(
+			value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].as_str(),
+			Some("abc123")
+		);
+	}
+
+	#[rstest]
+	fn test_webhook_action_applies_preview_lifecycle_annotations() {
+		// Arrange
+		let repository = repository("reinhardt-cloud");
+		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
+			.expect("import spec should build");
+		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let create = WebhookAction::PreviewCreate {
+			pr_number: 42,
+			branch: "feature/login".to_string(),
+			commit_sha: "abc123".to_string(),
+		};
+		let delete = WebhookAction::PreviewDelete { pr_number: 42 };
+
+		// Act
+		let created = apply_webhook_action_to_manifest(&yaml, &create, "main")
+			.expect("preview create should be valid")
+			.expect("preview create should update manifest");
+		let deleted = apply_webhook_action_to_manifest(&created, &delete, "main")
+			.expect("preview delete should be valid")
+			.expect("preview delete should update manifest");
+		let created_value: serde_yaml::Value =
+			serde_yaml::from_str(&created).expect("created yaml should parse");
+		let deleted_value: serde_yaml::Value =
+			serde_yaml::from_str(&deleted).expect("deleted yaml should parse");
+
+		// Assert
+		assert_eq!(
+			created_value["metadata"]["annotations"]["reinhardt.dev/preview-action"].as_str(),
+			Some("create")
+		);
+		assert_eq!(
+			deleted_value["metadata"]["annotations"]["reinhardt.dev/preview-action"].as_str(),
+			Some("delete")
+		);
+		assert!(deleted_value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].is_null());
+	}
+}
+
+#[cfg(test)]
+pub mod webhook_tests {
+	use rstest::rstest;
+	use serde_json::json;
+
+	use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
+	use crate::utils::vcs::events::WebhookAction;
+
+	#[rstest]
+	fn test_github_webhook_dispatch_reads_repository_id_and_action() {
+		// Arrange
+		let payload = json!({
+			"repository": { "id": 123456789 },
+			"ref": "refs/heads/main",
+			"after": "abc123"
+		});
+		let bytes = serde_json::to_vec(&payload).expect("payload should serialize");
+
+		// Act
+		let dispatch =
+			parse_github_webhook_dispatch("push", &bytes).expect("dispatch should parse");
+
+		// Assert
+		assert_eq!(dispatch.repository_id, 123_456_789);
+		assert_eq!(
+			dispatch.action,
+			WebhookAction::BuildTrigger {
+				branch: "main".to_string(),
+				commit_sha: "abc123".to_string(),
+			}
+		);
+	}
+
+	#[rstest]
+	fn test_github_webhook_dispatch_rejects_payload_without_repository_id() {
+		// Arrange
+		let payload = json!({
+			"ref": "refs/heads/main",
+			"after": "abc123"
+		});
+		let bytes = serde_json::to_vec(&payload).expect("payload should serialize");
+
+		// Act
+		let result = parse_github_webhook_dispatch("push", &bytes);
+
+		// Assert
+		assert!(result.is_err());
 	}
 }
 
@@ -519,8 +642,8 @@ pub mod model_tests {
 		assert_eq!(repository.github_repository_id, github_repository_id);
 		assert_eq!(repository.full_name, full_name);
 		assert_eq!(repository.default_branch, default_branch);
-		assert_eq!(repository.private, true);
-		assert_eq!(repository.selected, false);
+		assert!(repository.private);
+		assert!(!repository.selected);
 	}
 
 	#[rstest]
@@ -943,8 +1066,8 @@ pub mod server_fn_tests {
 		assert_eq!(info.owner_login, "kent8192");
 		assert_eq!(info.name, "reinhardt-cloud");
 		assert_eq!(info.default_branch, "main");
-		assert_eq!(info.private, true);
-		assert_eq!(info.selected, false);
+		assert!(info.private);
+		assert!(!info.selected);
 	}
 
 	#[rstest]

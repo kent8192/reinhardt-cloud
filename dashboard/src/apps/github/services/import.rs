@@ -4,6 +4,7 @@ use reinhardt_cloud_types::crd::ReinhardtApp;
 use serde_json::json;
 
 use crate::apps::github::models::GitHubRepository;
+use crate::utils::vcs::events::WebhookAction;
 
 const DEFAULT_NAMESPACE: &str = "default";
 const DEFAULT_PREVIEW_TTL: &str = "72h";
@@ -170,6 +171,31 @@ pub fn with_preview_delete(yaml: &str, pr_number: u64) -> Result<String, String>
 		],
 		&["reinhardt.dev/build-trigger", "reinhardt.dev/pr-branch"],
 	)
+}
+
+pub fn apply_webhook_action_to_manifest(
+	yaml: &str,
+	action: &WebhookAction,
+	production_branch: &str,
+) -> Result<Option<String>, String> {
+	match action {
+		WebhookAction::BuildTrigger { branch, commit_sha } => {
+			if branch == production_branch {
+				with_build_trigger(yaml, commit_sha).map(Some)
+			} else {
+				Ok(None)
+			}
+		}
+		WebhookAction::PreviewCreate {
+			pr_number,
+			branch,
+			commit_sha,
+		} => with_preview_create(yaml, *pr_number, branch, commit_sha).map(Some),
+		WebhookAction::PreviewDelete { pr_number } => {
+			with_preview_delete(yaml, *pr_number).map(Some)
+		}
+		WebhookAction::TagRelease { .. } | WebhookAction::Ignored => Ok(None),
+	}
 }
 
 fn with_annotations(

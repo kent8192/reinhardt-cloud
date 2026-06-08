@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 /// The action to take based on a parsed webhook event.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum WebhookAction {
 	/// Trigger a build for the given branch and commit.
 	BuildTrigger { branch: String, commit_sha: String },
