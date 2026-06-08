@@ -620,3 +620,64 @@ pub mod model_tests {
 		})
 	}
 }
+
+#[cfg(test)]
+pub mod server_fn_tests {
+	use rstest::rstest;
+
+	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
+	use crate::apps::github::server_fn::{github_installation_info, github_repository_info};
+
+	#[rstest]
+	fn test_github_installation_info_maps_display_fields() {
+		// Arrange
+		let mut installation = GitHubInstallation::build()
+			.organization(42)
+			.installation_id(123_456)
+			.account_id(987_654)
+			.account_login("kent8192".to_string())
+			.account_type("Organization".to_string())
+			.status("active".to_string())
+			.finish();
+		installation.id = Some(7);
+
+		// Act
+		let info = github_installation_info(installation);
+
+		// Assert
+		assert_eq!(info.id, 7);
+		assert_eq!(info.installation_id, 123_456);
+		assert_eq!(info.account_login, "kent8192");
+		assert_eq!(info.account_type, "Organization");
+		assert_eq!(info.status, "active");
+	}
+
+	#[rstest]
+	fn test_github_repository_info_maps_repository_fields() {
+		// Arrange
+		let mut repository = GitHubRepository::build()
+			.installation(7)
+			.github_repository_id(123_456_789)
+			.full_name("kent8192/reinhardt-cloud".to_string())
+			.owner_login("kent8192".to_string())
+			.name("reinhardt-cloud".to_string())
+			.default_branch("main".to_string())
+			.private(true)
+			.selected(false)
+			.finish();
+		repository.id = Some(11);
+
+		// Act
+		let info = github_repository_info(repository);
+
+		// Assert
+		assert_eq!(info.id, 11);
+		assert_eq!(info.github_repository_id, 123_456_789);
+		assert_eq!(info.full_name, "kent8192/reinhardt-cloud");
+		assert_eq!(info.owner_login, "kent8192");
+		assert_eq!(info.name, "reinhardt-cloud");
+		assert_eq!(info.default_branch, "main");
+		assert_eq!(info.private, true);
+		assert_eq!(info.selected, false);
+	}
+}
