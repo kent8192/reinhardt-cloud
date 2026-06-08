@@ -139,3 +139,71 @@ pub mod config_tests {
 		assert!(debug.contains("https://api.github.com"));
 	}
 }
+
+#[cfg(test)]
+pub mod model_tests {
+	use reinhardt::db::orm::Model;
+	use rstest::rstest;
+
+	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
+
+	#[rstest]
+	fn test_github_installation_build_sets_fields() {
+		// Arrange
+		let organization_id = 42i64;
+		let installation_id = 123_456i64;
+		let account_login = "kent8192".to_string();
+		let status = "active".to_string();
+
+		// Act
+		let installation = GitHubInstallation::build()
+			.organization(organization_id)
+			.installation_id(installation_id)
+			.account_id(987_654)
+			.account_login(account_login.clone())
+			.account_type("Organization".to_string())
+			.status(status.clone())
+			.finish();
+
+		// Assert
+		assert_eq!(GitHubInstallation::app_label(), "github");
+		assert_eq!(GitHubInstallation::table_name(), "github_installations");
+		assert_eq!(installation.id, None);
+		assert_eq!(*installation.organization_id(), organization_id);
+		assert_eq!(installation.installation_id, installation_id);
+		assert_eq!(installation.account_login, account_login);
+		assert_eq!(installation.status, status);
+	}
+
+	#[rstest]
+	fn test_github_repository_build_sets_fields() {
+		// Arrange
+		let installation_id = 7i64;
+		let github_repository_id = 123_456_789i64;
+		let full_name = "kent8192/reinhardt-cloud".to_string();
+		let default_branch = "main".to_string();
+
+		// Act
+		let repository = GitHubRepository::build()
+			.installation(installation_id)
+			.github_repository_id(github_repository_id)
+			.full_name(full_name.clone())
+			.owner_login("kent8192".to_string())
+			.name("reinhardt-cloud".to_string())
+			.default_branch(default_branch.clone())
+			.private(true)
+			.selected(false)
+			.finish();
+
+		// Assert
+		assert_eq!(GitHubRepository::app_label(), "github");
+		assert_eq!(GitHubRepository::table_name(), "github_repositories");
+		assert_eq!(repository.id, None);
+		assert_eq!(*repository.installation_id(), installation_id);
+		assert_eq!(repository.github_repository_id, github_repository_id);
+		assert_eq!(repository.full_name, full_name);
+		assert_eq!(repository.default_branch, default_branch);
+		assert_eq!(repository.private, true);
+		assert_eq!(repository.selected, false);
+	}
+}
