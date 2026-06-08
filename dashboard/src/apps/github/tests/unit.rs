@@ -155,6 +155,157 @@ pub mod client_tests {
 }
 
 #[cfg(test)]
+pub mod import_tests {
+	use rstest::rstest;
+
+	use crate::apps::github::models::GitHubRepository;
+	use crate::apps::github::services::import::{
+		import_spec_from_repository, source_reinhardt_app_yaml, validate_app_name,
+		validate_registry, with_build_trigger, with_preview_create, with_preview_delete,
+	};
+
+	fn repository(name: &str) -> GitHubRepository {
+		GitHubRepository::build()
+			.installation(7)
+			.github_repository_id(123_456_789)
+			.full_name(format!("kent8192/{name}"))
+			.owner_login("kent8192".to_string())
+			.name(name.to_string())
+			.default_branch("main".to_string())
+			.private(true)
+			.selected(false)
+			.finish()
+	}
+
+	#[rstest]
+	#[case("reinhardt-cloud", "reinhardt-cloud")]
+	#[case("Reinhardt.Cloud_App", "reinhardt-cloud-app")]
+	#[case("___", "app")]
+	fn test_import_spec_derives_valid_default_app_name(
+		#[case] repo_name: &str,
+		#[case] expected_app_name: &str,
+	) {
+		// Arrange
+		let repository = repository(repo_name);
+
+		// Act
+		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/app")
+			.expect("import spec should build");
+
+		// Assert
+		assert_eq!(spec.app_name, expected_app_name);
+		assert_eq!(
+			spec.repository_url,
+			format!("https://github.com/kent8192/{repo_name}.git")
+		);
+		assert_eq!(spec.branch, "main");
+		assert_eq!(spec.registry, "ghcr.io/kent8192/app");
+	}
+
+	#[rstest]
+	#[case("")]
+	#[case("-bad")]
+	#[case("bad-")]
+	#[case("Bad")]
+	#[case("bad_name")]
+	fn test_validate_app_name_rejects_invalid_names(#[case] name: &str) {
+		// Arrange / Act
+		let result = validate_app_name(name);
+
+		// Assert
+		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_validate_registry_rejects_whitespace() {
+		// Arrange / Act
+		let result = validate_registry("ghcr.io/example/app latest");
+
+		// Assert
+		assert_eq!(
+			result.expect_err("registry with whitespace should fail"),
+			"Registry image prefix must not contain whitespace"
+		);
+	}
+
+	#[rstest]
+	fn test_source_manifest_contains_github_source_and_initial_build_trigger() {
+		// Arrange
+		let repository = repository("reinhardt-cloud");
+		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
+			.expect("import spec should build");
+
+		// Act
+		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml should parse");
+
+		// Assert
+		assert_eq!(value["kind"].as_str(), Some("ReinhardtApp"));
+		assert_eq!(value["metadata"]["name"].as_str(), Some("reinhardt-cloud"));
+		assert_eq!(
+			value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].as_str(),
+			Some("initial")
+		);
+		assert_eq!(
+			value["spec"]["source"]["repository"].as_str(),
+			Some("https://github.com/kent8192/reinhardt-cloud.git")
+		);
+		assert_eq!(value["spec"]["source"]["branch"].as_str(), Some("main"));
+		assert_eq!(value["spec"]["source"]["provider"].as_str(), Some("github"));
+		assert_eq!(
+			value["spec"]["source"]["webhook"]["enabled"].as_bool(),
+			Some(true)
+		);
+		assert_eq!(
+			value["spec"]["source"]["preview"]["enabled"].as_bool(),
+			Some(true)
+		);
+	}
+
+	#[rstest]
+	fn test_webhook_helpers_update_reinhardt_app_annotations() {
+		// Arrange
+		let repository = repository("reinhardt-cloud");
+		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
+			.expect("import spec should build");
+		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+
+		// Act
+		let pushed = with_build_trigger(&yaml, "abc123").expect("push annotation should apply");
+		let preview = with_preview_create(&pushed, 42, "feature/login", "def456")
+			.expect("preview annotation should apply");
+		let deleted = with_preview_delete(&preview, 42).expect("preview delete should apply");
+		let preview_value: serde_yaml::Value =
+			serde_yaml::from_str(&preview).expect("preview yaml should parse");
+		let deleted_value: serde_yaml::Value =
+			serde_yaml::from_str(&deleted).expect("delete yaml should parse");
+
+		// Assert
+		assert_eq!(
+			preview_value["metadata"]["annotations"]["reinhardt.dev/preview-action"].as_str(),
+			Some("create")
+		);
+		assert_eq!(
+			preview_value["metadata"]["annotations"]["reinhardt.dev/pr-number"].as_str(),
+			Some("42")
+		);
+		assert_eq!(
+			preview_value["metadata"]["annotations"]["reinhardt.dev/pr-branch"].as_str(),
+			Some("feature/login")
+		);
+		assert_eq!(
+			preview_value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].as_str(),
+			Some("def456")
+		);
+		assert_eq!(
+			deleted_value["metadata"]["annotations"]["reinhardt.dev/preview-action"].as_str(),
+			Some("delete")
+		);
+		assert!(deleted_value["metadata"]["annotations"]["reinhardt.dev/pr-branch"].is_null());
+	}
+}
+
+#[cfg(test)]
 pub mod config_tests {
 	use rstest::rstest;
 	use serial_test::serial;
@@ -310,7 +461,7 @@ pub mod model_tests {
 	use reinhardt::db::orm::Model;
 	use rstest::rstest;
 
-	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
+	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
 
 	#[rstest]
 	fn test_github_installation_build_sets_fields() {
@@ -373,6 +524,35 @@ pub mod model_tests {
 	}
 
 	#[rstest]
+	fn test_github_project_build_sets_fields() {
+		// Arrange
+		let organization_id = 42i64;
+		let repository_id = 7i64;
+		let deployment_id = 11i64;
+
+		// Act
+		let project = GitHubProject::build()
+			.organization(organization_id)
+			.repository(repository_id)
+			.deployment(deployment_id)
+			.app_name("reinhardt-cloud".to_string())
+			.production_branch("main".to_string())
+			.status("imported".to_string())
+			.finish();
+
+		// Assert
+		assert_eq!(GitHubProject::app_label(), "github");
+		assert_eq!(GitHubProject::table_name(), "github_projects");
+		assert_eq!(project.id, None);
+		assert_eq!(*project.organization_id(), organization_id);
+		assert_eq!(*project.repository_id(), repository_id);
+		assert_eq!(*project.deployment_id(), deployment_id);
+		assert_eq!(project.app_name, "reinhardt-cloud");
+		assert_eq!(project.production_branch, "main");
+		assert_eq!(project.status, "imported");
+	}
+
+	#[rstest]
 	fn test_github_initial_migration_matches_persistent_models() {
 		// Arrange
 		let migration = github_initial_migration::migration();
@@ -387,7 +567,13 @@ pub mod model_tests {
 		assert_eq!(migration.name, "0001_initial");
 		assert_eq!(
 			migration.dependencies,
-			vec![("organizations".to_string(), "0001_initial".to_string())]
+			vec![
+				("organizations".to_string(), "0001_initial".to_string()),
+				(
+					"deployments".to_string(),
+					"0005_add_reinhardt_app_yaml".to_string()
+				)
+			]
 		);
 		assert_column(
 			installation_columns,
@@ -524,6 +710,62 @@ pub mod model_tests {
 			true,
 			false,
 		);
+		let project_columns = create_table_columns(&migration.operations, "github_projects");
+		assert_column(project_columns, "id", "BigInteger", true, false, true, true);
+		assert_column(
+			project_columns,
+			"organization_id",
+			"BigInteger",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			project_columns,
+			"repository_id",
+			"BigInteger",
+			false,
+			true,
+			true,
+			false,
+		);
+		assert_column(
+			project_columns,
+			"deployment_id",
+			"BigInteger",
+			false,
+			true,
+			true,
+			false,
+		);
+		assert_column(
+			project_columns,
+			"app_name",
+			"VarChar(63)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			project_columns,
+			"production_branch",
+			"VarChar(255)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			project_columns,
+			"status",
+			"VarChar(32)",
+			false,
+			false,
+			true,
+			false,
+		);
 		assert!(
 			has_constraint(
 				&migration.operations,
@@ -541,6 +783,22 @@ pub mod model_tests {
 			"github_repositories must reference github_installations"
 		);
 		assert!(
+			has_constraint(
+				&migration.operations,
+				"github_projects",
+				"github_projects_repository_id_fk"
+			),
+			"github_projects must reference github_repositories"
+		);
+		assert!(
+			has_constraint(
+				&migration.operations,
+				"github_projects",
+				"github_projects_deployment_id_fk"
+			),
+			"github_projects must reference deployments"
+		);
+		assert!(
 			has_index(
 				&migration.operations,
 				"github_installations",
@@ -555,6 +813,10 @@ pub mod model_tests {
 				"installation_id"
 			),
 			"github_repositories.installation_id must be indexed"
+		);
+		assert!(
+			has_index(&migration.operations, "github_projects", "organization_id"),
+			"github_projects.organization_id must be indexed"
 		);
 	}
 
@@ -627,8 +889,10 @@ pub mod model_tests {
 pub mod server_fn_tests {
 	use rstest::rstest;
 
-	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
-	use crate::apps::github::server_fn::{github_installation_info, github_repository_info};
+	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
+	use crate::apps::github::server_fn::{
+		github_installation_info, github_project_info, github_repository_info,
+	};
 
 	#[rstest]
 	fn test_github_installation_info_maps_display_fields() {
@@ -681,5 +945,30 @@ pub mod server_fn_tests {
 		assert_eq!(info.default_branch, "main");
 		assert_eq!(info.private, true);
 		assert_eq!(info.selected, false);
+	}
+
+	#[rstest]
+	fn test_github_project_info_maps_project_fields() {
+		// Arrange
+		let mut project = GitHubProject::build()
+			.organization(42)
+			.repository(7)
+			.deployment(11)
+			.app_name("reinhardt-cloud".to_string())
+			.production_branch("main".to_string())
+			.status("imported".to_string())
+			.finish();
+		project.id = Some(13);
+
+		// Act
+		let info = github_project_info(project);
+
+		// Assert
+		assert_eq!(info.id, 13);
+		assert_eq!(info.repository_id, 7);
+		assert_eq!(info.deployment_id, 11);
+		assert_eq!(info.app_name, "reinhardt-cloud");
+		assert_eq!(info.production_branch, "main");
+		assert_eq!(info.status, "imported");
 	}
 }

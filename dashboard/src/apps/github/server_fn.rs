@@ -32,6 +32,16 @@ pub struct GitHubRepositoryInfo {
 	pub selected: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GitHubProjectInfo {
+	pub id: i64,
+	pub repository_id: i64,
+	pub deployment_id: i64,
+	pub app_name: String,
+	pub production_branch: String,
+	pub status: String,
+}
+
 #[cfg(native)]
 async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
 	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
@@ -68,6 +78,20 @@ pub(crate) fn github_repository_info(
 	}
 }
 
+#[cfg(native)]
+pub(crate) fn github_project_info(
+	project: crate::apps::github::models::GitHubProject,
+) -> GitHubProjectInfo {
+	GitHubProjectInfo {
+		id: project.id.unwrap_or_default(),
+		repository_id: *project.repository_id(),
+		deployment_id: *project.deployment_id(),
+		app_name: project.app_name,
+		production_branch: project.production_branch,
+		status: project.status,
+	}
+}
+
 #[server_fn]
 pub async fn list_github_installations_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
@@ -96,6 +120,132 @@ pub async fn list_github_installations_for_current_org(
 	#[cfg(wasm)]
 	{
 		let _ = user;
+		unreachable!("server_fn body is replaced on wasm")
+	}
+}
+
+#[server_fn]
+pub async fn import_github_repository_for_current_org(
+	repository_id: i64,
+	cluster_id: String,
+	app_name: String,
+	registry: String,
+	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+) -> Result<GitHubProjectInfo, ServerFnError> {
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		let organization_id = current_org_id(&user).await?;
+		let cluster_id: i64 = cluster_id
+			.parse()
+			.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
+		let cluster_exists = crate::apps::clusters::models::Cluster::objects()
+			.filter(crate::apps::clusters::models::Cluster::field_id().eq(cluster_id))
+			.filter(
+				crate::apps::clusters::models::Cluster::field_organization_id().eq(organization_id),
+			)
+			.filter(crate::apps::clusters::models::Cluster::field_is_active().eq(true))
+			.exists()
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to check cluster: {e}")))?;
+		if !cluster_exists {
+			return Err(ServerFnError::server(404, "Cluster not found"));
+		}
+
+		let mut repository = crate::apps::github::models::GitHubRepository::objects()
+			.filter(crate::apps::github::models::GitHubRepository::field_id().eq(repository_id))
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to load GitHub repository: {e}"))
+			})?
+			.ok_or_else(|| ServerFnError::server(404, "GitHub repository not found"))?;
+		let _installation = crate::apps::github::models::GitHubInstallation::objects()
+			.filter(
+				crate::apps::github::models::GitHubInstallation::field_id()
+					.eq(*repository.installation_id()),
+			)
+			.filter(
+				crate::apps::github::models::GitHubInstallation::field_organization_id()
+					.eq(organization_id),
+			)
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to load GitHub installation: {e}"))
+			})?
+			.ok_or_else(|| ServerFnError::server(404, "GitHub repository not found"))?;
+		let existing = crate::apps::github::models::GitHubProject::objects()
+			.filter(
+				crate::apps::github::models::GitHubProject::field_repository_id().eq(repository_id),
+			)
+			.exists()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to check GitHub project: {e}"))
+			})?;
+		if existing {
+			return Err(ServerFnError::server(
+				409,
+				"GitHub repository is already imported",
+			));
+		}
+
+		let import_spec = crate::apps::github::services::import::import_spec_from_repository(
+			&repository,
+			&app_name,
+			&registry,
+		)
+		.map_err(|e| ServerFnError::server(400, e))?;
+		let manifest =
+			crate::apps::github::services::import::source_reinhardt_app_yaml(&import_spec)
+				.map_err(|e| ServerFnError::server(400, e))?;
+		let deployment = crate::apps::deployments::models::Deployment::build()
+			.organization(organization_id)
+			.app_name(import_spec.app_name.clone())
+			.cluster(cluster_id)
+			.status("pending".to_string())
+			.image(format!("{}:pending", import_spec.registry))
+			.reinhardt_app_yaml(Some(manifest))
+			.finish();
+		let deployment = crate::apps::deployments::models::Deployment::objects()
+			.create(&deployment)
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to create deployment: {e}")))?;
+		let deployment_id = deployment.id.ok_or_else(|| {
+			ServerFnError::application("Deployment row missing primary key after insert")
+		})?;
+		let repository_row_id = repository.id.ok_or_else(|| {
+			ServerFnError::application("GitHub repository row missing primary key")
+		})?;
+		let production_branch = import_spec.branch.clone();
+		let project = crate::apps::github::models::GitHubProject::build()
+			.organization(organization_id)
+			.repository(repository_row_id)
+			.deployment(deployment_id)
+			.app_name(import_spec.app_name)
+			.production_branch(production_branch)
+			.status("imported".to_string())
+			.finish();
+		let project = crate::apps::github::models::GitHubProject::objects()
+			.create(&project)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to create GitHub project: {e}"))
+			})?;
+		repository.selected = true;
+		crate::apps::github::models::GitHubRepository::objects()
+			.update(&repository)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to update GitHub repository: {e}"))
+			})?;
+		Ok(github_project_info(project))
+	}
+	#[cfg(wasm)]
+	{
+		let _ = (repository_id, cluster_id, app_name, registry, user);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
