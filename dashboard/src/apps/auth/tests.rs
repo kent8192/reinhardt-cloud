@@ -1,6 +1,7 @@
 //! Tests for auth app.
 
 pub mod unit {
+	pub mod test_account_page;
 	pub mod test_auth_property;
 	pub mod test_email_verification;
 	pub mod test_jwt;

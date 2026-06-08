@@ -11,6 +11,7 @@ mod tests {
 	use rstest::rstest;
 	use serde_json::Value;
 
+	use crate::apps::auth::server_fn::linked_accounts::LinkedOAuthAccountInfo;
 	use crate::apps::auth::server_fn::oauth_providers::{
 		OAuthProviderInfo, label_for_provider, oauth_start_url,
 	};
@@ -94,6 +95,34 @@ mod tests {
 
 		// Assert
 		assert_eq!(json, Value::Array(vec![]));
+	}
+
+	#[rstest]
+	fn test_linked_account_entry_serializes_only_public_provider_fields() {
+		// Arrange
+		let entry = LinkedOAuthAccountInfo {
+			provider: "github".to_string(),
+			label: "GitHub".to_string(),
+			provider_username: Some("octocat".to_string()),
+		};
+
+		// Act
+		let json = serde_json::to_value(&entry).expect("serialize linked account");
+
+		// Assert
+		let obj = json.as_object().expect("entry is object");
+		assert_eq!(
+			obj.len(),
+			3,
+			"LinkedOAuthAccountInfo must serialize to exactly 3 fields, got {}: {json:?}",
+			obj.len()
+		);
+		assert_eq!(obj.get("provider").and_then(Value::as_str), Some("github"));
+		assert_eq!(obj.get("label").and_then(Value::as_str), Some("GitHub"));
+		assert_eq!(
+			obj.get("provider_username").and_then(Value::as_str),
+			Some("octocat")
+		);
 	}
 
 	#[rstest]

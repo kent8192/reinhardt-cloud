@@ -44,6 +44,11 @@ mod wasm_entry {
 		}
 	}
 
+	fn ensure_dashboard_chrome_for_path(ctx: &PathCtx<'_>) {
+		components::logout::ensure_logout_buttons_connected();
+		ensure_notifications_for_path(ctx);
+	}
+
 	/// WASM entry point — invoked automatically when the module loads.
 	#[wasm_bindgen(start)]
 	pub(super) fn main() -> Result<(), JsValue> {
@@ -64,10 +69,11 @@ mod wasm_entry {
 			.router_client(router::init_router)
 			.on_path("/", |ctx: &PathCtx<'_>| {
 				ctx.ensure_portal("toast-container", components::toast::toast_container);
-				ensure_notifications_for_path(ctx);
+				ensure_dashboard_chrome_for_path(ctx);
 			})
-			.on_path("/clusters", ensure_notifications_for_path)
-			.on_path("/deployments", ensure_notifications_for_path)
+			.on_path("/account", ensure_dashboard_chrome_for_path)
+			.on_path("/clusters", ensure_dashboard_chrome_for_path)
+			.on_path("/deployments", ensure_dashboard_chrome_for_path)
 			.launch()?;
 
 		Ok(())

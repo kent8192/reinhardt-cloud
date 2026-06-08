@@ -27,6 +27,12 @@ fn spa_routes_reverse_to_expected_paths() {
 	// Act + Assert — each named SPA route reverses to its declared path.
 	assert_eq!(
 		router
+			.reverse("auth:account_page", &[])
+			.expect("auth:account_page must be reversible"),
+		"/account"
+	);
+	assert_eq!(
+		router
 			.reverse("auth:login_page", &[])
 			.expect("auth:login_page must be reversible"),
 		"/login"

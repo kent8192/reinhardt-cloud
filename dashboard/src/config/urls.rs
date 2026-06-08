@@ -299,6 +299,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			.mount_unified("/", crate::apps::organizations::urls::url_patterns())
 			.server(|s| {
 				s.server_fn(server_fn::login::login::marker)
+					.server_fn(server_fn::linked_accounts::list_linked_oauth_accounts::marker)
 					.server_fn(server_fn::register::register::marker)
 					.server_fn(server_fn::logout::logout::marker)
 					.server_fn(server_fn::me::me::marker)

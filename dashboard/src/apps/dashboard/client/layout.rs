@@ -13,11 +13,11 @@ fn nav_item_class(is_active: bool) -> &'static str {
 
 /// Render the shared dashboard application chrome around a section page.
 pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
-	let login_href = "/login".to_string();
+	let account_href = "/account".to_string();
 	let home_href = "/".to_string();
 	let clusters_href = "/clusters".to_string();
 	let deployments_href = "/deployments".to_string();
-	page!(|active_item: &'static str, content: Page, login_href: String, home_href: String, clusters_href: String, deployments_href: String| {
+	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String| {
 		div {
 			class: "rc-app flex flex-col",
 			header {
@@ -39,9 +39,14 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 						"Dashboard"
 					}
 					a {
-						href: login_href,
+						href: account_href.clone(),
 						class: "rc-link",
-						"Login"
+						"Account"
+					}
+					button {
+						type: "button",
+						class: "rc-link js-dashboard-logout",
+						"Logout"
 					}
 				}
 			}
@@ -72,6 +77,13 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 								"Deployments"
 							}
 						}
+						li {
+							a {
+								href: account_href,
+								class: self::nav_item_class(active_item == "account"),
+								"Account"
+							}
+						}
 					}
 				}
 				main {
@@ -83,7 +95,7 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 	})(
 		active_item,
 		content,
-		login_href,
+		account_href,
 		home_href,
 		clusters_href,
 		deployments_href,
@@ -175,5 +187,23 @@ mod tests {
 
 		// Assert
 		assert_eq!(class, expected_class);
+	}
+
+	#[rstest]
+	fn dashboard_shell_renders_account_and_logout_controls() {
+		use reinhardt::pages::component::Page;
+
+		// Arrange
+		let content = Page::Empty;
+
+		// Act
+		let html = super::dashboard_app_shell("account", content).render_to_string();
+
+		// Assert
+		assert!(html.contains(r#"href="/account""#));
+		assert!(html.contains("Account"));
+		assert!(html.contains("js-dashboard-logout"));
+		assert!(html.contains("Logout"));
+		assert!(!html.contains(">Login<"));
 	}
 }

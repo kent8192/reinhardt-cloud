@@ -5,6 +5,7 @@
 //! handles conditional compilation: on the server the original async function
 //! runs, while on WASM a POST stub is generated automatically.
 
+pub mod linked_accounts;
 pub mod login;
 pub mod logout;
 pub mod me;
