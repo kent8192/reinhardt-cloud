@@ -12,6 +12,7 @@ pub mod auth;
 pub mod clusters;
 pub mod dashboard;
 pub mod deployments;
+pub mod github;
 pub mod health;
 pub mod organizations;
 #[cfg(native)]
