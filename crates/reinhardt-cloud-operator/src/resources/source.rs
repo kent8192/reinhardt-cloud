@@ -55,6 +55,14 @@ fn image_reference_without_tag(image: &str) -> &str {
 ///
 /// Returns `Error::MissingField` if `spec.source` is not set.
 pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Job, Error> {
+	build_kaniko_job_for_branch(app, image_tag, None)
+}
+
+pub(crate) fn build_kaniko_job_for_branch(
+	app: &ReinhardtApp,
+	image_tag: &str,
+	branch_override: Option<&str>,
+) -> Result<Job, Error> {
 	let source = app
 		.spec
 		.source
@@ -67,7 +75,9 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 	let app_name = app.name_any();
 
 	// Resolve defaults
-	let branch = source.branch.as_deref().unwrap_or("main");
+	let branch = branch_override
+		.filter(|branch| !branch.trim().is_empty())
+		.unwrap_or_else(|| source.branch.as_deref().unwrap_or("main"));
 	let build = source.build.as_ref();
 	let dockerfile = build
 		.and_then(|b| b.dockerfile.as_deref())
@@ -76,7 +86,8 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 	let destination = built_image_reference(app, image_tag)?;
 
 	// Truncate tag to 8 chars for the job name
-	let tag_prefix = &image_tag[..image_tag.len().min(8)];
+	let tag_prefix_start = image_tag.len().saturating_sub(8);
+	let tag_prefix = &image_tag[tag_prefix_start..];
 	let job_name = format!("{app_name}-build-{tag_prefix}");
 
 	// Build kaniko args
@@ -259,7 +270,7 @@ mod tests {
 		let job = build_kaniko_job(&app, "abc12345def").unwrap();
 
 		// Assert
-		assert_eq!(job.metadata.name.as_deref(), Some("my-app-build-abc12345"));
+		assert_eq!(job.metadata.name.as_deref(), Some("my-app-build-12345def"));
 	}
 
 	#[rstest]
@@ -304,6 +315,23 @@ mod tests {
 		assert!(
 			args.iter()
 				.any(|a| a.contains("--destination=ghcr.io/org/app:v1"))
+		);
+	}
+
+	#[rstest]
+	fn test_args_use_branch_override() {
+		// Arrange
+		let app = test_app_with_source("my-app");
+
+		// Act
+		let job = build_kaniko_job_for_branch(&app, "v1", Some("feature/login")).unwrap();
+		let container = &job.spec.unwrap().template.spec.unwrap().containers[0];
+		let args = container.args.as_ref().unwrap();
+
+		// Assert
+		assert!(
+			args.iter()
+				.any(|a| a.contains("--git=branch=feature/login,url="))
 		);
 	}
 

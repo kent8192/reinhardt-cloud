@@ -40,6 +40,11 @@ pub(crate) fn preview_app_name(parent_name: &str, pr_number: &str) -> String {
 	format!("{parent_name}-pr-{pr_number}")
 }
 
+/// Generates the image tag used for a PR preview build.
+pub(crate) fn preview_image_tag(pr_number: &str, short_commit_sha: &str) -> String {
+	format!("pr-{pr_number}-{short_commit_sha}")
+}
+
 /// Replaces template placeholders in a URL template string.
 ///
 /// Supported placeholders: `{app}`, `{pr_number}`, `{branch}`.
@@ -49,10 +54,48 @@ pub(crate) fn preview_ingress_host(
 	pr_number: &str,
 	branch: &str,
 ) -> String {
+	let branch = dns_safe_label(branch);
 	template
 		.replace("{app}", app_name)
 		.replace("{pr_number}", pr_number)
-		.replace("{branch}", branch)
+		.replace("{branch}", &branch)
+}
+
+fn dns_safe_label(value: &str) -> String {
+	let mut label = String::with_capacity(value.len().min(63));
+	let mut previous_dash = false;
+	for character in value.chars().flat_map(char::to_lowercase) {
+		let normalized = if character.is_ascii_alphanumeric() {
+			Some(character)
+		} else if character == '-' || character == '_' || character == '.' || character == '/' {
+			Some('-')
+		} else {
+			None
+		};
+		let Some(character) = normalized else {
+			continue;
+		};
+		if character == '-' {
+			if label.is_empty() || previous_dash {
+				continue;
+			}
+			previous_dash = true;
+		} else {
+			previous_dash = false;
+		}
+		if label.len() == 63 {
+			break;
+		}
+		label.push(character);
+	}
+	while label.ends_with('-') {
+		label.pop();
+	}
+	if label.is_empty() {
+		"branch".to_string()
+	} else {
+		label
+	}
 }
 
 /// Builds a `ReinhardtAppSpec` for a preview environment from a parent app.
@@ -244,6 +287,15 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_preview_image_tag_includes_pr_and_commit() {
+		// Arrange, Act
+		let tag = preview_image_tag("42", "abcdef12");
+
+		// Assert
+		assert_eq!(tag, "pr-42-abcdef12");
+	}
+
+	#[rstest]
 	fn test_preview_labels_returns_correct_labels() {
 		// Arrange & Act
 		let labels = preview_labels("my-app", "42");
@@ -359,7 +411,7 @@ mod tests {
 			.ingress_host
 			.as_ref()
 			.unwrap();
-		assert_eq!(host, "feature/login.pr-42.my-app-pr-42.example.com");
+		assert_eq!(host, "feature-login.pr-42.my-app-pr-42.example.com");
 	}
 
 	#[rstest]

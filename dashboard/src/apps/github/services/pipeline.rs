@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use reinhardt_cloud_types::introspect::IntrospectOutput;
-use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -175,17 +174,14 @@ async fn command_output_with_timeout(
 	timeout: Option<Duration>,
 ) -> Result<std::process::Output, String> {
 	command.stdout(Stdio::piped()).stderr(Stdio::piped());
-	let mut child = command
+	command.kill_on_drop(true);
+	let child = command
 		.spawn()
 		.map_err(|e| format!("Failed to run {label}: {e}"))?;
-	let mut stdout = child.stdout.take();
-	let mut stderr = child.stderr.take();
-	let status = match timeout {
-		Some(timeout) => match tokio::time::timeout(timeout, child.wait()).await {
-			Ok(status) => status.map_err(|e| format!("Failed to wait for {label}: {e}"))?,
+	let output = match timeout {
+		Some(timeout) => match tokio::time::timeout(timeout, child.wait_with_output()).await {
+			Ok(output) => output.map_err(|e| format!("Failed to wait for {label}: {e}"))?,
 			Err(_) => {
-				let _ = child.start_kill();
-				let _ = child.wait().await;
 				return Err(format!(
 					"{label} timed out after {} seconds",
 					timeout.as_secs()
@@ -193,32 +189,14 @@ async fn command_output_with_timeout(
 			}
 		},
 		None => child
-			.wait()
+			.wait_with_output()
 			.await
 			.map_err(|e| format!("Failed to wait for {label}: {e}"))?,
 	};
-	let mut stdout_bytes = Vec::new();
-	if let Some(stdout) = stdout.as_mut() {
-		stdout
-			.read_to_end(&mut stdout_bytes)
-			.await
-			.map_err(|e| format!("Failed to read {label} stdout: {e}"))?;
-	}
-	let mut stderr_bytes = Vec::new();
-	if let Some(stderr) = stderr.as_mut() {
-		stderr
-			.read_to_end(&mut stderr_bytes)
-			.await
-			.map_err(|e| format!("Failed to read {label} stderr: {e}"))?;
-	};
-	if status.success() {
-		Ok(std::process::Output {
-			status,
-			stdout: stdout_bytes,
-			stderr: stderr_bytes,
-		})
+	if output.status.success() {
+		Ok(output)
 	} else {
-		let stderr = String::from_utf8_lossy(&stderr_bytes);
+		let stderr = String::from_utf8_lossy(&output.stderr);
 		Err(format!("{label} failed: {stderr}"))
 	}
 }

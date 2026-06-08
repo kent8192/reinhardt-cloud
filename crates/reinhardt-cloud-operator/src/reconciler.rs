@@ -35,7 +35,9 @@ use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
-use crate::resources::source::{build_kaniko_job, built_image_reference, should_build_from_source};
+use crate::resources::source::{
+	build_kaniko_job, build_kaniko_job_for_branch, built_image_reference, should_build_from_source,
+};
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
@@ -472,8 +474,35 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			.and_then(|a| a.get("reinhardt.dev/build-trigger"));
 		if let Some(trigger_ts) = trigger {
 			let short_trigger: String = trigger_ts.chars().take(8).collect();
-			let image_tag = format!("{name}-{short_trigger}");
-			let job = build_kaniko_job(&app, &image_tag)?;
+			let preview_action = app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/preview-action"))
+				.map(String::as_str);
+			let pr_number = app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/pr-number"));
+			let pr_branch = app
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
+				.map(String::as_str);
+			let preview_build = matches!(preview_action, Some("create" | "update"))
+				.then_some(pr_number)
+				.flatten();
+			let image_tag = preview_build.map_or_else(
+				|| format!("{name}-{short_trigger}"),
+				|pr_number| preview::preview_image_tag(pr_number, &short_trigger),
+			);
+			let job = if preview_build.is_some() {
+				build_kaniko_job_for_branch(&app, &image_tag, pr_branch)?
+			} else {
+				build_kaniko_job(&app, &image_tag)?
+			};
 			let built_image = built_image_reference(&app, &image_tag)?;
 			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
 			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
@@ -490,18 +519,18 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				info!("Created build Job {namespace}/{job_name}");
 			}
 
-			// Clear the build-trigger annotation and point the workload at
-			// the same image reference that the build Job pushes.
-			let patch = serde_json::json!({
+			// Clear the build-trigger annotation. Production builds also
+			// point the parent workload at the image that the build Job pushes.
+			let mut patch = serde_json::json!({
 				"metadata": {
 					"annotations": {
 						"reinhardt.dev/build-trigger": null
 					}
-				},
-				"spec": {
-					"image": built_image
 				}
 			});
+			if preview_build.is_none() {
+				patch["spec"] = serde_json::json!({ "image": built_image });
+			}
 			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
 			app_api
 				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
@@ -541,7 +570,14 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 
 			match action.as_str() {
 				"create" | "update" => {
-					let image_tag = format!("pr-{pr_number}-latest");
+					let short_trigger = app
+						.metadata
+						.annotations
+						.as_ref()
+						.and_then(|a| a.get("reinhardt.dev/build-trigger"))
+						.map(|trigger| trigger.chars().take(8).collect::<String>())
+						.unwrap_or_else(|| "latest".to_string());
+					let image_tag = preview::preview_image_tag(&pr_number, &short_trigger);
 					let preview_spec =
 						preview::build_preview_spec(&app, &pr_number, &image_tag, pr_branch)?;
 					let preview_labels = preview::preview_labels(&name, &pr_number);
