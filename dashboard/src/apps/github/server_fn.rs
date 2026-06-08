@@ -74,6 +74,20 @@ async fn ensure_github_account_linked(
 }
 
 #[cfg(native)]
+async fn rollback_created_deployment(deployment_id: i64) {
+	use reinhardt::Model;
+
+	if let Err(delete_err) = crate::apps::deployments::models::Deployment::objects()
+		.delete(deployment_id)
+		.await
+	{
+		tracing::warn!(
+			"Failed to roll back deployment {deployment_id} after GitHub import persistence error: {delete_err}"
+		);
+	}
+}
+
+#[cfg(native)]
 async fn agent_registry()
 -> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
 	use reinhardt::di::{ContextLevel, get_di_context};
@@ -404,19 +418,28 @@ pub async fn import_github_repository_for_current_org(
 			.production_branch(production_branch)
 			.status("imported".to_string())
 			.finish();
-		let project = crate::apps::github::models::GitHubProject::objects()
+		let project = match crate::apps::github::models::GitHubProject::objects()
 			.create(&project)
 			.await
-			.map_err(|e| {
-				ServerFnError::application(format!("Failed to create GitHub project: {e}"))
-			})?;
+		{
+			Ok(project) => project,
+			Err(e) => {
+				rollback_created_deployment(deployment_id).await;
+				return Err(ServerFnError::application(format!(
+					"Failed to create GitHub project: {e}"
+				)));
+			}
+		};
 		repository.selected = true;
-		crate::apps::github::models::GitHubRepository::objects()
+		if let Err(e) = crate::apps::github::models::GitHubRepository::objects()
 			.update(&repository)
 			.await
-			.map_err(|e| {
-				ServerFnError::application(format!("Failed to update GitHub repository: {e}"))
-			})?;
+		{
+			rollback_created_deployment(deployment_id).await;
+			return Err(ServerFnError::application(format!(
+				"Failed to update GitHub repository: {e}"
+			)));
+		}
 		Ok(github_project_info(project))
 	}
 	#[cfg(wasm)]

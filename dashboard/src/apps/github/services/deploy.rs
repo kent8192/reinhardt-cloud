@@ -75,7 +75,7 @@ pub async fn send_git_credentials_secret_to_cluster(
 				app_name: app_name.to_string(),
 				namespace: namespace.to_string(),
 				secret_name: secret_name.to_string(),
-				git_token: git_token.to_string(),
+				git_token: reinhardt_cloud_types::agent::SecretString::new(git_token.to_string()),
 			},
 		)
 		.await

@@ -130,6 +130,13 @@ pub async fn github_webhook(
 		.reinhardt_app_yaml
 		.as_deref()
 		.ok_or_else(|| AppError::Internal("Updated deployment missing manifest".to_string()))?;
+	Deployment::objects()
+		.update(&deployment)
+		.await
+		.map_err(|e| {
+			error!("Failed to update deployment {deployment_id} from GitHub webhook: {e}");
+			AppError::Internal("Failed to update deployment".to_string())
+		})?;
 	let cluster_id = *deployment.cluster_id();
 	let cluster = Cluster::objects()
 		.filter(Cluster::field_id().eq(cluster_id))
@@ -140,24 +147,25 @@ pub async fn github_webhook(
 			AppError::Internal("Failed to load deployment cluster".to_string())
 		})?
 		.ok_or_else(|| AppError::NotFound("Deployment cluster not found".to_string()))?;
-	crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
+	if let Err(e) = crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
 		&agent_registry.0,
 		&cluster,
 		&project.app_name,
 		manifest,
 	)
 	.await
-	.map_err(|e| {
+	{
 		error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
-		AppError::Internal("Failed to apply ReinhardtApp manifest".to_string())
-	})?;
-	Deployment::objects()
-		.update(&deployment)
-		.await
-		.map_err(|e| {
-			error!("Failed to update deployment {deployment_id} from GitHub webhook: {e}");
-			AppError::Internal("Failed to update deployment".to_string())
-		})?;
+		deployment.status = "error".to_string();
+		if let Err(update_err) = Deployment::objects().update(&deployment).await {
+			error!(
+				"Failed to mark deployment {deployment_id} error after GitHub webhook apply failure: {update_err}"
+			);
+		}
+		return Err(AppError::Internal(
+			"Failed to apply ReinhardtApp manifest".to_string(),
+		));
+	}
 	info!("github webhook applied {action_name} to deployment {deployment_id}");
 
 	json_response(

@@ -28,12 +28,26 @@ pub(crate) fn built_image_reference(app: &ReinhardtApp, image_tag: &str) -> Resu
 		.source
 		.as_ref()
 		.ok_or(Error::MissingField("spec.source"))?;
-	let registry = source
+	let base = source
 		.build
 		.as_ref()
 		.and_then(|b| b.registry.as_deref())
-		.unwrap_or(&app.spec.image);
-	Ok(format!("{registry}:{image_tag}"))
+		.map(str::to_string)
+		.unwrap_or_else(|| image_reference_without_tag(&app.spec.image).to_string());
+	Ok(format!("{base}:{image_tag}"))
+}
+
+fn image_reference_without_tag(image: &str) -> &str {
+	let image_without_digest = image.split_once('@').map_or(image, |(base, _)| base);
+	let last_slash = image_without_digest.rfind('/');
+	let last_colon = image_without_digest.rfind(':');
+
+	if matches!((last_slash, last_colon), (_, Some(colon)) if last_slash.is_none_or(|slash| colon > slash))
+	{
+		&image_without_digest[..last_colon.expect("colon exists")]
+	} else {
+		image_without_digest
+	}
 }
 
 /// Builds a kaniko `Job` that clones the source repository and pushes
@@ -315,7 +329,21 @@ mod tests {
 		let image = built_image_reference(&app, "v1").unwrap();
 
 		// Assert
-		assert_eq!(image, "placeholder:latest:v1");
+		assert_eq!(image, "placeholder:v1");
+	}
+
+	#[rstest]
+	fn test_built_image_reference_fallback_preserves_registry_port() {
+		// Arrange
+		let mut app = test_app_with_source("my-app");
+		app.spec.image = "localhost:5000/org/app:latest".to_string();
+		app.spec.source.as_mut().unwrap().build = None;
+
+		// Act
+		let image = built_image_reference(&app, "v1").unwrap();
+
+		// Assert
+		assert_eq!(image, "localhost:5000/org/app:v1");
 	}
 
 	#[rstest]

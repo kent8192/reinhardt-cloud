@@ -108,7 +108,7 @@ before drawing conclusions.**
 > `containerPort: 8000`, and the requested replica count. That legacy path
 > is not a `ReinhardtApp` CRD and therefore does not trigger operator
 > reconciliation.
-
+>
 > **Current State: GitHub import path** — The dashboard lists repositories
 > visible to the GitHub App installation, obtains an installation access
 > token, clones the selected repository into a temporary checkout, runs

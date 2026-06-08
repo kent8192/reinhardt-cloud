@@ -73,7 +73,7 @@ fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
 				app_name: app_name.clone(),
 				namespace: namespace.clone(),
 				secret_name: secret_name.clone(),
-				git_token: git_token.clone(),
+				git_token: git_token.expose_secret().to_string(),
 			},
 		)),
 	};
@@ -891,12 +891,12 @@ mod tests {
 		"ApplyReinhardtApp"
 	)]
 	#[case(
-		AgentCommand::ApplyGitCredentialsSecret {
-			app_name: "a".into(),
-			namespace: "default".into(),
-			secret_name: "a-github-git-credentials".into(),
-			git_token: "token".into(),
-		},
+			AgentCommand::ApplyGitCredentialsSecret {
+				app_name: "a".into(),
+				namespace: "default".into(),
+				secret_name: "a-github-git-credentials".into(),
+				git_token: reinhardt_cloud_types::agent::SecretString::new("token".into()),
+			},
 		"ApplyGitCredentialsSecret"
 	)]
 	fn test_command_variant_maps_to_correct_oneof(

@@ -1,8 +1,50 @@
 //! Cluster agent domain types for gRPC agent communication.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use std::fmt;
 use uuid::Uuid;
+
+/// Secret string that redacts sensitive values in debug and JSON output.
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+pub struct SecretString(String);
+
+impl SecretString {
+	pub fn new(value: String) -> Self {
+		Self(value)
+	}
+
+	pub fn expose_secret(&self) -> &str {
+		&self.0
+	}
+}
+
+impl fmt::Debug for SecretString {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str("[REDACTED]")
+	}
+}
+
+impl Serialize for SecretString {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str("[REDACTED]")
+	}
+}
+
+impl<'de> From<&'de str> for SecretString {
+	fn from(value: &'de str) -> Self {
+		Self(value.to_string())
+	}
+}
+
+impl From<String> for SecretString {
+	fn from(value: String) -> Self {
+		Self(value)
+	}
+}
 
 /// Information about a connected cluster agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +83,7 @@ pub enum AgentCommand {
 		app_name: String,
 		namespace: String,
 		secret_name: String,
-		git_token: String,
+		git_token: SecretString,
 	},
 }
 
@@ -165,13 +207,18 @@ mod tests {
 				app_name: "web".to_string(),
 				namespace: "default".to_string(),
 				secret_name: "web-github-git-credentials".to_string(),
-				git_token: "token".to_string(),
+				git_token: SecretString::new("token".to_string()),
 			},
 		];
 
 		// Act & Assert
 		for cmd in &commands {
 			let json = serde_json::to_string(cmd).unwrap();
+			if matches!(cmd, AgentCommand::ApplyGitCredentialsSecret { .. }) {
+				assert!(!json.contains(":\"token\""));
+				assert!(json.contains("[REDACTED]"));
+				continue;
+			}
 			let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
 			assert_eq!(&deserialized, cmd);
 		}
@@ -444,7 +491,7 @@ mod tests {
 					app_name: "app".to_string(),
 					namespace: "default".to_string(),
 					secret_name: "app-github-git-credentials".to_string(),
-					git_token: "token".to_string(),
+					git_token: SecretString::new("token".to_string()),
 				},
 			),
 		];
@@ -482,17 +529,22 @@ mod tests {
 						app_name: app_name.clone(),
 						yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".into(),
 					},
-					_ => AgentCommand::ApplyGitCredentialsSecret {
-						app_name: app_name.clone(),
-						namespace: "default".into(),
-						secret_name: format!("{app_name}-github-git-credentials"),
-						git_token: "token".into(),
-					},
-				};
-				let json = serde_json::to_string(&cmd).unwrap();
-				let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
-				prop_assert_eq!(deserialized, cmd);
-			}
+						_ => AgentCommand::ApplyGitCredentialsSecret {
+							app_name: app_name.clone(),
+							namespace: "default".into(),
+							secret_name: format!("{app_name}-github-git-credentials"),
+							git_token: SecretString::new("token".into()),
+						},
+					};
+					let json = serde_json::to_string(&cmd).unwrap();
+					if matches!(cmd, AgentCommand::ApplyGitCredentialsSecret { .. }) {
+						prop_assert!(!json.contains(":\"token\""));
+						prop_assert!(json.contains("[REDACTED]"));
+						return Ok(());
+					}
+					let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
+					prop_assert_eq!(deserialized, cmd);
+				}
 
 			#[test]
 			fn fuzz_agent_command_deserialize_no_panic(s in "\\PC*") {
