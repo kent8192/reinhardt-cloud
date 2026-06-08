@@ -5600,6 +5600,7 @@ dependencies = [
  "indexmap 2.14.0",
  "inventory",
  "js-sys",
+ "jsonwebtoken 9.3.1",
  "lettre",
  "linkme",
  "percent-encoding",

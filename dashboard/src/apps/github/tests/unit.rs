@@ -1,6 +1,158 @@
 //! Unit tests for GitHub App integration.
 
 #[cfg(test)]
+pub mod client_tests {
+	use reqwest::Client;
+	use rstest::rstest;
+	use serde_json::json;
+	use wiremock::matchers::{header, method, path, query_param};
+	use wiremock::{Mock, MockServer, ResponseTemplate};
+
+	use crate::apps::github::services::client::{
+		ReqwestGitHubAppClient, installation_access_tokens_url, installation_repositories_url,
+	};
+	use crate::apps::github::services::config::GitHubAppSettings;
+
+	fn test_settings(api_base_url: String) -> GitHubAppSettings {
+		GitHubAppSettings {
+			app_id: 12_345,
+			private_key_pem: "unused-private-key".to_string(),
+			webhook_secret: "unused-webhook-secret".to_string(),
+			api_base_url,
+		}
+	}
+
+	fn repository_json(
+		id: i64,
+		owner_login: &str,
+		full_name: &str,
+		name: &str,
+		private: bool,
+		default_branch: &str,
+	) -> serde_json::Value {
+		json!({
+			"id": id,
+			"full_name": full_name,
+			"name": name,
+			"private": private,
+			"default_branch": default_branch,
+			"owner": {
+				"login": owner_login,
+			},
+		})
+	}
+
+	#[rstest]
+	fn test_github_app_client_builds_installation_urls_with_base_path() {
+		// Arrange
+		let api_base_url = "https://github.example.test/api/v3/";
+
+		// Act
+		let access_token_url =
+			installation_access_tokens_url(api_base_url, 987_654).expect("url should build");
+		let repositories_url =
+			installation_repositories_url(api_base_url).expect("url should build");
+
+		// Assert
+		assert_eq!(
+			access_token_url.as_str(),
+			"https://github.example.test/api/v3/app/installations/987654/access_tokens"
+		);
+		assert_eq!(
+			repositories_url.as_str(),
+			"https://github.example.test/api/v3/installation/repositories"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_github_app_client_lists_repositories_with_headers_and_pagination() {
+		// Arrange
+		let server = MockServer::start().await;
+		let mut first_page_repositories = vec![repository_json(
+			1,
+			"kent8192",
+			"kent8192/reinhardt-cloud",
+			"reinhardt-cloud",
+			true,
+			"main",
+		)];
+		for id in 2..=100 {
+			first_page_repositories.push(repository_json(
+				id,
+				"kent8192",
+				&format!("kent8192/repo-{id}"),
+				&format!("repo-{id}"),
+				false,
+				"trunk",
+			));
+		}
+		let first_page = json!({
+			"total_count": 101,
+			"repositories": first_page_repositories,
+		});
+		let second_page_repositories = vec![repository_json(
+			101,
+			"kent8192",
+			"kent8192/repo-101",
+			"repo-101",
+			false,
+			"trunk",
+		)];
+		let second_page = json!({
+			"total_count": 101,
+			"repositories": second_page_repositories,
+		});
+		Mock::given(method("GET"))
+			.and(path("/installation/repositories"))
+			.and(query_param("per_page", "100"))
+			.and(query_param("page", "1"))
+			.and(header("authorization", "Bearer installation-token"))
+			.and(header("accept", "application/vnd.github+json"))
+			.and(header("x-github-api-version", "2022-11-28"))
+			.respond_with(ResponseTemplate::new(200).set_body_json(first_page))
+			.expect(1)
+			.mount(&server)
+			.await;
+		Mock::given(method("GET"))
+			.and(path("/installation/repositories"))
+			.and(query_param("per_page", "100"))
+			.and(query_param("page", "2"))
+			.and(header("authorization", "Bearer installation-token"))
+			.and(header("accept", "application/vnd.github+json"))
+			.and(header("x-github-api-version", "2022-11-28"))
+			.respond_with(ResponseTemplate::new(200).set_body_json(second_page))
+			.expect(1)
+			.mount(&server)
+			.await;
+		let client = ReqwestGitHubAppClient::with_http_client(
+			test_settings(server.uri()),
+			Client::builder()
+				.build()
+				.expect("reqwest client should build"),
+		);
+
+		// Act
+		let repositories = client
+			.list_repositories_with_token("installation-token")
+			.await
+			.expect("repositories should list");
+
+		// Assert
+		assert_eq!(repositories.len(), 101);
+		assert_eq!(repositories[0].owner_login, "kent8192");
+		assert_eq!(repositories[0].id, 1);
+		assert_eq!(repositories[0].full_name, "kent8192/reinhardt-cloud");
+		assert_eq!(repositories[0].name, "reinhardt-cloud");
+		assert_eq!(repositories[0].private, true);
+		assert_eq!(repositories[0].default_branch, "main");
+		assert_eq!(repositories[100].full_name, "kent8192/repo-101");
+		assert_eq!(repositories[100].private, false);
+		assert_eq!(repositories[100].default_branch, "trunk");
+	}
+}
+
+#[cfg(test)]
 pub mod config_tests {
 	use rstest::rstest;
 	use serial_test::serial;
@@ -142,6 +294,17 @@ pub mod config_tests {
 
 #[cfg(test)]
 pub mod model_tests {
+	// Included migration files keep `pub fn migration()` because production
+	// discovery loads that symbol from standalone migration modules.
+	#[allow(unreachable_pub)]
+	mod github_initial_migration {
+		include!(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/migrations/github/0001_initial.rs"
+		));
+	}
+
+	use reinhardt::db::migrations::operations::{ColumnDefinition, Operation};
 	use reinhardt::db::orm::Model;
 	use rstest::rstest;
 
@@ -205,5 +368,255 @@ pub mod model_tests {
 		assert_eq!(repository.default_branch, default_branch);
 		assert_eq!(repository.private, true);
 		assert_eq!(repository.selected, false);
+	}
+
+	#[rstest]
+	fn test_github_initial_migration_matches_persistent_models() {
+		// Arrange
+		let migration = github_initial_migration::migration();
+
+		// Act
+		let installation_columns =
+			create_table_columns(&migration.operations, "github_installations");
+		let repository_columns = create_table_columns(&migration.operations, "github_repositories");
+
+		// Assert
+		assert_eq!(migration.app_label, GitHubInstallation::app_label());
+		assert_eq!(migration.name, "0001_initial");
+		assert_eq!(
+			migration.dependencies,
+			vec![("organizations".to_string(), "0001_initial".to_string())]
+		);
+		assert_column(
+			installation_columns,
+			"id",
+			"BigInteger",
+			true,
+			false,
+			true,
+			true,
+		);
+		assert_column(
+			installation_columns,
+			"organization_id",
+			"BigInteger",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			installation_columns,
+			"installation_id",
+			"BigInteger",
+			false,
+			true,
+			true,
+			false,
+		);
+		assert_column(
+			installation_columns,
+			"account_login",
+			"VarChar(255)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			installation_columns,
+			"account_type",
+			"VarChar(32)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			installation_columns,
+			"status",
+			"VarChar(32)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"id",
+			"BigInteger",
+			true,
+			false,
+			true,
+			true,
+		);
+		assert_column(
+			repository_columns,
+			"installation_id",
+			"BigInteger",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"github_repository_id",
+			"BigInteger",
+			false,
+			true,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"full_name",
+			"VarChar(512)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"owner_login",
+			"VarChar(255)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"name",
+			"VarChar(255)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"default_branch",
+			"VarChar(255)",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"private",
+			"Boolean",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert_column(
+			repository_columns,
+			"selected",
+			"Boolean",
+			false,
+			false,
+			true,
+			false,
+		);
+		assert!(
+			has_constraint(
+				&migration.operations,
+				"github_installations",
+				"github_installations_organization_id_fk"
+			),
+			"github_installations must reference organizations"
+		);
+		assert!(
+			has_constraint(
+				&migration.operations,
+				"github_repositories",
+				"github_repositories_installation_id_fk"
+			),
+			"github_repositories must reference github_installations"
+		);
+		assert!(
+			has_index(
+				&migration.operations,
+				"github_installations",
+				"organization_id"
+			),
+			"github_installations.organization_id must be indexed"
+		);
+		assert!(
+			has_index(
+				&migration.operations,
+				"github_repositories",
+				"installation_id"
+			),
+			"github_repositories.installation_id must be indexed"
+		);
+	}
+
+	fn create_table_columns<'a>(
+		operations: &'a [Operation],
+		table_name: &str,
+	) -> &'a [ColumnDefinition] {
+		operations
+			.iter()
+			.find_map(|operation| match operation {
+				Operation::CreateTable { name, columns, .. } if name == table_name => {
+					Some(columns.as_slice())
+				}
+				_ => None,
+			})
+			.unwrap_or_else(|| panic!("{table_name} table must be created"))
+	}
+
+	fn assert_column(
+		columns: &[ColumnDefinition],
+		name: &str,
+		field_type: &str,
+		primary_key: bool,
+		unique: bool,
+		not_null: bool,
+		auto_increment: bool,
+	) {
+		let column = columns
+			.iter()
+			.find(|column| column.name == name)
+			.unwrap_or_else(|| panic!("{name} column must exist"));
+		assert_eq!(format!("{:?}", column.type_definition), field_type);
+		assert_eq!(column.primary_key, primary_key, "{name}.primary_key");
+		assert_eq!(column.unique, unique, "{name}.unique");
+		assert_eq!(column.not_null, not_null, "{name}.not_null");
+		assert_eq!(
+			column.auto_increment, auto_increment,
+			"{name}.auto_increment"
+		);
+	}
+
+	fn has_constraint(operations: &[Operation], table_name: &str, constraint_name: &str) -> bool {
+		operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::AddConstraint {
+					table,
+					constraint_sql,
+				} if table == table_name && constraint_sql.contains(constraint_name)
+			)
+		})
+	}
+
+	fn has_index(operations: &[Operation], table_name: &str, column_name: &str) -> bool {
+		operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::CreateIndex {
+					table,
+					columns,
+					unique: false,
+					..
+				} if table == table_name && columns == &vec![column_name.to_string()]
+			)
+		})
 	}
 }
