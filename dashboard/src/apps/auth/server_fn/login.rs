@@ -66,7 +66,8 @@ pub async fn login(
 #[cfg(native)]
 fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
 	match err {
-		AppError::Authentication(message) => ServerFnError::application(message),
+		AppError::Authentication(message) => ServerFnError::server(401, message),
+		AppError::Authorization(message) => ServerFnError::server(403, message),
 		_ => {
 			tracing::error!("verify_credentials internal error: {err}");
 			ServerFnError::application("Internal server error")
@@ -82,7 +83,7 @@ mod tests {
 	use super::*;
 
 	#[rstest]
-	fn test_authentication_error_stays_application_error() {
+	fn test_authentication_error_becomes_unauthorized_server_error() {
 		// Arrange
 		let err = AppError::Authentication("Invalid credentials".to_string());
 
@@ -91,7 +92,26 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Invalid credentials");
-		assert!(matches!(server_fn_error, ServerFnError::Application(_)));
+		assert!(matches!(
+			server_fn_error,
+			ServerFnError::Server { status: 401, .. }
+		));
+	}
+
+	#[rstest]
+	fn test_authorization_error_becomes_forbidden_server_error() {
+		// Arrange
+		let err = AppError::Authorization("Email verification required".to_string());
+
+		// Act
+		let server_fn_error = server_fn_error_from_app_error(err);
+
+		// Assert
+		assert_eq!(server_fn_error.message(), "Email verification required");
+		assert!(matches!(
+			server_fn_error,
+			ServerFnError::Server { status: 403, .. }
+		));
 	}
 
 	#[rstest]
