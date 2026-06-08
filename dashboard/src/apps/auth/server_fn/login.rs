@@ -2,6 +2,9 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
+#[cfg(native)]
+use reinhardt::core::exception::Error as AppError;
+
 use crate::shared::AuthResponse;
 
 /// Authenticate user with credentials and set session cookie.
@@ -30,16 +33,7 @@ pub async fn login(
 
 		let user = services::verify_credentials(&username, &password)
 			.await
-			.map_err(|err| {
-				// Log internal errors for operational visibility while keeping
-				// the client-facing message generic to prevent information leakage.
-				let msg = err.to_string();
-				if msg != "Invalid credentials" {
-					error!("verify_credentials internal error: {msg}");
-					return ServerFnError::application("Internal server error");
-				}
-				ServerFnError::application("Invalid credentials")
-			})?;
+			.map_err(server_fn_error_from_app_error)?;
 
 		let session_id = session_service.create_session(&user).await.map_err(|err| {
 			error!("Failed to create session: {err}");
@@ -66,5 +60,50 @@ pub async fn login(
 		// declaration on both targets.
 		let _ = (username, password, http_request, settings, session_service);
 		unreachable!("server_fn body is replaced on wasm")
+	}
+}
+
+#[cfg(native)]
+fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
+	match err {
+		AppError::Authentication(message) => ServerFnError::application(message),
+		_ => {
+			tracing::error!("verify_credentials internal error: {err}");
+			ServerFnError::application("Internal server error")
+		}
+	}
+}
+
+#[cfg(all(test, native))]
+mod tests {
+	use reinhardt::pages::server_fn::ServerFnError;
+	use rstest::rstest;
+
+	use super::*;
+
+	#[rstest]
+	fn test_authentication_error_stays_application_error() {
+		// Arrange
+		let err = AppError::Authentication("Invalid credentials".to_string());
+
+		// Act
+		let server_fn_error = server_fn_error_from_app_error(err);
+
+		// Assert
+		assert_eq!(server_fn_error.message(), "Invalid credentials");
+		assert!(matches!(server_fn_error, ServerFnError::Application(_)));
+	}
+
+	#[rstest]
+	fn test_internal_error_uses_generic_application_error() {
+		// Arrange
+		let err = AppError::Internal("database unavailable".to_string());
+
+		// Act
+		let server_fn_error = server_fn_error_from_app_error(err);
+
+		// Assert
+		assert_eq!(server_fn_error.message(), "Internal server error");
+		assert!(matches!(server_fn_error, ServerFnError::Application(_)));
 	}
 }

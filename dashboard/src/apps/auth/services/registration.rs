@@ -122,6 +122,18 @@ pub async fn provision_personal_organization(created: &User) -> Result<(), AppEr
 /// Create a Personal `Organization` and Owner membership for an existing
 /// active user without rolling the user back on failure.
 pub async fn ensure_personal_organization(user: &User) -> Result<(), AppError> {
+	let existing = OrganizationMembership::objects()
+		.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+		.first()
+		.await
+		.map_err(|e| {
+			error!("Failed to look up existing Personal Org membership: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
+	if existing.is_some() {
+		return Ok(());
+	}
+
 	provision_personal_organization_inner(user, false).await
 }
 

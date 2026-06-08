@@ -12,7 +12,9 @@ mod tests {
 
 	use reinhardt::BaseUser;
 	use reinhardt::auth::social::core::claims::StandardClaims;
-	use reinhardt::auth::social::storage::{InMemorySocialAccountStorage, SocialAccountStorage};
+	use reinhardt::auth::social::storage::{
+		InMemorySocialAccountStorage, SocialAccount, SocialAccountStorage,
+	};
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
@@ -24,6 +26,7 @@ mod tests {
 
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
+	use crate::apps::organizations::models::OrganizationMembership;
 	use reinhardt::UrlReverser;
 
 	#[fixture]
@@ -79,6 +82,15 @@ mod tests {
 			.finish();
 		user.set_password("test-password-1234").unwrap();
 		User::objects().create(&user).await.expect("seed user").id
+	}
+
+	async fn membership_count(user_id: uuid::Uuid) -> usize {
+		OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+			.all()
+			.await
+			.expect("query memberships")
+			.len()
 	}
 
 	#[rstest]
@@ -249,6 +261,64 @@ mod tests {
 		let links = storage.find_by_user(user.id).await.unwrap();
 		assert_eq!(links.len(), 1);
 		assert_eq!(links[0].provider, "github");
+		assert_eq!(
+			membership_count(user.id).await,
+			1,
+			"new OAuth users must receive a Personal Org membership",
+		);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_already_linked_user_without_membership_is_repaired(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_c, _conn, _cli, _urls) = db.await;
+		let user_id = seed_user("link_stranded", "stranded@example.com").await;
+		assert_eq!(membership_count(user_id).await, 0);
+
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = github_claims("gh_stranded_1", Some("stranded@example.com"), Some(true));
+		let now = chrono::Utc::now();
+		storage
+			.create(SocialAccount {
+				id: uuid::Uuid::now_v7(),
+				user_id,
+				provider: "github".to_string(),
+				provider_user_id: "gh_stranded_1".to_string(),
+				email: Some("stranded@example.com".to_string()),
+				display_name: Some("link_stranded".to_string()),
+				picture: None,
+				access_token: String::new(),
+				refresh_token: None,
+				token_expires_at: now,
+				scopes: Vec::new(),
+				created_at: now,
+				updated_at: now,
+			})
+			.await
+			.expect("seed social link");
+		assert_eq!(membership_count(user_id).await, 0);
+
+		// Act
+		let user = link_or_create_user(&storage, "github", &claims, None)
+			.await
+			.expect("already-linked OAuth login should repair the user invariant");
+
+		// Assert
+		assert_eq!(user.id, user_id);
+		assert_eq!(
+			membership_count(user_id).await,
+			1,
+			"repair must not create duplicate memberships",
+		);
 	}
 
 	#[rstest]

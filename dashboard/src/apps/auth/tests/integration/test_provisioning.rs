@@ -20,7 +20,9 @@ mod tests {
 	use std::sync::Arc;
 
 	use crate::apps::auth::models::User;
-	use crate::apps::auth::services::registration::provision_personal_organization;
+	use crate::apps::auth::services::registration::{
+		ensure_personal_organization, provision_personal_organization,
+	};
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::sanitize_username_to_slug;
 	use reinhardt::UrlReverser;
@@ -184,5 +186,37 @@ mod tests {
 			"retry suffix must be exactly 6 chars; got slug: {}",
 			new_org.slug,
 		);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_ensure_personal_organization_is_idempotent(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let user = create_user("idempotent", "idempotent@example.com").await;
+		ensure_personal_organization(&user)
+			.await
+			.expect("first ensure should provision membership");
+
+		// Act
+		ensure_personal_organization(&user)
+			.await
+			.expect("second ensure should be a no-op");
+
+		// Assert
+		let memberships = OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.all()
+			.await
+			.expect("query memberships");
+		assert_eq!(memberships.len(), 1);
 	}
 }
