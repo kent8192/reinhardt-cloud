@@ -1,80 +1,82 @@
 #!/usr/bin/env bash
-# Start disposable PostgreSQL + Redis containers via `docker run --rm`.
-# Connection parameters (user / password / database / port / redis URL)
-# are parsed from the settings TOML matching the active `REINHARDT_ENV`
-# profile (defaults to `local`). Reading the same profile that
-# `dashboard/src/config/settings.rs` resolves keeps the provisioned
-# container credentials in sync with what `runserver` later connects
-# with -- see kent8192/reinhardt-cloud#487.
+# Start local infrastructure through `manage infra`.
 set -euo pipefail
 
-PG_NAME="reinhardt-cloud-dashboard-postgres"
-RD_NAME="reinhardt-cloud-dashboard-redis"
-
-# Resolve dashboard/ from this script's location so the task works whether
-# invoked through cargo-make or directly via `bash dashboard/scripts/infra_up.sh`.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DASHBOARD_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Mirror the env-aware lookup performed by `profile_name()` in
-# `dashboard/src/config/settings.rs` so infra-up and runserver pick the
-# same `<profile>.toml` file. Without this the runserver would silently
-# load `<profile>.toml` while infra-up had provisioned the container
-# from `local.toml`, producing a cryptic auth failure at first query.
-PROFILE="${REINHARDT_ENV:-local}"
-CONFIG="$DASHBOARD_DIR/settings/${PROFILE}.toml"
-
-if [ ! -f "$CONFIG" ]; then
-	echo "Error: settings file for profile '${PROFILE}' not found at: $CONFIG" >&2
-	echo "  Either create $CONFIG manually or unset REINHARDT_ENV to use 'local'." >&2
-	exit 1
+PRINT_ENV=0
+if [[ "${1:-}" == "--print-env" ]]; then
+	PRINT_ENV=1
+	shift
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-	echo "Error: python3 (>=3.11, for tomllib) is required to parse $CONFIG" >&2
-	exit 1
+if [[ "$#" -ne 0 ]]; then
+	echo "Usage: scripts/infra_up.sh [--print-env]" >&2
+	exit 2
 fi
 
-# Delegate TOML parsing to the shared helper so future infra scripts can
-# reuse the same shape (PG_*, RD_*) without re-implementing the parser.
-# The helper accepts any settings TOML, not just `local.toml`.
-SETTINGS=$(python3 "$SCRIPT_DIR/parse_local_toml.py" "$CONFIG") || exit $?
-eval "$SETTINGS"
+REDIS_CONTAINER="reinhardt-cloud-dashboard-redis"
+REDIS_PORT="${RC_REDIS_PORT:-6379}"
+REDIS_HOST="${RC_REDIS_HOST:-localhost}"
+REDIS_DATABASE="${RC_REDIS_DATABASE:-1}"
+REDIS_URL_VALUE="redis://${REDIS_HOST}:${REDIS_PORT}/${REDIS_DATABASE}"
 
-# Drop any stale containers from a previous aborted run so --name is free.
-docker rm -f "$PG_NAME" "$RD_NAME" >/dev/null 2>&1 || true
+shell_quote() {
+	printf "%q" "$1"
+}
 
-echo "Using settings profile '${PROFILE}' (from $CONFIG)"
-echo "Starting PostgreSQL ($PG_NAME) on ${PG_HOST}:${PG_PORT} as ${PG_USER}/${PG_DB}..."
+extract_env_value() {
+	local key="$1"
+	local line
+	while IFS= read -r line; do
+		if [[ "$line" == "${key}="* ]]; then
+			eval "printf '%s' \"\${line#${key}=}\""
+			return 0
+		fi
+	done <<< "$infra_env"
+	return 1
+}
+
+infra_env="$(cargo run --locked --bin manage -- infra up --print-env)"
+
+if [[ "$PRINT_ENV" -eq 1 ]]; then
+	printf "%s\n" "$infra_env"
+else
+	cargo run --locked --bin manage -- infra status
+fi
+
+if grep -Eq "^(REDIS_URL|REINHARDT_REDIS_URL)=" <<< "$infra_env"; then
+	if [[ "$PRINT_ENV" -eq 1 && -z "${REINHARDT_CLOUD_REDIS_URL:-}" ]]; then
+		redis_env_value="$(extract_env_value REDIS_URL || extract_env_value REINHARDT_REDIS_URL)"
+		printf "REINHARDT_CLOUD_REDIS_URL=%s\n" "$(shell_quote "$redis_env_value")"
+	fi
+	exit 0
+fi
+
+# Workaround for kent8192/reinhardt-web#5213 (tracked in
+# kent8192/reinhardt-cloud#678). Remove this workaround when `manage infra`
+# derives Redis from resolved application settings.
+#
+# Ideal implementation (without workaround):
+#   cargo run --locked --bin manage -- infra up --print-env
+#   # The command provisions Redis and emits the Redis environment overrides.
+docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
 docker run --rm -d \
-	--name "$PG_NAME" \
-	-p "${PG_PORT}:5432" \
-	-e POSTGRES_USER="$PG_USER" \
-	-e POSTGRES_PASSWORD="$PG_PASS" \
-	-e POSTGRES_DB="$PG_DB" \
-	postgres:17 >/dev/null
-
-echo "Starting Redis ($RD_NAME) on ${RD_HOST}:${RD_PORT}..."
-docker run --rm -d \
-	--name "$RD_NAME" \
-	-p "${RD_PORT}:6379" \
+	--name "$REDIS_CONTAINER" \
+	-p "${REDIS_PORT}:6379" \
 	redis:7-alpine >/dev/null
 
-echo "Waiting for PostgreSQL..."
 for _ in $(seq 1 30); do
-	if docker exec "$PG_NAME" pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
-		echo "  PostgreSQL ready"
-		break
+	if docker exec "$REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -q PONG; then
+		if [[ "$PRINT_ENV" -eq 1 ]]; then
+			printf "REDIS_URL=%s\n" "$(shell_quote "$REDIS_URL_VALUE")"
+			printf "REINHARDT_REDIS_URL=%s\n" "$(shell_quote "$REDIS_URL_VALUE")"
+			printf "REINHARDT_CLOUD_REDIS_URL=%s\n" "$(shell_quote "$REDIS_URL_VALUE")"
+		else
+			echo "redis ${REDIS_HOST}:${REDIS_PORT} -> 6379"
+		fi
+		exit 0
 	fi
 	sleep 1
 done
 
-echo "Waiting for Redis..."
-for _ in $(seq 1 30); do
-	if docker exec "$RD_NAME" redis-cli ping 2>/dev/null | grep -q PONG; then
-		echo "  Redis ready"
-		break
-	fi
-	sleep 1
-done
-
-echo "Infrastructure ready. Run 'cargo make infra-down' to stop."
+echo "Error: Redis did not become ready in ${REDIS_CONTAINER}" >&2
+exit 1
