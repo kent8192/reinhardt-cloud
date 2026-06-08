@@ -11,6 +11,7 @@ use crate::apps::clusters::server_fn::{
 	ClusterInfo, create_cluster_for_current_org, delete_cluster_for_current_org,
 	rotate_cluster_token_for_current_org, update_cluster_for_current_org,
 };
+use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::cluster_health::cluster_health_container;
 
 fn format_server_error(raw: &str) -> String {
@@ -186,11 +187,11 @@ pub fn clusters_list_page() -> Page {
 
 	let health = cluster_health_container();
 
-	page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, health: Page| {
+	let content = page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, health: Page| {
 		div {
-			class: "rc-app",
+			class: "rc-shell",
 			div {
-				class: "rc-shell",
+				class: "space-y-0",
 				div {
 					class: "rc-topline",
 					div {
@@ -202,17 +203,12 @@ pub fn clusters_list_page() -> Page {
 							class: "rc-title",
 							"Clusters"
 						}
-						p {
-							class: "rc-muted mt-1",
-							"Registered Kubernetes clusters and agent health."
-						}
-					}
-					a {
-						href: "/deployments".to_string(),
-						class: "rc-link",
-						"Deployments"
+					p {
+						class: "rc-muted mt-1",
+						"Registered Kubernetes clusters and agent health."
 					}
 				}
+			}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {
@@ -441,5 +437,6 @@ pub fn clusters_list_page() -> Page {
 		rotate_error,
 		rotate_state.is_submitting,
 		health,
-	)
+	);
+	dashboard_app_shell("clusters", content)
 }

@@ -5,6 +5,7 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, use_resource};
 
+use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::log_viewer::log_viewer_container;
 #[cfg(wasm)]
 use crate::apps::deployments::server_fn::list_deployments_for_current_org;
@@ -234,11 +235,11 @@ pub fn deployments_list_page() -> Page {
 
 	let logs = log_viewer_container();
 
-	page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, logs: Page| {
+	let content = page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, logs: Page| {
 		div {
-			class: "rc-app",
+			class: "rc-shell",
 			div {
-				class: "rc-shell",
+				class: "space-y-0",
 				div {
 					class: "rc-topline",
 					div {
@@ -250,17 +251,12 @@ pub fn deployments_list_page() -> Page {
 							class: "rc-title",
 							"Deployments"
 						}
-						p {
-							class: "rc-muted mt-1",
-							"Applications deployed through Reinhardt Cloud."
-						}
-					}
-					a {
-						href: "/clusters".to_string(),
-						class: "rc-link",
-						"Clusters"
+					p {
+						class: "rc-muted mt-1",
+						"Applications deployed through Reinhardt Cloud."
 					}
 				}
+			}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {
@@ -496,5 +492,6 @@ pub fn deployments_list_page() -> Page {
 		delete_error,
 		delete_state.is_submitting,
 		logs,
-	)
+	);
+	dashboard_app_shell("deployments", content)
 }
