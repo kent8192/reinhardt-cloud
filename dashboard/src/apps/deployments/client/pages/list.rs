@@ -251,12 +251,12 @@ pub fn deployments_list_page() -> Page {
 							class: "rc-title",
 							"Deployments"
 						}
-					p {
-						class: "rc-muted mt-1",
-						"Applications deployed through Reinhardt Cloud."
+						p {
+							class: "rc-muted mt-1",
+							"Applications deployed through Reinhardt Cloud."
+						}
 					}
 				}
-			}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {

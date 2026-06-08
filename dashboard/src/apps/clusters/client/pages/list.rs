@@ -203,12 +203,12 @@ pub fn clusters_list_page() -> Page {
 							class: "rc-title",
 							"Clusters"
 						}
-					p {
-						class: "rc-muted mt-1",
-						"Registered Kubernetes clusters and agent health."
+						p {
+							class: "rc-muted mt-1",
+							"Registered Kubernetes clusters and agent health."
+						}
 					}
 				}
-			}
 				div {
 					class: "grid gap-6 lg:grid-cols-[1fr_320px]",
 					div {
