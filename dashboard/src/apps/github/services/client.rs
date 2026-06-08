@@ -11,6 +11,7 @@ use super::config::GitHubAppSettings;
 
 const ACCEPT_HEADER: &str = "application/vnd.github+json";
 const API_VERSION_HEADER: &str = "2022-11-28";
+const USER_AGENT_HEADER: &str = "reinhardt-cloud-dashboard";
 const REPOSITORIES_PER_PAGE: u8 = 100;
 const JWT_LIFETIME_MINUTES: i64 = 10;
 const JWT_CLOCK_SKEW_SECONDS: i64 = 60;
@@ -168,6 +169,7 @@ trait GitHubRequestBuilderExt {
 impl GitHubRequestBuilderExt for reqwest::RequestBuilder {
 	fn github_json_headers(self) -> Self {
 		self.header(reqwest::header::ACCEPT, ACCEPT_HEADER)
+			.header(reqwest::header::USER_AGENT, USER_AGENT_HEADER)
 			.header("X-GitHub-Api-Version", API_VERSION_HEADER)
 	}
 }
