@@ -35,6 +35,7 @@ use reinhardt::db::orm::Model;
 use uuid::Uuid;
 
 use crate::apps::auth::models::User;
+use crate::apps::auth::services::registration::ensure_personal_organization;
 
 /// Errors that can surface from `link_or_create_user`.
 #[derive(Debug, thiserror::Error)]
@@ -79,14 +80,15 @@ pub async fn link_or_create_user(
 		.await
 		.map_err(|e| LinkError::Storage(e.to_string()))?
 	{
-		return load_user_by_id(link.user_id).await;
+		let user = load_user_by_id(link.user_id).await?;
+		return ensure_user_has_personal_organization(user).await;
 	}
 
 	// (b) Authenticated link.
 	if let Some(user) = current_user {
 		let user_id = user.id;
 		create_link(storage, provider, claims, user_id).await?;
-		return Ok(user);
+		return ensure_user_has_personal_organization(user).await;
 	}
 
 	// (c) Email match (only when provider asserts email_verified).
@@ -102,7 +104,7 @@ pub async fn link_or_create_user(
 		if let Some(user) = existing {
 			let user_id = user.id;
 			create_link(storage, provider, claims, user_id).await?;
-			return Ok(user);
+			return ensure_user_has_personal_organization(user).await;
 		}
 	}
 
@@ -143,9 +145,23 @@ pub async fn link_or_create_user(
 		.create(&new_user)
 		.await
 		.map_err(|e| LinkError::Database(e.to_string()))?;
+	ensure_user_personal_organization(&created).await?;
 	let user_id = created.id;
 	create_link(storage, provider, claims, user_id).await?;
 	Ok(created)
+}
+
+async fn ensure_user_has_personal_organization(user: User) -> Result<User, LinkError> {
+	ensure_user_personal_organization(&user).await?;
+	Ok(user)
+}
+
+async fn ensure_user_personal_organization(user: &User) -> Result<(), LinkError> {
+	// Refs #681: OAuth-created or previously stranded users must satisfy
+	// the dashboard's organization-scoped resource invariant.
+	ensure_personal_organization(user)
+		.await
+		.map_err(|e| LinkError::Database(e.to_string()))
 }
 
 async fn load_user_by_id(user_id: Uuid) -> Result<User, LinkError> {
