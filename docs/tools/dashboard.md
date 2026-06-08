@@ -64,17 +64,18 @@ Then open `http://localhost:8000` in a browser.
 
 ### First login
 
-The Dashboard uses the same credential-based authentication as the CLI. See [CLI login](cli.md#reinhardt-cloud-login) for how credentials are issued. Once you have a valid username and password, visit the Dashboard login page at `/login` and enter them there.
+The Dashboard supports credential-based authentication and configured GitHub OAuth. Visit `/login` for local username/password sign-in. After signing in, use `/account` to view the current profile, link a GitHub account, or log out from the dashboard shell.
 
 ### Layout tour
 
-The WASM client router (`dashboard/src/client/router.rs`) registers three top-level client routes, and the HTTP server mounts three application namespaces plus an admin panel:
+The WASM client router (`dashboard/src/client/router.rs`) registers the top-level client routes, and the HTTP server mounts application namespaces plus an admin panel:
 
 1. **Dashboard shell** (`/`) — the root application shell; landing view after login
-2. **Auth** (`/auth/`) — login and registration pages; JWT issuance
-3. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
-4. **Deployments** (`/deployments/`) — deployment records paired with operator `ReinhardtApp` CRDs
-5. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
+2. **Account** (`/account`) — profile summary and GitHub account linking
+3. **Auth** (`/auth/`) — login, registration, OAuth callback, and session endpoints
+4. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
+5. **Deployments** (`/deployments/`) — deployment records paired with operator `ReinhardtApp` CRDs
+6. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
 
 ---
 
@@ -205,9 +206,9 @@ This is set unconditionally by `dashboard/src/bin/manage.rs` before delegating t
 
 Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or by supplying a `production.toml` file alongside `base.toml` in the settings directory. The reinhardt-web loader merges files in lexicographic order of their names.
 
-### OIDC / SSO
+### GitHub OAuth
 
-OIDC/SSO is not configured out of the box. There are no `oidc`, `openid`, `saml`, or `oauth2` references in `dashboard/src/` (grep confirmed). The Dashboard currently uses credential-based login via the `LocalAuthService` registered in `dashboard/src/config/urls.rs`. Integration with an external identity provider is planned but not implemented.
+GitHub OAuth is enabled when all required provider settings are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present. OAuth access tokens are not persisted by the dashboard.
 
 ### Operations
 
@@ -313,9 +314,10 @@ If the discrepancy persists beyond a few minutes, verify the agent's heartbeat i
 | Path | Handler | Notes |
 |------|---------|-------|
 | `/` | Dashboard shell (WASM SPA entrypoint) | Client-side router takes over after initial load |
+| `/account` | Account page | Shows profile, GitHub linking state, and logout control |
 | `/login` | Login page | WASM client route; auth POST goes to `/auth/` API |
 | `/register` | Registration page | WASM client route |
-| `/auth/` | Auth app URL patterns | JWT issuance, login, registration API endpoints |
+| `/auth/` | Auth app URL patterns | Login, registration, OAuth, and session API endpoints |
 | `/clusters/` | Clusters app URL patterns | Cluster CRUD API |
 | `/deployments/` | Deployments app URL patterns | Deployment record API |
 | `/api/admin/` | reinhardt-admin panel | Requires admin account |

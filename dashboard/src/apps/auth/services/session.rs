@@ -109,6 +109,19 @@ impl SessionService {
 	}
 }
 
+/// Extract the dashboard session id from a raw `Cookie` header value.
+pub fn session_id_from_cookie_header(cookie_header: &str) -> Option<String> {
+	cookie_header.split(';').find_map(|pair| {
+		let pair = pair.trim();
+		let (name, value) = pair.split_once('=')?;
+		if name.trim() == "sessionid" {
+			Some(value.trim().to_string())
+		} else {
+			None
+		}
+	})
+}
+
 /// Build the `Set-Cookie` header value for a persisted session id.
 pub fn session_cookie_header(session_id: &str, debug: bool) -> String {
 	let secure_flag = if debug { "" } else { "; Secure" };
@@ -164,5 +177,20 @@ mod tests {
 		// require a live Redis instance; integration tests cover
 		// the round-trip path against a real Redis container.
 		let _ = svc;
+	}
+
+	#[rstest]
+	#[case("sessionid=abc123", Some("abc123"))]
+	#[case("theme=dark; sessionid=abc123; csrftoken=token", Some("abc123"))]
+	#[case("theme=dark", None)]
+	fn test_session_id_from_cookie_header(
+		#[case] cookie_header: &str,
+		#[case] expected: Option<&str>,
+	) {
+		// Arrange / Act
+		let session_id = session_id_from_cookie_header(cookie_header);
+
+		// Assert
+		assert_eq!(session_id.as_deref(), expected);
 	}
 }

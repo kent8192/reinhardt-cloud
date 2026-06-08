@@ -6,7 +6,7 @@ pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::auth::client::pages::{login_page, register_page};
+use crate::apps::auth::client::pages::{account_page, login_page, register_page};
 #[cfg(native)]
 use crate::apps::auth::server_urls;
 
@@ -21,15 +21,13 @@ pub fn url_patterns() -> UnifiedRouter {
 			s
 		})
 		.client(|c| {
-			c.route("login_page", "/login", login_page).route(
-				"register_page",
-				"/register",
-				register_page,
-			)
+			c.route("account_page", "/account", account_page)
+				.route("login_page", "/login", login_page)
+				.route("register_page", "/register", register_page)
 		})
 }
 
-#[cfg(test)]
+#[cfg(all(test, native))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;
@@ -52,5 +50,19 @@ mod tests {
 			callback,
 			Some("/api/auth/oauth/github/callback/".to_string())
 		);
+	}
+
+	#[rstest]
+	fn account_page_route_is_registered() {
+		// Arrange
+		let router = UnifiedRouter::new()
+			.mount_unified("/", super::url_patterns())
+			.into_client();
+
+		// Act
+		let account = router.reverse("account_page", &[]);
+
+		// Assert
+		assert_eq!(account, Ok("/account".to_string()));
 	}
 }

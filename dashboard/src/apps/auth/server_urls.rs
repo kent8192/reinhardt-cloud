@@ -9,6 +9,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
+use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::{BaseUser, Path, Query, Response, StatusCode, get};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -17,7 +18,9 @@ use crate::apps::auth::models::User;
 use crate::apps::auth::services::oauth::backend::OAuthBackendBox;
 use crate::apps::auth::services::oauth::linking::link_or_create_user;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
-use crate::apps::auth::services::session::{SessionService, session_cookie_header};
+use crate::apps::auth::services::session::{
+	SessionService, session_cookie_header, session_id_from_cookie_header,
+};
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
 use crate::config::settings::ProjectSettings;
 
@@ -54,6 +57,33 @@ fn map_session_error(err: impl std::fmt::Display) -> AppError {
 	AppError::Internal("Internal server error".to_string())
 }
 
+async fn current_user_from_cookie(
+	request: &ServerFnRequest,
+	session_service: &SessionService,
+) -> Result<Option<User>, AppError> {
+	let Some(session_id) = request
+		.inner()
+		.headers
+		.get("Cookie")
+		.and_then(|v| v.to_str().ok())
+		.and_then(session_id_from_cookie_header)
+	else {
+		return Ok(None);
+	};
+	let Some((user_id, _username)) = session_service.validate_session(&session_id).await else {
+		return Ok(None);
+	};
+	let user = User::objects()
+		.filter(User::field_id().eq(user_id.clone()))
+		.first()
+		.await
+		.map_err(|err| {
+			error!("Failed to look up session user {user_id} during OAuth callback: {err}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
+	Ok(user)
+}
+
 /// Start an OAuth authorization flow for a configured provider.
 ///
 /// `GET /api/auth/oauth/{provider_id}/start/`
@@ -77,6 +107,7 @@ pub async fn oauth_start(
 pub async fn oauth_callback(
 	Path(provider_id): Path<String>,
 	Query(query): Query<OAuthCallbackQuery>,
+	#[inject] http_request: ServerFnRequest,
 	#[inject] backend: Depends<OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionService>,
 ) -> ViewResult<Response> {
@@ -89,7 +120,8 @@ pub async fn oauth_callback(
 		AppError::Validation("OAuth provider did not return user claims".to_string())
 	})?;
 	let storage = OrmSocialAccountStorage::new();
-	let user = link_or_create_user(&storage, &provider_id, &claims, None)
+	let current_user = current_user_from_cookie(&http_request, &session_service).await?;
+	let user = link_or_create_user(&storage, &provider_id, &claims, current_user)
 		.await
 		.map_err(|err| AppError::Validation(err.to_string()))?;
 	let session_id = session_service

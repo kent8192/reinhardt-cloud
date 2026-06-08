@@ -173,7 +173,7 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
 - **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
-- **Dashboard Authentication** — Local credentials plus GitHub OAuth (account linking, email-verification flow)
+- **Dashboard Authentication** — Local credentials plus GitHub OAuth, account-page linking, logout, and email-verification flow
 - **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
 - **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
 - **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation

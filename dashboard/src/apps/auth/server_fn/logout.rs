@@ -18,23 +18,14 @@ pub async fn logout(
 	{
 		use tracing::warn;
 
-		// Extract session ID from the Cookie header
+		use crate::apps::auth::services::session::session_id_from_cookie_header;
+
 		let session_id = http_request
 			.inner()
 			.headers
 			.get("Cookie")
 			.and_then(|v| v.to_str().ok())
-			.and_then(|cookies| {
-				cookies.split(';').find_map(|pair| {
-					let pair = pair.trim();
-					let (name, value) = pair.split_once('=')?;
-					if name.trim() == "sessionid" {
-						Some(value.trim().to_string())
-					} else {
-						None
-					}
-				})
-			});
+			.and_then(session_id_from_cookie_header);
 
 		// Destroy the session in Redis if a session cookie was present
 		if let Some(ref sid) = session_id

@@ -30,7 +30,7 @@
 
 use reinhardt::urls::prelude::{ClientRouter, UnifiedRouter};
 
-use crate::apps::auth::client::pages::{login_page, register_page};
+use crate::apps::auth::client::pages::{account_page, login_page, register_page};
 use crate::apps::clusters::client::pages::clusters_list_page;
 use crate::apps::dashboard::client::layout::dashboard_shell;
 use crate::apps::deployments::client::pages::deployments_list_page;
@@ -46,6 +46,7 @@ pub fn init_router() -> ClientRouter {
 	UnifiedRouter::new()
 		.client(|c| {
 			c.route("dashboard:home", "/", dashboard_shell)
+				.route("auth:account_page", "/account", account_page)
 				.route("auth:login_page", "/login", login_page)
 				.route("auth:register_page", "/register", register_page)
 				.route("clusters:list", "/clusters", clusters_list_page)
