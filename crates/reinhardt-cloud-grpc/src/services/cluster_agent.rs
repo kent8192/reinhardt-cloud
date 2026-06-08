@@ -57,6 +57,25 @@ fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
 				app_name: app_name.clone(),
 			}))
 		}
+		AgentCommand::ApplyReinhardtApp { app_name, yaml } => Some(
+			pb::agent_command::Command::ApplyReinhardtApp(pb::ApplyReinhardtAppCommand {
+				app_name: app_name.clone(),
+				yaml: yaml.clone(),
+			}),
+		),
+		AgentCommand::ApplyGitCredentialsSecret {
+			app_name,
+			namespace,
+			secret_name,
+			git_token,
+		} => Some(pb::agent_command::Command::ApplyGitCredentialsSecret(
+			pb::ApplyGitCredentialsSecretCommand {
+				app_name: app_name.clone(),
+				namespace: namespace.clone(),
+				secret_name: secret_name.clone(),
+				git_token: git_token.expose_secret().to_string(),
+			},
+		)),
 	};
 	pb::AgentCommand { command }
 }
@@ -864,6 +883,22 @@ mod tests {
 		AgentCommand::Restart { app_name: "a".into() },
 		"Restart"
 	)]
+	#[case(
+		AgentCommand::ApplyReinhardtApp {
+			app_name: "a".into(),
+			yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".into(),
+		},
+		"ApplyReinhardtApp"
+	)]
+	#[case(
+			AgentCommand::ApplyGitCredentialsSecret {
+				app_name: "a".into(),
+				namespace: "default".into(),
+				secret_name: "a-github-git-credentials".into(),
+				git_token: reinhardt_cloud_types::agent::SecretString::new("token".into()),
+			},
+		"ApplyGitCredentialsSecret"
+	)]
 	fn test_command_variant_maps_to_correct_oneof(
 		#[case] cmd: AgentCommand,
 		#[case] expected_arm: &str,
@@ -879,6 +914,10 @@ mod tests {
 			Some(pb::agent_command::Command::Rollback(_)) => "Rollback",
 			Some(pb::agent_command::Command::Scale(_)) => "Scale",
 			Some(pb::agent_command::Command::Restart(_)) => "Restart",
+			Some(pb::agent_command::Command::ApplyReinhardtApp(_)) => "ApplyReinhardtApp",
+			Some(pb::agent_command::Command::ApplyGitCredentialsSecret(_)) => {
+				"ApplyGitCredentialsSecret"
+			}
 			None => "None",
 		};
 		assert_eq!(arm_name, expected_arm);

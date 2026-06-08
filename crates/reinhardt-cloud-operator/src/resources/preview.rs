@@ -40,6 +40,11 @@ pub(crate) fn preview_app_name(parent_name: &str, pr_number: &str) -> String {
 	format!("{parent_name}-pr-{pr_number}")
 }
 
+/// Generates the image tag used for a PR preview build.
+pub(crate) fn preview_image_tag(pr_number: &str, short_commit_sha: &str) -> String {
+	format!("pr-{pr_number}-{short_commit_sha}")
+}
+
 /// Replaces template placeholders in a URL template string.
 ///
 /// Supported placeholders: `{app}`, `{pr_number}`, `{branch}`.
@@ -49,10 +54,48 @@ pub(crate) fn preview_ingress_host(
 	pr_number: &str,
 	branch: &str,
 ) -> String {
+	let branch = dns_safe_label(branch);
 	template
 		.replace("{app}", app_name)
 		.replace("{pr_number}", pr_number)
-		.replace("{branch}", branch)
+		.replace("{branch}", &branch)
+}
+
+fn dns_safe_label(value: &str) -> String {
+	let mut label = String::with_capacity(value.len().min(63));
+	let mut previous_dash = false;
+	for character in value.chars().flat_map(char::to_lowercase) {
+		let normalized = if character.is_ascii_alphanumeric() {
+			Some(character)
+		} else if character == '-' || character == '_' || character == '.' || character == '/' {
+			Some('-')
+		} else {
+			None
+		};
+		let Some(character) = normalized else {
+			continue;
+		};
+		if character == '-' {
+			if label.is_empty() || previous_dash {
+				continue;
+			}
+			previous_dash = true;
+		} else {
+			previous_dash = false;
+		}
+		if label.len() == 63 {
+			break;
+		}
+		label.push(character);
+	}
+	while label.ends_with('-') {
+		label.pop();
+	}
+	if label.is_empty() {
+		"branch".to_string()
+	} else {
+		label
+	}
 }
 
 /// Builds a `ReinhardtAppSpec` for a preview environment from a parent app.
@@ -68,6 +111,7 @@ pub(crate) fn build_preview_spec(
 	parent: &ReinhardtApp,
 	pr_number: &str,
 	image_tag: &str,
+	branch_override: Option<&str>,
 ) -> Result<ReinhardtAppSpec, Error> {
 	let parent_spec = &parent.spec;
 
@@ -107,10 +151,14 @@ pub(crate) fn build_preview_spec(
 
 	// Build ingress host from url_template if available
 	let app_name = preview_app_name(&kube::ResourceExt::name_any(parent), pr_number);
-	let branch = parent_spec
-		.source
-		.as_ref()
-		.and_then(|s| s.branch.as_deref())
+	let branch = branch_override
+		.filter(|branch| !branch.trim().is_empty())
+		.or_else(|| {
+			parent_spec
+				.source
+				.as_ref()
+				.and_then(|s| s.branch.as_deref())
+		})
 		.unwrap_or("main");
 
 	let ingress_host = preview_config
@@ -239,6 +287,15 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_preview_image_tag_includes_pr_and_commit() {
+		// Arrange, Act
+		let tag = preview_image_tag("42", "abcdef12");
+
+		// Assert
+		assert_eq!(tag, "pr-42-abcdef12");
+	}
+
+	#[rstest]
 	fn test_preview_labels_returns_correct_labels() {
 		// Arrange & Act
 		let labels = preview_labels("my-app", "42");
@@ -272,7 +329,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert — parent has 3, preview overrides to 1
 		assert_eq!(spec.replicas, Some(1));
@@ -284,7 +341,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.image, "ghcr.io/org/app:sha-abc123");
@@ -296,7 +353,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.env.get("APP_ENV").unwrap(), "production");
@@ -308,7 +365,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		assert_eq!(spec.deletion_policy, DeletionPolicy::Delete);
@@ -320,7 +377,7 @@ mod tests {
 		let parent = test_app_with_preview("my-app");
 
 		// Act
-		let spec = build_preview_spec(&parent, "42", "sha-abc123").unwrap();
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert
 		let host = spec
@@ -331,6 +388,30 @@ mod tests {
 			.as_ref()
 			.unwrap();
 		assert_eq!(host, "pr-42.my-app-pr-42.preview.example.com");
+	}
+
+	#[rstest]
+	fn test_build_preview_spec_uses_branch_override_for_ingress_template() {
+		// Arrange
+		let mut parent = test_app_with_preview("my-app");
+		if let Some(source) = parent.spec.source.as_mut()
+			&& let Some(preview) = source.preview.as_mut()
+		{
+			preview.url_template = Some("{branch}.pr-{pr_number}.{app}.example.com".to_string());
+		}
+
+		// Act
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", Some("feature/login")).unwrap();
+
+		// Assert
+		let host = spec
+			.services
+			.as_ref()
+			.unwrap()
+			.ingress_host
+			.as_ref()
+			.unwrap();
+		assert_eq!(host, "feature-login.pr-42.my-app-pr-42.example.com");
 	}
 
 	#[rstest]

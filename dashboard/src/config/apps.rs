@@ -11,6 +11,7 @@ installed_apps! {
 	clusters: "clusters",
 	dashboard: "dashboard",
 	deployments: "deployments",
+	github: "github",
 	health: "health",
 	organizations: "organizations",
 }
