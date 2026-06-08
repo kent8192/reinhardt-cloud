@@ -13,9 +13,10 @@ use tracing::{error, info, warn};
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
-use crate::apps::github::models::{GitHubProject, GitHubRepository};
+use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
 use crate::apps::github::services::config::GitHubAppSettings;
 use crate::apps::github::services::import::apply_webhook_action_to_manifest;
+use crate::apps::github::services::pipeline::github_credentials_secret_name;
 use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
 use crate::utils::vcs::events::WebhookAction;
 use crate::utils::vcs::signature::verify_github_signature;
@@ -147,6 +148,27 @@ pub async fn github_webhook(
 			AppError::Internal("Failed to load deployment cluster".to_string())
 		})?
 		.ok_or_else(|| AppError::NotFound("Deployment cluster not found".to_string()))?;
+	if let Err(e) = refresh_git_credentials_secret_for_webhook(
+		&repository,
+		&project,
+		&cluster,
+		manifest,
+		&settings,
+		&agent_registry,
+	)
+	.await
+	{
+		error!("Failed to refresh GitHub credentials for deployment {deployment_id}: {e}");
+		deployment.status = "error".to_string();
+		if let Err(update_err) = Deployment::objects().update(&deployment).await {
+			error!(
+				"Failed to mark deployment {deployment_id} error after GitHub credential refresh failure: {update_err}"
+			);
+		}
+		return Err(AppError::Internal(
+			"Failed to refresh GitHub repository credentials".to_string(),
+		));
+	}
 	if let Err(e) = crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
 		&agent_registry.0,
 		&cluster,
@@ -175,6 +197,43 @@ pub async fn github_webhook(
 			action: action_name,
 		},
 	)
+}
+
+async fn refresh_git_credentials_secret_for_webhook(
+	repository: &GitHubRepository,
+	project: &GitHubProject,
+	cluster: &Cluster,
+	manifest: &str,
+	settings: &GitHubAppSettings,
+	agent_registry: &crate::config::grpc::AgentRegistrySingleton,
+) -> Result<(), String> {
+	if !repository.private {
+		return Ok(());
+	}
+	let installation = GitHubInstallation::objects()
+		.filter(GitHubInstallation::field_id().eq(*repository.installation_id()))
+		.first()
+		.await
+		.map_err(|e| format!("Failed to load GitHub installation: {e}"))?
+		.ok_or_else(|| "GitHub installation not found".to_string())?;
+	let client =
+		crate::apps::github::services::client::ReqwestGitHubAppClient::new(settings.clone());
+	let installation_token = client
+		.create_installation_access_token(installation.installation_id)
+		.await
+		.map_err(|e| format!("Failed to mint GitHub installation access token: {e}"))?;
+	let app = reinhardt_cloud_k8s::resources::parse_reinhardt_app_yaml(manifest)
+		.map_err(|e| format!("Failed to parse ReinhardtApp manifest: {e}"))?;
+	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
+	crate::apps::github::services::deploy::send_git_credentials_secret_to_cluster(
+		&agent_registry.0,
+		cluster,
+		&project.app_name,
+		namespace,
+		&github_credentials_secret_name(&project.app_name),
+		&installation_token.token,
+	)
+	.await
 }
 
 fn required_header(request: &ServerFnRequest, name: &str) -> Result<String, AppError> {
