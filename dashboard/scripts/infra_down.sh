@@ -3,5 +3,7 @@
 # compatibility container.
 set -euo pipefail
 
-cargo run --locked --bin manage -- infra down
+rc=0
+cargo run --locked --bin manage -- infra down || rc=$?
 docker stop reinhardt-cloud-dashboard-redis >/dev/null 2>&1 || true
+exit "$rc"

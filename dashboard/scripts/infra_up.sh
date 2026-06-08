@@ -43,8 +43,8 @@ else
 	cargo run --locked --bin manage -- infra status
 fi
 
-if grep -Eq "^(REDIS_URL|REINHARDT_REDIS_URL)=" <<< "$infra_env"; then
-	if [[ "$PRINT_ENV" -eq 1 && -z "${REINHARDT_CLOUD_REDIS_URL:-}" ]]; then
+if grep -Eq "^(REDIS_URL|REINHARDT_REDIS_URL|REINHARDT_CLOUD_REDIS_URL)=" <<< "$infra_env"; then
+	if [[ "$PRINT_ENV" -eq 1 ]] && ! grep -Eq "^REINHARDT_CLOUD_REDIS_URL=" <<< "$infra_env"; then
 		redis_env_value="$(extract_env_value REDIS_URL || extract_env_value REINHARDT_REDIS_URL)"
 		printf "REINHARDT_CLOUD_REDIS_URL=%s\n" "$(shell_quote "$redis_env_value")"
 	fi
