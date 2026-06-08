@@ -1,12 +1,12 @@
 //! Cluster agent domain types for gRPC agent communication.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use uuid::Uuid;
 
 /// Secret string that redacts sensitive values in debug and JSON output.
-#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SecretString(String);
 
 impl SecretString {
@@ -31,6 +31,21 @@ impl Serialize for SecretString {
 		S: Serializer,
 	{
 		serializer.serialize_str("[REDACTED]")
+	}
+}
+
+impl<'de> Deserialize<'de> for SecretString {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let value = String::deserialize(deserializer)?;
+		if value == "[REDACTED]" {
+			return Err(serde::de::Error::custom(
+				"refusing to deserialize a redacted secret placeholder",
+			));
+		}
+		Ok(Self(value))
 	}
 }
 
@@ -215,8 +230,12 @@ mod tests {
 		for cmd in &commands {
 			let json = serde_json::to_string(cmd).unwrap();
 			if matches!(cmd, AgentCommand::ApplyGitCredentialsSecret { .. }) {
-				assert!(!json.contains(":\"token\""));
-				assert!(json.contains("[REDACTED]"));
+				let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+				assert_eq!(
+					value["ApplyGitCredentialsSecret"]["git_token"],
+					serde_json::Value::String("[REDACTED]".to_string())
+				);
+				assert!(serde_json::from_str::<AgentCommand>(&json).is_err());
 				continue;
 			}
 			let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
@@ -505,6 +524,13 @@ mod tests {
 				name,
 				debug_str
 			);
+			if matches!(variant, AgentCommand::ApplyGitCredentialsSecret { .. }) {
+				assert!(
+					debug_str.contains("git_token: [REDACTED]"),
+					"Debug output should redact git_token exactly, got: {debug_str}"
+				);
+				assert!(!debug_str.contains("token\""));
+			}
 		}
 	}
 
@@ -538,8 +564,12 @@ mod tests {
 					};
 					let json = serde_json::to_string(&cmd).unwrap();
 					if matches!(cmd, AgentCommand::ApplyGitCredentialsSecret { .. }) {
-						prop_assert!(!json.contains(":\"token\""));
-						prop_assert!(json.contains("[REDACTED]"));
+						let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+						prop_assert_eq!(
+							value["ApplyGitCredentialsSecret"]["git_token"].clone(),
+							serde_json::Value::String("[REDACTED]".to_string())
+						);
+						prop_assert!(serde_json::from_str::<AgentCommand>(&json).is_err());
 						return Ok(());
 					}
 					let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();
