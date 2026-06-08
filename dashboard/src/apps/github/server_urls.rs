@@ -11,6 +11,7 @@ use reinhardt::{Response, StatusCode, post};
 use serde::Serialize;
 use tracing::{error, info, warn};
 
+use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::github::models::{GitHubProject, GitHubRepository};
 use crate::apps::github::services::config::GitHubAppSettings;
@@ -29,6 +30,7 @@ struct GitHubWebhookResponse {
 pub async fn github_webhook(
 	Body(payload): Body,
 	#[inject] settings: Depends<GitHubAppSettings>,
+	#[inject] agent_registry: Depends<crate::config::grpc::AgentRegistrySingleton>,
 	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
 	let event_type = required_header(&http_request, "X-GitHub-Event")?;
@@ -128,12 +130,27 @@ pub async fn github_webhook(
 		.reinhardt_app_yaml
 		.as_deref()
 		.ok_or_else(|| AppError::Internal("Updated deployment missing manifest".to_string()))?;
-	crate::apps::github::services::deploy::apply_reinhardt_app_yaml(manifest)
+	let cluster_id = *deployment.cluster_id();
+	let cluster = Cluster::objects()
+		.filter(Cluster::field_id().eq(cluster_id))
+		.first()
 		.await
 		.map_err(|e| {
-			error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
-			AppError::Internal("Failed to apply ReinhardtApp manifest".to_string())
-		})?;
+			error!("Failed to load cluster {cluster_id} for GitHub webhook: {e}");
+			AppError::Internal("Failed to load deployment cluster".to_string())
+		})?
+		.ok_or_else(|| AppError::NotFound("Deployment cluster not found".to_string()))?;
+	crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
+		&agent_registry.0,
+		&cluster,
+		&project.app_name,
+		manifest,
+	)
+	.await
+	.map_err(|e| {
+		error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
+		AppError::Internal("Failed to apply ReinhardtApp manifest".to_string())
+	})?;
 	Deployment::objects()
 		.update(&deployment)
 		.await

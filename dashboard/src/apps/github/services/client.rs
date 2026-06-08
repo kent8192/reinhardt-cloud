@@ -86,7 +86,7 @@ impl ReqwestGitHubAppClient {
 		}
 	}
 
-	async fn create_installation_access_token(
+	pub(crate) async fn create_installation_access_token(
 		&self,
 		installation_id: i64,
 	) -> Result<GitHubInstallationAccessToken, GitHubAppClientError> {

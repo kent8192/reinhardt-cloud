@@ -50,6 +50,19 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 }
 
 #[cfg(native)]
+async fn agent_registry()
+-> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
+	use reinhardt::di::{ContextLevel, get_di_context};
+
+	let ctx = get_di_context(ContextLevel::Root);
+	let registry = ctx
+		.resolve::<crate::config::grpc::AgentRegistrySingleton>()
+		.await
+		.map_err(|e| ServerFnError::application(format!("Failed to resolve AgentRegistry: {e}")))?;
+	Ok(registry.0.clone())
+}
+
+#[cfg(native)]
 pub(crate) fn github_installation_info(
 	installation: crate::apps::github::models::GitHubInstallation,
 ) -> GitHubInstallationInfo {
@@ -221,18 +234,16 @@ pub async fn import_github_repository_for_current_org(
 		let cluster_id: i64 = cluster_id
 			.parse()
 			.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
-		let cluster_exists = crate::apps::clusters::models::Cluster::objects()
+		let cluster = crate::apps::clusters::models::Cluster::objects()
 			.filter(crate::apps::clusters::models::Cluster::field_id().eq(cluster_id))
 			.filter(
 				crate::apps::clusters::models::Cluster::field_organization_id().eq(organization_id),
 			)
 			.filter(crate::apps::clusters::models::Cluster::field_is_active().eq(true))
-			.exists()
+			.first()
 			.await
-			.map_err(|e| ServerFnError::application(format!("Failed to check cluster: {e}")))?;
-		if !cluster_exists {
-			return Err(ServerFnError::server(404, "Cluster not found"));
-		}
+			.map_err(|e| ServerFnError::application(format!("Failed to load cluster: {e}")))?
+			.ok_or_else(|| ServerFnError::server(404, "Cluster not found"))?;
 
 		let mut repository = crate::apps::github::models::GitHubRepository::objects()
 			.filter(crate::apps::github::models::GitHubRepository::field_id().eq(repository_id))
@@ -242,7 +253,7 @@ pub async fn import_github_repository_for_current_org(
 				ServerFnError::application(format!("Failed to load GitHub repository: {e}"))
 			})?
 			.ok_or_else(|| ServerFnError::server(404, "GitHub repository not found"))?;
-		let _installation = crate::apps::github::models::GitHubInstallation::objects()
+		let installation = crate::apps::github::models::GitHubInstallation::objects()
 			.filter(
 				crate::apps::github::models::GitHubInstallation::field_id()
 					.eq(*repository.installation_id()),
@@ -273,20 +284,73 @@ pub async fn import_github_repository_for_current_org(
 			));
 		}
 
-		let import_spec = crate::apps::github::services::import::import_spec_from_repository(
+		let mut import_spec = crate::apps::github::services::import::import_spec_from_repository(
 			&repository,
 			&app_name,
 			&registry,
 		)
 		.map_err(|e| ServerFnError::server(400, e))?;
+		let settings = crate::apps::github::services::config::GitHubAppSettings::from_env()
+			.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
+		let client = crate::apps::github::services::client::ReqwestGitHubAppClient::new(settings);
+		let installation_token = client
+			.create_installation_access_token(installation.installation_id)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to create GitHub installation access token: {e}"
+				))
+			})?;
+		let pipeline_input = crate::apps::github::services::pipeline::GitHubDeployPipelineInput {
+			installation_id: installation.installation_id,
+			full_name: repository.full_name.clone(),
+			branch: repository.default_branch.clone(),
+			app_name: import_spec.app_name.clone(),
+			namespace: import_spec.namespace.clone(),
+			registry: import_spec.registry.clone(),
+			private: repository.private,
+		};
+		let pipeline_output = crate::apps::github::services::pipeline::run_github_deploy_pipeline(
+			&pipeline_input,
+			&installation_token.token,
+		)
+		.await
+		.map_err(|e| ServerFnError::application(format!("GitHub deploy pipeline failed: {e}")))?;
+		crate::apps::github::services::import::enrich_import_spec(
+			&mut import_spec,
+			pipeline_output.introspect,
+			pipeline_output.credentials_secret,
+		);
 		let manifest =
 			crate::apps::github::services::import::source_reinhardt_app_yaml(&import_spec)
 				.map_err(|e| ServerFnError::server(400, e))?;
-		crate::apps::github::services::deploy::apply_reinhardt_app_yaml(&manifest)
+		let agent_registry = agent_registry().await?;
+		if let Some(secret_name) = import_spec.credentials_secret.as_deref() {
+			crate::apps::github::services::deploy::send_git_credentials_secret_to_cluster(
+				&agent_registry,
+				&cluster,
+				&import_spec.app_name,
+				&import_spec.namespace,
+				secret_name,
+				&installation_token.token,
+			)
 			.await
 			.map_err(|e| {
-				ServerFnError::application(format!("Failed to apply ReinhardtApp manifest: {e}"))
+				ServerFnError::application(format!(
+					"Failed to apply GitHub repository credentials: {e}"
+				))
 			})?;
+		}
+		crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
+			&agent_registry,
+			&cluster,
+			&import_spec.app_name,
+			&manifest,
+		)
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to apply ReinhardtApp manifest: {e}"))
+		})?;
 		let deployment = crate::apps::deployments::models::Deployment::build()
 			.organization(organization_id)
 			.app_name(import_spec.app_name.clone())

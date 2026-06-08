@@ -1,6 +1,6 @@
 //! GitHub repository import page.
 
-use reinhardt::pages::component::Page;
+use reinhardt::pages::component::{IntoPage, Page, PageElement};
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{ResourceState, Signal, use_form, use_resource};
@@ -116,10 +116,14 @@ pub fn github_repositories_page() -> Page {
 	};
 	let import_runtime = use_form(&import_form).build();
 	let import_state = import_runtime.form_state();
+	let import_repository_id =
+		import_runtime.watch_field::<String>(import_form.repository_id_field());
+	let import_cluster_id = import_runtime.watch_field::<String>(import_form.cluster_id_field());
+	let import_app_name = import_runtime.watch_field::<String>(import_form.app_name_field());
 	let import_error = import_form.error().clone();
 	let import_view = import_form.into_page();
 
-	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>| {
+	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -171,6 +175,10 @@ pub fn github_repositories_page() -> Page {
 											class: "px-3 py-2 text-left font-semibold text-cloud-600",
 											"State"
 										}
+										th {
+											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											""
+										}
 									}
 								}
 								tbody {
@@ -181,7 +189,7 @@ pub fn github_repositories_page() -> Page {
 												tr {
 													td {
 														class: "px-3 py-3 text-cloud-500",
-														colspan: 4,
+														colspan: 5,
 														"Loading repositories..."
 													}
 												}
@@ -190,7 +198,7 @@ pub fn github_repositories_page() -> Page {
 												tr {
 													td {
 														class: "px-3 py-3 text-red-700",
-														colspan: 4,
+														colspan: 5,
 														{
 															self::format_server_error(&err)
 														}
@@ -201,14 +209,14 @@ pub fn github_repositories_page() -> Page {
 												tr {
 													td {
 														class: "px-3 py-3 text-cloud-500",
-														colspan: 4,
+														colspan: 5,
 														"No GitHub App repositories are available."
 													}
 												}
 											})(),
-											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>| { {
+											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>, import_repository_id: Signal<String>, import_app_name: Signal<String>| { {
 												items.clone().into_iter().map(|repo| {
-													page!(|repo: GitHubRepositoryInfo| {
+													page!(|repo: GitHubRepositoryInfo, import_repository_id: Signal<String>, import_app_name: Signal<String>| {
 														tr {
 															td {
 																class: "px-3 py-2 font-mono text-xs text-cloud-500",
@@ -246,10 +254,28 @@ pub fn github_repositories_page() -> Page {
 																	}
 																}
 															}
+															td {
+																class: "px-3 py-2 text-right",
+																{
+																	let repository_id_signal = import_repository_id.clone();
+																	let app_name_signal = import_app_name.clone();
+																	let repo_id = repo.id.to_string();
+																	let app_name = repo.name.clone();
+																	PageElement::new("button")
+																		.attr("type", "button")
+																		.attr("class", "btn-secondary text-xs")
+																		.listener("click", move |_event| {
+																			repository_id_signal.set(repo_id.clone());
+																			app_name_signal.set(app_name.clone());
+																		})
+																		.child("Select")
+																		.into_page()
+																}
+															}
 														}
-													})(repo)
+													})(repo, import_repository_id.clone(), import_app_name.clone())
 												}).collect::<Vec<_>>()
-											} })(items),
+											} })(items, import_repository_id.clone(), import_app_name.clone()),
 										}
 									}
 								}
@@ -307,9 +333,9 @@ pub fn github_repositories_page() -> Page {
 												"No active clusters."
 											}
 										})(),
-										ResourceState::Success(items) => page!(|items: Vec<ClusterInfo>| { {
+										ResourceState::Success(items) => page!(|items: Vec<ClusterInfo>, import_cluster_id: Signal<String>| { {
 											items.clone().into_iter().map(|cluster| {
-												page!(|cluster: ClusterInfo| {
+												page!(|cluster: ClusterInfo, import_cluster_id: Signal<String>| {
 													div {
 														class: "rounded border border-cloud-200 px-3 py-2",
 														div {
@@ -324,10 +350,25 @@ pub fn github_repositories_page() -> Page {
 																format!("id {}", cluster.id)
 															}
 														}
+														div {
+															class: "mt-2",
+															{
+																let cluster_id_signal = import_cluster_id.clone();
+																let cluster_id = cluster.id.to_string();
+																PageElement::new("button")
+																	.attr("type", "button")
+																	.attr("class", "btn-secondary text-xs")
+																	.listener("click", move |_event| {
+																		cluster_id_signal.set(cluster_id.clone());
+																	})
+																	.child("Select")
+																	.into_page()
+															}
+														}
 													}
-												})(cluster)
+												})(cluster, import_cluster_id.clone())
 											}).collect::<Vec<_>>()
-										} })(items),
+										} })(items, import_cluster_id.clone()),
 									}
 								}
 							}
@@ -342,6 +383,9 @@ pub fn github_repositories_page() -> Page {
 		import_view,
 		import_error,
 		import_state.is_submitting,
+		import_repository_id,
+		import_cluster_id,
+		import_app_name,
 	);
 
 	dashboard_app_shell("github", content)

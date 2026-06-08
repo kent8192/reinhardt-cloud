@@ -21,6 +21,14 @@ use tracing::info;
 
 use crate::apps::clusters::services::token_issuance::JwtSecret;
 
+#[derive(Clone)]
+pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
+
+#[reinhardt::di::injectable_factory(scope = "singleton")]
+async fn create_agent_registry_singleton() -> AgentRegistrySingleton {
+	AgentRegistrySingleton(Arc::new(AgentRegistry::new()))
+}
+
 /// Mark a gRPC service as SERVING in the health reporter.
 ///
 /// Centralises the health transition so each new service only needs a
@@ -71,7 +79,12 @@ pub async fn start_grpc_server(
 	// Deploy/Rollback/Scale/Restart commands route to the right
 	// agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
-	let agent_registry = Arc::new(AgentRegistry::new());
+	let agent_registry = di_context
+		.resolve::<AgentRegistrySingleton>()
+		.await
+		.expect("Cannot start gRPC server without AgentRegistrySingleton")
+		.0
+		.clone();
 	let agent_grpc =
 		AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(agent_registry)));
 

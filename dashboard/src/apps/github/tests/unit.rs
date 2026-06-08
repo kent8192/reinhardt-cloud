@@ -1,6 +1,66 @@
 //! Unit tests for GitHub App integration.
 
 #[cfg(test)]
+pub mod pipeline_tests {
+	use std::time::Duration;
+
+	use rstest::rstest;
+
+	use crate::apps::github::services::pipeline::{
+		credentials_secret_for_repository, github_credentials_secret_name, installation_clone_url,
+		parse_introspect_timeout_seconds, redacted_clone_url,
+	};
+
+	#[rstest]
+	fn test_installation_clone_url_percent_encodes_token_and_redacts_display() {
+		// Arrange
+		let full_name = "kent8192/private-app";
+		let token = "ghs_token:with/slash";
+
+		// Act
+		let clone_url = installation_clone_url(full_name, token);
+		let redacted = redacted_clone_url(full_name);
+
+		// Assert
+		assert_eq!(
+			clone_url,
+			"https://x-access-token:ghs%5Ftoken%3Awith%2Fslash@github.com/kent8192/private-app.git"
+		);
+		assert_eq!(
+			redacted,
+			"https://x-access-token:[redacted]@github.com/kent8192/private-app.git"
+		);
+		assert!(!redacted.contains(token));
+	}
+
+	#[rstest]
+	#[case::positive("30", Some(Duration::from_secs(30)))]
+	#[case::zero_disables_timeout("0", None)]
+	#[case::invalid("abc", None)]
+	fn test_parse_introspect_timeout_seconds(
+		#[case] raw: &str,
+		#[case] expected: Option<Duration>,
+	) {
+		// Arrange / Act / Assert
+		assert_eq!(parse_introspect_timeout_seconds(raw), expected);
+	}
+
+	#[rstest]
+	fn test_credentials_secret_for_private_repository_only() {
+		// Arrange / Act / Assert
+		assert_eq!(
+			github_credentials_secret_name("private-app"),
+			"private-app-github-git-credentials"
+		);
+		assert_eq!(
+			credentials_secret_for_repository("private-app", true).as_deref(),
+			Some("private-app-github-git-credentials")
+		);
+		assert!(credentials_secret_for_repository("public-app", false).is_none());
+	}
+}
+
+#[cfg(test)]
 pub mod client_tests {
 	use reqwest::Client;
 	use rstest::rstest;
@@ -156,13 +216,14 @@ pub mod client_tests {
 
 #[cfg(test)]
 pub mod import_tests {
+	use reinhardt_cloud_types::introspect::{AppMetadata, IntrospectOutput};
 	use rstest::rstest;
 
 	use crate::apps::github::models::GitHubRepository;
 	use crate::apps::github::services::import::{
-		apply_webhook_action_to_manifest, import_spec_from_repository, source_reinhardt_app_yaml,
-		validate_app_name, validate_registry, with_build_trigger, with_preview_create,
-		with_preview_delete,
+		apply_webhook_action_to_manifest, enrich_import_spec, import_spec_from_repository,
+		source_reinhardt_app_yaml, validate_app_name, validate_registry, with_build_trigger,
+		with_preview_create, with_preview_delete,
 	};
 	use crate::utils::vcs::events::WebhookAction;
 
@@ -261,6 +322,44 @@ pub mod import_tests {
 		assert_eq!(
 			value["spec"]["source"]["preview"]["enabled"].as_bool(),
 			Some(true)
+		);
+	}
+
+	#[rstest]
+	fn test_source_manifest_contains_introspect_and_credentials_secret() {
+		// Arrange
+		let repository = repository("private-app");
+		let mut spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/private-app")
+			.expect("import spec should build");
+		let introspect = IntrospectOutput {
+			app: AppMetadata {
+				name: "private-app".to_string(),
+				version: "0.1.0".to_string(),
+			},
+			..Default::default()
+		};
+		enrich_import_spec(
+			&mut spec,
+			introspect,
+			Some("private-app-github-git-credentials".to_string()),
+		);
+
+		// Act
+		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml should parse");
+
+		// Assert
+		assert_eq!(
+			value["spec"]["introspect"]["app"]["name"].as_str(),
+			Some("private-app")
+		);
+		assert_eq!(
+			value["spec"]["introspect"]["app"]["version"].as_str(),
+			Some("0.1.0")
+		);
+		assert_eq!(
+			value["spec"]["source"]["credentials_secret"].as_str(),
+			Some("private-app-github-git-credentials")
 		);
 	}
 

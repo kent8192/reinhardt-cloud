@@ -1,6 +1,7 @@
 //! GitHub repository import helpers.
 
 use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::introspect::IntrospectOutput;
 use serde_json::json;
 
 use crate::apps::github::models::GitHubRepository;
@@ -9,7 +10,7 @@ use crate::utils::vcs::events::WebhookAction;
 const DEFAULT_NAMESPACE: &str = "default";
 const DEFAULT_PREVIEW_TTL: &str = "72h";
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct GitHubImportSpec {
 	pub app_name: String,
 	pub namespace: String,
@@ -17,6 +18,7 @@ pub struct GitHubImportSpec {
 	pub branch: String,
 	pub registry: String,
 	pub credentials_secret: Option<String>,
+	pub introspect: Option<IntrospectOutput>,
 }
 
 pub fn default_app_name(repository: &GitHubRepository) -> String {
@@ -75,7 +77,17 @@ pub fn import_spec_from_repository(
 		branch: repository.default_branch.clone(),
 		registry,
 		credentials_secret: None,
+		introspect: None,
 	})
+}
+
+pub fn enrich_import_spec(
+	spec: &mut GitHubImportSpec,
+	introspect: IntrospectOutput,
+	credentials_secret: Option<String>,
+) {
+	spec.introspect = Some(introspect);
+	spec.credentials_secret = credentials_secret;
 }
 
 pub fn source_reinhardt_app_yaml(spec: &GitHubImportSpec) -> Result<String, String> {
@@ -92,6 +104,7 @@ pub fn source_reinhardt_app_yaml(spec: &GitHubImportSpec) -> Result<String, Stri
 		},
 		"spec": {
 			"image": image,
+			"introspect": spec.introspect.clone(),
 			"source": {
 				"repository": spec.repository_url,
 				"branch": spec.branch,
