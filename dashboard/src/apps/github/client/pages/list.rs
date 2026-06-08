@@ -155,43 +155,101 @@ pub fn github_repositories_page() -> Page {
 								class: "min-w-full divide-y divide-cloud-200 text-sm",
 								thead {
 									tr {
-										th { class: "px-3 py-2 text-left font-semibold text-cloud-600", "ID" }
-										th { class: "px-3 py-2 text-left font-semibold text-cloud-600", "Repository" }
-										th { class: "px-3 py-2 text-left font-semibold text-cloud-600", "Branch" }
-										th { class: "px-3 py-2 text-left font-semibold text-cloud-600", "State" }
+										th {
+											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											"ID"
+										}
+										th {
+											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											"Repository"
+										}
+										th {
+											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											"Branch"
+										}
+										th {
+											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											"State"
+										}
 									}
 								}
 								tbody {
 									class: "divide-y divide-cloud-100",
 									{
 										match repositories.get() {
-											ResourceState::Loading => page!(|| { tr { td { class: "px-3 py-3 text-cloud-500", colspan: 4, "Loading repositories..." } } })(),
-											ResourceState::Error(err) => page!(|err: String| { tr { td { class: "px-3 py-3 text-red-700", colspan: 4, { self::format_server_error(&err) } } } })(err),
-											ResourceState::Success(items) if items.is_empty() => page!(|| { tr { td { class: "px-3 py-3 text-cloud-500", colspan: 4, "No GitHub App repositories are available." } } })(),
-											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>| {
-												{
-													items.clone().into_iter().map(|repo| {
-														page!(|repo: GitHubRepositoryInfo| {
-															tr {
-																td { class: "px-3 py-2 font-mono text-xs text-cloud-500", { repo.id.to_string() } }
-																td {
-																	class: "px-3 py-2",
-																	div { class: "font-medium text-cloud-900", { repo.full_name.clone() } }
-																	div { class: "text-xs text-cloud-500", { if repo.private { "private" } else { "public" } } }
+											ResourceState::Loading => page!(|| {
+												tr {
+													td {
+														class: "px-3 py-3 text-cloud-500",
+														colspan: 4,
+														"Loading repositories..."
+													}
+												}
+											})(),
+											ResourceState::Error(err) => page!(|err: String| {
+												tr {
+													td {
+														class: "px-3 py-3 text-red-700",
+														colspan: 4,
+														{
+															self::format_server_error(&err)
+														}
+													}
+												}
+											})(err),
+											ResourceState::Success(items)if items.is_empty() => page!(|| {
+												tr {
+													td {
+														class: "px-3 py-3 text-cloud-500",
+														colspan: 4,
+														"No GitHub App repositories are available."
+													}
+												}
+											})(),
+											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>| { {
+												items.clone().into_iter().map(|repo| {
+													page!(|repo: GitHubRepositoryInfo| {
+														tr {
+															td {
+																class: "px-3 py-2 font-mono text-xs text-cloud-500",
+																{
+																	repo.id.to_string()
 																}
-																td { class: "px-3 py-2 text-cloud-700", { repo.default_branch.clone() } }
-																td {
-																	class: "px-3 py-2",
-																	span {
-																		class: if repo.selected { "rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700" } else { "rounded bg-cloud-100 px-2 py-1 text-xs font-medium text-cloud-600" },
-																		{ if repo.selected { "imported" } else { "available" } }
+															}
+															td {
+																class: "px-3 py-2",
+																div {
+																	class: "font-medium text-cloud-900",
+																	{
+																		repo.full_name.clone()
+																	}
+																}
+																div {
+																	class: "text-xs text-cloud-500",
+																	{
+																		if repo.private { "private" } else { "public" }
 																	}
 																}
 															}
-														})(repo)
-													}).collect::<Vec<_>>()
-												}
-											})(items),
+															td {
+																class: "px-3 py-2 text-cloud-700",
+																{
+																	repo.default_branch.clone()
+																}
+															}
+															td {
+																class: "px-3 py-2",
+																span {
+																	class: if repo.selected { "rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700" } else { "rounded bg-cloud-100 px-2 py-1 text-xs font-medium text-cloud-600" },
+																	{
+																		if repo.selected { "imported" } else { "available" }
+																	}
+																}
+															}
+														}
+													})(repo)
+												}).collect::<Vec<_>>()
+											} })(items),
 										}
 									}
 								}
@@ -202,36 +260,74 @@ pub fn github_repositories_page() -> Page {
 						class: "space-y-6",
 						section {
 							class: "rc-panel",
-							div { class: "rc-panel-head", "Import" }
-							{ self::alert(import_error.clone()) }
-							{ import_view.clone() }
+							div {
+								class: "rc-panel-head",
+								"Import"
+							}
+							{
+								self::alert(import_error.clone())
+							}
+							{
+								import_view.clone()
+							}
 							if import_submitting.get() {
-								p { class: "mt-2 text-sm text-cloud-500", "Importing..." }
+								p {
+									class: "mt-2 text-sm text-cloud-500",
+									"Importing..."
+								}
 							}
 						}
 						section {
 							class: "rc-panel",
-							div { class: "rc-panel-head", "Active Clusters" }
+							div {
+								class: "rc-panel-head",
+								"Active Clusters"
+							}
 							div {
 								class: "space-y-2 text-sm",
 								{
 									match clusters.get() {
-										ResourceState::Loading => page!(|| { p { class: "text-cloud-500", "Loading clusters..." } })(),
-										ResourceState::Error(err) => page!(|err: String| { p { class: "text-red-700", { self::format_server_error(&err) } } })(err),
-										ResourceState::Success(items) if items.is_empty() => page!(|| { p { class: "text-cloud-500", "No active clusters." } })(),
-										ResourceState::Success(items) => page!(|items: Vec<ClusterInfo>| {
-											{
-												items.clone().into_iter().map(|cluster| {
-													page!(|cluster: ClusterInfo| {
-														div {
-															class: "rounded border border-cloud-200 px-3 py-2",
-															div { class: "font-medium text-cloud-900", { cluster.name.clone() } }
-															div { class: "font-mono text-xs text-cloud-500", { format!("id {}", cluster.id) } }
-														}
-													})(cluster)
-												}).collect::<Vec<_>>()
+										ResourceState::Loading => page!(|| {
+											p {
+												class: "text-cloud-500",
+												"Loading clusters..."
 											}
-										})(items),
+										})(),
+										ResourceState::Error(err) => page!(|err: String| {
+											p {
+												class: "text-red-700",
+												{
+													self::format_server_error(&err)
+												}
+											}
+										})(err),
+										ResourceState::Success(items)if items.is_empty() => page!(|| {
+											p {
+												class: "text-cloud-500",
+												"No active clusters."
+											}
+										})(),
+										ResourceState::Success(items) => page!(|items: Vec<ClusterInfo>| { {
+											items.clone().into_iter().map(|cluster| {
+												page!(|cluster: ClusterInfo| {
+													div {
+														class: "rounded border border-cloud-200 px-3 py-2",
+														div {
+															class: "font-medium text-cloud-900",
+															{
+																cluster.name.clone()
+															}
+														}
+														div {
+															class: "font-mono text-xs text-cloud-500",
+															{
+																format!("id {}", cluster.id)
+															}
+														}
+													}
+												})(cluster)
+											}).collect::<Vec<_>>()
+										} })(items),
 									}
 								}
 							}
