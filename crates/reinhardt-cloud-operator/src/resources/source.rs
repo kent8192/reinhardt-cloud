@@ -17,6 +17,25 @@ pub(crate) fn should_build_from_source(app: &ReinhardtApp) -> bool {
 	app.spec.source.is_some()
 }
 
+/// Resolves the image reference produced by the source build.
+///
+/// The returned value must match the Kaniko destination used by
+/// `build_kaniko_job` so the reconciled workload pulls the image that
+/// the build Job pushes.
+pub(crate) fn built_image_reference(app: &ReinhardtApp, image_tag: &str) -> Result<String, Error> {
+	let source = app
+		.spec
+		.source
+		.as_ref()
+		.ok_or(Error::MissingField("spec.source"))?;
+	let registry = source
+		.build
+		.as_ref()
+		.and_then(|b| b.registry.as_deref())
+		.unwrap_or(&app.spec.image);
+	Ok(format!("{registry}:{image_tag}"))
+}
+
 /// Builds a kaniko `Job` that clones the source repository and pushes
 /// the resulting container image to the configured registry.
 ///
@@ -40,9 +59,7 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 		.and_then(|b| b.dockerfile.as_deref())
 		.unwrap_or("./Dockerfile");
 	let context = build.and_then(|b| b.context.as_deref()).unwrap_or(".");
-	let registry = build
-		.and_then(|b| b.registry.as_deref())
-		.unwrap_or(&app.spec.image);
+	let destination = built_image_reference(app, image_tag)?;
 
 	// Truncate tag to 8 chars for the job name
 	let tag_prefix = &image_tag[..image_tag.len().min(8)];
@@ -53,7 +70,7 @@ pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Jo
 		format!("--git=branch={branch},url={}", source.repository),
 		format!("--dockerfile={dockerfile}"),
 		format!("--context=dir://{context}"),
-		format!("--destination={registry}:{image_tag}"),
+		format!("--destination={destination}"),
 		"--cache=true".to_string(),
 	];
 
@@ -274,6 +291,31 @@ mod tests {
 			args.iter()
 				.any(|a| a.contains("--destination=ghcr.io/org/app:v1"))
 		);
+	}
+
+	#[rstest]
+	fn test_built_image_reference_uses_build_registry() {
+		// Arrange
+		let app = test_app_with_source("my-app");
+
+		// Act
+		let image = built_image_reference(&app, "v1").unwrap();
+
+		// Assert
+		assert_eq!(image, "ghcr.io/org/app:v1");
+	}
+
+	#[rstest]
+	fn test_built_image_reference_falls_back_to_spec_image() {
+		// Arrange
+		let mut app = test_app_with_source("my-app");
+		app.spec.source.as_mut().unwrap().build = None;
+
+		// Act
+		let image = built_image_reference(&app, "v1").unwrap();
+
+		// Assert
+		assert_eq!(image, "placeholder:latest:v1");
 	}
 
 	#[rstest]

@@ -50,6 +50,30 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 }
 
 #[cfg(native)]
+async fn ensure_github_account_linked(
+	user: &crate::apps::auth::models::User,
+) -> Result<(), ServerFnError> {
+	use reinhardt::Model;
+
+	let linked = crate::apps::auth::models::SocialAccount::objects()
+		.filter(crate::apps::auth::models::SocialAccount::field_user_id().eq(user.id.to_string()))
+		.filter(crate::apps::auth::models::SocialAccount::field_provider().eq("github"))
+		.exists()
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to check linked GitHub account: {e}"))
+		})?;
+	if linked {
+		Ok(())
+	} else {
+		Err(ServerFnError::server(
+			403,
+			"GitHub account must be linked before importing repositories",
+		))
+	}
+}
+
+#[cfg(native)]
 async fn agent_registry()
 -> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
 	use reinhardt::di::{ContextLevel, get_di_context};
@@ -191,6 +215,7 @@ pub async fn list_github_installations_for_current_org(
 	{
 		use reinhardt::Model;
 
+		ensure_github_account_linked(&user).await?;
 		let organization_id = current_org_id(&user).await?;
 		let installations = crate::apps::github::models::GitHubInstallation::objects()
 			.filter(
@@ -227,6 +252,7 @@ pub async fn import_github_repository_for_current_org(
 	{
 		use reinhardt::Model;
 
+		ensure_github_account_linked(&user).await?;
 		let organization_id = current_org_id(&user).await?;
 		let repository_id: i64 = repository_id
 			.parse()
@@ -408,6 +434,7 @@ pub async fn list_github_repositories_for_current_org(
 	{
 		use reinhardt::Model;
 
+		ensure_github_account_linked(&user).await?;
 		let organization_id = current_org_id(&user).await?;
 		let installations = crate::apps::github::models::GitHubInstallation::objects()
 			.filter(
@@ -462,6 +489,7 @@ pub async fn list_github_repositories_for_installation(
 	{
 		use reinhardt::Model;
 
+		ensure_github_account_linked(&user).await?;
 		let organization_id = current_org_id(&user).await?;
 		let installation = crate::apps::github::models::GitHubInstallation::objects()
 			.filter(crate::apps::github::models::GitHubInstallation::field_id().eq(installation_id))

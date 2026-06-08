@@ -117,7 +117,11 @@ before drawing conclusions.**
 > selected cluster: `ApplyGitCredentialsSecret` for private repositories
 > and `ApplyReinhardtApp` for the CRD manifest. The agent applies both
 > resources in-cluster using server-side apply, so the operator owns the
-> derived workload reconciliation.
+> derived workload reconciliation. When the manifest carries
+> `reinhardt.dev/build-trigger`, the operator creates the Kaniko build Job
+> and patches `spec.image` to the same image reference used as the Kaniko
+> destination, allowing the next workload reconciliation to deploy the built
+> image instead of the initial pending placeholder.
 
 ## Sequence Diagram
 

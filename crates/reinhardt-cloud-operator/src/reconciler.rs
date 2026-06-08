@@ -35,7 +35,7 @@ use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
-use crate::resources::source::{build_kaniko_job, should_build_from_source};
+use crate::resources::source::{build_kaniko_job, built_image_reference, should_build_from_source};
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
@@ -474,6 +474,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			let short_trigger: String = trigger_ts.chars().take(8).collect();
 			let image_tag = format!("{name}-{short_trigger}");
 			let job = build_kaniko_job(&app, &image_tag)?;
+			let built_image = built_image_reference(&app, &image_tag)?;
 			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
 			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
 			if job_api
@@ -489,12 +490,16 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				info!("Created build Job {namespace}/{job_name}");
 			}
 
-			// Clear the build-trigger annotation to prevent re-triggering
+			// Clear the build-trigger annotation and point the workload at
+			// the same image reference that the build Job pushes.
 			let patch = serde_json::json!({
 				"metadata": {
 					"annotations": {
 						"reinhardt.dev/build-trigger": null
 					}
+				},
+				"spec": {
+					"image": built_image
 				}
 			});
 			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
