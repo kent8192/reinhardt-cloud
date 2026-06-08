@@ -49,6 +49,7 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 						page!(|href: String, label: String| {
 							a {
 								href: href,
+								rel: "external",
 								class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
 								{ label }
 							}
@@ -72,4 +73,34 @@ pub fn oauth_buttons() -> Page {
 			}
 		}
 	})(providers)
+}
+
+#[cfg(test)]
+mod tests {
+	use rstest::rstest;
+
+	use super::*;
+
+	#[rstest]
+	fn provider_buttons_mark_oauth_start_links_as_external() {
+		// Arrange
+		let providers = vec![OAuthProviderInfo {
+			id: "github".to_string(),
+			label: "GitHub".to_string(),
+			start_url: "/api/auth/oauth/github/start/".to_string(),
+		}];
+
+		// Act
+		let html = render_provider_buttons(providers).render_to_string();
+
+		// Assert
+		assert!(
+			html.contains(r#"href="/api/auth/oauth/github/start/""#),
+			"OAuth provider link should use the server-generated start URL: {html}"
+		);
+		assert!(
+			html.contains(r#"rel="external""#),
+			"OAuth provider links must bypass the SPA link interceptor: {html}"
+		);
+	}
 }
