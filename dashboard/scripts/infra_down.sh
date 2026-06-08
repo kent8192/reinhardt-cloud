@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Stop disposable PostgreSQL + Redis containers started by infra_up.sh.
-# Containers were launched with `docker run --rm`, so stopping them also
-# removes them and their data.
-set -e
+# Stop local infrastructure started by `manage infra` plus the temporary Redis
+# compatibility container.
+set -euo pipefail
 
-docker stop reinhardt-cloud-dashboard-postgres reinhardt-cloud-dashboard-redis >/dev/null 2>&1 || true
-echo "Infrastructure stopped (containers auto-removed via --rm)"
+rc=0
+cargo run --locked --bin manage -- infra down || rc=$?
+docker stop reinhardt-cloud-dashboard-redis >/dev/null 2>&1 || true
+exit "$rc"

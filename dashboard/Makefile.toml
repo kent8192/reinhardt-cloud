@@ -273,12 +273,11 @@ args = [
 ]
 dependencies = ["wasm-install-tools"]
 
-# Note: ephemeral local infrastructure tasks (`infra-up` / `infra-down` /
-# `infra-reset`) live in the workspace-root `Makefile.toml` so that
-# `cargo make runserver` from the workspace root chains
-# `infra-up → migrate → collectstatic → runserver` in one shot. The
-# implementation scripts at `dashboard/scripts/infra_up.sh` and
-# `dashboard/scripts/infra_down.sh` are unchanged.
+# Note: local infrastructure tasks (`infra-up` / `infra-down` /
+# `infra-reset`) live in the workspace-root `Makefile.toml` and delegate to
+# the framework-provided `manage infra` command. Workspace-root
+# `cargo make runserver` uses `dashboard/scripts/runserver_with_infra.sh` to
+# export the generated connection environment before launching the server.
 
 # ============================================================================
 # Help
@@ -334,9 +333,9 @@ echo "    wasm-clean         - Clean WASM artifacts"
 echo "    runserver-pages    - Build WASM + start server"
 echo ""
 echo "  Local Infrastructure (ephemeral postgres/redis; run from workspace root):"
-echo "    cargo make infra-up      - Start postgres/redis containers"
-echo "    cargo make infra-down    - Stop containers (data wiped)"
-echo "    cargo make infra-reset   - Stop and recreate (wipes data)"
+echo "    cargo make infra-up      - Start local infra containers"
+echo "    cargo make infra-down    - Stop local infra containers"
+echo "    cargo make infra-reset   - Stop and recreate local infra"
 echo ""
 echo "Usage: cargo make <task>"
 '''

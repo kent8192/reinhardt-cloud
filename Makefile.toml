@@ -200,24 +200,10 @@ args = [
 # ============================================================================
 
 [tasks.runserver]
-description = "Start local development server with WASM frontend (auto-starts ephemeral PostgreSQL/Redis via docker; Docker required)"
+description = "Start local development server with WASM frontend (auto-starts local infra via manage infra; Docker required)"
 cwd = "dashboard"
-dependencies = ["infra-up", "migrate", "collectstatic"]
-command = "cargo"
-args = [
-	"run",
-	"--locked",
-	"--bin",
-	"manage",
-	"--",
-	"runserver",
-	"--with-pages",
-	"--insecure",
-	"--static-dir",
-	"dist",
-	"--index",
-	"index.html",
-]
+command = "bash"
+args = ["scripts/runserver_with_infra.sh"]
 env = { REINHARDT_ENV = "local" }
 
 [tasks.showurls]
@@ -228,10 +214,11 @@ args = ["run", "--locked", "--bin", "manage", "--", "showurls"]
 env = { REINHARDT_ENV = "local" }
 
 [tasks.migrate]
-description = "Apply database migrations"
+description = "Apply database migrations against manage infra local services"
 cwd = "dashboard"
+dependencies = ["infra-up"]
 command = "cargo"
-args = ["run", "--locked", "--bin", "manage", "--", "migrate"]
+args = ["run", "--locked", "--bin", "manage", "--", "infra", "run", "--", "migrate"]
 env = { REINHARDT_ENV = "local" }
 
 [tasks.collectstatic]
@@ -242,43 +229,31 @@ args = ["run", "--locked", "--bin", "manage", "--", "collectstatic", "--no-input
 env = { REINHARDT_ENV = "local" }
 
 # ============================================================================
-# Ephemeral Local Infrastructure (postgres / redis via docker run --rm)
+# Local Infrastructure (managed by `manage infra`)
 # ============================================================================
 #
-# Spins up disposable PostgreSQL + Redis containers for local development.
-# Containers are launched with `docker run --rm` and no persistent volumes,
-# so all data is wiped when the containers stop. Connection parameters
-# (user / password / database / port / redis URL) are parsed from
-# `dashboard/settings/<profile>.toml` (matching `REINHARDT_ENV`), so
-# changes to that file are picked up on the next `cargo make infra-up`
-# without editing this Makefile.
-#
-# Implementation: dashboard/scripts/infra_up.sh and infra_down.sh.
-
-# Pin REINHARDT_ENV on infra-up/infra-down so the profile parsed by
-# infra_up.sh matches the one used by the rest of the runserver chain
-# (migrate, collectstatic, runserver all force "local"). Without this, a
-# stray REINHARDT_ENV in the user's shell would route infra-up to a
-# different settings/<profile>.toml than the dashboard process, producing
-# an auth/port mismatch at first query. Override by invoking the script
-# directly: `bash dashboard/scripts/infra_up.sh` with REINHARDT_ENV set.
+# Pin REINHARDT_ENV so the profile resolved by `manage infra` matches the
+# one used by the rest of the runserver chain.
 [tasks.infra-up]
-description = "Start disposable PostgreSQL + Redis containers (docker run --rm); credentials parsed from settings/<profile>.toml"
+description = "Start local infrastructure containers from resolved Reinhardt settings"
 cwd = "dashboard"
 command = "bash"
 args = ["scripts/infra_up.sh"]
 env = { REINHARDT_ENV = "local" }
 
 [tasks.infra-down]
-description = "Stop disposable PostgreSQL + Redis containers (data is wiped)"
+description = "Stop local infrastructure containers"
 cwd = "dashboard"
 command = "bash"
 args = ["scripts/infra_down.sh"]
 env = { REINHARDT_ENV = "local" }
 
 [tasks.infra-reset]
-description = "Stop and recreate disposable infrastructure (wipes all data)"
-dependencies = ["infra-down", "infra-up"]
+description = "Stop and recreate local infrastructure containers"
+cwd = "dashboard"
+command = "bash"
+args = ["scripts/infra_reset.sh"]
+env = { REINHARDT_ENV = "local" }
 
 # ============================================================================
 # CRD Generation Tasks

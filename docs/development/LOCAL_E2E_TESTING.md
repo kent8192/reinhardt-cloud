@@ -125,25 +125,27 @@ kubectl cluster-info
 
 ## 2. Start dependency services
 
-Postgres and Redis are launched as ephemeral containers (`docker run --rm`)
-via the cargo-make task defined in the workspace-root `Makefile.toml`.
-Data is wiped when the containers stop, which keeps each local session
-isolated. (`cargo make runserver` from the workspace root will also start
-these containers automatically as a dependency, so this step is only
-needed when you want the infra without launching the dev server.)
+Local dependency services are launched through the Reinhardt framework's
+`manage infra` command via the cargo-make tasks defined in the workspace-root
+`Makefile.toml`. (`cargo make runserver` from the workspace root also starts
+local infrastructure before applying migrations and launching the dev server,
+so this step is only needed when you want the infra without launching the
+server.)
 
 ```bash
 cargo make infra-up
-docker ps --filter name=reinhardt-cloud-dashboard-
+cargo run -p reinhardt-cloud-dashboard --bin manage -- infra status
+docker ps --filter name=reinhardt-cloud-dashboard-redis
 ```
 
-`infra-up` reads connection parameters from the settings TOML matching
-the active `REINHARDT_ENV` profile (defaults to `local`, so `local.toml`).
-This is the same lookup `runserver` performs, so both sides stay in
-sync. With a typical `local.toml` the defaults are
-`postgres://reinhardt:reinhardt@localhost:5432/reinhardt_cloud` and
-`redis://localhost:6379`. Stop the containers with `cargo make infra-down`,
-or recreate from a clean state with `cargo make infra-reset`.
+`infra-up` resolves the same Reinhardt settings profile used by the Dashboard
+process (`REINHARDT_ENV=local` for the cargo-make tasks), provisions matching
+local containers, and stores the resolved framework-managed state under
+`.reinhardt/`. Until kent8192/reinhardt-web#5213 is fixed, the Dashboard task
+also starts a Redis compatibility container because the Dashboard Redis URL is
+currently an application-specific top-level setting. Stop the containers with
+`cargo make infra-down`, or recreate from a clean state with
+`cargo make infra-reset`.
 
 > **Note:** if you have `REINHARDT_ENV` set in your shell (e.g. left over
 > from a CI shell where you exported `REINHARDT_ENV=ci`), both `infra-up`
@@ -170,8 +172,7 @@ come from the framework, not from a crate-local subcommand).
 ### 4a. Apply migrations
 
 ```bash
-export REINHARDT_CLOUD_REDIS_URL="redis://localhost:6379"
-cargo run -p reinhardt-cloud-dashboard --bin manage -- migrate
+cargo make migrate
 ```
 
 ### 4b. Start the server
@@ -179,8 +180,7 @@ cargo run -p reinhardt-cloud-dashboard --bin manage -- migrate
 In a dedicated terminal:
 
 ```bash
-export REINHARDT_CLOUD_REDIS_URL="redis://localhost:6379"
-cargo run -p reinhardt-cloud-dashboard --bin manage -- runserver
+cargo make runserver
 ```
 
 Required / useful environment variables:
