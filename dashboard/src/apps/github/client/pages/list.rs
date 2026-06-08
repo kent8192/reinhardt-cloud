@@ -261,15 +261,10 @@ pub fn github_repositories_page() -> Page {
 																	let app_name_signal = import_app_name.clone();
 																	let repo_id = repo.id.to_string();
 																	let app_name = repo.name.clone();
-																	PageElement::new("button")
-																		.attr("type", "button")
-																		.attr("class", "btn-secondary text-xs")
-																		.listener("click", move |_event| {
-																			repository_id_signal.set(repo_id.clone());
-																			app_name_signal.set(app_name.clone());
-																		})
-																		.child("Select")
-																		.into_page()
+																	PageElement::new("button").attr("type", "button").attr("class", "btn-secondary text-xs").listener("click", move |_event| {
+																		repository_id_signal.set(repo_id.clone());
+																		app_name_signal.set(app_name.clone());
+																	}).child("Select").into_page()
 																}
 															}
 														}
@@ -355,14 +350,9 @@ pub fn github_repositories_page() -> Page {
 															{
 																let cluster_id_signal = import_cluster_id.clone();
 																let cluster_id = cluster.id.to_string();
-																PageElement::new("button")
-																	.attr("type", "button")
-																	.attr("class", "btn-secondary text-xs")
-																	.listener("click", move |_event| {
-																		cluster_id_signal.set(cluster_id.clone());
-																	})
-																	.child("Select")
-																	.into_page()
+																PageElement::new("button").attr("type", "button").attr("class", "btn-secondary text-xs").listener("click", move |_event| {
+																	cluster_id_signal.set(cluster_id.clone());
+																}).child("Select").into_page()
 															}
 														}
 													}
