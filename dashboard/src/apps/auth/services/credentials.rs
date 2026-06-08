@@ -37,9 +37,10 @@ pub async fn verify_credentials(username: &str, password: &str) -> Result<User, 
 		return Err(AppError::Authentication("Invalid credentials".to_string()));
 	}
 
-	// Use same generic message to prevent user enumeration
 	if !user.is_active() {
-		return Err(AppError::Authentication("Invalid credentials".to_string()));
+		return Err(AppError::Authorization(
+			"Email verification required".to_string(),
+		));
 	}
 
 	Ok(user)

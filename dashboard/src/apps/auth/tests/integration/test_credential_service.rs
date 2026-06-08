@@ -160,9 +160,10 @@ mod tests {
 		let result = verify_credentials("inactivecred", "securepassword").await;
 
 		// Assert
-		assert!(
-			result.is_err(),
-			"verify_credentials should fail for inactive user"
+		let err = result.expect_err("verify_credentials should fail for inactive user");
+		assert_eq!(
+			err.to_string(),
+			"Authorization error: Email verification required"
 		);
 	}
 
