@@ -16,9 +16,11 @@
 //! memory — which we do not.
 
 use chrono::{DateTime, Utc};
+use reinhardt::db::associations::ForeignKeyField;
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use super::User;
 
 /// Pending email-change verification token.
 ///
@@ -28,15 +30,16 @@ use uuid::Uuid;
 /// - `expires_at` bounds the validity window (typically 24 hours).
 /// - `consumed_at` marks single-use semantics; once set, the token cannot be
 ///   reused even within the validity window.
-#[derive(Default, Serialize, Deserialize)]
 #[model(app_label = "auth", table_name = "auth_email_verification_tokens")]
+#[derive(Default, Serialize, Deserialize)]
 pub struct EmailVerificationToken {
 	/// Primary key (None for auto-increment on insert).
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
 
-	/// Owning user (foreign key to `auth_users.id`).
-	pub user_id: Uuid,
+	/// User that owns this pending email-change token.
+	#[rel(foreign_key, related_name = "email_verification_tokens")]
+	pub user: ForeignKeyField<User>,
 
 	/// New email that will replace `user.email` upon successful verification.
 	#[field(max_length = 254)]

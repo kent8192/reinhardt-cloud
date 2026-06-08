@@ -11,24 +11,28 @@
 //! feature explicitly opts in.
 
 use chrono::{DateTime, Utc};
+use reinhardt::db::associations::ForeignKeyField;
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use super::User;
 
 /// Link between a local `User` and an external OAuth/OIDC provider account.
 ///
 /// The `id` is a UUID rather than an auto-increment integer to match the
 /// `reinhardt-auth` `SocialAccountStorage` trait surface (its `delete`
 /// takes `Uuid`), and to keep enumeration of links non-trivial.
-#[derive(Default, Serialize, Deserialize)]
 #[model(app_label = "auth", table_name = "auth_social_accounts")]
+#[derive(Default, Serialize, Deserialize)]
 pub struct SocialAccount {
 	/// Primary key (UUID v4, generated on insert).
 	#[field(primary_key = true, include_in_new = false)]
 	pub id: Uuid,
 
-	/// Owning user (foreign key to `auth_users.id`).
-	pub user_id: Uuid,
+	/// User that owns this provider account link.
+	#[rel(foreign_key, related_name = "social_accounts")]
+	pub user: ForeignKeyField<User>,
 
 	/// Provider identifier — `"github"`, `"gitlab"`, etc. Lowercase, stable.
 	#[field(max_length = 32)]

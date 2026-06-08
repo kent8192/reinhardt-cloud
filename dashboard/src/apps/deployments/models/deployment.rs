@@ -1,25 +1,31 @@
 //! Deployment ORM model.
 
+use reinhardt::db::associations::ForeignKeyField;
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::apps::clusters::models::Cluster;
+use crate::apps::organizations::models::Organization;
+
 /// Application deployment targeting a specific cluster.
-#[derive(Serialize, Deserialize)]
 #[model(app_label = "deployments", table_name = "deployments")]
+#[derive(Serialize, Deserialize)]
 pub struct Deployment {
 	/// Primary key (None for auto-increment on insert)
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
 
-	/// Foreign key to `organizations.id`. Multi-tenant ownership boundary.
-	pub organization_id: i64,
+	/// Organization that owns this deployment.
+	#[rel(foreign_key, related_name = "deployments")]
+	pub organization: ForeignKeyField<Organization>,
 
 	/// Application name
 	#[field(max_length = 255)]
 	pub app_name: String,
 
-	/// Foreign key to clusters table
-	pub cluster_id: i64,
+	/// Cluster targeted by this deployment.
+	#[rel(foreign_key, related_name = "deployments")]
+	pub cluster: ForeignKeyField<Cluster>,
 
 	/// Deployment lifecycle status (pending, running, failed, succeeded)
 	#[field(max_length = 50, default = "pending")]

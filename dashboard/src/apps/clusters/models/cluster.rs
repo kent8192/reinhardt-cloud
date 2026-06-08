@@ -1,7 +1,10 @@
 //! Cluster ORM model.
 
+use reinhardt::db::associations::ForeignKeyField;
 use reinhardt::prelude::*;
 use serde::{Deserialize, Serialize};
+
+use crate::apps::organizations::models::Organization;
 
 /// Kubernetes cluster registered with the Reinhardt Cloud PaaS.
 ///
@@ -9,19 +12,20 @@ use serde::{Deserialize, Serialize};
 /// duplicate cluster names within the same organization. Cross-organization
 /// name reuse is intentionally allowed so that distinct tenants can each
 /// own a `prod` (or other common name) without colliding.
-#[derive(Serialize, Deserialize)]
 #[model(
 	app_label = "clusters",
 	table_name = "clusters",
 	unique_together = ("organization_id", "name")
 )]
+#[derive(Serialize, Deserialize)]
 pub struct Cluster {
 	/// Primary key (None for auto-increment on insert)
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
 
-	/// Foreign key to `organizations.id`. Multi-tenant ownership boundary.
-	pub organization_id: i64,
+	/// Organization that owns this cluster.
+	#[rel(foreign_key, related_name = "clusters")]
+	pub organization: ForeignKeyField<Organization>,
 
 	/// Cluster display name
 	#[field(max_length = 255)]

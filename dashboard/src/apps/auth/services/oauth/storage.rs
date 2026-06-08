@@ -29,16 +29,16 @@ use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
-use reinhardt::db::orm::Model;
+use reinhardt::db::orm::{IntoPrimaryKey, Model};
 use uuid::Uuid;
 
-use crate::apps::auth::models::SocialAccount as OrmSocialAccount;
+use crate::apps::auth::models::{SocialAccount as OrmSocialAccount, User};
 /// Maps an ORM record to the framework `SocialAccount` shape with empty
 /// token-bearing fields. The storage layer never returns persisted tokens.
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
 	SocialAccount {
 		id: orm.id,
-		user_id: orm.user_id,
+		user_id: *orm.user_id(),
 		provider: orm.provider,
 		provider_user_id: orm.provider_user_id,
 		email: None,
@@ -78,6 +78,12 @@ fn map_orm_err(context: &'static str, err: impl std::fmt::Display) -> SocialAuth
 	SocialAuthError::Storage(format!("{context}: {err}"))
 }
 
+impl IntoPrimaryKey<User> for &SocialAccount {
+	fn into_primary_key(self) -> Uuid {
+		self.user_id
+	}
+}
+
 #[async_trait]
 impl SocialAccountStorage for OrmSocialAccountStorage {
 	async fn find_by_provider_and_uid(
@@ -104,15 +110,15 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 	}
 
 	async fn create(&self, account: SocialAccount) -> Result<SocialAccount, SocialAuthError> {
-		let orm = OrmSocialAccount {
-			id: account.id,
-			user_id: account.user_id,
-			provider: account.provider.clone(),
-			provider_user_id: account.provider_user_id.clone(),
-			provider_username: account.display_name.clone(),
-			created_at: account.created_at,
-			updated_at: account.updated_at,
-		};
+		let orm = OrmSocialAccount::build()
+			.id(account.id)
+			.user(&account)
+			.provider(account.provider.clone())
+			.provider_user_id(account.provider_user_id.clone())
+			.provider_username(account.display_name.clone())
+			.created_at(account.created_at)
+			.updated_at(account.updated_at)
+			.finish();
 		let created = OrmSocialAccount::objects()
 			.create(&orm)
 			.await
@@ -136,17 +142,19 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 			)));
 		}
 
-		let orm = OrmSocialAccount {
-			id: account.id,
-			user_id: account.user_id,
-			provider: account.provider.clone(),
-			provider_user_id: account.provider_user_id.clone(),
-			provider_username: account.display_name.clone(),
-			created_at: account.created_at,
-			// Refresh updated_at so observers can detect the change even
-			// though we ignored token-bearing fields.
-			updated_at: chrono::Utc::now(),
-		};
+		// Refresh updated_at so observers can detect the change even
+		// though we ignored token-bearing fields.
+		let updated_at = chrono::Utc::now();
+
+		let orm = OrmSocialAccount::build()
+			.id(account.id)
+			.user(&account)
+			.provider(account.provider.clone())
+			.provider_user_id(account.provider_user_id.clone())
+			.provider_username(account.display_name.clone())
+			.created_at(account.created_at)
+			.updated_at(updated_at)
+			.finish();
 		let saved = OrmSocialAccount::objects()
 			.update(&orm)
 			.await

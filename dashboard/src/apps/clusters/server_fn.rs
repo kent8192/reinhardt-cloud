@@ -114,7 +114,7 @@ pub async fn create_cluster_for_current_org(
 
 		let manager = crate::apps::clusters::models::Cluster::objects();
 		let new_cluster = crate::apps::clusters::models::Cluster::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.name(name)
 			.api_url(api_url)
 			.is_active(true)

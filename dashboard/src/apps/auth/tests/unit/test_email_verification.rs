@@ -76,15 +76,16 @@ mod tests {
 	fn valid_token(user_id: Uuid) -> EmailVerificationToken {
 		let mut hasher = Sha256::new();
 		hasher.update(b"plaintext-token");
-		EmailVerificationToken {
-			id: Some(1),
-			user_id,
-			pending_email: "new@example.com".to_string(),
-			token_hash: hex::encode(hasher.finalize()),
-			expires_at: Utc::now() + Duration::hours(24),
-			consumed_at: None,
-			created_at: Utc::now(),
-		}
+		let mut token = EmailVerificationToken::build()
+			.user(user_id)
+			.pending_email("new@example.com".to_string())
+			.token_hash(hex::encode(hasher.finalize()))
+			.expires_at(Utc::now() + Duration::hours(24))
+			.consumed_at(None)
+			.finish();
+		token.id = Some(1);
+		token.created_at = Utc::now();
+		token
 	}
 
 	/// An expired token (expires_at in the past) must be rejected.
@@ -136,7 +137,7 @@ mod tests {
 	/// A token whose user_id does not match the claimed user_id must be
 	/// rejected.
 	///
-	/// The `verify_email_change` handler checks `token.user_id != claimed_user_id`
+	/// The `verify_email_change` handler checks `token.user_id() != claimed_user_id`
 	/// after the DB lookup and returns an authentication error on mismatch,
 	/// using the same generic message as an unknown token to avoid leaking
 	/// whether the token exists for a different account.
@@ -148,7 +149,7 @@ mod tests {
 		let token = valid_token(owner_id);
 
 		// Act
-		let matches = token.user_id == attacker_id;
+		let matches = *token.user_id() == attacker_id;
 
 		// Assert: a different user_id must not match the token's owner.
 		assert!(
@@ -169,7 +170,7 @@ mod tests {
 		// Act
 		let not_expired = token.expires_at > now;
 		let not_consumed = token.consumed_at.is_none();
-		let user_matches = token.user_id == user_id;
+		let user_matches = *token.user_id() == user_id;
 
 		// Assert
 		assert!(not_expired, "token must not be expired");

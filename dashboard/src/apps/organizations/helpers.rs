@@ -37,7 +37,7 @@ pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppE
 				"user has no organization membership; re-register to provision one".to_string(),
 			)
 		})?;
-	Ok(m.organization_id)
+	Ok(*m.organization_id())
 }
 
 /// Resolve an org slug to its `organization_id`, asserting membership.

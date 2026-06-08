@@ -20,18 +20,18 @@ mod tests {
 
 		// Act
 		let deployment = Deployment::build()
-			.organization_id(organization_id)
+			.organization(organization_id)
 			.app_name(app_name.clone())
-			.cluster_id(cluster_id)
+			.cluster(cluster_id)
 			.status(status.clone())
 			.image(image.clone())
 			.reinhardt_app_yaml(Some(reinhardt_app_yaml.clone()))
 			.finish();
 
 		// Assert
-		assert_eq!(deployment.organization_id, organization_id);
+		assert_eq!(*deployment.organization_id(), organization_id);
 		assert_eq!(deployment.app_name, app_name);
-		assert_eq!(deployment.cluster_id, cluster_id);
+		assert_eq!(*deployment.cluster_id(), cluster_id);
 		assert_eq!(deployment.status, status);
 		assert_eq!(deployment.image, image);
 		assert_eq!(deployment.reinhardt_app_yaml, Some(reinhardt_app_yaml));
@@ -42,9 +42,9 @@ mod tests {
 	fn test_deployment_new_id_is_none() {
 		// Arrange & Act
 		let deployment = Deployment::build()
-			.organization_id(1)
+			.organization(1)
 			.app_name("app".to_string())
-			.cluster_id(1)
+			.cluster(1)
 			.status("pending".to_string())
 			.image("nginx:latest".to_string())
 			.reinhardt_app_yaml(None)
@@ -63,9 +63,9 @@ mod tests {
 	fn test_deployment_status_values(#[case] status: &str) {
 		// Arrange & Act
 		let deployment = Deployment::build()
-			.organization_id(1)
+			.organization(1)
 			.app_name("app".to_string())
-			.cluster_id(1)
+			.cluster(1)
 			.status(status.to_string())
 			.image("nginx:latest".to_string())
 			.reinhardt_app_yaml(None)
@@ -80,9 +80,9 @@ mod tests {
 	fn test_deployment_serialization_roundtrip() {
 		// Arrange
 		let mut deployment = Deployment::build()
-			.organization_id(7)
+			.organization(7)
 			.app_name("roundtrip-app".to_string())
-			.cluster_id(99)
+			.cluster(99)
 			.status("running".to_string())
 			.image("ghcr.io/roundtrip:v1".to_string())
 			.reinhardt_app_yaml(None)
@@ -95,9 +95,9 @@ mod tests {
 
 		// Assert
 		assert_eq!(restored.id, deployment.id);
-		assert_eq!(restored.organization_id, deployment.organization_id);
+		assert_eq!(restored.organization_id(), deployment.organization_id());
 		assert_eq!(restored.app_name, deployment.app_name);
-		assert_eq!(restored.cluster_id, deployment.cluster_id);
+		assert_eq!(restored.cluster_id(), deployment.cluster_id());
 		assert_eq!(restored.status, deployment.status);
 		assert_eq!(restored.image, deployment.image);
 		assert_eq!(restored.reinhardt_app_yaml, deployment.reinhardt_app_yaml);
