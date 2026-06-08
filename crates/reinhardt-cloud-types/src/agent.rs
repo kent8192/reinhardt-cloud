@@ -34,6 +34,15 @@ pub enum AgentCommand {
 	Scale { app_name: String, replicas: u32 },
 	/// Restart all pods for an application.
 	Restart { app_name: String },
+	/// Apply a typed `ReinhardtApp` manifest in the agent's cluster.
+	ApplyReinhardtApp { app_name: String, yaml: String },
+	/// Apply a Git credential Secret in the agent's cluster.
+	ApplyGitCredentialsSecret {
+		app_name: String,
+		namespace: String,
+		secret_name: String,
+		git_token: String,
+	},
 }
 
 /// Events reported by a cluster agent to the control plane.
@@ -147,6 +156,16 @@ mod tests {
 			},
 			AgentCommand::Restart {
 				app_name: "web".to_string(),
+			},
+			AgentCommand::ApplyReinhardtApp {
+				app_name: "web".to_string(),
+				yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".to_string(),
+			},
+			AgentCommand::ApplyGitCredentialsSecret {
+				app_name: "web".to_string(),
+				namespace: "default".to_string(),
+				secret_name: "web-github-git-credentials".to_string(),
+				git_token: "token".to_string(),
 			},
 		];
 
@@ -412,6 +431,22 @@ mod tests {
 					app_name: "app".to_string(),
 				},
 			),
+			(
+				"ApplyReinhardtApp",
+				AgentCommand::ApplyReinhardtApp {
+					app_name: "app".to_string(),
+					yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".to_string(),
+				},
+			),
+			(
+				"ApplyGitCredentialsSecret",
+				AgentCommand::ApplyGitCredentialsSecret {
+					app_name: "app".to_string(),
+					namespace: "default".to_string(),
+					secret_name: "app-github-git-credentials".to_string(),
+					git_token: "token".to_string(),
+				},
+			),
 		];
 
 		// Act & Assert
@@ -433,7 +468,7 @@ mod tests {
 		proptest! {
 			#[test]
 			fn prop_agent_command_serde_roundtrip(
-				variant in 0..4u8,
+				variant in 0..6u8,
 				app_name in "[a-z][a-z0-9-]{0,20}",
 				replicas in 0..u32::MAX,
 				revision in 0..u32::MAX,
@@ -442,7 +477,17 @@ mod tests {
 					0 => AgentCommand::Deploy { app_name: app_name.clone(), image: "img:v1".into(), replicas },
 					1 => AgentCommand::Rollback { app_name: app_name.clone(), revision },
 					2 => AgentCommand::Scale { app_name: app_name.clone(), replicas },
-					_ => AgentCommand::Restart { app_name: app_name.clone() },
+					3 => AgentCommand::Restart { app_name: app_name.clone() },
+					4 => AgentCommand::ApplyReinhardtApp {
+						app_name: app_name.clone(),
+						yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".into(),
+					},
+					_ => AgentCommand::ApplyGitCredentialsSecret {
+						app_name: app_name.clone(),
+						namespace: "default".into(),
+						secret_name: format!("{app_name}-github-git-credentials"),
+						git_token: "token".into(),
+					},
 				};
 				let json = serde_json::to_string(&cmd).unwrap();
 				let deserialized: AgentCommand = serde_json::from_str(&json).unwrap();

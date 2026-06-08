@@ -5521,6 +5521,7 @@ dependencies = [
  "kube",
  "prost 0.13.5",
  "prost-types 0.13.5",
+ "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
  "rustls",

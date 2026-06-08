@@ -55,6 +55,8 @@ message AgentCommand {
     RollbackCommand rollback = 2;
     ScaleCommand scale = 3;
     RestartCommand restart = 4;
+    ApplyReinhardtAppCommand apply_reinhardt_app = 5;
+    ApplyGitCredentialsSecretCommand apply_git_credentials_secret = 6;
   }
 }
 
@@ -76,6 +78,18 @@ message ScaleCommand {
 
 message RestartCommand {
   string app_name = 1;
+}
+
+message ApplyReinhardtAppCommand {
+  string app_name = 1;
+  string yaml = 2;
+}
+
+message ApplyGitCredentialsSecretCommand {
+  string app_name = 1;
+  string namespace = 2;
+  string secret_name = 3;
+  string git_token = 4;
 }
 
 // Health report from an agent.

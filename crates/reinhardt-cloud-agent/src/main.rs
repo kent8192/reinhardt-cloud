@@ -296,6 +296,64 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				error!("Failed to send restart status event: {e}");
 			}
 		}
+		Some(pb::agent_command::Command::ApplyReinhardtApp(cmd)) => {
+			info!(app = %cmd.app_name, "Received ReinhardtApp apply command");
+			let (success, message) = match execute_apply_reinhardt_app(&cmd.yaml).await {
+				Ok(()) => (true, "ReinhardtApp applied".to_string()),
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "ReinhardtApp apply failed");
+					(false, format!("ReinhardtApp apply failed: {e}"))
+				}
+			};
+			if let Err(e) = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "apply_reinhardt_app".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await
+			{
+				error!("Failed to send ReinhardtApp apply status event: {e}");
+			}
+		}
+		Some(pb::agent_command::Command::ApplyGitCredentialsSecret(cmd)) => {
+			info!(app = %cmd.app_name, namespace = %cmd.namespace, secret = %cmd.secret_name, "Received git credentials Secret apply command");
+			let (success, message) = match execute_apply_git_credentials_secret(
+				&cmd.namespace,
+				&cmd.secret_name,
+				&cmd.git_token,
+			)
+			.await
+			{
+				Ok(()) => (true, "Git credentials Secret applied".to_string()),
+				Err(e) => {
+					error!(app = %cmd.app_name, error = %e, "Git credentials Secret apply failed");
+					(false, format!("Git credentials Secret apply failed: {e}"))
+				}
+			};
+			if let Err(e) = event_tx
+				.send(pb::AgentEvent {
+					event: Some(pb::agent_event::Event::CommandStatus(
+						pb::AgentCommandStatus {
+							app_name: cmd.app_name.clone(),
+							command_type: "apply_git_credentials_secret".to_string(),
+							success,
+							message,
+							timestamp: timestamp_now(),
+						},
+					)),
+				})
+				.await
+			{
+				error!("Failed to send git credentials Secret apply status event: {e}");
+			}
+		}
 		None => {
 			warn!("Received empty command");
 		}
@@ -361,6 +419,38 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 		.await?;
 
 	Ok(())
+}
+
+async fn execute_apply_reinhardt_app(yaml: &str) -> Result<(), String> {
+	let app = reinhardt_cloud_k8s::resources::parse_reinhardt_app_yaml(yaml)
+		.map_err(|e| e.to_string())?;
+	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
+	let client = reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
+		.await
+		.map_err(|e| e.to_string())?;
+	reinhardt_cloud_k8s::resources::server_side_apply_reinhardt_app_yaml(&client, yaml)
+		.await
+		.map(|_| ())
+		.map_err(|e| e.to_string())
+}
+
+async fn execute_apply_git_credentials_secret(
+	namespace: &str,
+	secret_name: &str,
+	git_token: &str,
+) -> Result<(), String> {
+	let client = reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
+		.await
+		.map_err(|e| e.to_string())?;
+	reinhardt_cloud_k8s::resources::server_side_apply_git_credentials_secret(
+		&client,
+		namespace,
+		secret_name,
+		git_token,
+	)
+	.await
+	.map(|_| ())
+	.map_err(|e| e.to_string())
 }
 
 /// Rollback a Kubernetes Deployment to a previous revision.
