@@ -9,8 +9,8 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
-use crate::apps::auth::client::pages::auth_href;
 use crate::apps::auth::server_fn::login::login;
+use crate::shared::client::routes::route_href;
 
 /// Render the login page.
 pub fn login_page() -> Page {
@@ -18,8 +18,8 @@ pub fn login_page() -> Page {
 		name: LoginForm,
 		server_fn: login,
 		method: Post,
-		class: "space-y-4",
-		redirect_on_success: "/",
+		class: "rc-form-stack",
+		success_url: |_form| route_href("dashboard:home", "/"),
 		fields: {
 			username: CharField {
 				required,
@@ -37,13 +37,13 @@ pub fn login_page() -> Page {
 			},
 			submit: SubmitButton {
 				label: "Sign in",
-				class: "btn-primary w-full py-2.5 text-base"
+				class: "btn-primary min-h-11 w-full text-base"
 			},
 		},
 	};
 	let form_view = login_form.into_page();
 	let oauth_buttons = oauth_buttons();
-	let register_href = auth_href("auth:register_page", "/register");
+	let register_href = route_href("auth:register_page", "/register");
 	page!(|form_view: Page, oauth_buttons: Page, register_href: String| {
 		div {
 			class: "rc-app flex items-center justify-center px-4",

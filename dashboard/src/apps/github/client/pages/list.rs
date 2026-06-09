@@ -16,6 +16,7 @@ use crate::apps::github::server_fn::{
 use crate::apps::github::server_fn::{
 	get_github_onboarding_for_current_org, list_github_repositories_for_current_org,
 };
+use crate::shared::client::routes::route_href;
 
 fn format_server_error(raw: &str) -> String {
 	if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
@@ -98,8 +99,8 @@ pub fn github_repositories_page() -> Page {
 		name: ImportGitHubRepositoryForm,
 		server_fn: import_github_repository_for_current_org,
 		method: Post,
-		redirect_on_success: "/github",
-		class: "grid gap-3 md:grid-cols-2",
+		success_url: |_form| route_href("github:repositories", "/github"),
+		class: "rc-form-grid",
 		fields: {
 			repository_id: CharField {
 				required,
@@ -128,7 +129,7 @@ pub fn github_repositories_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Import repository",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
