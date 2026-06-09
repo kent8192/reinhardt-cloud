@@ -52,6 +52,20 @@ fn cluster_id_from_pk(id: Option<i64>) -> Result<Uuid, ServerFnError> {
 	Ok(Uuid::from_bytes(bytes))
 }
 
+#[cfg(native)]
+async fn rollback_created_cluster(cluster_id: i64) {
+	use reinhardt::Model;
+
+	if let Err(delete_err) = crate::apps::clusters::models::Cluster::objects()
+		.delete(cluster_id)
+		.await
+	{
+		tracing::warn!(
+			"Failed to roll back cluster {cluster_id} after token persistence error: {delete_err}"
+		);
+	}
+}
+
 #[server_fn]
 pub async fn list_clusters_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
@@ -118,10 +132,17 @@ pub async fn create_cluster_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("Failed to issue agent token: {e}")))?;
 	created.token_hash = Some(issued.hash);
 	created.token_last_rotated_at = Some(chrono::Utc::now());
-	let updated = manager
-		.update(&created)
-		.await
-		.map_err(|e| ServerFnError::application(format!("Failed to persist agent token: {e}")))?;
+	let updated = match manager.update(&created).await {
+		Ok(updated) => updated,
+		Err(e) => {
+			if let Some(cluster_id) = created.id {
+				rollback_created_cluster(cluster_id).await;
+			}
+			return Err(ServerFnError::application(format!(
+				"Failed to persist agent token: {e}"
+			)));
+		}
+	};
 	Ok(ClusterTokenInfo {
 		cluster: cluster_info(updated),
 		auth_token: issued.plaintext,

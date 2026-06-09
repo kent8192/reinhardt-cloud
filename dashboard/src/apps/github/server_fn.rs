@@ -83,6 +83,20 @@ async fn rollback_created_deployment(deployment_id: i64) {
 }
 
 #[cfg(native)]
+async fn rollback_created_github_project(project_id: i64) {
+	use reinhardt::Model;
+
+	if let Err(delete_err) = crate::apps::github::models::GitHubProject::objects()
+		.delete(project_id)
+		.await
+	{
+		tracing::warn!(
+			"Failed to roll back GitHub project {project_id} after repository update error: {delete_err}"
+		);
+	}
+}
+
+#[cfg(native)]
 async fn agent_registry()
 -> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
 	use reinhardt::di::{ContextLevel, get_di_context};
@@ -411,6 +425,9 @@ pub async fn import_github_repository_for_current_org(
 		.update(&repository)
 		.await
 	{
+		if let Some(project_id) = project.id {
+			rollback_created_github_project(project_id).await;
+		}
 		rollback_created_deployment(deployment_id).await;
 		return Err(ServerFnError::application(format!(
 			"Failed to update GitHub repository: {e}"
@@ -466,7 +483,7 @@ pub async fn list_github_repositories_for_current_org(
 
 #[server_fn]
 pub async fn list_github_repositories_for_installation(
-	installation_id: i64,
+	installation_row_id: i64,
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<GitHubRepositoryInfo>, ServerFnError> {
 	use reinhardt::Model;
@@ -474,7 +491,7 @@ pub async fn list_github_repositories_for_installation(
 	ensure_github_account_linked(&user).await?;
 	let organization_id = current_org_id(&user).await?;
 	let installation = crate::apps::github::models::GitHubInstallation::objects()
-		.filter(crate::apps::github::models::GitHubInstallation::field_id().eq(installation_id))
+		.filter(crate::apps::github::models::GitHubInstallation::field_id().eq(installation_row_id))
 		.filter(
 			crate::apps::github::models::GitHubInstallation::field_organization_id()
 				.eq(organization_id),
