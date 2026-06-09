@@ -5,10 +5,8 @@
 //! providers. The pair `(provider, provider_user_id)` is globally unique so
 //! that the same external identity cannot be claimed by two local users.
 //!
-//! No long-term token is persisted: the OAuth access token is exchanged in
-//! memory during callback, used to fetch user info, then dropped. Refresh
-//! tokens are out of scope until a future "deploy from your repository"
-//! feature explicitly opts in.
+//! OAuth tokens are stored only as encrypted metadata when a downstream
+//! integration needs user-scoped provider API authorization.
 
 use chrono::{DateTime, Utc};
 use reinhardt::db::associations::ForeignKeyField;
@@ -47,6 +45,18 @@ pub struct SocialAccount {
 	/// because some providers may not surface it.
 	#[field(max_length = 255, null = true)]
 	pub provider_username: Option<String>,
+
+	/// Encrypted OAuth access token for provider API calls.
+	#[field(max_length = 4096, null = true)]
+	pub encrypted_access_token: Option<String>,
+
+	/// Access-token expiration timestamp, when the provider returns one.
+	#[field(null = true)]
+	pub token_expires_at: Option<DateTime<Utc>>,
+
+	/// Space-separated OAuth scopes granted by the provider.
+	#[field(max_length = 2048, null = true)]
+	pub scopes: Option<String>,
 
 	/// Creation timestamp.
 	#[field(auto_now_add = true)]
