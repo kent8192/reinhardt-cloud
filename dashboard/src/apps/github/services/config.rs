@@ -12,6 +12,7 @@ const APP_ID_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_ID";
 const PRIVATE_KEY_PEM_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_PRIVATE_KEY_PEM";
 const WEBHOOK_SECRET_ENV: &str = "REINHARDT_CLOUD_GITHUB_WEBHOOK_SECRET";
 const API_BASE_URL_ENV: &str = "REINHARDT_CLOUD_GITHUB_API_BASE_URL";
+const INSTALL_URL_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL";
 const DEFAULT_API_BASE_URL: &str = "https://api.github.com";
 
 /// Runtime settings required to operate as a GitHub App.
@@ -21,6 +22,7 @@ pub struct GitHubAppSettings {
 	pub private_key_pem: String,
 	pub webhook_secret: String,
 	pub api_base_url: String,
+	pub install_url: Option<String>,
 }
 
 /// Error returned when GitHub App settings cannot be loaded.
@@ -39,13 +41,20 @@ impl GitHubAppSettings {
 		let webhook_secret = required_env(WEBHOOK_SECRET_ENV)?;
 		let api_base_url =
 			optional_env(API_BASE_URL_ENV).unwrap_or_else(|| DEFAULT_API_BASE_URL.to_string());
+		let install_url = optional_env(INSTALL_URL_ENV);
 
 		Ok(Self {
 			app_id,
 			private_key_pem,
 			webhook_secret,
 			api_base_url,
+			install_url,
 		})
+	}
+
+	/// Reads the configured GitHub App installation URL, if present.
+	pub fn install_url_from_env() -> Option<String> {
+		optional_env(INSTALL_URL_ENV)
 	}
 }
 
@@ -56,6 +65,7 @@ impl fmt::Debug for GitHubAppSettings {
 			.field("private_key_pem", &"[redacted]")
 			.field("webhook_secret", &"[redacted]")
 			.field("api_base_url", &self.api_base_url)
+			.field("install_url", &self.install_url)
 			.finish()
 	}
 }

@@ -8,7 +8,8 @@ use crate::apps::github::server_urls;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new().server(|s| {
 		#[cfg(native)]
-		let s = s.endpoint(server_urls::github_webhook);
+		let s = s.endpoint(server_urls::github_setup)
+			.endpoint(server_urls::github_webhook);
 		s
 	})
 }
@@ -31,5 +32,20 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, Some("/api/github/webhooks/github/".to_string()));
+	}
+
+	#[rstest]
+	fn github_setup_route_is_registered_under_api_prefix() {
+		// Arrange
+		let router = UnifiedRouter::new()
+			.with_prefix("/api/")
+			.mount_unified("/github/", super::url_patterns())
+			.into_server();
+
+		// Act
+		let url = router.reverse("github-setup", &[]);
+
+		// Assert
+		assert_eq!(url, Some("/api/github/setup/".to_string()));
 	}
 }

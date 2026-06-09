@@ -37,6 +37,12 @@ pub struct GitHubProjectInfo {
 	pub status: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GitHubOnboardingInfo {
+	pub github_account_linked: bool,
+	pub install_url: Option<String>,
+}
+
 #[cfg(native)]
 async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
 	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
@@ -45,19 +51,26 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 }
 
 #[cfg(native)]
-async fn ensure_github_account_linked(
+async fn github_account_linked(
 	user: &crate::apps::auth::models::User,
-) -> Result<(), ServerFnError> {
+) -> Result<bool, ServerFnError> {
 	use reinhardt::Model;
 
-	let linked = crate::apps::auth::models::SocialAccount::objects()
+	crate::apps::auth::models::SocialAccount::objects()
 		.filter(crate::apps::auth::models::SocialAccount::field_user_id().eq(user.id.to_string()))
 		.filter(crate::apps::auth::models::SocialAccount::field_provider().eq("github"))
 		.exists()
 		.await
 		.map_err(|e| {
 			ServerFnError::application(format!("Failed to check linked GitHub account: {e}"))
-		})?;
+		})
+}
+
+#[cfg(native)]
+async fn ensure_github_account_linked(
+	user: &crate::apps::auth::models::User,
+) -> Result<(), ServerFnError> {
+	let linked = github_account_linked(user).await?;
 	if linked {
 		Ok(())
 	} else {
@@ -228,6 +241,25 @@ async fn sync_repositories_for_installation(
 		}
 	}
 	Ok(())
+}
+
+#[server_fn]
+pub async fn get_github_onboarding_for_current_org(
+	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+) -> Result<GitHubOnboardingInfo, ServerFnError> {
+	#[cfg(native)]
+	{
+		Ok(GitHubOnboardingInfo {
+			github_account_linked: github_account_linked(&user).await?,
+			install_url:
+				crate::apps::github::services::config::GitHubAppSettings::install_url_from_env(),
+		})
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]

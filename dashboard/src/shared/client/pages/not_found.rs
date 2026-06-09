@@ -3,9 +3,12 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::shared::client::routes::route_href;
+
 /// Render a centered 404 page with a link back to the dashboard.
 pub fn not_found_page() -> Page {
-	page!(|| {
+	let home_href = route_href("dashboard:home", "/");
+	page!(|home_href: String| {
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -19,11 +22,11 @@ pub fn not_found_page() -> Page {
 					"Page not found"
 				}
 				a {
-					href: "/".to_string(),
+					href: home_href,
 					class: "btn-primary px-6 py-3",
 					"Back to Dashboard"
 				}
 			}
 		}
-	})()
+	})(home_href)
 }

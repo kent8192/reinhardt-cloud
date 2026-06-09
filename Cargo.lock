@@ -5589,8 +5589,10 @@ dependencies = [
 name = "reinhardt-cloud-dashboard"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "cfg_aliases",
  "chrono",
  "console_error_panic_hook",

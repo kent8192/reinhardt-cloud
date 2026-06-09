@@ -14,6 +14,7 @@ use crate::apps::deployments::server_fn::{
 	update_deployment_for_current_org, update_deployment_status_for_current_org,
 };
 use crate::shared::client::components::status_badge;
+use crate::shared::client::routes::route_href;
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -90,8 +91,8 @@ pub fn deployments_list_page() -> Page {
 		name: CreateDeploymentForm,
 		server_fn: create_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
-		class: "grid gap-3 md:grid-cols-2",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
+		class: "rc-form-grid",
 		fields: {
 			app_name: CharField {
 				required,
@@ -117,11 +118,11 @@ pub fn deployments_list_page() -> Page {
 				max_length: 65535,
 				label: "ReinhardtApp YAML",
 				widget: Textarea,
-				class: "rc-input min-h-40 font-mono text-xs md:col-span-2",
+				class: "rc-input rc-textarea md:col-span-2",
 			}
 			submit: SubmitButton {
 				label: "Create deployment",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
@@ -134,8 +135,8 @@ pub fn deployments_list_page() -> Page {
 		name: UpdateDeploymentForm,
 		server_fn: update_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -166,7 +167,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Update deployment",
-				class: "btn-dark"
+				class: "btn-dark min-h-11 w-full"
 			}
 		}
 	};
@@ -182,8 +183,8 @@ pub fn deployments_list_page() -> Page {
 		name: DeploymentStatusForm,
 		server_fn: update_deployment_status_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -200,7 +201,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Set status",
-				class: "btn-warning"
+				class: "btn-warning min-h-11 w-full"
 			}
 		}
 	};
@@ -213,8 +214,8 @@ pub fn deployments_list_page() -> Page {
 		name: DeleteDeploymentForm,
 		server_fn: delete_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -224,7 +225,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Delete deployment",
-				class: "btn-danger"
+				class: "btn-danger min-h-11 w-full"
 			}
 		}
 	};
@@ -406,7 +407,7 @@ pub fn deployments_list_page() -> Page {
 						}
 					}
 					aside {
-						class: "space-y-4",
+						class: "rc-stack",
 						section {
 							class: "rc-panel-pad",
 							h2 {

@@ -9,61 +9,67 @@
 			theme: {
 				colors: {
 					ink: {
-						950: "#111827",
-						800: "#1f2937",
-						600: "#4b5563",
-						400: "#9ca3af",
+						950: "#111013",
+						800: "#2b2a30",
+						600: "#625f68",
+						400: "#9a96a3",
 					},
 					cloud: {
-						50: "#f8fafc",
-						100: "#eef2f6",
-						200: "#dbe3ea",
+						50: "#f6f5f2",
+						100: "#e9e6dd",
+						200: "#d8d2c3",
 					},
 					control: {
-						500: "#0f766e",
-						600: "#0d665e",
-						700: "#0b4f49",
+						500: "#147d74",
+						600: "#106b64",
+						700: "#0a4d48",
 					},
 					signal: {
-						500: "#d97706",
-						600: "#b45309",
+						500: "#c45a23",
+						600: "#9c3f1a",
+					},
+					relay: {
+						500: "#3d6ea8",
+						600: "#274f82",
 					},
 				},
 			},
 			shortcuts: [
-				["rc-app", "min-h-screen bg-cloud-50 text-ink-950 antialiased"],
-				["rc-shell", "box-border mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8"],
-				["rc-topline", "mb-5 flex flex-col gap-3 border-b border-cloud-200 pb-4 sm:flex-row sm:items-end sm:justify-between"],
-				["rc-kicker", "text-[11px] font-semibold uppercase tracking-[0.12em] text-control-700"],
-				["rc-title", "text-2xl font-semibold text-ink-950"],
+				["rc-app", "min-h-screen bg-cloud-50 font-sans text-ink-950 antialiased"],
+				["rc-shell", "box-border mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"],
+				["rc-topline", "mb-6 flex flex-col gap-3 border-b border-cloud-200 pb-5 sm:flex-row sm:items-end sm:justify-between"],
+				["rc-kicker", "text-[11px] font-bold uppercase text-control-700"],
+				["rc-title", "text-[1.7rem] font-bold leading-tight text-ink-950"],
 				["rc-muted", "text-sm text-ink-600"],
-				["rc-panel", "rounded-md border border-cloud-200 bg-white shadow-[0_1px_2px_rgba(17,24,39,0.04)]"],
-				["rc-panel-pad", "rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_2px_rgba(17,24,39,0.04)]"],
-				["rc-panel-head", "border-b border-cloud-200 bg-cloud-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-ink-600"],
-				["rc-input", "w-full rounded-md border border-cloud-200 bg-white px-3 py-2 text-sm text-ink-950 outline-none transition focus:border-control-500 focus:ring-2 focus:ring-control-500/15"],
-				["btn-primary", "inline-flex items-center justify-center rounded-md bg-control-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-control-700 focus:outline-none focus:ring-2 focus:ring-control-500/30"],
-				["btn-dark", "inline-flex items-center justify-center rounded-md bg-ink-950 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-ink-800 focus:outline-none focus:ring-2 focus:ring-ink-400/30"],
-				["btn-warning", "inline-flex items-center justify-center rounded-md bg-signal-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-signal-500 focus:outline-none focus:ring-2 focus:ring-signal-500/30"],
-				["btn-danger", "inline-flex items-center justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500/25"],
-				["rc-link", "text-sm font-semibold text-control-700 underline-offset-4 hover:underline"],
+				["rc-stack", "space-y-4"],
+				["rc-panel", "rounded-md border border-cloud-200 bg-white shadow-[0_10px_28px_rgba(45,40,30,0.08)]"],
+				["rc-panel-pad", "rounded-md border border-cloud-200 bg-white p-4 shadow-[0_10px_28px_rgba(45,40,30,0.08)]"],
+				["rc-panel-head", "border-b border-cloud-200 bg-gradient-to-r from-cloud-100 to-white px-4 py-3 text-xs font-bold uppercase text-ink-600"],
+				["rc-form", "grid items-start gap-4 [&_label]:mb-1 [&_label]:block [&_label]:text-[0.68rem] [&_label]:font-bold [&_label]:uppercase [&_label]:text-ink-600"],
+				["rc-form-grid", "grid items-start gap-4 md:grid-cols-2 [&_label]:mb-1 [&_label]:block [&_label]:text-[0.68rem] [&_label]:font-bold [&_label]:uppercase [&_label]:text-ink-600"],
+				["rc-form-stack", "grid items-start gap-4 [&_label]:mb-1 [&_label]:block [&_label]:text-[0.68rem] [&_label]:font-bold [&_label]:uppercase [&_label]:text-ink-600"],
+				["rc-input", "min-h-11 w-full rounded-md border border-cloud-200 bg-white px-3 py-2 text-sm text-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_1px_0_rgba(17,16,19,0.03)] outline-none transition hover:border-[#bdb5a5] focus:border-control-500 focus:bg-[#fffdfa] focus:ring-2 focus:ring-control-500/20"],
+				["rc-textarea", "min-h-40 resize-y font-mono text-xs leading-relaxed"],
+				["rc-checkbox", "h-4 w-4 rounded border-cloud-200 text-control-600 accent-control-600 focus:ring-control-500"],
+				["btn-primary", "inline-flex items-center justify-center rounded-md bg-control-600 px-3 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(16,107,100,0.22)] transition hover:bg-control-700 focus:outline-none focus:ring-2 focus:ring-control-500/30"],
+				["btn-dark", "inline-flex items-center justify-center rounded-md bg-ink-950 px-3 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(17,16,19,0.18)] transition hover:bg-ink-800 focus:outline-none focus:ring-2 focus:ring-ink-400/30"],
+				["btn-warning", "inline-flex items-center justify-center rounded-md bg-signal-600 px-3 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(156,63,26,0.2)] transition hover:bg-signal-500 focus:outline-none focus:ring-2 focus:ring-signal-500/30"],
+				["btn-danger", "inline-flex items-center justify-center rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white shadow-[0_8px_18px_rgba(185,28,28,0.18)] transition hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-500/25"],
+				["rc-link", "text-sm font-bold text-control-700 underline-offset-4 hover:underline"],
 				["rc-table", "min-w-full divide-y divide-cloud-200 text-sm"],
-				["rc-th", "px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-600"],
+				["rc-th", "px-4 py-2 text-left text-[11px] font-bold uppercase text-ink-600"],
 				["rc-td", "px-4 py-2 text-ink-600"],
 				["rc-empty", "px-4 py-8 text-sm text-ink-600"],
 			],
 		};
 	</script>
 	<script src="https://cdn.jsdelivr.net/npm/@unocss/runtime@66.6.7/uno.global.js" integrity="sha384-AO39wtQWix8ti0gjIXwhJ2rkQmmFJS5sUUSS6qmWUd/m/7PpY450fgUBBKUcXNvC" crossorigin="anonymous"></script>
-	<style>
-		[un-cloak] { display: none; }
-		body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-	</style>
-</head>
-<body un-cloak>
-	<div id="app">
-		<div style="display:flex;justify-content:center;align-items:center;height:100vh;">
-			<p>Loading Reinhardt Cloud...</p>
+	</head>
+	<body class="m-0">
+		<div id="app">
+			<div class="flex h-screen items-center justify-center">
+				<p>Loading Reinhardt Cloud...</p>
+			</div>
 		</div>
-	</div>
 </body>
 </html>
