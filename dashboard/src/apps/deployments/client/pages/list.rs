@@ -5,6 +5,9 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, use_resource};
 
+use crate::apps::clusters::server_fn::ClusterInfo;
+#[cfg(wasm)]
+use crate::apps::clusters::server_fn::list_clusters_for_current_org;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::log_viewer::log_viewer_container;
 #[cfg(wasm)]
@@ -13,6 +16,7 @@ use crate::apps::deployments::server_fn::{
 	DeploymentInfo, create_deployment_for_current_org, delete_deployment_for_current_org,
 	update_deployment_for_current_org, update_deployment_status_for_current_org,
 };
+use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
 use crate::shared::ws_messages::DeploymentState;
@@ -83,9 +87,48 @@ async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
 	Ok(Vec::new())
 }
 
+#[cfg(wasm)]
+async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
+	list_clusters_for_current_org()
+		.await
+		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(wasm))]
+async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
+	Ok(Vec::new())
+}
+
+fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
+	items
+		.iter()
+		.map(|cluster| {
+			EntitySelectOption::new(
+				cluster.id.to_string(),
+				cluster.name.clone(),
+				Some(cluster.api_url.clone()),
+			)
+		})
+		.collect()
+}
+
+fn deployment_select_options(items: &[DeploymentInfo]) -> Vec<EntitySelectOption> {
+	items
+		.iter()
+		.map(|deployment| {
+			EntitySelectOption::new(
+				deployment.id.to_string(),
+				deployment.app_name.clone(),
+				Some(format!("{} / {}", deployment.status, deployment.image)),
+			)
+		})
+		.collect()
+}
+
 /// Render the deployments page.
 pub fn deployments_list_page() -> Page {
 	let deployments = use_resource(|| async move { self::load_deployments().await }, ());
+	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
 
 	let create_form = form! {
 		name: CreateDeploymentForm,
@@ -101,11 +144,8 @@ pub fn deployments_list_page() -> Page {
 				placeholder: "web",
 				class: "rc-input",
 			}
-			cluster_id: CharField {
-				required,
-				label: "Cluster ID",
-				placeholder: "1",
-				class: "rc-input",
+			cluster_id: HiddenField {
+				initial: String::new(),
 			}
 			image: CharField {
 				required,
@@ -128,6 +168,7 @@ pub fn deployments_list_page() -> Page {
 	};
 	let create_runtime = use_form(&create_form).build();
 	let create_state = create_runtime.form_state();
+	let create_cluster_id = create_runtime.watch_field::<String>(create_form.cluster_id_field());
 	let create_error = create_form.error().clone();
 	let create_view = create_form.into_page();
 
@@ -138,11 +179,8 @@ pub fn deployments_list_page() -> Page {
 		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
-			deployment_id: CharField {
-				required,
-				label: "Deployment ID",
-				placeholder: "1",
-				class: "rc-input",
+			deployment_id: HiddenField {
+				initial: String::new(),
 			}
 			app_name: CharField {
 				required,
@@ -176,6 +214,10 @@ pub fn deployments_list_page() -> Page {
 		.reset_on_deps(ResetOnDeps::ResetAll)
 		.build();
 	let edit_state = edit_runtime.form_state();
+	let edit_deployment_id = edit_runtime.watch_field::<String>(edit_form.deployment_id_field());
+	let edit_app_name = edit_runtime.watch_field::<String>(edit_form.app_name_field());
+	let edit_image = edit_runtime.watch_field::<String>(edit_form.image_field());
+	let edit_status = edit_runtime.watch_field::<String>(edit_form.status_field());
 	let edit_error = edit_form.error().clone();
 	let edit_view = edit_form.into_page();
 
@@ -186,11 +228,8 @@ pub fn deployments_list_page() -> Page {
 		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
-			deployment_id: CharField {
-				required,
-				label: "Deployment ID",
-				placeholder: "1",
-				class: "rc-input",
+			deployment_id: HiddenField {
+				initial: String::new(),
 			}
 			status: CharField {
 				required,
@@ -207,6 +246,8 @@ pub fn deployments_list_page() -> Page {
 	};
 	let status_runtime = use_form(&status_form).build();
 	let status_state = status_runtime.form_state();
+	let status_deployment_id =
+		status_runtime.watch_field::<String>(status_form.deployment_id_field());
 	let status_error = status_form.error().clone();
 	let status_view = status_form.into_page();
 
@@ -217,11 +258,8 @@ pub fn deployments_list_page() -> Page {
 		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
-			deployment_id: CharField {
-				required,
-				label: "Deployment ID",
-				placeholder: "1",
-				class: "rc-input",
+			deployment_id: HiddenField {
+				initial: String::new(),
 			}
 			submit: SubmitButton {
 				label: "Delete deployment",
@@ -231,12 +269,19 @@ pub fn deployments_list_page() -> Page {
 	};
 	let delete_runtime = use_form(&delete_form).build();
 	let delete_state = delete_runtime.form_state();
+	let delete_deployment_id =
+		delete_runtime.watch_field::<String>(delete_form.deployment_id_field());
 	let delete_error = delete_form.error().clone();
 	let delete_view = delete_form.into_page();
 
 	let logs = log_viewer_container();
+	let deployments_for_inventory = deployments.clone();
+	let deployments_for_edit = deployments.clone();
+	let deployments_for_status = deployments.clone();
+	let deployments_for_delete = deployments.clone();
+	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, logs: Page| {
+	let content = page!(|deployments_for_inventory: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_status: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, clusters_for_create: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_app_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
 		div {
 			class: "rc-shell",
 			div {
@@ -269,7 +314,7 @@ pub fn deployments_list_page() -> Page {
 								"Deployment Inventory"
 							}
 							{
-								match deployments.get() {
+								match deployments_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
 											class: "rc-empty",
@@ -385,6 +430,25 @@ pub fn deployments_list_page() -> Page {
 							{
 								self::alert(create_error.clone())
 							}
+							{
+								match clusters_for_create.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), create_cluster_id.clone(), |_value| {}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading clusters..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
+							}
 							{ create_view }
 							{
 								if create_submitting.get() {
@@ -417,6 +481,37 @@ pub fn deployments_list_page() -> Page {
 							{
 								self::alert(edit_error.clone())
 							}
+							{
+								match deployments_for_edit.get() {
+									ResourceState::Success(items) => {
+										let deployments_for_change = items.clone();
+										let app_name_signal = edit_app_name.clone();
+										let image_signal = edit_image.clone();
+										let status_signal = edit_status.clone();
+										self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), edit_deployment_id.clone(), move |value| {
+											if let Some(deployment) = deployments_for_change.iter().find(|deployment| deployment.id.to_string() == value) {
+												app_name_signal.set(deployment.app_name.clone());
+												image_signal.set(deployment.image.clone());
+												status_signal.set(deployment.status.clone());
+											}
+										}, )
+									}
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading deployments..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
+							}
 							{ edit_view }
 							{
 								if edit_dirty.get() {
@@ -444,6 +539,25 @@ pub fn deployments_list_page() -> Page {
 							{
 								self::alert(status_error.clone())
 							}
+							{
+								match deployments_for_status.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), status_deployment_id.clone(), |_value| {}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading deployments..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
+							}
 							{ status_view }
 							{
 								if status_submitting.get() {
@@ -460,6 +574,25 @@ pub fn deployments_list_page() -> Page {
 							}
 							{
 								self::alert(delete_error.clone())
+							}
+							{
+								match deployments_for_delete.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), delete_deployment_id.clone(), |_value| {}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading deployments..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
 							}
 							{ delete_view }
 							{
@@ -478,20 +611,31 @@ pub fn deployments_list_page() -> Page {
 			}
 		}
 	})(
-		deployments,
+		deployments_for_inventory,
+		deployments_for_edit,
+		deployments_for_status,
+		deployments_for_delete,
+		clusters_for_create,
 		create_view,
 		create_error,
 		create_state.is_submitting,
+		create_cluster_id,
 		edit_view,
 		edit_error,
 		edit_state.is_dirty,
 		edit_state.is_submitting,
+		edit_deployment_id,
+		edit_app_name,
+		edit_image,
+		edit_status,
 		status_view,
 		status_error,
 		status_state.is_submitting,
+		status_deployment_id,
 		delete_view,
 		delete_error,
 		delete_state.is_submitting,
+		delete_deployment_id,
 		logs,
 	);
 	dashboard_app_shell("deployments", content)
