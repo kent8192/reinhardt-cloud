@@ -67,7 +67,7 @@ pub fn clusters_list_page() -> Page {
 		server_fn: create_cluster_for_current_org,
 		method: Post,
 		redirect_on_success: "/clusters",
-		class: "grid gap-3 md:grid-cols-2",
+		class: "rc-form-grid",
 		fields: {
 			name: CharField {
 				required,
@@ -85,7 +85,7 @@ pub fn clusters_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Create cluster",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
@@ -99,7 +99,7 @@ pub fn clusters_list_page() -> Page {
 		server_fn: update_cluster_for_current_org,
 		method: Post,
 		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			cluster_id: HiddenField {
 				initial: String::new(),
@@ -121,11 +121,11 @@ pub fn clusters_list_page() -> Page {
 			is_active: BooleanField {
 				label: "Active",
 				initial: true,
-				class: "h-4 w-4 rounded border-cloud-200 text-control-600 focus:ring-control-500",
+				class: "rc-checkbox",
 			}
 			submit: SubmitButton {
 				label: "Update cluster",
-				class: "btn-dark"
+				class: "btn-dark min-h-11 w-full"
 			}
 		}
 	};
@@ -142,7 +142,7 @@ pub fn clusters_list_page() -> Page {
 		server_fn: delete_cluster_for_current_org,
 		method: Post,
 		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			cluster_id: CharField {
 				required,
@@ -152,7 +152,7 @@ pub fn clusters_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Delete cluster",
-				class: "btn-danger"
+				class: "btn-danger min-h-11 w-full"
 			}
 		}
 	};
@@ -166,7 +166,7 @@ pub fn clusters_list_page() -> Page {
 		server_fn: rotate_cluster_token_for_current_org,
 		method: Post,
 		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			cluster_id: CharField {
 				required,
@@ -176,7 +176,7 @@ pub fn clusters_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Rotate token",
-				class: "btn-warning"
+				class: "btn-warning min-h-11 w-full"
 			}
 		}
 	};
@@ -351,7 +351,7 @@ pub fn clusters_list_page() -> Page {
 						}
 					}
 					aside {
-						class: "space-y-4",
+						class: "rc-stack",
 						section {
 							class: "rc-panel-pad",
 							h2 {

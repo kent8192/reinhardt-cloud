@@ -91,7 +91,7 @@ pub fn deployments_list_page() -> Page {
 		server_fn: create_deployment_for_current_org,
 		method: Post,
 		redirect_on_success: "/deployments",
-		class: "grid gap-3 md:grid-cols-2",
+		class: "rc-form-grid",
 		fields: {
 			app_name: CharField {
 				required,
@@ -117,11 +117,11 @@ pub fn deployments_list_page() -> Page {
 				max_length: 65535,
 				label: "ReinhardtApp YAML",
 				widget: Textarea,
-				class: "rc-input min-h-40 font-mono text-xs md:col-span-2",
+				class: "rc-input rc-textarea md:col-span-2",
 			}
 			submit: SubmitButton {
 				label: "Create deployment",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
@@ -135,7 +135,7 @@ pub fn deployments_list_page() -> Page {
 		server_fn: update_deployment_for_current_org,
 		method: Post,
 		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -166,7 +166,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Update deployment",
-				class: "btn-dark"
+				class: "btn-dark min-h-11 w-full"
 			}
 		}
 	};
@@ -183,7 +183,7 @@ pub fn deployments_list_page() -> Page {
 		server_fn: update_deployment_status_for_current_org,
 		method: Post,
 		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -200,7 +200,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Set status",
-				class: "btn-warning"
+				class: "btn-warning min-h-11 w-full"
 			}
 		}
 	};
@@ -214,7 +214,7 @@ pub fn deployments_list_page() -> Page {
 		server_fn: delete_deployment_for_current_org,
 		method: Post,
 		redirect_on_success: "/deployments",
-		class: "grid gap-3",
+		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
 				required,
@@ -224,7 +224,7 @@ pub fn deployments_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Delete deployment",
-				class: "btn-danger"
+				class: "btn-danger min-h-11 w-full"
 			}
 		}
 	};
@@ -406,7 +406,7 @@ pub fn deployments_list_page() -> Page {
 						}
 					}
 					aside {
-						class: "space-y-4",
+						class: "rc-stack",
 						section {
 							class: "rc-panel-pad",
 							h2 {

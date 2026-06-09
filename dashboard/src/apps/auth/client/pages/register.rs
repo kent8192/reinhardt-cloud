@@ -18,7 +18,7 @@ pub fn register_page() -> Page {
 		name: RegisterForm,
 		server_fn: register,
 		method: Post,
-		class: "space-y-4",
+		class: "rc-form-stack",
 		redirect_on_success: "/login",
 		fields: {
 			username: CharField {
@@ -43,7 +43,7 @@ pub fn register_page() -> Page {
 			},
 			submit: SubmitButton {
 				label: "Create account",
-				class: "btn-primary w-full py-2.5 text-base"
+				class: "btn-primary min-h-11 w-full text-base"
 			},
 		},
 	};

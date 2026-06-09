@@ -18,7 +18,7 @@ pub fn login_page() -> Page {
 		name: LoginForm,
 		server_fn: login,
 		method: Post,
-		class: "space-y-4",
+		class: "rc-form-stack",
 		redirect_on_success: "/",
 		fields: {
 			username: CharField {
@@ -37,7 +37,7 @@ pub fn login_page() -> Page {
 			},
 			submit: SubmitButton {
 				label: "Sign in",
-				class: "btn-primary w-full py-2.5 text-base"
+				class: "btn-primary min-h-11 w-full text-base"
 			},
 		},
 	};

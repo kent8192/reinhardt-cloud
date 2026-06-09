@@ -81,7 +81,7 @@ pub fn github_repositories_page() -> Page {
 		server_fn: import_github_repository_for_current_org,
 		method: Post,
 		redirect_on_success: "/github",
-		class: "grid gap-3 md:grid-cols-2",
+		class: "rc-form-grid",
 		fields: {
 			repository_id: CharField {
 				required,
@@ -110,7 +110,7 @@ pub fn github_repositories_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Import repository",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
