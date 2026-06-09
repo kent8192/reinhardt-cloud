@@ -55,6 +55,12 @@ cargo make dev-watch        # Development with auto-reload (requires bacon)
 cargo make runserver-watch  # Start server with auto-reload (requires bacon)
 ```
 
+Dashboard form styling is centralized in the UnoCSS runtime shortcuts inside
+`index.html`. Prefer the shared `rc-form-*`, `rc-input`, `rc-textarea`,
+`rc-checkbox`, and `btn-*` classes over page-local utility strings so generated
+`form!` markup stays consistent across auth, cluster, deployment, and GitHub
+pages.
+
 ### Database
 
 ```bash
