@@ -124,6 +124,14 @@ pub async fn oauth_callback(
 	let user = link_or_create_user(&storage, &provider_id, &claims, current_user)
 		.await
 		.map_err(|err| AppError::Validation(err.to_string()))?;
+	let oauth_token = result.token_response.to_oauth_token();
+	storage
+		.store_token_for_user(user.id, &provider_id, &claims.sub, &oauth_token)
+		.await
+		.map_err(|err| {
+			error!("Failed to persist OAuth token metadata for provider {provider_id}: {err}");
+			AppError::Internal("Internal server error".to_string())
+		})?;
 	let session_id = session_service
 		.create_session(&user)
 		.await
