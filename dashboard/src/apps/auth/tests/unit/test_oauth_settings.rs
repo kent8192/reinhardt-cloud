@@ -2,9 +2,9 @@
 //!
 //! Verifies that a provider is enabled iff all three of its credential env
 //! vars (`CLIENT_ID`, `CLIENT_SECRET`, `REDIRECT_URI`) are present and
-//! non-empty. Partial configuration disables the provider rather than
-//! half-enabling it, so the login UI never offers a button that cannot
-//! complete the flow.
+//! non-empty, and the token encryption key is valid. Partial configuration
+//! disables the provider rather than half-enabling it, so the login UI never
+//! offers a button that cannot complete the flow.
 
 #[cfg(test)]
 mod tests {
@@ -16,6 +16,8 @@ mod tests {
 	const KEY_ID: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_CLIENT_ID";
 	const KEY_SECRET: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_CLIENT_SECRET";
 	const KEY_REDIRECT: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_REDIRECT_URI";
+	const KEY_TOKEN_ENCRYPTION: &str = "REINHARDT_CLOUD_OAUTH_TOKEN_ENCRYPTION_KEY";
+	const VALID_TOKEN_ENCRYPTION_KEY: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
 	/// RAII guard that restores OAuth env vars on drop. Mirrors the pattern
 	/// used by the e2e mailer tests so behavior under `serial` is identical.
@@ -62,6 +64,7 @@ mod tests {
 			(KEY_ID, Some("github-client-id")),
 			(KEY_SECRET, Some("github-client-secret")),
 			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, Some(VALID_TOKEN_ENCRYPTION_KEY)),
 		]);
 
 		// Act
@@ -85,6 +88,7 @@ mod tests {
 			(KEY_ID, Some("id-only")),
 			(KEY_SECRET, None),
 			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, Some(VALID_TOKEN_ENCRYPTION_KEY)),
 		]);
 
 		// Act
@@ -103,6 +107,7 @@ mod tests {
 			(KEY_ID, None),
 			(KEY_SECRET, Some("secret-only")),
 			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, Some(VALID_TOKEN_ENCRYPTION_KEY)),
 		]);
 
 		// Act
@@ -120,6 +125,7 @@ mod tests {
 			(KEY_ID, None),
 			(KEY_SECRET, None),
 			(KEY_REDIRECT, None),
+			(KEY_TOKEN_ENCRYPTION, None),
 		]);
 
 		// Act
@@ -141,6 +147,7 @@ mod tests {
 			(KEY_ID, Some("")),
 			(KEY_SECRET, Some("secret")),
 			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, Some(VALID_TOKEN_ENCRYPTION_KEY)),
 		]);
 
 		// Act
@@ -148,5 +155,43 @@ mod tests {
 
 		// Assert
 		assert!(settings.github.is_none());
+	}
+
+	#[rstest]
+	#[serial(env_oauth)]
+	fn test_github_disabled_when_token_encryption_key_missing() {
+		// Arrange
+		let _g = EnvGuard::set(vec![
+			(KEY_ID, Some("github-client-id")),
+			(KEY_SECRET, Some("github-client-secret")),
+			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, None),
+		]);
+
+		// Act
+		let settings = OAuthSettings::from_env();
+
+		// Assert
+		assert!(settings.github.is_none());
+		assert!(settings.enabled_provider_ids().is_empty());
+	}
+
+	#[rstest]
+	#[serial(env_oauth)]
+	fn test_github_disabled_when_token_encryption_key_invalid() {
+		// Arrange
+		let _g = EnvGuard::set(vec![
+			(KEY_ID, Some("github-client-id")),
+			(KEY_SECRET, Some("github-client-secret")),
+			(KEY_REDIRECT, Some("https://example.test/cb")),
+			(KEY_TOKEN_ENCRYPTION, Some("not-base64-32-bytes")),
+		]);
+
+		// Act
+		let settings = OAuthSettings::from_env();
+
+		// Assert
+		assert!(settings.github.is_none());
+		assert!(settings.enabled_provider_ids().is_empty());
 	}
 }

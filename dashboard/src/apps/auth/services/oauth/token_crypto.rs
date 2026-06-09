@@ -39,6 +39,11 @@ pub fn decrypt_access_token(encrypted: &str) -> Result<String, OAuthTokenCryptoE
 	decrypt_access_token_with_key(encrypted, &key)
 }
 
+/// Return whether the process has a valid OAuth token encryption key.
+pub(crate) fn token_encryption_key_is_configured() -> bool {
+	key_from_env().is_ok()
+}
+
 pub(crate) fn encrypt_access_token_with_key(
 	access_token: &str,
 	key_bytes: &[u8; KEY_LEN],
