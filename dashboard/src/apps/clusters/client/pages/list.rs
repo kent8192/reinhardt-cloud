@@ -13,6 +13,7 @@ use crate::apps::clusters::server_fn::{
 };
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::cluster_health::cluster_health_container;
+use crate::shared::client::routes::route_href;
 
 fn format_server_error(raw: &str) -> String {
 	if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
@@ -66,7 +67,7 @@ pub fn clusters_list_page() -> Page {
 		name: CreateClusterForm,
 		server_fn: create_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
 		class: "rc-form-grid",
 		fields: {
 			name: CharField {
@@ -98,7 +99,7 @@ pub fn clusters_list_page() -> Page {
 		name: UpdateClusterForm,
 		server_fn: update_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
 		class: "rc-form-stack",
 		fields: {
 			cluster_id: HiddenField {
@@ -141,7 +142,7 @@ pub fn clusters_list_page() -> Page {
 		name: DeleteClusterForm,
 		server_fn: delete_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
 		class: "rc-form-stack",
 		fields: {
 			cluster_id: CharField {
@@ -165,7 +166,7 @@ pub fn clusters_list_page() -> Page {
 		name: RotateClusterTokenForm,
 		server_fn: rotate_cluster_token_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
 		class: "rc-form-stack",
 		fields: {
 			cluster_id: CharField {

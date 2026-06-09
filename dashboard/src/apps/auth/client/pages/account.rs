@@ -183,7 +183,7 @@ pub(crate) fn render_account_content(
 }
 
 fn account_error(message: &str) -> Page {
-	let login_href = "/login".to_string();
+	let login_href = crate::shared::client::routes::route_href("auth:login_page", "/login");
 	page!(|message: String, login_href: String| {
 		div {
 			class: "rc-shell",

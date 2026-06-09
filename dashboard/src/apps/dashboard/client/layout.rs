@@ -3,6 +3,8 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::shared::client::routes::route_href;
+
 fn nav_item_class(is_active: bool) -> &'static str {
 	if is_active {
 		"block rounded-md border border-control-500/20 bg-control-500/10 px-3 py-2 text-sm font-bold text-control-700 shadow-[inset_3px_0_0_#147d74]"
@@ -13,11 +15,11 @@ fn nav_item_class(is_active: bool) -> &'static str {
 
 /// Render the shared dashboard application chrome around a section page.
 pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
-	let account_href = "/account".to_string();
-	let home_href = "/".to_string();
-	let clusters_href = "/clusters".to_string();
-	let deployments_href = "/deployments".to_string();
-	let github_href = "/github".to_string();
+	let account_href = route_href("auth:account_page", "/account");
+	let home_href = route_href("dashboard:home", "/");
+	let clusters_href = route_href("clusters:list", "/clusters");
+	let deployments_href = route_href("deployments:list", "/deployments");
+	let github_href = route_href("github:repositories", "/github");
 	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String, github_href: String| {
 		div {
 			class: "rc-app flex flex-col",
@@ -131,9 +133,9 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 
 /// Render the main dashboard shell with navigation sidebar and overview cards.
 pub fn dashboard_shell() -> Page {
-	let clusters_href = "/clusters".to_string();
-	let deployments_href = "/deployments".to_string();
-	let github_href = "/github".to_string();
+	let clusters_href = route_href("clusters:list", "/clusters");
+	let deployments_href = route_href("deployments:list", "/deployments");
+	let github_href = route_href("github:repositories", "/github");
 	let content = page!(|clusters_href: String, deployments_href: String, github_href: String| {
 		div {
 			class: "rc-shell",

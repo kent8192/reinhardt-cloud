@@ -14,6 +14,7 @@ use crate::apps::deployments::server_fn::{
 	update_deployment_for_current_org, update_deployment_status_for_current_org,
 };
 use crate::shared::client::components::status_badge;
+use crate::shared::client::routes::route_href;
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -90,7 +91,7 @@ pub fn deployments_list_page() -> Page {
 		name: CreateDeploymentForm,
 		server_fn: create_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-grid",
 		fields: {
 			app_name: CharField {
@@ -134,7 +135,7 @@ pub fn deployments_list_page() -> Page {
 		name: UpdateDeploymentForm,
 		server_fn: update_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
@@ -182,7 +183,7 @@ pub fn deployments_list_page() -> Page {
 		name: DeploymentStatusForm,
 		server_fn: update_deployment_status_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {
@@ -213,7 +214,7 @@ pub fn deployments_list_page() -> Page {
 		name: DeleteDeploymentForm,
 		server_fn: delete_deployment_for_current_org,
 		method: Post,
-		redirect_on_success: "/deployments",
+		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-stack",
 		fields: {
 			deployment_id: CharField {

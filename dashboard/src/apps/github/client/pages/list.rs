@@ -14,6 +14,7 @@ use crate::apps::github::server_fn::list_github_repositories_for_current_org;
 use crate::apps::github::server_fn::{
 	GitHubRepositoryInfo, import_github_repository_for_current_org,
 };
+use crate::shared::client::routes::route_href;
 
 fn format_server_error(raw: &str) -> String {
 	if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
@@ -80,7 +81,7 @@ pub fn github_repositories_page() -> Page {
 		name: ImportGitHubRepositoryForm,
 		server_fn: import_github_repository_for_current_org,
 		method: Post,
-		redirect_on_success: "/github",
+		success_url: |_form| route_href("github:repositories", "/github"),
 		class: "rc-form-grid",
 		fields: {
 			repository_id: CharField {

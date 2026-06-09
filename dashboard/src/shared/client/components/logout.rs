@@ -13,6 +13,7 @@ pub fn ensure_logout_buttons_connected() {
 	use wasm_bindgen_futures::spawn_local;
 
 	use crate::apps::auth::server_fn::logout::logout;
+	use crate::shared::client::routes::route_href;
 
 	let Some(document) = web_sys::window().and_then(|w| w.document()) else {
 		return;
@@ -38,7 +39,9 @@ pub fn ensure_logout_buttons_connected() {
 				spawn_local(async {
 					let _ = logout().await;
 					if let Some(window) = web_sys::window() {
-						let _ = window.location().set_href("/login");
+						let _ = window
+							.location()
+							.set_href(&route_href("auth:login_page", "/login"));
 					}
 				});
 			}));
