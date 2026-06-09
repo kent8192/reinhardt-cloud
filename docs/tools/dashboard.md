@@ -208,9 +208,15 @@ Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or b
 
 ### GitHub OAuth
 
-GitHub OAuth is enabled when all required provider settings are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present.
+GitHub OAuth is enabled when all required provider settings and the OAuth token encryption key are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present.
 
 The dashboard persists GitHub OAuth access tokens only after encrypting them with `REINHARDT_CLOUD_OAUTH_TOKEN_ENCRYPTION_KEY`. Set this variable to a base64-encoded 32-byte key before enabling GitHub OAuth. The stored token is used to verify GitHub App setup callbacks against `/user/installations`; OAuth storage APIs still return tokenless account records to normal authentication callers.
+
+Generate a local development key with:
+
+```bash
+openssl rand -base64 32
+```
 
 Set `REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL` to the GitHub App installation URL shown in GitHub App settings. The GitHub repository page uses it for the empty-state install action after the current user has linked a GitHub OAuth account.
 
