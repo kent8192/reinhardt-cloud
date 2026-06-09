@@ -9,10 +9,12 @@ use crate::apps::clusters::server_fn::ClusterInfo;
 #[cfg(wasm)]
 use crate::apps::clusters::server_fn::list_clusters_for_current_org;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
-#[cfg(wasm)]
-use crate::apps::github::server_fn::list_github_repositories_for_current_org;
 use crate::apps::github::server_fn::{
-	GitHubRepositoryInfo, import_github_repository_for_current_org,
+	GitHubOnboardingInfo, GitHubRepositoryInfo, import_github_repository_for_current_org,
+};
+#[cfg(wasm)]
+use crate::apps::github::server_fn::{
+	get_github_onboarding_for_current_org, list_github_repositories_for_current_org,
 };
 
 fn format_server_error(raw: &str) -> String {
@@ -60,6 +62,21 @@ async fn load_repositories() -> Result<Vec<GitHubRepositoryInfo>, String> {
 }
 
 #[cfg(wasm)]
+async fn load_onboarding() -> Result<GitHubOnboardingInfo, String> {
+	get_github_onboarding_for_current_org()
+		.await
+		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(wasm))]
+async fn load_onboarding() -> Result<GitHubOnboardingInfo, String> {
+	Ok(GitHubOnboardingInfo {
+		github_account_linked: true,
+		install_url: None,
+	})
+}
+
+#[cfg(wasm)]
 async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
 	list_clusters_for_current_org()
 		.await
@@ -74,6 +91,7 @@ async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
 /// Render the GitHub repository import page.
 pub fn github_repositories_page() -> Page {
 	let repositories = use_resource(|| async move { self::load_repositories().await }, ());
+	let onboarding = use_resource(|| async move { self::load_onboarding().await }, ());
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
 
 	let import_form = form! {
@@ -123,7 +141,7 @@ pub fn github_repositories_page() -> Page {
 	let import_error = import_form.error().clone();
 	let import_view = import_form.into_page();
 
-	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
+	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -205,15 +223,47 @@ pub fn github_repositories_page() -> Page {
 													}
 												}
 											})(err),
-											ResourceState::Success(items)if items.is_empty() => page!(|| {
+											ResourceState::Success(items)if items.is_empty() => page!(|onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>| {
 												tr {
 													td {
-														class: "px-3 py-3 text-cloud-500",
+														class: "px-3 py-4 text-cloud-500",
 														colspan: 5,
-														"No GitHub App repositories are available."
+														{
+															match onboarding.get() {
+																ResourceState::Success(info)if !info.github_account_linked => page!(|| {
+																	div {
+																		class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+																		span { "Link your GitHub account before installing the GitHub App." }
+																		a {
+																			class: "btn-secondary text-xs",
+																			href: "/api/auth/oauth/github/start/",
+																			"Link GitHub account"
+																		}
+																	}
+																})(),
+																ResourceState::Success(info) => {
+																	if let Some(url) = info.install_url {
+																		page!(|url: String| {
+																			div {
+																				class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+																				span { "No GitHub App repositories are available." }
+																				a {
+																					class: "btn-secondary text-xs",
+																					href: url,
+																					"Connect GitHub repositories"
+																				}
+																			}
+																		})(url)
+																	} else {
+																		page!(|| { "No GitHub App repositories are available." })()
+																	}
+																}
+																_ => page!(|| { "No GitHub App repositories are available." })(),
+															}
+														}
 													}
 												}
-											})(),
+											})(onboarding.clone()),
 											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>, import_repository_id: Signal<String>, import_app_name: Signal<String>| { {
 												items.clone().into_iter().map(|repo| {
 													page!(|repo: GitHubRepositoryInfo, import_repository_id: Signal<String>, import_app_name: Signal<String>| {
@@ -369,6 +419,7 @@ pub fn github_repositories_page() -> Page {
 		}
 	})(
 		repositories,
+		onboarding,
 		clusters,
 		import_view,
 		import_error,

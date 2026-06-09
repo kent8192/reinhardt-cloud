@@ -7,8 +7,11 @@
 
 #[cfg(test)]
 mod tests {
+	use base64::Engine;
+	use base64::engine::general_purpose::STANDARD;
 	use chrono::{Duration, Utc};
 	use reinhardt::BaseUser;
+	use reinhardt::auth::social::core::OAuthToken;
 	use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
@@ -23,6 +26,40 @@ mod tests {
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 	use reinhardt::UrlReverser;
+
+	const TOKEN_ENCRYPTION_KEY_ENV: &str = "REINHARDT_CLOUD_OAUTH_TOKEN_ENCRYPTION_KEY";
+
+	struct EnvGuard {
+		saved: Vec<(&'static str, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(vars: Vec<(&'static str, String)>) -> Self {
+			let mut saved = Vec::new();
+			for (key, value) in vars {
+				saved.push((key, std::env::var(key).ok()));
+				// SAFETY: these database tests are serialized before mutating process env.
+				unsafe {
+					std::env::set_var(key, value);
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, value) in &self.saved {
+				// SAFETY: serialized test teardown restores process env.
+				unsafe {
+					match value {
+						Some(value) => std::env::set_var(key, value),
+						None => std::env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
 
 	#[fixture]
 	async fn db() -> (
@@ -83,6 +120,10 @@ mod tests {
 		}
 	}
 
+	fn test_encryption_key() -> String {
+		STANDARD.encode([42u8; 32])
+	}
+
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
@@ -127,6 +168,59 @@ mod tests {
 		let found = found.expect("row should exist");
 		assert_eq!(found.id, created.id);
 		assert!(found.access_token.is_empty());
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_store_token_for_user_encrypts_and_loads_explicitly(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let _env = EnvGuard::set(vec![(TOKEN_ENCRYPTION_KEY_ENV, test_encryption_key())]);
+		let user_id = create_test_user("oauth_token_store", "tokenstore@example.com").await;
+		let storage = OrmSocialAccountStorage::new();
+		let account = sample_account(user_id, "github", "gh_token");
+		storage
+			.create(account)
+			.await
+			.expect("account create should succeed");
+		let token = OAuthToken {
+			access_token: "ghu_live_token".to_string(),
+			token_type: "Bearer".to_string(),
+			expires_at: Utc::now() + Duration::hours(1),
+			refresh_token: None,
+			scopes: vec!["read:user".to_string(), "read:org".to_string()],
+			id_token: None,
+		};
+
+		// Act
+		storage
+			.store_token_for_user(user_id, "github", "gh_token", &token)
+			.await
+			.expect("token metadata should persist");
+		let explicit = storage
+			.access_token_for_user(user_id, "github")
+			.await
+			.expect("explicit token load should succeed");
+		let linked = storage
+			.find_by_provider_and_uid("github", "gh_token")
+			.await
+			.expect("linked account should load")
+			.expect("linked account should exist");
+
+		// Assert
+		assert_eq!(explicit.as_deref(), Some("ghu_live_token"));
+		assert!(
+			linked.access_token.is_empty(),
+			"framework storage lookup must remain tokenless"
+		);
 	}
 
 	#[rstest]

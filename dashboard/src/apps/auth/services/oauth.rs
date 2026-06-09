@@ -19,3 +19,5 @@ pub mod config;
 pub mod linking;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod storage;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod token_crypto;

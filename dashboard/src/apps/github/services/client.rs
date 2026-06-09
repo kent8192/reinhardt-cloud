@@ -34,6 +34,15 @@ pub struct GitHubInstallationAccessToken {
 	pub expires_at: String,
 }
 
+/// GitHub App installation visible to a user access token.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitHubUserInstallation {
+	pub id: i64,
+	pub account_id: i64,
+	pub account_login: String,
+	pub account_type: String,
+}
+
 impl std::fmt::Debug for GitHubInstallationAccessToken {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("GitHubInstallationAccessToken")
@@ -66,6 +75,11 @@ pub trait GitHubAppClient: Send + Sync {
 		&self,
 		installation_id: i64,
 	) -> Result<Vec<GitHubInstallationRepository>, GitHubAppClientError>;
+
+	async fn list_user_installations(
+		&self,
+		user_access_token: &str,
+	) -> Result<Vec<GitHubUserInstallation>, GitHubAppClientError>;
 }
 
 /// Reqwest-backed GitHub App API client.
@@ -147,6 +161,46 @@ impl ReqwestGitHubAppClient {
 
 		Ok(repositories)
 	}
+
+	pub(crate) async fn list_user_installations_with_token(
+		&self,
+		user_access_token: &str,
+	) -> Result<Vec<GitHubUserInstallation>, GitHubAppClientError> {
+		let mut page = 1u32;
+		let mut installations = Vec::new();
+
+		loop {
+			let url = user_installations_url(&self.settings.api_base_url)?;
+			let response = self
+				.http_client
+				.get(url)
+				.bearer_auth(user_access_token)
+				.github_json_headers()
+				.query(&[
+					("per_page", REPOSITORIES_PER_PAGE.to_string()),
+					("page", page.to_string()),
+				])
+				.send()
+				.await
+				.map_err(|err| GitHubAppClientError::Http(err.to_string()))?;
+			let page_response = parse_response::<GitHubUserInstallationsResponse>(response).await?;
+			let total_count = page_response.total_count;
+			let page_len = page_response.installations.len();
+			installations.extend(
+				page_response
+					.installations
+					.into_iter()
+					.map(GitHubUserInstallation::from),
+			);
+
+			if installations.len() >= total_count || page_len < usize::from(REPOSITORIES_PER_PAGE) {
+				break;
+			}
+			page += 1;
+		}
+
+		Ok(installations)
+	}
 }
 
 #[async_trait]
@@ -159,6 +213,14 @@ impl GitHubAppClient for ReqwestGitHubAppClient {
 			.create_installation_access_token(installation_id)
 			.await?;
 		self.list_repositories_with_token(&access_token.token).await
+	}
+
+	async fn list_user_installations(
+		&self,
+		user_access_token: &str,
+	) -> Result<Vec<GitHubUserInstallation>, GitHubAppClientError> {
+		self.list_user_installations_with_token(user_access_token)
+			.await
 	}
 }
 
@@ -230,6 +292,10 @@ pub(crate) fn installation_repositories_url(
 	api_url(api_base_url, &["installation", "repositories"])
 }
 
+pub(crate) fn user_installations_url(api_base_url: &str) -> Result<Url, GitHubAppClientError> {
+	api_url(api_base_url, &["user", "installations"])
+}
+
 fn api_url(api_base_url: &str, path_segments: &[&str]) -> Result<Url, GitHubAppClientError> {
 	let mut url = Url::parse(api_base_url)
 		.map_err(|err| GitHubAppClientError::Config(format!("invalid api_base_url: {err}")))?;
@@ -288,6 +354,37 @@ impl From<GitHubRepositoryResponse> for GitHubInstallationRepository {
 			name: response.name,
 			private: response.private,
 			default_branch: response.default_branch,
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUserInstallationsResponse {
+	total_count: usize,
+	installations: Vec<GitHubUserInstallationResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUserInstallationResponse {
+	id: i64,
+	account: GitHubUserInstallationAccountResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUserInstallationAccountResponse {
+	id: i64,
+	login: String,
+	#[serde(rename = "type")]
+	account_type: String,
+}
+
+impl From<GitHubUserInstallationResponse> for GitHubUserInstallation {
+	fn from(response: GitHubUserInstallationResponse) -> Self {
+		Self {
+			id: response.id,
+			account_id: response.account.id,
+			account_login: response.account.login,
+			account_type: response.account.account_type,
 		}
 	}
 }
