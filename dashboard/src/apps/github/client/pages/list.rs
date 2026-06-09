@@ -19,14 +19,22 @@ use crate::apps::github::server_fn::{
 use crate::shared::client::routes::route_href;
 
 fn format_server_error(raw: &str) -> String {
-	if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
+	let json_start = raw.find('{').unwrap_or(0);
+	let candidate = &raw[json_start..];
+	if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate)
 		&& let Some(obj) = value.as_object()
 		&& let Some((_, payload)) = obj.iter().next()
 	{
 		if let Some(s) = payload.as_str() {
+			if s.starts_with("CurrentUser:") {
+				return "Sign in to continue.".to_string();
+			}
 			return s.to_string();
 		}
 		if let Some(msg) = payload.get("message").and_then(|v| v.as_str()) {
+			if msg.starts_with("CurrentUser:") {
+				return "Sign in to continue.".to_string();
+			}
 			return msg.to_string();
 		}
 	}
@@ -100,7 +108,7 @@ pub fn github_repositories_page() -> Page {
 		server_fn: import_github_repository_for_current_org,
 		method: Post,
 		success_url: |_form| route_href("github:repositories", "/github"),
-		class: "rc-form-grid",
+		class: "rc-form-stack",
 		fields: {
 			repository_id: CharField {
 				required,
@@ -142,7 +150,10 @@ pub fn github_repositories_page() -> Page {
 	let import_error = import_form.error().clone();
 	let import_view = import_form.into_page();
 
-	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
+	let selected_repository_id = import_repository_id.clone();
+	let selected_cluster_id = import_cluster_id.clone();
+	let selected_app_name = import_app_name.clone();
+	let content = page!(|repositories: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>, selected_repository_id: Signal<String>, selected_cluster_id: Signal<String>, selected_app_name: Signal<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -165,49 +176,54 @@ pub fn github_repositories_page() -> Page {
 					}
 				}
 				div {
-					class: "grid gap-6 lg:grid-cols-[1fr_340px]",
+					class: "grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]",
 					section {
 						class: "rc-panel",
 						div {
-							class: "rc-panel-head",
-							"Repository Inventory"
+							class: "rc-panel-head flex items-center justify-between gap-3",
+							span { "Repository Inventory" }
+							span {
+								class: "rounded-full bg-control-500/10 px-2.5 py-1 text-[11px] font-bold text-control-700",
+								"GitHub App"
+							}
 						}
 						div {
 							class: "overflow-x-auto",
 							table {
-								class: "min-w-full divide-y divide-cloud-200 text-sm",
+								class: "rc-table",
 								thead {
+									class: "bg-cloud-50",
 									tr {
 										th {
-											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											class: "rc-th",
 											"ID"
 										}
 										th {
-											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											class: "rc-th",
 											"Repository"
 										}
 										th {
-											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											class: "rc-th",
 											"Branch"
 										}
 										th {
-											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											class: "rc-th",
 											"State"
 										}
 										th {
-											class: "px-3 py-2 text-left font-semibold text-cloud-600",
+											class: "rc-th text-right",
 											""
 										}
 									}
 								}
 								tbody {
-									class: "divide-y divide-cloud-100",
+									class: "divide-y divide-cloud-100 bg-white",
 									{
 										match repositories.get() {
 											ResourceState::Loading => page!(|| {
 												tr {
 													td {
-														class: "px-3 py-3 text-cloud-500",
+														class: "rc-empty",
 														colspan: 5,
 														"Loading repositories..."
 													}
@@ -216,7 +232,7 @@ pub fn github_repositories_page() -> Page {
 											ResourceState::Error(err) => page!(|err: String| {
 												tr {
 													td {
-														class: "px-3 py-3 text-red-700",
+														class: "px-4 py-8 text-sm font-medium text-red-700",
 														colspan: 5,
 														{
 															self::format_server_error(&err)
@@ -227,7 +243,7 @@ pub fn github_repositories_page() -> Page {
 											ResourceState::Success(items)if items.is_empty() => page!(|onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>| {
 												tr {
 													td {
-														class: "px-3 py-4 text-cloud-500",
+														class: "rc-empty",
 														colspan: 5,
 														{
 															match onboarding.get() {
@@ -270,49 +286,49 @@ pub fn github_repositories_page() -> Page {
 													page!(|repo: GitHubRepositoryInfo, import_repository_id: Signal<String>, import_app_name: Signal<String>| {
 														tr {
 															td {
-																class: "px-3 py-2 font-mono text-xs text-cloud-500",
+																class: "px-4 py-3 font-mono text-xs text-ink-600",
 																{
 																	repo.id.to_string()
 																}
 															}
 															td {
-																class: "px-3 py-2",
+																class: "px-4 py-3",
 																div {
-																	class: "font-medium text-cloud-900",
+																	class: "font-semibold text-ink-950",
 																	{
 																		repo.full_name.clone()
 																	}
 																}
 																div {
-																	class: "text-xs text-cloud-500",
+																	class: "mt-0.5 text-xs font-medium text-ink-600",
 																	{
 																		if repo.private { "private" } else { "public" }
 																	}
 																}
 															}
 															td {
-																class: "px-3 py-2 text-cloud-700",
+																class: "px-4 py-3 font-mono text-xs text-ink-600",
 																{
 																	repo.default_branch.clone()
 																}
 															}
 															td {
-																class: "px-3 py-2",
+																class: "px-4 py-3",
 																span {
-																	class: if repo.selected { "rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700" } else { "rounded bg-cloud-100 px-2 py-1 text-xs font-medium text-cloud-600" },
+																	class: if repo.selected { "rounded-full bg-control-500/10 px-2.5 py-0.5 text-xs font-semibold text-control-700" } else { "rounded-full bg-cloud-100 px-2.5 py-0.5 text-xs font-semibold text-ink-600" },
 																	{
 																		if repo.selected { "imported" } else { "available" }
 																	}
 																}
 															}
 															td {
-																class: "px-3 py-2 text-right",
+																class: "px-4 py-3 text-right",
 																{
 																	let repository_id_signal = import_repository_id.clone();
 																	let app_name_signal = import_app_name.clone();
 																	let repo_id = repo.id.to_string();
 																	let app_name = repo.name.clone();
-																	PageElement::new("button").attr("type", "button").attr("class", "btn-secondary text-xs").listener("click", move |_event| {
+																	PageElement::new("button").attr("type", "button").attr("class", "btn-secondary min-w-20 px-3 py-1.5 text-xs").listener("click", move |_event| {
 																		repository_id_signal.set(repo_id.clone());
 																		app_name_signal.set(app_name.clone());
 																	}).child("Select").into_page()
@@ -328,13 +344,58 @@ pub fn github_repositories_page() -> Page {
 							}
 						}
 					}
-					div {
-						class: "space-y-6",
+					aside {
+						class: "rc-stack",
 						section {
-							class: "rc-panel",
-							div {
-								class: "rc-panel-head",
+							class: "rc-panel-pad",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Import"
+							}
+							div {
+								class: "mb-4 grid gap-2 rounded-md border border-control-500/20 bg-control-500/5 p-3 text-sm",
+								div {
+									class: "flex items-center justify-between gap-3",
+									span {
+										class: "text-xs font-bold uppercase text-ink-600",
+										"Repository"
+									}
+									span {
+										class: "font-mono text-xs font-semibold text-ink-950",
+										{
+											let value = selected_repository_id.get();
+											if value.trim().is_empty() { "not selected".to_string() } else { format!("id {value}") }
+										}
+									}
+								}
+								div {
+									class: "flex items-center justify-between gap-3",
+									span {
+										class: "text-xs font-bold uppercase text-ink-600",
+										"Cluster"
+									}
+									span {
+										class: "font-mono text-xs font-semibold text-ink-950",
+										{
+											let value = selected_cluster_id.get();
+											if value.trim().is_empty() { "not selected".to_string() } else { format!("id {value}") }
+										}
+									}
+								}
+								div {
+									class: "flex items-center justify-between gap-3",
+									span {
+										class: "text-xs font-bold uppercase text-ink-600",
+										"App"
+									}
+									span {
+										class: "truncate text-xs font-semibold text-ink-950",
+										{
+											let value = selected_app_name.get();
+											if value.trim().is_empty() { "derived from repository".to_string() } else { value }
+										}
+									}
+								}
 							}
 							{
 								self::alert(import_error.clone())
@@ -350,9 +411,9 @@ pub fn github_repositories_page() -> Page {
 							}
 						}
 						section {
-							class: "rc-panel",
-							div {
-								class: "rc-panel-head",
+							class: "rc-panel-pad",
+							h2 {
+								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Active Clusters"
 							}
 							div {
@@ -383,27 +444,30 @@ pub fn github_repositories_page() -> Page {
 											items.clone().into_iter().map(|cluster| {
 												page!(|cluster: ClusterInfo, import_cluster_id: Signal<String>| {
 													div {
-														class: "rounded border border-cloud-200 px-3 py-2",
+														class: "rounded-md border border-cloud-200 bg-white px-3 py-2 shadow-[0_1px_0_rgba(17,16,19,0.03)]",
 														div {
-															class: "font-medium text-cloud-900",
-															{
-																cluster.name.clone()
+															class: "flex items-start justify-between gap-3",
+															div {
+																class: "min-w-0",
+																div {
+																	class: "truncate font-semibold text-ink-950",
+																	{
+																		cluster.name.clone()
+																	}
+																}
+																div {
+																	class: "mt-0.5 font-mono text-xs text-ink-600",
+																	{
+																		format!("id {}", cluster.id)
+																	}
+																}
 															}
-														}
-														div {
-															class: "font-mono text-xs text-cloud-500",
-															{
-																format!("id {}", cluster.id)
-															}
-														}
-														div {
-															class: "mt-2",
 															{
 																let cluster_id_signal = import_cluster_id.clone();
 																let cluster_id = cluster.id.to_string();
-																PageElement::new("button").attr("type", "button").attr("class", "btn-secondary text-xs").listener("click", move |_event| {
+																PageElement::new("button").attr("type", "button").attr("class", "btn-secondary shrink-0 px-3 py-1.5 text-xs").listener("click", move |_event| {
 																	cluster_id_signal.set(cluster_id.clone());
-																}).child("Select").into_page()
+																}).child("Use").into_page()
 															}
 														}
 													}
@@ -428,7 +492,37 @@ pub fn github_repositories_page() -> Page {
 		import_repository_id,
 		import_cluster_id,
 		import_app_name,
+		selected_repository_id,
+		selected_cluster_id,
+		selected_app_name,
 	);
 
 	dashboard_app_shell("github", content)
+}
+
+#[cfg(test)]
+mod tests {
+	use rstest::rstest;
+
+	use super::format_server_error;
+
+	#[rstest]
+	#[case(
+		r#"Server error (401): {"Server":{"status":401,"message":"CurrentUser: User is not authenticated"}}"#,
+		"Sign in to continue."
+	)]
+	#[case(
+		r#"{"Server":{"status":500,"message":"Repository import failed"}}"#,
+		"Repository import failed"
+	)]
+	fn server_error_formatter_extracts_actionable_message(
+		#[case] raw: &str,
+		#[case] expected: &str,
+	) {
+		// Arrange, Act
+		let formatted = format_server_error(raw);
+
+		// Assert
+		assert_eq!(formatted, expected);
+	}
 }
