@@ -45,23 +45,15 @@ pub async fn list_oauth_providers(
 		crate::apps::auth::services::oauth::config::OAuthSettings,
 	>,
 ) -> Result<Vec<OAuthProviderInfo>, ServerFnError> {
-	#[cfg(native)]
-	{
-		settings
-			.enabled_provider_ids()
-			.into_iter()
-			.map(|id| {
-				Ok(OAuthProviderInfo {
-					id: id.to_string(),
-					label: label_for_provider(id).to_string(),
-					start_url: oauth_start_url(id)?,
-				})
+	settings
+		.enabled_provider_ids()
+		.into_iter()
+		.map(|id| {
+			Ok(OAuthProviderInfo {
+				id: id.to_string(),
+				label: label_for_provider(id).to_string(),
+				start_url: oauth_start_url(id)?,
 			})
-			.collect::<Result<Vec<_>, ServerFnError>>()
-	}
-	#[cfg(wasm)]
-	{
-		let _ = settings;
-		unreachable!("server_fn body is replaced on wasm")
-	}
+		})
+		.collect::<Result<Vec<_>, ServerFnError>>()
 }

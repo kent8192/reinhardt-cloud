@@ -27,43 +27,25 @@ pub async fn register(
 		crate::apps::auth::services::email::EmailService,
 	>,
 ) -> Result<AuthResponse, ServerFnError> {
-	#[cfg(native)]
-	{
-		use crate::apps::auth::services::registration::register_inactive_user;
-		use crate::shared::UserInfo;
+	use crate::apps::auth::services::registration::register_inactive_user;
+	use crate::shared::UserInfo;
 
-		let created = register_inactive_user(
-			&username,
-			&email,
-			&password,
-			email_service.as_ref(),
-			settings.as_ref(),
-		)
-		.await
-		.map_err(server_fn_error_from_app_error)?;
+	let created = register_inactive_user(
+		&username,
+		&email,
+		&password,
+		email_service.as_ref(),
+		settings.as_ref(),
+	)
+	.await
+	.map_err(server_fn_error_from_app_error)?;
 
-		// No session cookie — user must verify email first
-		let user_info = UserInfo::from(&created);
-		Ok(AuthResponse {
-			success: true,
-			user: Some(user_info),
-		})
-	}
-	#[cfg(wasm)]
-	{
-		// The #[server_fn] macro replaces this body with an HTTP POST stub on
-		// wasm; this branch exists only so the function compiles as a single
-		// declaration on both targets.
-		let _ = (
-			username,
-			email,
-			password,
-			_http_request,
-			settings,
-			email_service,
-		);
-		unreachable!("server_fn body is replaced on wasm")
-	}
+	// No session cookie — user must verify email first
+	let user_info = UserInfo::from(&created);
+	Ok(AuthResponse {
+		success: true,
+		user: Some(user_info),
+	})
 }
 
 #[cfg(native)]

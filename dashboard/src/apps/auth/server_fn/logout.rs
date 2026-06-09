@@ -14,38 +14,27 @@ pub async fn logout(
 		crate::apps::auth::services::session::SessionService,
 	>,
 ) -> Result<bool, ServerFnError> {
-	#[cfg(native)]
+	use tracing::warn;
+
+	use crate::apps::auth::services::session::session_id_from_cookie_header;
+
+	let session_id = http_request
+		.inner()
+		.headers
+		.get("Cookie")
+		.and_then(|v| v.to_str().ok())
+		.and_then(session_id_from_cookie_header);
+
+	// Destroy the session in Redis if a session cookie was present
+	if let Some(ref sid) = session_id
+		&& let Err(e) = session_service.destroy_session(sid).await
 	{
-		use tracing::warn;
-
-		use crate::apps::auth::services::session::session_id_from_cookie_header;
-
-		let session_id = http_request
-			.inner()
-			.headers
-			.get("Cookie")
-			.and_then(|v| v.to_str().ok())
-			.and_then(session_id_from_cookie_header);
-
-		// Destroy the session in Redis if a session cookie was present
-		if let Some(ref sid) = session_id
-			&& let Err(e) = session_service.destroy_session(sid).await
-		{
-			warn!("Failed to destroy session during logout: {e}");
-		}
-
-		// Clear the cookie regardless of whether destruction succeeded
-		let cookie = "sessionid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string();
-		http_request.add_response_cookie(cookie);
-
-		Ok(true)
+		warn!("Failed to destroy session during logout: {e}");
 	}
-	#[cfg(wasm)]
-	{
-		// The #[server_fn] macro replaces this body with an HTTP POST stub on
-		// wasm; this branch exists only so the function compiles as a single
-		// declaration on both targets.
-		let _ = (http_request, session_service);
-		unreachable!("server_fn body is replaced on wasm")
-	}
+
+	// Clear the cookie regardless of whether destruction succeeded
+	let cookie = "sessionid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string();
+	http_request.add_response_cookie(cookie);
+
+	Ok(true)
 }
