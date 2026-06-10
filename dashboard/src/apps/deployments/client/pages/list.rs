@@ -93,10 +93,10 @@ pub fn deployments_list_page() -> Page {
 		redirect_on_success: "/deployments",
 		class: "grid gap-3 md:grid-cols-2",
 		fields: {
-			app_name: CharField {
+			project_name: CharField {
 				required,
 				max_length: 63,
-				label: "App Name",
+				label: "Project name",
 				placeholder: "web",
 				class: "rc-input",
 			}
@@ -113,9 +113,9 @@ pub fn deployments_list_page() -> Page {
 				placeholder: "ghcr.io/example/web:latest",
 				class: "rc-input",
 			}
-			reinhardt_app_yaml: TextField {
+			project_yaml: TextField {
 				max_length: 65535,
-				label: "ReinhardtApp YAML",
+				label: "Project YAML",
 				widget: Textarea,
 				class: "rc-input min-h-40 font-mono text-xs md:col-span-2",
 			}
@@ -143,10 +143,10 @@ pub fn deployments_list_page() -> Page {
 				placeholder: "1",
 				class: "rc-input",
 			}
-			app_name: CharField {
+			project_name: CharField {
 				required,
 				max_length: 63,
-				label: "App Name",
+				label: "Project name",
 				placeholder: "web",
 				class: "rc-input",
 			}
@@ -338,7 +338,7 @@ pub fn deployments_list_page() -> Page {
 																		td {
 																			class: "px-4 py-2 font-semibold text-ink-950",
 																			{
-																				deployment.app_name.clone()
+																				deployment.project_name.clone()
 																			}
 																		}
 																		td {

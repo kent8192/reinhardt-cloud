@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Controls what happens to cloud resources when `ReinhardtApp` is deleted.
+/// Controls what happens to cloud resources when `Project` is deleted.
 /// - `Retain` (default): cloud resources are kept for manual cleanup
 /// - `Delete`: cloud resources are deleted (DATA LOSS risk)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]

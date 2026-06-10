@@ -316,7 +316,7 @@ When providing context for external coding agents on Issues or PRs, use structur
 | File | Symbol | Description |
 |------|--------|-------------|
 | `crates/reinhardt-cloud-operator/src/reconciler.rs` | `reconcile` | Primary reconciliation entry point |
-| `crates/reinhardt-cloud-operator/src/crd.rs` | `ReinhardtAppSpec` | CRD spec type |
+| `crates/reinhardt-cloud-operator/src/crd.rs` | `ProjectSpec` | CRD spec type |
 
 ### Reference Implementations
 - Pattern to follow: `crates/reinhardt-cloud-operator/src/existing_controller.rs`

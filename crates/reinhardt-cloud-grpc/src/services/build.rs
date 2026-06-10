@@ -85,7 +85,7 @@ fn domain_event_to_proto(event: &BuildEvent) -> pb::BuildEvent {
 
 fn proto_request_to_domain(req: &pb::StartBuildRequest) -> BuildRequest {
 	BuildRequest {
-		app_name: req.app_name.clone(),
+		project_name: req.project_name.clone(),
 		image: req.image.clone(),
 		env_vars: req
 			.env_vars
@@ -179,7 +179,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 
 		Ok(Response::new(pb::BuildStatusResponse {
 			build_id: status.build_id.to_string(),
-			app_name: status.app_name,
+			project_name: status.project_name,
 			phase: build_phase_to_proto(&status.phase),
 			completed: status.completed,
 			success: status.success,
@@ -208,7 +208,7 @@ impl pb::build_service_server::BuildService for BuildServiceGrpc {
 		let mut logs = vec![Ok(pb::BuildLog {
 			message: format!(
 				"Build {} for app '{}' is in phase {}",
-				status.build_id, status.app_name, status.phase
+				status.build_id, status.project_name, status.phase
 			),
 			timestamp: timestamp_from_chrono(now),
 		})];
@@ -259,7 +259,7 @@ impl BuildService for GrpcBuildClient {
 		reinhardt_cloud_core::ApiError,
 	> {
 		let proto_req = pb::StartBuildRequest {
-			app_name: request.app_name,
+			project_name: request.project_name,
 			image: request.image,
 			env_vars: request
 				.env_vars
@@ -320,7 +320,7 @@ impl BuildService for GrpcBuildClient {
 			build_id: resp.build_id.parse().map_err(|e| {
 				reinhardt_cloud_core::ApiError::Internal(format!("Invalid UUID: {e}"))
 			})?,
-			app_name: resp.app_name,
+			project_name: resp.project_name,
 			phase: proto_phase_to_domain(resp.phase),
 			completed: resp.completed,
 			success: resp.success,
@@ -800,7 +800,7 @@ mod tests {
 	fn test_proto_request_to_domain_full_fields() {
 		// Arrange
 		let proto_req = pb::StartBuildRequest {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			image: "registry.io/my-app:v1".to_string(),
 			env_vars: vec![
 				pb::EnvVar {
@@ -820,7 +820,7 @@ mod tests {
 		let domain = proto_request_to_domain(&proto_req);
 
 		// Assert
-		assert_eq!(domain.app_name, "my-app");
+		assert_eq!(domain.project_name, "my-app");
 		assert_eq!(domain.image, "registry.io/my-app:v1");
 		assert_eq!(domain.env_vars.len(), 2);
 		assert_eq!(domain.env_vars[0].key, "NODE_ENV");
@@ -835,7 +835,7 @@ mod tests {
 	fn test_proto_request_to_domain_none_optional_fields() {
 		// Arrange
 		let proto_req = pb::StartBuildRequest {
-			app_name: "minimal".to_string(),
+			project_name: "minimal".to_string(),
 			image: "img:latest".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
@@ -846,7 +846,7 @@ mod tests {
 		let domain = proto_request_to_domain(&proto_req);
 
 		// Assert
-		assert_eq!(domain.app_name, "minimal");
+		assert_eq!(domain.project_name, "minimal");
 		assert_eq!(domain.image, "img:latest");
 		assert!(domain.env_vars.is_empty());
 		assert!(domain.dockerfile.is_none());

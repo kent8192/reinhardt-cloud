@@ -48,13 +48,13 @@ the manual checklist:
 cargo make dashboard-self-deploy-e2e
 ```
 
-The task builds or selects the Dashboard image, applies the `ReinhardtApp`
+The task builds or selects the Dashboard image, applies the `Project`
 CRD, creates a temporary namespace and runtime Secret, starts a local Operator
 when no in-cluster Operator is already installed, generates the Dashboard
-`ReinhardtApp` with `reinhardt-cloud deploy --dir dashboard --dry-run`, requires
+`Project` with `reinhardt-cloud deploy --dir dashboard --dry-run`, requires
 Dashboard `manage introspect` to succeed, applies the same contract through
 `--direct`, waits for the Operator-owned Deployment, Service, cache/database
-resources, Pods, and live `ReinhardtApp`, seeds an active Dashboard user with
+resources, Pods, and live `Project`, seeds an active Dashboard user with
 its Personal Organization, verifies login through the deployed frontend server
 function, checks authenticated Dashboard pages, then removes the temporary
 namespace.
@@ -95,7 +95,7 @@ crate root before TOML interpolation. For the default local profile, values in
 `dashboard/.env.local` such as `PORT=8001` are available without exporting them
 manually; variables already present in the shell still take precedence.
 
-On failure the harness writes events, live `ReinhardtApp` YAML, owned resource
+On failure the harness writes events, live `Project` YAML, owned resource
 YAML, Pod logs, Operator logs, and the generated CRD YAML under the artifact
 directory before cleanup. Login responses, cookies, and authenticated page
 responses are also preserved there. This harness validates the generated-config
@@ -159,8 +159,8 @@ Resolved by kent8192/reinhardt-cloud#315 — the CRD YAML now ships with the
 Helm chart:
 
 ```bash
-kubectl apply -f charts/reinhardt-cloud-operator/crds/reinhardtapp-crd.yaml
-kubectl get crd reinhardtapps.paas.reinhardt-cloud.dev
+kubectl apply -f charts/reinhardt-cloud-operator/crds/project-crd.yaml
+kubectl get crd projects.paas.reinhardt-cloud.dev
 ```
 
 ## 4. Run the Dashboard
@@ -272,14 +272,14 @@ cargo run -p reinhardt-cloud-cli -- deploy \
   --name demo --image nginx:1.27 --replicas 2 --dry-run
 ```
 
-Expected: a `ReinhardtApp` CRD YAML on stdout. No cluster or Dashboard calls.
+Expected: a `Project` CRD YAML on stdout. No cluster or Dashboard calls.
 
 ### 8b. `--direct` (skip Dashboard, apply CRD directly)
 
 ```bash
 cargo run -p reinhardt-cloud-cli -- deploy \
   --name demo --image nginx:1.27 --replicas 2 --direct
-kubectl get reinhardtapp -A -w
+kubectl get project -A -w
 ```
 
 Expected: the CRD is applied; the Operator reconciles it and creates the
@@ -293,8 +293,8 @@ cargo run -p reinhardt-cloud-cli -- deploy \
 ```
 
 Expected: the Dashboard returns a 2xx for `POST /deployments`. The CLI
-includes the generated `ReinhardtApp` YAML in the request body as
-`reinhardt_app_yaml`, but the Dashboard does not yet persist or relay that
+includes the generated `Project` YAML in the request body as
+`project_yaml`, but the Dashboard does not yet persist or relay that
 manifest to the Agent. **The Agent binary will not receive the deploy command
 yet** — see the first item in Known limitations.
 
@@ -330,7 +330,7 @@ Until each item is resolved, treat the "Dashboard-mediated deploy" scenario
 | `rustls CryptoProvider` panic at Operator/Agent startup | Already patched; rebuild and rerun. See kent8192/reinhardt-cloud#314. |
 | `gRPC connection refused` from Agent | Dashboard's `runserver` is not up, or `REINHARDT_CLOUD_REDIS_URL` is unset (server exits at startup). Check the Dashboard terminal. |
 | `Cannot connect to Docker daemon` during integration tests | `DOCKER_HOST` is pointing at Podman. `unset DOCKER_HOST` or install Docker Desktop. See `CLAUDE.md` → "Troubleshooting Container Errors". |
-| `kubectl apply` fails with `no matches for kind "ReinhardtApp"` | CRD is not installed. Re-run section 3. |
+| `kubectl apply` fails with `no matches for kind "Project"` | CRD is not installed. Re-run section 3. |
 | `cargo run -p reinhardt-cloud-dashboard` rebuilds on every invocation | Use a dedicated terminal per long-running component so incremental compilation stays warm. |
 
 ## References

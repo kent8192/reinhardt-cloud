@@ -37,7 +37,7 @@ impl std::error::Error for ValidationError {}
 /// - Start and end with an alphanumeric character
 ///
 /// This is the format required for Kubernetes namespace names and is used to
-/// validate the multi-tenant `spec.tenant` field on `ReinhardtApp` CRs.
+/// validate the multi-tenant `spec.tenant` field on `Project` CRs.
 pub fn validate_dns_1123_label(value: &str) -> Result<(), ValidationError> {
 	if value.is_empty() {
 		return Err(ValidationError::new("must not be empty"));

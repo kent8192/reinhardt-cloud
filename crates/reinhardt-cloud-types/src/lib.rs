@@ -21,8 +21,8 @@ pub use build::{BuildEvent, BuildPhase, BuildRequest, BuildStatus, EnvVar};
 pub use cluster::Cluster;
 pub use config::ReinhardtConfig;
 pub use crd::{
-	AppCondition, ConditionStatus, ConditionType, ReinhardtApp, ReinhardtAppSpec,
-	ReinhardtAppStatus,
+	ProjectCondition, ConditionStatus, ConditionType, Project, ProjectSpec,
+	ProjectStatus,
 };
 pub use deployment::{Deployment, DeploymentStatus};
 pub use log::{LogEntry, LogFilter, LogLevel};

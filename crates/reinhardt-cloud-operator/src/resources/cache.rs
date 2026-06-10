@@ -10,20 +10,20 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
 
-/// Builds a `Deployment` running Redis for the given `ReinhardtApp`.
+/// Builds a `Deployment` running Redis for the given `Project`.
 ///
 /// Uses `redis:7-alpine` with a single replica and conservative resource limits.
-pub(crate) fn build_cache_deployment(app: &ReinhardtApp) -> Result<Deployment, Error> {
+pub(crate) fn build_cache_deployment(app: &Project) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Cache);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
-	let deploy_name = format!("{}-redis", app_name);
+	let project_name = app.name_any();
+	let deploy_name = format!("{}-redis", project_name);
 
 	Ok(Deployment {
 		metadata: ObjectMeta {
@@ -37,7 +37,7 @@ pub(crate) fn build_cache_deployment(app: &ReinhardtApp) -> Result<Deployment, E
 			replicas: Some(1),
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([
-					("app.kubernetes.io/name".to_string(), app_name.clone()),
+					("app.kubernetes.io/name".to_string(), project_name.clone()),
 					(
 						"app.kubernetes.io/component".to_string(),
 						"cache".to_string(),
@@ -81,18 +81,18 @@ pub(crate) fn build_cache_deployment(app: &ReinhardtApp) -> Result<Deployment, E
 	})
 }
 
-/// Builds a `Service` exposing Redis for the given `ReinhardtApp`.
+/// Builds a `Service` exposing Redis for the given `Project`.
 ///
 /// Targets port 6379 and selects pods by app name and cache component labels.
-pub(crate) fn build_cache_service(app: &ReinhardtApp) -> Result<Service, Error> {
+pub(crate) fn build_cache_service(app: &Project) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Cache);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	Ok(Service {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-redis", app_name)),
+			name: Some(format!("{}-redis", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			owner_references: Some(vec![owner_ref]),
@@ -101,7 +101,7 @@ pub(crate) fn build_cache_service(app: &ReinhardtApp) -> Result<Service, Error> 
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
 			selector: Some(BTreeMap::from([
-				("app.kubernetes.io/name".to_string(), app_name),
+				("app.kubernetes.io/name".to_string(), project_name),
 				(
 					"app.kubernetes.io/component".to_string(),
 					"cache".to_string(),
@@ -126,10 +126,10 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
-	fn test_app(name: &str) -> ReinhardtApp {
+	fn test_app(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": { "image": "myapp:latest" }
 		});

@@ -1,6 +1,6 @@
 # reinhardt-cloud-operator
 
-Kubernetes operator that reconciles `ReinhardtApp` custom resources into Deployments, Services, Ingresses, and feature-driven infrastructure (database, cache, worker, storage) for Reinhardt web applications.
+Kubernetes operator that reconciles `Project` custom resources into Deployments, Services, Ingresses, and feature-driven infrastructure (database, cache, worker, storage) for Reinhardt web applications.
 
 ## Quick links
 

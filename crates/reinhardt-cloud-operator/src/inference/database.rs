@@ -22,7 +22,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
 use kube::api::{DynamicObject, TypeMeta};
-use reinhardt_cloud_types::crd::{DatabaseEngine, DatabaseSpec, ReinhardtApp};
+use reinhardt_cloud_types::crd::{DatabaseEngine, DatabaseSpec, Project};
 
 use super::platform::{Platform, PlatformConfig};
 use super::secrets::{build_db_credentials_secret, generate_random_password};
@@ -59,7 +59,7 @@ fn max_identifier_len(engine: &DatabaseEngine) -> usize {
 	}
 }
 
-/// Sanitize an application name for use as a database username or db name.
+/// Sanitize an project name for use as a database username or db name.
 ///
 /// The identifier must start with a letter, contain only ASCII alphanumeric
 /// characters and underscores, and be truncated to the engine-specific
@@ -126,7 +126,7 @@ pub(crate) enum DatabaseResource {
 ///
 /// Returns an empty `Vec` when the app has no database configuration.
 pub(crate) fn infer_database_resources(
-	app: &ReinhardtApp,
+	app: &Project,
 	platform: &PlatformConfig,
 ) -> Vec<DatabaseResource> {
 	let db = match &app.spec.database {
@@ -138,21 +138,21 @@ pub(crate) fn infer_database_resources(
 		Some(ns) => ns,
 		None => return vec![], // namespace required for database resources
 	};
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 	let storage_gb = db
 		.storage_gb
 		.unwrap_or(platform.defaults.database.storage_gb);
 
 	match platform.platform {
-		Platform::Onpremise => build_onprem_postgres(&app_name, &namespace, db, storage_gb),
-		Platform::Aws => build_aws_rds(&app_name, &namespace, db, platform),
-		Platform::Gcp => build_gcp_cloud_sql(&app_name, &namespace, db, storage_gb, platform),
+		Platform::Onpremise => build_onprem_postgres(&project_name, &namespace, db, storage_gb),
+		Platform::Aws => build_aws_rds(&project_name, &namespace, db, platform),
+		Platform::Gcp => build_gcp_cloud_sql(&project_name, &namespace, db, storage_gb, platform),
 	}
 }
 
 /// Build on-premise PostgreSQL resources: StatefulSet + PVC + ConfigMap + Secret.
 fn build_onprem_postgres(
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	db: &DatabaseSpec,
 	storage_gb: i32,
@@ -161,28 +161,28 @@ fn build_onprem_postgres(
 	// env_vars.rs derives REINHARDT_DATABASE_NAME and REINHARDT_DATABASE_USER
 	// using the same convention, ensuring the injected connection env vars
 	// match the credentials created here.
-	let sanitized_name = app_name.replace('-', "_");
+	let sanitized_name = project_name.replace('-', "_");
 	let db_name = format!("{sanitized_name}_db");
 	let db_user = sanitized_name.clone();
 	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
-	let labels = standard_db_labels(app_name);
+	let labels = standard_db_labels(project_name);
 
 	// StatefulSet running postgres
 	let stateful_set = StatefulSet {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-db")),
+			name: Some(format!("{project_name}-db")),
 			namespace: Some(namespace.to_string()),
 			labels: Some(labels.clone()),
 			..Default::default()
 		},
 		spec: Some(StatefulSetSpec {
 			replicas: Some(1),
-			service_name: Some(format!("{app_name}-db")),
+			service_name: Some(format!("{project_name}-db")),
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([(
 					"app.kubernetes.io/name".to_string(),
-					app_name.to_string(),
+					project_name.to_string(),
 				)])),
 				..Default::default()
 			},
@@ -190,7 +190,7 @@ fn build_onprem_postgres(
 				metadata: Some(ObjectMeta {
 					labels: Some(BTreeMap::from([(
 						"app.kubernetes.io/name".to_string(),
-						app_name.to_string(),
+						project_name.to_string(),
 					)])),
 					..Default::default()
 				}),
@@ -210,7 +210,7 @@ fn build_onprem_postgres(
 						}]),
 						env_from: Some(vec![EnvFromSource {
 							secret_ref: Some(SecretEnvSource {
-								name: format!("{app_name}-db-credentials"),
+								name: format!("{project_name}-db-credentials"),
 								..Default::default()
 							}),
 							..Default::default()
@@ -221,7 +221,7 @@ fn build_onprem_postgres(
 						name: "data".to_string(),
 						persistent_volume_claim: Some(
 							k8s_openapi::api::core::v1::PersistentVolumeClaimVolumeSource {
-								claim_name: format!("{app_name}-db-data"),
+								claim_name: format!("{project_name}-db-data"),
 								..Default::default()
 							},
 						),
@@ -238,7 +238,7 @@ fn build_onprem_postgres(
 	// PVC for data storage
 	let pvc = PersistentVolumeClaim {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-db-data")),
+			name: Some(format!("{project_name}-db-data")),
 			namespace: Some(namespace.to_string()),
 			labels: Some(labels.clone()),
 			..Default::default()
@@ -264,7 +264,7 @@ fn build_onprem_postgres(
 	// directly to the pod IP (required for StatefulSet clients).
 	let service = Service {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-db")),
+			name: Some(format!("{project_name}-db")),
 			namespace: Some(namespace.to_string()),
 			labels: Some(labels.clone()),
 			..Default::default()
@@ -274,7 +274,7 @@ fn build_onprem_postgres(
 			cluster_ip: Some("None".to_string()),
 			selector: Some(BTreeMap::from([(
 				"app.kubernetes.io/name".to_string(),
-				app_name.to_string(),
+				project_name.to_string(),
 			)])),
 			ports: Some(vec![ServicePort {
 				port: 5432,
@@ -295,7 +295,7 @@ fn build_onprem_postgres(
 	);
 	let config_map = ConfigMap {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-db-init")),
+			name: Some(format!("{project_name}-db-init")),
 			namespace: Some(namespace.to_string()),
 			labels: Some(labels),
 			..Default::default()
@@ -305,7 +305,7 @@ fn build_onprem_postgres(
 	};
 
 	// Credentials secret
-	let secret = build_db_credentials_secret(app_name, namespace, &db_user, &db_password, &db_name);
+	let secret = build_db_credentials_secret(project_name, namespace, &db_user, &db_password, &db_name);
 
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
@@ -320,7 +320,7 @@ fn build_onprem_postgres(
 ///
 /// Returns an empty `Vec` for SQLite since AWS RDS does not support it.
 fn build_aws_rds(
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	db: &DatabaseSpec,
 	platform: &PlatformConfig,
@@ -342,14 +342,14 @@ fn build_aws_rds(
 	let allocated_storage = db
 		.storage_gb
 		.unwrap_or(platform.defaults.database.storage_gb);
-	let master_username = sanitize_identifier(app_name, &db.engine);
-	let db_name = sanitize_identifier(&format!("{app_name}_db"), &db.engine);
+	let master_username = sanitize_identifier(project_name, &db.engine);
+	let db_name = sanitize_identifier(&format!("{project_name}_db"), &db.engine);
 
 	let db_instance = DynamicObject {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-rds")),
+			name: Some(format!("{project_name}-rds")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_db_labels(app_name)),
+			labels: Some(standard_db_labels(project_name)),
 			..Default::default()
 		},
 		types: Some(TypeMeta {
@@ -365,7 +365,7 @@ fn build_aws_rds(
 				"masterUsername": master_username,
 				"masterUserPassword": {
 					"namespace": namespace,
-					"name": format!("{app_name}-db-credentials"),
+					"name": format!("{project_name}-db-credentials"),
 					"key": "password"
 				},
 				"dbName": db_name
@@ -375,7 +375,7 @@ fn build_aws_rds(
 
 	let password = generate_random_password(24);
 	let secret =
-		build_db_credentials_secret(app_name, namespace, &master_username, &password, &db_name);
+		build_db_credentials_secret(project_name, namespace, &master_username, &password, &db_name);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(db_instance)),
@@ -388,7 +388,7 @@ fn build_aws_rds(
 ///
 /// Returns an empty `Vec` for SQLite since Cloud SQL does not support it.
 fn build_gcp_cloud_sql(
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	db: &DatabaseSpec,
 	storage_gb: i32,
@@ -405,13 +405,13 @@ fn build_gcp_cloud_sql(
 		.unwrap_or("db-f1-micro")
 		.to_string();
 	let region = &platform.defaults.database.region;
-	let db_name = sanitize_identifier(&format!("{app_name}_db"), &db.engine);
+	let db_name = sanitize_identifier(&format!("{project_name}_db"), &db.engine);
 
 	let sql_instance = DynamicObject {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-sql-instance")),
+			name: Some(format!("{project_name}-sql-instance")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_db_labels(app_name)),
+			labels: Some(standard_db_labels(project_name)),
 			..Default::default()
 		},
 		types: Some(TypeMeta {
@@ -433,13 +433,13 @@ fn build_gcp_cloud_sql(
 		}),
 	};
 
-	let instance_ref_name = format!("{app_name}-sql-instance");
+	let instance_ref_name = format!("{project_name}-sql-instance");
 
 	let sql_database = DynamicObject {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-sql-database")),
+			name: Some(format!("{project_name}-sql-database")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_db_labels(app_name)),
+			labels: Some(standard_db_labels(project_name)),
 			..Default::default()
 		},
 		types: Some(TypeMeta {
@@ -459,9 +459,9 @@ fn build_gcp_cloud_sql(
 
 	let sql_user = DynamicObject {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-sql-user")),
+			name: Some(format!("{project_name}-sql-user")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_db_labels(app_name)),
+			labels: Some(standard_db_labels(project_name)),
 			..Default::default()
 		},
 		types: Some(TypeMeta {
@@ -476,7 +476,7 @@ fn build_gcp_cloud_sql(
 				"password": {
 					"valueFrom": {
 						"secretKeyRef": {
-							"name": format!("{app_name}-db-credentials"),
+							"name": format!("{project_name}-db-credentials"),
 							"key": "password"
 						}
 					}
@@ -485,10 +485,10 @@ fn build_gcp_cloud_sql(
 		}),
 	};
 
-	let sanitized_user = sanitize_identifier(app_name, &db.engine);
+	let sanitized_user = sanitize_identifier(project_name, &db.engine);
 	let password = generate_random_password(24);
 	let secret =
-		build_db_credentials_secret(app_name, namespace, &sanitized_user, &password, &db_name);
+		build_db_credentials_secret(project_name, namespace, &sanitized_user, &password, &db_name);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(sql_instance)),
@@ -498,9 +498,9 @@ fn build_gcp_cloud_sql(
 	]
 }
 
-fn standard_db_labels(app_name: &str) -> BTreeMap<String, String> {
+fn standard_db_labels(project_name: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), app_name.to_string()),
+		("app.kubernetes.io/name".to_string(), project_name.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud-operator".to_string(),
@@ -515,18 +515,18 @@ fn standard_db_labels(app_name: &str) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use reinhardt_cloud_types::crd::{DatabaseEngine, ReinhardtAppSpec};
+	use reinhardt_cloud_types::crd::{DatabaseEngine, ProjectSpec};
 	use rstest::rstest;
 
-	fn make_app_with_db(name: &str, db_spec: DatabaseSpec) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_app_with_db(name: &str, db_spec: DatabaseSpec) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "myapp:latest".to_string(),
 				database: Some(db_spec),
 				..Default::default()
@@ -535,15 +535,15 @@ mod tests {
 		}
 	}
 
-	fn make_app_without_db(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_app_without_db(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "myapp:latest".to_string(),
 				..Default::default()
 			},
@@ -927,7 +927,7 @@ mod tests {
 			let spec = svc.spec.as_ref().unwrap();
 			let port = &spec.ports.as_ref().unwrap()[0];
 			assert_eq!(port.port, 5432);
-			// Selector must match the StatefulSet pod label (app_name, not app_name-db)
+			// Selector must match the StatefulSet pod label (project_name, not project_name-db)
 			let selector = spec.selector.as_ref().unwrap();
 			assert_eq!(
 				selector.get("app.kubernetes.io/name").map(String::as_str),
@@ -1341,7 +1341,7 @@ mod tests {
 	#[rstest]
 	#[case("myapp", "myapp")]
 	#[case("my-app", "my_app")]
-	#[case("my.app.name", "my_app_name")]
+	#[case("my.app.name", "my_project_name")]
 	#[case("123app", "app_123app")]
 	fn sanitize_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
 		// Act

@@ -32,45 +32,45 @@ fn proto_timestamp_to_chrono(ts: Option<Timestamp>) -> chrono::DateTime<chrono::
 fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
 	let command = match cmd {
 		AgentCommand::Deploy {
-			app_name,
+			project_name,
 			image,
 			replicas,
 		} => Some(pb::agent_command::Command::Deploy(pb::DeployCommand {
-			app_name: app_name.clone(),
+			project_name: project_name.clone(),
 			image: image.clone(),
 			replicas: *replicas,
 		})),
-		AgentCommand::Rollback { app_name, revision } => {
+		AgentCommand::Rollback { project_name, revision } => {
 			Some(pb::agent_command::Command::Rollback(pb::RollbackCommand {
-				app_name: app_name.clone(),
+				project_name: project_name.clone(),
 				revision: *revision,
 			}))
 		}
-		AgentCommand::Scale { app_name, replicas } => {
+		AgentCommand::Scale { project_name, replicas } => {
 			Some(pb::agent_command::Command::Scale(pb::ScaleCommand {
-				app_name: app_name.clone(),
+				project_name: project_name.clone(),
 				replicas: *replicas,
 			}))
 		}
-		AgentCommand::Restart { app_name } => {
+		AgentCommand::Restart { project_name } => {
 			Some(pb::agent_command::Command::Restart(pb::RestartCommand {
-				app_name: app_name.clone(),
+				project_name: project_name.clone(),
 			}))
 		}
-		AgentCommand::ApplyReinhardtApp { app_name, yaml } => Some(
-			pb::agent_command::Command::ApplyReinhardtApp(pb::ApplyReinhardtAppCommand {
-				app_name: app_name.clone(),
+		AgentCommand::ApplyProject { project_name, yaml } => Some(
+			pb::agent_command::Command::ApplyProject(pb::ApplyProjectCommand {
+				project_name: project_name.clone(),
 				yaml: yaml.clone(),
 			}),
 		),
 		AgentCommand::ApplyGitCredentialsSecret {
-			app_name,
+			project_name,
 			namespace,
 			secret_name,
 			git_token,
 		} => Some(pb::agent_command::Command::ApplyGitCredentialsSecret(
 			pb::ApplyGitCredentialsSecretCommand {
-				app_name: app_name.clone(),
+				project_name: project_name.clone(),
 				namespace: namespace.clone(),
 				secret_name: secret_name.clone(),
 				git_token: git_token.expose_secret().to_string(),
@@ -88,7 +88,7 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 			timestamp: proto_timestamp_to_chrono(c.timestamp),
 		}),
 		Some(pb::agent_event::Event::DeployStatus(d)) => Some(AgentEvent::DeployStatus {
-			app_name: d.app_name.clone(),
+			project_name: d.project_name.clone(),
 			success: d.success,
 			message: d.message.clone(),
 			timestamp: proto_timestamp_to_chrono(d.timestamp),
@@ -102,7 +102,7 @@ fn proto_event_to_domain(event: &pb::AgentEvent) -> Option<AgentEvent> {
 			timestamp: proto_timestamp_to_chrono(e.timestamp),
 		}),
 		Some(pb::agent_event::Event::CommandStatus(s)) => Some(AgentEvent::CommandStatus {
-			app_name: s.app_name.clone(),
+			project_name: s.project_name.clone(),
 			command_type: s.command_type.clone(),
 			success: s.success,
 			message: s.message.clone(),
@@ -216,7 +216,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		let reported_at = proto_timestamp_to_chrono(status.timestamp);
 
 		tracing::info!(
-			app_name = %status.app_name,
+			project_name = %status.project_name,
 			success = status.success,
 			message = %status.message,
 			reported_at = %reported_at,
@@ -224,7 +224,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		);
 
 		let report = DeployStatusReport {
-			app_name: status.app_name,
+			project_name: status.project_name,
 			success: status.success,
 			message: status.message,
 			reported_at,
@@ -463,7 +463,7 @@ mod tests {
 	fn test_domain_command_to_proto_deploy() {
 		// Arrange
 		let cmd = AgentCommand::Deploy {
-			app_name: "web-app".to_string(),
+			project_name: "web-app".to_string(),
 			image: "registry.io/web:v3".to_string(),
 			replicas: 5,
 		};
@@ -476,7 +476,7 @@ mod tests {
 			Some(pb::agent_command::Command::Deploy(d)) => d,
 			other => panic!("Expected Deploy variant, got {other:?}"),
 		};
-		assert_eq!(deploy.app_name, "web-app");
+		assert_eq!(deploy.project_name, "web-app");
 		assert_eq!(deploy.image, "registry.io/web:v3");
 		assert_eq!(deploy.replicas, 5);
 	}
@@ -485,7 +485,7 @@ mod tests {
 	fn test_domain_command_to_proto_rollback() {
 		// Arrange
 		let cmd = AgentCommand::Rollback {
-			app_name: "api-svc".to_string(),
+			project_name: "api-svc".to_string(),
 			revision: 42,
 		};
 
@@ -497,7 +497,7 @@ mod tests {
 			Some(pb::agent_command::Command::Rollback(r)) => r,
 			other => panic!("Expected Rollback variant, got {other:?}"),
 		};
-		assert_eq!(rollback.app_name, "api-svc");
+		assert_eq!(rollback.project_name, "api-svc");
 		assert_eq!(rollback.revision, 42);
 	}
 
@@ -505,7 +505,7 @@ mod tests {
 	fn test_domain_command_to_proto_scale() {
 		// Arrange
 		let cmd = AgentCommand::Scale {
-			app_name: "worker".to_string(),
+			project_name: "worker".to_string(),
 			replicas: 10,
 		};
 
@@ -517,7 +517,7 @@ mod tests {
 			Some(pb::agent_command::Command::Scale(s)) => s,
 			other => panic!("Expected Scale variant, got {other:?}"),
 		};
-		assert_eq!(scale.app_name, "worker");
+		assert_eq!(scale.project_name, "worker");
 		assert_eq!(scale.replicas, 10);
 	}
 
@@ -525,7 +525,7 @@ mod tests {
 	fn test_domain_command_to_proto_restart() {
 		// Arrange
 		let cmd = AgentCommand::Restart {
-			app_name: "cache".to_string(),
+			project_name: "cache".to_string(),
 		};
 
 		// Act
@@ -536,7 +536,7 @@ mod tests {
 			Some(pb::agent_command::Command::Restart(r)) => r,
 			other => panic!("Expected Restart variant, got {other:?}"),
 		};
-		assert_eq!(restart.app_name, "cache");
+		assert_eq!(restart.project_name, "cache");
 	}
 
 	// --- proto_event_to_domain: all 4 event variants (field-by-field) ---
@@ -579,7 +579,7 @@ mod tests {
 		let proto = pb::AgentEvent {
 			event: Some(pb::agent_event::Event::DeployStatus(
 				pb::AgentDeployStatus {
-					app_name: "api".to_string(),
+					project_name: "api".to_string(),
 					success: true,
 					message: "all pods ready".to_string(),
 					timestamp: Some(to_proto_ts(ts)),
@@ -593,12 +593,12 @@ mod tests {
 		// Assert
 		match domain {
 			AgentEvent::DeployStatus {
-				app_name,
+				project_name,
 				success,
 				message,
 				timestamp,
 			} => {
-				assert_eq!(app_name, "api");
+				assert_eq!(project_name, "api");
 				assert!(success);
 				assert_eq!(message, "all pods ready");
 				assert_eq!(timestamp, ts);
@@ -666,7 +666,7 @@ mod tests {
 		let proto = pb::AgentEvent {
 			event: Some(pb::agent_event::Event::CommandStatus(
 				pb::AgentCommandStatus {
-					app_name: "web".to_string(),
+					project_name: "web".to_string(),
 					command_type: "rollback".to_string(),
 					success: true,
 					message: "Rollback applied".to_string(),
@@ -681,13 +681,13 @@ mod tests {
 		// Assert
 		match domain {
 			AgentEvent::CommandStatus {
-				app_name,
+				project_name,
 				command_type,
 				success,
 				message,
 				timestamp,
 			} => {
-				assert_eq!(app_name, "web");
+				assert_eq!(project_name, "web");
 				assert_eq!(command_type, "rollback");
 				assert!(success);
 				assert_eq!(message, "Rollback applied");
@@ -756,7 +756,7 @@ mod tests {
 	fn test_domain_command_deploy_zero_replicas() {
 		// Arrange
 		let cmd = AgentCommand::Deploy {
-			app_name: "app".to_string(),
+			project_name: "app".to_string(),
 			image: "img:latest".to_string(),
 			replicas: 0,
 		};
@@ -778,7 +778,7 @@ mod tests {
 	fn test_domain_command_deploy_max_replicas() {
 		// Arrange
 		let cmd = AgentCommand::Deploy {
-			app_name: "app".to_string(),
+			project_name: "app".to_string(),
 			image: "img:latest".to_string(),
 			replicas: u32::MAX,
 		};
@@ -794,13 +794,13 @@ mod tests {
 		assert_eq!(deploy.replicas, u32::MAX);
 	}
 
-	// --- Empty app_name preserved ---
+	// --- Empty project_name preserved ---
 
 	#[rstest]
-	fn test_domain_command_empty_app_name() {
+	fn test_domain_command_empty_project_name() {
 		// Arrange
 		let cmd = AgentCommand::Restart {
-			app_name: "".to_string(),
+			project_name: "".to_string(),
 		};
 
 		// Act
@@ -811,7 +811,7 @@ mod tests {
 			Some(pb::agent_command::Command::Restart(r)) => r,
 			other => panic!("Expected Restart, got {other:?}"),
 		};
-		assert_eq!(restart.app_name, "");
+		assert_eq!(restart.project_name, "");
 	}
 
 	// --- Decision table: #[case] for each command variant -> correct oneof arm ---
@@ -868,31 +868,31 @@ mod tests {
 
 	#[rstest]
 	#[case(
-		AgentCommand::Deploy { app_name: "a".into(), image: "i".into(), replicas: 1 },
+		AgentCommand::Deploy { project_name: "a".into(), image: "i".into(), replicas: 1 },
 		"Deploy"
 	)]
 	#[case(
-		AgentCommand::Rollback { app_name: "a".into(), revision: 1 },
+		AgentCommand::Rollback { project_name: "a".into(), revision: 1 },
 		"Rollback"
 	)]
 	#[case(
-		AgentCommand::Scale { app_name: "a".into(), replicas: 1 },
+		AgentCommand::Scale { project_name: "a".into(), replicas: 1 },
 		"Scale"
 	)]
 	#[case(
-		AgentCommand::Restart { app_name: "a".into() },
+		AgentCommand::Restart { project_name: "a".into() },
 		"Restart"
 	)]
 	#[case(
-		AgentCommand::ApplyReinhardtApp {
-			app_name: "a".into(),
-			yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".into(),
+		AgentCommand::ApplyProject {
+			project_name: "a".into(),
+			yaml: "apiVersion: reinhardt.dev/v1\nkind: Project\n".into(),
 		},
-		"ApplyReinhardtApp"
+		"ApplyProject"
 	)]
 	#[case(
 			AgentCommand::ApplyGitCredentialsSecret {
-				app_name: "a".into(),
+				project_name: "a".into(),
 				namespace: "default".into(),
 				secret_name: "a-github-git-credentials".into(),
 				git_token: reinhardt_cloud_types::agent::SecretString::new("token".into()),
@@ -914,7 +914,7 @@ mod tests {
 			Some(pb::agent_command::Command::Rollback(_)) => "Rollback",
 			Some(pb::agent_command::Command::Scale(_)) => "Scale",
 			Some(pb::agent_command::Command::Restart(_)) => "Restart",
-			Some(pb::agent_command::Command::ApplyReinhardtApp(_)) => "ApplyReinhardtApp",
+			Some(pb::agent_command::Command::ApplyProject(_)) => "ApplyProject",
 			Some(pb::agent_command::Command::ApplyGitCredentialsSecret(_)) => {
 				"ApplyGitCredentialsSecret"
 			}

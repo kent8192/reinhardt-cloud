@@ -1,15 +1,15 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: reinhardtapps.paas.reinhardt-cloud.dev
+  name: projects.paas.reinhardt-cloud.dev
 spec:
   group: paas.reinhardt-cloud.dev
   names:
     categories: []
-    kind: ReinhardtApp
-    plural: reinhardtapps
+    kind: Project
+    plural: projects
     shortNames: []
-    singular: reinhardtapp
+    singular: project
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -28,10 +28,10 @@ spec:
     name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: Auto-generated derived type for ReinhardtAppSpec via `CustomResource`
+        description: Auto-generated derived type for ProjectSpec via `CustomResource`
         properties:
           spec:
-            description: Spec for the `ReinhardtApp` custom resource.
+            description: Spec for the `Project` custom resource.
             properties:
               auth:
                 description: Authentication configuration
@@ -263,7 +263,7 @@ spec:
                     properties:
                       name:
                         default: ''
-                        description: Application name.
+                        description: Project name.
                         type: string
                       version:
                         default: ''
@@ -720,7 +720,7 @@ spec:
                     description: Whether the operator should create a KSA. If false, the user must pre-create one.
                     type: boolean
                   name:
-                    description: Name of the KSA. Defaults to the ReinhardtApp name when not set.
+                    description: Name of the KSA. Defaults to the Project name when not set.
                     nullable: true
                     type: string
                 type: object
@@ -876,7 +876,7 @@ spec:
                   Multi-tenant ownership marker (Refs #416).
 
                   Identifies the owning Organization (and optionally a Team) for this
-                  `ReinhardtApp`. The operator computes a deterministic Kubernetes
+                  `Project`. The operator computes a deterministic Kubernetes
                   namespace per tenant — `tenant-{organization}` or
                   `tenant-{organization}-{team}` — applies tenant-scoped
                   `ResourceQuota` and `NetworkPolicy` resources, and rejects CRs whose
@@ -925,7 +925,7 @@ spec:
             - image
             type: object
           status:
-            description: Status of the `ReinhardtApp` custom resource.
+            description: Status of the `Project` custom resource.
             nullable: true
             properties:
               cache:
@@ -1024,7 +1024,7 @@ spec:
                 nullable: true
                 type: integer
               phase:
-                description: Phase of the `ReinhardtApp` lifecycle.
+                description: Phase of the `Project` lifecycle.
                 enum:
                 - pending
                 - deploying
@@ -1052,7 +1052,7 @@ spec:
             type: object
         required:
         - spec
-        title: ReinhardtApp
+        title: Project
         type: object
     served: true
     storage: true

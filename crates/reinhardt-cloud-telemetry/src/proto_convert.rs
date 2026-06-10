@@ -154,7 +154,7 @@ mod tests {
 		let mut rec = LogRecord::new(LogLevel::Warn, "every field");
 		rec.fields.reconcile_id = Some("r".into());
 		rec.fields.deployment_id = Some("d".into());
-		rec.fields.resource_kind = Some("ReinhardtApp".into());
+		rec.fields.resource_kind = Some("Project".into());
 		rec.fields.resource_namespace = Some("ns".into());
 		rec.fields.resource_name = Some("app1".into());
 		rec.fields.phase = Some("apply".into());

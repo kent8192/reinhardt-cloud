@@ -78,7 +78,7 @@ Helper functions MUST be placed in a dedicated file (e.g., `server_fn/utils.rs`)
 
 ### AC-1 (MUST): Use reinhardt-admin
 
-- New applications MUST be created using `reinhardt-admin startapp <app_name>`
+- New applications MUST be created using `reinhardt-admin startapp <project_name>`
 - The Pages app template SHOULD be used for dashboard applications
 - After creation, register the app in `config/apps.rs`
 
@@ -91,7 +91,7 @@ Helper functions MUST be placed in a dedicated file (e.g., `server_fn/utils.rs`)
 Each application's tests MUST follow this structure:
 
 ```
-dashboard/src/apps/<app_name>/tests/
+dashboard/src/apps/<project_name>/tests/
 ├── tests.rs               (module declarations only)
 ├── e2e/
 │   └── test_<specific_feature>.rs
@@ -122,7 +122,7 @@ dashboard/tests/
         └── test_<specific_feature>.rs
 ```
 
-- Subdirectory names join related application names with `_`
+- Subdirectory names join related project names with `_`
 - Test files MUST be named `test_<descriptive_name>.rs`
 
 ### TD-3 (NEVER): Prohibited Test File Names

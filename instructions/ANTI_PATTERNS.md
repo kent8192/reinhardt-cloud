@@ -196,7 +196,7 @@ fn format_namespace(ns: &str) -> String {
 //     // ...
 // }
 
-pub fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {
+pub fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action> {
     // ...
 }
 ```
@@ -204,7 +204,7 @@ pub fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {
 **DO:**
 
 ```rust
-pub fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {  // ✅ Old code deleted
+pub fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action> {  // ✅ Old code deleted
     // ...
 }
 ```
@@ -248,7 +248,7 @@ pub fn active_function() {  // ✅ No deletion comments
 
 ```rust
 // TODO: Implement status condition update logic
-fn update_status_conditions(obj: &mut ReinhardtApp) {
+fn update_status_conditions(obj: &mut Project) {
     todo!("Add condition management - planned for next sprint")
 }
 
@@ -281,7 +281,7 @@ pub fn get_operator_config() -> OperatorConfig {
     OperatorConfig::default()  // ❌ Looks like production code!
 }
 
-pub fn emit_event(obj: &ReinhardtApp, reason: &str) -> Result<()> {
+pub fn emit_event(obj: &Project, reason: &str) -> Result<()> {
     println!("Would emit: {}", reason);  // ❌ Mock without marker
     Ok(())
 }
@@ -294,7 +294,7 @@ pub fn get_operator_config() -> OperatorConfig {
     todo!("Implement operator configuration loading from ConfigMap")
 }
 
-pub fn emit_event(obj: &ReinhardtApp, reason: &str) -> Result<()> {
+pub fn emit_event(obj: &Project, reason: &str) -> Result<()> {
     // TODO: Integrate with Kubernetes event recorder
     println!("Would emit: {}", reason);
     Ok(())
@@ -447,7 +447,7 @@ explains why RAII is not used and how release is otherwise guaranteed.
 
 ```rust
 // ❌ Untyped spec loses type safety
-pub struct ReinhardtAppSpec {
+pub struct ProjectSpec {
     pub config: serde_json::Value,
 }
 ```
@@ -456,7 +456,7 @@ pub struct ReinhardtAppSpec {
 
 ```rust
 // ✅ Strongly typed spec
-pub struct ReinhardtAppSpec {
+pub struct ProjectSpec {
     pub image: String,
     pub replicas: Option<i32>,
     pub resources: Option<ResourceRequirements>,
@@ -470,7 +470,7 @@ pub struct ReinhardtAppSpec {
 **DON'T:**
 
 ```rust
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action> {
     let name = obj.name_any();
     let deployment = ctx.client.get_deployment(&name).await
         .unwrap();  // ❌ panics on transient error
@@ -481,14 +481,14 @@ async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> 
 **DO:**
 
 ```rust
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action> {
     let name = obj.name_any();
     let deployment = ctx.client.get_deployment(&name).await
         .map_err(|e| Error::KubeError(e))?;  // ✅ propagate error
     Ok(Action::await_change())
 }
 
-fn error_policy(_obj: Arc<ReinhardtApp>, error: &Error, _ctx: Arc<Context>) -> Action {
+fn error_policy(_obj: Arc<Project>, error: &Error, _ctx: Arc<Context>) -> Action {
     Action::requeue(Duration::from_secs(30))  // ✅ requeue on error
 }
 ```
@@ -628,10 +628,10 @@ git commit -m "feat(operator): Implement full operator"
 ```bash
 # ✅ Split into specific intents
 git add crates/reinhardt-cloud-operator/src/crd.rs
-git commit -m "feat(operator): add ReinhardtApp CRD type definition"
+git commit -m "feat(operator): add Project CRD type definition"
 
 git add crates/reinhardt-cloud-operator/src/reconciler.rs
-git commit -m "feat(operator): implement Deployment reconciler for ReinhardtApp"
+git commit -m "feat(operator): implement Deployment reconciler for Project"
 
 git add manifests/rbac.yaml
 git commit -m "feat(operator): add RBAC roles for operator service account"

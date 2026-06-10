@@ -10,7 +10,7 @@ use crate::client::ReinhardtCloudClient;
 /// Check deployment status.
 #[derive(Debug, Args)]
 pub(crate) struct StatusArgs {
-	/// Application name to check
+	/// Project name to check
 	#[arg(short, long)]
 	pub name: Option<String>,
 
@@ -33,9 +33,9 @@ struct StatusCondition {
 	message: Option<String>,
 }
 
-/// Partial representation of a ReinhardtApp CRD for status display.
+/// Partial representation of a Project CRD for status display.
 #[derive(Debug, Deserialize)]
-struct ReinhardtAppResource {
+struct ProjectResource {
 	metadata: ResourceMetadata,
 	spec: ResourceSpec,
 	#[serde(default)]
@@ -94,8 +94,8 @@ fn colorize_status(label: &str) -> String {
 	}
 }
 
-/// Renders the status output for a ReinhardtApp resource.
-fn display_status(resource: &ReinhardtAppResource) {
+/// Renders the status output for a Project resource.
+fn display_status(resource: &ProjectResource) {
 	let name = &resource.metadata.name;
 	let namespace = resource.metadata.namespace.as_deref().unwrap_or("default");
 	let image = &resource.spec.image;
@@ -147,32 +147,32 @@ pub(crate) async fn execute(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	use tracing::Instrument;
 	eprintln!("Target: {}", client.base_url());
-	let app_name = args.name.as_deref().unwrap_or("default-app");
+	let project_name = args.name.as_deref().unwrap_or("default-app");
 
 	let span = tracing::info_span!(
 		"cli.status",
 		otel.kind = "client",
 		cli.version = env!("CARGO_PKG_VERSION"),
-		app.name = app_name,
+		app.name = project_name,
 		app.namespace = %args.namespace,
 	);
-	execute_inner(app_name, args).instrument(span).await
+	execute_inner(project_name, args).instrument(span).await
 }
 
 async fn execute_inner(
-	app_name: &str,
+	project_name: &str,
 	args: &StatusArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	println!("Checking status of {app_name}...\n");
+	println!("Checking status of {project_name}...\n");
 
 	tracing::warn!("Dashboard status REST operation unsupported, falling back to kubectl");
 	eprintln!("Dashboard status REST operation unsupported, falling back to kubectl...");
-	kubectl_status(app_name, &args.namespace, args.cluster.as_deref()).await
+	kubectl_status(project_name, &args.namespace, args.cluster.as_deref()).await
 }
 
 /// Queries deployment status directly via `kubectl` with rich display.
 async fn kubectl_status(
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	cluster: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -180,8 +180,8 @@ async fn kubectl_status(
 		let mut cmd = Command::new("kubectl");
 		cmd.args([
 			"get",
-			"reinhardtapp",
-			app_name,
+			"project",
+			project_name,
 			"-n",
 			namespace,
 			"-o",
@@ -197,14 +197,14 @@ async fn kubectl_status(
 
 	if output.status.success() {
 		let stdout = String::from_utf8_lossy(&output.stdout);
-		let resource: ReinhardtAppResource = serde_json::from_str(&stdout)
+		let resource: ProjectResource = serde_json::from_str(&stdout)
 			.map_err(|e| format!("failed to parse kubectl output: {e}"))?;
 
 		display_status(&resource);
 		Ok(())
 	} else {
 		let stderr = String::from_utf8_lossy(&output.stderr);
-		Err(format!("kubectl get reinhardtapp failed: {stderr}").into())
+		Err(format!("kubectl get project failed: {stderr}").into())
 	}
 }
 
@@ -361,7 +361,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_parse_reinhardt_app_resource_full() {
+	fn test_parse_project_resource_full() {
 		// Arrange
 		let json = r#"{
 			"metadata": {
@@ -389,7 +389,7 @@ mod tests {
 		}"#;
 
 		// Act
-		let resource: ReinhardtAppResource = serde_json::from_str(json).unwrap();
+		let resource: ProjectResource = serde_json::from_str(json).unwrap();
 
 		// Assert
 		assert_eq!(resource.metadata.name, "my-app");
@@ -407,7 +407,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_parse_reinhardt_app_resource_without_status() {
+	fn test_parse_project_resource_without_status() {
 		// Arrange
 		let json = r#"{
 			"metadata": {
@@ -420,7 +420,7 @@ mod tests {
 		}"#;
 
 		// Act
-		let resource: ReinhardtAppResource = serde_json::from_str(json).unwrap();
+		let resource: ProjectResource = serde_json::from_str(json).unwrap();
 
 		// Assert
 		assert_eq!(resource.metadata.name, "new-app");

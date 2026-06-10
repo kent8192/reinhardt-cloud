@@ -1,9 +1,9 @@
-//! Runtime discovery of the served `ReinhardtApp` CRD apiVersion.
+//! Runtime discovery of the served `Project` CRD apiVersion.
 //!
 //! The CLI is compiled against a single default apiVersion
 //! (`COMPILE_TIME_DEFAULT`), but the target cluster may serve a different
 //! version. `resolve_api_version` queries the cluster's
-//! `CustomResourceDefinition` for `reinhardtapps.paas.reinhardt-cloud.dev`
+//! `CustomResourceDefinition` for `projects.paas.reinhardt-cloud.dev`
 //! and chooses the best available served version.
 //!
 //! Selection priority (among `served: true` entries):
@@ -20,13 +20,13 @@ use kube::{Api, Client};
 /// Fully qualified apiVersion the CLI is compiled against.
 pub(crate) const COMPILE_TIME_DEFAULT: &str = "paas.reinhardt-cloud.dev/v1alpha2";
 
-/// Group portion of the `ReinhardtApp` CRD (without the version suffix).
+/// Group portion of the `Project` CRD (without the version suffix).
 const CRD_GROUP: &str = "paas.reinhardt-cloud.dev";
 
-/// Name of the `ReinhardtApp` CRD in the cluster.
-const CRD_NAME: &str = "reinhardtapps.paas.reinhardt-cloud.dev";
+/// Name of the `Project` CRD in the cluster.
+const CRD_NAME: &str = "projects.paas.reinhardt-cloud.dev";
 
-/// Resolves the apiVersion to use when applying `ReinhardtApp` resources.
+/// Resolves the apiVersion to use when applying `Project` resources.
 ///
 /// - When `override_version` is `Some`, returns it verbatim without any
 ///   cluster interaction.
@@ -227,10 +227,10 @@ mod tests {
 			"spec": {
 				"group": CRD_GROUP,
 				"names": {
-					"plural": "reinhardtapps",
-					"singular": "reinhardtapp",
-					"kind": "ReinhardtApp",
-					"listKind": "ReinhardtAppList",
+					"plural": "projects",
+					"singular": "project",
+					"kind": "Project",
+					"listKind": "ProjectList",
 				},
 				"scope": "Namespaced",
 				"versions": versions,

@@ -2,7 +2,7 @@
 //!
 //! This module provides platform-aware resource inference, automatically
 //! generating Kubernetes resources (Secrets, StatefulSets, ConfigMaps for
-//! plugins) based on the `ReinhardtApp` spec and the target deployment
+//! plugins) based on the `Project` spec and the target deployment
 //! platform. Application settings are read from the bundled `production.toml`
 //! that ships inside each reinhardt-web image; the operator does not emit a
 //! per-app settings ConfigMap.

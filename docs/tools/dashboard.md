@@ -6,7 +6,7 @@
 
 ## Overview
 
-The reinhardt-cloud Dashboard is a full-stack web application that provides a browser-based interface for inspecting and managing `ReinhardtApp` deployments on the Reinhardt Cloud platform. It is the control-plane host: it serves the HTTP API consumed by the CLI, runs the gRPC server that cluster agents connect to, streams build and log output, and presents all of that as an interactive single-page application.
+The reinhardt-cloud Dashboard is a full-stack web application that provides a browser-based interface for inspecting and managing `Project` deployments on the Reinhardt Cloud platform. It is the control-plane host: it serves the HTTP API consumed by the CLI, runs the gRPC server that cluster agents connect to, streams build and log output, and presents all of that as an interactive single-page application.
 
 **Runtime stack summary**
 
@@ -68,13 +68,13 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The WASM client router (`dashboard/src/client/router.rs`) registers the top-level client routes, and the HTTP server mounts application namespaces plus an admin panel:
+The WASM client router (`dashboard/src/client/router.rs`) registers the top-level client routes, and the HTTP server mounts project namespaces plus an admin panel:
 
 1. **Dashboard shell** (`/`) — the root application shell; landing view after login
 2. **Account** (`/account`) — profile summary and GitHub account linking
 3. **Auth** (`/auth/`) — login, registration, OAuth callback, and session endpoints
 4. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
-5. **Deployments** (`/deployments/`) — deployment records paired with operator `ReinhardtApp` CRDs
+5. **Deployments** (`/deployments/`) — deployment records paired with operator `Project` CRDs
 6. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
 
 ---
@@ -83,7 +83,7 @@ The WASM client router (`dashboard/src/client/router.rs`) registers the top-leve
 
 ### Apps list
 
-The **Deployments** section (`/deployments/`) presents the PaaS-side records that correspond to `ReinhardtApp` CRDs in the cluster. Each entry shows the application name, the associated cluster, and deployment metadata recorded by the Dashboard when a deploy was triggered via the CLI or directly through the API.
+The **Deployments** section (`/deployments/`) presents the PaaS-side records that correspond to `Project` CRDs in the cluster. Each entry shows the project name, the associated cluster, and deployment metadata recorded by the Dashboard when a deploy was triggered via the CLI or directly through the API.
 
 The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cluster-management records stored in the Dashboard's own database, not the operator's CRD list).
 
@@ -95,7 +95,7 @@ The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cl
 
 The deployments application (`dashboard/src/apps/deployments/`) maintains a database record for each deploy event. The detail view shows the image, replica count, and the cluster the deploy was sent to.
 
-Rollback capability via the Dashboard UI is not confirmed in source. To roll back a running workload, use `reinhardt-cloud deploy` with an older image tag, or apply the desired `ReinhardtApp` spec directly with `reinhardt-cloud deploy --direct`.
+Rollback capability via the Dashboard UI is not confirmed in source. To roll back a running workload, use `reinhardt-cloud deploy` with an older image tag, or apply the desired `Project` spec directly with `reinhardt-cloud deploy --direct`.
 
 ### Logs viewer
 
@@ -132,7 +132,7 @@ There is no `settings` application module in `dashboard/src/apps/` at this commi
 
 ### Installation options
 
-There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying the canonical `ReinhardtApp` manifest in `manifests/dashboard-app.yaml`.
+There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying the canonical `Project` manifest in `manifests/dashboard-app.yaml`.
 
 The published Dashboard image contains two runtime binaries:
 

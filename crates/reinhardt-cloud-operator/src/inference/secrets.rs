@@ -15,15 +15,15 @@ use rand::Rng;
 ///
 /// Generates a 256-bit random key, base64-encodes it, and stores the
 /// result under the `jwt-secret` data key.
-pub(crate) fn build_jwt_secret(app_name: &str, namespace: &str) -> Secret {
+pub(crate) fn build_jwt_secret(project_name: &str, namespace: &str) -> Secret {
 	let key_bytes: [u8; 32] = rand::random();
 	let key_b64 = base64_encode(&key_bytes);
 
 	Secret {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-jwt-secret")),
+			name: Some(format!("{project_name}-jwt-secret")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_secret_labels(app_name)),
+			labels: Some(standard_secret_labels(project_name)),
 			..Default::default()
 		},
 		data: Some(BTreeMap::from([(
@@ -46,15 +46,15 @@ pub(crate) fn build_jwt_secret(app_name: &str, namespace: &str) -> Secret {
 ///
 /// Generates a 256-bit random key, base64-encodes it, and stores the
 /// result under the `secret-key` data key.
-pub(crate) fn build_core_secret_key_secret(app_name: &str, namespace: &str) -> Secret {
+pub(crate) fn build_core_secret_key_secret(project_name: &str, namespace: &str) -> Secret {
 	let key_bytes: [u8; 32] = rand::random();
 	let key_b64 = base64_encode(&key_bytes);
 
 	Secret {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-core-secret-key")),
+			name: Some(format!("{project_name}-core-secret-key")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_secret_labels(app_name)),
+			labels: Some(standard_secret_labels(project_name)),
 			..Default::default()
 		},
 		data: Some(BTreeMap::from([(
@@ -68,7 +68,7 @@ pub(crate) fn build_core_secret_key_secret(app_name: &str, namespace: &str) -> S
 
 /// Build a Kubernetes Secret containing database credentials.
 pub(crate) fn build_db_credentials_secret(
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	user: &str,
 	password: &str,
@@ -76,9 +76,9 @@ pub(crate) fn build_db_credentials_secret(
 ) -> Secret {
 	Secret {
 		metadata: ObjectMeta {
-			name: Some(format!("{app_name}-db-credentials")),
+			name: Some(format!("{project_name}-db-credentials")),
 			namespace: Some(namespace.to_string()),
-			labels: Some(standard_secret_labels(app_name)),
+			labels: Some(standard_secret_labels(project_name)),
 			..Default::default()
 		},
 		data: Some(BTreeMap::from([
@@ -105,9 +105,9 @@ pub(crate) fn build_db_credentials_secret(
 	}
 }
 
-fn standard_secret_labels(app_name: &str) -> BTreeMap<String, String> {
+fn standard_secret_labels(project_name: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), app_name.to_string()),
+		("app.kubernetes.io/name".to_string(), project_name.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud-operator".to_string(),

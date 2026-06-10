@@ -4,7 +4,7 @@
 //! based on the target platform.
 
 use crate::inference::platform::Platform;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 use reinhardt_cloud_types::crd::isolation::IsolationLevel;
 
 /// Resolves the RuntimeClass name based on isolation level and platform.
@@ -12,7 +12,7 @@ use reinhardt_cloud_types::crd::isolation::IsolationLevel;
 /// Returns `None` when no isolation is configured (standard runc runtime).
 /// The `runtime_class_override` field takes precedence when set.
 pub(crate) fn resolve_runtime_class_name(
-	app: &ReinhardtApp,
+	app: &Project,
 	platform: &Platform,
 ) -> Option<String> {
 	let isolation = app.spec.isolation.as_ref()?;
@@ -92,17 +92,17 @@ mod tests {
 		assert_eq!(result, Some("kata-fc".to_string()));
 	}
 
-	fn test_app_with_isolation(isolation: Option<IsolationSpec>) -> ReinhardtApp {
+	fn test_app_with_isolation(isolation: Option<IsolationSpec>) -> Project {
 		use kube::api::ObjectMeta;
-		use reinhardt_cloud_types::crd::ReinhardtAppSpec;
-		ReinhardtApp {
+		use reinhardt_cloud_types::crd::ProjectSpec;
+		Project {
 			metadata: ObjectMeta {
 				name: Some("test-app".to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "test:latest".to_string(),
 				isolation,
 				..Default::default()

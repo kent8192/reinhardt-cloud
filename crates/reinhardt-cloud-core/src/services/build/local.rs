@@ -61,7 +61,7 @@ impl BuildService for LocalBuildService {
 
 		let status = BuildStatus {
 			build_id,
-			app_name: request.app_name.clone(),
+			project_name: request.project_name.clone(),
 			phase: BuildPhase::Queued,
 			completed: false,
 			success: None,
@@ -79,14 +79,14 @@ impl BuildService for LocalBuildService {
 
 		let (tx, rx) = mpsc::channel(64);
 		let builds = self.builds.clone();
-		let app_name = request.app_name.clone();
+		let project_name = request.project_name.clone();
 		let image = request.image.clone();
 
 		tokio::spawn(async move {
-			run_build_pipeline(build_id, &app_name, &image, tx, cancel_token, builds).await;
+			run_build_pipeline(build_id, &project_name, &image, tx, cancel_token, builds).await;
 		});
 
-		info!(build_id = %build_id, app = %request.app_name, "Build started");
+		info!(build_id = %build_id, app = %request.project_name, "Build started");
 		Ok(Box::pin(ReceiverStream::new(rx)))
 	}
 
@@ -118,7 +118,7 @@ impl BuildService for LocalBuildService {
 /// Execute the build pipeline, emitting events through the channel.
 async fn run_build_pipeline(
 	build_id: Uuid,
-	app_name: &str,
+	project_name: &str,
 	image: &str,
 	tx: mpsc::Sender<Result<BuildEvent, ApiError>>,
 	cancel_token: CancellationToken,
@@ -198,7 +198,7 @@ async fn run_build_pipeline(
 		.await;
 
 	update_build_completed(&builds, build_id, true);
-	info!(build_id = %build_id, app = app_name, "Build completed successfully");
+	info!(build_id = %build_id, app = project_name, "Build completed successfully");
 }
 
 /// Update build state to completed.
@@ -222,7 +222,7 @@ mod tests {
 		// Arrange
 		let service = LocalBuildService::new();
 		let request = BuildRequest {
-			app_name: "test-app".to_string(),
+			project_name: "test-app".to_string(),
 			image: "registry.example.com/test:v1".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
@@ -256,7 +256,7 @@ mod tests {
 		// Arrange
 		let service = LocalBuildService::new();
 		let request = BuildRequest {
-			app_name: "status-test".to_string(),
+			project_name: "status-test".to_string(),
 			image: "img:latest".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
@@ -291,7 +291,7 @@ mod tests {
 		// Arrange
 		let service = LocalBuildService::new();
 		let request = BuildRequest {
-			app_name: "cancel-test".to_string(),
+			project_name: "cancel-test".to_string(),
 			image: "img:latest".to_string(),
 			env_vars: vec![],
 			dockerfile: None,

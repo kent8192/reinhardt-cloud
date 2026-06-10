@@ -8,7 +8,7 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use super::security::context::{build_container_security_context, build_pod_security_context};
@@ -16,23 +16,23 @@ use super::security::runtime_class::resolve_runtime_class_name;
 use crate::error::Error;
 use crate::inference::platform::Platform;
 
-/// Builds a `Deployment` running a background worker for the given `ReinhardtApp`.
+/// Builds a `Deployment` running a background worker for the given `Project`.
 ///
 /// Uses the same image as the application. The default command is
 /// `["manage", "run_worker"]` unless a custom command is provided.
-/// Database credentials are injected from the `{app_name}-db-credentials`
+/// Database credentials are injected from the `{project_name}-db-credentials`
 /// secret via `envFrom` with `optional: true`.
 pub(crate) fn build_worker_deployment(
-	app: &ReinhardtApp,
+	app: &Project,
 	custom_command: Option<&[String]>,
 	platform: &Platform,
 ) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Worker);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
-	let deploy_name = format!("{}-worker", app_name);
-	let secret_name = format!("{}-db-credentials", app_name);
+	let project_name = app.name_any();
+	let deploy_name = format!("{}-worker", project_name);
+	let secret_name = format!("{}-db-credentials", project_name);
 
 	let command = match custom_command {
 		Some(cmd) => cmd.to_vec(),
@@ -51,7 +51,7 @@ pub(crate) fn build_worker_deployment(
 			replicas: Some(1),
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([
-					("app.kubernetes.io/name".to_string(), app_name.clone()),
+					("app.kubernetes.io/name".to_string(), project_name.clone()),
 					(
 						"app.kubernetes.io/component".to_string(),
 						"worker".to_string(),
@@ -110,18 +110,18 @@ mod tests {
 	use super::*;
 	use crate::inference::platform::Platform;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn test_app(name: &str, image: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn test_app(name: &str, image: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: image.to_string(),
 				..Default::default()
 			},

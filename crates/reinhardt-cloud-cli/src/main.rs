@@ -46,7 +46,7 @@ enum Commands {
 	Credentials(commands::credentials::CredentialsArgs),
 	/// Manage CRD manifests (generate, inspect)
 	Crd(commands::crd::CrdArgs),
-	/// Generate Terraform HCL from a ReinhardtApp infrastructure spec
+	/// Generate Terraform HCL from a Project infrastructure spec
 	Terraform(commands::terraform::TerraformArgs),
 }
 

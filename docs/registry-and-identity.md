@@ -9,7 +9,7 @@ authenticates to a private registry to pull container images, and how a
 running Pod assumes a federated cloud identity. All four surfaces — the
 operator's own ServiceAccount, the per-app `spec.imagePullSecrets`, the
 per-app `spec.serviceAccount`, and the storage-backend `{app-name}-storage`
-KSA — are now wired through the operator and exposed on the `ReinhardtApp`
+KSA — are now wired through the operator and exposed on the `Project`
 CRD. The sections below walk through each in turn.
 
 ## Concepts
@@ -23,7 +23,7 @@ the same namespace as the consuming Pod. When the kubelet pulls an image,
 it tries each referenced Secret's credentials against the registry
 hostname embedded in the image reference until one succeeds.
 
-The `ReinhardtApp` CRD exposes a `spec.imagePullSecrets` field that
+The `Project` CRD exposes a `spec.imagePullSecrets` field that
 mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape. The
 operator copies the references straight into every PodSpec it
 materializes (main Deployment, worker Deployment, migration init Job,
@@ -32,7 +32,7 @@ declaration covers every Pod the operator owns for that app:
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -67,7 +67,7 @@ Operator-level workload identity is supported via the Helm chart's
 and
 [charts/reinhardt-cloud-operator/values-aws.yaml](../charts/reinhardt-cloud-operator/values-aws.yaml)).
 Per-app workload identity is now driven by `spec.serviceAccount` on the
-`ReinhardtApp` CRD. The operator can either create a managed KSA (when
+`Project` CRD. The operator can either create a managed KSA (when
 `create: true`) or wire an existing user-managed KSA into the workload
 PodSpec (when `create: false, name: <existing>`).
 
@@ -75,7 +75,7 @@ PodSpec (when `create: false, name: <existing>`).
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -91,7 +91,7 @@ spec:
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -233,7 +233,7 @@ IAM identity (for example `pvc`) skip the ServiceAccount entirely.
 
 ```mermaid
 flowchart LR
-    Spec["ReinhardtApp.spec.storage<br/>(backend, bucket)"] --> Op[Operator reconciler]
+    Spec["Project.spec.storage<br/>(backend, bucket)"] --> Op[Operator reconciler]
     Op -->|"creates ServiceAccount<br/>{app-name}-storage"| KSA["ServiceAccount (annotated)<br/>iam.gke.io/gcp-service-account<br/>eks.amazonaws.com/role-arn"]
     KSA -->|"workload identity binding"| Cloud[Cloud IAM]
     Cloud -->|"signed access"| Bucket[(Object storage bucket)]
@@ -241,14 +241,14 @@ flowchart LR
 
 *Diagram: Current — Storage Backend IAM Wiring.*
 
-Worked example — a `ReinhardtApp` configured with the S3 backend (the
+Worked example — a `Project` configured with the S3 backend (the
 operator will create a `myapp-storage` ServiceAccount with the
 `eks.amazonaws.com/role-arn` annotation; binding the role ARN to that
 ServiceAccount is the platform operator's responsibility):
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: myapp
   namespace: default
@@ -266,7 +266,7 @@ resolution path; it is not yet a first-class CRD field.
 
 ### Per-App Pull Secrets
 
-`spec.imagePullSecrets` lets a `ReinhardtApp` declare which
+`spec.imagePullSecrets` lets a `Project` declare which
 `kubernetes.io/dockerconfigjson` Secret(s) the kubelet should use when
 pulling the workload's container images. The operator copies the
 references into every PodSpec it materializes for the app — main
@@ -277,7 +277,7 @@ every Pod the operator owns for that app.
 #### 1. Pre-create the dockerconfigjson Secret
 
 The Secret must already exist in the same namespace as the
-`ReinhardtApp`. The recipes below cover the major registries:
+`Project`. The recipes below cover the major registries:
 
 ##### Google Artifact Registry
 
@@ -337,11 +337,11 @@ kubectl create secret docker-registry myapp-registry-pull \
   --docker-password=ROBOT_TOKEN
 ```
 
-#### 2. Reference the Secret from the `ReinhardtApp`
+#### 2. Reference the Secret from the `Project`
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -376,7 +376,7 @@ managed KSA (`create: true`) or wires an existing user-managed KSA into
 the PodSpec (`create: false, name: <existing>`).
 
 The flow has three steps. The first is cloud-side IAM setup, the second
-is the `ReinhardtApp` declaration, and the third is verification.
+is the `Project` declaration, and the third is verification.
 
 #### 1. Cloud-side IAM setup
 
@@ -407,13 +407,13 @@ provider to assume the role for the
 `system:serviceaccount:tenant-acme:orders-api-app` subject claim, then
 grant that role whatever cloud-API permissions the workload needs.
 
-#### 2. Reference the KSA from the `ReinhardtApp`
+#### 2. Reference the KSA from the `Project`
 
 GKE Workload Identity flavor:
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -429,7 +429,7 @@ AWS IRSA flavor:
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme
@@ -471,7 +471,7 @@ kubectl -n tenant-acme get pod \
 
 ```mermaid
 flowchart LR
-    Spec["ReinhardtApp.spec<br/>imagePullSecrets, serviceAccount"] --> Op[Operator reconciler]
+    Spec["Project.spec<br/>imagePullSecrets, serviceAccount"] --> Op[Operator reconciler]
     Op -->|"creates KSA<br/>{app}-app"| KSA["ServiceAccount (annotated for WI/IRSA)"]
     Op -->|"sets serviceAccountName"| Pod[PodSpec]
     Op -->|"sets imagePullSecrets"| Pod
@@ -511,7 +511,7 @@ flowchart LR
 - Confirm the `docker-server` in the Secret matches the registry
   hostname embedded in `spec.image` exactly (for example, `ghcr.io`, not
   `https://ghcr.io`).
-- Confirm `spec.imagePullSecrets[].name` on the `ReinhardtApp` references
+- Confirm `spec.imagePullSecrets[].name` on the `Project` references
   the Secret you created. The operator only injects pull-secret
   references that are listed there — it does not fall back to the
   namespace's default ServiceAccount.

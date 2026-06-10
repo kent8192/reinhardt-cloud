@@ -5,13 +5,13 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::{Namespace, Secret};
 use kube::api::{Patch, PatchParams};
 use kube::{Api, ResourceExt};
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use crate::client::{K8sError, KubeClient};
 
-/// Parses and validates a `ReinhardtApp` YAML manifest.
-pub fn parse_reinhardt_app_yaml(yaml: &str) -> Result<ReinhardtApp, K8sError> {
-	let app: ReinhardtApp =
+/// Parses and validates a `Project` YAML manifest.
+pub fn parse_project_yaml(yaml: &str) -> Result<Project, K8sError> {
+	let app: Project =
 		serde_yaml::from_str(yaml).map_err(|e| K8sError::Manifest(e.to_string()))?;
 	if app.metadata.name.as_deref().is_none_or(str::is_empty) {
 		return Err(K8sError::MissingName);
@@ -27,19 +27,19 @@ pub fn parse_reinhardt_app_yaml(yaml: &str) -> Result<ReinhardtApp, K8sError> {
 	Ok(app)
 }
 
-/// Applies a `ReinhardtApp` YAML manifest using Kubernetes server-side apply.
-pub async fn server_side_apply_reinhardt_app_yaml(
+/// Applies a `Project` YAML manifest using Kubernetes server-side apply.
+pub async fn server_side_apply_project_yaml(
 	client: &KubeClient,
 	yaml: &str,
-) -> Result<ReinhardtApp, K8sError> {
-	let app = parse_reinhardt_app_yaml(yaml)?;
+) -> Result<Project, K8sError> {
+	let app = parse_project_yaml(yaml)?;
 	let name = app.metadata.name.clone().ok_or(K8sError::MissingName)?;
 	let namespace = app
 		.metadata
 		.namespace
 		.clone()
 		.unwrap_or_else(|| client.namespace().to_string());
-	let api: Api<ReinhardtApp> = Api::namespaced(client.inner().clone(), &namespace);
+	let api: Api<Project> = Api::namespaced(client.inner().clone(), &namespace);
 	api.patch(
 		&name,
 		&PatchParams::apply("reinhardt-cloud-dashboard").force(),
@@ -117,14 +117,14 @@ impl<'a> NamespaceClient<'a> {
 mod tests {
 	use rstest::rstest;
 
-	use super::{K8sError, git_credentials_secret, parse_reinhardt_app_yaml};
+	use super::{K8sError, git_credentials_secret, parse_project_yaml};
 
 	#[rstest]
-	fn parse_reinhardt_app_yaml_accepts_valid_manifest() {
+	fn parse_project_yaml_accepts_valid_manifest() {
 		// Arrange
 		let yaml = r#"
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: demo
   namespace: default
@@ -133,7 +133,7 @@ spec:
 "#;
 
 		// Act
-		let app = parse_reinhardt_app_yaml(yaml).expect("manifest should parse");
+		let app = parse_project_yaml(yaml).expect("manifest should parse");
 
 		// Assert
 		assert_eq!(app.metadata.name.as_deref(), Some("demo"));
@@ -142,11 +142,11 @@ spec:
 	}
 
 	#[rstest]
-	fn parse_reinhardt_app_yaml_rejects_missing_name() {
+	fn parse_project_yaml_rejects_missing_name() {
 		// Arrange
 		let yaml = r#"
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   namespace: default
 spec:
@@ -154,7 +154,7 @@ spec:
 "#;
 
 		// Act
-		let err = parse_reinhardt_app_yaml(yaml).expect_err("missing name should fail");
+		let err = parse_project_yaml(yaml).expect_err("missing name should fail");
 
 		// Assert
 		assert!(matches!(err, K8sError::MissingName));

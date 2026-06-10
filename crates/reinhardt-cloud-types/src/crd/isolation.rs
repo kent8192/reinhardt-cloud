@@ -1,7 +1,7 @@
 //! Workload isolation types for security boundaries.
 //!
 //! Defines isolation levels and network policies that control
-//! how `ReinhardtApp` workloads are sandboxed from each other.
+//! how `Project` workloads are sandboxed from each other.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

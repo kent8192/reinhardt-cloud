@@ -303,7 +303,7 @@ pub mod import_tests {
 		let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml should parse");
 
 		// Assert
-		assert_eq!(value["kind"].as_str(), Some("ReinhardtApp"));
+		assert_eq!(value["kind"].as_str(), Some("Project"));
 		assert_eq!(value["metadata"]["name"].as_str(), Some("reinhardt-cloud"));
 		assert_eq!(
 			value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].as_str(),
@@ -364,7 +364,7 @@ pub mod import_tests {
 	}
 
 	#[rstest]
-	fn test_webhook_helpers_update_reinhardt_app_annotations() {
+	fn test_webhook_helpers_update_project_annotations() {
 		// Arrange
 		let repository = repository("reinhardt-cloud");
 		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")

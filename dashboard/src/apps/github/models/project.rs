@@ -29,9 +29,9 @@ pub struct GitHubProject {
 	#[rel(foreign_key, related_name = "github_project")]
 	pub deployment: ForeignKeyField<Deployment>,
 
-	/// Reinhardt application name generated for the repository.
+	/// Reinhardt project name generated for the repository.
 	#[field(max_length = 63)]
-	pub app_name: String,
+	pub project_name: String,
 
 	/// Production branch tracked by this project.
 	#[field(max_length = 255)]

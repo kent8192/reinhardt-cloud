@@ -7,19 +7,19 @@ mod tests {
 
 	use crate::apps::deployments::serializers::CreateDeploymentRequest;
 
-	/// Validate app_name length boundaries (min=1, max=63).
+	/// Validate project_name length boundaries (min=1, max=63).
 	#[rstest]
 	#[case("a", true)]
 	#[case("", false)]
 	#[case(&"a".repeat(63), true)]
 	#[case(&"a".repeat(64), false)]
-	fn test_deployment_app_name_boundary(#[case] app_name: &str, #[case] valid: bool) {
+	fn test_deployment_project_name_boundary(#[case] project_name: &str, #[case] valid: bool) {
 		// Arrange
 		let req = CreateDeploymentRequest {
-			app_name: app_name.to_string(),
+			project_name: project_name.to_string(),
 			cluster_id: 1,
 			image: "nginx:latest".to_string(),
-			reinhardt_app_yaml: None,
+			project_yaml: None,
 		};
 
 		// Act
@@ -29,7 +29,7 @@ mod tests {
 		assert_eq!(
 			result.is_ok(),
 			valid,
-			"app_name={app_name:?} expected valid={valid}"
+			"project_name={project_name:?} expected valid={valid}"
 		);
 	}
 
@@ -42,10 +42,10 @@ mod tests {
 	fn test_deployment_cluster_id_boundary(#[case] cluster_id: i64, #[case] valid: bool) {
 		// Arrange
 		let req = CreateDeploymentRequest {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			cluster_id,
 			image: "nginx:latest".to_string(),
-			reinhardt_app_yaml: None,
+			project_yaml: None,
 		};
 
 		// Act
@@ -68,10 +68,10 @@ mod tests {
 	fn test_deployment_image_boundary(#[case] image: &str, #[case] valid: bool) {
 		// Arrange
 		let req = CreateDeploymentRequest {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			cluster_id: 1,
 			image: image.to_string(),
-			reinhardt_app_yaml: None,
+			project_yaml: None,
 		};
 
 		// Act
@@ -88,9 +88,9 @@ mod tests {
 
 	/// Missing required fields cause deserialization errors.
 	#[rstest]
-	#[case(r#"{"cluster_id": 1, "image": "nginx"}"#, "app_name")]
-	#[case(r#"{"app_name": "web", "image": "nginx"}"#, "cluster_id")]
-	#[case(r#"{"app_name": "web", "cluster_id": 1}"#, "image")]
+	#[case(r#"{"cluster_id": 1, "image": "nginx"}"#, "project_name")]
+	#[case(r#"{"project_name": "web", "image": "nginx"}"#, "cluster_id")]
+	#[case(r#"{"project_name": "web", "cluster_id": 1}"#, "image")]
 	fn test_deployment_request_missing_fields(#[case] json: &str, #[case] missing_field: &str) {
 		// Arrange & Act
 		let result = serde_json::from_str::<CreateDeploymentRequest>(json);

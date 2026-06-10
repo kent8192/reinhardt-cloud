@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::ServiceAccount;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -16,7 +16,7 @@ use crate::error::Error;
 /// - GCS backend with a service account: annotated with `iam.gke.io/gcp-service-account`
 /// - Backends without IAM values or non-cloud backends: returns `Ok(None)`
 pub(crate) fn build_storage_service_account(
-	app: &ReinhardtApp,
+	app: &Project,
 	backend: &str,
 	iam_identity: Option<&str>,
 ) -> Result<Option<ServiceAccount>, Error> {
@@ -34,11 +34,11 @@ pub(crate) fn build_storage_service_account(
 	let labels = standard_labels(app, Component::Web);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	Ok(Some(ServiceAccount {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-storage", app_name)),
+			name: Some(format!("{}-storage", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			annotations: Some(annotations),
@@ -54,10 +54,10 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
-	fn test_app(name: &str) -> ReinhardtApp {
+	fn test_app(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": { "image": "myapp:latest" }
 		});

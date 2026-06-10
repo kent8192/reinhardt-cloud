@@ -73,7 +73,7 @@ When a user approves a plan by accepting Exit Plan Mode, this constitutes explic
 - **Each commit should represent a specific intent to achieve a goal, NOT the goal itself**
   - ❌ Bad: Committing an entire "operator feature" in one commit (goal-level)
   - ✅ Good: Separate commits for each building block:
-    - "add ReinhardtApp CRD type definition" (specific intent)
+    - "add Project CRD type definition" (specific intent)
     - "implement Deployment reconciler" (specific intent)
     - "add RBAC roles for operator" (specific intent)
 - **Each commit MUST be small enough to be explained in a single line**
@@ -82,7 +82,7 @@ When a user approves a plan by accepting Exit Plan Mode, this constitutes explic
     - "feat(operator): Implement operator" (too broad, uppercase start)
     - "feat(crd): Add CRD, reconciler, and RBAC" (multiple intents)
   - ✅ Good Examples:
-    - "feat(crd): add ReinhardtApp custom resource definition"
+    - "feat(crd): add Project custom resource definition"
     - "feat(reconciler): implement deployment reconciliation loop"
     - "feat(rbac): add operator cluster role with required permissions"
 
@@ -132,7 +132,7 @@ Commit messages consist of three parts:
 <type>[optional scope][optional !]: <description>
 
 Examples:
-feat(crd): add ReinhardtApp custom resource definition
+feat(crd): add Project custom resource definition
 fix(reconciler): resolve nil pointer dereference in status update
 feat(operator)!: change CRD group from reinhardt-cloud.dev to paas.reinhardt-cloud.dev
 ```
@@ -186,7 +186,7 @@ Breaking changes introduce API incompatibility and correlate with SemVer MAJOR v
 1. **Preferred: Using `!` notation** (concise and visible)
    ```
    feat!: change CRD API version from v1alpha1 to v1beta1
-   feat(operator)!: rename ReinhardtApp spec field replicas to replicaCount
+   feat(operator)!: rename Project spec field replicas to replicaCount
    ```
 
 2. **Alternative: Using footer** (allows detailed explanation)

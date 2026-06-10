@@ -14,7 +14,7 @@ struct CurrentUser<U>(pub U);
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentInfo {
 	pub id: i64,
-	pub app_name: String,
+	pub project_name: String,
 	pub cluster_id: i64,
 	pub status: String,
 	pub image: String,
@@ -39,7 +39,7 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 	let cluster_id = *deployment.cluster_id();
 	DeploymentInfo {
 		id: deployment.id.unwrap_or_default(),
-		app_name: deployment.app_name,
+		project_name: deployment.project_name,
 		cluster_id,
 		status: deployment.status,
 		image: deployment.image,
@@ -48,13 +48,13 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 
 #[cfg(native)]
 fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
-	use reinhardt_cloud_types::crd::ReinhardtApp;
+	use reinhardt_cloud_types::crd::Project;
 
 	if manifest.trim().is_empty() {
 		return Ok(());
 	}
-	let app: ReinhardtApp = serde_yaml::from_str(manifest)
-		.map_err(|e| ServerFnError::server(400, format!("Invalid ReinhardtApp YAML: {e}")))?;
+	let app: Project = serde_yaml::from_str(manifest)
+		.map_err(|e| ServerFnError::server(400, format!("Invalid Project YAML: {e}")))?;
 	if let Err(errors) = app.spec.validate() {
 		let messages = errors
 			.into_iter()
@@ -63,7 +63,7 @@ fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
 			.join("; ");
 		return Err(ServerFnError::server(
 			400,
-			format!("Invalid ReinhardtApp spec: {messages}"),
+			format!("Invalid Project spec: {messages}"),
 		));
 	}
 	Ok(())
@@ -98,10 +98,10 @@ pub async fn list_deployments_for_current_org(
 
 #[server_fn]
 pub async fn create_deployment_for_current_org(
-	app_name: String,
+	project_name: String,
 	cluster_id: String,
 	image: String,
-	reinhardt_app_yaml: String,
+	project_yaml: String,
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	#[cfg(native)]
@@ -109,12 +109,12 @@ pub async fn create_deployment_for_current_org(
 		use reinhardt::Model;
 
 		let organization_id = current_org_id(&user).await?;
-		let app_name = app_name.trim().to_string();
+		let project_name = project_name.trim().to_string();
 		let image = image.trim().to_string();
 		let cluster_id: i64 = cluster_id
 			.parse()
 			.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
-		if app_name.is_empty() || app_name.len() > 63 {
+		if project_name.is_empty() || project_name.len() > 63 {
 			return Err(ServerFnError::server(
 				400,
 				"App name must be 1-63 characters",
@@ -134,19 +134,19 @@ pub async fn create_deployment_for_current_org(
 		if !cluster_exists {
 			return Err(ServerFnError::server(404, "Cluster not found"));
 		}
-		validate_manifest(&reinhardt_app_yaml)?;
-		let manifest = if reinhardt_app_yaml.trim().is_empty() {
+		validate_manifest(&project_yaml)?;
+		let manifest = if project_yaml.trim().is_empty() {
 			None
 		} else {
-			Some(reinhardt_app_yaml)
+			Some(project_yaml)
 		};
 		let new_deployment = crate::apps::deployments::models::Deployment::build()
 			.organization(organization_id)
-			.app_name(app_name)
+			.project_name(project_name)
 			.cluster(cluster_id)
 			.status("pending".to_string())
 			.image(image)
-			.reinhardt_app_yaml(manifest)
+			.project_yaml(manifest)
 			.finish();
 		let created = crate::apps::deployments::models::Deployment::objects()
 			.create(&new_deployment)
@@ -156,7 +156,7 @@ pub async fn create_deployment_for_current_org(
 	}
 	#[cfg(wasm)]
 	{
-		let _ = (app_name, cluster_id, image, reinhardt_app_yaml, user);
+		let _ = (project_name, cluster_id, image, project_yaml, user);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
@@ -164,7 +164,7 @@ pub async fn create_deployment_for_current_org(
 #[server_fn]
 pub async fn update_deployment_for_current_org(
 	deployment_id: String,
-	app_name: String,
+	project_name: String,
 	image: String,
 	status: String,
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
@@ -177,10 +177,10 @@ pub async fn update_deployment_for_current_org(
 		let deployment_id: i64 = deployment_id
 			.parse()
 			.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-		let app_name = app_name.trim().to_string();
+		let project_name = project_name.trim().to_string();
 		let image = image.trim().to_string();
 		let status = status.trim().to_string();
-		if app_name.is_empty() || app_name.len() > 63 {
+		if project_name.is_empty() || project_name.len() > 63 {
 			return Err(ServerFnError::server(
 				400,
 				"App name must be 1-63 characters",
@@ -204,7 +204,7 @@ pub async fn update_deployment_for_current_org(
 			.await
 			.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 			.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-		deployment.app_name = app_name;
+		deployment.project_name = project_name;
 		deployment.image = image;
 		deployment.status = status;
 		let updated = manager
@@ -215,7 +215,7 @@ pub async fn update_deployment_for_current_org(
 	}
 	#[cfg(wasm)]
 	{
-		let _ = (deployment_id, app_name, image, status, user);
+		let _ = (deployment_id, project_name, image, status, user);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }
@@ -330,7 +330,7 @@ pub async fn deployment_logs_for_current_org(
 		let response = client
 			.list_logs(log_pb::ListLogsRequest {
 				filter: Some(log_pb::LogFilter {
-					source: Some(deployment.app_name),
+					source: Some(deployment.project_name),
 					..Default::default()
 				}),
 				pagination: Some(PaginationRequest {

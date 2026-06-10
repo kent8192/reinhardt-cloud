@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use kube::CustomResourceExt;
-use reinhardt_cloud_types::ReinhardtApp;
+use reinhardt_cloud_types::Project;
 
 /// CRD management operations.
 #[derive(Debug, Args)]
@@ -34,9 +34,9 @@ pub(crate) async fn execute(args: &CrdArgs) -> Result<(), Box<dyn std::error::Er
 	}
 }
 
-/// Generate the `ReinhardtApp` CRD YAML from the Rust type definition.
+/// Generate the `Project` CRD YAML from the Rust type definition.
 async fn generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
-	let crd = ReinhardtApp::crd();
+	let crd = Project::crd();
 	let yaml = serde_yaml::to_string(&crd)?;
 
 	if let Some(path) = &args.output {

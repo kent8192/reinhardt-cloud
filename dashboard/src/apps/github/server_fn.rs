@@ -37,7 +37,7 @@ pub struct GitHubProjectInfo {
 	pub id: i64,
 	pub repository_id: i64,
 	pub deployment_id: i64,
-	pub app_name: String,
+	pub project_name: String,
 	pub production_branch: String,
 	pub status: String,
 }
@@ -137,7 +137,7 @@ pub(crate) fn github_project_info(
 		id: project.id.unwrap_or_default(),
 		repository_id: *project.repository_id(),
 		deployment_id: *project.deployment_id(),
-		app_name: project.app_name,
+		project_name: project.project_name,
 		production_branch: project.production_branch,
 		status: project.status,
 	}
@@ -258,7 +258,7 @@ pub async fn list_github_installations_for_current_org(
 pub async fn import_github_repository_for_current_org(
 	repository_id: String,
 	cluster_id: String,
-	app_name: String,
+	project_name: String,
 	registry: String,
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<GitHubProjectInfo, ServerFnError> {
@@ -326,7 +326,7 @@ pub async fn import_github_repository_for_current_org(
 
 		let mut import_spec = crate::apps::github::services::import::import_spec_from_repository(
 			&repository,
-			&app_name,
+			&project_name,
 			&registry,
 		)
 		.map_err(|e| ServerFnError::server(400, e))?;
@@ -345,7 +345,7 @@ pub async fn import_github_repository_for_current_org(
 			installation_id: installation.installation_id,
 			full_name: repository.full_name.clone(),
 			branch: repository.default_branch.clone(),
-			app_name: import_spec.app_name.clone(),
+			project_name: import_spec.project_name.clone(),
 			namespace: import_spec.namespace.clone(),
 			registry: import_spec.registry.clone(),
 			private: repository.private,
@@ -362,14 +362,14 @@ pub async fn import_github_repository_for_current_org(
 			pipeline_output.credentials_secret,
 		);
 		let manifest =
-			crate::apps::github::services::import::source_reinhardt_app_yaml(&import_spec)
+			crate::apps::github::services::import::source_project_yaml(&import_spec)
 				.map_err(|e| ServerFnError::server(400, e))?;
 		let agent_registry = agent_registry().await?;
 		if let Some(secret_name) = import_spec.credentials_secret.as_deref() {
 			crate::apps::github::services::deploy::send_git_credentials_secret_to_cluster(
 				&agent_registry,
 				&cluster,
-				&import_spec.app_name,
+				&import_spec.project_name,
 				&import_spec.namespace,
 				secret_name,
 				&installation_token.token,
@@ -381,23 +381,23 @@ pub async fn import_github_repository_for_current_org(
 				))
 			})?;
 		}
-		crate::apps::github::services::deploy::send_reinhardt_app_apply_to_cluster(
+		crate::apps::github::services::deploy::send_project_apply_to_cluster(
 			&agent_registry,
 			&cluster,
-			&import_spec.app_name,
+			&import_spec.project_name,
 			&manifest,
 		)
 		.await
 		.map_err(|e| {
-			ServerFnError::application(format!("Failed to apply ReinhardtApp manifest: {e}"))
+			ServerFnError::application(format!("Failed to apply Project manifest: {e}"))
 		})?;
 		let deployment = crate::apps::deployments::models::Deployment::build()
 			.organization(organization_id)
-			.app_name(import_spec.app_name.clone())
+			.project_name(import_spec.project_name.clone())
 			.cluster(cluster_id)
 			.status("pending".to_string())
 			.image(format!("{}:pending", import_spec.registry))
-			.reinhardt_app_yaml(Some(manifest))
+			.project_yaml(Some(manifest))
 			.finish();
 		let deployment = crate::apps::deployments::models::Deployment::objects()
 			.create(&deployment)
@@ -414,7 +414,7 @@ pub async fn import_github_repository_for_current_org(
 			.organization(organization_id)
 			.repository(repository_row_id)
 			.deployment(deployment_id)
-			.app_name(import_spec.app_name)
+			.project_name(import_spec.project_name)
 			.production_branch(production_branch)
 			.status("imported".to_string())
 			.finish();
@@ -444,7 +444,7 @@ pub async fn import_github_repository_for_current_org(
 	}
 	#[cfg(wasm)]
 	{
-		let _ = (repository_id, cluster_id, app_name, registry, user);
+		let _ = (repository_id, cluster_id, project_name, registry, user);
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

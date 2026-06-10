@@ -14,7 +14,7 @@ use crate::settings_reader::{DatabaseConfig, read_database_config};
 use reinhardt_cloud_core::infrastructure_derivation::{
 	InfrastructureDerivationInput, derive_infrastructure_spec,
 };
-use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+use reinhardt_cloud_types::crd::ProjectSpec;
 use reinhardt_cloud_types::introspect::{
 	AppMetadata, DatabaseMetadata, FeaturesMetadata, InfraSignals as IntrospectInfraSignals,
 	IntrospectOutput,
@@ -29,7 +29,7 @@ const INTROSPECT_TIMEOUT_ENV: &str = "REINHARDT_CLOUD_DEPLOY_INTROSPECT_TIMEOUT_
 /// Deploy an application.
 #[derive(Debug, Args)]
 pub(crate) struct DeployArgs {
-	/// Application name (overrides reinhardt-cloud.toml if set)
+	/// Project name (overrides reinhardt-cloud.toml if set)
 	#[arg(short, long)]
 	pub name: Option<String>,
 
@@ -73,7 +73,7 @@ pub(crate) struct DeployArgs {
 	#[arg(long)]
 	pub cluster: Option<String>,
 
-	/// Override the apiVersion field in the generated `ReinhardtApp` manifest
+	/// Override the apiVersion field in the generated `Project` manifest
 	/// (e.g. `paas.reinhardt-cloud.dev/v1`). Only meaningful in `--direct`
 	/// mode (where the manifest is applied to the cluster) or with `--dry-run`
 	/// (where the manifest is printed for review). Default API mode is
@@ -425,18 +425,18 @@ fn run_manage_introspect(project_dir: &Path, manage_bin: Option<&Path>) -> Resul
 	}
 }
 
-/// Builds a `ReinhardtAppSpec` from `reinhardt-cloud.toml`, CLI overrides,
+/// Builds a `ProjectSpec` from `reinhardt-cloud.toml`, CLI overrides,
 /// and optional introspect data.
-fn build_reinhardt_app_spec(
+fn build_project_spec(
 	toml_config: Option<&ReinhardtCloudToml>,
-	app_name: &str,
+	project_name: &str,
 	image: String,
 	replicas: i32,
 	introspect: Option<IntrospectOutput>,
-) -> Result<ReinhardtAppSpec, String> {
+) -> Result<ProjectSpec, String> {
 	let mut spec = toml_config
-		.map(ReinhardtCloudToml::to_reinhardt_app_spec)
-		.unwrap_or_else(|| ReinhardtAppSpec {
+		.map(ReinhardtCloudToml::to_project_spec)
+		.unwrap_or_else(|| ProjectSpec {
 			image: image.clone(),
 			replicas: Some(replicas),
 			..Default::default()
@@ -449,7 +449,7 @@ fn build_reinhardt_app_spec(
 		&& let Some(introspect) = spec.introspect.as_ref()
 	{
 		spec.infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
-			app_name: app_name.to_string(),
+			project_name: project_name.to_string(),
 			signals: introspect.features.infrastructure_signals.clone(),
 			explicit: None,
 			typed_secret_refs: typed_secret_refs(&spec),
@@ -460,7 +460,7 @@ fn build_reinhardt_app_spec(
 	Ok(spec)
 }
 
-fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
+fn typed_secret_refs(spec: &ProjectSpec) -> Vec<String> {
 	[
 		spec.auth
 			.as_ref()
@@ -502,11 +502,11 @@ fn prune_yaml_nulls(value: &mut serde_yaml::Value) {
 	}
 }
 
-/// Builds a `ReinhardtApp` CRD YAML value with typed spec data.
-fn build_reinhardt_app_crd(
+/// Builds a `Project` CRD YAML value with typed spec data.
+fn build_project_crd(
 	name: &str,
 	namespace: &str,
-	spec: &ReinhardtAppSpec,
+	spec: &ProjectSpec,
 	api_version: &str,
 ) -> serde_yaml::Value {
 	let mut spec_value = serde_yaml::to_value(spec).unwrap_or(serde_yaml::Value::Null);
@@ -529,7 +529,7 @@ fn build_reinhardt_app_crd(
 	);
 	root.insert(
 		serde_yaml::Value::String("kind".to_string()),
-		serde_yaml::Value::String("ReinhardtApp".to_string()),
+		serde_yaml::Value::String("Project".to_string()),
 	);
 	root.insert(
 		serde_yaml::Value::String("metadata".to_string()),
@@ -664,7 +664,7 @@ async fn execute_inner(
 
 	// Step 3: Determine app name, image, and replicas
 	// Priority: CLI args > introspect > reinhardt-cloud.toml > defaults
-	let app_name = args
+	let project_name = args
 		.name
 		.clone()
 		.or_else(|| introspect.as_ref().map(|i| i.app.name.clone()))
@@ -711,9 +711,9 @@ async fn execute_inner(
 	.await?;
 
 	// Step 5: Build typed spec and CRD
-	let spec = build_reinhardt_app_spec(
+	let spec = build_project_spec(
 		toml_config.as_ref(),
-		&app_name,
+		&project_name,
 		image.clone(),
 		replicas_i32,
 		introspect,
@@ -724,9 +724,9 @@ async fn execute_inner(
 			.map(|e| e.message)
 			.collect::<Vec<_>>()
 			.join("; ");
-		return Err(format!("invalid ReinhardtApp spec: {messages}").into());
+		return Err(format!("invalid Project spec: {messages}").into());
 	}
-	let crd = build_reinhardt_app_crd(&app_name, &args.namespace, &spec, &api_version);
+	let crd = build_project_crd(&project_name, &args.namespace, &spec, &api_version);
 
 	// Step 6: Output or apply
 	if args.dry_run {
@@ -737,7 +737,7 @@ async fn execute_inner(
 
 	let yaml = serde_yaml::to_string(&crd)?;
 
-	println!("Deploying {app_name} with image {image} ({replicas} replicas)...");
+	println!("Deploying {project_name} with image {image} ({replicas} replicas)...");
 	if let Some(ref cluster) = args.cluster
 		&& !args.direct
 	{
@@ -764,7 +764,7 @@ fn unsupported_dashboard_deploy_error() -> Box<dyn std::error::Error> {
 		.into()
 }
 
-/// Decide which apiVersion to embed in the generated `ReinhardtApp` CRD.
+/// Decide which apiVersion to embed in the generated `Project` CRD.
 ///
 /// Selection priority:
 /// 1. Non-`--direct` invocations never contact a cluster, so an explicit
@@ -856,10 +856,10 @@ mod tests {
 		assert_eq!(parse_introspect_timeout_seconds(raw), expected);
 	}
 
-	fn introspect_with_infra_signals(app_name: &str, signals: InfraSignals) -> IntrospectOutput {
+	fn introspect_with_infra_signals(project_name: &str, signals: InfraSignals) -> IntrospectOutput {
 		IntrospectOutput {
 			app: AppMetadata {
-				name: app_name.to_string(),
+				name: project_name.to_string(),
 				version: "1.0.0".to_string(),
 			},
 			features: FeaturesMetadata {
@@ -1168,7 +1168,7 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_spec_derives_infrastructure_from_introspect() {
+	fn test_build_project_spec_derives_infrastructure_from_introspect() {
 		// Arrange
 		let introspect = introspect_with_infra_signals(
 			"orders",
@@ -1181,7 +1181,7 @@ features:
 
 		// Act
 		let spec =
-			build_reinhardt_app_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect))
+			build_project_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect))
 				.expect("spec should build");
 
 		// Assert
@@ -1195,7 +1195,7 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_spec_uses_resolved_app_name_for_infrastructure() {
+	fn test_build_project_spec_uses_resolved_project_name_for_infrastructure() {
 		// Arrange
 		let introspect = introspect_with_infra_signals(
 			"introspected-name",
@@ -1206,7 +1206,7 @@ features:
 		);
 
 		// Act
-		let spec = build_reinhardt_app_spec(
+		let spec = build_project_spec(
 			None,
 			"cli-name",
 			"orders:v1".to_string(),
@@ -1226,7 +1226,7 @@ features:
 	#[rstest]
 	fn test_typed_secret_refs_collects_crd_secret_refs() {
 		// Arrange
-		let spec = ReinhardtAppSpec {
+		let spec = ProjectSpec {
 			image: "orders:v1".to_string(),
 			auth: Some(AuthSpec {
 				jwt: true,
@@ -1272,7 +1272,7 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_spec_fails_on_unsupported_storage() {
+	fn test_build_project_spec_fails_on_unsupported_storage() {
 		// Arrange
 		let introspect = introspect_with_infra_signals(
 			"orders",
@@ -1284,7 +1284,7 @@ features:
 
 		// Act
 		let result =
-			build_reinhardt_app_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect));
+			build_project_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect));
 
 		// Assert
 		let error = result.expect_err("unsupported storage should fail");
@@ -1295,7 +1295,7 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_crd_with_introspect() {
+	fn test_build_project_crd_with_introspect() {
 		// Arrange
 		let introspect = IntrospectOutput {
 			app: AppMetadata {
@@ -1339,9 +1339,9 @@ features:
 
 		// Act
 		let spec =
-			build_reinhardt_app_spec(None, "my-app", "my-app:v1".to_string(), 3, Some(introspect))
+			build_project_spec(None, "my-app", "my-app:v1".to_string(), 3, Some(introspect))
 				.expect("spec should build");
-		let crd = build_reinhardt_app_crd(
+		let crd = build_project_crd(
 			"my-app",
 			"production",
 			&spec,
@@ -1362,7 +1362,7 @@ features:
 		let kind = mapping
 			.get(serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
-		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
+		assert_eq!(kind, &serde_yaml::Value::String("Project".to_string()));
 
 		let metadata = mapping
 			.get(serde_yaml::Value::String("metadata".to_string()))
@@ -1400,14 +1400,14 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_crd_without_introspect() {
+	fn test_build_project_crd_without_introspect() {
 		// Arrange
 		let spec =
-			build_reinhardt_app_spec(None, "simple-app", "simple:latest".to_string(), 1, None)
+			build_project_spec(None, "simple-app", "simple:latest".to_string(), 1, None)
 				.expect("spec should build");
 
 		// Act
-		let crd = build_reinhardt_app_crd(
+		let crd = build_project_crd(
 			"simple-app",
 			"default",
 			&spec,
@@ -1428,7 +1428,7 @@ features:
 		let kind = mapping
 			.get(serde_yaml::Value::String("kind".to_string()))
 			.expect("kind should exist");
-		assert_eq!(kind, &serde_yaml::Value::String("ReinhardtApp".to_string()));
+		assert_eq!(kind, &serde_yaml::Value::String("Project".to_string()));
 
 		let spec = mapping
 			.get(serde_yaml::Value::String("spec".to_string()))
@@ -1452,7 +1452,7 @@ features:
 	}
 
 	#[rstest]
-	fn test_build_reinhardt_app_crd_preserves_typed_toml_sections() {
+	fn test_build_project_crd_preserves_typed_toml_sections() {
 		// Arrange
 		let mut config = ReinhardtCloudToml {
 			app: AppSection {
@@ -1489,7 +1489,7 @@ features:
 		);
 
 		// Act
-		let spec = build_reinhardt_app_spec(
+		let spec = build_project_spec(
 			Some(&config),
 			"dashboard",
 			"dashboard:v1".to_string(),
@@ -1497,7 +1497,7 @@ features:
 			None,
 		)
 		.expect("spec should build");
-		let crd = build_reinhardt_app_crd(
+		let crd = build_project_crd(
 			"dashboard",
 			"production",
 			&spec,
@@ -1549,9 +1549,9 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_writes_valid_yaml() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "test-app", "test:v1".to_string(), 2, None)
+		let spec = build_project_spec(None, "test-app", "test:v1".to_string(), 2, None)
 			.expect("spec should build");
-		let crd = build_reinhardt_app_crd(
+		let crd = build_project_crd(
 			"test-app",
 			"staging",
 			&spec,
@@ -1577,9 +1577,9 @@ features:
 	#[tokio::test]
 	async fn test_kubectl_apply_passes_cluster_context() {
 		// Arrange
-		let spec = build_reinhardt_app_spec(None, "ctx-app", "ctx:v1".to_string(), 1, None)
+		let spec = build_project_spec(None, "ctx-app", "ctx:v1".to_string(), 1, None)
 			.expect("spec should build");
-		let crd = build_reinhardt_app_crd(
+		let crd = build_project_crd(
 			"ctx-app",
 			"prod",
 			&spec,

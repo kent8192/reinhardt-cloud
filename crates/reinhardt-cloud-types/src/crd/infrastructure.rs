@@ -1,6 +1,6 @@
 //! Per-application managed cloud infrastructure types.
 //!
-//! These types extend `ReinhardtAppSpec` with an `infrastructure` block
+//! These types extend `ProjectSpec` with an `infrastructure` block
 //! that declares cloud-managed resources (Postgres, object storage, DNS
 //! records, secrets) needed by the application. The `terraform generate`
 //! CLI subcommand reads this block and emits provider-scoped HCL.
@@ -150,7 +150,7 @@ impl SecretSpec {
 	}
 }
 
-/// Per-application managed cloud resources declared on `ReinhardtAppSpec`.
+/// Per-application managed cloud resources declared on `ProjectSpec`.
 ///
 /// Each field is optional; only declared resources are provisioned. The
 /// `terraform generate` CLI subcommand translates this block into

@@ -182,19 +182,19 @@ src/
 │       // pub struct IngressController { ... }
 │
 ├── crd.rs
-│   // pub mod reinhardt_app;
-│   // pub use reinhardt_app::ReinhardtApp;
+│   // pub mod project;
+│   // pub use project::Project;
 │
 └── crd/
-    └── reinhardt_app.rs
+    └── project.rs
         // #[derive(CustomResource)]
-        // pub struct ReinhardtAppSpec { ... }
+        // pub struct ProjectSpec { ... }
 ```
 
 **Usage from external code:**
 ```rust
 use reinhardt_cloud::controller::{AppController, AppContext};  // ✅ Works - explicitly re-exported
-use reinhardt_cloud::crd::ReinhardtApp;                        // ✅ Works
+use reinhardt_cloud::crd::Project;                        // ✅ Works
 use reinhardt_cloud::controller::app::InternalState;           // ❌ Error - not re-exported
 ```
 

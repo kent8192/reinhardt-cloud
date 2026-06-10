@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use reinhardt_cloud_k8s::KubeClient;
 use reinhardt_cloud_k8s::resources::{
-	parse_reinhardt_app_yaml, server_side_apply_git_credentials_secret,
-	server_side_apply_reinhardt_app_yaml,
+	parse_project_yaml, server_side_apply_git_credentials_secret,
+	server_side_apply_project_yaml,
 };
 use reinhardt_cloud_types::agent::AgentCommand;
 use uuid::Uuid;
@@ -33,10 +33,10 @@ pub fn cluster_uuid_from_pk(id: Option<i64>) -> Result<Uuid, String> {
 	Ok(Uuid::from_bytes(bytes))
 }
 
-pub async fn send_reinhardt_app_apply_to_cluster(
+pub async fn send_project_apply_to_cluster(
 	registry: &Arc<reinhardt_cloud_grpc::registry::AgentRegistry>,
 	cluster: &Cluster,
-	app_name: &str,
+	project_name: &str,
 	yaml: &str,
 ) -> Result<(), String> {
 	validate_cluster_for_apply(cluster)?;
@@ -44,15 +44,15 @@ pub async fn send_reinhardt_app_apply_to_cluster(
 	registry
 		.send_command_to_cluster(
 			&cluster_id,
-			AgentCommand::ApplyReinhardtApp {
-				app_name: app_name.to_string(),
+			AgentCommand::ApplyProject {
+				project_name: project_name.to_string(),
 				yaml: yaml.to_string(),
 			},
 		)
 		.await
 		.map_err(|e| {
 			format!(
-				"Failed to route ReinhardtApp apply to cluster '{}': {e}",
+				"Failed to route Project apply to cluster '{}': {e}",
 				cluster.name
 			)
 		})
@@ -61,7 +61,7 @@ pub async fn send_reinhardt_app_apply_to_cluster(
 pub async fn send_git_credentials_secret_to_cluster(
 	registry: &Arc<reinhardt_cloud_grpc::registry::AgentRegistry>,
 	cluster: &Cluster,
-	app_name: &str,
+	project_name: &str,
 	namespace: &str,
 	secret_name: &str,
 	git_token: &str,
@@ -72,7 +72,7 @@ pub async fn send_git_credentials_secret_to_cluster(
 		.send_command_to_cluster(
 			&cluster_id,
 			AgentCommand::ApplyGitCredentialsSecret {
-				app_name: app_name.to_string(),
+				project_name: project_name.to_string(),
 				namespace: namespace.to_string(),
 				secret_name: secret_name.to_string(),
 				git_token: reinhardt_cloud_types::agent::SecretString::new(git_token.to_string()),
@@ -87,22 +87,22 @@ pub async fn send_git_credentials_secret_to_cluster(
 		})
 }
 
-pub async fn apply_reinhardt_app_yaml(yaml: &str) -> Result<(), String> {
-	let app = parse_reinhardt_app_yaml(yaml).map_err(|e| e.to_string())?;
+pub async fn apply_project_yaml(yaml: &str) -> Result<(), String> {
+	let app = parse_project_yaml(yaml).map_err(|e| e.to_string())?;
 	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
 	let client = kube_client_for_namespace(namespace).await?;
-	server_side_apply_reinhardt_app_yaml(&client, yaml)
+	server_side_apply_project_yaml(&client, yaml)
 		.await
 		.map(|_| ())
 		.map_err(|e| e.to_string())
 }
 
-pub async fn apply_reinhardt_app_yaml_for_cluster(
+pub async fn apply_project_yaml_for_cluster(
 	yaml: &str,
 	cluster: &Cluster,
 ) -> Result<(), String> {
 	validate_cluster_for_apply(cluster)?;
-	apply_reinhardt_app_yaml(yaml).await.map_err(|e| {
+	apply_project_yaml(yaml).await.map_err(|e| {
 		format!(
 			"Failed to apply manifest for cluster '{}': {e}",
 			cluster.name

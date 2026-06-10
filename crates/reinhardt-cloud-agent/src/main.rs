@@ -169,19 +169,19 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 	match &command.command {
 		Some(pb::agent_command::Command::Deploy(cmd)) => {
 			info!(
-				app = %cmd.app_name,
+				app = %cmd.project_name,
 				image = %cmd.image,
 				replicas = cmd.replicas,
 				"Received deploy command"
 			);
 			let (success, message) =
-				match execute_deploy(&cmd.app_name, &cmd.image, cmd.replicas).await {
+				match execute_deploy(&cmd.project_name, &cmd.image, cmd.replicas).await {
 					Ok(()) => {
-						info!(app = %cmd.app_name, "Deployment applied successfully");
+						info!(app = %cmd.project_name, "Deployment applied successfully");
 						(true, "Deployment applied".to_string())
 					}
 					Err(e) => {
-						error!(app = %cmd.app_name, error = %e, "Deployment failed");
+						error!(app = %cmd.project_name, error = %e, "Deployment failed");
 						(false, format!("Deployment failed: {e}"))
 					}
 				};
@@ -189,7 +189,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::DeployStatus(
 						pb::AgentDeployStatus {
-							app_name: cmd.app_name.clone(),
+							project_name: cmd.project_name.clone(),
 							success,
 							message,
 							timestamp: timestamp_now(),
@@ -203,17 +203,17 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 		}
 		Some(pb::agent_command::Command::Rollback(cmd)) => {
 			info!(
-				app = %cmd.app_name,
+				app = %cmd.project_name,
 				revision = cmd.revision,
 				"Received rollback command"
 			);
-			let (success, message) = match execute_rollback(&cmd.app_name, cmd.revision).await {
+			let (success, message) = match execute_rollback(&cmd.project_name, cmd.revision).await {
 				Ok(()) => {
-					info!(app = %cmd.app_name, "Rollback applied successfully");
+					info!(app = %cmd.project_name, "Rollback applied successfully");
 					(true, "Rollback applied".to_string())
 				}
 				Err(e) => {
-					error!(app = %cmd.app_name, error = %e, "Rollback failed");
+					error!(app = %cmd.project_name, error = %e, "Rollback failed");
 					(false, format!("Rollback failed: {e}"))
 				}
 			};
@@ -221,7 +221,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::CommandStatus(
 						pb::AgentCommandStatus {
-							app_name: cmd.app_name.clone(),
+							project_name: cmd.project_name.clone(),
 							command_type: "rollback".to_string(),
 							success,
 							message,
@@ -236,17 +236,17 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 		}
 		Some(pb::agent_command::Command::Scale(cmd)) => {
 			info!(
-				app = %cmd.app_name,
+				app = %cmd.project_name,
 				replicas = cmd.replicas,
 				"Received scale command"
 			);
-			let (success, message) = match execute_scale(&cmd.app_name, cmd.replicas).await {
+			let (success, message) = match execute_scale(&cmd.project_name, cmd.replicas).await {
 				Ok(()) => {
-					info!(app = %cmd.app_name, replicas = cmd.replicas, "Scale applied successfully");
+					info!(app = %cmd.project_name, replicas = cmd.replicas, "Scale applied successfully");
 					(true, "Scale applied".to_string())
 				}
 				Err(e) => {
-					error!(app = %cmd.app_name, error = %e, "Scale failed");
+					error!(app = %cmd.project_name, error = %e, "Scale failed");
 					(false, format!("Scale failed: {e}"))
 				}
 			};
@@ -254,7 +254,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::CommandStatus(
 						pb::AgentCommandStatus {
-							app_name: cmd.app_name.clone(),
+							project_name: cmd.project_name.clone(),
 							command_type: "scale".to_string(),
 							success,
 							message,
@@ -268,14 +268,14 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 			}
 		}
 		Some(pb::agent_command::Command::Restart(cmd)) => {
-			info!(app = %cmd.app_name, "Received restart command");
-			let (success, message) = match execute_restart(&cmd.app_name).await {
+			info!(app = %cmd.project_name, "Received restart command");
+			let (success, message) = match execute_restart(&cmd.project_name).await {
 				Ok(()) => {
-					info!(app = %cmd.app_name, "Restart applied successfully");
+					info!(app = %cmd.project_name, "Restart applied successfully");
 					(true, "Restart applied".to_string())
 				}
 				Err(e) => {
-					error!(app = %cmd.app_name, error = %e, "Restart failed");
+					error!(app = %cmd.project_name, error = %e, "Restart failed");
 					(false, format!("Restart failed: {e}"))
 				}
 			};
@@ -283,7 +283,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::CommandStatus(
 						pb::AgentCommandStatus {
-							app_name: cmd.app_name.clone(),
+							project_name: cmd.project_name.clone(),
 							command_type: "restart".to_string(),
 							success,
 							message,
@@ -296,21 +296,21 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				error!("Failed to send restart status event: {e}");
 			}
 		}
-		Some(pb::agent_command::Command::ApplyReinhardtApp(cmd)) => {
-			info!(app = %cmd.app_name, "Received ReinhardtApp apply command");
-			let (success, message) = match execute_apply_reinhardt_app(&cmd.yaml).await {
-				Ok(()) => (true, "ReinhardtApp applied".to_string()),
+		Some(pb::agent_command::Command::ApplyProject(cmd)) => {
+			info!(app = %cmd.project_name, "Received Project apply command");
+			let (success, message) = match execute_apply_project(&cmd.yaml).await {
+				Ok(()) => (true, "Project applied".to_string()),
 				Err(e) => {
-					error!(app = %cmd.app_name, error = %e, "ReinhardtApp apply failed");
-					(false, format!("ReinhardtApp apply failed: {e}"))
+					error!(app = %cmd.project_name, error = %e, "Project apply failed");
+					(false, format!("Project apply failed: {e}"))
 				}
 			};
 			if let Err(e) = event_tx
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::CommandStatus(
 						pb::AgentCommandStatus {
-							app_name: cmd.app_name.clone(),
-							command_type: "apply_reinhardt_app".to_string(),
+							project_name: cmd.project_name.clone(),
+							command_type: "apply_project".to_string(),
 							success,
 							message,
 							timestamp: timestamp_now(),
@@ -319,11 +319,11 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				})
 				.await
 			{
-				error!("Failed to send ReinhardtApp apply status event: {e}");
+				error!("Failed to send Project apply status event: {e}");
 			}
 		}
 		Some(pb::agent_command::Command::ApplyGitCredentialsSecret(cmd)) => {
-			info!(app = %cmd.app_name, namespace = %cmd.namespace, secret = %cmd.secret_name, "Received git credentials Secret apply command");
+			info!(app = %cmd.project_name, namespace = %cmd.namespace, secret = %cmd.secret_name, "Received git credentials Secret apply command");
 			let (success, message) = match execute_apply_git_credentials_secret(
 				&cmd.namespace,
 				&cmd.secret_name,
@@ -333,7 +333,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 			{
 				Ok(()) => (true, "Git credentials Secret applied".to_string()),
 				Err(e) => {
-					error!(app = %cmd.app_name, error = %e, "Git credentials Secret apply failed");
+					error!(app = %cmd.project_name, error = %e, "Git credentials Secret apply failed");
 					(false, format!("Git credentials Secret apply failed: {e}"))
 				}
 			};
@@ -341,7 +341,7 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::CommandStatus(
 						pb::AgentCommandStatus {
-							app_name: cmd.app_name.clone(),
+							project_name: cmd.project_name.clone(),
 							command_type: "apply_git_credentials_secret".to_string(),
 							success,
 							message,
@@ -366,12 +366,12 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 /// applies it to the `default` namespace. Uses server-side apply so the
 /// operation is idempotent — creating the resource if absent or updating it
 /// if it already exists.
-async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<(), kube::Error> {
+async fn execute_deploy(project_name: &str, image: &str, replicas: u32) -> Result<(), kube::Error> {
 	let client = kube::Client::try_default().await?;
 	let deployments: Api<Deployment> = Api::default_namespaced(client);
 
 	let labels = BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), app_name.to_string()),
+		("app.kubernetes.io/name".to_string(), project_name.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud".to_string(),
@@ -380,7 +380,7 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 
 	let deployment = Deployment {
 		metadata: ObjectMeta {
-			name: Some(app_name.to_string()),
+			name: Some(project_name.to_string()),
 			labels: Some(labels.clone()),
 			..Default::default()
 		},
@@ -397,7 +397,7 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 				}),
 				spec: Some(PodSpec {
 					containers: vec![Container {
-						name: app_name.to_string(),
+						name: project_name.to_string(),
 						image: Some(image.to_string()),
 						ports: Some(vec![ContainerPort {
 							container_port: 8000,
@@ -415,20 +415,20 @@ async fn execute_deploy(app_name: &str, image: &str, replicas: u32) -> Result<()
 
 	let params = PatchParams::apply("reinhardt-cloud-agent");
 	deployments
-		.patch(app_name, &params, &Patch::Apply(&deployment))
+		.patch(project_name, &params, &Patch::Apply(&deployment))
 		.await?;
 
 	Ok(())
 }
 
-async fn execute_apply_reinhardt_app(yaml: &str) -> Result<(), String> {
-	let app = reinhardt_cloud_k8s::resources::parse_reinhardt_app_yaml(yaml)
+async fn execute_apply_project(yaml: &str) -> Result<(), String> {
+	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(yaml)
 		.map_err(|e| e.to_string())?;
 	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
 	let client = reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
 		.await
 		.map_err(|e| e.to_string())?;
-	reinhardt_cloud_k8s::resources::server_side_apply_reinhardt_app_yaml(&client, yaml)
+	reinhardt_cloud_k8s::resources::server_side_apply_project_yaml(&client, yaml)
 		.await
 		.map(|_| ())
 		.map_err(|e| e.to_string())
@@ -458,7 +458,7 @@ async fn execute_apply_git_credentials_secret(
 /// Reads the target ReplicaSet's pod template spec and patches it onto
 /// the Deployment, triggering a rollout to the desired revision. This
 /// mirrors the behaviour of `kubectl rollout undo --to-revision`.
-async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Error> {
+async fn execute_rollback(project_name: &str, revision: u32) -> Result<(), kube::Error> {
 	use k8s_openapi::api::apps::v1::ReplicaSet;
 
 	let client = kube::Client::try_default().await?;
@@ -468,7 +468,7 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 	// Find the ReplicaSet with the target revision annotation
 	let rs_list = replica_sets
 		.list(
-			&kube::api::ListParams::default().labels(&format!("app.kubernetes.io/name={app_name}")),
+			&kube::api::ListParams::default().labels(&format!("app.kubernetes.io/name={project_name}")),
 		)
 		.await?;
 
@@ -514,7 +514,7 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 		}
 	});
 	deployments
-		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
 		.await?;
 
 	Ok(())
@@ -527,7 +527,7 @@ async fn execute_rollback(app_name: &str, revision: u32) -> Result<(), kube::Err
 ///
 /// Returns an error if `replicas` exceeds `i32::MAX` because Kubernetes
 /// `spec.replicas` is an `int32` field.
-async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error> {
+async fn execute_scale(project_name: &str, replicas: u32) -> Result<(), kube::Error> {
 	// Kubernetes spec.replicas is int32; reject values that would overflow.
 	if replicas > i32::MAX as u32 {
 		return Err(kube::Error::Api(
@@ -549,7 +549,7 @@ async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error>
 		"spec": { "replicas": replicas }
 	});
 	deployments
-		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
 		.await?;
 
 	Ok(())
@@ -560,7 +560,7 @@ async fn execute_scale(app_name: &str, replicas: u32) -> Result<(), kube::Error>
 /// Sets an annotation on the pod template with the current timestamp, which
 /// forces the deployment controller to create new pods — the same mechanism
 /// that `kubectl rollout restart` uses.
-async fn execute_restart(app_name: &str) -> Result<(), kube::Error> {
+async fn execute_restart(project_name: &str) -> Result<(), kube::Error> {
 	let client = kube::Client::try_default().await?;
 	let deployments: Api<Deployment> = Api::default_namespaced(client);
 
@@ -576,7 +576,7 @@ async fn execute_restart(app_name: &str) -> Result<(), kube::Error> {
 		}
 	});
 	deployments
-		.patch(app_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
 		.await?;
 
 	Ok(())

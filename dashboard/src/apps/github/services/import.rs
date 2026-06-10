@@ -1,6 +1,6 @@
 //! GitHub repository import helpers.
 
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 use reinhardt_cloud_types::introspect::IntrospectOutput;
 use serde_json::json;
 
@@ -12,7 +12,7 @@ const DEFAULT_PREVIEW_TTL: &str = "72h";
 
 #[derive(Debug, Clone)]
 pub struct GitHubImportSpec {
-	pub app_name: String,
+	pub project_name: String,
 	pub namespace: String,
 	pub repository_url: String,
 	pub branch: String,
@@ -21,11 +21,11 @@ pub struct GitHubImportSpec {
 	pub introspect: Option<IntrospectOutput>,
 }
 
-pub fn default_app_name(repository: &GitHubRepository) -> String {
-	sanitize_app_name(&repository.name)
+pub fn default_project_name(repository: &GitHubRepository) -> String {
+	sanitize_project_name(&repository.name)
 }
 
-pub fn validate_app_name(name: &str) -> Result<String, String> {
+pub fn validate_project_name(name: &str) -> Result<String, String> {
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
 		return Err("App name must be 1-63 characters".to_string());
@@ -60,18 +60,18 @@ pub fn validate_registry(registry: &str) -> Result<String, String> {
 
 pub fn import_spec_from_repository(
 	repository: &GitHubRepository,
-	app_name: &str,
+	project_name: &str,
 	registry: &str,
 ) -> Result<GitHubImportSpec, String> {
-	let app_name = if app_name.trim().is_empty() {
-		default_app_name(repository)
+	let project_name = if project_name.trim().is_empty() {
+		default_project_name(repository)
 	} else {
-		app_name.trim().to_string()
+		project_name.trim().to_string()
 	};
-	let app_name = validate_app_name(&app_name)?;
+	let project_name = validate_project_name(&project_name)?;
 	let registry = validate_registry(registry)?;
 	Ok(GitHubImportSpec {
-		app_name,
+		project_name,
 		namespace: DEFAULT_NAMESPACE.to_string(),
 		repository_url: format!("https://github.com/{}.git", repository.full_name),
 		branch: repository.default_branch.clone(),
@@ -90,13 +90,13 @@ pub fn enrich_import_spec(
 	spec.credentials_secret = credentials_secret;
 }
 
-pub fn source_reinhardt_app_yaml(spec: &GitHubImportSpec) -> Result<String, String> {
+pub fn source_project_yaml(spec: &GitHubImportSpec) -> Result<String, String> {
 	let image = format!("{}:pending", spec.registry);
 	let manifest = json!({
 		"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-		"kind": "ReinhardtApp",
+		"kind": "Project",
 		"metadata": {
-			"name": spec.app_name,
+			"name": spec.project_name,
 			"namespace": spec.namespace,
 			"annotations": {
 				"reinhardt.dev/build-trigger": "initial"
@@ -130,18 +130,18 @@ pub fn source_reinhardt_app_yaml(spec: &GitHubImportSpec) -> Result<String, Stri
 			}
 		}
 	});
-	let app: ReinhardtApp = serde_json::from_value(manifest)
-		.map_err(|e| format!("Failed to build ReinhardtApp manifest: {e}"))?;
+	let app: Project = serde_json::from_value(manifest)
+		.map_err(|e| format!("Failed to build Project manifest: {e}"))?;
 	if let Err(errors) = app.spec.validate() {
 		let messages = errors
 			.into_iter()
 			.map(|e| e.message)
 			.collect::<Vec<_>>()
 			.join("; ");
-		return Err(format!("Invalid ReinhardtApp spec: {messages}"));
+		return Err(format!("Invalid Project spec: {messages}"));
 	}
 	serde_yaml::to_string(&app)
-		.map_err(|e| format!("Failed to serialize ReinhardtApp manifest: {e}"))
+		.map_err(|e| format!("Failed to serialize Project manifest: {e}"))
 }
 
 pub fn with_build_trigger(yaml: &str, commit_sha: &str) -> Result<String, String> {
@@ -217,17 +217,17 @@ fn with_annotations(
 	removals: &[&str],
 ) -> Result<String, String> {
 	let mut value: serde_yaml::Value =
-		serde_yaml::from_str(yaml).map_err(|e| format!("Invalid ReinhardtApp YAML: {e}"))?;
+		serde_yaml::from_str(yaml).map_err(|e| format!("Invalid Project YAML: {e}"))?;
 	let annotations = value
 		.as_mapping_mut()
 		.and_then(|root| root.get_mut("metadata"))
 		.and_then(serde_yaml::Value::as_mapping_mut)
-		.ok_or_else(|| "ReinhardtApp metadata must be an object".to_string())?
+		.ok_or_else(|| "Project metadata must be an object".to_string())?
 		.entry(serde_yaml::Value::String("annotations".to_string()))
 		.or_insert_with(|| serde_yaml::Value::Mapping(Default::default()));
 	let annotations = annotations
 		.as_mapping_mut()
-		.ok_or_else(|| "ReinhardtApp metadata.annotations must be an object".to_string())?;
+		.ok_or_else(|| "Project metadata.annotations must be an object".to_string())?;
 	for key in removals {
 		annotations.remove(serde_yaml::Value::String((*key).to_string()));
 	}
@@ -237,10 +237,10 @@ fn with_annotations(
 			serde_yaml::Value::String((*value).to_string()),
 		);
 	}
-	let app: ReinhardtApp =
-		serde_yaml::from_value(value).map_err(|e| format!("Invalid ReinhardtApp YAML: {e}"))?;
+	let app: Project =
+		serde_yaml::from_value(value).map_err(|e| format!("Invalid Project YAML: {e}"))?;
 	serde_yaml::to_string(&app)
-		.map_err(|e| format!("Failed to serialize ReinhardtApp manifest: {e}"))
+		.map_err(|e| format!("Failed to serialize Project manifest: {e}"))
 }
 
 fn non_empty_branch(branch: &str) -> Result<String, String> {
@@ -261,7 +261,7 @@ fn non_empty_commit_sha(commit_sha: &str) -> Result<String, String> {
 	}
 }
 
-fn sanitize_app_name(raw: &str) -> String {
+fn sanitize_project_name(raw: &str) -> String {
 	let mut out = String::new();
 	let mut previous_hyphen = false;
 	for ch in raw.chars().flat_map(char::to_lowercase) {
