@@ -11,6 +11,9 @@ pub mod ws_urls;
 use reinhardt::urls::prelude::UnifiedRouter;
 
 use crate::apps::auth::client::pages::{login_page, register_page};
+use crate::apps::auth::client::routes::{
+	LOGIN_PAGE_LOCAL_ROUTE, LOGIN_PAGE_PATH, REGISTER_PAGE_LOCAL_ROUTE, REGISTER_PAGE_PATH,
+};
 #[cfg(native)]
 use crate::apps::auth::views;
 
@@ -41,10 +44,11 @@ pub fn url_patterns() -> UnifiedRouter {
 			s
 		})
 		.client(|c| {
-			c.route("login_page", "/login", login_page).route(
-				"register_page",
-				"/register",
-				register_page,
-			)
+			c.route(LOGIN_PAGE_LOCAL_ROUTE, LOGIN_PAGE_PATH, login_page)
+				.route(
+					REGISTER_PAGE_LOCAL_ROUTE,
+					REGISTER_PAGE_PATH,
+					register_page,
+				)
 		})
 }

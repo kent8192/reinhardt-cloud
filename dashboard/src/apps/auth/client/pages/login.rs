@@ -8,6 +8,7 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
 
+use crate::apps::auth::client::routes::{REGISTER_PAGE_ROUTE, path_for};
 use crate::apps::auth::server::login::login;
 
 /// Render the login page.
@@ -40,8 +41,8 @@ pub fn login_page() -> Page {
 		},
 	};
 	let form_view = login_form.into_page();
-
-	page!(|form_view: Page| {
+	let register_href = path_for(REGISTER_PAGE_ROUTE).to_string();
+	page!(|form_view: Page, register_href: String| {
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -74,7 +75,7 @@ pub fn login_page() -> Page {
 					div {
 						class: "mt-6 text-center text-sm text-ink-600",
 						"Don't have an account? " a {
-							href: "/register".to_string(),
+							href: register_href,
 							class: "font-semibold text-control-700 underline-offset-4 hover:underline",
 							"Create one"
 						}
@@ -82,5 +83,5 @@ pub fn login_page() -> Page {
 				}
 			}
 		}
-	})(form_view)
+	})(form_view, register_href)
 }

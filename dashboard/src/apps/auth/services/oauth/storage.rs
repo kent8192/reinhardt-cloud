@@ -33,7 +33,6 @@ use reinhardt::db::orm::Model;
 use uuid::Uuid;
 
 use crate::apps::auth::models::SocialAccount as OrmSocialAccount;
-
 /// Maps an ORM record to the framework `SocialAccount` shape with empty
 /// token-bearing fields. The storage layer never returns persisted tokens.
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {

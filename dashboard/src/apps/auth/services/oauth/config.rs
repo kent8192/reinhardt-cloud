@@ -16,7 +16,6 @@
 use std::env;
 
 use reinhardt::di::injectable_factory;
-
 /// Credentials for a single OAuth provider, populated from env vars.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCredentials {

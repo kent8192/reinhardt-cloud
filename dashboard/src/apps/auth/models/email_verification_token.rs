@@ -34,7 +34,6 @@ pub struct EmailVerificationToken {
 	/// Primary key (None for auto-increment on insert).
 	#[field(primary_key = true)]
 	pub id: Option<i64>,
-
 	/// Owning user (foreign key to `auth_users.id`).
 	pub user_id: Uuid,
 

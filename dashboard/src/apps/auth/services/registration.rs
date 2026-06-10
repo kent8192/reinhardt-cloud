@@ -16,7 +16,6 @@
 //! entry points already encapsulate persistence, so wrapping the
 //! function in a DI service would add a layer without removing any
 //! global-state coupling.
-
 use chrono::Utc;
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;

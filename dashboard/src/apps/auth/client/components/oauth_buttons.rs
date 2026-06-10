@@ -62,7 +62,10 @@ fn render_oauth_buttons(container_id: &str, verb: &str, providers: Vec<OAuthProv
 		let Ok(anchor) = document.create_element("a") else {
 			continue;
 		};
-		let _ = anchor.set_attribute("href", &format!("/api/auth/oauth/{}/start/", provider.id));
+		let Some(href) = crate::apps::auth::client::routes::oauth_start_path(&provider.id) else {
+			continue;
+		};
+		let _ = anchor.set_attribute("href", &href);
 		let _ = anchor.set_attribute(
 			"class",
 			"inline-flex w-full items-center justify-center rounded-md border border-cloud-200 py-2.5 text-sm font-semibold text-ink-800 transition hover:bg-cloud-50",
