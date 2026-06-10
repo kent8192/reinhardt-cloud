@@ -364,7 +364,11 @@ pub fn github_repositories_page() -> Page {
 										class: "font-mono text-xs font-semibold text-ink-950",
 										{
 											let value = selected_repository_id.get();
-											if value.trim().is_empty() { "not selected".to_string() } else { format!("id {value}") }
+											if value.trim().is_empty() {
+												"not selected".to_string()
+											} else {
+												format!("id {value}")
+											}
 										}
 									}
 								}
@@ -378,7 +382,11 @@ pub fn github_repositories_page() -> Page {
 										class: "font-mono text-xs font-semibold text-ink-950",
 										{
 											let value = selected_cluster_id.get();
-											if value.trim().is_empty() { "not selected".to_string() } else { format!("id {value}") }
+											if value.trim().is_empty() {
+												"not selected".to_string()
+											} else {
+												format!("id {value}")
+											}
 										}
 									}
 								}
@@ -392,7 +400,9 @@ pub fn github_repositories_page() -> Page {
 										class: "truncate text-xs font-semibold text-ink-950",
 										{
 											let value = selected_app_name.get();
-											if value.trim().is_empty() { "derived from repository".to_string() } else { value }
+											if value.trim().is_empty() {
+												"derived from repository".to_string()
+											} else { value }
 										}
 									}
 								}
