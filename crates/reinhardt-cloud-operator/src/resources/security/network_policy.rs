@@ -1,6 +1,6 @@
 //! NetworkPolicy builders for tenant-level network isolation.
 //!
-//! Generates three policies per isolated `ReinhardtApp`:
+//! Generates three policies per isolated `Project`:
 //! 1. Default-deny all ingress/egress
 //! 2. Allow ingress from ingress controller and same-app pods
 //! 3. Allow egress to DNS, managed services, and user-specified CIDRs
@@ -14,14 +14,14 @@ use k8s_openapi::api::networking::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 use reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec;
 
 use crate::error::Error;
 use crate::resources::labels::owner_reference;
 
 /// Builds a default-deny NetworkPolicy for all traffic to/from the app's pods.
-pub(crate) fn build_default_deny_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
+pub(crate) fn build_default_deny_policy(app: &Project) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-deny-all", app.name_any());
 	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
@@ -54,7 +54,7 @@ pub(crate) fn build_default_deny_policy(app: &ReinhardtApp) -> Result<NetworkPol
 
 /// Builds an ingress policy allowing traffic from ingress controllers
 /// and same-app pods.
-pub(crate) fn build_app_ingress_policy(app: &ReinhardtApp) -> Result<NetworkPolicy, Error> {
+pub(crate) fn build_app_ingress_policy(app: &Project) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-allow-ingress", app.name_any());
 	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
@@ -115,7 +115,7 @@ pub(crate) fn build_app_ingress_policy(app: &ReinhardtApp) -> Result<NetworkPoli
 /// Builds an egress policy allowing DNS, managed services, and user CIDRs.
 /// Optionally blocks the cloud metadata service (169.254.169.254).
 pub(crate) fn build_managed_service_egress_policy(
-	app: &ReinhardtApp,
+	app: &Project,
 	network: &NetworkIsolationSpec,
 ) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-allow-egress", app.name_any());
@@ -207,18 +207,18 @@ pub(crate) fn build_managed_service_egress_policy(
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn test_app() -> ReinhardtApp {
-		ReinhardtApp {
+	fn test_app() -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some("myapp".to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "test:latest".to_string(),
 				..Default::default()
 			},

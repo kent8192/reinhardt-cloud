@@ -81,21 +81,21 @@ pub struct AgentInfo {
 pub enum AgentCommand {
 	/// Deploy an application to the cluster.
 	Deploy {
-		app_name: String,
+		project_name: String,
 		image: String,
 		replicas: u32,
 	},
 	/// Rollback an application to a previous revision.
-	Rollback { app_name: String, revision: u32 },
+	Rollback { project_name: String, revision: u32 },
 	/// Scale an application to the specified number of replicas.
-	Scale { app_name: String, replicas: u32 },
+	Scale { project_name: String, replicas: u32 },
 	/// Restart all pods for an application.
-	Restart { app_name: String },
-	/// Apply a typed `ReinhardtApp` manifest in the agent's cluster.
-	ApplyReinhardtApp { app_name: String, yaml: String },
+	Restart { project_name: String },
+	/// Apply a typed `Project` manifest in the agent's cluster.
+	ApplyProject { project_name: String, yaml: String },
 	/// Apply a Git credential Secret in the agent's cluster.
 	ApplyGitCredentialsSecret {
-		app_name: String,
+		project_name: String,
 		namespace: String,
 		secret_name: String,
 		git_token: SecretString,
@@ -113,7 +113,7 @@ pub enum AgentEvent {
 	},
 	/// A deployment operation has completed.
 	DeployStatus {
-		app_name: String,
+		project_name: String,
 		success: bool,
 		message: String,
 		timestamp: DateTime<Utc>,
@@ -130,7 +130,7 @@ pub enum AgentEvent {
 	},
 	/// A command operation (rollback, scale, restart) has completed.
 	CommandStatus {
-		app_name: String,
+		project_name: String,
 		command_type: String,
 		success: bool,
 		message: String,
@@ -141,8 +141,8 @@ pub enum AgentEvent {
 /// Status report for a deployment operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployStatusReport {
-	/// Application name.
-	pub app_name: String,
+	/// Project name.
+	pub project_name: String,
 	/// Whether the deployment succeeded.
 	pub success: bool,
 	/// Human-readable status message.
@@ -199,27 +199,27 @@ mod tests {
 		// Arrange
 		let commands = vec![
 			AgentCommand::Deploy {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 				image: "web:v2".to_string(),
 				replicas: 3,
 			},
 			AgentCommand::Rollback {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 				revision: 5,
 			},
 			AgentCommand::Scale {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 				replicas: 10,
 			},
 			AgentCommand::Restart {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 			},
-			AgentCommand::ApplyReinhardtApp {
-				app_name: "web".to_string(),
-				yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".to_string(),
+			AgentCommand::ApplyProject {
+				project_name: "web".to_string(),
+				yaml: "apiVersion: reinhardt.dev/v1\nkind: Project\n".to_string(),
 			},
 			AgentCommand::ApplyGitCredentialsSecret {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 				namespace: "default".to_string(),
 				secret_name: "web-github-git-credentials".to_string(),
 				git_token: SecretString::new("token".to_string()),
@@ -255,7 +255,7 @@ mod tests {
 				timestamp: now,
 			},
 			AgentEvent::DeployStatus {
-				app_name: "api".to_string(),
+				project_name: "api".to_string(),
 				success: true,
 				message: "deployed successfully".to_string(),
 				timestamp: now,
@@ -269,7 +269,7 @@ mod tests {
 				timestamp: now,
 			},
 			AgentEvent::CommandStatus {
-				app_name: "web".to_string(),
+				project_name: "web".to_string(),
 				command_type: "rollback".to_string(),
 				success: true,
 				message: "Rollback applied".to_string(),
@@ -353,7 +353,7 @@ mod tests {
 	fn test_agent_command_deploy_zero_replicas() {
 		// Arrange
 		let cmd = AgentCommand::Deploy {
-			app_name: "zero-app".to_string(),
+			project_name: "zero-app".to_string(),
 			image: "img:v1".to_string(),
 			replicas: 0,
 		};
@@ -375,7 +375,7 @@ mod tests {
 	fn test_agent_command_rollback_revision_zero() {
 		// Arrange
 		let cmd = AgentCommand::Rollback {
-			app_name: "rollback-app".to_string(),
+			project_name: "rollback-app".to_string(),
 			revision: 0,
 		};
 
@@ -444,7 +444,7 @@ mod tests {
 	fn test_agent_command_replicas_boundary(#[case] replicas: u32) {
 		// Arrange
 		let cmd = AgentCommand::Scale {
-			app_name: "scale-app".to_string(),
+			project_name: "scale-app".to_string(),
 			replicas,
 		};
 
@@ -472,7 +472,7 @@ mod tests {
 			(
 				"Deploy",
 				AgentCommand::Deploy {
-					app_name: "app".to_string(),
+					project_name: "app".to_string(),
 					image: "img:v1".to_string(),
 					replicas: 1,
 				},
@@ -480,34 +480,34 @@ mod tests {
 			(
 				"Rollback",
 				AgentCommand::Rollback {
-					app_name: "app".to_string(),
+					project_name: "app".to_string(),
 					revision: 1,
 				},
 			),
 			(
 				"Scale",
 				AgentCommand::Scale {
-					app_name: "app".to_string(),
+					project_name: "app".to_string(),
 					replicas: 2,
 				},
 			),
 			(
 				"Restart",
 				AgentCommand::Restart {
-					app_name: "app".to_string(),
+					project_name: "app".to_string(),
 				},
 			),
 			(
-				"ApplyReinhardtApp",
-				AgentCommand::ApplyReinhardtApp {
-					app_name: "app".to_string(),
-					yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".to_string(),
+				"ApplyProject",
+				AgentCommand::ApplyProject {
+					project_name: "app".to_string(),
+					yaml: "apiVersion: reinhardt.dev/v1\nkind: Project\n".to_string(),
 				},
 			),
 			(
 				"ApplyGitCredentialsSecret",
 				AgentCommand::ApplyGitCredentialsSecret {
-					app_name: "app".to_string(),
+					project_name: "app".to_string(),
 					namespace: "default".to_string(),
 					secret_name: "app-github-git-credentials".to_string(),
 					git_token: SecretString::new("token".to_string()),
@@ -542,23 +542,23 @@ mod tests {
 			#[test]
 			fn prop_agent_command_serde_roundtrip(
 				variant in 0..6u8,
-				app_name in "[a-z][a-z0-9-]{0,20}",
+				project_name in "[a-z][a-z0-9-]{0,20}",
 				replicas in 0..u32::MAX,
 				revision in 0..u32::MAX,
 			) {
 				let cmd = match variant {
-					0 => AgentCommand::Deploy { app_name: app_name.clone(), image: "img:v1".into(), replicas },
-					1 => AgentCommand::Rollback { app_name: app_name.clone(), revision },
-					2 => AgentCommand::Scale { app_name: app_name.clone(), replicas },
-					3 => AgentCommand::Restart { app_name: app_name.clone() },
-					4 => AgentCommand::ApplyReinhardtApp {
-						app_name: app_name.clone(),
-						yaml: "apiVersion: reinhardt.dev/v1\nkind: ReinhardtApp\n".into(),
+					0 => AgentCommand::Deploy { project_name: project_name.clone(), image: "img:v1".into(), replicas },
+					1 => AgentCommand::Rollback { project_name: project_name.clone(), revision },
+					2 => AgentCommand::Scale { project_name: project_name.clone(), replicas },
+					3 => AgentCommand::Restart { project_name: project_name.clone() },
+					4 => AgentCommand::ApplyProject {
+						project_name: project_name.clone(),
+						yaml: "apiVersion: reinhardt.dev/v1\nkind: Project\n".into(),
 					},
 						_ => AgentCommand::ApplyGitCredentialsSecret {
-							app_name: app_name.clone(),
+							project_name: project_name.clone(),
 							namespace: "default".into(),
-							secret_name: format!("{app_name}-github-git-credentials"),
+							secret_name: format!("{project_name}-github-git-credentials"),
 							git_token: SecretString::new("token".into()),
 						},
 					};

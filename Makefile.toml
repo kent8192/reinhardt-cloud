@@ -260,7 +260,7 @@ env = { REINHARDT_ENV = "local" }
 # ============================================================================
 
 [tasks.generate-crd]
-description = "Generate ReinhardtApp CRD YAML into Helm chart crds/ directory"
+description = "Generate Project CRD YAML into Helm chart crds/ directory"
 command = "cargo"
 args = [
 	"run",
@@ -272,7 +272,7 @@ args = [
 	"crd",
 	"generate",
 	"--output",
-	"charts/reinhardt-cloud-operator/crds/reinhardtapp-crd.yaml",
+	"charts/reinhardt-cloud-operator/crds/project-crd.yaml",
 ]
 
 [tasks.dashboard-self-deploy-e2e]

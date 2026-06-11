@@ -1,4 +1,4 @@
-//! Plugin specification types for the `ReinhardtApp` custom resource.
+//! Plugin specification types for the `Project` custom resource.
 //!
 //! Enables declarative attachment of dentdelion WASM plugins to an
 //! application. The operator materializes each `PluginSpec` into a
@@ -19,7 +19,7 @@ use crate::validation::ValidationError;
 /// materializing volumes. Two distinct plugin names that produce the
 /// same sanitized suffix would collide on the resulting `Volume.name`
 /// and Kubernetes would reject the PodSpec at admission, so this
-/// helper is also used by [`crate::crd::ReinhardtAppSpec::validate`]
+/// helper is also used by [`crate::crd::ProjectSpec::validate`]
 /// to detect such collisions before they reach the cluster.
 pub fn sanitized_volume_suffix(name: &str) -> String {
 	let sanitized: String = name

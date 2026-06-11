@@ -1,4 +1,4 @@
-//! Reconciler logic for the `ReinhardtApp` custom resource.
+//! Reconciler logic for the `Project` custom resource.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -47,12 +47,12 @@ use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
-use reinhardt_cloud_types::crd::{AppCondition, AppPhase, ReinhardtApp, ReinhardtAppStatus};
+use reinhardt_cloud_types::crd::{Project, ProjectCondition, ProjectPhase, ProjectStatus};
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
-/// Annotation key on a `ReinhardtApp` that carries an incoming W3C `traceparent`
+/// Annotation key on a `Project` that carries an incoming W3C `traceparent`
 /// for distributed-trace propagation into the reconcile span.
 ///
 /// Writing the value back to the CRD is intentionally deferred: a patch-loop
@@ -97,16 +97,16 @@ fn compute_backoff(base_secs: u64, attempt: u32) -> Duration {
 }
 
 /// Build a stable key for the backoff map from an object's namespace+name.
-fn backoff_key(obj: &ReinhardtApp) -> (String, String) {
+fn backoff_key(obj: &Project) -> (String, String) {
 	(obj.namespace().unwrap_or_default(), obj.name_any())
 }
 
 /// Main reconciliation entry point.
-pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let span = tracing::info_span!(
 		"operator.reconcile",
 		otel.kind = "internal",
-		resource_kind = "ReinhardtApp",
+		resource_kind = "Project",
 		resource_namespace = obj.metadata.namespace.as_deref().unwrap_or(""),
 		resource_name = %obj.name_any(),
 		reconcile_id = %Uuid::new_v4(),
@@ -135,9 +135,9 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 			.namespace()
 			.filter(|ns| !ns.is_empty())
 			.ok_or_else(|| Error::MissingNamespace(name.clone()))?;
-		info!("Reconciling ReinhardtApp {namespace}/{name}");
+		info!("Reconciling Project {namespace}/{name}");
 
-		let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), &namespace);
+		let api: Api<Project> = Api::namespaced(ctx.client.clone(), &namespace);
 
 		let result = finalizer(&api, FINALIZER_NAME, obj, |event| async {
 			match event {
@@ -181,8 +181,8 @@ pub(crate) async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Resu
 	.await
 }
 
-/// Apply the desired state for a `ReinhardtApp`.
-async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
+/// Apply the desired state for a `Project`.
+async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
@@ -223,7 +223,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
 	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
 	// Deletion of a stale ConfigMap is left to owner-reference GC once the
-	// owning ReinhardtApp is removed and to deliberate cleanup when
+	// owning Project is removed and to deliberate cleanup when
 	// spec.plugins transitions from Some(..) to None (not implemented here
 	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
 	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
@@ -531,7 +531,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 			if preview_build.is_none() {
 				patch["spec"] = serde_json::json!({ "image": built_image });
 			}
-			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 			app_api
 				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
 				.await
@@ -565,8 +565,8 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				.as_ref()
 				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
 				.map(String::as_str);
-			let preview_name = preview::preview_app_name(&name, &pr_number);
-			let app_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+			let preview_name = preview::preview_project_name(&name, &pr_number);
+			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 
 			match action.as_str() {
 				"create" | "update" => {
@@ -581,7 +581,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 					let preview_spec =
 						preview::build_preview_spec(&app, &pr_number, &image_tag, pr_branch)?;
 					let preview_labels = preview::preview_labels(&name, &pr_number);
-					let preview_app = ReinhardtApp {
+					let preview_app = Project {
 						metadata: kube::api::ObjectMeta {
 							name: Some(preview_name.clone()),
 							namespace: Some(namespace.to_string()),
@@ -627,7 +627,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 					}
 				}
 			});
-			let parent_api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+			let parent_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 			parent_api
 				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
 				.await
@@ -635,7 +635,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 		}
 
 		// TTL cleanup for existing previews
-		let preview_list = Api::<ReinhardtApp>::namespaced(ctx.client.clone(), namespace)
+		let preview_list = Api::<Project>::namespaced(ctx.client.clone(), namespace)
 			.list(&kube::api::ListParams::default().labels(&format!(
 				"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
 			)))
@@ -660,7 +660,7 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 				&& preview::is_ttl_expired(ts, ttl)
 			{
 				let pname = preview_app.name_any();
-				let _ = Api::<ReinhardtApp>::namespaced(ctx.client.clone(), namespace)
+				let _ = Api::<Project>::namespaced(ctx.client.clone(), namespace)
 					.delete(&pname, &DeleteParams::default())
 					.await;
 				info!("TTL expired, deleted preview {namespace}/{pname}");
@@ -725,16 +725,16 @@ async fn apply(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result
 	Ok(Action::await_change())
 }
 
-/// Clean up external resources when a `ReinhardtApp` is deleted.
+/// Clean up external resources when a `Project` is deleted.
 ///
 /// Respects `DeletionPolicy`:
 /// - `Retain` (default): only K8s-native resources (Deployment, Service)
 ///   are removed via ownerReferences GC. Database/cache Secrets and
 ///   ConfigMaps are retained for manual cleanup.
 /// - `Delete`: all resources including Secrets and ConfigMaps are deleted.
-async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
+async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
-	info!("Cleaning up ReinhardtApp {name}");
+	info!("Cleaning up Project {name}");
 
 	// Cache resources (stateless — always clean up)
 	delete_if_exists::<Deployment>(&ctx.client, namespace, &format!("{name}-redis")).await?;
@@ -851,7 +851,7 @@ async fn cleanup(app: Arc<ReinhardtApp>, ctx: &Context, namespace: &str) -> Resu
 /// Explicit `spec.database` field takes precedence over introspect signals.
 /// Returns `true` if either the explicit database spec is set or the
 /// introspect infrastructure signals indicate PostgreSQL usage.
-fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
+fn should_provision_postgresql(app: &Project) -> bool {
 	// Explicit database field takes precedence
 	if app.spec.database.is_some() {
 		return true;
@@ -870,7 +870,7 @@ fn should_provision_postgresql(app: &ReinhardtApp) -> bool {
 /// Resolve whether cache should be provisioned.
 ///
 /// Explicit `spec.cache` field takes precedence over introspect signals.
-fn should_provision_cache(app: &ReinhardtApp) -> bool {
+fn should_provision_cache(app: &Project) -> bool {
 	if app.spec.cache.is_some() {
 		return true;
 	}
@@ -888,7 +888,7 @@ fn should_provision_cache(app: &ReinhardtApp) -> bool {
 ///
 /// Explicit `spec.services.target_port` takes precedence over
 /// introspect settings. Defaults to 8000 when neither is set.
-fn resolve_app_port(app: &ReinhardtApp) -> u16 {
+fn resolve_app_port(app: &Project) -> u16 {
 	// Explicit services.target_port takes precedence
 	if let Some(services) = &app.spec.services
 		&& let Some(port) = services.target_port
@@ -907,7 +907,7 @@ fn resolve_app_port(app: &ReinhardtApp) -> u16 {
 /// Resolve whether a background worker should be provisioned.
 ///
 /// Explicit `spec.worker` field takes precedence over introspect signals.
-fn should_provision_worker(app: &ReinhardtApp) -> bool {
+fn should_provision_worker(app: &Project) -> bool {
 	if app.spec.worker.is_some() {
 		return true;
 	}
@@ -924,7 +924,7 @@ fn should_provision_worker(app: &ReinhardtApp) -> bool {
 /// Resolve whether storage should be provisioned.
 ///
 /// Explicit `spec.storage` field takes precedence over introspect signals.
-fn should_provision_storage(app: &ReinhardtApp) -> bool {
+fn should_provision_storage(app: &Project) -> bool {
 	if app.spec.storage.is_some() {
 		return true;
 	}
@@ -941,7 +941,7 @@ fn should_provision_storage(app: &ReinhardtApp) -> bool {
 /// Resolve whether mail should be provisioned.
 ///
 /// Explicit `spec.mail` field takes precedence over introspect signals.
-fn should_provision_mail(app: &ReinhardtApp) -> bool {
+fn should_provision_mail(app: &Project) -> bool {
 	if app.spec.mail.is_some() {
 		return true;
 	}
@@ -959,7 +959,7 @@ fn should_provision_mail(app: &ReinhardtApp) -> bool {
 /// introspect routes. Returns the route list and port if ingress
 /// should be created, or `None` otherwise.
 fn resolve_ingress_config(
-	app: &ReinhardtApp,
+	app: &Project,
 ) -> Option<(Vec<reinhardt_cloud_types::introspect::RouteMetadata>, u16)> {
 	// Explicit ingress_host is handled by the else-if branch in the reconciler
 	// (reconcile_ingress_resource_with_host). Here we only handle
@@ -988,15 +988,11 @@ fn resolve_ingress_config(
 
 // ── Introspect-aware reconcile helpers ────────────────────────────────
 
-/// Reconciles the database credentials `Secret` for a `ReinhardtApp`.
+/// Reconciles the database credentials `Secret` for a `Project`.
 ///
 /// Only creates the secret if it does not already exist, preserving
 /// existing credentials across reconciliation cycles.
-async fn reconcile_db_secret(
-	app: &ReinhardtApp,
-	client: &Client,
-	namespace: &str,
-) -> Result<(), Error> {
+async fn reconcile_db_secret(app: &Project, client: &Client, namespace: &str) -> Result<(), Error> {
 	let name = app.name_any();
 	let secret_name = format!("{name}-db-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
@@ -1022,7 +1018,7 @@ async fn reconcile_db_secret(
 
 /// Reconciles the PostgreSQL `StatefulSet` via server-side apply.
 async fn reconcile_db_statefulset(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1042,7 +1038,7 @@ async fn reconcile_db_statefulset(
 
 /// Reconciles the PostgreSQL headless `Service` via server-side apply.
 async fn reconcile_db_service_resource(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1067,7 +1063,7 @@ async fn reconcile_db_service_resource(
 /// - If the job is still running, skips.
 /// - If no job exists, creates one.
 async fn reconcile_migration_job_resource(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1243,7 +1239,7 @@ async fn apply_dynamic(client: &Client, namespace: &str, obj: DynamicObject) -> 
 
 /// Reconciles the `Ingress` resource via server-side apply.
 async fn reconcile_ingress_resource(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 	routes: &[reinhardt_cloud_types::introspect::RouteMetadata],
@@ -1256,7 +1252,7 @@ async fn reconcile_ingress_resource(
 
 /// Reconciles the `Ingress` resource via server-side apply, with an optional explicit host.
 async fn reconcile_ingress_resource_with_host(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 	routes: &[reinhardt_cloud_types::introspect::RouteMetadata],
@@ -1287,7 +1283,7 @@ async fn reconcile_ingress_resource_with_host(
 
 /// Reconciles the Redis cache `Deployment` via server-side apply.
 async fn reconcile_cache_deployment(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1305,7 +1301,7 @@ async fn reconcile_cache_deployment(
 
 /// Reconciles the Redis cache `Service` via server-side apply.
 async fn reconcile_cache_service_resource(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1323,7 +1319,7 @@ async fn reconcile_cache_service_resource(
 
 /// Reconciles the Worker `Deployment` via server-side apply.
 async fn reconcile_worker_deployment_resource(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 	platform: &Platform,
@@ -1343,7 +1339,7 @@ async fn reconcile_worker_deployment_resource(
 
 /// Reconciles the gRPC `Service` via server-side apply.
 async fn reconcile_grpc_service(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1361,7 +1357,7 @@ async fn reconcile_grpc_service(
 
 /// Reconciles the storage `ServiceAccount` via server-side apply.
 async fn reconcile_storage_sa(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 	sa: &ServiceAccount,
@@ -1408,12 +1404,12 @@ async fn reconcile_app_service_account(
 	Ok(())
 }
 
-/// Reconciles the SMTP credentials `Secret` for a `ReinhardtApp`.
+/// Reconciles the SMTP credentials `Secret` for a `Project`.
 ///
 /// Only creates the secret if it does not already exist, preserving
 /// user-provided credentials across reconciliation cycles.
 async fn reconcile_mail_secret(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1441,7 +1437,7 @@ async fn reconcile_mail_secret(
 
 /// Reconciles the i18n locale `ConfigMap` via server-side apply.
 async fn reconcile_i18n_configmap(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1457,9 +1453,9 @@ async fn reconcile_i18n_configmap(
 	Ok(())
 }
 
-/// Reconcile NetworkPolicy resources for an isolated `ReinhardtApp`.
+/// Reconcile NetworkPolicy resources for an isolated `Project`.
 async fn reconcile_network_policies(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -1500,7 +1496,7 @@ async fn reconcile_network_policies(
 
 /// Reconcile LimitRange for noisy neighbor protection.
 async fn reconcile_resource_limits(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 	defaults: &ResourceDefaults,
@@ -1534,7 +1530,7 @@ async fn reconcile_resource_limits(
 /// failure is surfaced (status patch + log) before bubbling the error
 /// up to the reconciler's error policy.
 fn validate_tenant_namespace(
-	app: &ReinhardtApp,
+	app: &Project,
 	actual_namespace: &str,
 ) -> Result<Option<String>, Error> {
 	let Some(tenant) = app.spec.tenant.as_ref() else {
@@ -1629,12 +1625,8 @@ async fn reconcile_tenant_resources(
 /// Pure function so it is exercised by unit tests without spinning up a
 /// kube client. The returned JSON value is shaped to merge into the
 /// `status` sub-resource via `Patch::Merge`.
-fn build_degraded_status_patch(
-	app: &ReinhardtApp,
-	reason: &str,
-	message: &str,
-) -> serde_json::Value {
-	let condition = AppCondition {
+fn build_degraded_status_patch(app: &Project, reason: &str, message: &str) -> serde_json::Value {
+	let condition = ProjectCondition {
 		type_: ConditionType::Degraded,
 		status: ConditionStatus::True,
 		reason: reason.to_string(),
@@ -1645,7 +1637,7 @@ fn build_degraded_status_patch(
 
 	serde_json::json!({
 		"status": {
-			"phase": AppPhase::Failed,
+			"phase": ProjectPhase::Failed,
 			"observedGeneration": app.metadata.generation,
 			"conditions": [condition],
 		}
@@ -1653,19 +1645,19 @@ fn build_degraded_status_patch(
 }
 
 /// Best-effort: write a `Degraded` condition to the app's status
-/// sub-resource so the failure is visible via `kubectl get reinhardtapp`.
+/// sub-resource so the failure is visible via `kubectl get project`.
 ///
 /// Errors from this helper are logged at warn level rather than
 /// propagated because the original failure (the reason we're writing
 /// Degraded) is what the caller really needs to surface.
 async fn record_degraded_condition(
-	app: &ReinhardtApp,
+	app: &Project,
 	ctx: &Context,
 	namespace: &str,
 	reason: &str,
 	message: &str,
 ) {
-	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 	let payload = build_degraded_status_patch(app, reason, message);
 	if let Err(e) = api
 		.patch_status(
@@ -1729,15 +1721,15 @@ where
 	Ok(())
 }
 
-/// Builds the desired `ReinhardtAppStatus` for the given readiness state.
+/// Builds the desired `ProjectStatus` for the given readiness state.
 ///
 /// Pure function that computes the status without any Kubernetes API
 /// calls, making it independently testable.
-fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> ReinhardtAppStatus {
+fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatus {
 	let phase = if ready {
-		AppPhase::Running
+		ProjectPhase::Running
 	} else {
-		AppPhase::Deploying
+		ProjectPhase::Deploying
 	};
 	let condition_status = if ready {
 		ConditionStatus::True
@@ -1784,9 +1776,9 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 		None
 	};
 
-	ReinhardtAppStatus {
+	ProjectStatus {
 		phase: Some(phase),
-		conditions: vec![AppCondition {
+		conditions: vec![ProjectCondition {
 			type_: ConditionType::Ready,
 			status: condition_status,
 			reason: reason.to_string(),
@@ -1801,18 +1793,18 @@ fn build_status(app: &ReinhardtApp, ready: bool, ready_replicas: i32) -> Reinhar
 	}
 }
 
-/// Updates the status sub-resource of a `ReinhardtApp`.
+/// Updates the status sub-resource of a `Project`.
 ///
 /// Only updates `lastTransitionTime` when the condition status actually
 /// changes, preventing unnecessary tight reconcile loops.
 async fn update_status(
-	app: &ReinhardtApp,
+	app: &Project,
 	ctx: &Context,
 	namespace: &str,
 	ready: bool,
 	ready_replicas: i32,
 ) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(ctx.client.clone(), namespace);
+	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 	let typed_status = build_status(app, ready, ready_replicas);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
@@ -1837,18 +1829,18 @@ async fn update_status(
 	Ok(())
 }
 
-/// Map an `AppPhase` to the stable label value used by the
+/// Map an `ProjectPhase` to the stable label value used by the
 /// `managed_apps{phase=...}` gauge. Kept as a free function so new
 /// phases must be added explicitly and cannot drift from the CRD enum.
-fn phase_label(phase: &AppPhase) -> &'static str {
+fn phase_label(phase: &ProjectPhase) -> &'static str {
 	match phase {
-		AppPhase::Pending => "Pending",
-		AppPhase::Provisioning => "Provisioning",
-		AppPhase::Deploying => "Deploying",
-		AppPhase::Running => "Running",
-		AppPhase::Degraded => "Degraded",
-		AppPhase::Failed => "Failed",
-		AppPhase::Terminating => "Terminating",
+		ProjectPhase::Pending => "Pending",
+		ProjectPhase::Provisioning => "Provisioning",
+		ProjectPhase::Deploying => "Deploying",
+		ProjectPhase::Running => "Running",
+		ProjectPhase::Degraded => "Degraded",
+		ProjectPhase::Failed => "Failed",
+		ProjectPhase::Terminating => "Terminating",
 	}
 }
 
@@ -1857,7 +1849,7 @@ fn phase_label(phase: &AppPhase) -> &'static str {
 /// Decrements the previous phase bucket (if any) before incrementing the
 /// new bucket, so totals across phases remain consistent even when an
 /// app transitions between phases across reconciliations.
-fn update_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp, new_phase: &str) {
+fn update_managed_apps_gauge(ctx: &Context, app: &Project, new_phase: &str) {
 	let key = backoff_key(app);
 	let previous = ctx.phase_state.insert(key, new_phase.to_string());
 	let changed = previous.as_deref() != Some(new_phase);
@@ -1876,7 +1868,7 @@ fn update_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp, new_phase: &str)
 
 /// Decrement the `managed_apps` gauge for the phase this object was
 /// last observed in, if any. Called when the object is being cleaned up.
-fn drop_managed_apps_gauge(ctx: &Context, app: &ReinhardtApp) {
+fn drop_managed_apps_gauge(ctx: &Context, app: &Project) {
 	if let Some((_, prev)) = ctx.phase_state.remove(&backoff_key(app)) {
 		ctx.metrics
 			.managed_apps
@@ -1903,7 +1895,7 @@ fn should_update_transition_time(
 ///   retrying does not help until the user fixes the resource.
 /// - `Transient` errors use a 30s base; `DependencyNotReady` uses a 60s
 ///   base. Both double on each successive failure and cap at 10 minutes.
-pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Context>) -> Action {
+pub(crate) fn error_policy(obj: Arc<Project>, error: &Error, ctx: Arc<Context>) -> Action {
 	error!("Reconciliation error: {error}");
 
 	let class = backoff_class(error);
@@ -1945,7 +1937,7 @@ pub(crate) fn error_policy(obj: Arc<ReinhardtApp>, error: &Error, ctx: Arc<Conte
 
 /// Starts the operator controller loop.
 pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
-	let apps: Api<ReinhardtApp> = Api::all(client.clone());
+	let apps: Api<Project> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
 	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
@@ -2002,15 +1994,13 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 mod tests {
 	use super::*;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use reinhardt_cloud_types::crd::{
-		AppCondition, AppPhase, ReinhardtAppSpec, ReinhardtAppStatus,
-	};
+	use reinhardt_cloud_types::crd::{ProjectCondition, ProjectPhase, ProjectSpec, ProjectStatus};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
 
-	/// Helper to create a minimal `ReinhardtApp` for reconciler tests.
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	/// Helper to create a minimal `Project` for reconciler tests.
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: kube::api::ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
@@ -2018,7 +2008,7 @@ mod tests {
 				generation: Some(1),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "test:latest".to_string(),
 				..Default::default()
 			},
@@ -2086,7 +2076,7 @@ mod tests {
 		let status = build_status(&app, true, 3);
 
 		// Assert
-		assert_eq!(status.phase, Some(AppPhase::Running));
+		assert_eq!(status.phase, Some(ProjectPhase::Running));
 		assert_eq!(status.conditions.len(), 1);
 		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
 		assert_eq!(status.conditions[0].status, ConditionStatus::True);
@@ -2103,7 +2093,7 @@ mod tests {
 		let status = build_status(&app, false, 0);
 
 		// Assert
-		assert_eq!(status.phase, Some(AppPhase::Deploying));
+		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
 		assert_eq!(status.conditions.len(), 1);
 		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
 		assert_eq!(status.conditions[0].status, ConditionStatus::False);
@@ -2145,9 +2135,9 @@ mod tests {
 		// Arrange
 		let preserved_time = "2025-06-15T12:00:00Z";
 		let mut app = make_test_app("preserve-time-app");
-		app.status = Some(ReinhardtAppStatus {
-			phase: Some(AppPhase::Running),
-			conditions: vec![AppCondition {
+		app.status = Some(ProjectStatus {
+			phase: Some(ProjectPhase::Running),
+			conditions: vec![ProjectCondition {
 				type_: ConditionType::Ready,
 				status: ConditionStatus::True,
 				reason: "ReconcileSuccess".to_string(),
@@ -2175,9 +2165,9 @@ mod tests {
 		// Arrange
 		let old_time = "2025-01-01T00:00:00Z";
 		let mut app = make_test_app("change-time-app");
-		app.status = Some(ReinhardtAppStatus {
-			phase: Some(AppPhase::Running),
-			conditions: vec![AppCondition {
+		app.status = Some(ProjectStatus {
+			phase: Some(ProjectPhase::Running),
+			conditions: vec![ProjectCondition {
 				type_: ConditionType::Ready,
 				status: ConditionStatus::True,
 				reason: "ReconcileSuccess".to_string(),
@@ -2826,7 +2816,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -2839,7 +2829,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let should_cache = should_provision_cache(&app);
@@ -2855,7 +2845,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -2868,7 +2858,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let should_worker = should_provision_worker(&app);
@@ -2889,14 +2879,14 @@ mod tests {
 		// Arrange — explicit spec.cache set (should still trigger provisioning)
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
 				"cache": { "backend": "redis" }
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let should_cache = should_provision_cache(&app);
@@ -2912,7 +2902,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -2923,7 +2913,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let needs_grpc = app
@@ -2948,7 +2938,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -2959,7 +2949,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act / Assert
 		assert!(should_provision_storage(&app));
@@ -2994,7 +2984,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3005,7 +2995,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act / Assert
 		assert!(should_provision_mail(&app));
@@ -3041,7 +3031,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3052,7 +3042,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let needs = app
@@ -3076,7 +3066,7 @@ mod tests {
 		// Arrange — both session_backend=redis and cache=redis
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3088,7 +3078,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let needs_sessions = app
@@ -3114,7 +3104,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3125,7 +3115,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let backend = app
@@ -3151,7 +3141,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3162,7 +3152,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let secret = resources::mail::build_mail_secret(&app).expect("build should succeed");
@@ -3179,7 +3169,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "myapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -3190,7 +3180,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let needs = app
@@ -3248,7 +3238,7 @@ mod tests {
 		// Arrange
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": "wsapp", "namespace": "default", "uid": "uid" },
 			"spec": {
 				"image": "wsapp:latest",
@@ -3260,7 +3250,7 @@ mod tests {
 				}
 			}
 		});
-		let app: ReinhardtApp = serde_json::from_value(json).unwrap();
+		let app: Project = serde_json::from_value(json).unwrap();
 
 		// Act
 		let signals = app
@@ -3381,7 +3371,7 @@ mod tests {
 
 		// Assert — the emitted JSON must drive the CR into `Failed`
 		// phase and carry a single Degraded=True condition with the
-		// supplied reason/message. `AppPhase` serializes lowercase
+		// supplied reason/message. `ProjectPhase` serializes lowercase
 		// (see crd/enums.rs), so the wire value is `"failed"`.
 		let status = &payload["status"];
 		assert_eq!(status["phase"], serde_json::json!("failed"));
@@ -3438,15 +3428,15 @@ mod tests {
 	// ── phase_label tests ───────────────────────────────────────────
 
 	#[rstest]
-	#[case(AppPhase::Pending, "Pending")]
-	#[case(AppPhase::Provisioning, "Provisioning")]
-	#[case(AppPhase::Deploying, "Deploying")]
-	#[case(AppPhase::Running, "Running")]
-	#[case(AppPhase::Degraded, "Degraded")]
-	#[case(AppPhase::Failed, "Failed")]
-	#[case(AppPhase::Terminating, "Terminating")]
+	#[case(ProjectPhase::Pending, "Pending")]
+	#[case(ProjectPhase::Provisioning, "Provisioning")]
+	#[case(ProjectPhase::Deploying, "Deploying")]
+	#[case(ProjectPhase::Running, "Running")]
+	#[case(ProjectPhase::Degraded, "Degraded")]
+	#[case(ProjectPhase::Failed, "Failed")]
+	#[case(ProjectPhase::Terminating, "Terminating")]
 	fn phase_label_returns_stable_metric_label(
-		#[case] phase: AppPhase,
+		#[case] phase: ProjectPhase,
 		#[case] expected: &'static str,
 	) {
 		// Act

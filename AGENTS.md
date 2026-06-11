@@ -16,7 +16,7 @@ See README.md for project details.
 
 ### Architecture Model
 
-The `dashboard/` crate is itself a **Reinhardt application** (built with the Reinhardt web framework). Reinhardt Cloud is the system that **reads the configuration of a Reinhardt-built application** — Cargo feature flags, `settings/*.toml`, and `manage introspect` output — and **automatically generates that application's deployment configuration files**: the `Dockerfile`, `reinhardt-cloud.toml`, the `ReinhardtApp` CRD manifest, and per-app Terraform HCL. The dashboard is therefore both a first-class application and the canonical dogfooding target of this configuration-to-deployment generation pipeline.
+The `dashboard/` crate is itself a **Reinhardt application** (built with the Reinhardt web framework). Reinhardt Cloud is the system that **reads the configuration of a Reinhardt-built application** — Cargo feature flags, `settings/*.toml`, and `manage introspect` output — and **automatically generates that application's deployment configuration files**: the `Dockerfile`, `reinhardt-cloud.toml`, the `Project` CRD manifest, and per-app Terraform HCL. The dashboard is therefore both a first-class application and the canonical dogfooding target of this configuration-to-deployment generation pipeline.
 
 ---
 
@@ -387,7 +387,7 @@ kubectl apply -f manifests/
 kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator
 
 # Watch CRD resources
-kubectl get reinhardtapp -A -w
+kubectl get project -A -w
 ```
 
 **Database Tests:**

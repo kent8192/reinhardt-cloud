@@ -23,7 +23,7 @@ message AgentConnected {
 }
 
 message AgentDeployStatus {
-  string app_name = 1;
+  string project_name = 1;
   bool success = 2;
   string message = 3;
   google.protobuf.Timestamp timestamp = 4;
@@ -41,7 +41,7 @@ message AgentError {
 
 // Generic status event for rollback, scale, and restart operations.
 message AgentCommandStatus {
-  string app_name = 1;
+  string project_name = 1;
   string command_type = 2;
   bool success = 3;
   string message = 4;
@@ -55,38 +55,38 @@ message AgentCommand {
     RollbackCommand rollback = 2;
     ScaleCommand scale = 3;
     RestartCommand restart = 4;
-    ApplyReinhardtAppCommand apply_reinhardt_app = 5;
+    ApplyProjectCommand apply_project = 5;
     ApplyGitCredentialsSecretCommand apply_git_credentials_secret = 6;
   }
 }
 
 message DeployCommand {
-  string app_name = 1;
+  string project_name = 1;
   string image = 2;
   uint32 replicas = 3;
 }
 
 message RollbackCommand {
-  string app_name = 1;
+  string project_name = 1;
   uint32 revision = 2;
 }
 
 message ScaleCommand {
-  string app_name = 1;
+  string project_name = 1;
   uint32 replicas = 2;
 }
 
 message RestartCommand {
-  string app_name = 1;
+  string project_name = 1;
 }
 
-message ApplyReinhardtAppCommand {
-  string app_name = 1;
+message ApplyProjectCommand {
+  string project_name = 1;
   string yaml = 2;
 }
 
 message ApplyGitCredentialsSecretCommand {
-  string app_name = 1;
+  string project_name = 1;
   string namespace = 2;
   string secret_name = 3;
   string git_token = 4;

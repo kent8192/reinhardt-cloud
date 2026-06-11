@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{LimitRange, LimitRangeItem, LimitRangeSpec};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use crate::error::Error;
 use crate::inference::platform::ResourceDefaults;
@@ -15,7 +15,7 @@ use crate::resources::labels::owner_reference;
 /// Builds a `LimitRange` that sets default resource requests/limits
 /// for containers in the app's namespace.
 pub(crate) fn build_limit_range(
-	app: &ReinhardtApp,
+	app: &Project,
 	defaults: &ResourceDefaults,
 ) -> Result<LimitRange, Error> {
 	let name = format!("{}-limits", app.name_any());
@@ -60,18 +60,18 @@ pub(crate) fn build_limit_range(
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn test_app() -> ReinhardtApp {
-		ReinhardtApp {
+	fn test_app() -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some("myapp".to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "test:latest".to_string(),
 				..Default::default()
 			},

@@ -4,7 +4,7 @@
 
 The Reinhardt Cloud Dashboard can be self-hosted by the same operator it
 drives, a practice known as *dogfooding*. The dashboard is expressed as a
-`ReinhardtApp` custom resource that the Reinhardt Cloud Operator reconciles
+`Project` custom resource that the Reinhardt Cloud Operator reconciles
 into a `Deployment`, `Service`, and (optionally) an autoscaler. Upgrades are
 GitOps-driven: every published GitHub release triggers a workflow that
 updates the manifest in the cluster with the newly released image tag.
@@ -29,7 +29,7 @@ place:
 
 1. **Operator installed.** The `reinhardt-cloud-operator` Helm chart
    (`charts/reinhardt-cloud-operator`) is deployed into the
-   `reinhardt-cloud-system` namespace, and the `reinhardtapps.paas.reinhardt-cloud.dev`
+   `reinhardt-cloud-system` namespace, and the `projects.paas.reinhardt-cloud.dev`
    CRD (version `v1alpha2`) is registered in the cluster. See the
    [Operator bootstrap](#operator-bootstrap) section below for three
    install paths (GHCR, local kind cluster, cloud overlay).
@@ -39,7 +39,7 @@ place:
    - **Pull secret.** If you push the dashboard or app images to a private registry, see [docs/registry-and-identity.md](registry-and-identity.md) for setup.
 3. **Cluster access.** A base64-encoded kubeconfig is stored as the
    `KUBECONFIG` repository secret. Scope it to the minimum permissions
-   required to `get`/`create`/`patch` the `reinhardtapp` resource in
+   required to `get`/`create`/`patch` the `project` resource in
    `reinhardt-cloud-system`.
 4. **Secrets pre-populated.** A `Secret` named
    `reinhardt-cloud-dashboard-secrets` exists in the
@@ -136,7 +136,7 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
 4. Confirm the operator picked up the resource:
 
    ```bash
-   kubectl -n reinhardt-cloud-system get reinhardtapp reinhardt-cloud-dashboard
+   kubectl -n reinhardt-cloud-system get project reinhardt-cloud-dashboard
    ```
 
 From this point on, upgrades are managed by the workflow described below.
@@ -149,7 +149,7 @@ modes:
 - **Release trigger.** When a GitHub release is published, the workflow
   strips the leading `v` from the tag, substitutes it into the manifest's
   `__VERSION__` placeholder, applies the result with `kubectl apply`, and
-  waits up to five minutes for the `ReinhardtApp` to reach the `Ready`
+  waits up to five minutes for the `Project` to reach the `Ready`
   condition.
 - **Manual dispatch.** The same workflow can be run manually from the
   Actions tab. Provide the desired image tag in the `version` input (for
@@ -175,7 +175,7 @@ There are two supported ways to roll back:
    ```
 
    Note that on the next reconcile the operator will re-apply whatever
-   image is currently declared in the `ReinhardtApp` spec, so treat this
+   image is currently declared in the `Project` spec, so treat this
    as a temporary measure and follow it with step 1.
 
 ## Observability
@@ -184,11 +184,11 @@ Inspect the state of the self-hosted dashboard with:
 
 ```bash
 # High-level status (image, replicas, Ready condition).
-kubectl -n reinhardt-cloud-system get reinhardtapp \
+kubectl -n reinhardt-cloud-system get project \
   reinhardt-cloud-dashboard
 
 # Full spec and status, including condition history.
-kubectl -n reinhardt-cloud-system describe reinhardtapp \
+kubectl -n reinhardt-cloud-system describe project \
   reinhardt-cloud-dashboard
 
 # Operator logs covering reconciliations of this resource.
@@ -201,7 +201,7 @@ kubectl -n reinhardt-cloud-system get pods \
   -l app.kubernetes.io/name=reinhardt-cloud-dashboard
 ```
 
-The `ReinhardtApp` status surfaces standard Kubernetes conditions
+The `Project` status surfaces standard Kubernetes conditions
 (`Ready`, `Progressing`, `Degraded`). If `Ready` stays `False` for longer
 than the workflow's wait timeout, investigate the operator logs before
 re-running the workflow.

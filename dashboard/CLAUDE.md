@@ -122,7 +122,7 @@ dashboard/tests/
         └── test_<specific_feature>.rs
 ```
 
-- Subdirectory names join related application names with `_`
+- Subdirectory names join related project names with `_`
 - Test files MUST be named `test_<descriptive_name>.rs`
 
 ### TD-3 (NEVER): Prohibited Test File Names

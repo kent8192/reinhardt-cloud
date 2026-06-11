@@ -273,7 +273,7 @@ pub mod import_tests {
 	use crate::apps::github::models::GitHubRepository;
 	use crate::apps::github::services::import::{
 		apply_webhook_action_to_manifest, enrich_import_spec, import_spec_from_repository,
-		source_reinhardt_app_yaml, validate_app_name, validate_registry, with_build_trigger,
+		source_project_yaml, validate_project_name, validate_registry, with_build_trigger,
 		with_preview_create, with_preview_delete,
 	};
 	use crate::utils::vcs::events::WebhookAction;
@@ -295,9 +295,9 @@ pub mod import_tests {
 	#[case("reinhardt-cloud", "reinhardt-cloud")]
 	#[case("Reinhardt.Cloud_App", "reinhardt-cloud-app")]
 	#[case("___", "app")]
-	fn test_import_spec_derives_valid_default_app_name(
+	fn test_import_spec_derives_valid_default_project_name(
 		#[case] repo_name: &str,
-		#[case] expected_app_name: &str,
+		#[case] expected_project_name: &str,
 	) {
 		// Arrange
 		let repository = repository(repo_name);
@@ -307,7 +307,7 @@ pub mod import_tests {
 			.expect("import spec should build");
 
 		// Assert
-		assert_eq!(spec.app_name, expected_app_name);
+		assert_eq!(spec.project_name, expected_project_name);
 		assert_eq!(
 			spec.repository_url,
 			format!("https://github.com/kent8192/{repo_name}.git")
@@ -322,9 +322,9 @@ pub mod import_tests {
 	#[case("bad-")]
 	#[case("Bad")]
 	#[case("bad_name")]
-	fn test_validate_app_name_rejects_invalid_names(#[case] name: &str) {
+	fn test_validate_project_name_rejects_invalid_names(#[case] name: &str) {
 		// Arrange / Act
-		let result = validate_app_name(name);
+		let result = validate_project_name(name);
 
 		// Assert
 		assert!(result.is_err());
@@ -350,11 +350,11 @@ pub mod import_tests {
 			.expect("import spec should build");
 
 		// Act
-		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let yaml = source_project_yaml(&spec).expect("manifest should serialize");
 		let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml should parse");
 
 		// Assert
-		assert_eq!(value["kind"].as_str(), Some("ReinhardtApp"));
+		assert_eq!(value["kind"].as_str(), Some("Project"));
 		assert_eq!(value["metadata"]["name"].as_str(), Some("reinhardt-cloud"));
 		assert_eq!(
 			value["metadata"]["annotations"]["reinhardt.dev/build-trigger"].as_str(),
@@ -396,7 +396,7 @@ pub mod import_tests {
 		);
 
 		// Act
-		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let yaml = source_project_yaml(&spec).expect("manifest should serialize");
 		let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml should parse");
 
 		// Assert
@@ -415,12 +415,12 @@ pub mod import_tests {
 	}
 
 	#[rstest]
-	fn test_webhook_helpers_update_reinhardt_app_annotations() {
+	fn test_webhook_helpers_update_project_annotations() {
 		// Arrange
 		let repository = repository("reinhardt-cloud");
 		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
 			.expect("import spec should build");
-		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let yaml = source_project_yaml(&spec).expect("manifest should serialize");
 
 		// Act
 		let pushed = with_build_trigger(&yaml, "abc123").expect("push annotation should apply");
@@ -462,7 +462,7 @@ pub mod import_tests {
 		let repository = repository("reinhardt-cloud");
 		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
 			.expect("import spec should build");
-		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let yaml = source_project_yaml(&spec).expect("manifest should serialize");
 		let production_push = WebhookAction::BuildTrigger {
 			branch: "main".to_string(),
 			commit_sha: "abc123".to_string(),
@@ -495,7 +495,7 @@ pub mod import_tests {
 		let repository = repository("reinhardt-cloud");
 		let spec = import_spec_from_repository(&repository, "", "ghcr.io/kent8192/reinhardt-cloud")
 			.expect("import spec should build");
-		let yaml = source_reinhardt_app_yaml(&spec).expect("manifest should serialize");
+		let yaml = source_project_yaml(&spec).expect("manifest should serialize");
 		let create = WebhookAction::PreviewCreate {
 			pr_number: 42,
 			branch: "feature/login".to_string(),
@@ -742,6 +742,14 @@ pub mod model_tests {
 		));
 	}
 
+	#[allow(unreachable_pub)]
+	mod github_project_rename_migration {
+		include!(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/migrations/github/0002_rename_github_projects_project_name_alter_g_and_more.rs"
+		));
+	}
+
 	use reinhardt::db::migrations::operations::{ColumnDefinition, Operation};
 	use reinhardt::db::orm::Model;
 	use rstest::rstest;
@@ -820,7 +828,7 @@ pub mod model_tests {
 			.organization(organization_id)
 			.repository(repository_id)
 			.deployment(deployment_id)
-			.app_name("reinhardt-cloud".to_string())
+			.project_name("reinhardt-cloud".to_string())
 			.production_branch("main".to_string())
 			.status("imported".to_string())
 			.finish();
@@ -832,13 +840,13 @@ pub mod model_tests {
 		assert_eq!(*project.organization_id(), organization_id);
 		assert_eq!(*project.repository_id(), repository_id);
 		assert_eq!(*project.deployment_id(), deployment_id);
-		assert_eq!(project.app_name, "reinhardt-cloud");
+		assert_eq!(project.project_name, "reinhardt-cloud");
 		assert_eq!(project.production_branch, "main");
 		assert_eq!(project.status, "imported");
 	}
 
 	#[rstest]
-	fn test_github_initial_migration_matches_persistent_models() {
+	fn test_github_initial_migration_keeps_historical_app_name_column() {
 		// Arrange
 		let migration = github_initial_migration::migration();
 
@@ -1105,6 +1113,43 @@ pub mod model_tests {
 		);
 	}
 
+	#[rstest]
+	fn test_github_project_rename_migration_preserves_project_name_data() {
+		// Arrange
+		let migration = github_project_rename_migration::migration();
+
+		// Act
+		let has_project_name_rename = migration.operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::RenameColumn {
+					table,
+					old_name,
+					new_name
+				} if table == "github_projects"
+					&& old_name == "app_name"
+					&& new_name == "project_name"
+			)
+		});
+		let has_destructive_project_name_change = migration.operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::AddColumn { table, column, .. }
+					if table == "github_projects"
+						&& matches!(column.name.as_str(), "app_name" | "project_name")
+			) || matches!(
+				operation,
+				Operation::DropColumn { table, column, .. }
+					if table == "github_projects"
+						&& matches!(column.as_str(), "app_name" | "project_name")
+			)
+		});
+
+		// Assert
+		assert!(has_project_name_rename);
+		assert!(!has_destructive_project_name_change);
+	}
+
 	fn create_table_columns<'a>(
 		operations: &'a [Operation],
 		table_name: &str,
@@ -1268,7 +1313,7 @@ pub mod server_fn_tests {
 			.organization(42)
 			.repository(7)
 			.deployment(11)
-			.app_name("reinhardt-cloud".to_string())
+			.project_name("reinhardt-cloud".to_string())
 			.production_branch("main".to_string())
 			.status("imported".to_string())
 			.finish();
@@ -1281,7 +1326,7 @@ pub mod server_fn_tests {
 		assert_eq!(info.id, 13);
 		assert_eq!(info.repository_id, 7);
 		assert_eq!(info.deployment_id, 11);
-		assert_eq!(info.app_name, "reinhardt-cloud");
+		assert_eq!(info.project_name, "reinhardt-cloud");
 		assert_eq!(info.production_branch, "main");
 		assert_eq!(info.status, "imported");
 	}

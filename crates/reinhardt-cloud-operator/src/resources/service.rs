@@ -1,4 +1,4 @@
-//! Service builder for operator-managed `ReinhardtApp` resources.
+//! Service builder for operator-managed `Project` resources.
 
 use std::collections::BTreeMap;
 
@@ -6,19 +6,19 @@ use k8s_openapi::api::core::v1::{Service, ServicePort, ServiceSpec};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use super::validate_port;
 use crate::error::Error;
 
-/// Builds a `Service` for the given `ReinhardtApp`.
+/// Builds a `Service` for the given `Project`.
 ///
 /// Uses the app's own namespace as the single source of truth.
 /// When `pages_enabled` is true, the service exposes two ports:
 /// `http-app` (the application port) and `http-static` (port 8080 for the
 /// pages sidecar). Returns an error if the owner reference cannot be computed.
-pub(crate) fn build_service(app: &ReinhardtApp, pages_enabled: bool) -> Result<Service, Error> {
+pub(crate) fn build_service(app: &Project, pages_enabled: bool) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Web);
 	let namespace = super::require_namespace(app)?;
 	let port = validate_port(
@@ -87,18 +87,18 @@ pub(crate) fn build_service(app: &ReinhardtApp, pages_enabled: bool) -> Result<S
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::{ReinhardtAppSpec, ServicesSpec};
+	use reinhardt_cloud_types::crd::{ProjectSpec, ServicesSpec};
 	use rstest::rstest;
 
-	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: image.to_string(),
 				replicas,
 				..Default::default()
@@ -165,7 +165,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_service_uses_app_namespace() {
+	fn test_build_service_uses_project_namespace() {
 		// Arrange
 		let mut app = make_test_app("web", "web:v1", None);
 		app.metadata.namespace = Some("production".to_string());

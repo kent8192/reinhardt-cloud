@@ -15,7 +15,7 @@
 //!   that actually return `Action::requeue(...)` increment this counter;
 //!   `Permanent` errors return `Action::await_change()` and do not bump
 //!   the counter.
-//! - `reinhardt_cloud_operator_managed_apps{phase}` — gauge of `ReinhardtApp`
+//! - `reinhardt_cloud_operator_managed_apps{phase}` — gauge of `Project`
 //!   objects currently tracked by the reconciler, labeled by phase.
 //!   Incremented when a new phase is observed during status update and
 //!   decremented when the object is cleaned up or transitions to a
@@ -98,7 +98,7 @@ impl Metrics {
 		let managed_apps = GaugeVec::new(
 			Opts::new(
 				"reinhardt_cloud_operator_managed_apps",
-				"Number of ReinhardtApp objects tracked by the reconciler, labeled by phase.",
+				"Number of Project objects tracked by the reconciler, labeled by phase.",
 			),
 			&["phase"],
 		)

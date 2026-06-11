@@ -11,26 +11,26 @@ mod tests {
 	#[rstest]
 	fn test_create_deployment_request_deserializes() {
 		// Arrange
-		let json = r#"{"app_name": "web", "cluster_id": 42, "image": "nginx:latest"}"#;
+		let json = r#"{"project_name": "web", "cluster_id": 42, "image": "nginx:latest"}"#;
 
 		// Act
 		let req: CreateDeploymentRequest = serde_json::from_str(json).unwrap();
 
 		// Assert
-		assert_eq!(req.app_name, "web");
+		assert_eq!(req.project_name, "web");
 		assert_eq!(req.cluster_id, 42);
 		assert_eq!(req.image, "nginx:latest");
-		assert!(req.reinhardt_app_yaml.is_none());
+		assert!(req.project_yaml.is_none());
 	}
 
 	#[rstest]
-	fn test_create_deployment_request_accepts_reinhardt_app_yaml() {
+	fn test_create_deployment_request_accepts_project_yaml() {
 		// Arrange
 		let json = r#"{
-			"app_name": "web",
+			"project_name": "web",
 			"cluster_id": 42,
 			"image": "nginx:latest",
-			"reinhardt_app_yaml": "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: ReinhardtApp\n"
+			"project_yaml": "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
 		}"#;
 
 		// Act
@@ -38,8 +38,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(
-			req.reinhardt_app_yaml.as_deref(),
-			Some("apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: ReinhardtApp\n")
+			req.project_yaml.as_deref(),
+			Some("apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n")
 		);
 	}
 }

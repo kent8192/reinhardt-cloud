@@ -44,7 +44,7 @@ pub(crate) enum ParsedAction {
 	/// Subscribe to build log events via the gRPC bridge.
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log events via the gRPC `LogService` bridge.
-	SubscribeAppLogs { app_name: String },
+	SubscribeAppLogs { project_name: String },
 	/// Acknowledged log stream subscription — send ack and start/stop stream.
 	/// Currently unused; will be wired when build log streaming is connected to the match arm.
 	#[allow(dead_code)]
@@ -165,7 +165,7 @@ impl NotificationConsumer {
 				}
 				ParsedAction::SubscribeBuildLogs { build_id }
 			}
-			WsClientMessage::SubscribeAppLogs { app_name } => {
+			WsClientMessage::SubscribeAppLogs { project_name } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -177,7 +177,7 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeAppLogs { app_name }
+				ParsedAction::SubscribeAppLogs { project_name }
 			}
 			WsClientMessage::UnsubscribeLogs => {
 				if user_id.is_none() {
@@ -424,7 +424,7 @@ impl WebSocketConsumer for NotificationConsumer {
 				*handle_guard = Some(handle);
 				drop(handle_guard);
 			}
-			ParsedAction::SubscribeAppLogs { app_name } => {
+			ParsedAction::SubscribeAppLogs { project_name } => {
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -435,7 +435,7 @@ impl WebSocketConsumer for NotificationConsumer {
 				// connection is established, so the client is not misled when
 				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
-				let app = app_name.clone();
+				let app = project_name.clone();
 				let endpoint = grpc_endpoint();
 				let handle_ref = Arc::clone(&self.log_stream_handle);
 
@@ -450,7 +450,7 @@ impl WebSocketConsumer for NotificationConsumer {
 							Ok(c) => c,
 							Err(e) => {
 								tracing::warn!(
-									app_name = %app,
+									project_name = %app,
 									error = %e,
 									"Failed to connect to gRPC LogService for app log streaming",
 								);
@@ -480,7 +480,7 @@ impl WebSocketConsumer for NotificationConsumer {
 						Ok(r) => r.into_inner(),
 						Err(e) => {
 							tracing::warn!(
-								app_name = %app,
+								project_name = %app,
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
@@ -512,7 +512,7 @@ impl WebSocketConsumer for NotificationConsumer {
 							Ok(None) => break,
 							Err(e) => {
 								tracing::warn!(
-									app_name = %app,
+									project_name = %app,
 									error = %e,
 									"Error receiving app log from gRPC stream",
 								);
@@ -766,7 +766,7 @@ mod tests {
 	fn test_parse_subscribe_app_logs_with_auth() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeAppLogs {
-			app_name: "my-service".to_string(),
+			project_name: "my-service".to_string(),
 		};
 
 		// Act
@@ -774,8 +774,8 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeAppLogs { app_name } => {
-				assert_eq!(app_name, "my-service");
+			ParsedAction::SubscribeAppLogs { project_name } => {
+				assert_eq!(project_name, "my-service");
 			}
 			_ => panic!("expected SubscribeAppLogs action"),
 		}
@@ -785,7 +785,7 @@ mod tests {
 	fn test_parse_subscribe_app_logs_without_auth_rejected() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeAppLogs {
-			app_name: "my-service".to_string(),
+			project_name: "my-service".to_string(),
 		};
 
 		// Act

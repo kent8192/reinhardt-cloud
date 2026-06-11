@@ -1,4 +1,4 @@
-//! gRPC Service builder for operator-managed `ReinhardtApp` resources.
+//! gRPC Service builder for operator-managed `Project` resources.
 
 use std::collections::BTreeMap;
 
@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{Service, ServicePort, ServiceSpec};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -14,12 +14,12 @@ use crate::error::Error;
 /// Default gRPC port used when no custom port is configured.
 const GRPC_PORT: i32 = 50051;
 
-/// Builds a gRPC `Service` for the given `ReinhardtApp`.
+/// Builds a gRPC `Service` for the given `Project`.
 ///
 /// The service exposes port 50051 with `appProtocol: "kubernetes.io/h2c"` for
 /// HTTP/2 cleartext, targeting the web component container. The service name
-/// is `{app_name}-grpc`.
-pub(crate) fn build_grpc_service(app: &ReinhardtApp) -> Result<Service, Error> {
+/// is `{project_name}-grpc`.
+pub(crate) fn build_grpc_service(app: &Project) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Web);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
@@ -58,18 +58,18 @@ pub(crate) fn build_grpc_service(app: &ReinhardtApp) -> Result<Service, Error> {
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "myapp:v1".to_string(),
 				..Default::default()
 			},

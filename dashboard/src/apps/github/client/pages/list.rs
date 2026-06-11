@@ -140,9 +140,9 @@ pub fn github_repositories_page() -> Page {
 			cluster_id: HiddenField {
 				initial: String::new(),
 			}
-			app_name: CharField {
+			project_name: CharField {
 				max_length: 63,
-				label: "App Name",
+				label: "Project name",
 				placeholder: "leave blank to derive from repository",
 				class: "rc-input",
 			}
@@ -164,7 +164,8 @@ pub fn github_repositories_page() -> Page {
 	let import_repository_id =
 		import_runtime.watch_field::<String>(import_form.repository_id_field());
 	let import_cluster_id = import_runtime.watch_field::<String>(import_form.cluster_id_field());
-	let import_app_name = import_runtime.watch_field::<String>(import_form.app_name_field());
+	let import_project_name =
+		import_runtime.watch_field::<String>(import_form.project_name_field());
 	let import_error = import_form.error().clone();
 	let import_view = import_form.into_page();
 	let repositories_for_inventory = repositories.clone();
@@ -172,7 +173,7 @@ pub fn github_repositories_page() -> Page {
 	let clusters_for_import = clusters.clone();
 	let clusters_for_inventory = clusters.clone();
 
-	let content = page!(|repositories_for_inventory: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters_for_import: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
+	let content = page!(|repositories_for_inventory: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters_for_import: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_project_name: Signal<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -356,10 +357,10 @@ pub fn github_repositories_page() -> Page {
 								match repositories_for_import.get() {
 									ResourceState::Success(items) => {
 										let repositories_for_change = items.clone();
-										let app_name_signal = import_app_name.clone();
+										let project_name_signal = import_project_name.clone();
 										self::entity_select("Repository", "Select repository", self::repository_select_options(&items), import_repository_id.clone(), move |value| {
 											if let Some(repository) = repositories_for_change.iter().find(|repository| repository.id.to_string() == value) {
-												app_name_signal.set(repository.name.clone());
+												project_name_signal.set(repository.name.clone());
 											}
 										}, )
 									}
@@ -478,7 +479,7 @@ pub fn github_repositories_page() -> Page {
 		import_state.is_submitting,
 		import_repository_id,
 		import_cluster_id,
-		import_app_name,
+		import_project_name,
 	);
 
 	dashboard_app_shell("github", content)

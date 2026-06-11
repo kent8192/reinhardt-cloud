@@ -1,4 +1,4 @@
-//! Per-app ServiceAccount configuration for `ReinhardtApp`.
+//! Per-app ServiceAccount configuration for `Project`.
 //!
 //! This is distinct from the operator-managed `{app-name}-storage` KSA used
 //! solely for storage-backend access. The `ServiceAccountSpec` configures the
@@ -19,7 +19,7 @@ pub struct ServiceAccountSpec {
 	#[serde(default)]
 	pub create: bool,
 
-	/// Name of the KSA. Defaults to the ReinhardtApp name when not set.
+	/// Name of the KSA. Defaults to the Project name when not set.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 

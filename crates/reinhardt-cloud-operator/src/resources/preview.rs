@@ -1,13 +1,13 @@
 //! Preview environment helpers for PR/MR-based deployments.
 //!
 //! Provides functions to generate labels, names, ingress hosts, and full
-//! `ReinhardtAppSpec` instances for preview environments created from
+//! `ProjectSpec` instances for preview environments created from
 //! pull/merge requests.
 
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use reinhardt_cloud_types::crd::{DeletionPolicy, ReinhardtApp, ReinhardtAppSpec};
+use reinhardt_cloud_types::crd::{DeletionPolicy, Project, ProjectSpec};
 
 use crate::error::Error;
 
@@ -15,7 +15,7 @@ use crate::error::Error;
 ///
 /// Labels include:
 /// - `reinhardt.dev/preview` = `"true"`
-/// - `reinhardt.dev/parent-app` = the parent application name
+/// - `reinhardt.dev/parent-app` = the parent project name
 /// - `reinhardt.dev/pr-number` = the PR/MR number
 /// - `app.kubernetes.io/managed-by` = `"reinhardt-cloud"`
 pub(crate) fn preview_labels(parent_name: &str, pr_number: &str) -> BTreeMap<String, String> {
@@ -33,10 +33,10 @@ pub(crate) fn preview_labels(parent_name: &str, pr_number: &str) -> BTreeMap<Str
 	])
 }
 
-/// Generates the preview application name from a parent name and PR number.
+/// Generates the preview project name from a parent name and PR number.
 ///
 /// Format: `{parent}-pr-{number}` (e.g., `my-app-pr-42`).
-pub(crate) fn preview_app_name(parent_name: &str, pr_number: &str) -> String {
+pub(crate) fn preview_project_name(parent_name: &str, pr_number: &str) -> String {
 	format!("{parent_name}-pr-{pr_number}")
 }
 
@@ -50,13 +50,13 @@ pub(crate) fn preview_image_tag(pr_number: &str, short_commit_sha: &str) -> Stri
 /// Supported placeholders: `{app}`, `{pr_number}`, `{branch}`.
 pub(crate) fn preview_ingress_host(
 	template: &str,
-	app_name: &str,
+	project_name: &str,
 	pr_number: &str,
 	branch: &str,
 ) -> String {
 	let branch = dns_safe_label(branch);
 	template
-		.replace("{app}", app_name)
+		.replace("{app}", project_name)
 		.replace("{pr_number}", pr_number)
 		.replace("{branch}", &branch)
 }
@@ -98,7 +98,7 @@ fn dns_safe_label(value: &str) -> String {
 	}
 }
 
-/// Builds a `ReinhardtAppSpec` for a preview environment from a parent app.
+/// Builds a `ProjectSpec` for a preview environment from a parent app.
 ///
 /// The preview spec inherits most settings from the parent but overrides:
 /// - `image`: built from the parent's `source.build.registry` + the given tag
@@ -108,11 +108,11 @@ fn dns_safe_label(value: &str) -> String {
 /// - `source`, `introspect`, `scale`, `storage`, `mail`: always `None`
 /// - `ingress_host` on `services`: generated from `url_template` if set
 pub(crate) fn build_preview_spec(
-	parent: &ReinhardtApp,
+	parent: &Project,
 	pr_number: &str,
 	image_tag: &str,
 	branch_override: Option<&str>,
-) -> Result<ReinhardtAppSpec, Error> {
+) -> Result<ProjectSpec, Error> {
 	let parent_spec = &parent.spec;
 
 	// Build image from parent's registry
@@ -150,7 +150,7 @@ pub(crate) fn build_preview_spec(
 	});
 
 	// Build ingress host from url_template if available
-	let app_name = preview_app_name(&kube::ResourceExt::name_any(parent), pr_number);
+	let project_name = preview_project_name(&kube::ResourceExt::name_any(parent), pr_number);
 	let branch = branch_override
 		.filter(|branch| !branch.trim().is_empty())
 		.or_else(|| {
@@ -163,7 +163,7 @@ pub(crate) fn build_preview_spec(
 
 	let ingress_host = preview_config
 		.and_then(|p| p.url_template.as_deref())
-		.map(|tmpl| preview_ingress_host(tmpl, &app_name, pr_number, branch));
+		.map(|tmpl| preview_ingress_host(tmpl, &project_name, pr_number, branch));
 
 	// Inherit services, potentially with generated ingress_host
 	let services =
@@ -176,7 +176,7 @@ pub(crate) fn build_preview_spec(
 				ingress_host: ingress_host.or_else(|| s.ingress_host.clone()),
 			});
 
-	Ok(ReinhardtAppSpec {
+	Ok(ProjectSpec {
 		image,
 		replicas,
 		database,
@@ -250,10 +250,10 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
-	fn test_app_with_preview(name: &str) -> ReinhardtApp {
+	fn test_app_with_preview(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": {
 				"image": "myapp:latest",
@@ -278,9 +278,9 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_preview_app_name() {
+	fn test_preview_project_name() {
 		// Arrange & Act
-		let name = preview_app_name("my-app", "42");
+		let name = preview_project_name("my-app", "42");
 
 		// Assert
 		assert_eq!(name, "my-app-pr-42");

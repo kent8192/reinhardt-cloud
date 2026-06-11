@@ -19,13 +19,13 @@ pub enum K8sError {
 	#[error("API error: {0}")]
 	Api(String),
 
-	#[error("Invalid ReinhardtApp manifest: {0}")]
+	#[error("Invalid Project manifest: {0}")]
 	Manifest(String),
 
-	#[error("Invalid ReinhardtApp spec: {0}")]
+	#[error("Invalid Project spec: {0}")]
 	Validation(String),
 
-	#[error("ReinhardtApp metadata.name is required")]
+	#[error("Project metadata.name is required")]
 	MissingName,
 }
 

@@ -43,7 +43,7 @@ pub(crate) struct SetArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct CheckArgs {
-	pub app_name: String,
+	pub project_name: String,
 	#[arg(long, default_value = "default")]
 	pub namespace: String,
 }
@@ -119,12 +119,12 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 	Ok(())
 }
 
-/// Checks credential status for an app by looking up {app_name}-git-credentials.
+/// Checks credential status for an app by looking up {project_name}-git-credentials.
 async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let client = Client::try_default().await?;
 	let secrets: Api<Secret> = Api::namespaced(client, &args.namespace);
 
-	let secret_name = format!("{}-git-credentials", args.app_name);
+	let secret_name = format!("{}-git-credentials", args.project_name);
 
 	match secrets.get_opt(&secret_name).await? {
 		Some(secret) => {

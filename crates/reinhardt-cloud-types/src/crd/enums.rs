@@ -3,10 +3,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Phase of the `ReinhardtApp` lifecycle.
+/// Phase of the `Project` lifecycle.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum AppPhase {
+pub enum ProjectPhase {
 	Pending,
 	/// Database/cache being provisioned
 	Provisioning,
@@ -27,13 +27,13 @@ mod tests {
 	fn app_phase_serialization_roundtrip() {
 		// Arrange
 		let phases = [
-			(AppPhase::Pending, "\"pending\""),
-			(AppPhase::Provisioning, "\"provisioning\""),
-			(AppPhase::Deploying, "\"deploying\""),
-			(AppPhase::Running, "\"running\""),
-			(AppPhase::Degraded, "\"degraded\""),
-			(AppPhase::Failed, "\"failed\""),
-			(AppPhase::Terminating, "\"terminating\""),
+			(ProjectPhase::Pending, "\"pending\""),
+			(ProjectPhase::Provisioning, "\"provisioning\""),
+			(ProjectPhase::Deploying, "\"deploying\""),
+			(ProjectPhase::Running, "\"running\""),
+			(ProjectPhase::Degraded, "\"degraded\""),
+			(ProjectPhase::Failed, "\"failed\""),
+			(ProjectPhase::Terminating, "\"terminating\""),
 		];
 
 		for (variant, expected) in &phases {

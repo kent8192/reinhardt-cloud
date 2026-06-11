@@ -116,7 +116,7 @@ pub enum WsClientMessage {
 	/// Subscribe to build log events.
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log stream.
-	SubscribeAppLogs { app_name: String },
+	SubscribeAppLogs { project_name: String },
 	/// Unsubscribe from all log streams.
 	UnsubscribeLogs,
 }

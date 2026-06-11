@@ -100,7 +100,7 @@ impl MockBuildService {
 	pub fn new() -> Self {
 		let default_status = BuildStatus {
 			build_id: Uuid::now_v7(),
-			app_name: "test-app".to_string(),
+			project_name: "test-app".to_string(),
 			phase: reinhardt_cloud_types::build::BuildPhase::Building,
 			completed: false,
 			success: None,
@@ -320,7 +320,7 @@ mod tests {
 		// Arrange
 		let service = MockBuildService::new();
 		let request = BuildRequest {
-			app_name: "test".to_string(),
+			project_name: "test".to_string(),
 			image: "test:latest".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
