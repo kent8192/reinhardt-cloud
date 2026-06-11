@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use reinhardt_cloud_k8s::KubeClient;
 use reinhardt_cloud_k8s::resources::{
-	parse_project_yaml, server_side_apply_git_credentials_secret,
-	server_side_apply_project_yaml,
+	parse_project_yaml, server_side_apply_git_credentials_secret, server_side_apply_project_yaml,
 };
 use reinhardt_cloud_types::agent::AgentCommand;
 use uuid::Uuid;
@@ -97,10 +96,7 @@ pub async fn apply_project_yaml(yaml: &str) -> Result<(), String> {
 		.map_err(|e| e.to_string())
 }
 
-pub async fn apply_project_yaml_for_cluster(
-	yaml: &str,
-	cluster: &Cluster,
-) -> Result<(), String> {
+pub async fn apply_project_yaml_for_cluster(yaml: &str, cluster: &Cluster) -> Result<(), String> {
 	validate_cluster_for_apply(cluster)?;
 	apply_project_yaml(yaml).await.map_err(|e| {
 		format!(

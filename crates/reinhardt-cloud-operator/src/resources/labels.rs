@@ -57,10 +57,7 @@ impl Component {
 /// Standard labels applied to all resources owned by the operator.
 ///
 /// Includes `app.kubernetes.io/component` based on the given [`Component`].
-pub(crate) fn standard_labels(
-	app: &Project,
-	component: Component,
-) -> BTreeMap<String, String> {
+pub(crate) fn standard_labels(app: &Project, component: Component) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("app.kubernetes.io/name".to_string(), app.name_any()),
 		(

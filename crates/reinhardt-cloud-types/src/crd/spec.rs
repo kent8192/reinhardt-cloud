@@ -496,8 +496,7 @@ mod tests {
 		let json = r#"{"image": "myapp:v1"}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "myapp:v1");
@@ -1052,8 +1051,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1067,8 +1065,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1091,8 +1088,7 @@ mod tests {
 		}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		let isolation = spec.isolation.unwrap();
@@ -1142,8 +1138,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1255,8 +1250,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1417,8 +1411,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1509,8 +1502,7 @@ mod tests {
 		let json = r#"{"image": "legacy-app:v2", "replicas": 3}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		assert_eq!(spec.image, "legacy-app:v2");
@@ -1616,8 +1608,7 @@ mod tests {
 		}"#;
 
 		// Act
-		let spec: ProjectSpec =
-			serde_json::from_str(json).expect("deserialization should succeed");
+		let spec: ProjectSpec = serde_json::from_str(json).expect("deserialization should succeed");
 
 		// Assert
 		let source = spec.source.unwrap();

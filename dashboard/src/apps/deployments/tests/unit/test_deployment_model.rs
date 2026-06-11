@@ -2,6 +2,16 @@
 
 #[cfg(test)]
 mod tests {
+	// Included migration files keep `pub(super) fn migration()` because
+	// production discovery loads that symbol from standalone migration modules.
+	mod deployments_project_rename_migration {
+		include!(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/migrations/deployments/0006_rename_deployments_project_name_rename_depl_and_more.rs"
+		));
+	}
+
+	use reinhardt::db::migrations::operations::Operation;
 	use rstest::rstest;
 
 	use crate::apps::deployments::models::Deployment;
@@ -101,5 +111,61 @@ mod tests {
 		assert_eq!(restored.status, deployment.status);
 		assert_eq!(restored.image, deployment.image);
 		assert_eq!(restored.project_yaml, deployment.project_yaml);
+	}
+
+	#[rstest]
+	fn test_deployment_rename_migration_preserves_project_columns() {
+		// Arrange
+		let migration = deployments_project_rename_migration::migration();
+
+		// Act
+		let has_project_name_rename = migration.operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::RenameColumn {
+					table,
+					old_name,
+					new_name
+				} if table == "deployments"
+					&& old_name == "app_name"
+					&& new_name == "project_name"
+			)
+		});
+		let has_project_yaml_rename = migration.operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::RenameColumn {
+					table,
+					old_name,
+					new_name
+				} if table == "deployments"
+					&& old_name == "reinhardt_app_yaml"
+					&& new_name == "project_yaml"
+			)
+		});
+		let has_destructive_project_column_change = migration.operations.iter().any(|operation| {
+			matches!(
+				operation,
+				Operation::AddColumn { table, column, .. }
+					if table == "deployments"
+						&& matches!(
+							column.name.as_str(),
+							"app_name" | "project_name" | "reinhardt_app_yaml" | "project_yaml"
+						)
+			) || matches!(
+				operation,
+				Operation::DropColumn { table, column, .. }
+					if table == "deployments"
+						&& matches!(
+							column.as_str(),
+							"app_name" | "project_name" | "reinhardt_app_yaml" | "project_yaml"
+						)
+			)
+		});
+
+		// Assert
+		assert!(has_project_name_rename);
+		assert!(has_project_yaml_rename);
+		assert!(!has_destructive_project_column_change);
 	}
 }

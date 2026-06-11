@@ -314,7 +314,9 @@ mod tests {
 
 		// Assert
 		let received = rx.recv().await.unwrap();
-		assert!(matches!(received, AgentCommand::Restart { project_name } if project_name == "web"));
+		assert!(
+			matches!(received, AgentCommand::Restart { project_name } if project_name == "web")
+		);
 	}
 
 	#[rstest]
@@ -591,7 +593,9 @@ mod tests {
 
 		// Assert — each agent receives its own command
 		let cmd1 = rx1.recv().await.unwrap();
-		assert!(matches!(cmd1, AgentCommand::Deploy { project_name, .. } if project_name == "app1"));
+		assert!(
+			matches!(cmd1, AgentCommand::Deploy { project_name, .. } if project_name == "app1")
+		);
 
 		let cmd2 = rx2.recv().await.unwrap();
 		assert!(matches!(cmd2, AgentCommand::Scale { project_name, .. } if project_name == "app2"));

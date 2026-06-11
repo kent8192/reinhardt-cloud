@@ -26,10 +26,7 @@ use crate::inference::env_vars::{
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
-fn build_main_container_probe(
-	app: &Project,
-	default_port: i32,
-) -> Result<Option<Probe>, Error> {
+fn build_main_container_probe(app: &Project, default_port: i32) -> Result<Option<Probe>, Error> {
 	let Some(health) = app.spec.health.as_ref() else {
 		return Ok(None);
 	};

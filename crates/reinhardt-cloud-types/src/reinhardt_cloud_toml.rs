@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
-	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec,
-	ProjectSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend,
-	StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
+	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec, ProjectSpec,
+	ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend, StorageSpec, WebhookEvent,
+	WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`

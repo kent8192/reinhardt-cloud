@@ -361,9 +361,8 @@ pub async fn import_github_repository_for_current_org(
 			pipeline_output.introspect,
 			pipeline_output.credentials_secret,
 		);
-		let manifest =
-			crate::apps::github::services::import::source_project_yaml(&import_spec)
-				.map_err(|e| ServerFnError::server(400, e))?;
+		let manifest = crate::apps::github::services::import::source_project_yaml(&import_spec)
+			.map_err(|e| ServerFnError::server(400, e))?;
 		let agent_registry = agent_registry().await?;
 		if let Some(secret_name) = import_spec.credentials_secret.as_deref() {
 			crate::apps::github::services::deploy::send_git_credentials_secret_to_cluster(

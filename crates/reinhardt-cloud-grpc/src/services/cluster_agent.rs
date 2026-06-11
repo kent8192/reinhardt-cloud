@@ -40,18 +40,20 @@ fn domain_command_to_proto(cmd: &AgentCommand) -> pb::AgentCommand {
 			image: image.clone(),
 			replicas: *replicas,
 		})),
-		AgentCommand::Rollback { project_name, revision } => {
-			Some(pb::agent_command::Command::Rollback(pb::RollbackCommand {
-				project_name: project_name.clone(),
-				revision: *revision,
-			}))
-		}
-		AgentCommand::Scale { project_name, replicas } => {
-			Some(pb::agent_command::Command::Scale(pb::ScaleCommand {
-				project_name: project_name.clone(),
-				replicas: *replicas,
-			}))
-		}
+		AgentCommand::Rollback {
+			project_name,
+			revision,
+		} => Some(pb::agent_command::Command::Rollback(pb::RollbackCommand {
+			project_name: project_name.clone(),
+			revision: *revision,
+		})),
+		AgentCommand::Scale {
+			project_name,
+			replicas,
+		} => Some(pb::agent_command::Command::Scale(pb::ScaleCommand {
+			project_name: project_name.clone(),
+			replicas: *replicas,
+		})),
 		AgentCommand::Restart { project_name } => {
 			Some(pb::agent_command::Command::Restart(pb::RestartCommand {
 				project_name: project_name.clone(),

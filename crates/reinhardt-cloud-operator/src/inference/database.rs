@@ -59,7 +59,7 @@ fn max_identifier_len(engine: &DatabaseEngine) -> usize {
 	}
 }
 
-/// Sanitize an project name for use as a database username or db name.
+/// Sanitize a project name for use as a database username or db name.
 ///
 /// The identifier must start with a letter, contain only ASCII alphanumeric
 /// characters and underscores, and be truncated to the engine-specific
@@ -305,7 +305,8 @@ fn build_onprem_postgres(
 	};
 
 	// Credentials secret
-	let secret = build_db_credentials_secret(project_name, namespace, &db_user, &db_password, &db_name);
+	let secret =
+		build_db_credentials_secret(project_name, namespace, &db_user, &db_password, &db_name);
 
 	vec![
 		DatabaseResource::StatefulSet(Box::new(stateful_set)),
@@ -374,8 +375,13 @@ fn build_aws_rds(
 	};
 
 	let password = generate_random_password(24);
-	let secret =
-		build_db_credentials_secret(project_name, namespace, &master_username, &password, &db_name);
+	let secret = build_db_credentials_secret(
+		project_name,
+		namespace,
+		&master_username,
+		&password,
+		&db_name,
+	);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(db_instance)),
@@ -487,8 +493,13 @@ fn build_gcp_cloud_sql(
 
 	let sanitized_user = sanitize_identifier(project_name, &db.engine);
 	let password = generate_random_password(24);
-	let secret =
-		build_db_credentials_secret(project_name, namespace, &sanitized_user, &password, &db_name);
+	let secret = build_db_credentials_secret(
+		project_name,
+		namespace,
+		&sanitized_user,
+		&password,
+		&db_name,
+	);
 
 	vec![
 		DatabaseResource::Dynamic(Box::new(sql_instance)),
@@ -500,7 +511,10 @@ fn build_gcp_cloud_sql(
 
 fn standard_db_labels(project_name: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), project_name.to_string()),
+		(
+			"app.kubernetes.io/name".to_string(),
+			project_name.to_string(),
+		),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud-operator".to_string(),
@@ -1341,7 +1355,7 @@ mod tests {
 	#[rstest]
 	#[case("myapp", "myapp")]
 	#[case("my-app", "my_app")]
-	#[case("my.app.name", "my_project_name")]
+	#[case("my.app.name", "my_app_name")]
 	#[case("123app", "app_123app")]
 	fn sanitize_identifier_normalizes_names(#[case] input: &str, #[case] expected: &str) {
 		// Act

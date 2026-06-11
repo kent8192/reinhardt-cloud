@@ -119,7 +119,8 @@ pub fn github_repositories_page() -> Page {
 	let import_repository_id =
 		import_runtime.watch_field::<String>(import_form.repository_id_field());
 	let import_cluster_id = import_runtime.watch_field::<String>(import_form.cluster_id_field());
-	let import_project_name = import_runtime.watch_field::<String>(import_form.project_name_field());
+	let import_project_name =
+		import_runtime.watch_field::<String>(import_form.project_name_field());
 	let import_error = import_form.error().clone();
 	let import_view = import_form.into_page();
 

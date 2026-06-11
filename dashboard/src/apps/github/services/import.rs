@@ -140,8 +140,7 @@ pub fn source_project_yaml(spec: &GitHubImportSpec) -> Result<String, String> {
 			.join("; ");
 		return Err(format!("Invalid Project spec: {messages}"));
 	}
-	serde_yaml::to_string(&app)
-		.map_err(|e| format!("Failed to serialize Project manifest: {e}"))
+	serde_yaml::to_string(&app).map_err(|e| format!("Failed to serialize Project manifest: {e}"))
 }
 
 pub fn with_build_trigger(yaml: &str, commit_sha: &str) -> Result<String, String> {
@@ -239,8 +238,7 @@ fn with_annotations(
 	}
 	let app: Project =
 		serde_yaml::from_value(value).map_err(|e| format!("Invalid Project YAML: {e}"))?;
-	serde_yaml::to_string(&app)
-		.map_err(|e| format!("Failed to serialize Project manifest: {e}"))
+	serde_yaml::to_string(&app).map_err(|e| format!("Failed to serialize Project manifest: {e}"))
 }
 
 fn non_empty_branch(branch: &str) -> Result<String, String> {

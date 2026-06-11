@@ -371,7 +371,10 @@ async fn execute_deploy(project_name: &str, image: &str, replicas: u32) -> Resul
 	let deployments: Api<Deployment> = Api::default_namespaced(client);
 
 	let labels = BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), project_name.to_string()),
+		(
+			"app.kubernetes.io/name".to_string(),
+			project_name.to_string(),
+		),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud".to_string(),
@@ -422,8 +425,8 @@ async fn execute_deploy(project_name: &str, image: &str, replicas: u32) -> Resul
 }
 
 async fn execute_apply_project(yaml: &str) -> Result<(), String> {
-	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(yaml)
-		.map_err(|e| e.to_string())?;
+	let app =
+		reinhardt_cloud_k8s::resources::parse_project_yaml(yaml).map_err(|e| e.to_string())?;
 	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
 	let client = reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
 		.await
@@ -468,7 +471,8 @@ async fn execute_rollback(project_name: &str, revision: u32) -> Result<(), kube:
 	// Find the ReplicaSet with the target revision annotation
 	let rs_list = replica_sets
 		.list(
-			&kube::api::ListParams::default().labels(&format!("app.kubernetes.io/name={project_name}")),
+			&kube::api::ListParams::default()
+				.labels(&format!("app.kubernetes.io/name={project_name}")),
 		)
 		.await?;
 
@@ -514,7 +518,11 @@ async fn execute_rollback(project_name: &str, revision: u32) -> Result<(), kube:
 		}
 	});
 	deployments
-		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(
+			project_name,
+			&PatchParams::default(),
+			&Patch::Strategic(patch),
+		)
 		.await?;
 
 	Ok(())
@@ -549,7 +557,11 @@ async fn execute_scale(project_name: &str, replicas: u32) -> Result<(), kube::Er
 		"spec": { "replicas": replicas }
 	});
 	deployments
-		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(
+			project_name,
+			&PatchParams::default(),
+			&Patch::Strategic(patch),
+		)
 		.await?;
 
 	Ok(())
@@ -576,7 +588,11 @@ async fn execute_restart(project_name: &str) -> Result<(), kube::Error> {
 		}
 	});
 	deployments
-		.patch(project_name, &PatchParams::default(), &Patch::Strategic(patch))
+		.patch(
+			project_name,
+			&PatchParams::default(),
+			&Patch::Strategic(patch),
+		)
 		.await?;
 
 	Ok(())

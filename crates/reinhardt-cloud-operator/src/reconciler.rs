@@ -47,7 +47,7 @@ use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
-use reinhardt_cloud_types::crd::{ProjectCondition, ProjectPhase, Project, ProjectStatus};
+use reinhardt_cloud_types::crd::{Project, ProjectCondition, ProjectPhase, ProjectStatus};
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
@@ -992,11 +992,7 @@ fn resolve_ingress_config(
 ///
 /// Only creates the secret if it does not already exist, preserving
 /// existing credentials across reconciliation cycles.
-async fn reconcile_db_secret(
-	app: &Project,
-	client: &Client,
-	namespace: &str,
-) -> Result<(), Error> {
+async fn reconcile_db_secret(app: &Project, client: &Client, namespace: &str) -> Result<(), Error> {
 	let name = app.name_any();
 	let secret_name = format!("{name}-db-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
@@ -1629,11 +1625,7 @@ async fn reconcile_tenant_resources(
 /// Pure function so it is exercised by unit tests without spinning up a
 /// kube client. The returned JSON value is shaped to merge into the
 /// `status` sub-resource via `Patch::Merge`.
-fn build_degraded_status_patch(
-	app: &Project,
-	reason: &str,
-	message: &str,
-) -> serde_json::Value {
+fn build_degraded_status_patch(app: &Project, reason: &str, message: &str) -> serde_json::Value {
 	let condition = ProjectCondition {
 		type_: ConditionType::Degraded,
 		status: ConditionStatus::True,
@@ -2002,9 +1994,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 mod tests {
 	use super::*;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use reinhardt_cloud_types::crd::{
-		ProjectCondition, ProjectPhase, ProjectSpec, ProjectStatus,
-	};
+	use reinhardt_cloud_types::crd::{ProjectCondition, ProjectPhase, ProjectSpec, ProjectStatus};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
 

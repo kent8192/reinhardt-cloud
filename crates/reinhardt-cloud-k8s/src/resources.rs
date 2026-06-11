@@ -11,8 +11,7 @@ use crate::client::{K8sError, KubeClient};
 
 /// Parses and validates a `Project` YAML manifest.
 pub fn parse_project_yaml(yaml: &str) -> Result<Project, K8sError> {
-	let app: Project =
-		serde_yaml::from_str(yaml).map_err(|e| K8sError::Manifest(e.to_string()))?;
+	let app: Project = serde_yaml::from_str(yaml).map_err(|e| K8sError::Manifest(e.to_string()))?;
 	if app.metadata.name.as_deref().is_none_or(str::is_empty) {
 		return Err(K8sError::MissingName);
 	}

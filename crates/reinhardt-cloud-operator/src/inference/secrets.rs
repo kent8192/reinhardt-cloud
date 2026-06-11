@@ -107,7 +107,10 @@ pub(crate) fn build_db_credentials_secret(
 
 fn standard_secret_labels(project_name: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
-		("app.kubernetes.io/name".to_string(), project_name.to_string()),
+		(
+			"app.kubernetes.io/name".to_string(),
+			project_name.to_string(),
+		),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud-operator".to_string(),

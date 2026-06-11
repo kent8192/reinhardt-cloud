@@ -856,7 +856,10 @@ mod tests {
 		assert_eq!(parse_introspect_timeout_seconds(raw), expected);
 	}
 
-	fn introspect_with_infra_signals(project_name: &str, signals: InfraSignals) -> IntrospectOutput {
+	fn introspect_with_infra_signals(
+		project_name: &str,
+		signals: InfraSignals,
+	) -> IntrospectOutput {
 		IntrospectOutput {
 			app: AppMetadata {
 				name: project_name.to_string(),
@@ -1180,9 +1183,8 @@ features:
 		);
 
 		// Act
-		let spec =
-			build_project_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect))
-				.expect("spec should build");
+		let spec = build_project_spec(None, "orders", "orders:v1".to_string(), 2, Some(introspect))
+			.expect("spec should build");
 
 		// Assert
 		let infrastructure = spec
@@ -1338,9 +1340,8 @@ features:
 		};
 
 		// Act
-		let spec =
-			build_project_spec(None, "my-app", "my-app:v1".to_string(), 3, Some(introspect))
-				.expect("spec should build");
+		let spec = build_project_spec(None, "my-app", "my-app:v1".to_string(), 3, Some(introspect))
+			.expect("spec should build");
 		let crd = build_project_crd(
 			"my-app",
 			"production",
@@ -1402,9 +1403,8 @@ features:
 	#[rstest]
 	fn test_build_project_crd_without_introspect() {
 		// Arrange
-		let spec =
-			build_project_spec(None, "simple-app", "simple:latest".to_string(), 1, None)
-				.expect("spec should build");
+		let spec = build_project_spec(None, "simple-app", "simple:latest".to_string(), 1, None)
+			.expect("spec should build");
 
 		// Act
 		let crd = build_project_crd(

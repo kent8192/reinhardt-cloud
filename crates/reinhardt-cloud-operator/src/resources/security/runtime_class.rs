@@ -11,10 +11,7 @@ use reinhardt_cloud_types::crd::isolation::IsolationLevel;
 ///
 /// Returns `None` when no isolation is configured (standard runc runtime).
 /// The `runtime_class_override` field takes precedence when set.
-pub(crate) fn resolve_runtime_class_name(
-	app: &Project,
-	platform: &Platform,
-) -> Option<String> {
+pub(crate) fn resolve_runtime_class_name(app: &Project, platform: &Platform) -> Option<String> {
 	let isolation = app.spec.isolation.as_ref()?;
 
 	if let Some(ref name) = isolation.runtime_class_override {
