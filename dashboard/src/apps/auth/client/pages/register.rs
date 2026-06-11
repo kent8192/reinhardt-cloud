@@ -9,8 +9,8 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 
 use crate::apps::auth::client::components::oauth_buttons;
-use crate::apps::auth::client::pages::auth_href;
 use crate::apps::auth::server_fn::register::register;
+use crate::shared::client::routes::route_href;
 
 /// Render the registration page inside the shared auth layout.
 pub fn register_page() -> Page {
@@ -18,8 +18,8 @@ pub fn register_page() -> Page {
 		name: RegisterForm,
 		server_fn: register,
 		method: Post,
-		class: "space-y-4",
-		redirect_on_success: "/login",
+		class: "rc-form-stack",
+		success_url: |_form| route_href("auth:login_page", "/login"),
 		fields: {
 			username: CharField {
 				required,
@@ -43,13 +43,13 @@ pub fn register_page() -> Page {
 			},
 			submit: SubmitButton {
 				label: "Create account",
-				class: "btn-primary w-full py-2.5 text-base"
+				class: "btn-primary min-h-11 w-full text-base"
 			},
 		},
 	};
 	let form_view = register_form.into_page();
 	let oauth_buttons = oauth_buttons();
-	let login_href = auth_href("auth:login_page", "/login");
+	let login_href = route_href("auth:login_page", "/login");
 
 	page!(|form_view: Page, oauth_buttons: Page, login_href: String| {
 		div {

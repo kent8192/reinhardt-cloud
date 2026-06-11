@@ -3,9 +3,9 @@
 //! Per `CM-2`, OAuth client credentials are environment-driven so that
 //! deployments never bake provider secrets into TOML or container images.
 //! A provider is considered enabled iff its `CLIENT_ID` and `CLIENT_SECRET`
-//! are both set; partial configuration disables the provider entirely so
-//! that the login UI does not present a button that cannot complete the
-//! flow.
+//! are both set and the dashboard can encrypt persisted OAuth tokens; partial
+//! runtime configuration disables the provider entirely so that the login UI
+//! does not present a button that cannot complete the flow.
 //!
 //! [`OAuthSettings`] is exposed via `#[injectable_factory]` so handlers
 //! and the OAuth backend factory resolve a single shared snapshot of the
@@ -16,6 +16,8 @@
 use std::env;
 
 use reinhardt::di::injectable_factory;
+
+use crate::apps::auth::services::oauth::token_crypto::token_encryption_key_is_configured;
 /// Credentials for a single OAuth provider, populated from env vars.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCredentials {
@@ -38,12 +40,13 @@ impl OAuthSettings {
 	/// Reads provider credentials from the process environment.
 	///
 	/// For each provider, all three env vars (`CLIENT_ID`, `CLIENT_SECRET`,
-	/// `REDIRECT_URI`) must be present and non-empty for the provider to be
-	/// enabled. If any of them is missing, the provider entry is `None` and
-	/// provider discovery omits that provider.
+	/// `REDIRECT_URI`) and a valid OAuth token encryption key must be present
+	/// for the provider to be enabled. If any of them is missing, the provider
+	/// entry is `None` and provider discovery omits that provider.
 	pub fn from_env() -> Self {
+		let can_store_tokens = token_encryption_key_is_configured();
 		Self {
-			github: read_provider("GITHUB"),
+			github: can_store_tokens.then(|| read_provider("GITHUB")).flatten(),
 		}
 	}
 

@@ -70,6 +70,7 @@ pub mod client_tests {
 
 	use crate::apps::github::services::client::{
 		ReqwestGitHubAppClient, installation_access_tokens_url, installation_repositories_url,
+		user_installations_url,
 	};
 	use crate::apps::github::services::config::GitHubAppSettings;
 
@@ -79,6 +80,7 @@ pub mod client_tests {
 			private_key_pem: "unused-private-key".to_string(),
 			webhook_secret: "unused-webhook-secret".to_string(),
 			api_base_url,
+			install_url: None,
 		}
 	}
 
@@ -112,6 +114,8 @@ pub mod client_tests {
 			installation_access_tokens_url(api_base_url, 987_654).expect("url should build");
 		let repositories_url =
 			installation_repositories_url(api_base_url).expect("url should build");
+		let user_installations_url =
+			user_installations_url(api_base_url).expect("url should build");
 
 		// Assert
 		assert_eq!(
@@ -122,6 +126,53 @@ pub mod client_tests {
 			repositories_url.as_str(),
 			"https://github.example.test/api/v3/installation/repositories"
 		);
+		assert_eq!(
+			user_installations_url.as_str(),
+			"https://github.example.test/api/v3/user/installations"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_github_app_client_lists_user_installations_with_headers() {
+		// Arrange
+		let server = MockServer::start().await;
+		Mock::given(method("GET"))
+			.and(path("/user/installations"))
+			.and(header("Authorization", "Bearer user-token"))
+			.and(header("Accept", "application/vnd.github+json"))
+			.and(header("X-GitHub-Api-Version", "2022-11-28"))
+			.and(query_param("per_page", "100"))
+			.and(query_param("page", "1"))
+			.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+				"total_count": 1,
+				"installations": [{
+					"id": 987654,
+					"account": {
+						"id": 42,
+						"login": "kent8192",
+						"type": "Organization"
+					}
+				}]
+			})))
+			.expect(1)
+			.mount(&server)
+			.await;
+		let client =
+			ReqwestGitHubAppClient::with_http_client(test_settings(server.uri()), Client::new());
+
+		// Act
+		let installations = client
+			.list_user_installations_with_token("user-token")
+			.await
+			.expect("installations should load");
+
+		// Assert
+		assert_eq!(installations.len(), 1);
+		assert_eq!(installations[0].id, 987654);
+		assert_eq!(installations[0].account_id, 42);
+		assert_eq!(installations[0].account_login, "kent8192");
+		assert_eq!(installations[0].account_type, "Organization");
 	}
 
 	#[rstest]
@@ -538,6 +589,7 @@ pub mod config_tests {
 	const PRIVATE_KEY_PEM_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_PRIVATE_KEY_PEM";
 	const WEBHOOK_SECRET_ENV: &str = "REINHARDT_CLOUD_GITHUB_WEBHOOK_SECRET";
 	const API_BASE_URL_ENV: &str = "REINHARDT_CLOUD_GITHUB_API_BASE_URL";
+	const INSTALL_URL_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL";
 
 	struct EnvGuard {
 		saved: Vec<(String, Option<String>)>,
@@ -586,6 +638,10 @@ pub mod config_tests {
 			),
 			(WEBHOOK_SECRET_ENV, Some("webhook-secret")),
 			(API_BASE_URL_ENV, None),
+			(
+				INSTALL_URL_ENV,
+				Some("https://github.com/apps/reinhardt-cloud/installations/new"),
+			),
 		]);
 
 		// Act
@@ -600,6 +656,10 @@ pub mod config_tests {
 		);
 		assert_eq!(settings.webhook_secret, "webhook-secret");
 		assert_eq!(settings.api_base_url, "https://api.github.com");
+		assert_eq!(
+			settings.install_url.as_deref(),
+			Some("https://github.com/apps/reinhardt-cloud/installations/new")
+		);
 	}
 
 	#[rstest]
@@ -653,6 +713,9 @@ pub mod config_tests {
 			private_key_pem: "secret-private-key".to_string(),
 			webhook_secret: "secret-webhook-token".to_string(),
 			api_base_url: "https://api.github.com".to_string(),
+			install_url: Some(
+				"https://github.com/apps/reinhardt-cloud/installations/new".to_string(),
+			),
 		};
 
 		// Act

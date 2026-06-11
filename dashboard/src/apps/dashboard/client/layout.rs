@@ -3,41 +3,50 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::shared::client::routes::route_href;
+
 fn nav_item_class(is_active: bool) -> &'static str {
 	if is_active {
-		"block rounded-md bg-control-500/10 px-3 py-2 text-sm font-semibold text-control-700"
+		"block rounded-md border border-control-500/20 bg-control-500/10 px-3 py-2 text-sm font-bold text-control-700 shadow-[inset_3px_0_0_#147d74]"
 	} else {
-		"block rounded-md px-3 py-2 text-sm font-medium text-ink-600 hover:bg-cloud-100 hover:text-ink-950"
+		"block rounded-md border border-transparent px-3 py-2 text-sm font-semibold text-ink-600 hover:border-cloud-200 hover:bg-white hover:text-ink-950"
 	}
 }
 
 /// Render the shared dashboard application chrome around a section page.
 pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
-	let account_href = "/account".to_string();
-	let home_href = "/".to_string();
-	let clusters_href = "/clusters".to_string();
-	let deployments_href = "/deployments".to_string();
-	let github_href = "/github".to_string();
+	let account_href = route_href("auth:account_page", "/account");
+	let home_href = route_href("dashboard:home", "/");
+	let clusters_href = route_href("clusters:list", "/clusters");
+	let deployments_href = route_href("deployments:list", "/deployments");
+	let github_href = route_href("github:repositories", "/github");
 	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String, github_href: String| {
 		div {
 			class: "rc-app flex flex-col",
 			header {
-				class: "h-14 border-b border-cloud-200 bg-white/95 flex items-center justify-between px-6 shrink-0",
+				class: "sticky top-0 z-10 h-16 border-b border-cloud-200 bg-white/90 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0",
 				div {
 					class: "flex items-center gap-3",
 					span {
-						class: "h-2.5 w-2.5 rounded-full bg-control-500 shadow-[0_0_0_4px_rgba(15,118,110,0.12)]",
+						class: "grid h-9 w-9 place-items-center rounded-md bg-ink-950 text-sm font-bold text-white shadow-[0_10px_20px_rgba(17,16,19,0.16)]",
+						"RC"
 					}
-					span {
-						class: "text-lg font-semibold text-ink-950",
-						"Reinhardt Cloud"
+					div {
+						span {
+							class: "block text-base font-bold leading-tight text-ink-950",
+							"Reinhardt Cloud"
+						}
+						span {
+							class: "hidden text-xs font-semibold uppercase text-ink-600 sm:block",
+							"Deploy control"
+						}
 					}
 				}
 				div {
-					class: "flex items-center gap-4",
+					class: "flex items-center gap-2 sm:gap-3",
 					span {
-						class: "text-sm text-ink-600",
-						"Dashboard"
+						class: "hidden rounded-md border border-cloud-200 bg-cloud-50 px-3 py-1.5 text-xs font-bold uppercase text-ink-600 sm:inline-flex",
+						"Healthy"
 					}
 					a {
 						href: account_href.clone(),
@@ -54,9 +63,20 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 			div {
 				class: "flex flex-1 flex-col md:flex-row",
 				nav {
-					class: "box-border w-full border-b border-cloud-200 bg-white p-4 shrink-0 md:w-56 md:border-b-0 md:border-r",
+					class: "box-border w-full border-b border-cloud-200 bg-cloud-50/85 p-4 shrink-0 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:bg-white/80",
+					div {
+						class: "mb-4 rounded-md border border-cloud-200 bg-white p-3",
+						p {
+							class: "text-xs font-bold uppercase text-ink-600",
+							"Organization"
+						}
+						p {
+							class: "mt-1 truncate text-sm font-bold text-ink-950",
+							"current workspace"
+						}
+					}
 					ul {
-						class: "space-y-1",
+						class: "space-y-1.5",
 						li {
 							a {
 								href: home_href,
@@ -95,7 +115,7 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 					}
 				}
 				main {
-					class: "flex-1 p-6",
+					class: "min-w-0 flex-1",
 					{ content }
 				}
 			}
@@ -113,7 +133,10 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 
 /// Render the main dashboard shell with navigation sidebar and overview cards.
 pub fn dashboard_shell() -> Page {
-	let content = page!(|| {
+	let clusters_href = route_href("clusters:list", "/clusters");
+	let deployments_href = route_href("deployments:list", "/deployments");
+	let github_href = route_href("github:repositories", "/github");
+	let content = page!(|clusters_href: String, deployments_href: String, github_href: String| {
 		div {
 			class: "rc-shell",
 			div {
@@ -125,52 +148,116 @@ pub fn dashboard_shell() -> Page {
 					}
 					h1 {
 						class: "rc-title mt-1",
-						"Dashboard"
+						"Deployment Operations"
 					}
 				}
 				p {
 					class: "rc-muted max-w-xl",
-					"Operational entry point for clusters, deployments, and platform health."
+					"Live workspace for clusters, deployments, source imports, and account access."
 				}
 			}
 			div {
 				class: "grid grid-cols-1 gap-4 md:grid-cols-3",
 				div {
-					class: "rc-panel-pad",
+					class: "rc-panel-pad border-l-4 border-l-control-500",
 					h3 {
-						class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
+						class: "text-xs font-bold uppercase text-ink-600",
 						"Clusters"
 					}
 					p {
-						class: "mt-3 text-3xl font-semibold text-ink-950",
+						class: "mt-3 text-3xl font-bold text-ink-950",
 						"0"
+					}
+					p {
+						class: "mt-1 text-xs font-semibold text-ink-600",
+						"registered targets"
 					}
 				}
 				div {
-					class: "rc-panel-pad",
+					class: "rc-panel-pad border-l-4 border-l-relay-500",
 					h3 {
-						class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
+						class: "text-xs font-bold uppercase text-ink-600",
 						"Deployments"
 					}
 					p {
-						class: "mt-3 text-3xl font-semibold text-ink-950",
+						class: "mt-3 text-3xl font-bold text-ink-950",
 						"0"
+					}
+					p {
+						class: "mt-1 text-xs font-semibold text-ink-600",
+						"active releases"
 					}
 				}
 				div {
-					class: "rc-panel-pad",
+					class: "rc-panel-pad border-l-4 border-l-signal-500",
 					h3 {
-						class: "text-xs font-semibold uppercase tracking-[0.12em] text-ink-600",
+						class: "text-xs font-bold uppercase text-ink-600",
 						"System Status"
 					}
 					p {
-						class: "mt-3 inline-flex rounded-full bg-control-500/10 px-2.5 py-1 text-sm font-semibold text-control-700",
+						class: "mt-3 inline-flex rounded-full bg-control-500/10 px-2.5 py-1 text-sm font-bold text-control-700",
 						"Healthy"
+					}
+					p {
+						class: "mt-2 text-xs font-semibold text-ink-600",
+						"router and websocket ready"
+					}
+				}
+			}
+			div {
+				class: "mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]",
+				section {
+					class: "rc-panel",
+					div {
+						class: "rc-panel-head",
+						"Runbook"
+					}
+					div {
+						class: "grid gap-0 divide-y divide-cloud-200",
+						a {
+							href: clusters_href.clone(),
+							class: "flex items-center justify-between px-4 py-3 text-sm font-semibold text-ink-800 hover:bg-cloud-50",
+							"Register cluster" span {
+								class: "text-control-700",
+								"Open"
+							}
+						}
+						a {
+							href: deployments_href.clone(),
+							class: "flex items-center justify-between px-4 py-3 text-sm font-semibold text-ink-800 hover:bg-cloud-50",
+							"Create deployment" span {
+								class: "text-control-700",
+								"Open"
+							}
+						}
+						a {
+							href: github_href.clone(),
+							class: "flex items-center justify-between px-4 py-3 text-sm font-semibold text-ink-800 hover:bg-cloud-50",
+							"Import repository" span {
+								class: "text-control-700",
+								"Open"
+							}
+						}
+					}
+				}
+				section {
+					class: "rc-panel-pad bg-ink-950 text-white",
+					p {
+						class: "text-xs font-bold uppercase text-cloud-200",
+						"Control Surface"
+					}
+					p {
+						class: "mt-3 text-2xl font-bold",
+						"Dogfood-ready"
+					}
+					p {
+						class: "mt-2 text-sm text-cloud-100",
+						"Dashboard routes are rendered through the shared Reinhardt application shell."
 					}
 				}
 			}
 		}
-	})();
+	})(clusters_href, deployments_href, github_href);
 	dashboard_app_shell("overview", content)
 }
 
@@ -181,11 +268,11 @@ mod tests {
 	#[rstest]
 	#[case::active(
 		true,
-		"block rounded-md bg-control-500/10 px-3 py-2 text-sm font-semibold text-control-700"
+		"block rounded-md border border-control-500/20 bg-control-500/10 px-3 py-2 text-sm font-bold text-control-700 shadow-[inset_3px_0_0_#147d74]"
 	)]
 	#[case::inactive(
 		false,
-		"block rounded-md px-3 py-2 text-sm font-medium text-ink-600 hover:bg-cloud-100 hover:text-ink-950"
+		"block rounded-md border border-transparent px-3 py-2 text-sm font-semibold text-ink-600 hover:border-cloud-200 hover:bg-white hover:text-ink-950"
 	)]
 	fn nav_item_class_reflects_active_state(#[case] is_active: bool, #[case] expected: &str) {
 		// Arrange

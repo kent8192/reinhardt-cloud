@@ -13,6 +13,8 @@ use crate::apps::clusters::server_fn::{
 };
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::cluster_health::cluster_health_container;
+use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
+use crate::shared::client::routes::route_href;
 
 fn format_server_error(raw: &str) -> String {
 	if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
@@ -58,6 +60,24 @@ async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
 	Ok(Vec::new())
 }
 
+fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
+	items
+		.iter()
+		.map(|cluster| {
+			let state = if cluster.is_active {
+				"active"
+			} else {
+				"inactive"
+			};
+			EntitySelectOption::new(
+				cluster.id.to_string(),
+				cluster.name.clone(),
+				Some(format!("{state} / {}", cluster.api_url)),
+			)
+		})
+		.collect()
+}
+
 /// Render the clusters page.
 pub fn clusters_list_page() -> Page {
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
@@ -66,8 +86,8 @@ pub fn clusters_list_page() -> Page {
 		name: CreateClusterForm,
 		server_fn: create_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
-		class: "grid gap-3 md:grid-cols-2",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
+		class: "rc-form-grid",
 		fields: {
 			name: CharField {
 				required,
@@ -85,7 +105,7 @@ pub fn clusters_list_page() -> Page {
 			}
 			submit: SubmitButton {
 				label: "Create cluster",
-				class: "btn-primary md:justify-self-start"
+				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
 			}
 		}
 	};
@@ -98,8 +118,8 @@ pub fn clusters_list_page() -> Page {
 		name: UpdateClusterForm,
 		server_fn: update_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
+		class: "rc-form-stack",
 		fields: {
 			cluster_id: HiddenField {
 				initial: String::new(),
@@ -121,11 +141,11 @@ pub fn clusters_list_page() -> Page {
 			is_active: BooleanField {
 				label: "Active",
 				initial: true,
-				class: "h-4 w-4 rounded border-cloud-200 text-control-600 focus:ring-control-500",
+				class: "rc-checkbox",
 			}
 			submit: SubmitButton {
 				label: "Update cluster",
-				class: "btn-dark"
+				class: "btn-dark min-h-11 w-full"
 			}
 		}
 	};
@@ -134,6 +154,10 @@ pub fn clusters_list_page() -> Page {
 		.reset_on_deps(ResetOnDeps::ResetAll)
 		.build();
 	let edit_state = edit_runtime.form_state();
+	let edit_cluster_id = edit_runtime.watch_field::<String>(edit_form.cluster_id_field());
+	let edit_name = edit_runtime.watch_field::<String>(edit_form.name_field());
+	let edit_api_url = edit_runtime.watch_field::<String>(edit_form.api_url_field());
+	let edit_is_active = edit_runtime.watch_field::<bool>(edit_form.is_active_field());
 	let edit_error = edit_form.error().clone();
 	let edit_view = edit_form.into_page();
 
@@ -141,23 +165,21 @@ pub fn clusters_list_page() -> Page {
 		name: DeleteClusterForm,
 		server_fn: delete_cluster_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
+		class: "rc-form-stack",
 		fields: {
-			cluster_id: CharField {
-				required,
-				label: "Cluster ID",
-				placeholder: "1",
-				class: "rc-input",
+			cluster_id: HiddenField {
+				initial: String::new(),
 			}
 			submit: SubmitButton {
 				label: "Delete cluster",
-				class: "btn-danger"
+				class: "btn-danger min-h-11 w-full"
 			}
 		}
 	};
 	let delete_runtime = use_form(&delete_form).build();
 	let delete_state = delete_runtime.form_state();
+	let delete_cluster_id = delete_runtime.watch_field::<String>(delete_form.cluster_id_field());
 	let delete_error = delete_form.error().clone();
 	let delete_view = delete_form.into_page();
 
@@ -165,29 +187,31 @@ pub fn clusters_list_page() -> Page {
 		name: RotateClusterTokenForm,
 		server_fn: rotate_cluster_token_for_current_org,
 		method: Post,
-		redirect_on_success: "/clusters",
-		class: "grid gap-3",
+		success_url: |_form| route_href("clusters:list", "/clusters"),
+		class: "rc-form-stack",
 		fields: {
-			cluster_id: CharField {
-				required,
-				label: "Cluster ID",
-				placeholder: "1",
-				class: "rc-input",
+			cluster_id: HiddenField {
+				initial: String::new(),
 			}
 			submit: SubmitButton {
 				label: "Rotate token",
-				class: "btn-warning"
+				class: "btn-warning min-h-11 w-full"
 			}
 		}
 	};
 	let rotate_runtime = use_form(&rotate_form).build();
 	let rotate_state = rotate_runtime.form_state();
+	let rotate_cluster_id = rotate_runtime.watch_field::<String>(rotate_form.cluster_id_field());
 	let rotate_error = rotate_form.error().clone();
 	let rotate_view = rotate_form.into_page();
 
 	let health = cluster_health_container();
+	let clusters_for_inventory = clusters.clone();
+	let clusters_for_edit = clusters.clone();
+	let clusters_for_rotate = clusters.clone();
+	let clusters_for_delete = clusters.clone();
 
-	let content = page!(|clusters: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, health: Page| {
+	let content = page!(|clusters_for_inventory: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_edit: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_rotate: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_delete: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_cluster_id: Signal<String>, edit_name: Signal<String>, edit_api_url: Signal<String>, edit_is_active: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_cluster_id: Signal<String>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, rotate_cluster_id: Signal<String>, health: Page| {
 		div {
 			class: "rc-shell",
 			div {
@@ -220,7 +244,7 @@ pub fn clusters_list_page() -> Page {
 								"Cluster Inventory"
 							}
 							{
-								match clusters.get() {
+								match clusters_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
 											class: "rc-empty",
@@ -351,7 +375,7 @@ pub fn clusters_list_page() -> Page {
 						}
 					}
 					aside {
-						class: "space-y-4",
+						class: "rc-stack",
 						section {
 							class: "rc-panel-pad",
 							h2 {
@@ -360,6 +384,37 @@ pub fn clusters_list_page() -> Page {
 							}
 							{
 								self::alert(edit_error.clone())
+							}
+							{
+								match clusters_for_edit.get() {
+									ResourceState::Success(items) => {
+										let clusters_for_change = items.clone();
+										let name_signal = edit_name.clone();
+										let api_url_signal = edit_api_url.clone();
+										let is_active_signal = edit_is_active.clone();
+										self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), edit_cluster_id.clone(), move |value| {
+											if let Some(cluster) = clusters_for_change.iter().find(|cluster| cluster.id.to_string() == value) {
+												name_signal.set(cluster.name.clone());
+												api_url_signal.set(cluster.api_url.clone());
+												is_active_signal.set(cluster.is_active);
+											}
+										}, )
+									}
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading clusters..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
 							}
 							{ edit_view }
 							{
@@ -388,6 +443,25 @@ pub fn clusters_list_page() -> Page {
 							{
 								self::alert(rotate_error.clone())
 							}
+							{
+								match clusters_for_rotate.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), rotate_cluster_id.clone(), |_value| {}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading clusters..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
+							}
 							{ rotate_view }
 							{
 								if rotate_submitting.get() {
@@ -404,6 +478,25 @@ pub fn clusters_list_page() -> Page {
 							}
 							{
 								self::alert(delete_error.clone())
+							}
+							{
+								match clusters_for_delete.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), delete_cluster_id.clone(), |_value| {}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading clusters..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{
+												self::format_server_error(&message)
+											}
+										}
+									})(message),
+								}
 							}
 							{ delete_view }
 							{
@@ -422,7 +515,10 @@ pub fn clusters_list_page() -> Page {
 			}
 		}
 	})(
-		clusters,
+		clusters_for_inventory,
+		clusters_for_edit,
+		clusters_for_rotate,
+		clusters_for_delete,
 		create_view,
 		create_error,
 		create_state.is_submitting,
@@ -430,12 +526,18 @@ pub fn clusters_list_page() -> Page {
 		edit_error,
 		edit_state.is_dirty,
 		edit_state.is_submitting,
+		edit_cluster_id,
+		edit_name,
+		edit_api_url,
+		edit_is_active,
 		delete_view,
 		delete_error,
 		delete_state.is_submitting,
+		delete_cluster_id,
 		rotate_view,
 		rotate_error,
 		rotate_state.is_submitting,
+		rotate_cluster_id,
 		health,
 	);
 	dashboard_app_shell("clusters", content)

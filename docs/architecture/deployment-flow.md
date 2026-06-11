@@ -109,15 +109,20 @@ before drawing conclusions.**
 > is not a `Project` CRD and therefore does not trigger operator
 > reconciliation.
 >
-> **Current State: GitHub import path** — The dashboard lists repositories
-> visible to the GitHub App installation, obtains an installation access
-> token, clones the selected repository into a temporary checkout, runs
-> `manage introspect --format yaml`, embeds the introspect output in the
-> generated `Project` YAML, and routes two agent commands to the
-> selected cluster: `ApplyGitCredentialsSecret` for private repositories
-> and `ApplyProject` for the CRD manifest. The agent applies both
-> resources in-cluster using server-side apply, so the operator owns the
-> derived workload reconciliation. When the manifest carries
+> **Current State: GitHub import path** — The dashboard starts from a linked
+> GitHub OAuth account. Its GitHub App installation URL sends users through
+> GitHub App setup, and `/api/github/setup/` verifies the returned
+> `installation_id` by listing installations visible to the encrypted OAuth
+> user token before binding that installation to the current organization.
+> The repository page then lists repositories visible to the GitHub App
+> installation, obtains an installation access token, clones the selected
+> repository into a temporary checkout, runs `manage introspect --format
+> yaml`, embeds the introspect output in the generated `Project` YAML,
+> and routes two agent commands to the selected cluster:
+> `ApplyGitCredentialsSecret` for private repositories and
+> `ApplyProject` for the CRD manifest. The agent applies both resources
+> in-cluster using server-side apply, so the operator owns the derived
+> workload reconciliation. When the manifest carries
 > `reinhardt.dev/build-trigger`, the operator creates the Kaniko build Job
 > and patches `spec.image` to the same image reference used as the Kaniko
 > destination, allowing the next workload reconciliation to deploy the built

@@ -316,6 +316,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 					.server_fn(crate::apps::deployments::server_fn::delete_deployment_for_current_org::marker)
 					.server_fn(crate::apps::deployments::server_fn::update_deployment_status_for_current_org::marker)
 					.server_fn(crate::apps::deployments::server_fn::deployment_logs_for_current_org::marker)
+					.server_fn(crate::apps::github::server_fn::get_github_onboarding_for_current_org::marker)
 					.server_fn(crate::apps::github::server_fn::list_github_installations_for_current_org::marker)
 					.server_fn(crate::apps::github::server_fn::list_github_repositories_for_current_org::marker)
 					.server_fn(crate::apps::github::server_fn::list_github_repositories_for_installation::marker)

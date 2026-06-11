@@ -117,7 +117,7 @@ pub async fn create_deployment_for_current_org(
 		if project_name.is_empty() || project_name.len() > 63 {
 			return Err(ServerFnError::server(
 				400,
-				"App name must be 1-63 characters",
+				"Project name must be 1-63 characters",
 			));
 		}
 		if image.is_empty() || image.len() > 512 {
@@ -183,7 +183,7 @@ pub async fn update_deployment_for_current_org(
 		if project_name.is_empty() || project_name.len() > 63 {
 			return Err(ServerFnError::server(
 				400,
-				"App name must be 1-63 characters",
+				"Project name must be 1-63 characters",
 			));
 		}
 		if image.is_empty() || image.len() > 512 {

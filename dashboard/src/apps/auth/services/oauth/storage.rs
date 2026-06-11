@@ -5,13 +5,13 @@
 //! local ORM model `crate::apps::auth::models::SocialAccount` (which only
 //! persists the link itself).
 //!
-//! Token persistence is deliberately omitted: the access_token is exchanged
-//! during callback only to fetch user info, then dropped. Out of scope for
-//! this PR are encrypted at-rest storage of OAuth tokens and refresh-flow
-//! support; see #428 for the policy and follow-up issues for tracking.
+//! OAuth access tokens are persisted only through explicit helper methods
+//! that encrypt the token before writing the ORM row. The trait-facing
+//! account-linking API still returns tokenless accounts so generic social
+//! auth callers cannot accidentally observe stored credentials.
 //!
 //! When the storage trait returns a `SocialAccount` to the framework, the
-//! token / scope / email / display_name / picture fields are filled with
+//! access token / email / display_name / picture fields are filled with
 //! safe defaults (empty strings / `Vec::new()` / `None`) so that callers
 //! that round-trip through `update()` cannot accidentally observe a token
 //! value loaded from the database.
@@ -27,12 +27,16 @@
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
+use reinhardt::auth::social::core::OAuthToken;
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 use reinhardt::db::orm::{IntoPrimaryKey, Model};
 use uuid::Uuid;
 
 use crate::apps::auth::models::{SocialAccount as OrmSocialAccount, User};
+use crate::apps::auth::services::oauth::token_crypto::{
+	decrypt_access_token, encrypt_access_token,
+};
 /// Maps an ORM record to the framework `SocialAccount` shape with empty
 /// token-bearing fields. The storage layer never returns persisted tokens.
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
@@ -71,6 +75,62 @@ impl OrmSocialAccountStorage {
 	/// DI container, exactly like the rest of the dashboard's ORM usage.
 	pub const fn new() -> Self {
 		Self
+	}
+
+	/// Persist encrypted token metadata for a linked provider account.
+	pub async fn store_token_for_user(
+		&self,
+		user_id: Uuid,
+		provider: &str,
+		provider_user_id: &str,
+		token: &OAuthToken,
+	) -> Result<(), SocialAuthError> {
+		let mut row = OrmSocialAccount::objects()
+			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
+			.filter(OrmSocialAccount::field_provider().eq(provider.to_string()))
+			.filter(OrmSocialAccount::field_provider_user_id().eq(provider_user_id.to_string()))
+			.first()
+			.await
+			.map_err(|e| map_orm_err("store_token_for_user.lookup", e))?
+			.ok_or_else(|| {
+				SocialAuthError::Storage(format!(
+					"Social account not found for provider {provider}: {provider_user_id}"
+				))
+			})?;
+		row.encrypted_access_token = Some(
+			encrypt_access_token(&token.access_token)
+				.map_err(|e| SocialAuthError::Storage(e.to_string()))?,
+		);
+		row.token_expires_at = Some(token.expires_at);
+		row.scopes = Some(token.scopes.join(" "));
+		OrmSocialAccount::objects()
+			.update(&row)
+			.await
+			.map_err(|e| map_orm_err("store_token_for_user.update", e))?;
+		Ok(())
+	}
+
+	/// Load and decrypt a stored provider access token for a dashboard user.
+	pub async fn access_token_for_user(
+		&self,
+		user_id: Uuid,
+		provider: &str,
+	) -> Result<Option<String>, SocialAuthError> {
+		let row = OrmSocialAccount::objects()
+			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
+			.filter(OrmSocialAccount::field_provider().eq(provider.to_string()))
+			.first()
+			.await
+			.map_err(|e| map_orm_err("access_token_for_user.lookup", e))?;
+		let Some(row) = row else {
+			return Ok(None);
+		};
+		let Some(encrypted) = row.encrypted_access_token else {
+			return Ok(None);
+		};
+		decrypt_access_token(&encrypted)
+			.map(Some)
+			.map_err(|e| SocialAuthError::Storage(e.to_string()))
 	}
 }
 
@@ -116,6 +176,9 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 			.provider(account.provider.clone())
 			.provider_user_id(account.provider_user_id.clone())
 			.provider_username(account.display_name.clone())
+			.encrypted_access_token(None)
+			.token_expires_at(None)
+			.scopes(None)
 			.created_at(account.created_at)
 			.updated_at(account.updated_at)
 			.finish();
@@ -146,15 +209,11 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 		// though we ignored token-bearing fields.
 		let updated_at = chrono::Utc::now();
 
-		let orm = OrmSocialAccount::build()
-			.id(account.id)
-			.user(&account)
-			.provider(account.provider.clone())
-			.provider_user_id(account.provider_user_id.clone())
-			.provider_username(account.display_name.clone())
-			.created_at(account.created_at)
-			.updated_at(updated_at)
-			.finish();
+		let mut orm = exists.expect("existing social account checked above");
+		orm.provider = account.provider.clone();
+		orm.provider_user_id = account.provider_user_id.clone();
+		orm.provider_username = account.display_name.clone();
+		orm.updated_at = updated_at;
 		let saved = OrmSocialAccount::objects()
 			.update(&orm)
 			.await

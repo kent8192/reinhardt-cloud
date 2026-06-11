@@ -87,6 +87,8 @@ The **Deployments** section (`/deployments/`) presents the PaaS-side records tha
 
 The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cluster-management records stored in the Dashboard's own database, not the operator's CRD list).
 
+Dashboard operation forms use inventory-backed selectors for cluster, repository, and deployment targets. Operators choose records by recognizable names and metadata; the form posts the corresponding persisted ID internally.
+
 > **For App Developers**: after running `reinhardt-cloud deploy`, navigate to `/deployments/` and locate your application by name. The record should appear within seconds. Cross-check the `Ready` condition by also running `reinhardt-cloud status --name <app>` from the terminal.
 
 > **For Platform Operators**: use the `/api/admin/` panel to list all deployments across all users. The `DeploymentAdmin` registered in `dashboard/src/config/admin.rs` exposes the full deployment table. Filter by cluster or by creation date to identify stale or failing entries.
@@ -208,7 +210,17 @@ Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or b
 
 ### GitHub OAuth
 
-GitHub OAuth is enabled when all required provider settings are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present. OAuth access tokens are not persisted by the dashboard.
+GitHub OAuth is enabled when all required provider settings and the OAuth token encryption key are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present.
+
+The dashboard persists GitHub OAuth access tokens only after encrypting them with `REINHARDT_CLOUD_OAUTH_TOKEN_ENCRYPTION_KEY`. Set this variable to a base64-encoded 32-byte key before enabling GitHub OAuth. The stored token is used to verify GitHub App setup callbacks against `/user/installations`; OAuth storage APIs still return tokenless account records to normal authentication callers.
+
+Generate a local development key with:
+
+```bash
+openssl rand -base64 32
+```
+
+Set `REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL` to the GitHub App installation URL shown in GitHub App settings. The GitHub repository page uses it for the empty-state install action after the current user has linked a GitHub OAuth account.
 
 ### Operations
 

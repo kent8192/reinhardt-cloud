@@ -7,13 +7,14 @@ use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::reinhardt_params::Body;
-use reinhardt::{Response, StatusCode, post};
-use serde::Serialize;
+use reinhardt::{CurrentUser, Query, Response, StatusCode, get, post};
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
+use crate::apps::github::services::client::{GitHubAppClient, GitHubUserInstallation};
 use crate::apps::github::services::config::GitHubAppSettings;
 use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
@@ -25,6 +26,55 @@ use crate::utils::vcs::signature::verify_github_signature;
 struct GitHubWebhookResponse {
 	status: &'static str,
 	action: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitHubSetupQuery {
+	installation_id: i64,
+}
+
+/// Complete GitHub App setup after GitHub redirects to the configured setup URL.
+#[get("/setup/", name = "github-setup")]
+pub async fn github_setup(
+	Query(query): Query<GitHubSetupQuery>,
+	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] settings: Depends<GitHubAppSettings>,
+) -> ViewResult<Response> {
+	let storage = crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage::new();
+	let Some(user_access_token) = storage
+		.access_token_for_user(user.id, "github")
+		.await
+		.map_err(|e| {
+			error!("Failed to load GitHub OAuth token for setup callback: {e}");
+			AppError::Internal("Internal server error".to_string())
+		})?
+	else {
+		return Err(AppError::Authorization(
+			"GitHub account must be linked before installing the GitHub App".to_string(),
+		));
+	};
+
+	let client =
+		crate::apps::github::services::client::ReqwestGitHubAppClient::new((*settings).clone());
+	let installation = client
+		.list_user_installations(&user_access_token)
+		.await
+		.map_err(|e| {
+			error!("Failed to list GitHub installations visible to setup user: {e}");
+			AppError::Internal("Failed to verify GitHub App installation".to_string())
+		})?
+		.into_iter()
+		.find(|installation| installation.id == query.installation_id)
+		.ok_or_else(|| {
+			AppError::Authorization(
+				"GitHub App installation is not accessible to this user".to_string(),
+			)
+		})?;
+	let organization_id =
+		crate::apps::organizations::helpers::current_organization_id_for_user(user.id).await?;
+	upsert_verified_installation(organization_id, installation).await?;
+
+	Ok(Response::temporary_redirect("/github"))
 }
 
 #[post("/webhooks/github/", name = "github-webhook")]
@@ -43,6 +93,16 @@ pub async fn github_webhook(
 			GitHubWebhookResponse {
 				status: "error",
 				action: "invalid_signature",
+			},
+		);
+	}
+	if event_type == "installation" {
+		reconcile_installation_webhook(&payload).await?;
+		return json_response(
+			StatusCode::ACCEPTED,
+			GitHubWebhookResponse {
+				status: "accepted",
+				action: "installation",
 			},
 		);
 	}
@@ -197,6 +257,125 @@ pub async fn github_webhook(
 			action: action_name,
 		},
 	)
+}
+
+async fn upsert_verified_installation(
+	organization_id: i64,
+	installation: GitHubUserInstallation,
+) -> Result<(), AppError> {
+	let existing = GitHubInstallation::objects()
+		.filter(GitHubInstallation::field_installation_id().eq(installation.id))
+		.first()
+		.await
+		.map_err(|e| {
+			error!(
+				"Failed to look up GitHub installation {} during setup: {e}",
+				installation.id
+			);
+			AppError::Internal("Failed to persist GitHub installation".to_string())
+		})?;
+	if let Some(mut existing) = existing {
+		if *existing.organization_id() != organization_id {
+			return Err(AppError::Conflict(
+				"GitHub App installation is already linked to another organization".to_string(),
+			));
+		}
+		existing.account_id = installation.account_id;
+		existing.account_login = installation.account_login;
+		existing.account_type = installation.account_type;
+		existing.status = "active".to_string();
+		GitHubInstallation::objects()
+			.update(&existing)
+			.await
+			.map_err(|e| {
+				error!(
+					"Failed to update GitHub installation {} during setup: {e}",
+					installation.id
+				);
+				AppError::Internal("Failed to persist GitHub installation".to_string())
+			})?;
+		return Ok(());
+	}
+
+	let row = GitHubInstallation::build()
+		.organization(organization_id)
+		.installation_id(installation.id)
+		.account_id(installation.account_id)
+		.account_login(installation.account_login)
+		.account_type(installation.account_type)
+		.status("active".to_string())
+		.finish();
+	GitHubInstallation::objects()
+		.create(&row)
+		.await
+		.map_err(|e| {
+			error!(
+				"Failed to create GitHub installation {} during setup: {e}",
+				installation.id
+			);
+			AppError::Internal("Failed to persist GitHub installation".to_string())
+		})?;
+	Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubInstallationWebhookPayload {
+	action: String,
+	installation: GitHubInstallationWebhookInstallation,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubInstallationWebhookInstallation {
+	id: i64,
+	account: GitHubInstallationWebhookAccount,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubInstallationWebhookAccount {
+	id: i64,
+	login: String,
+	#[serde(rename = "type")]
+	account_type: String,
+}
+
+async fn reconcile_installation_webhook(payload: &[u8]) -> Result<(), AppError> {
+	let event: GitHubInstallationWebhookPayload = serde_json::from_slice(payload)
+		.map_err(|e| AppError::Validation(format!("Invalid installation webhook payload: {e}")))?;
+	let status = match event.action.as_str() {
+		"created" | "unsuspend" | "new_permissions_accepted" => "active",
+		"deleted" => "inactive",
+		"suspend" => "suspended",
+		_ => return Ok(()),
+	};
+	let Some(mut installation) = GitHubInstallation::objects()
+		.filter(GitHubInstallation::field_installation_id().eq(event.installation.id))
+		.first()
+		.await
+		.map_err(|e| {
+			error!(
+				"Failed to load GitHub installation {} for webhook reconciliation: {e}",
+				event.installation.id
+			);
+			AppError::Internal("Failed to reconcile GitHub installation".to_string())
+		})?
+	else {
+		return Ok(());
+	};
+	installation.account_id = event.installation.account.id;
+	installation.account_login = event.installation.account.login;
+	installation.account_type = event.installation.account.account_type;
+	installation.status = status.to_string();
+	GitHubInstallation::objects()
+		.update(&installation)
+		.await
+		.map_err(|e| {
+			error!(
+				"Failed to update GitHub installation {} from webhook: {e}",
+				event.installation.id
+			);
+			AppError::Internal("Failed to reconcile GitHub installation".to_string())
+		})?;
+	Ok(())
 }
 
 async fn refresh_git_credentials_secret_for_webhook(
