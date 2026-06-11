@@ -143,6 +143,8 @@ pub fn github_repositories_page() -> Page {
 			app_name: CharField {
 				max_length: 63,
 				label: "App Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "leave blank to derive from repository",
 				class: "rc-input",
 			}
@@ -150,6 +152,8 @@ pub fn github_repositories_page() -> Page {
 				required,
 				max_length: 512,
 				label: "Registry Image Prefix",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "ghcr.io/kent8192/my-app",
 				class: "rc-input",
 			}
