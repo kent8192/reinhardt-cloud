@@ -3,7 +3,9 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, use_resource};
+use reinhardt::pages::prelude::{
+	ResetOnDeps, Resource, ResourceState, Signal, use_form, use_resource,
+};
 
 use crate::apps::clusters::server_fn::ClusterInfo;
 #[cfg(wasm)]
@@ -281,7 +283,7 @@ pub fn deployments_list_page() -> Page {
 	let deployments_for_delete = deployments.clone();
 	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments_for_inventory: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_status: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: reinhardt::pages::prelude::Resource<Vec<DeploymentInfo>, String>, clusters_for_create: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_app_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
+	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_app_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
 		div {
 			class: "rc-shell",
 			div {
