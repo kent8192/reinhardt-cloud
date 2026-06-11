@@ -368,14 +368,23 @@ mod tests {
 	use std::fs;
 	use std::time::{SystemTime, UNIX_EPOCH};
 
-	/// Required env vars for the production profile after #588 made
-	/// `production.toml` self-contained via `${VAR:?msg}` interpolation.
-	const PRODUCTION_REQUIRED_ENV_VARS: &[&str] = &[
+	/// Required env vars for deployed profiles after #588 made the profile
+	/// TOML files self-contained via `${VAR:?msg}` interpolation.
+	const DEPLOYED_REQUIRED_ENV_VARS: &[&str] = &[
 		"REINHARDT_CLOUD_JWT_SECRET",
 		"REINHARDT_CLOUD_REDIS_URL",
 		"REINHARDT_CORE__SECRET_KEY",
 		"REINHARDT_DATABASE_PASSWORD",
 		"REINHARDT_EMAIL__HOST",
+	];
+
+	const PROFILE_DEFAULT_OVERRIDE_ENV_VARS: &[&str] = &[
+		"REINHARDT_I18N__LANGUAGE_CODE",
+		"REINHARDT_I18N__TIME_ZONE",
+		"REINHARDT_STATIC_FILES__URL",
+		"REINHARDT_STATIC_FILES__ROOT",
+		"REINHARDT_MEDIA__URL",
+		"REINHARDT_MEDIA__ROOT",
 	];
 
 	/// RAII guard that snapshots a set of env vars on construction and restores
@@ -408,6 +417,83 @@ mod tests {
 					}
 				}
 			}
+		}
+	}
+
+	struct TempSettingsDir {
+		path: PathBuf,
+	}
+
+	impl TempSettingsDir {
+		fn with_profile(profile: &str) -> Self {
+			let unique = SystemTime::now()
+				.duration_since(UNIX_EPOCH)
+				.expect("system time should be after UNIX_EPOCH")
+				.as_nanos();
+			let path = env::temp_dir().join(format!("reinhardt-cloud-{profile}-settings-{unique}"));
+			fs::create_dir_all(&path).expect("temporary settings directory should be created");
+			fs::copy(
+				Path::new(env!("CARGO_MANIFEST_DIR"))
+					.join("settings")
+					.join(format!("{profile}.toml")),
+				path.join(format!("{profile}.toml")),
+			)
+			.expect("profile settings file should be copied");
+			Self { path }
+		}
+
+		fn path(&self) -> &Path {
+			&self.path
+		}
+
+		fn profile_path(&self, profile: &str) -> PathBuf {
+			self.path.join(format!("{profile}.toml"))
+		}
+	}
+
+	impl Drop for TempSettingsDir {
+		fn drop(&mut self) {
+			let _ = fs::remove_dir_all(&self.path);
+		}
+	}
+
+	fn set_deployed_profile_env(profile: &str, config_dir: &Path) -> EnvSnapshot {
+		let mut watched: Vec<&'static str> = vec!["REINHARDT_CLOUD_CONFIG_DIR", "REINHARDT_ENV"];
+		watched.extend_from_slice(DEPLOYED_REQUIRED_ENV_VARS);
+		watched.extend_from_slice(PROFILE_DEFAULT_OVERRIDE_ENV_VARS);
+		let guard = EnvSnapshot::new(&watched);
+
+		// SAFETY: callers use `#[serial(env_settings_load)]`, which provides
+		// the cross-test exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::set_var("REINHARDT_CLOUD_CONFIG_DIR", config_dir);
+			env::set_var("REINHARDT_ENV", profile);
+			env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-jwt-secret-32-bytes-of-random-data!!",
+			);
+			env::set_var("REINHARDT_CLOUD_REDIS_URL", "redis://test-redis:6379/0");
+			env::set_var("REINHARDT_CORE__SECRET_KEY", "test-core-secret-key");
+			env::set_var("REINHARDT_DATABASE_PASSWORD", "test-db-password");
+			env::set_var("REINHARDT_EMAIL__HOST", "smtp.test-provider.invalid");
+			for name in PROFILE_DEFAULT_OVERRIDE_ENV_VARS {
+				env::remove_var(name);
+			}
+		}
+
+		guard
+	}
+
+	fn assert_profile_file_contains_runtime_sections(profile_path: &Path) {
+		let values = TomlFileSource::new(profile_path)
+			.load()
+			.expect("profile settings file should parse");
+
+		for section in ["i18n", "static_files", "media"] {
+			assert!(
+				values.contains_key(section),
+				"profile TOML must define [{section}] directly",
+			);
 		}
 	}
 
@@ -843,14 +929,14 @@ allow_origins = ["http://localhost:8000"]
 		// Arrange — `EnvSnapshot::drop` restores the original env even if the
 		// assertions below panic, keeping the `env_settings_load` group safe.
 		let mut watched: Vec<&'static str> = vec!["REINHARDT_ENV"];
-		watched.extend_from_slice(PRODUCTION_REQUIRED_ENV_VARS);
+		watched.extend_from_slice(DEPLOYED_REQUIRED_ENV_VARS);
 		let _guard = EnvSnapshot::new(&watched);
 
 		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
 		// exclusion that `set_var`/`remove_var` need.
 		unsafe {
 			env::set_var("REINHARDT_ENV", "production");
-			for name in PRODUCTION_REQUIRED_ENV_VARS {
+			for name in DEPLOYED_REQUIRED_ENV_VARS {
 				env::remove_var(name);
 			}
 		}
@@ -873,9 +959,7 @@ allow_origins = ["http://localhost:8000"]
 		}
 
 		assert!(
-			PRODUCTION_REQUIRED_ENV_VARS
-				.iter()
-				.any(|v| full.contains(v)),
+			DEPLOYED_REQUIRED_ENV_VARS.iter().any(|v| full.contains(v)),
 			"error message should name at least one required env var, got:\n{full}",
 		);
 	}
@@ -937,5 +1021,30 @@ allow_origins = ["http://localhost:8000"]
 		assert!(!settings.core.debug);
 		assert!(settings.core.security.secure_ssl_redirect);
 		assert!(settings.core.security.session_cookie_secure);
+	}
+
+	#[rstest]
+	#[case("production")]
+	#[case("staging")]
+	#[serial(env_settings_load)]
+	fn test_deployed_profile_toml_self_contained_without_base_toml(#[case] profile: &str) {
+		// Arrange
+		let temp_settings = TempSettingsDir::with_profile(profile);
+		let _guard = set_deployed_profile_env(profile, temp_settings.path());
+		assert_profile_file_contains_runtime_sections(&temp_settings.profile_path(profile));
+
+		// Act
+		let settings =
+			try_build_settings().expect("deployed profile should load without base.toml");
+
+		// Assert
+		assert_eq!(settings.i18n.language_code, "en-us");
+		assert_eq!(settings.i18n.time_zone, "UTC");
+		assert!(settings.i18n.use_i18n);
+		assert!(settings.i18n.use_tz);
+		assert_eq!(settings.static_files.url, "/static/");
+		assert_eq!(settings.static_files.root, PathBuf::from("static"));
+		assert_eq!(settings.media.url, "/media/");
+		assert_eq!(settings.media.root, PathBuf::from("media"));
 	}
 }
