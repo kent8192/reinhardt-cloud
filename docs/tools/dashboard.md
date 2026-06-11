@@ -87,6 +87,8 @@ The **Deployments** section (`/deployments/`) presents the PaaS-side records tha
 
 The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cluster-management records stored in the Dashboard's own database, not the operator's CRD list).
 
+Dashboard operation forms use inventory-backed selectors for cluster, repository, and deployment targets. Operators choose records by recognizable names and metadata; the form posts the corresponding persisted ID internally.
+
 > **For App Developers**: after running `reinhardt-cloud deploy`, navigate to `/deployments/` and locate your application by name. The record should appear within seconds. Cross-check the `Ready` condition by also running `reinhardt-cloud status --name <app>` from the terminal.
 
 > **For Platform Operators**: use the `/api/admin/` panel to list all deployments across all users. The `DeploymentAdmin` registered in `dashboard/src/config/admin.rs` exposes the full deployment table. Filter by cluster or by creation date to identify stale or failing entries.
