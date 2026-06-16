@@ -75,6 +75,20 @@ name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
 user = "${REINHARDT_DATABASE_USER:-reinhardt}"
 password = { env = "REINHARDT_DATABASE_PASSWORD" }
 
+[i18n]
+language_code = "${REINHARDT_I18N__LANGUAGE_CODE:-en-us}"
+time_zone = "${REINHARDT_I18N__TIME_ZONE:-UTC}"
+use_i18n = true
+use_tz = true
+
+[static_files]
+url = "${REINHARDT_STATIC_FILES__URL:-/static/}"
+root = "${REINHARDT_STATIC_FILES__ROOT:-static}"
+
+[media]
+url = "${REINHARDT_MEDIA__URL:-/media/}"
+root = "${REINHARDT_MEDIA__ROOT:-media}"
+
 [cors]
 allow_origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"]
 
