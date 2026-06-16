@@ -19,7 +19,7 @@ To deploy a sample application:
 
   cat <<EOF | kubectl apply -f -
   apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-  kind: ReinhardtApp
+  kind: Project
   metadata:
     name: sample-app
     namespace: default

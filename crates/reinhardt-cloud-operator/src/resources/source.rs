@@ -1,4 +1,4 @@
-//! Kaniko build Job builder for source-driven `ReinhardtApp` deployments.
+//! Kaniko build Job builder for source-driven `Project` deployments.
 
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -7,13 +7,13 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
 
 /// Returns `true` when the app has a source specification configured.
-pub(crate) fn should_build_from_source(app: &ReinhardtApp) -> bool {
+pub(crate) fn should_build_from_source(app: &Project) -> bool {
 	app.spec.source.is_some()
 }
 
@@ -22,7 +22,7 @@ pub(crate) fn should_build_from_source(app: &ReinhardtApp) -> bool {
 /// The returned value must match the Kaniko destination used by
 /// `build_kaniko_job` so the reconciled workload pulls the image that
 /// the build Job pushes.
-pub(crate) fn built_image_reference(app: &ReinhardtApp, image_tag: &str) -> Result<String, Error> {
+pub(crate) fn built_image_reference(app: &Project, image_tag: &str) -> Result<String, Error> {
 	let source = app
 		.spec
 		.source
@@ -54,12 +54,12 @@ fn image_reference_without_tag(image: &str) -> &str {
 /// the resulting container image to the configured registry.
 ///
 /// Returns `Error::MissingField` if `spec.source` is not set.
-pub(crate) fn build_kaniko_job(app: &ReinhardtApp, image_tag: &str) -> Result<Job, Error> {
+pub(crate) fn build_kaniko_job(app: &Project, image_tag: &str) -> Result<Job, Error> {
 	build_kaniko_job_for_branch(app, image_tag, None)
 }
 
 pub(crate) fn build_kaniko_job_for_branch(
-	app: &ReinhardtApp,
+	app: &Project,
 	image_tag: &str,
 	branch_override: Option<&str>,
 ) -> Result<Job, Error> {
@@ -72,7 +72,7 @@ pub(crate) fn build_kaniko_job_for_branch(
 	let namespace = super::require_namespace(app)?;
 	let labels = standard_labels(app, Component::Build);
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	// Resolve defaults
 	let branch = branch_override
@@ -88,7 +88,7 @@ pub(crate) fn build_kaniko_job_for_branch(
 	// Truncate tag to 8 chars for the job name
 	let tag_prefix_start = image_tag.len().saturating_sub(8);
 	let tag_prefix = &image_tag[tag_prefix_start..];
-	let job_name = format!("{app_name}-build-{tag_prefix}");
+	let job_name = format!("{project_name}-build-{tag_prefix}");
 
 	// Build kaniko args
 	let mut args = vec![
@@ -208,10 +208,10 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
-	fn test_app_with_source(name: &str) -> ReinhardtApp {
+	fn test_app_with_source(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": {
 				"image": "placeholder:latest",
@@ -231,10 +231,10 @@ mod tests {
 		serde_json::from_value(json).unwrap()
 	}
 
-	fn test_app_without_source(name: &str) -> ReinhardtApp {
+	fn test_app_without_source(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": {
 				"image": "myapp:v1"

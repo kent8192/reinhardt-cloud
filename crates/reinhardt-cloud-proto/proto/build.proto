@@ -7,7 +7,7 @@ import "common.proto";
 
 // Request to start a new build.
 message StartBuildRequest {
-  string app_name = 1;
+  string project_name = 1;
   string image = 2;
   repeated EnvVar env_vars = 3;
   optional string dockerfile = 4;
@@ -80,7 +80,7 @@ message GetBuildStatusRequest {
 // Current status of a build.
 message BuildStatusResponse {
   string build_id = 1;
-  string app_name = 2;
+  string project_name = 2;
   BuildPhase phase = 3;
   bool completed = 4;
   optional bool success = 5;

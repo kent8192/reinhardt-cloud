@@ -3,7 +3,7 @@ use super::dockerfile::{Instruction, Stage};
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
 pub(crate) struct DockerfileSignals {
-	pub(crate) app_name: String,
+	pub(crate) project_name: String,
 	pub(crate) rust_version: String,
 	pub(crate) pages: bool,
 	pub(crate) grpc: bool,
@@ -166,7 +166,7 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 	// that motivated scoping.
 	instructions.push(Instruction::Run(format!(
 		"cargo build --release -p {}{feature_args}",
-		signals.app_name
+		signals.project_name
 	)));
 
 	Stage {
@@ -185,7 +185,7 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 		.as_deref()
 		.expect("wasm_bindgen_version must be set when pages is enabled");
 
-	let app_name_underscored = signals.app_name.replace('-', "_");
+	let project_name_underscored = signals.project_name.replace('-', "_");
 
 	Stage {
 		base_image: format!("rust:{}-bookworm", signals.rust_version),
@@ -200,7 +200,7 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 				src: ".".to_string(),
 				dst: ".".to_string(),
 			},
-			// `--lib -p {app_name}` ensures only the dashboard crate's cdylib is
+			// `--lib -p {project_name}` ensures only the dashboard crate's cdylib is
 			// built. Without `-p` cargo builds every workspace member for the
 			// wasm32 target, which fails on members that depend on
 			// `tokio = { features = ["full"] }` because `mio`'s net feature is
@@ -209,28 +209,28 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 			// See kent8192/reinhardt-cloud#485.
 			Instruction::Run(format!(
 				"cargo build --release --target wasm32-unknown-unknown --lib -p {}",
-				signals.app_name
+				signals.project_name
 			)),
 			Instruction::RunMulti(vec![
 				format!(
 					"wasm-bindgen --out-dir /wasm-dist --target web \
-                     target/wasm32-unknown-unknown/release/{app_name_underscored}.wasm"
+                     target/wasm32-unknown-unknown/release/{project_name_underscored}.wasm"
 				),
 				format!(
-					"asset_hash=\"$(sha256sum /wasm-dist/{app_name_underscored}.js \
-                     /wasm-dist/{app_name_underscored}_bg.wasm | sha256sum | cut -c1-16)\""
+					"asset_hash=\"$(sha256sum /wasm-dist/{project_name_underscored}.js \
+                     /wasm-dist/{project_name_underscored}_bg.wasm | sha256sum | cut -c1-16)\""
 				),
 				format!(
-					"cp /wasm-dist/{app_name_underscored}.js \
-                     /wasm-dist/{app_name_underscored}.${{asset_hash}}.js"
+					"cp /wasm-dist/{project_name_underscored}.js \
+                     /wasm-dist/{project_name_underscored}.${{asset_hash}}.js"
 				),
 				format!(
-					"cp /wasm-dist/{app_name_underscored}_bg.wasm \
-                     /wasm-dist/{app_name_underscored}.${{asset_hash}}_bg.wasm"
+					"cp /wasm-dist/{project_name_underscored}_bg.wasm \
+                     /wasm-dist/{project_name_underscored}.${{asset_hash}}_bg.wasm"
 				),
 				format!(
-					"rm /wasm-dist/{app_name_underscored}.js \
-                     /wasm-dist/{app_name_underscored}_bg.wasm"
+					"rm /wasm-dist/{project_name_underscored}.js \
+                     /wasm-dist/{project_name_underscored}_bg.wasm"
 				),
 			]),
 		],
@@ -267,7 +267,7 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	instructions.push(Instruction::Workdir("/app".to_string()));
 	instructions.push(Instruction::Copy {
 		from: Some("builder".to_string()),
-		src: format!("/app/target/release/{}", signals.app_name),
+		src: format!("/app/target/release/{}", signals.project_name),
 		dst: "/app/".to_string(),
 	});
 	instructions.push(Instruction::Copy {
@@ -385,13 +385,13 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		// be available.
 		instructions.push(Instruction::Entrypoint(vec![format!(
 			"/app/{}",
-			signals.app_name
+			signals.project_name
 		)]));
 	} else {
 		instructions.push(Instruction::Entrypoint(vec![
 			"tini".to_string(),
 			"--".to_string(),
-			format!("/app/{}", signals.app_name),
+			format!("/app/{}", signals.project_name),
 		]));
 	}
 
@@ -411,7 +411,7 @@ mod tests {
 	#[fixture]
 	fn minimal_signals() -> DockerfileSignals {
 		DockerfileSignals {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			rust_version: "1.94.1".to_string(),
 			pages: false,
 			grpc: false,
@@ -1015,7 +1015,7 @@ mod tests {
 		// Assert
 		assert!(
 			stage_contains_run(&stage, "cargo build --release -p my-app"),
-			"builder stage must pass `-p {{app_name}}` to cargo build; \
+			"builder stage must pass `-p {{project_name}}` to cargo build; \
 			 see kent8192/reinhardt-cloud#485"
 		);
 	}
@@ -1039,7 +1039,7 @@ mod tests {
 				&stage,
 				"cargo build --release --target wasm32-unknown-unknown --lib -p my-app",
 			),
-			"wasm stage must pass `--lib -p {{app_name}}` to cargo build; \
+			"wasm stage must pass `--lib -p {{project_name}}` to cargo build; \
 			 see kent8192/reinhardt-cloud#485"
 		);
 	}

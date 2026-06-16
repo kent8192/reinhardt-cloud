@@ -12,7 +12,7 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::ResourceExt;
 use rand::Rng;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -29,7 +29,7 @@ fn generate_password() -> String {
 		.collect()
 }
 
-/// Sanitizes an application name for use as a PostgreSQL database/user name.
+/// Sanitizes a project name for use as a PostgreSQL database/user name.
 ///
 /// Replaces hyphens with underscores since PostgreSQL identifiers do not allow hyphens.
 /// Strips non-alphanumeric/underscore characters, prefixes with underscore if the name
@@ -51,27 +51,27 @@ fn sanitize_db_name(name: &str) -> String {
 	sanitized
 }
 
-/// Builds a `Secret` containing PostgreSQL credentials for the given `ReinhardtApp`.
+/// Builds a `Secret` containing PostgreSQL credentials for the given `Project`.
 ///
 /// The secret includes `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
 /// and a fully-formed `DATABASE_URL` connection string.
-pub(crate) fn build_db_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
+pub(crate) fn build_db_secret(app: &Project) -> Result<Secret, Error> {
 	let labels = standard_labels(app, Component::Database);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
-	let user = sanitize_db_name(&app_name);
+	let user = sanitize_db_name(&project_name);
 	let password = generate_password();
 	let db = user.clone();
 	let database_url = format!(
 		"postgresql://{}:{}@{}-postgresql:5432/{}",
-		user, password, app_name, db
+		user, password, project_name, db
 	);
 
 	Ok(Secret {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-db-credentials", app_name)),
+			name: Some(format!("{}-db-credentials", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			owner_references: Some(vec![owner_ref]),
@@ -88,17 +88,17 @@ pub(crate) fn build_db_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
 	})
 }
 
-/// Builds a `StatefulSet` running PostgreSQL for the given `ReinhardtApp`.
+/// Builds a `StatefulSet` running PostgreSQL for the given `Project`.
 ///
 /// Uses `postgres:16-alpine` with a 1Gi PVC mounted at `/var/lib/postgresql/data`.
 /// Credentials are injected from the companion secret via `envFrom`.
-pub(crate) fn build_db_statefulset(app: &ReinhardtApp) -> Result<StatefulSet, Error> {
+pub(crate) fn build_db_statefulset(app: &Project) -> Result<StatefulSet, Error> {
 	let labels = standard_labels(app, Component::Database);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
-	let sts_name = format!("{}-postgresql", app_name);
-	let secret_name = format!("{}-db-credentials", app_name);
+	let project_name = app.name_any();
+	let sts_name = format!("{}-postgresql", project_name);
+	let secret_name = format!("{}-db-credentials", project_name);
 
 	Ok(StatefulSet {
 		metadata: ObjectMeta {
@@ -113,7 +113,7 @@ pub(crate) fn build_db_statefulset(app: &ReinhardtApp) -> Result<StatefulSet, Er
 			service_name: Some(sts_name),
 			selector: LabelSelector {
 				match_labels: Some(BTreeMap::from([
-					("app.kubernetes.io/name".to_string(), app_name.clone()),
+					("app.kubernetes.io/name".to_string(), project_name.clone()),
 					(
 						"app.kubernetes.io/component".to_string(),
 						"database".to_string(),
@@ -176,18 +176,18 @@ pub(crate) fn build_db_statefulset(app: &ReinhardtApp) -> Result<StatefulSet, Er
 	})
 }
 
-/// Builds a headless-style `Service` exposing PostgreSQL for the given `ReinhardtApp`.
+/// Builds a headless-style `Service` exposing PostgreSQL for the given `Project`.
 ///
 /// Targets port 5432 and selects pods by app name and database component labels.
-pub(crate) fn build_db_service(app: &ReinhardtApp) -> Result<Service, Error> {
+pub(crate) fn build_db_service(app: &Project) -> Result<Service, Error> {
 	let labels = standard_labels(app, Component::Database);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	Ok(Service {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-postgresql", app_name)),
+			name: Some(format!("{}-postgresql", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			owner_references: Some(vec![owner_ref]),
@@ -196,7 +196,7 @@ pub(crate) fn build_db_service(app: &ReinhardtApp) -> Result<Service, Error> {
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
 			selector: Some(BTreeMap::from([
-				("app.kubernetes.io/name".to_string(), app_name),
+				("app.kubernetes.io/name".to_string(), project_name),
 				(
 					"app.kubernetes.io/component".to_string(),
 					"database".to_string(),
@@ -220,18 +220,18 @@ pub(crate) fn build_db_service(app: &ReinhardtApp) -> Result<Service, Error> {
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "myapp:v1".to_string(),
 				..Default::default()
 			},

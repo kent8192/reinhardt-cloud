@@ -27,7 +27,7 @@ pub struct ReinhardtConfig {
 /// Application metadata section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-	/// Application name
+	/// Project name
 	pub name: String,
 	/// Application version
 	pub version: Option<String>,

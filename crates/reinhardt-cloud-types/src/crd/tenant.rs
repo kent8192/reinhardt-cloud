@@ -1,7 +1,7 @@
-//! Multi-tenant ownership marker for `ReinhardtApp` resources.
+//! Multi-tenant ownership marker for `Project` resources.
 //!
 //! `TenantRef` identifies the owning Organization (and optionally a Team
-//! within it) for a `ReinhardtApp` CR. The operator uses this reference to:
+//! within it) for a `Project` CR. The operator uses this reference to:
 //!
 //! - Compute a deterministic Kubernetes namespace per tenant
 //!   (`tenant-{organization}` or `tenant-{organization}-{team}`)
@@ -12,7 +12,7 @@
 //! - Apply tenant-scoped `ResourceQuota` and `NetworkPolicy` resources
 //!   that prevent one tenant from starving or addressing another.
 //!
-//! `TenantRef` is `Option`-wrapped on `ReinhardtAppSpec` for backward
+//! `TenantRef` is `Option`-wrapped on `ProjectSpec` for backward
 //! compatibility with `v1alpha1`-style CRs that pre-date multi-tenancy.
 //! When the field is absent the operator falls back to the legacy
 //! "namespace owned externally" behavior.
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::validation::{ValidationError, validate_dns_1123_label};
 
-/// Reference to the owning tenant of a `ReinhardtApp`.
+/// Reference to the owning tenant of a `Project`.
 ///
 /// The `organization` slug MUST match an `Organization.slug` in the
 /// dashboard database (see issue #415). The optional `team` slug, when

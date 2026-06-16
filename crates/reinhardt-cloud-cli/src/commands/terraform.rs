@@ -1,4 +1,4 @@
-//! Terraform HCL generation from ReinhardtApp CRD spec.
+//! Terraform HCL generation from Project CRD spec.
 
 use std::path::PathBuf;
 
@@ -7,7 +7,7 @@ use reinhardt_cloud_core::infrastructure_derivation::{
 	InfrastructureDerivationInput, derive_infrastructure_spec,
 };
 use reinhardt_cloud_types::crd::{
-	ReinhardtAppSpec,
+	ProjectSpec,
 	infrastructure::{BucketSpec, DnsRecordSpec, InfrastructureSpec, PostgresSpec, SecretSpec},
 };
 
@@ -36,14 +36,14 @@ pub(crate) struct TerraformArgs {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum TerraformCommand {
-	/// Generate per-app Terraform HCL from a ReinhardtApp infrastructure spec.
+	/// Generate per-app Terraform HCL from a Project infrastructure spec.
 	Generate(GenerateArgs),
 }
 
 /// Arguments for `terraform generate`.
 #[derive(Debug, Args)]
 pub(crate) struct GenerateArgs {
-	/// Application name (used as a Terraform resource name prefix).
+	/// Project name (used as a Terraform resource name prefix).
 	#[arg(long)]
 	pub(crate) app: String,
 
@@ -60,7 +60,7 @@ pub(crate) struct GenerateArgs {
 	#[arg(long, hide = true)]
 	pub(crate) infra_json: Option<String>,
 
-	/// ReinhardtApp YAML manifest. Preferred source for spec.infrastructure.
+	/// Project YAML manifest. Preferred source for spec.infrastructure.
 	#[arg(long)]
 	pub(crate) app_crd: Option<PathBuf>,
 }
@@ -123,8 +123,8 @@ fn infrastructure_from_crd_yaml(
 	let spec_value = value
 		.as_mapping()
 		.and_then(|mapping| mapping.get(&spec_key))
-		.ok_or_else(|| "ReinhardtApp YAML is missing spec".to_string())?;
-	let spec: ReinhardtAppSpec =
+		.ok_or_else(|| "Project YAML is missing spec".to_string())?;
+	let spec: ProjectSpec =
 		serde_yaml::from_value(spec_value.clone()).map_err(|err| err.to_string())?;
 
 	if let Some(infra) = spec.infrastructure {
@@ -136,10 +136,10 @@ fn infrastructure_from_crd_yaml(
 		eprintln!(
 			"warning: spec.infrastructure is absent; deriving from spec.introspect for compatibility. Persist the generated infrastructure block for repeatable Terraform."
 		);
-		let app_name = app.to_owned();
+		let project_name = app.to_owned();
 
 		return derive_infrastructure_spec(InfrastructureDerivationInput {
-			app_name,
+			project_name,
 			signals: introspect.features.infrastructure_signals.clone(),
 			explicit: None,
 			typed_secret_refs: typed_secret_refs(&spec),
@@ -160,7 +160,7 @@ fn validate_infrastructure(infra: &InfrastructureSpec) -> Result<(), String> {
 	})
 }
 
-fn typed_secret_refs(spec: &ReinhardtAppSpec) -> Vec<String> {
+fn typed_secret_refs(spec: &ProjectSpec) -> Vec<String> {
 	[
 		spec.auth
 			.as_ref()
@@ -693,7 +693,7 @@ mod tests {
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:
@@ -718,7 +718,7 @@ spec:
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:
@@ -772,7 +772,7 @@ spec:
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:
@@ -795,11 +795,11 @@ spec:
 	}
 
 	#[rstest]
-	fn fallback_uses_cli_app_name_for_bucket_prefixes() {
+	fn fallback_uses_cli_project_name_for_bucket_prefixes() {
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:
@@ -828,7 +828,7 @@ spec:
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:
@@ -886,7 +886,7 @@ spec:
 		// Arrange
 		let yaml = r#"
 apiVersion: cloud.reinhardt.dev/v1alpha1
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders
 spec:

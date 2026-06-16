@@ -11,8 +11,8 @@ use thiserror::Error;
 /// Inputs used to derive application-managed infrastructure resources.
 #[derive(Debug, Clone)]
 pub struct InfrastructureDerivationInput {
-	/// Application name used for derived resource names.
-	pub app_name: String,
+	/// Project name used for derived resource names.
+	pub project_name: String,
 	/// Infrastructure signals detected during application introspection.
 	pub signals: InfraSignals,
 	/// Explicit infrastructure declaration supplied by the application.
@@ -71,7 +71,7 @@ pub fn derive_infrastructure_spec(
 		match backend.as_str() {
 			"s3" | "gcs" => {
 				spec.buckets = Some(vec![BucketSpec {
-					name: format!("{}-assets", input.app_name),
+					name: format!("{}-assets", input.project_name),
 					public: false,
 				}]);
 			}
@@ -137,7 +137,7 @@ mod tests {
 
 	fn input_with_signals(signals: InfraSignals) -> InfrastructureDerivationInput {
 		InfrastructureDerivationInput {
-			app_name: "inventory".to_string(),
+			project_name: "inventory".to_string(),
 			signals,
 			explicit: None,
 			typed_secret_refs: Vec::new(),
@@ -268,7 +268,7 @@ mod tests {
 			}]),
 		};
 		let input = InfrastructureDerivationInput {
-			app_name: "inventory".to_string(),
+			project_name: "inventory".to_string(),
 			signals: InfraSignals {
 				database: Some("postgres".to_string()),
 				storage: Some("s3".to_string()),
@@ -305,7 +305,7 @@ mod tests {
 			}]),
 		};
 		let input = InfrastructureDerivationInput {
-			app_name: "inventory".to_string(),
+			project_name: "inventory".to_string(),
 			signals: InfraSignals {
 				database: Some("postgres".to_string()),
 				storage: Some("s3".to_string()),
@@ -331,7 +331,7 @@ mod tests {
 	fn derives_sorted_deduplicated_typed_secret_refs() {
 		// Arrange
 		let input = InfrastructureDerivationInput {
-			app_name: "inventory".to_string(),
+			project_name: "inventory".to_string(),
 			signals: InfraSignals::default(),
 			explicit: None,
 			typed_secret_refs: vec![

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 use reinhardt_cloud_types::crd::pages::PagesResourceRequirements;
 
 /// Resolved pages configuration with all defaults applied.
@@ -46,7 +46,7 @@ impl Default for ResolvedPagesConfig {
 /// Determines whether pages deployment should be enabled.
 ///
 /// Priority: explicit `spec.pages` (Some = enabled) > introspect signals > false.
-pub(crate) fn should_enable_pages(app: &ReinhardtApp) -> bool {
+pub(crate) fn should_enable_pages(app: &Project) -> bool {
 	if app.spec.pages.is_some() {
 		return true;
 	}
@@ -60,7 +60,7 @@ pub(crate) fn should_enable_pages(app: &ReinhardtApp) -> bool {
 /// Resolves pages configuration by merging explicit spec over defaults.
 ///
 /// Returns `None` if pages is not enabled.
-pub(crate) fn resolve_pages_config(app: &ReinhardtApp) -> Option<ResolvedPagesConfig> {
+pub(crate) fn resolve_pages_config(app: &Project) -> Option<ResolvedPagesConfig> {
 	if !should_enable_pages(app) {
 		return None;
 	}
@@ -90,20 +90,20 @@ pub(crate) fn resolve_pages_config(app: &ReinhardtApp) -> Option<ResolvedPagesCo
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use reinhardt_cloud_types::crd::pages::PagesSpec;
 	use reinhardt_cloud_types::introspect::{FeaturesMetadata, InfraSignals, IntrospectOutput};
 	use rstest::rstest;
 
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "img:v1".to_string(),
 				..Default::default()
 			},

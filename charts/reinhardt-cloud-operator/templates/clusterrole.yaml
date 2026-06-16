@@ -7,13 +7,13 @@ metadata:
 rules:
   # Base: CRD management (always required)
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps"]
+    resources: ["projects"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps/status"]
+    resources: ["projects/status"]
     verbs: ["get", "update", "patch"]
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps/finalizers"]
+    resources: ["projects/finalizers"]
     verbs: ["update"]
   # Base: Deployment management (always required)
   - apiGroups: ["apps"]

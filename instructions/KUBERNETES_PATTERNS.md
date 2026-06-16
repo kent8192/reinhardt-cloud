@@ -16,7 +16,7 @@ ALL Kubernetes resources MUST be defined as proper CRD types using `#[derive(Cus
 
 ```rust
 // ❌ Untyped spec loses compile-time safety
-pub struct ReinhardtAppSpec {
+pub struct ProjectSpec {
 	pub config: serde_json::Value,
 }
 ```
@@ -32,14 +32,14 @@ use serde::{Deserialize, Serialize};
 #[kube(
 	group = "paas.reinhardt-cloud.dev",
 	version = "v1alpha1",
-	kind = "ReinhardtApp",
+	kind = "Project",
 	namespaced,
-	status = "ReinhardtAppStatus",
+	status = "ProjectStatus",
 	printcolumn = r#"{"name":"Image","type":"string","jsonPath":".spec.image"}"#,
 	printcolumn = r#"{"name":"Replicas","type":"integer","jsonPath":".spec.replicas"}"#,
 	printcolumn = r#"{"name":"Ready","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].status"}"#
 )]
-pub struct ReinhardtAppSpec {
+pub struct ProjectSpec {
 	/// Docker image to deploy (e.g., `myapp:latest`)
 	pub image: String,
 	/// Number of desired replicas (defaults to 1)
@@ -52,7 +52,7 @@ pub struct ReinhardtAppSpec {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
-pub struct ReinhardtAppStatus {
+pub struct ProjectStatus {
 	/// Standard Kubernetes condition list
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub conditions: Vec<Condition>,
@@ -93,7 +93,7 @@ Add `printcolumn` annotations to show useful information in `kubectl get` output
 MUST implement the reconciler as a pure async function:
 
 ```rust
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action>
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action>
 ```
 
 **Requirements:**
@@ -117,7 +117,7 @@ pub struct Context {
 	pub client: Client,
 }
 
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let name = obj.name_any();
 	let namespace = obj.namespace().unwrap_or_default();
 
@@ -138,7 +138,7 @@ async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, 
 }
 
 fn error_policy(
-	_obj: Arc<ReinhardtApp>,
+	_obj: Arc<Project>,
 	error: &Error,
 	_ctx: Arc<Context>,
 ) -> Action {
@@ -157,8 +157,8 @@ use kube::runtime::finalizer::{finalizer, Event as FinalizerEvent};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action, Error> {
+	let api: Api<Project> = Api::namespaced(
 		ctx.client.clone(),
 		&obj.namespace().unwrap_or_default(),
 	);
@@ -180,7 +180,7 @@ Reconciler logic MUST be idempotent — running the same reconciliation multiple
 
 ```rust
 async fn reconcile_deployment(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
@@ -218,7 +218,7 @@ use kube::runtime::controller::Controller;
 use kube::runtime::watcher;
 
 pub async fn run_controller(client: Client) {
-	let apps: Api<ReinhardtApp> = Api::all(client.clone());
+	let apps: Api<Project> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
 
@@ -252,7 +252,7 @@ pub async fn run_controller(client: Client) {
 All resources created by the operator MUST carry standard labels:
 
 ```rust
-fn standard_labels(app: &ReinhardtApp) -> BTreeMap<String, String> {
+fn standard_labels(app: &Project) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("app.kubernetes.io/name".to_string(), app.name_any()),
 		("app.kubernetes.io/managed-by".to_string(), "reinhardt-cloud-operator".to_string()),
@@ -298,11 +298,11 @@ fn build_ready_condition(ready: bool, message: &str) -> Condition {
 }
 
 async fn update_status(
-	app: &ReinhardtApp,
+	app: &Project,
 	client: &Client,
 	namespace: &str,
 ) -> Result<(), Error> {
-	let api: Api<ReinhardtApp> = Api::namespaced(client.clone(), namespace);
+	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
 
 	let status = serde_json::json!({
 		"status": {
@@ -366,7 +366,7 @@ Use `Action::await_change()` for terminal states (no retry needed).
 **DON'T:**
 
 ```rust
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let deployment = get_deployment(&obj, &ctx.client).await
 		.unwrap();  // ❌ panics on transient error, crashes operator
 
@@ -389,7 +389,7 @@ pub enum Error {
 	MissingField(&'static str),
 }
 
-async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action, Error> {
 	let deployment = get_deployment(&obj, &ctx.client).await
 		.map_err(Error::KubeError)?;  // ✅ propagate error, triggers error_policy
 
@@ -397,7 +397,7 @@ async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action, 
 }
 
 fn error_policy(
-	_obj: Arc<ReinhardtApp>,
+	_obj: Arc<Project>,
 	error: &Error,
 	_ctx: Arc<Context>,
 ) -> Action {
@@ -457,13 +457,13 @@ metadata:
 rules:
   # Full control over owned CRDs
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps"]
+    resources: ["projects"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps/status"]
+    resources: ["projects/status"]
     verbs: ["get", "update", "patch"]
   - apiGroups: ["paas.reinhardt-cloud.dev"]
-    resources: ["reinhardtapps/finalizers"]
+    resources: ["projects/finalizers"]
     verbs: ["update"]
   # Read and manage owned Deployments
   - apiGroups: ["apps"]

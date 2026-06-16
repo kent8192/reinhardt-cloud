@@ -7,8 +7,8 @@ use uuid::Uuid;
 /// Request to start a new build.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildRequest {
-	/// Application name to build.
-	pub app_name: String,
+	/// Project name to build.
+	pub project_name: String,
 	/// Container image reference (e.g. "registry.example.com/app:latest").
 	pub image: String,
 	/// Environment variables for the build context.
@@ -84,8 +84,8 @@ impl std::fmt::Display for BuildPhase {
 pub struct BuildStatus {
 	/// Unique build identifier.
 	pub build_id: Uuid,
-	/// Application name.
-	pub app_name: String,
+	/// Project name.
+	pub project_name: String,
 	/// Current build phase.
 	pub phase: BuildPhase,
 	/// Whether the build has completed.
@@ -107,7 +107,7 @@ mod tests {
 	fn test_build_request_serde_roundtrip() {
 		// Arrange
 		let request = BuildRequest {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			image: "registry.example.com/my-app:v1".to_string(),
 			env_vars: vec![EnvVar {
 				key: "NODE_ENV".to_string(),
@@ -122,7 +122,7 @@ mod tests {
 		let deserialized: BuildRequest = serde_json::from_str(&json).unwrap();
 
 		// Assert
-		assert_eq!(deserialized.app_name, "my-app");
+		assert_eq!(deserialized.project_name, "my-app");
 		assert_eq!(deserialized.env_vars.len(), 1);
 		assert_eq!(deserialized.env_vars[0].key, "NODE_ENV");
 		assert_eq!(deserialized.dockerfile, Some("Dockerfile.prod".to_string()));
@@ -170,7 +170,7 @@ mod tests {
 		// Arrange
 		let status = BuildStatus {
 			build_id: Uuid::now_v7(),
-			app_name: "test-app".to_string(),
+			project_name: "test-app".to_string(),
 			phase: BuildPhase::Pushing,
 			completed: false,
 			success: None,
@@ -184,7 +184,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(deserialized.build_id, status.build_id);
-		assert_eq!(deserialized.app_name, "test-app");
+		assert_eq!(deserialized.project_name, "test-app");
 		assert!(!deserialized.completed);
 		assert!(deserialized.success.is_none());
 	}
@@ -213,7 +213,7 @@ mod tests {
 		// Arrange
 		let status = BuildStatus {
 			build_id: Uuid::now_v7(),
-			app_name: "failing-app".to_string(),
+			project_name: "failing-app".to_string(),
 			phase: BuildPhase::Finalizing,
 			completed: true,
 			success: Some(false),
@@ -227,7 +227,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(deserialized.build_id, status.build_id);
-		assert_eq!(deserialized.app_name, "failing-app");
+		assert_eq!(deserialized.project_name, "failing-app");
 		assert!(deserialized.completed);
 		assert_eq!(deserialized.success, Some(false));
 		assert!(deserialized.completed_at.is_some());
@@ -272,10 +272,10 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_request_empty_app_name() {
+	fn test_build_request_empty_project_name() {
 		// Arrange
 		let request = BuildRequest {
-			app_name: "".to_string(),
+			project_name: "".to_string(),
 			image: "img:latest".to_string(),
 			env_vars: vec![],
 			dockerfile: None,
@@ -287,7 +287,7 @@ mod tests {
 		let deserialized: BuildRequest = serde_json::from_str(&json).unwrap();
 
 		// Assert
-		assert_eq!(deserialized.app_name, "");
+		assert_eq!(deserialized.project_name, "");
 		assert_eq!(deserialized.image, "img:latest");
 		assert!(deserialized.env_vars.is_empty());
 	}
@@ -322,7 +322,7 @@ mod tests {
 	) {
 		// Arrange
 		let request = BuildRequest {
-			app_name: "combo-app".to_string(),
+			project_name: "combo-app".to_string(),
 			image: "img:v1".to_string(),
 			env_vars: vec![],
 			dockerfile: dockerfile.map(String::from),

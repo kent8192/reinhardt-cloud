@@ -1,4 +1,4 @@
-//! Reinhardt Cloud Kubernetes operator for managing `ReinhardtApp` resources.
+//! Reinhardt Cloud Kubernetes operator for managing `Project` resources.
 
 mod error;
 mod inference;

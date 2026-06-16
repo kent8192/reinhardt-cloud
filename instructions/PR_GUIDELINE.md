@@ -80,7 +80,7 @@ When creating PRs via `gh pr create`, the `--body` content MUST follow the PR te
 
 **Examples:**
 ```
-feature/crd-reinhardt-app-definition
+feature/crd-project-definition
 fix/reconciler-nil-pointer-on-missing-deployment
 refactor/operator-controller-structure
 docs/api-crd-reference
@@ -96,7 +96,7 @@ chore/ci-update-kubernetes-version
 
 **Example:**
 ```bash
-gh pr create --draft --title "feat(crd): add ReinhardtApp CRD (WIP)"
+gh pr create --draft --title "feat(crd): add Project CRD (WIP)"
 
 # Convert to Ready once implementation is complete (no need to wait for CI):
 gh pr ready <number>
@@ -120,7 +120,7 @@ gh pr ready <number>
 
 ```bash
 # Feature PR with label
-gh pr create --title "feat(crd): add ReinhardtApp CRD" \
+gh pr create --title "feat(crd): add Project CRD" \
   --label enhancement
 
 # Bug fix PR with label
@@ -161,7 +161,7 @@ PR titles MUST follow the same format as commit messages:
 <type>[optional scope][optional !]: <description>
 
 Examples:
-feat(crd): add ReinhardtApp custom resource definition
+feat(crd): add Project custom resource definition
 fix(reconciler): resolve nil pointer dereference in status update
 feat(operator)!: change CRD group from reinhardt-cloud.dev to paas.reinhardt-cloud.dev
 ```
@@ -448,7 +448,7 @@ For documentation changes:
 docs(<scope>): <description>
 
 Example:
-docs(crd): add ReinhardtApp API reference
+docs(crd): add Project API reference
 docs(operator): update deployment guide for Kubernetes 1.29
 ```
 

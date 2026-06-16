@@ -1,17 +1,18 @@
 //! Git credential Secret validation for source-driven builds.
 
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 /// Returns the credentials Secret name if one is referenced in source spec.
-pub(crate) fn should_warn_missing_credentials(app: &ReinhardtApp) -> Option<String> {
+pub(crate) fn should_warn_missing_credentials(app: &Project) -> Option<String> {
 	let source = app.spec.source.as_ref()?;
 	let secret_name = source.credentials_secret.as_ref()?;
 	Some(secret_name.clone())
 }
 
 /// Returns the webhook secret name from the source spec, if configured.
+// Allow: Reserved for future webhook validation logic
 #[allow(dead_code)]
-pub(crate) fn webhook_secret_name(app: &ReinhardtApp) -> Option<String> {
+pub(crate) fn webhook_secret_name(app: &Project) -> Option<String> {
 	app.spec
 		.source
 		.as_ref()?
@@ -22,8 +23,9 @@ pub(crate) fn webhook_secret_name(app: &ReinhardtApp) -> Option<String> {
 }
 
 /// Returns the credentials Secret name for the source spec.
+// Allow: Reserved for future credential lookup helpers
 #[allow(dead_code)]
-pub(crate) fn credentials_secret_name(app: &ReinhardtApp) -> Option<String> {
+pub(crate) fn credentials_secret_name(app: &Project) -> Option<String> {
 	app.spec.source.as_ref()?.credentials_secret.clone()
 }
 
@@ -31,17 +33,17 @@ pub(crate) fn credentials_secret_name(app: &ReinhardtApp) -> Option<String> {
 mod tests {
 	use super::*;
 
-	fn test_app(name: &str) -> ReinhardtApp {
+	fn test_app(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": { "image": "myapp:latest" }
 		});
 		serde_json::from_value(json).unwrap()
 	}
 
-	fn test_app_with_source(name: &str, creds: Option<&str>) -> ReinhardtApp {
+	fn test_app_with_source(name: &str, creds: Option<&str>) -> Project {
 		let mut app = test_app(name);
 		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
 			repository: "https://github.com/myorg/myapp".to_string(),

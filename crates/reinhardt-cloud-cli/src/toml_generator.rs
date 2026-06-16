@@ -28,7 +28,7 @@ pub(crate) fn generate_config(
 ) -> Result<ReinhardtCloudToml, String> {
 	let (has_database, db_engine) = resolve_database(metadata, db_config);
 	let infrastructure = derive_infrastructure_spec(InfrastructureDerivationInput {
-		app_name: metadata.name.clone(),
+		project_name: metadata.name.clone(),
 		signals: convert_infra_signals(&metadata.signals, has_database.then(|| db_engine.clone())),
 		explicit: None,
 		typed_secret_refs: Vec::new(),

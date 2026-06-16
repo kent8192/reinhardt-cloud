@@ -120,7 +120,7 @@ fn deployment_select_options(items: &[DeploymentInfo]) -> Vec<EntitySelectOption
 		.map(|deployment| {
 			EntitySelectOption::new(
 				deployment.id.to_string(),
-				deployment.app_name.clone(),
+				deployment.project_name.clone(),
 				Some(format!("{} / {}", deployment.status, deployment.image)),
 			)
 		})
@@ -139,10 +139,10 @@ pub fn deployments_list_page() -> Page {
 		success_url: |_form| route_href("deployments:list", "/deployments"),
 		class: "rc-form-grid",
 		fields: {
-			app_name: CharField {
+			project_name: CharField {
 				required,
 				max_length: 63,
-				label: "App Name",
+				label: "Project name",
 				wrapper_class: "rc-field",
 				label_class: "rc-label",
 				placeholder: "web",
@@ -160,9 +160,9 @@ pub fn deployments_list_page() -> Page {
 				placeholder: "ghcr.io/example/web:latest",
 				class: "rc-input",
 			}
-			reinhardt_app_yaml: TextField {
+			project_yaml: TextField {
 				max_length: 65535,
-				label: "ReinhardtApp YAML",
+				label: "Project YAML",
 				wrapper_class: "rc-field md:col-span-2",
 				label_class: "rc-label",
 				widget: Textarea,
@@ -190,10 +190,10 @@ pub fn deployments_list_page() -> Page {
 			deployment_id: HiddenField {
 				initial: String::new(),
 			}
-			app_name: CharField {
+			project_name: CharField {
 				required,
 				max_length: 63,
-				label: "App Name",
+				label: "Project name",
 				wrapper_class: "rc-field",
 				label_class: "rc-label",
 				placeholder: "web",
@@ -229,7 +229,7 @@ pub fn deployments_list_page() -> Page {
 		.build();
 	let edit_state = edit_runtime.form_state();
 	let edit_deployment_id = edit_runtime.watch_field::<String>(edit_form.deployment_id_field());
-	let edit_app_name = edit_runtime.watch_field::<String>(edit_form.app_name_field());
+	let edit_project_name = edit_runtime.watch_field::<String>(edit_form.project_name_field());
 	let edit_image = edit_runtime.watch_field::<String>(edit_form.image_field());
 	let edit_status = edit_runtime.watch_field::<String>(edit_form.status_field());
 	let edit_error = edit_form.error().clone();
@@ -297,7 +297,7 @@ pub fn deployments_list_page() -> Page {
 	let deployments_for_delete = deployments.clone();
 	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_app_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
+	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
 		div {
 			class: "rc-shell",
 			div {
@@ -400,7 +400,7 @@ pub fn deployments_list_page() -> Page {
 																		td {
 																			class: "px-4 py-2 font-semibold text-ink-950",
 																			{
-																				deployment.app_name.clone()
+																				deployment.project_name.clone()
 																			}
 																		}
 																		td {
@@ -501,12 +501,12 @@ pub fn deployments_list_page() -> Page {
 								match deployments_for_edit.get() {
 									ResourceState::Success(items) => {
 										let deployments_for_change = items.clone();
-										let app_name_signal = edit_app_name.clone();
+										let project_name_signal = edit_project_name.clone();
 										let image_signal = edit_image.clone();
 										let status_signal = edit_status.clone();
 										self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), edit_deployment_id.clone(), move |value| {
 											if let Some(deployment) = deployments_for_change.iter().find(|deployment| deployment.id.to_string() == value) {
-												app_name_signal.set(deployment.app_name.clone());
+												project_name_signal.set(deployment.project_name.clone());
 												image_signal.set(deployment.image.clone());
 												status_signal.set(deployment.status.clone());
 											}
@@ -641,7 +641,7 @@ pub fn deployments_list_page() -> Page {
 		edit_state.is_dirty,
 		edit_state.is_submitting,
 		edit_deployment_id,
-		edit_app_name,
+		edit_project_name,
 		edit_image,
 		edit_status,
 		status_view,

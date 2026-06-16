@@ -1,6 +1,6 @@
 //! CRD type definitions for the Reinhardt Cloud PaaS platform.
 //!
-//! Defines the `ReinhardtApp` custom resource following the Kubernetes
+//! Defines the `Project` custom resource following the Kubernetes
 //! operator pattern with strongly typed spec and status fields.
 
 pub mod auth;

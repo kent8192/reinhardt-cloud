@@ -1,6 +1,6 @@
 //! Builders for tenant-scoped Kubernetes primitives (#416).
 //!
-//! When a `ReinhardtApp` sets `spec.tenant`, the operator reconciles a
+//! When a `Project` sets `spec.tenant`, the operator reconciles a
 //! deterministic per-tenant `Namespace`, `ResourceQuota`, and a
 //! default-deny + selective-allow `NetworkPolicy` triple in addition to
 //! the per-app resources defined in the sibling modules. The builders
@@ -8,7 +8,7 @@
 //! resource — they do not talk to the API server.
 //!
 //! Tenant resources do not carry an `ownerReference` to the
-//! `ReinhardtApp` because a single namespace is shared by every app in
+//! `Project` because a single namespace is shared by every app in
 //! the tenant; tying its lifetime to one specific CR would cause
 //! cascade-deletion when that CR is removed even though sibling CRs
 //! still need the namespace. Cleanup of an empty tenant namespace is

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use k8s_openapi::api::core::v1::{EnvVar, EnvVarSource, SecretKeySelector};
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::platform::Platform;
 
@@ -17,29 +17,29 @@ use super::platform::Platform;
 ///
 /// Non-secret values (host, port, db name, user) are derived from
 /// conventions shared with `infer_database_resources`:
-/// - Secret name: `{app_name}-db-credentials` (keys `username` / `password`)
+/// - Secret name: `{project_name}-db-credentials` (keys `username` / `password`)
 /// - Host / port / db name / user: derived from `db_host` and the naming
 ///   convention used by the inference module. These are deterministic
 ///   identifiers (not credentials), so embedding them as plain values is safe.
 ///
 /// The caller is responsible for ensuring a PostgreSQL database will be
 /// provisioned for this app and that the corresponding credentials Secret
-/// (`{app_name}-db-credentials`) will exist.
+/// (`{project_name}-db-credentials`) will exist.
 ///
 /// The `db_host` parameter must be the DNS name of the Service that exposes
 /// the database:
-/// - For the explicit `spec.database` path: `"{app_name}-db"` (the headless
+/// - For the explicit `spec.database` path: `"{project_name}-db"` (the headless
 ///   Service created by `infer_database_resources`).
-/// - For the introspect-provisioned path: `"{app_name}-postgresql"` (the
+/// - For the introspect-provisioned path: `"{project_name}-postgresql"` (the
 ///   Service created by `reconcile_db_service_resource`).
 pub(crate) fn build_database_env_vars_from_secret(
-	app: &ReinhardtApp,
+	app: &Project,
 	platform: &Platform,
 	db_host: &str,
 	user_vars: &BTreeMap<String, String>,
 ) -> Vec<EnvVar> {
-	let app_name = app.name_any();
-	let secret_name = format!("{app_name}-db-credentials");
+	let project_name = app.name_any();
+	let secret_name = format!("{project_name}-db-credentials");
 
 	let default_port = 5432;
 	let host = user_vars
@@ -49,7 +49,7 @@ pub(crate) fn build_database_env_vars_from_secret(
 		.unwrap_or_else(|| db_host.to_string());
 	if matches!(platform, Platform::Aws | Platform::Gcp) && host == db_host {
 		tracing::warn!(
-			app = %app_name,
+			app = %project_name,
 			"Cloud-managed database endpoint resolution is not yet implemented. \
 			 DATABASE_URL and REINHARDT_DATABASE_HOST will use the placeholder host \
 			 '{}'. Provide REINHARDT_DATABASE_HOST or DATABASE_URL via spec.env \
@@ -60,7 +60,7 @@ pub(crate) fn build_database_env_vars_from_secret(
 
 	// Both identifiers use replace('-', "_") to produce valid SQL identifiers,
 	// matching the convention used by infer_database_resources in inference/database.rs.
-	let sanitized_name = app_name.replace('-', "_");
+	let sanitized_name = project_name.replace('-', "_");
 	let db_name = user_vars
 		.get("REINHARDT_DATABASE_NAME")
 		.filter(|value| !value.is_empty())
@@ -111,7 +111,7 @@ pub(crate) fn build_database_env_vars_from_secret(
 /// configuration variables so the Pod's SDK picks up the correct exporter and
 /// service identity without requiring manual configuration.
 ///
-/// * `app_name` — value for `OTEL_SERVICE_NAME` (typically the app's name).
+/// * `project_name` — value for `OTEL_SERVICE_NAME` (typically the app's name).
 ///
 /// Variables injected:
 /// * `TRACEPARENT` — W3C `traceparent` of the current reconcile span (omitted
@@ -120,17 +120,17 @@ pub(crate) fn build_database_env_vars_from_secret(
 ///   reading this variable and explicitly setting it as the parent for the
 ///   process's root span.
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
-/// * `OTEL_SERVICE_NAME` — set to `app_name`.
+/// * `OTEL_SERVICE_NAME` — set to `project_name`.
 /// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
 ///   environment variable of the same name when present.
-pub(crate) fn build_otel_env_vars(app_name: &str) -> Vec<EnvVar> {
+pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
 	use opentelemetry::trace::TraceContextExt;
 	use tracing::Span;
 	use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 	let mut vars = vec![
 		env_var("OTEL_PROPAGATORS", "tracecontext"),
-		env_var("OTEL_SERVICE_NAME", app_name),
+		env_var("OTEL_SERVICE_NAME", project_name),
 	];
 
 	// Inject the operator's OTLP endpoint so the Pod sends spans to the same
@@ -172,20 +172,20 @@ pub(crate) fn build_system_env_vars() -> Vec<EnvVar> {
 /// Both names reference the same Secret data key. `REINHARDT_CORE__SECRET_KEY`
 /// matches Dashboard production settings, while `REINHARDT_CLOUD_SECRET_KEY`
 /// preserves the existing generated-settings contract.
-pub(crate) fn build_core_secret_key_env_vars(app_name: &str) -> Vec<EnvVar> {
+pub(crate) fn build_core_secret_key_env_vars(project_name: &str) -> Vec<EnvVar> {
 	vec![
-		build_core_secret_key_env_var("REINHARDT_CORE__SECRET_KEY", app_name),
-		build_core_secret_key_env_var("REINHARDT_CLOUD_SECRET_KEY", app_name),
+		build_core_secret_key_env_var("REINHARDT_CORE__SECRET_KEY", project_name),
+		build_core_secret_key_env_var("REINHARDT_CLOUD_SECRET_KEY", project_name),
 	]
 }
 
-fn build_core_secret_key_env_var(name: &str, app_name: &str) -> EnvVar {
+fn build_core_secret_key_env_var(name: &str, project_name: &str) -> EnvVar {
 	EnvVar {
 		name: name.to_string(),
 		value: None,
 		value_from: Some(EnvVarSource {
 			secret_key_ref: Some(SecretKeySelector {
-				name: format!("{app_name}-core-secret-key"),
+				name: format!("{project_name}-core-secret-key"),
 				key: "secret-key".to_string(),
 				optional: Some(false),
 			}),
@@ -196,13 +196,13 @@ fn build_core_secret_key_env_var(name: &str, app_name: &str) -> EnvVar {
 
 /// Build the `REINHARDT_CLOUD_JWT_SECRET` env var referencing the per-app
 /// `<app>-jwt-secret` Secret created when `spec.auth.jwt` is enabled.
-pub(crate) fn build_jwt_secret_env_var(app_name: &str) -> EnvVar {
+pub(crate) fn build_jwt_secret_env_var(project_name: &str) -> EnvVar {
 	EnvVar {
 		name: "REINHARDT_CLOUD_JWT_SECRET".to_string(),
 		value: None,
 		value_from: Some(EnvVarSource {
 			secret_key_ref: Some(SecretKeySelector {
-				name: format!("{app_name}-jwt-secret"),
+				name: format!("{project_name}-jwt-secret"),
 				key: "jwt-secret".to_string(),
 				optional: Some(false),
 			}),
@@ -212,10 +212,10 @@ pub(crate) fn build_jwt_secret_env_var(app_name: &str) -> EnvVar {
 }
 
 /// Build the Redis URL env var for the operator-managed Redis Service.
-pub(crate) fn build_redis_cache_env_var(app_name: &str) -> EnvVar {
+pub(crate) fn build_redis_cache_env_var(project_name: &str) -> EnvVar {
 	env_var(
 		"REINHARDT_CLOUD_REDIS_URL",
-		&format!("redis://{app_name}-redis:6379/0"),
+		&format!("redis://{project_name}-redis:6379/0"),
 	)
 }
 
@@ -316,19 +316,19 @@ fn env_var(name: &str, value: &str) -> EnvVar {
 mod tests {
 	use super::*;
 	use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use rstest::rstest;
 
-	fn make_app_with_db(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_app_with_db(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "app:latest".to_string(),
 				database: Some(DatabaseSpec {
 					engine: DatabaseEngine::Postgresql,
@@ -679,7 +679,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn core_secret_key_env_vars_secret_name_tracks_app_name() {
+	fn core_secret_key_env_vars_secret_name_tracks_project_name() {
 		// Arrange & Act — a different app must reference its own Secret;
 		// the helper must NOT share a single Secret across apps.
 		let vars = build_core_secret_key_env_vars("other-app");

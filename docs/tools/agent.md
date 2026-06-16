@@ -28,7 +28,7 @@ The agent always **dials out** from the cluster to the control plane's gRPC endp
 | Dimension | Operator | Agent |
 |---|---|---|
 | Where it runs | In-cluster | In-cluster |
-| Interface | Watches ReinhardtApp CRDs (declarative) | Accepts commands over gRPC (imperative) |
+| Interface | Watches Project CRDs (declarative) | Accepts commands over gRPC (imperative) |
 | Decision owner | Operator itself (reconciles toward spec) | External control plane |
 | Required for single-cluster deploy | Yes | No |
 | Required for multi-cluster fleet | — | Yes |
@@ -220,7 +220,7 @@ metadata:
   namespace: reinhardt-cloud-system
 ```
 
-> The agent must **not** be granted `cluster-admin` or any `create`/`update` permissions on ReinhardtApp CRDs — those are the operator's domain.
+> The agent must **not** be granted `cluster-admin` or any `create`/`update` permissions on Project CRDs — those are the operator's domain.
 
 ### Multi-cluster enrollment
 
@@ -287,7 +287,7 @@ The agent and control plane share proto definitions from `reinhardt-cloud-proto`
 
 ## Security
 
-**Least privilege**: the agent's `ClusterRole` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`. It must never be granted `cluster-admin` or write access to ReinhardtApp CRDs.
+**Least privilege**: the agent's `ClusterRole` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`. It must never be granted `cluster-admin` or write access to Project CRDs.
 
 **Secret rotation**: to rotate the `AUTH_TOKEN` without downtime:
 1. Issue a new token in the Dashboard for the cluster (old token remains valid until revoked).
