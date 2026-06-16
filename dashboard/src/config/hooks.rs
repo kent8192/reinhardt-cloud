@@ -15,6 +15,7 @@ use reinhardt_cloud_grpc::config::GrpcServerConfig;
 
 use super::grpc::start_grpc_server;
 use super::settings::get_redis_url;
+use super::urls::init_websocket_routes;
 
 /// Validates that a Redis URL is configured before the server starts.
 ///
@@ -64,7 +65,7 @@ impl RunserverHook for WebSocketRunserverHook {
 		ctx: &RunserverContext,
 	) -> Result<(), Box<dyn Error + Send + Sync>> {
 		let _ = ctx;
-		crate::config::urls::init_websocket_routes().await;
+		init_websocket_routes().await;
 		Ok(())
 	}
 }

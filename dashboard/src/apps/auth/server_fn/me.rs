@@ -2,6 +2,10 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
+#[cfg(native)]
+use reinhardt::CurrentUser;
+
+#[cfg(native)]
 use crate::apps::auth::models::User;
 use crate::shared::UserInfo;
 
@@ -12,8 +16,6 @@ use crate::shared::UserInfo;
 /// extensions. `CurrentUser<User>` resolves the full user model from
 /// the database via dependency injection.
 #[server_fn]
-pub async fn me(
-	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<User>,
-) -> Result<UserInfo, ServerFnError> {
+pub async fn me(#[inject] CurrentUser(user): CurrentUser<User>) -> Result<UserInfo, ServerFnError> {
 	Ok(UserInfo::from(&user))
 }

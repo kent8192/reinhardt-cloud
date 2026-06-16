@@ -1,10 +1,14 @@
 //! Logout server function for frontend session termination.
 
-use reinhardt::di::Depends;
-use reinhardt::pages::server_fn::{ServerFnError, ServerFnRequest, server_fn};
+use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 #[cfg(native)]
-use crate::apps::auth::services::{SessionService, SessionServiceKey};
+use reinhardt::di::Depends;
+#[cfg(native)]
+use reinhardt::pages::server_fn::ServerFnRequest;
+
+#[cfg(native)]
+use crate::apps::auth::services::{self, SessionService, SessionServiceKey};
 
 /// Invalidate the current session and clear the session cookie.
 ///
@@ -17,8 +21,6 @@ pub async fn logout(
 	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
 ) -> Result<bool, ServerFnError> {
 	use tracing::warn;
-
-	use crate::apps::auth::services;
 
 	let session_id = http_request
 		.inner()

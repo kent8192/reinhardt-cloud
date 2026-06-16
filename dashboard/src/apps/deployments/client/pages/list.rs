@@ -19,6 +19,8 @@ use crate::apps::deployments::server_fn::{
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
+#[cfg(wasm)]
+use crate::shared::client::ws::track_subscriptions;
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -69,7 +71,7 @@ fn track_visible_deployments(items: &[DeploymentInfo]) {
 		.iter()
 		.map(|item| item.id.to_string())
 		.collect::<Vec<_>>();
-	crate::shared::client::ws::track_subscriptions(&ids);
+	track_subscriptions(&ids);
 }
 
 #[cfg(not(wasm))]

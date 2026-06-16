@@ -3,16 +3,21 @@
 //! Creates a new user with `is_active = false` and sends a verification
 //! email. The user must verify their email before they can log in.
 
-use reinhardt::di::Depends;
-use reinhardt::pages::server_fn::{ServerFnError, ServerFnRequest, server_fn};
+use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
+#[cfg(native)]
+use reinhardt::di::Depends;
+#[cfg(native)]
+use reinhardt::pages::server_fn::ServerFnRequest;
 
 use crate::shared::AuthResponse;
+#[cfg(native)]
+use crate::shared::UserInfo;
 
 #[cfg(native)]
-use crate::apps::auth::services::{EmailService, EmailServiceKey};
+use crate::apps::auth::services::{self, EmailService, EmailServiceKey};
 #[cfg(native)]
 use crate::config::{ProjectSettings, ProjectSettingsKey};
 
@@ -31,9 +36,6 @@ pub async fn register(
 	#[inject] settings: Depends<ProjectSettingsKey, ProjectSettings>,
 	#[inject] email_service: Depends<EmailServiceKey, EmailService>,
 ) -> Result<AuthResponse, ServerFnError> {
-	use crate::apps::auth::services;
-	use crate::shared::UserInfo;
-
 	let created = services::register_inactive_user(
 		&username,
 		&email,

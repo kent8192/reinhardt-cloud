@@ -13,6 +13,8 @@ use std::sync::Arc;
 use reinhardt::async_trait::async_trait;
 use reinhardt::{Handler, Middleware, Request, Response};
 
+use crate::config::settings::get_settings;
+
 /// Middleware that adds a path-based Content-Security-Policy header.
 pub struct CspPathMiddleware;
 
@@ -36,10 +38,7 @@ impl Middleware for CspPathMiddleware {
 		// Detect HTTPS via X-Forwarded-Proto (set by trusted reverse proxy / LB).
 		// Only trust this header when SECURE_SSL_REDIRECT is enabled in settings,
 		// which implies the app runs behind a properly configured proxy.
-		let is_https = crate::config::settings::get_settings()
-			.core
-			.security
-			.secure_ssl_redirect
+		let is_https = get_settings().core.security.secure_ssl_redirect
 			&& request
 				.headers
 				.get("X-Forwarded-Proto")

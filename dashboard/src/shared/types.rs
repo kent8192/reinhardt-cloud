@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(native)]
+use crate::apps::auth::models::User;
+
 /// User information returned after authentication.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserInfo {
@@ -13,9 +16,9 @@ pub struct UserInfo {
 	pub email: String,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl From<&crate::apps::auth::models::User> for UserInfo {
-	fn from(user: &crate::apps::auth::models::User) -> Self {
+#[cfg(native)]
+impl From<&User> for UserInfo {
+	fn from(user: &User) -> Self {
 		use reinhardt::{BaseUser, FullUser};
 
 		Self {

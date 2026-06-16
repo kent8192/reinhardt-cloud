@@ -8,6 +8,7 @@ use reinhardt::db::orm::Model;
 use crate::apps::auth::models::User;
 use crate::apps::auth::services::registration::ensure_personal_organization;
 use crate::apps::organizations::models::OrganizationMembership;
+use crate::config::settings::get_settings;
 
 const DEFAULT_E2E_USERNAME: &str = "e2e-user";
 const DEFAULT_E2E_PASSWORD: &str = "e2e-password-123456";
@@ -66,7 +67,7 @@ fn command_value(ctx: &CommandContext, index: usize, env_key: &str, default: &st
 }
 
 async fn initialize_orm_database() -> CommandResult<()> {
-	let settings = crate::config::settings::get_settings();
+	let settings = get_settings();
 	let env_database_url = std::env::var("DATABASE_URL").ok();
 	let url = match env_database_url.as_deref() {
 		Some(url) => url.to_string(),

@@ -1,11 +1,10 @@
 //! Cluster server functions for the WASM dashboard.
 
-use reinhardt::di::Depends;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
 #[cfg(native)]
-use reinhardt::CurrentUser;
+use reinhardt::{CurrentUser, Model, di::Depends};
 #[cfg(native)]
 use uuid::Uuid;
 
@@ -64,8 +63,6 @@ fn cluster_id_from_pk(id: Option<i64>) -> Result<Uuid, ServerFnError> {
 
 #[cfg(native)]
 async fn rollback_created_cluster(cluster_id: i64) {
-	use reinhardt::Model;
-
 	if let Err(delete_err) = Cluster::objects().delete(cluster_id).await {
 		tracing::warn!(
 			"Failed to roll back cluster {cluster_id} after token persistence error: {delete_err}"
@@ -77,8 +74,6 @@ async fn rollback_created_cluster(cluster_id: i64) {
 pub async fn list_clusters_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<Vec<ClusterInfo>, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let clusters = Cluster::objects()
 		.filter(Cluster::field_organization_id().eq(organization_id))
@@ -96,8 +91,6 @@ pub async fn create_cluster_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<User>,
 	#[inject] agent_token_service: Depends<AgentTokenServiceKey, AgentTokenService>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let name = name.trim().to_string();
 	let api_url = api_url.trim().to_string();
@@ -162,8 +155,6 @@ pub async fn update_cluster_for_current_org(
 	is_active: bool,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<ClusterInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
@@ -210,8 +201,6 @@ pub async fn delete_cluster_for_current_org(
 	cluster_id: String,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<(), ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
@@ -240,8 +229,6 @@ pub async fn rotate_cluster_token_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<User>,
 	#[inject] agent_token_service: Depends<AgentTokenServiceKey, AgentTokenService>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()

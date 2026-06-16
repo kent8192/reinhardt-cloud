@@ -8,6 +8,7 @@ use crate::apps::auth::server_fn::linked_accounts::LinkedOAuthAccountInfo;
 use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::shared::UserInfo;
+use crate::shared::client::routes::route_href;
 
 #[cfg(wasm)]
 use crate::apps::auth::server_fn::linked_accounts::list_linked_oauth_accounts;
@@ -183,7 +184,7 @@ pub(crate) fn render_account_content(
 }
 
 fn account_error(message: &str) -> Page {
-	let login_href = crate::shared::client::routes::route_href("auth:login_page", "/login");
+	let login_href = route_href("auth:login_page", "/login");
 	page!(|message: String, login_href: String| {
 		div {
 			class: "rc-shell",

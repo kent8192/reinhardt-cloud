@@ -21,11 +21,15 @@ mod tests {
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::{OpenApiRouter, UrlReverser};
 	use rstest::*;
 	use serial_test::serial;
 
+	use crate::config::test_helpers::build_test_app;
+	use crate::config::urls::{
+		AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
+	};
 	use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
-	use reinhardt::UrlReverser;
 
 	/// gRPC endpoint used by test probes.
 	///
@@ -47,7 +51,7 @@ mod tests {
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (client, urls) = crate::config::test_helpers::build_test_app();
+		let (client, urls) = build_test_app();
 		(container, conn, client, urls)
 	}
 
@@ -110,10 +114,6 @@ mod tests {
 			Arc<UrlReverser>,
 		),
 	) {
-		use crate::config::urls::{
-			AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
-		};
-		use reinhardt::OpenApiRouter;
 		use reinhardt_cloud_grpc::test_utils::TestGrpcServer;
 
 		// Arrange — bring up live Postgres (via fixture) and an
@@ -186,11 +186,6 @@ mod tests {
 	#[serial(database)]
 	async fn test_healthz_returns_503_when_db_down() {
 		// Arrange -- build a client without starting postgres.
-		use crate::config::urls::{
-			AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
-		};
-		use reinhardt::OpenApiRouter;
-
 		let scope = Arc::new(SingletonScope::new());
 		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
 			AllowedOrigins(vec!["http://testserver".into()]),

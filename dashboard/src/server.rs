@@ -15,6 +15,9 @@ use std::error::Error;
 use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand, auto_register_router};
 use reinhardt::db::orm;
 
+use crate::config::settings::get_settings;
+use crate::config::urls::init_websocket_routes;
+
 /// Delegate to the upstream [`auto_register_router`] helper, which walks
 /// the `#[routes]` inventory and registers the discovered router into the
 /// global slot that `RunServerCommand::execute` reads.
@@ -79,7 +82,7 @@ pub(crate) fn build_context(bind_addr: &str) -> CommandContext {
 /// in DI and before health probes exercise the ORM.
 async fn initialize_orm_database() -> Result<(), Box<dyn Error>> {
 	let env_database_url = std::env::var("DATABASE_URL").ok();
-	let settings = crate::config::settings::get_settings();
+	let settings = get_settings();
 	let url = match env_database_url.as_deref() {
 		Some(url) if !url.is_empty() => url.to_string(),
 		_ => settings
@@ -112,7 +115,7 @@ async fn initialize_orm_database() -> Result<(), Box<dyn Error>> {
 /// `RunServerCommand`.
 pub async fn run(bind_addr: &str) -> Result<(), Box<dyn Error>> {
 	register_router_from_inventory().await?;
-	crate::config::urls::init_websocket_routes().await;
+	init_websocket_routes().await;
 	initialize_orm_database().await?;
 
 	let ctx = build_context(bind_addr);

@@ -9,6 +9,9 @@
 mod tests {
 	use rstest::rstest;
 
+	use crate::apps::auth::services::session::SessionService;
+	use crate::apps::auth::services::validate_session;
+
 	/// The session service public API is accessible from the services module.
 	#[rstest]
 	fn test_session_service_exports_are_accessible() {
@@ -17,8 +20,7 @@ mod tests {
 		// check that the type and the remaining free-function adapter
 		// (`validate_session`, used by the WebSocket consumer) are reachable as
 		// symbols.
-		let _service: fn(_) -> _ =
-			crate::apps::auth::services::session::SessionService::from_backend;
-		let _validate = crate::apps::auth::services::validate_session;
+		let _service: fn(_) -> _ = SessionService::from_backend;
+		let _validate = validate_session;
 	}
 }

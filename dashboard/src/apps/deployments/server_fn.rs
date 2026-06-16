@@ -4,7 +4,13 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
 #[cfg(native)]
-use reinhardt::{CurrentUser, di::Depends};
+use reinhardt::{CurrentUser, Model, di::Depends};
+#[cfg(native)]
+use reinhardt_cloud_proto::common::PaginationRequest;
+#[cfg(native)]
+use reinhardt_cloud_proto::log as log_pb;
+#[cfg(native)]
+use reinhardt_cloud_types::crd::ReinhardtApp;
 
 #[cfg(native)]
 use crate::apps::auth::models::User;
@@ -54,8 +60,6 @@ fn deployment_info(deployment: Deployment) -> DeploymentInfo {
 
 #[cfg(native)]
 fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
-	use reinhardt_cloud_types::crd::ReinhardtApp;
-
 	if manifest.trim().is_empty() {
 		return Ok(());
 	}
@@ -79,8 +83,6 @@ fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
 pub async fn list_deployments_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<Vec<DeploymentInfo>, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let deployments = Deployment::objects()
 		.filter(Deployment::field_organization_id().eq(organization_id))
@@ -99,8 +101,6 @@ pub async fn create_deployment_for_current_org(
 	reinhardt_app_yaml: String,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let app_name = app_name.trim().to_string();
 	let image = image.trim().to_string();
@@ -154,8 +154,6 @@ pub async fn update_deployment_for_current_org(
 	status: String,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -199,8 +197,6 @@ pub async fn delete_deployment_for_current_org(
 	deployment_id: String,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<(), ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -225,8 +221,6 @@ pub async fn update_deployment_status_for_current_org(
 	status: String,
 	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
-	use reinhardt::Model;
-
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -257,10 +251,6 @@ pub async fn deployment_logs_for_current_org(
 	#[inject] CurrentUser(user): CurrentUser<User>,
 	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
-	use reinhardt::Model;
-	use reinhardt_cloud_proto::common::PaginationRequest;
-	use reinhardt_cloud_proto::log as log_pb;
-
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
