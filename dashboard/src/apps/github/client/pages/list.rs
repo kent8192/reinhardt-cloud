@@ -3,7 +3,7 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{ResourceState, Signal, use_form, use_resource};
+use reinhardt::pages::prelude::{Resource, ResourceState, Signal, use_form, use_resource};
 
 use crate::apps::clusters::server_fn::ClusterInfo;
 #[cfg(wasm)]
@@ -176,7 +176,7 @@ pub fn github_repositories_page() -> Page {
 	let clusters_for_import = clusters.clone();
 	let clusters_for_inventory = clusters.clone();
 
-	let content = page!(|repositories_for_inventory: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: reinhardt::pages::prelude::Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>, clusters_for_import: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
+	let content = page!(|repositories_for_inventory: Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: Resource<GitHubOnboardingInfo, String>, clusters_for_import: Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_app_name: Signal<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -254,7 +254,7 @@ pub fn github_repositories_page() -> Page {
 													}
 												}
 											})(err),
-											ResourceState::Success(items)if items.is_empty() => page!(|onboarding: reinhardt::pages::prelude::Resource<GitHubOnboardingInfo, String>| {
+											ResourceState::Success(items)if items.is_empty() => page!(|onboarding: Resource<GitHubOnboardingInfo, String>| {
 												tr {
 													td {
 														class: "px-3 py-4 text-cloud-500",
