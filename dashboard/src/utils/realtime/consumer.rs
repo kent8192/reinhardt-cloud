@@ -435,7 +435,7 @@ impl WebSocketConsumer for NotificationConsumer {
 				// connection is established, so the client is not misled when
 				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
-				let app = project_name.clone();
+				let project = project_name.clone();
 				let endpoint = grpc_endpoint();
 				let handle_ref = Arc::clone(&self.log_stream_handle);
 
@@ -450,14 +450,14 @@ impl WebSocketConsumer for NotificationConsumer {
 							Ok(c) => c,
 							Err(e) => {
 								tracing::warn!(
-									project_name = %app,
+									project_name = %project,
 									error = %e,
 									"Failed to connect to gRPC LogService for app log streaming",
 								);
 								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
 									acknowledged: false,
 									message: format!(
-										"Failed to connect to log service for {app}: {e}"
+										"Failed to connect to log service for {project}: {e}"
 									),
 								});
 								let _ = conn.send_json(&err_msg).await;
@@ -468,7 +468,7 @@ impl WebSocketConsumer for NotificationConsumer {
 
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
-							source: Some(app.clone()),
+							source: Some(project.clone()),
 							..Default::default()
 						}),
 					};
@@ -480,13 +480,13 @@ impl WebSocketConsumer for NotificationConsumer {
 						Ok(r) => r.into_inner(),
 						Err(e) => {
 							tracing::warn!(
-								project_name = %app,
+								project_name = %project,
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
 							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
 								acknowledged: false,
-								message: format!("App log stream failed for {app}: {e}"),
+								message: format!("App log stream failed for {project}: {e}"),
 							});
 							let _ = conn.send_json(&err_msg).await;
 							*handle_ref.lock().await = None;
@@ -496,7 +496,7 @@ impl WebSocketConsumer for NotificationConsumer {
 
 					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
 						acknowledged: true,
-						message: format!("Subscribed to app logs for {app}"),
+						message: format!("Subscribed to app logs for {project}"),
 					});
 					let _ = conn.send_json(&ack).await;
 
@@ -512,7 +512,7 @@ impl WebSocketConsumer for NotificationConsumer {
 							Ok(None) => break,
 							Err(e) => {
 								tracing::warn!(
-									project_name = %app,
+									project_name = %project,
 									error = %e,
 									"Error receiving app log from gRPC stream",
 								);

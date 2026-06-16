@@ -153,8 +153,8 @@ pub(crate) async fn execute(
 		"cli.status",
 		otel.kind = "client",
 		cli.version = env!("CARGO_PKG_VERSION"),
-		app.name = project_name,
-		app.namespace = %args.namespace,
+		project.name = project_name,
+		project.namespace = %args.namespace,
 	);
 	execute_inner(project_name, args).instrument(span).await
 }

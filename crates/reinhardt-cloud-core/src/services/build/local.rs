@@ -86,7 +86,7 @@ impl BuildService for LocalBuildService {
 			run_build_pipeline(build_id, &project_name, &image, tx, cancel_token, builds).await;
 		});
 
-		info!(build_id = %build_id, app = %request.project_name, "Build started");
+		info!(build_id = %build_id, project = %request.project_name, "Build started");
 		Ok(Box::pin(ReceiverStream::new(rx)))
 	}
 
@@ -198,7 +198,7 @@ async fn run_build_pipeline(
 		.await;
 
 	update_build_completed(&builds, build_id, true);
-	info!(build_id = %build_id, app = project_name, "Build completed successfully");
+	info!(build_id = %build_id, project = project_name, "Build completed successfully");
 }
 
 /// Update build state to completed.
