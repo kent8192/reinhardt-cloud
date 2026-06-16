@@ -3,7 +3,9 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::form;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{ResetOnDeps, ResourceState, Signal, use_form, use_resource};
+use reinhardt::pages::prelude::{
+	ResetOnDeps, Resource, ResourceState, Signal, use_form, use_resource,
+};
 
 #[cfg(wasm)]
 use crate::apps::clusters::server_fn::list_clusters_for_current_org;
@@ -93,6 +95,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "prod-us-east",
 				class: "rc-input",
 			}
@@ -100,6 +104,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 2048,
 				label: "API URL",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "https://kubernetes.example.com:6443",
 				class: "rc-input",
 			}
@@ -128,6 +134,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "cluster id required below",
 				class: "rc-input",
 			}
@@ -135,11 +143,15 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 2048,
 				label: "API URL",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "https://kubernetes.example.com:6443",
 				class: "rc-input",
 			}
 			is_active: BooleanField {
 				label: "Active",
+				wrapper_class: "rc-field rc-checkbox-field",
+				label_class: "rc-label",
 				initial: true,
 				class: "rc-checkbox",
 			}
@@ -211,7 +223,7 @@ pub fn clusters_list_page() -> Page {
 	let clusters_for_rotate = clusters.clone();
 	let clusters_for_delete = clusters.clone();
 
-	let content = page!(|clusters_for_inventory: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_edit: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_rotate: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, clusters_for_delete: reinhardt::pages::prelude::Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_cluster_id: Signal<String>, edit_name: Signal<String>, edit_api_url: Signal<String>, edit_is_active: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_cluster_id: Signal<String>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, rotate_cluster_id: Signal<String>, health: Page| {
+	let content = page!(|clusters_for_inventory: Resource<Vec<ClusterInfo>, String>, clusters_for_edit: Resource<Vec<ClusterInfo>, String>, clusters_for_rotate: Resource<Vec<ClusterInfo>, String>, clusters_for_delete: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_cluster_id: Signal<String>, edit_name: Signal<String>, edit_api_url: Signal<String>, edit_is_active: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_cluster_id: Signal<String>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, rotate_cluster_id: Signal<String>, health: Page| {
 		div {
 			class: "rc-shell",
 			div {
