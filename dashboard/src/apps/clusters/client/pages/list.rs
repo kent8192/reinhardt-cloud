@@ -95,6 +95,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "prod-us-east",
 				class: "rc-input",
 			}
@@ -102,6 +104,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 2048,
 				label: "API URL",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "https://kubernetes.example.com:6443",
 				class: "rc-input",
 			}
@@ -130,6 +134,8 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "cluster id required below",
 				class: "rc-input",
 			}
@@ -137,11 +143,15 @@ pub fn clusters_list_page() -> Page {
 				required,
 				max_length: 2048,
 				label: "API URL",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "https://kubernetes.example.com:6443",
 				class: "rc-input",
 			}
 			is_active: BooleanField {
 				label: "Active",
+				wrapper_class: "rc-field rc-checkbox-field",
+				label_class: "rc-label",
 				initial: true,
 				class: "rc-checkbox",
 			}

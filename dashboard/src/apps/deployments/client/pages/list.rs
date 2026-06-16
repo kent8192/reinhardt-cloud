@@ -143,6 +143,8 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "App Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "web",
 				class: "rc-input",
 			}
@@ -153,14 +155,18 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 512,
 				label: "Image",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "ghcr.io/example/web:latest",
 				class: "rc-input",
 			}
 			reinhardt_app_yaml: TextField {
 				max_length: 65535,
 				label: "ReinhardtApp YAML",
+				wrapper_class: "rc-field md:col-span-2",
+				label_class: "rc-label",
 				widget: Textarea,
-				class: "rc-input rc-textarea md:col-span-2",
+				class: "rc-input rc-textarea",
 			}
 			submit: SubmitButton {
 				label: "Create deployment",
@@ -188,6 +194,8 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 63,
 				label: "App Name",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "web",
 				class: "rc-input",
 			}
@@ -195,6 +203,8 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 512,
 				label: "Image",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "ghcr.io/example/web:latest",
 				class: "rc-input",
 			}
@@ -202,6 +212,8 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 50,
 				label: "Status",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				initial: "pending".to_string(),
 				class: "rc-input",
 			}
@@ -237,6 +249,8 @@ pub fn deployments_list_page() -> Page {
 				required,
 				max_length: 50,
 				label: "Status",
+				wrapper_class: "rc-field",
+				label_class: "rc-label",
 				placeholder: "running",
 				class: "rc-input",
 			}
