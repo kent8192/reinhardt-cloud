@@ -29,7 +29,7 @@ fn generate_password() -> String {
 		.collect()
 }
 
-/// Sanitizes an project name for use as a PostgreSQL database/user name.
+/// Sanitizes a project name for use as a PostgreSQL database/user name.
 ///
 /// Replaces hyphens with underscores since PostgreSQL identifiers do not allow hyphens.
 /// Strips non-alphanumeric/underscore characters, prefixes with underscore if the name

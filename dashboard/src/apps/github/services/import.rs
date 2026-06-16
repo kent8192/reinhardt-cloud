@@ -28,20 +28,20 @@ pub fn default_project_name(repository: &GitHubRepository) -> String {
 pub fn validate_project_name(name: &str) -> Result<String, String> {
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
-		return Err("App name must be 1-63 characters".to_string());
+		return Err("Project name must be 1-63 characters".to_string());
 	}
 	if trimmed.len() > 63 {
-		return Err("App name must be 1-63 characters".to_string());
+		return Err("Project name must be 1-63 characters".to_string());
 	}
 	if trimmed.starts_with('-') || trimmed.ends_with('-') {
-		return Err("App name must start and end with an alphanumeric character".to_string());
+		return Err("Project name must start and end with an alphanumeric character".to_string());
 	}
 	if !trimmed
 		.bytes()
 		.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 	{
 		return Err(
-			"App name must contain only lowercase ASCII letters, digits, and hyphens".to_string(),
+			"Project name must contain only lowercase ASCII letters, digits, and hyphens".to_string(),
 		);
 	}
 	Ok(trimmed.to_string())

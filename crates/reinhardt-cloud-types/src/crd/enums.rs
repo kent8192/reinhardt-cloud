@@ -1,4 +1,4 @@
-//! Application lifecycle phase types.
+//! Project lifecycle phase types.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

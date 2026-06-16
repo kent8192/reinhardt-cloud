@@ -50,10 +50,10 @@ typed `ProjectSpec` from `reinhardt-cloud.toml`, CLI overrides, and
 optional introspect output, then renders a `Project` CRD via
 `build_project_crd` before branching on flags:
 
-- **`--dry-run`** (`deploy.rs:479-482`) — Serialises the CRD to YAML and
+- **`--dry-run`** (`deploy.rs:732-736`) — Serialises the CRD to YAML and
   prints it to stdout. No cluster contact, no API contact. **Status:
   Current State.**
-- **`--direct`** (`deploy.rs:494-499`) — Pipes the YAML to
+- **`--direct`** (`deploy.rs:747-752`) — Pipes the YAML to
   `kubectl apply -f -` against the operator's cluster. The operator's
   reconciler picks up the new `Project` resource via its watch and
   produces the owned Kubernetes resources. **Status: Current State.**
@@ -198,7 +198,7 @@ flowchart TD
 
 | Component | Owns | Does NOT own |
 |---|---|---|
-| CLI (`deploy.rs`) | `Project` CRD YAML construction (`build_project_crd`, lines 242-299) | Cluster state, deployment audit records |
+| CLI (`deploy.rs`) | `Project` CRD YAML construction (`build_project_crd`, lines 506-541) | Cluster state, deployment audit records |
 | Dashboard server functions | `Deployment` ORM record + relay status to UI | Kubernetes resources, CRD YAML construction |
 | Agent (`execute_deploy`) | Imperative cluster apply (**Current State: raw Deployment**; **Intended: `Project` CRD**) | CRD schema, ORM records |
 | Operator (`reconciler.rs`) | All Kubernetes resources derived from `Project` (Deployment, Service, Ingress, ConfigMap, JWT Secret, database StatefulSet/Service/Secret, migration Job, Kaniko build Job, HPA, NetworkPolicy) | Deploy trigger, ORM records |
