@@ -1,6 +1,6 @@
 //! Builders for dentdelion WASM plugin resources.
 //!
-//! Materializes `spec.plugins` on a `ReinhardtApp` into:
+//! Materializes `spec.plugins` on a `Project` into:
 //!
 //! - a `ConfigMap` carrying a serialized `dentdelion.toml` document
 //!   with one `[[plugins]]` entry per [`PluginSpec`]
@@ -21,7 +21,7 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::{PluginSpec, ReinhardtApp};
+use reinhardt_cloud_types::crd::{PluginSpec, Project};
 use serde::Serialize;
 
 use super::labels::{Component, owner_reference, standard_labels};
@@ -37,14 +37,14 @@ pub(crate) const DENTDELION_CONFIG_MOUNT_DIR: &str = "/etc/dentdelion";
 const PLUGIN_CONFIG_VOLUME_NAME: &str = "dentdelion-config";
 
 /// Returns the `ConfigMap` name used for the plugin configuration document.
-pub(crate) fn plugin_configmap_name(app: &ReinhardtApp) -> String {
+pub(crate) fn plugin_configmap_name(app: &Project) -> String {
 	format!("{}-dentdelion-plugins", app.name_any())
 }
 
 /// Sanitized volume name for an individual plugin's WASM directory.
 ///
 /// Delegates name sanitization to [`sanitized_volume_suffix`] so that
-/// validation in `ReinhardtAppSpec::validate` and materialization here
+/// validation in `ProjectSpec::validate` and materialization here
 /// share a single source of truth.
 fn plugin_volume_name(plugin: &PluginSpec) -> String {
 	format!(
@@ -118,7 +118,7 @@ pub(crate) fn render_plugin_config(plugins: &[PluginSpec]) -> Result<String, Err
 ///
 /// Returns `Ok(None)` when the spec declares no plugins; callers should
 /// treat that as "no ConfigMap is needed".
-pub(crate) fn build_plugin_configmap(app: &ReinhardtApp) -> Result<Option<ConfigMap>, Error> {
+pub(crate) fn build_plugin_configmap(app: &Project) -> Result<Option<ConfigMap>, Error> {
 	let Some(plugins) = app.spec.plugins.as_ref() else {
 		return Ok(None);
 	};
@@ -150,7 +150,7 @@ pub(crate) fn build_plugin_configmap(app: &ReinhardtApp) -> Result<Option<Config
 /// to consume the declared plugins.
 ///
 /// The returned vectors are empty when the spec declares no plugins.
-pub(crate) fn build_plugin_volumes(app: &ReinhardtApp) -> (Vec<Volume>, Vec<VolumeMount>) {
+pub(crate) fn build_plugin_volumes(app: &Project) -> (Vec<Volume>, Vec<VolumeMount>) {
 	let Some(plugins) = app.spec.plugins.as_ref() else {
 		return (Vec::new(), Vec::new());
 	};
@@ -202,19 +202,19 @@ mod tests {
 	use super::*;
 	use kube::core::ObjectMeta as KubeObjectMeta;
 	use reinhardt_cloud_types::crd::{
-		PluginCapability, PluginSpec, PluginType, ReinhardtApp, ReinhardtAppSpec,
+		PluginCapability, PluginSpec, PluginType, Project, ProjectSpec,
 	};
 	use rstest::rstest;
 
-	fn app_with_plugins(plugins: Option<Vec<PluginSpec>>) -> ReinhardtApp {
-		ReinhardtApp {
+	fn app_with_plugins(plugins: Option<Vec<PluginSpec>>) -> Project {
+		Project {
 			metadata: KubeObjectMeta {
 				name: Some("demo".to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("11111111-1111-1111-1111-111111111111".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "demo:latest".to_string(),
 				plugins,
 				..Default::default()

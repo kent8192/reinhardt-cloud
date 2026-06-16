@@ -85,7 +85,7 @@ rstest = { workspace = true }
 reinhardt = { workspace = true, features = ["pages", "admin", "pages-nav-diag-dom"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Event", "History", "Location", "Storage", "WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlSelectElement", "Event", "History", "Location", "Storage", "WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent"] }
 js-sys = "0.3"
 gloo-timers = "0.3"
 console_error_panic_hook = "0.1"

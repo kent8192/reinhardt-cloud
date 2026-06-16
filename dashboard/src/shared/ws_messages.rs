@@ -116,7 +116,7 @@ pub enum WsClientMessage {
 	/// Subscribe to build log events.
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log stream.
-	SubscribeAppLogs { app_name: String },
+	SubscribeAppLogs { project_name: String },
 	/// Unsubscribe from all log streams.
 	UnsubscribeLogs,
 }
@@ -192,6 +192,29 @@ mod tests {
 				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
 			}
 			_ => panic!("expected Subscribe"),
+		}
+	}
+
+	#[rstest]
+	fn test_ws_client_message_subscribe_app_logs_roundtrip() {
+		// Arrange
+		let msg = WsClientMessage::SubscribeAppLogs {
+			project_name: "my-project".to_string(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&msg).unwrap();
+		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+		let roundtrip: WsClientMessage = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed["type"], "SubscribeAppLogs");
+		assert_eq!(parsed["payload"]["project_name"], "my-project");
+		match roundtrip {
+			WsClientMessage::SubscribeAppLogs { project_name } => {
+				assert_eq!(project_name, "my-project");
+			}
+			_ => panic!("expected SubscribeAppLogs"),
 		}
 	}
 

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::{Resource, ResourceExt};
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use crate::error::Error;
 
@@ -57,10 +57,7 @@ impl Component {
 /// Standard labels applied to all resources owned by the operator.
 ///
 /// Includes `app.kubernetes.io/component` based on the given [`Component`].
-pub(crate) fn standard_labels(
-	app: &ReinhardtApp,
-	component: Component,
-) -> BTreeMap<String, String> {
+pub(crate) fn standard_labels(app: &Project, component: Component) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		("app.kubernetes.io/name".to_string(), app.name_any()),
 		(
@@ -83,8 +80,8 @@ pub(crate) fn standard_labels(
 	])
 }
 
-/// Computes the controller owner reference for the given `ReinhardtApp`.
-pub(crate) fn owner_reference(app: &ReinhardtApp) -> Result<OwnerReference, Error> {
+/// Computes the controller owner reference for the given `Project`.
+pub(crate) fn owner_reference(app: &Project) -> Result<OwnerReference, Error> {
 	app.controller_owner_ref(&())
 		.ok_or_else(|| Error::OwnerReference(app.name_any()))
 }
@@ -93,18 +90,18 @@ pub(crate) fn owner_reference(app: &ReinhardtApp) -> Result<OwnerReference, Erro
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "img:v1".to_string(),
 				..Default::default()
 			},

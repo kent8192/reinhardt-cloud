@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::ServiceAccount;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
@@ -38,7 +38,7 @@ use crate::error::Error;
 ///   intends to rely on a KSA managed elsewhere but did not tell us its
 ///   name, so we leave the PodSpec's `serviceAccountName` unset (the pod
 ///   then falls back to the namespace `default` SA).
-pub(crate) fn resolved_sa_name(app: &ReinhardtApp) -> Option<String> {
+pub(crate) fn resolved_sa_name(app: &Project) -> Option<String> {
 	let spec = app.spec.service_account.as_ref()?;
 
 	if let Some(name) = spec.name.as_ref() {
@@ -65,9 +65,9 @@ pub(crate) fn resolved_sa_name(app: &ReinhardtApp) -> Option<String> {
 /// - `metadata.annotations` carrying user-supplied Workload Identity /
 ///   IRSA bindings (or `None` when the annotations map is empty)
 /// - `metadata.labels` set to the standard operator labels (web component)
-/// - `metadata.owner_references` pointing at the owning `ReinhardtApp`
+/// - `metadata.owner_references` pointing at the owning `Project`
 ///   so deletion of the parent cascades to this KSA
-pub(crate) fn build_service_account(app: &ReinhardtApp) -> Result<Option<ServiceAccount>, Error> {
+pub(crate) fn build_service_account(app: &Project) -> Result<Option<ServiceAccount>, Error> {
 	let Some(spec) = app.spec.service_account.as_ref() else {
 		return Ok(None);
 	};
@@ -111,19 +111,19 @@ pub(crate) fn build_service_account(app: &ReinhardtApp) -> Result<Option<Service
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
 	use rstest::rstest;
 
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "img:v1".to_string(),
 				..Default::default()
 			},
@@ -277,7 +277,7 @@ mod tests {
 			.as_ref()
 			.expect("owner reference should be set so deletion cascades");
 		assert_eq!(owner_refs.len(), 1);
-		assert_eq!(owner_refs[0].kind, "ReinhardtApp");
+		assert_eq!(owner_refs[0].kind, "Project");
 		assert_eq!(owner_refs[0].name, "myapp");
 	}
 

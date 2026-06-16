@@ -122,7 +122,7 @@ async fn test_build_status_during_execution(local_build_service: LocalBuildServi
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("status-during-{}", Uuid::now_v7()),
+		project_name: format!("status-during-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -188,7 +188,7 @@ async fn test_cancel_completed_build_returns_bad_request(local_build_service: Lo
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("cancel-completed-{}", Uuid::now_v7()),
+		project_name: format!("cancel-completed-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -298,7 +298,7 @@ async fn test_build_state_idempotent_after_completion(local_build_service: Local
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("idempotent-{}", Uuid::now_v7()),
+		project_name: format!("idempotent-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,
@@ -331,7 +331,7 @@ async fn test_usecase_concurrent_builds(local_build_service: LocalBuildService) 
 	let service = local_build_service;
 	let requests: Vec<BuildRequest> = (0..3)
 		.map(|i| BuildRequest {
-			app_name: format!("concurrent-app-{i}-{}", Uuid::now_v7()),
+			project_name: format!("concurrent-app-{i}-{}", Uuid::now_v7()),
 			image: format!("registry.example.com/app-{i}:latest"),
 			env_vars: vec![],
 			dockerfile: None,
@@ -388,7 +388,7 @@ async fn test_build_with_all_optional_fields(local_build_service: LocalBuildServ
 	// Arrange
 	let service = local_build_service;
 	let request = BuildRequest {
-		app_name: format!("full-opts-{}", Uuid::now_v7()),
+		project_name: format!("full-opts-{}", Uuid::now_v7()),
 		image: "registry.example.com/full:v2".to_string(),
 		env_vars: vec![
 			EnvVar {
@@ -509,7 +509,7 @@ async fn test_build_cancel_state_decision_table(
 	if build_exists {
 		// Start a build and cancel while running
 		let request = BuildRequest {
-			app_name: format!("decision-{}", Uuid::now_v7()),
+			project_name: format!("decision-{}", Uuid::now_v7()),
 			image: "registry.example.com/test:v1".to_string(),
 			env_vars: vec![],
 			dockerfile: None,

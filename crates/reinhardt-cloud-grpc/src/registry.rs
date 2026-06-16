@@ -308,13 +308,15 @@ mod tests {
 
 		// Act
 		let cmd = AgentCommand::Restart {
-			app_name: "web".to_string(),
+			project_name: "web".to_string(),
 		};
 		registry.send_command(&id, cmd).await.unwrap();
 
 		// Assert
 		let received = rx.recv().await.unwrap();
-		assert!(matches!(received, AgentCommand::Restart { app_name } if app_name == "web"));
+		assert!(
+			matches!(received, AgentCommand::Restart { project_name } if project_name == "web")
+		);
 	}
 
 	#[rstest]
@@ -347,7 +349,7 @@ mod tests {
 		let registry = AgentRegistry::new();
 		let id = Uuid::now_v7();
 		let cmd = AgentCommand::Restart {
-			app_name: "web".to_string(),
+			project_name: "web".to_string(),
 		};
 
 		// Act
@@ -368,7 +370,7 @@ mod tests {
 		drop(rx); // close the receiver side
 
 		let cmd = AgentCommand::Restart {
-			app_name: "web".to_string(),
+			project_name: "web".to_string(),
 		};
 
 		// Act
@@ -480,7 +482,7 @@ mod tests {
 
 		// Act — send a command
 		let cmd = AgentCommand::Scale {
-			app_name: "api".to_string(),
+			project_name: "api".to_string(),
 			replicas: 3,
 		};
 		registry.send_command(&id, cmd).await.unwrap();
@@ -560,7 +562,7 @@ mod tests {
 			.send_command(
 				&id1,
 				AgentCommand::Deploy {
-					app_name: "app1".to_string(),
+					project_name: "app1".to_string(),
 					image: "img1".to_string(),
 					replicas: 1,
 				},
@@ -572,7 +574,7 @@ mod tests {
 			.send_command(
 				&id2,
 				AgentCommand::Scale {
-					app_name: "app2".to_string(),
+					project_name: "app2".to_string(),
 					replicas: 5,
 				},
 			)
@@ -583,7 +585,7 @@ mod tests {
 			.send_command(
 				&id3,
 				AgentCommand::Restart {
-					app_name: "app3".to_string(),
+					project_name: "app3".to_string(),
 				},
 			)
 			.await
@@ -591,13 +593,15 @@ mod tests {
 
 		// Assert — each agent receives its own command
 		let cmd1 = rx1.recv().await.unwrap();
-		assert!(matches!(cmd1, AgentCommand::Deploy { app_name, .. } if app_name == "app1"));
+		assert!(
+			matches!(cmd1, AgentCommand::Deploy { project_name, .. } if project_name == "app1")
+		);
 
 		let cmd2 = rx2.recv().await.unwrap();
-		assert!(matches!(cmd2, AgentCommand::Scale { app_name, .. } if app_name == "app2"));
+		assert!(matches!(cmd2, AgentCommand::Scale { project_name, .. } if project_name == "app2"));
 
 		let cmd3 = rx3.recv().await.unwrap();
-		assert!(matches!(cmd3, AgentCommand::Restart { app_name } if app_name == "app3"));
+		assert!(matches!(cmd3, AgentCommand::Restart { project_name } if project_name == "app3"));
 
 		assert_eq!(registry.count(), 3);
 	}
@@ -664,7 +668,7 @@ mod tests {
 
 		// Act
 		let cmd = AgentCommand::Deploy {
-			app_name: "web".to_string(),
+			project_name: "web".to_string(),
 			image: "web:v1".to_string(),
 			replicas: 3,
 		};
@@ -690,7 +694,7 @@ mod tests {
 			.send_command_to_cluster(
 				&unknown_cluster,
 				AgentCommand::Restart {
-					app_name: "x".to_string(),
+					project_name: "x".to_string(),
 				},
 			)
 			.await;

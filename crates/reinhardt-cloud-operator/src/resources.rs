@@ -29,10 +29,10 @@ pub(crate) use service::build_service;
 // source::build_kaniko_job and source::should_build_from_source are used
 // directly via crate::resources::source in the reconciler.
 
-/// Extracts the namespace from a `ReinhardtApp`, returning
+/// Extracts the namespace from a `Project`, returning
 /// `Error::MissingNamespace` if absent.
 pub(crate) fn require_namespace(
-	app: &reinhardt_cloud_types::crd::ReinhardtApp,
+	app: &reinhardt_cloud_types::crd::Project,
 ) -> Result<String, crate::error::Error> {
 	use kube::ResourceExt;
 	let name = app.name_any();

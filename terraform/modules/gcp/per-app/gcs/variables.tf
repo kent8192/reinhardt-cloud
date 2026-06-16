@@ -1,5 +1,5 @@
 variable "name_prefix" {
-  description = "Scoped prefix: <bootstrap_prefix>-<app_name>."
+  description = "Scoped prefix: <bootstrap_prefix>-<project_name>."
   type        = string
 }
 

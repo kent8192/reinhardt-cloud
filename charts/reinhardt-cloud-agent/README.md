@@ -3,7 +3,7 @@
 Installs the Reinhardt Cloud Agent as a Deployment in a target cluster. The
 Agent observes workload state in its namespace and reports it to the
 Reinhardt Cloud control plane (Dashboard). For the control-plane operator
-that manages `ReinhardtApp` CRDs, see
+that manages `Project` CRDs, see
 [charts/reinhardt-cloud-operator](../reinhardt-cloud-operator).
 
 ## Install
