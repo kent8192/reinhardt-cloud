@@ -185,9 +185,9 @@ pub fn github_repositories_page() -> Page {
 	let clusters_for_import = clusters.clone();
 	let clusters_for_inventory = clusters.clone();
 
-		let selected_repository_id = import_repository_id.clone();
-		let selected_cluster_id = import_cluster_id.clone();
-		let selected_project_name = import_project_name.clone();
+	let selected_repository_id = import_repository_id.clone();
+	let selected_cluster_id = import_cluster_id.clone();
+	let selected_project_name = import_project_name.clone();
 	let content = page!(|repositories_for_inventory: Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: Resource<Vec<GitHubRepositoryInfo>, String>, onboarding: Resource<GitHubOnboardingInfo, String>, clusters_for_import: Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_project_name: Signal<String>, selected_repository_id: Signal<String>, selected_cluster_id: Signal<String>, selected_project_name: Signal<String>| {
 		div {
 			class: "rc-shell",

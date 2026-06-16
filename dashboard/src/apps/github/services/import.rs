@@ -41,7 +41,8 @@ pub fn validate_project_name(name: &str) -> Result<String, String> {
 		.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 	{
 		return Err(
-			"Project name must contain only lowercase ASCII letters, digits, and hyphens".to_string(),
+			"Project name must contain only lowercase ASCII letters, digits, and hyphens"
+				.to_string(),
 		);
 	}
 	Ok(trimmed.to_string())
