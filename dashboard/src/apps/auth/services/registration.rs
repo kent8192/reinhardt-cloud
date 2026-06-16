@@ -30,7 +30,7 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{
 	MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
 };
-use crate::config::settings::ProjectSettings;
+use crate::config::ProjectSettings;
 
 /// Register an inactive user, provision the personal organization, and send
 /// the verification email.

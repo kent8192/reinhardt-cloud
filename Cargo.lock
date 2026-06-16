@@ -1328,6 +1328,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "crates_io_api"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9d129ea9f4e6581cdda525c0b939e4b1753a9873543e4b409971b473f5c27db"
+dependencies = [
+ "chrono",
+ "futures",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_path_to_error",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "crc"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2186,6 +2203,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
+name = "fsevent-sys"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2738,6 +2764,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-tls"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tower-service",
+]
+
+[[package]]
 name = "hyper-util"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2995,6 +3037,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "inotify"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "533e68a5842e734946fe159fb03fc9bbbb254f590dd0d8ad321ae5ff7beca2c1"
+dependencies = [
+ "bitflags",
+ "inotify-sys",
+ "libc",
+]
+
+[[package]]
+name = "inotify-sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3236,6 +3298,26 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "kqueue"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "273c0752728918e0ac4976f2b275b6fefb9ecd400585dec929419f3844cd87b5"
+dependencies = [
+ "kqueue-sys",
+ "libc",
+]
+
+[[package]]
+name = "kqueue-sys"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07293a4e297ac234359b510362495713f75ea345d5307140414f20c69ffeb087"
+dependencies = [
+ "bitflags",
+ "libc",
 ]
 
 [[package]]
@@ -3615,6 +3697,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
+ "log",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
 ]
@@ -3714,6 +3797,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "notify"
+version = "8.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d3d07927151ff8575b7087f245456e549fea62edf0ec4e565a5ee50c8402bc3"
+dependencies = [
+ "bitflags",
+ "fsevent-sys",
+ "inotify",
+ "kqueue",
+ "libc",
+ "log",
+ "mio",
+ "notify-types",
+ "walkdir",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "notify-types"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
+dependencies = [
+ "bitflags",
 ]
 
 [[package]]
@@ -5362,8 +5472,8 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "reinhardt-admin"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5413,8 +5523,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-apps"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5443,8 +5553,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-auth"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5490,8 +5600,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-auth-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5796,8 +5906,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-commands"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bollard",
@@ -5806,7 +5916,9 @@ dependencies = [
  "clap",
  "colored",
  "console",
+ "crates_io_api",
  "dialoguer",
+ "futures-util",
  "glob",
  "http-body-util",
  "hyper",
@@ -5849,14 +5961,15 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
+ "toml_edit 0.25.11+spec-1.1.0",
  "url",
  "walkdir",
 ]
 
 [[package]]
 name = "reinhardt-conf"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5883,11 +5996,10 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-core"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
- "aquamarine 0.6.0",
  "async-trait",
  "base64 0.22.1",
  "bytes",
@@ -5929,8 +6041,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-db"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
@@ -5982,8 +6094,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-di"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6006,8 +6118,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-di-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6017,8 +6129,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-forms"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "aquamarine 0.5.0",
@@ -6034,8 +6146,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-http"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6055,8 +6167,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "ctor 0.8.0",
  "inventory",
@@ -6069,8 +6181,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-mail"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6090,10 +6202,9 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-manouche"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
- "aquamarine 0.6.0",
  "convert_case",
  "darling 0.20.11",
  "proc-macro2",
@@ -6103,8 +6214,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-middleware"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6136,8 +6247,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-openapi"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "reinhardt-http",
@@ -6148,8 +6259,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-openapi-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6159,18 +6270,18 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-pages"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
- "aquamarine 0.5.0",
  "async-trait",
  "bon",
  "cfg_aliases",
+ "futures-util",
  "getrandom 0.3.4",
  "hyper",
+ "inventory",
  "js-sys",
- "proc-macro2",
- "quote",
+ "notify",
  "regex",
  "reinhardt-core",
  "reinhardt-di",
@@ -6189,9 +6300,9 @@ dependencies = [
  "serde_urlencoded",
  "smallvec",
  "subtle",
- "syn 2.0.117",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite 0.26.2",
  "tracing",
  "urlencoding",
  "uuid",
@@ -6202,10 +6313,9 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-pages-ast"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
- "aquamarine 0.6.0",
  "convert_case",
  "darling 0.20.11",
  "proc-macro2",
@@ -6216,8 +6326,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-pages-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "convert_case",
  "darling 0.20.11",
@@ -6230,8 +6340,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-query"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6244,8 +6354,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-query-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -6255,8 +6365,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-rest"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6305,13 +6415,13 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-router"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 
 [[package]]
 name = "reinhardt-routers-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6320,8 +6430,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-server"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6341,8 +6451,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-shortcuts"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "bytes",
  "hyper",
@@ -6359,8 +6469,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-test"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "cfg_aliases",
  "reinhardt-auth",
@@ -6379,8 +6489,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-testkit"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "astral-tokio-tar",
  "async-dropper",
@@ -6425,7 +6535,7 @@ dependencies = [
  "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.28.0",
  "tokio-util",
  "totp-lite",
  "tracing",
@@ -6436,8 +6546,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-testkit-macros"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6446,8 +6556,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-throttling"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -6457,8 +6567,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-urls"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -6491,8 +6601,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-utils"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6527,8 +6637,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-views"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6562,8 +6672,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-web"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6604,8 +6714,8 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-websockets"
-version = "0.2.0-rc.4"
-source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.2.0#0325fb2469e2b741cd2603c3fb736d28900a8dce"
+version = "0.2.0"
+source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#9b2d86119b7df1f4f83d9225447cc87cc12dd3cd"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6620,9 +6730,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.28.0",
  "tracing",
- "tungstenite",
+ "tungstenite 0.28.0",
 ]
 
 [[package]]
@@ -6656,9 +6766,11 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
+ "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
+ "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -6669,6 +6781,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls",
  "tower",
  "tower-http",
@@ -6690,7 +6803,6 @@ dependencies = [
  "bytes",
  "cookie",
  "cookie_store",
- "encoding_rs",
  "futures-core",
  "h2",
  "http",
@@ -6701,7 +6813,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -7311,6 +7422,17 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml-norway",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -8252,6 +8374,18 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite 0.26.2",
+]
+
+[[package]]
+name = "tokio-tungstenite"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
@@ -8259,7 +8393,7 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
- "tungstenite",
+ "tungstenite 0.28.0",
 ]
 
 [[package]]
@@ -8369,6 +8503,7 @@ dependencies = [
  "indexmap 2.14.0",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.1",
 ]
 
@@ -8689,6 +8824,23 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tungstenite"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4793cb5e56680ecbb1d843515b23b6de9a75eb04b66643e256a396d43be33c13"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.3",
+ "sha1",
+ "thiserror 2.0.18",
+ "utf-8",
+]
 
 [[package]]
 name = "tungstenite"
@@ -9375,6 +9527,15 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
+version = "0.60.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
+dependencies = [
+ "windows-targets 0.53.5",
+]
+
+[[package]]
+name = "windows-sys"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
@@ -9421,11 +9582,28 @@ dependencies = [
  "windows_aarch64_gnullvm 0.52.6",
  "windows_aarch64_msvc 0.52.6",
  "windows_i686_gnu 0.52.6",
- "windows_i686_gnullvm",
+ "windows_i686_gnullvm 0.52.6",
  "windows_i686_msvc 0.52.6",
  "windows_x86_64_gnu 0.52.6",
  "windows_x86_64_gnullvm 0.52.6",
  "windows_x86_64_msvc 0.52.6",
+]
+
+[[package]]
+name = "windows-targets"
+version = "0.53.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4945f9f551b88e0d65f3db0bc25c33b8acea4d9e41163edf90dcd0b19f9069f3"
+dependencies = [
+ "windows-link",
+ "windows_aarch64_gnullvm 0.53.1",
+ "windows_aarch64_msvc 0.53.1",
+ "windows_i686_gnu 0.53.1",
+ "windows_i686_gnullvm 0.53.1",
+ "windows_i686_msvc 0.53.1",
+ "windows_x86_64_gnu 0.53.1",
+ "windows_x86_64_gnullvm 0.53.1",
+ "windows_x86_64_msvc 0.53.1",
 ]
 
 [[package]]
@@ -9447,6 +9625,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
+name = "windows_aarch64_gnullvm"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9d8416fa8b42f5c947f8482c43e7d89e73a173cead56d044f6a56104a6d1b53"
+
+[[package]]
 name = "windows_aarch64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9463,6 +9647,12 @@ name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
+
+[[package]]
+name = "windows_aarch64_msvc"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9d782e804c2f632e395708e99a94275910eb9100b2114651e04744e9b125006"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -9483,10 +9673,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
 
 [[package]]
+name = "windows_i686_gnu"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "960e6da069d81e09becb0ca57a65220ddff016ff2d6af6a223cf372a506593a3"
+
+[[package]]
 name = "windows_i686_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
+
+[[package]]
+name = "windows_i686_gnullvm"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa7359d10048f68ab8b09fa71c3daccfb0e9b559aed648a8f95469c27057180c"
 
 [[package]]
 name = "windows_i686_msvc"
@@ -9507,6 +9709,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
 
 [[package]]
+name = "windows_i686_msvc"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e7ac75179f18232fe9c285163565a57ef8d3c89254a30685b57d83a38d326c2"
+
+[[package]]
 name = "windows_x86_64_gnu"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9523,6 +9731,12 @@ name = "windows_x86_64_gnu"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
+
+[[package]]
+name = "windows_x86_64_gnu"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c3842cdd74a865a8066ab39c8a7a473c0778a3f29370b5fd6b4b9aa7df4a499"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
@@ -9543,6 +9757,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
 
 [[package]]
+name = "windows_x86_64_gnullvm"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ffa179e2d07eee8ad8f57493436566c7cc30ac536a3379fdf008f47f6bb7ae1"
+
+[[package]]
 name = "windows_x86_64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9559,6 +9779,12 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "windows_x86_64_msvc"
+version = "0.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"

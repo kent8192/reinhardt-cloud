@@ -2,6 +2,7 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
+use crate::apps::auth::models::User;
 use crate::shared::UserInfo;
 
 /// Return the currently authenticated user's information.
@@ -12,7 +13,7 @@ use crate::shared::UserInfo;
 /// the database via dependency injection.
 #[server_fn]
 pub async fn me(
-	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<User>,
 ) -> Result<UserInfo, ServerFnError> {
 	Ok(UserInfo::from(&user))
 }

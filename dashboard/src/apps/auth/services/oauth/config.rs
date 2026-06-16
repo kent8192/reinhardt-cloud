@@ -7,7 +7,7 @@
 //! runtime configuration disables the provider entirely so that the login UI
 //! does not present a button that cannot complete the flow.
 //!
-//! [`OAuthSettings`] is exposed via `#[injectable_factory]` so handlers
+//! [`OAuthSettings`] is exposed via `#[injectable]` so handlers
 //! and the OAuth backend factory resolve a single shared snapshot of the
 //! environment per process. The legacy [`OAuthSettings::from_env`]
 //! constructor is retained as an adapter during the
@@ -15,7 +15,7 @@
 
 use std::env;
 
-use reinhardt::di::injectable_factory;
+use reinhardt::di::FactoryOutput;
 
 use crate::apps::auth::services::oauth::token_crypto::token_encryption_key_is_configured;
 /// Credentials for a single OAuth provider, populated from env vars.
@@ -35,6 +35,9 @@ pub struct ProviderCredentials {
 pub struct OAuthSettings {
 	pub github: Option<ProviderCredentials>,
 }
+
+#[reinhardt::di::injectable_key]
+pub struct OAuthSettingsKey;
 
 impl OAuthSettings {
 	/// Reads provider credentials from the process environment.
@@ -73,11 +76,11 @@ impl OAuthSettings {
 /// across all handlers and the OAuth backend factory.
 ///
 /// Tests should construct [`OAuthSettings`] directly and override the
-/// scope entry with `scope.set::<OAuthSettings>(...)` rather than going
-/// through this factory.
-#[injectable_factory(scope = "singleton")]
-async fn create_oauth_settings() -> OAuthSettings {
-	OAuthSettings::from_env()
+/// scope entry with `FactoryOutput<OAuthSettingsKey, OAuthSettings>` rather
+/// than going through this factory.
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_oauth_settings() -> FactoryOutput<OAuthSettingsKey, OAuthSettings> {
+	FactoryOutput::new(OAuthSettings::from_env())
 }
 
 fn read_provider(suffix: &str) -> Option<ProviderCredentials> {
@@ -115,17 +118,19 @@ mod tests {
 			}),
 		};
 		let ctx = make_test_di_context(|scope| {
-			scope.set(expected.clone());
+			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
+				expected.clone(),
+			));
 		});
 
 		// Act
-		let resolved: Arc<OAuthSettings> = ctx
-			.resolve::<OAuthSettings>()
+		let resolved: Arc<FactoryOutput<OAuthSettingsKey, OAuthSettings>> = ctx
+			.resolve::<FactoryOutput<OAuthSettingsKey, OAuthSettings>>()
 			.await
 			.expect("OAuthSettings factory should resolve when value is registered");
 
 		// Assert
-		assert_eq!(*resolved, expected);
+		assert_eq!(**resolved, expected);
 		assert_eq!(resolved.enabled_provider_ids(), vec!["github"]);
 	}
 }

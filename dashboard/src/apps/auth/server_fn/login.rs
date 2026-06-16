@@ -1,11 +1,17 @@
 //! Login server function for frontend authentication.
 
-use reinhardt::pages::server_fn::{ServerFnError, server_fn};
+use reinhardt::di::Depends;
+use reinhardt::pages::server_fn::{ServerFnError, ServerFnRequest, server_fn};
 
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
 
 use crate::shared::AuthResponse;
+
+#[cfg(native)]
+use crate::apps::auth::services::{SessionService, SessionServiceKey};
+#[cfg(native)]
+use crate::config::{ProjectSettings, ProjectSettingsKey};
 
 /// Authenticate user with credentials and set session cookie.
 ///
@@ -17,16 +23,13 @@ use crate::shared::AuthResponse;
 pub async fn login(
 	username: String,
 	password: String,
-	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<crate::config::settings::ProjectSettings>,
-	#[inject] session_service: reinhardt::di::Depends<
-		crate::apps::auth::services::session::SessionService,
-	>,
+	#[inject] http_request: ServerFnRequest,
+	#[inject] settings: Depends<ProjectSettingsKey, ProjectSettings>,
+	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
 
 	use crate::apps::auth::services;
-	use crate::apps::auth::services::session::session_cookie_header;
 	use crate::shared::UserInfo;
 
 	let user = services::verify_credentials(&username, &password)
@@ -42,7 +45,7 @@ pub async fn login(
 	// The server_fn router reads SharedResponseCookies after the handler
 	// and applies them as Set-Cookie response headers.
 	let is_debug = settings.core.debug;
-	let cookie = session_cookie_header(&session_id, is_debug);
+	let cookie = services::session_cookie_header(&session_id, is_debug);
 	http_request.add_response_cookie(cookie);
 
 	let user_info = UserInfo::from(&user);

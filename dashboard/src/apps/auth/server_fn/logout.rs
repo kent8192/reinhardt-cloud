@@ -1,6 +1,10 @@
 //! Logout server function for frontend session termination.
 
-use reinhardt::pages::server_fn::{ServerFnError, server_fn};
+use reinhardt::di::Depends;
+use reinhardt::pages::server_fn::{ServerFnError, ServerFnRequest, server_fn};
+
+#[cfg(native)]
+use crate::apps::auth::services::{SessionService, SessionServiceKey};
 
 /// Invalidate the current session and clear the session cookie.
 ///
@@ -9,21 +13,19 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 /// browser to delete the `sessionid` cookie.
 #[server_fn]
 pub async fn logout(
-	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] session_service: reinhardt::di::Depends<
-		crate::apps::auth::services::session::SessionService,
-	>,
+	#[inject] http_request: ServerFnRequest,
+	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
 ) -> Result<bool, ServerFnError> {
 	use tracing::warn;
 
-	use crate::apps::auth::services::session::session_id_from_cookie_header;
+	use crate::apps::auth::services;
 
 	let session_id = http_request
 		.inner()
 		.headers
 		.get("Cookie")
 		.and_then(|v| v.to_str().ok())
-		.and_then(session_id_from_cookie_header);
+		.and_then(services::session_id_from_cookie_header);
 
 	// Destroy the session in Redis if a session cookie was present
 	if let Some(ref sid) = session_id

@@ -16,7 +16,7 @@
 mod tests {
 	use std::sync::Arc;
 
-	use reinhardt::di::{InjectionContext, SingletonScope};
+	use reinhardt::di::{FactoryOutput, InjectionContext, SingletonScope};
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -24,7 +24,7 @@ mod tests {
 	use rstest::*;
 	use serial_test::serial;
 
-	use crate::config::grpc_client::GrpcChannelSingleton;
+	use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 	use reinhardt::UrlReverser;
 
 	/// gRPC endpoint used by test probes.
@@ -110,7 +110,9 @@ mod tests {
 			Arc<UrlReverser>,
 		),
 	) {
-		use crate::config::urls::{AllowedOrigins, DashboardRouter};
+		use crate::config::urls::{
+			AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
+		};
 		use reinhardt::OpenApiRouter;
 		use reinhardt_cloud_grpc::test_utils::TestGrpcServer;
 
@@ -123,20 +125,28 @@ mod tests {
 		let endpoint = grpc_server.endpoint();
 
 		let scope = Arc::new(SingletonScope::new());
-		scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
+			AllowedOrigins(vec!["http://testserver".into()]),
+		));
 		scope.set(
-			GrpcChannelSingleton::new(&endpoint)
-				.expect("Failed to build test gRPC channel singleton"),
+			FactoryOutput::<GrpcChannelSingletonKey, GrpcChannelSingleton>::new(
+				GrpcChannelSingleton::new(&endpoint)
+					.expect("Failed to build test gRPC channel singleton"),
+			),
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {
-			tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
-		})
-		.expect("Failed to resolve DashboardRouter");
+		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+			tokio::task::block_in_place(|| {
+				tokio::runtime::Handle::current().block_on(
+					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
+				)
+			})
+			.expect("Failed to resolve DashboardRouter");
 		let server_router = Arc::new(
 			Arc::try_unwrap(router)
 				.expect("DashboardRouter has multiple owners after resolve")
+				.into_inner()
 				.0
 				.into_server(),
 		);
@@ -176,26 +186,36 @@ mod tests {
 	#[serial(database)]
 	async fn test_healthz_returns_503_when_db_down() {
 		// Arrange -- build a client without starting postgres.
-		use crate::config::urls::{AllowedOrigins, DashboardRouter};
+		use crate::config::urls::{
+			AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
+		};
 		use reinhardt::OpenApiRouter;
 
 		let scope = Arc::new(SingletonScope::new());
-		scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
+			AllowedOrigins(vec!["http://testserver".into()]),
+		));
 		// Pre-register a gRPC singleton pointing at an unroutable endpoint so
 		// the probe fails fast regardless of the ambient `GRPC_ENDPOINT`.
 		scope.set(
-			GrpcChannelSingleton::new(TEST_GRPC_ENDPOINT)
-				.expect("Failed to build test gRPC channel singleton"),
+			FactoryOutput::<GrpcChannelSingletonKey, GrpcChannelSingleton>::new(
+				GrpcChannelSingleton::new(TEST_GRPC_ENDPOINT)
+					.expect("Failed to build test gRPC channel singleton"),
+			),
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {
-			tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
-		})
-		.expect("Failed to resolve DashboardRouter");
+		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+			tokio::task::block_in_place(|| {
+				tokio::runtime::Handle::current().block_on(
+					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
+				)
+			})
+			.expect("Failed to resolve DashboardRouter");
 		let server_router = Arc::new(
 			Arc::try_unwrap(router)
 				.expect("DashboardRouter has multiple owners after resolve")
+				.into_inner()
 				.0
 				.into_server(),
 		);

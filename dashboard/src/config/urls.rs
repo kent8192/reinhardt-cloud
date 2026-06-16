@@ -15,7 +15,7 @@
 //!
 //! `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`, and
 //! `LocalAuthService` are auto-registered as singletons via
-//! `#[injectable_factory]`. These are aggregated into
+//! `#[injectable]`. These are aggregated into
 //! `RouterInfrastructure` (a transient factory) together with the
 //! admin routes, DI context, and Redis session backend.
 //! The router builder resolves `RouterInfrastructure` from the
@@ -36,7 +36,7 @@ use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
 use reinhardt::di::{
-	ContextLevel, Depends, DiRegistrationList, InjectionContext, get_di_context, injectable_factory,
+	ContextLevel, Depends, DiRegistrationList, FactoryOutput, InjectionContext, get_di_context,
 };
 #[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
@@ -51,15 +51,31 @@ use crate::shared::client::pages::not_found::not_found_page;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 #[cfg(native)]
-use crate::apps::auth::server_fn;
+use crate::apps::auth::services::{LocalAuthService, LocalAuthServiceKey};
 #[cfg(native)]
-use crate::apps::auth::services::local_auth::LocalAuthService;
+use crate::apps::auth::{server_fn, urls as auth_urls};
 #[cfg(native)]
-use crate::config::grpc_client::GrpcChannelSingleton;
+use crate::apps::clusters::{server_fn as cluster_server_fn, urls as cluster_urls};
+#[cfg(native)]
+use crate::apps::dashboard::urls as dashboard_urls;
+#[cfg(native)]
+use crate::apps::deployments::{server_fn as deployment_server_fn, urls as deployment_urls};
+#[cfg(native)]
+use crate::apps::github::{server_fn as github_server_fn, urls as github_urls};
+#[cfg(native)]
+use crate::apps::health::urls as health_urls;
+#[cfg(native)]
+use crate::apps::organizations::urls as organization_urls;
+#[cfg(native)]
+use crate::config::admin::configure_admin;
 #[cfg(native)]
 use crate::config::middleware::CspPathMiddleware;
 #[cfg(native)]
-use crate::utils::realtime::broadcaster::WsBroadcaster;
+use crate::config::settings::{get_redis_url, get_settings};
+#[cfg(native)]
+use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
+#[cfg(native)]
+use crate::utils::realtime::{WsBroadcaster, WsBroadcasterKey};
 #[cfg(native)]
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
@@ -78,17 +94,21 @@ const DASHBOARD_STATIC_URL_PREFIX: &str = "/api/static/";
 #[cfg(native)]
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
+#[cfg(native)]
+#[reinhardt::di::injectable_key]
+pub(crate) struct AllowedOriginsKey;
+
 /// DI factory — resolves allowed origins from settings.
 #[cfg(native)]
-#[injectable_factory(scope = "singleton")]
-async fn create_allowed_origins() -> AllowedOrigins {
-	let settings = crate::config::settings::get_settings();
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_allowed_origins() -> FactoryOutput<AllowedOriginsKey, AllowedOrigins> {
+	let settings = get_settings();
 	let port = std::env::var("PORT").ok();
-	AllowedOrigins(build_allowed_origins(
+	FactoryOutput::new(AllowedOrigins(build_allowed_origins(
 		&settings.cors.allow_origins,
 		settings.core.debug,
 		port.as_deref(),
-	))
+	)))
 }
 
 #[cfg(native)]
@@ -124,12 +144,17 @@ fn build_allowed_origins(configured: &[String], debug: bool, port: Option<&str>)
 #[derive(Debug)]
 pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
 
+#[cfg(native)]
+#[reinhardt::di::injectable_key]
+pub(crate) struct DashboardSessionConfigKey;
+
 /// DI factory — builds `DashboardSessionConfig` from settings.
 #[cfg(native)]
-#[injectable_factory(scope = "singleton")]
-async fn create_cookie_session_config() -> DashboardSessionConfig {
-	let settings = crate::config::settings::get_settings();
-	DashboardSessionConfig(CookieSessionConfig {
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_cookie_session_config()
+-> FactoryOutput<DashboardSessionConfigKey, DashboardSessionConfig> {
+	let settings = get_settings();
+	FactoryOutput::new(DashboardSessionConfig(CookieSessionConfig {
 		cookie_name: "sessionid".to_string(),
 		sliding_ttl: std::time::Duration::from_secs(1800),
 		absolute_max: std::time::Duration::from_secs(86400),
@@ -142,7 +167,7 @@ async fn create_cookie_session_config() -> DashboardSessionConfig {
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
 		],
-	})
+	}))
 }
 
 // ── Router infrastructure ───────────────────────────────────────────
@@ -162,6 +187,10 @@ pub(crate) struct RouterInfrastructure {
 	pub session_config: CookieSessionConfig,
 }
 
+#[cfg(native)]
+#[reinhardt::di::injectable_key]
+pub(crate) struct RouterInfrastructureKey;
+
 /// DI factory — builds shared router infrastructure components.
 ///
 /// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
@@ -172,37 +201,37 @@ pub(crate) struct RouterInfrastructure {
 /// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
 /// on the first RPC.
 #[cfg(native)]
-#[injectable_factory(scope = "transient")]
+#[reinhardt::di::injectable(scope = "transient")]
 async fn create_router_infrastructure(
-	#[inject] allowed_origins: Depends<AllowedOrigins>,
-	#[inject] session_config: Depends<DashboardSessionConfig>,
-	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
-	#[inject] _local_auth_service: Depends<LocalAuthService>,
-	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
-) -> RouterInfrastructure {
+	#[inject] allowed_origins: Depends<AllowedOriginsKey, AllowedOrigins>,
+	#[inject] session_config: Depends<DashboardSessionConfigKey, DashboardSessionConfig>,
+	#[inject] _ws_broadcaster: Depends<WsBroadcasterKey, WsBroadcaster>,
+	#[inject] _local_auth_service: Depends<LocalAuthServiceKey, LocalAuthService>,
+	#[inject] _grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
+) -> FactoryOutput<RouterInfrastructureKey, RouterInfrastructure> {
 	let di_ctx = get_di_context(ContextLevel::Root);
 	initialize_dashboard_static_resolver();
 
 	// Configure admin site with DI registration.
-	let admin_site = Arc::new(crate::config::admin::configure_admin());
+	let admin_site = Arc::new(configure_admin());
 	let (admin_router, admin_di) = admin_routes_with_di(admin_site);
 
 	// Configure Redis-backed session backend.
-	let redis_url = crate::config::settings::get_redis_url()
+	let redis_url = get_redis_url()
 		.expect("Redis URL must be configured: set REINHARDT_CLOUD_REDIS_URL env var or redis_url in settings TOML");
 	let session_backend = Arc::new(
 		RedisSessionBackend::new_from_url(&redis_url)
 			.expect("Failed to create Redis session backend"),
 	);
 
-	RouterInfrastructure {
+	FactoryOutput::new(RouterInfrastructure {
 		di_ctx,
 		admin_router,
 		admin_di,
 		session_backend,
 		allowed_origins: allowed_origins.0.clone(),
 		session_config: session_config.0.clone(),
-	}
+	})
 }
 
 // ── Router construction ─────────────────────────────────────────────
@@ -215,6 +244,11 @@ async fn create_router_infrastructure(
 #[cfg(native)]
 #[derive(Debug)]
 pub(crate) struct DashboardRouter(pub UnifiedRouter);
+
+#[cfg(native)]
+#[reinhardt::di::injectable_key]
+#[derive(Debug)]
+pub(crate) struct DashboardRouterKey;
 
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
@@ -232,7 +266,7 @@ pub(crate) struct DashboardRouter(pub UnifiedRouter);
 pub async fn routes(
 	#[cfg(native)]
 	#[inject]
-	router: Depends<DashboardRouter>,
+	router: Depends<DashboardRouterKey, DashboardRouter>,
 ) -> UnifiedRouter {
 	#[cfg(native)]
 	{
@@ -267,8 +301,10 @@ fn initialize_dashboard_static_resolver() {
 /// like `AllowedOrigins` by pre-registering in the `SingletonScope`
 /// before calling this function.
 #[cfg(native)]
-#[injectable_factory(scope = "transient")]
-async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> DashboardRouter {
+#[reinhardt::di::injectable(scope = "transient")]
+async fn make_router(
+	#[inject] infra: Depends<RouterInfrastructureKey, RouterInfrastructure>,
+) -> FactoryOutput<DashboardRouterKey, DashboardRouter> {
 	let infra = infra
 		.try_unwrap()
 		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
@@ -288,16 +324,16 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 			// SPA `route` entries into the parent's client router so
 			// the global reverser sees `auth:login_page`,
 			// `dashboard:home`, etc.
-			.mount_unified("/", crate::apps::dashboard::urls::url_patterns())
-			.mount_unified("/auth/", crate::apps::auth::urls::url_patterns())
+			.mount_unified("/", dashboard_urls::url_patterns())
+			.mount_unified("/auth/", auth_urls::url_patterns())
 			// Cluster and deployment data mutations are exposed through
 			// registered server functions; the unified app mounts only
 			// contribute SPA client routes.
-			.mount_unified("/", crate::apps::clusters::urls::url_patterns())
-			.mount_unified("/", crate::apps::deployments::urls::url_patterns())
-			.mount_unified("/github/", crate::apps::github::urls::url_patterns())
-			.mount_unified("/", crate::apps::health::urls::url_patterns())
-			.mount_unified("/", crate::apps::organizations::urls::url_patterns())
+			.mount_unified("/", cluster_urls::url_patterns())
+			.mount_unified("/", deployment_urls::url_patterns())
+			.mount_unified("/github/", github_urls::url_patterns())
+			.mount_unified("/", health_urls::url_patterns())
+			.mount_unified("/", organization_urls::url_patterns())
 			.server(|s| {
 				s.server_fn(server_fn::login::login::marker)
 					.server_fn(server_fn::linked_accounts::list_linked_oauth_accounts::marker)
@@ -305,22 +341,22 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 					.server_fn(server_fn::logout::logout::marker)
 					.server_fn(server_fn::me::me::marker)
 					.server_fn(server_fn::oauth_providers::list_oauth_providers::marker)
-					.server_fn(crate::apps::clusters::server_fn::list_clusters_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server_fn::create_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server_fn::update_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server_fn::delete_cluster_for_current_org::marker)
-					.server_fn(crate::apps::clusters::server_fn::rotate_cluster_token_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::list_deployments_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::create_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::update_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::delete_deployment_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::update_deployment_status_for_current_org::marker)
-					.server_fn(crate::apps::deployments::server_fn::deployment_logs_for_current_org::marker)
-					.server_fn(crate::apps::github::server_fn::get_github_onboarding_for_current_org::marker)
-					.server_fn(crate::apps::github::server_fn::list_github_installations_for_current_org::marker)
-					.server_fn(crate::apps::github::server_fn::list_github_repositories_for_current_org::marker)
-					.server_fn(crate::apps::github::server_fn::list_github_repositories_for_installation::marker)
-					.server_fn(crate::apps::github::server_fn::import_github_repository_for_current_org::marker)
+					.server_fn(cluster_server_fn::list_clusters_for_current_org::marker)
+					.server_fn(cluster_server_fn::create_cluster_for_current_org::marker)
+					.server_fn(cluster_server_fn::update_cluster_for_current_org::marker)
+					.server_fn(cluster_server_fn::delete_cluster_for_current_org::marker)
+					.server_fn(cluster_server_fn::rotate_cluster_token_for_current_org::marker)
+					.server_fn(deployment_server_fn::list_deployments_for_current_org::marker)
+					.server_fn(deployment_server_fn::create_deployment_for_current_org::marker)
+					.server_fn(deployment_server_fn::update_deployment_for_current_org::marker)
+					.server_fn(deployment_server_fn::delete_deployment_for_current_org::marker)
+					.server_fn(deployment_server_fn::update_deployment_status_for_current_org::marker)
+					.server_fn(deployment_server_fn::deployment_logs_for_current_org::marker)
+					.server_fn(github_server_fn::get_github_onboarding_for_current_org::marker)
+					.server_fn(github_server_fn::list_github_installations_for_current_org::marker)
+					.server_fn(github_server_fn::list_github_repositories_for_current_org::marker)
+					.server_fn(github_server_fn::list_github_repositories_for_installation::marker)
+					.server_fn(github_server_fn::import_github_repository_for_current_org::marker)
 			})
 			.with_di_context(infra.di_ctx)
 			.with_middleware(SecurityMiddleware::new())
@@ -331,7 +367,7 @@ async fn make_router(#[inject] infra: Depends<RouterInfrastructure>) -> Dashboar
 				infra.session_config,
 			));
 
-	DashboardRouter(unified)
+	FactoryOutput::new(DashboardRouter(unified))
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

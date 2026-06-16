@@ -3,6 +3,8 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
+use crate::apps::auth::models::User;
+
 /// Linked OAuth account metadata safe to expose to the browser.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LinkedOAuthAccountInfo {
@@ -14,7 +16,7 @@ pub struct LinkedOAuthAccountInfo {
 /// Return OAuth accounts linked to the current user.
 #[server_fn]
 pub async fn list_linked_oauth_accounts(
-	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<User>,
 ) -> Result<Vec<LinkedOAuthAccountInfo>, ServerFnError> {
 	use reinhardt::db::orm::Model;
 

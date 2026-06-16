@@ -12,6 +12,11 @@ pub mod session;
 pub mod token;
 
 pub use credentials::verify_credentials;
-pub use local_auth::LocalAuthService;
+pub use email::{EmailService, EmailServiceKey};
+pub use local_auth::{LocalAuthService, LocalAuthServiceKey};
 pub use mailer::{EmailSender, LettreSmtpSender, MailerError, NullEmailSender};
-pub use session::validate_session;
+pub use registration::register_inactive_user;
+pub use session::{
+	RedisUrl, RedisUrlKey, SessionService, SessionServiceKey, session_cookie_header,
+	session_id_from_cookie_header, validate_session,
+};

@@ -1,7 +1,7 @@
 //! Tests for the `OAuthBackendBox` DI factory.
 //!
 //! Covers the dashboard's wiring of `reinhardt-auth`'s
-//! `SocialAuthBackend` through `#[injectable_factory]` — specifically
+//! `SocialAuthBackend` through `#[injectable]` — specifically
 //! the contract that:
 //!   * an empty `OAuthSettings` (no providers configured) resolves to
 //!     `OAuthBackendBox(None)`, so callers can short-circuit endpoint
@@ -19,11 +19,13 @@
 mod tests {
 	use std::sync::Arc;
 
+	use reinhardt::di::FactoryOutput;
 	use rstest::rstest;
 	use serial_test::serial;
 
-	use crate::apps::auth::services::oauth::backend::OAuthBackendBox;
-	use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
+	use crate::apps::auth::services::oauth::{
+		OAuthBackendBox, OAuthBackendBoxKey, OAuthSettings, OAuthSettingsKey, ProviderCredentials,
+	};
 	use crate::config::test_helpers::make_test_di_context;
 
 	const KEY_AUTHORIZE: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_AUTHORIZE_URL";
@@ -91,12 +93,14 @@ mod tests {
 			(KEY_USERINFO, Some("https://fake.test/userinfo")),
 		]);
 		let ctx = make_test_di_context(|scope| {
-			scope.set(populated_settings());
+			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
+				populated_settings(),
+			));
 		});
 
 		// Act
-		let backend: Arc<OAuthBackendBox> = ctx
-			.resolve::<OAuthBackendBox>()
+		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
+			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
 			.await
 			.expect("factory should resolve when github is configured");
 
@@ -120,12 +124,14 @@ mod tests {
 			(KEY_USERINFO, Some("")),
 		]);
 		let ctx = make_test_di_context(|scope| {
-			scope.set(populated_settings());
+			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
+				populated_settings(),
+			));
 		});
 
 		// Act
-		let backend: Arc<OAuthBackendBox> = ctx
-			.resolve::<OAuthBackendBox>()
+		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
+			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
 			.await
 			.expect("factory should resolve even with empty endpoint overrides");
 

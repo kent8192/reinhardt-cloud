@@ -5,7 +5,7 @@
 //!   * an `InMemoryStateStore` for OAuth `state` and PKCE verifiers.
 //!
 //! Exposes [`OAuthBackendBox`] (newtype around `Option<Arc<SocialAuthBackend>>`)
-//! resolved via `#[injectable_factory]`.
+//! resolved via `#[injectable]`.
 //!
 //! ## State-store choice
 //!
@@ -56,9 +56,11 @@ use reinhardt::auth::social::core::config::ProviderConfig;
 use reinhardt::auth::social::core::error::SocialAuthError;
 use reinhardt::auth::social::flow::state::InMemoryStateStore;
 use reinhardt::auth::social::providers::github::GitHubProvider;
-use reinhardt::di::{Depends, injectable_factory};
+use reinhardt::di::{Depends, FactoryOutput};
 
-use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
+use crate::apps::auth::services::oauth::config::{
+	OAuthSettings, OAuthSettingsKey, ProviderCredentials,
+};
 
 /// DI-resolvable wrapper around the optional `SocialAuthBackend`.
 ///
@@ -70,6 +72,9 @@ use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredenti
 /// effectively disabled.
 pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 
+#[reinhardt::di::injectable_key]
+pub struct OAuthBackendBoxKey;
+
 /// DI factory — singleton scope so the state store and registered
 /// providers are shared across all requests for the lifetime of the
 /// process. Replaces the previous process-wide `OnceLock<Arc<InMemoryStateStore>>`
@@ -79,13 +84,15 @@ pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 /// Panics on `SocialAuthError` because backend construction failures are
 /// deploy-time configuration errors (bad provider config / missing
 /// dependencies), not recoverable runtime faults.
-#[injectable_factory(scope = "singleton")]
-async fn create_oauth_backend(#[inject] settings: Depends<OAuthSettings>) -> OAuthBackendBox {
-	OAuthBackendBox(
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_oauth_backend(
+	#[inject] settings: Depends<OAuthSettingsKey, OAuthSettings>,
+) -> FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox> {
+	FactoryOutput::new(OAuthBackendBox(
 		assemble_social_auth_backend(&settings)
 			.await
 			.expect("Failed to construct SocialAuthBackend: check OAuth provider configuration"),
-	)
+	))
 }
 
 async fn assemble_social_auth_backend(
@@ -148,12 +155,14 @@ mod tests {
 		// providers enabled. The factory should short-circuit to None
 		// rather than constructing an empty backend.
 		let ctx = make_test_di_context(|scope| {
-			scope.set(OAuthSettings::default());
+			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
+				OAuthSettings::default(),
+			));
 		});
 
 		// Act
-		let backend: Arc<OAuthBackendBox> = ctx
-			.resolve::<OAuthBackendBox>()
+		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
+			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
 			.await
 			.expect("OAuthBackendBox factory should resolve when OAuthSettings is registered");
 
@@ -176,12 +185,14 @@ mod tests {
 			}),
 		};
 		let ctx = make_test_di_context(|scope| {
-			scope.set(settings);
+			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
+				settings,
+			));
 		});
 
 		// Act
-		let backend: Arc<OAuthBackendBox> = ctx
-			.resolve::<OAuthBackendBox>()
+		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
+			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
 			.await
 			.expect("OAuthBackendBox factory should resolve when GitHub credentials are present");
 

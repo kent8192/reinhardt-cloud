@@ -47,8 +47,7 @@ use reinhardt::conf::{
 	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
 	settings::builder::{BuildError, SettingsBuilder},
 };
-#[cfg(native)]
-use reinhardt::di::injectable_factory;
+use reinhardt::di::{Depends, FactoryOutput};
 use reinhardt::settings;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -65,6 +64,11 @@ use std::path::{Path, PathBuf};
 /// - `[contacts]` → `ContactSettings` (required by settings-aware management commands)
 #[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings | contacts: ContactSettings)]
 pub struct ProjectSettings;
+
+#[reinhardt::di::injectable_key]
+pub struct ProjectSettingsKey;
+
+pub type ProjectSettingsDepends = Depends<ProjectSettingsKey, ProjectSettings>;
 
 /// Resolve the settings directory path.
 ///
@@ -283,9 +287,9 @@ pub fn get_settings() -> ProjectSettings {
 /// Factories that need a settings fragment should inject this composed
 /// `ProjectSettings` value rather than rebuilding settings independently.
 #[cfg(native)]
-#[injectable_factory(scope = "singleton")]
-async fn create_project_settings() -> ProjectSettings {
-	build_settings()
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_project_settings() -> FactoryOutput<ProjectSettingsKey, ProjectSettings> {
+	FactoryOutput::new(build_settings())
 }
 
 /// Get Redis URL from settings or environment.

@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use reinhardt::di::InjectionContext;
+use reinhardt::di::{FactoryOutput, InjectionContext};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
@@ -19,14 +19,18 @@ use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServ
 use tonic::transport::Server;
 use tracing::info;
 
-use crate::apps::clusters::services::token_issuance::JwtSecret;
+use crate::apps::clusters::services::{JwtSecret, JwtSecretKey};
 
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
 
-#[reinhardt::di::injectable_factory(scope = "singleton")]
-async fn create_agent_registry_singleton() -> AgentRegistrySingleton {
-	AgentRegistrySingleton(Arc::new(AgentRegistry::new()))
+#[reinhardt::di::injectable_key]
+pub struct AgentRegistrySingletonKey;
+
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_agent_registry_singleton()
+-> FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton> {
+	FactoryOutput::new(AgentRegistrySingleton(Arc::new(AgentRegistry::new())))
 }
 
 /// Mark a gRPC service as SERVING in the health reporter.
@@ -45,7 +49,7 @@ async fn mark_service_healthy(health_reporter: &mut health::HealthReporter, serv
 /// `di_context` must be the root `InjectionContext` resolved at runserver
 /// startup (typically `RunserverContext::di_context`). Using the caller-
 /// supplied context avoids relying on the task-local resolve scope, which
-/// is only set inside `#[injectable_factory]` / `#[injectable]` execution
+/// is only set inside `#[injectable]` execution
 /// and is therefore absent in spawned runserver-hook tasks.
 pub async fn start_grpc_server(
 	config: GrpcServerConfig,
@@ -61,7 +65,7 @@ pub async fn start_grpc_server(
 	// `REINHARDT_CLOUD_JWT_SECRET` fails fast instead of letting
 	// agents connect to an unauthenticated server.
 	let jwt_secret = di_context
-		.resolve::<JwtSecret>()
+		.resolve::<FactoryOutput<JwtSecretKey, JwtSecret>>()
 		.await
 		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
 	let agent_interceptor = AgentJwtInterceptor::new(jwt_secret.0.as_bytes());
@@ -80,7 +84,7 @@ pub async fn start_grpc_server(
 	// agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
 	let agent_registry = di_context
-		.resolve::<AgentRegistrySingleton>()
+		.resolve::<FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton>>()
 		.await
 		.expect("Cannot start gRPC server without AgentRegistrySingleton")
 		.0

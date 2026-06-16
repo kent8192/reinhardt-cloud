@@ -15,14 +15,15 @@ use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
-use crate::apps::auth::services::oauth::backend::OAuthBackendBox;
 use crate::apps::auth::services::oauth::linking::link_or_create_user;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
+use crate::apps::auth::services::oauth::{OAuthBackendBox, OAuthBackendBoxKey};
 use crate::apps::auth::services::session::{
-	SessionService, session_cookie_header, session_id_from_cookie_header,
+	SessionService, SessionServiceKey, session_cookie_header, session_id_from_cookie_header,
 };
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
-use crate::config::settings::ProjectSettings;
+use crate::config::settings::get_settings;
+use crate::config::{ProjectSettings, ProjectSettingsKey};
 
 /// OAuth callback query parameters returned by the provider.
 #[derive(Debug, Deserialize)]
@@ -90,7 +91,7 @@ async fn current_user_from_cookie(
 #[get("/oauth/{provider_id}/start/", name = "oauth-start")]
 pub async fn oauth_start(
 	Path(provider_id): Path<String>,
-	#[inject] backend: Depends<OAuthBackendBox>,
+	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
 ) -> ViewResult<Response> {
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let auth = backend
@@ -108,8 +109,8 @@ pub async fn oauth_callback(
 	Path(provider_id): Path<String>,
 	Query(query): Query<OAuthCallbackQuery>,
 	#[inject] http_request: ServerFnRequest,
-	#[inject] backend: Depends<OAuthBackendBox>,
-	#[inject] session_service: Depends<SessionService>,
+	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
+	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
 ) -> ViewResult<Response> {
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let result = backend
@@ -136,7 +137,7 @@ pub async fn oauth_callback(
 		.create_session(&user)
 		.await
 		.map_err(map_session_error)?;
-	let is_debug = crate::config::settings::get_settings().core.debug;
+	let is_debug = get_settings().core.debug;
 	Ok(Response::temporary_redirect("/")
 		.append_header("Set-Cookie", &session_cookie_header(&session_id, is_debug)))
 }
@@ -150,7 +151,7 @@ pub async fn oauth_callback(
 #[get("/verify-email/{token}/", name = "verify-email")]
 pub async fn verify_email(
 	Path(token): Path<String>,
-	#[inject] settings: Depends<ProjectSettings>,
+	#[inject] settings: Depends<ProjectSettingsKey, ProjectSettings>,
 ) -> ViewResult<Response> {
 	let user_id = verify_token(
 		&token,

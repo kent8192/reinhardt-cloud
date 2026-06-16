@@ -4,7 +4,18 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
 #[cfg(native)]
-use reinhardt::CurrentUser;
+use reinhardt::{CurrentUser, di::Depends};
+
+#[cfg(native)]
+use crate::apps::auth::models::User;
+#[cfg(native)]
+use crate::apps::clusters::models::Cluster;
+#[cfg(native)]
+use crate::apps::deployments::models::Deployment;
+#[cfg(native)]
+use crate::apps::organizations::helpers::current_organization_id_for_user;
+#[cfg(native)]
+use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentInfo {
@@ -23,14 +34,14 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
-	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
+async fn current_org_id(user: &User) -> Result<i64, ServerFnError> {
+	current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
 
 #[cfg(native)]
-fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> DeploymentInfo {
+fn deployment_info(deployment: Deployment) -> DeploymentInfo {
 	let cluster_id = *deployment.cluster_id();
 	DeploymentInfo {
 		id: deployment.id.unwrap_or_default(),
@@ -66,16 +77,13 @@ fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
 
 #[server_fn]
 pub async fn list_deployments_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<Vec<DeploymentInfo>, ServerFnError> {
 	use reinhardt::Model;
 
 	let organization_id = current_org_id(&user).await?;
-	let deployments = crate::apps::deployments::models::Deployment::objects()
-		.filter(
-			crate::apps::deployments::models::Deployment::field_organization_id()
-				.eq(organization_id),
-		)
+	let deployments = Deployment::objects()
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
 		.all()
 		.await
@@ -89,7 +97,7 @@ pub async fn create_deployment_for_current_org(
 	cluster_id: String,
 	image: String,
 	reinhardt_app_yaml: String,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
 
@@ -108,9 +116,9 @@ pub async fn create_deployment_for_current_org(
 	if image.is_empty() || image.len() > 512 {
 		return Err(ServerFnError::server(400, "Image must be 1-512 characters"));
 	}
-	let cluster_exists = crate::apps::clusters::models::Cluster::objects()
-		.filter(crate::apps::clusters::models::Cluster::field_id().eq(cluster_id))
-		.filter(crate::apps::clusters::models::Cluster::field_organization_id().eq(organization_id))
+	let cluster_exists = Cluster::objects()
+		.filter(Cluster::field_id().eq(cluster_id))
+		.filter(Cluster::field_organization_id().eq(organization_id))
 		.exists()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to check cluster: {e}")))?;
@@ -123,7 +131,7 @@ pub async fn create_deployment_for_current_org(
 	} else {
 		Some(reinhardt_app_yaml)
 	};
-	let new_deployment = crate::apps::deployments::models::Deployment::build()
+	let new_deployment = Deployment::build()
 		.organization(organization_id)
 		.app_name(app_name)
 		.cluster(cluster_id)
@@ -131,7 +139,7 @@ pub async fn create_deployment_for_current_org(
 		.image(image)
 		.reinhardt_app_yaml(manifest)
 		.finish();
-	let created = crate::apps::deployments::models::Deployment::objects()
+	let created = Deployment::objects()
 		.create(&new_deployment)
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to create deployment: {e}")))?;
@@ -144,7 +152,7 @@ pub async fn update_deployment_for_current_org(
 	app_name: String,
 	image: String,
 	status: String,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
 
@@ -168,13 +176,10 @@ pub async fn update_deployment_for_current_org(
 		return Err(ServerFnError::server(400, "Status must be 1-50 characters"));
 	}
 
-	let manager = crate::apps::deployments::models::Deployment::objects();
+	let manager = Deployment::objects();
 	let mut deployment = manager
-		.filter(crate::apps::deployments::models::Deployment::field_id().eq(deployment_id))
-		.filter(
-			crate::apps::deployments::models::Deployment::field_organization_id()
-				.eq(organization_id),
-		)
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
@@ -192,7 +197,7 @@ pub async fn update_deployment_for_current_org(
 #[server_fn]
 pub async fn delete_deployment_for_current_org(
 	deployment_id: String,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<(), ServerFnError> {
 	use reinhardt::Model;
 
@@ -200,17 +205,14 @@ pub async fn delete_deployment_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	crate::apps::deployments::models::Deployment::objects()
-		.filter(crate::apps::deployments::models::Deployment::field_id().eq(deployment_id))
-		.filter(
-			crate::apps::deployments::models::Deployment::field_organization_id()
-				.eq(organization_id),
-		)
+	Deployment::objects()
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-	crate::apps::deployments::models::Deployment::objects()
+	Deployment::objects()
 		.delete(deployment_id)
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to delete deployment: {e}")))?;
@@ -221,7 +223,7 @@ pub async fn delete_deployment_for_current_org(
 pub async fn update_deployment_status_for_current_org(
 	deployment_id: String,
 	status: String,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
 
@@ -233,13 +235,10 @@ pub async fn update_deployment_status_for_current_org(
 	if status.is_empty() || status.len() > 50 {
 		return Err(ServerFnError::server(400, "Status must be 1-50 characters"));
 	}
-	let manager = crate::apps::deployments::models::Deployment::objects();
+	let manager = Deployment::objects();
 	let mut deployment = manager
-		.filter(crate::apps::deployments::models::Deployment::field_id().eq(deployment_id))
-		.filter(
-			crate::apps::deployments::models::Deployment::field_organization_id()
-				.eq(organization_id),
-		)
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
@@ -255,8 +254,8 @@ pub async fn update_deployment_status_for_current_org(
 #[server_fn]
 pub async fn deployment_logs_for_current_org(
 	deployment_id: String,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
-	#[inject] grpc_channel: reinhardt::di::Depends<crate::config::GrpcChannelSingleton>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
@@ -266,12 +265,9 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let deployment = crate::apps::deployments::models::Deployment::objects()
-		.filter(crate::apps::deployments::models::Deployment::field_id().eq(deployment_id))
-		.filter(
-			crate::apps::deployments::models::Deployment::field_organization_id()
-				.eq(organization_id),
-		)
+	let deployment = Deployment::objects()
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
