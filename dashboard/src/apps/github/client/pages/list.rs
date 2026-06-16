@@ -540,7 +540,7 @@ pub fn github_repositories_page() -> Page {
 														div {
 															class: "font-mono text-xs text-cloud-500",
 															{
-																format!("id {}", cluster.id)
+																cluster.api_url.clone()
 															}
 														}
 													}
@@ -579,6 +579,8 @@ pub fn github_repositories_page() -> Page {
 mod tests {
 	use rstest::rstest;
 
+	use crate::apps::github::services::import::validate_project_name;
+
 	use super::format_server_error;
 
 	#[rstest]
@@ -594,10 +596,15 @@ mod tests {
 		#[case] raw: &str,
 		#[case] expected: &str,
 	) {
-		// Arrange, Act
+		// Arrange
+		let project_name = validate_project_name("github-import-review")
+			.expect("valid project names must pass GitHub import validation");
+
+		// Act
 		let formatted = format_server_error(raw);
 
 		// Assert
+		assert_eq!(project_name, "github-import-review");
 		assert_eq!(formatted, expected);
 	}
 }
