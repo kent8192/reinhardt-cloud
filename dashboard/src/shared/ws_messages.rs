@@ -196,6 +196,29 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_ws_client_message_subscribe_app_logs_roundtrip() {
+		// Arrange
+		let msg = WsClientMessage::SubscribeAppLogs {
+			project_name: "my-project".to_string(),
+		};
+
+		// Act
+		let json = serde_json::to_string(&msg).unwrap();
+		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+		let roundtrip: WsClientMessage = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed["type"], "SubscribeAppLogs");
+		assert_eq!(parsed["payload"]["project_name"], "my-project");
+		match roundtrip {
+			WsClientMessage::SubscribeAppLogs { project_name } => {
+				assert_eq!(project_name, "my-project");
+			}
+			_ => panic!("expected SubscribeAppLogs"),
+		}
+	}
+
+	#[rstest]
 	fn test_invalid_json_returns_error() {
 		// Arrange
 		let bad_json = r#"{"type": "Unknown", "payload": {}}"#;
