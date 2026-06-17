@@ -21,6 +21,8 @@ use crate::apps::deployments::server_fn::{
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
+#[cfg(wasm)]
+use crate::shared::client::ws::track_subscriptions;
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -51,16 +53,19 @@ fn state_from_status(status: &str) -> DeploymentState {
 fn alert(error: Signal<Option<String>>) -> Page {
 	page!(|error: Signal<Option<String>>| {
 		{
-			error.get().map(|message| {
-			page!(|message: String| {
-				div {
-					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-					{
-						self::format_server_error(&message)
-					}
+			error
+	.get()
+	.map(|message| {
+		page!(|message: String| {
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				{
+					self::format_server_error(&message)
 				}
-			})(message)
-		}).unwrap_or(Page::Empty)
+			}
+		})(message)
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})(error)
 }
@@ -71,7 +76,7 @@ fn track_visible_deployments(items: &[DeploymentInfo]) {
 		.iter()
 		.map(|item| item.id.to_string())
 		.collect::<Vec<_>>();
-	crate::shared::client::ws::track_subscriptions(&ids);
+	track_subscriptions(&ids);
 }
 
 #[cfg(not(wasm))]
@@ -328,8 +333,7 @@ pub fn deployments_list_page() -> Page {
 							div {
 								class: "rc-panel-head",
 								"Deployment Inventory"
-							}
-							{
+							} {
 								match deployments_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
@@ -340,12 +344,10 @@ pub fn deployments_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										div {
 											class: "px-4 py-8 text-sm font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
-									ResourceState::Success(items) => {
+									ResourceState::Success(items)=> {
 										self::track_visible_deployments(&items);
 										if items.is_empty() {
 											page!(|| {
@@ -387,47 +389,45 @@ pub fn deployments_list_page() -> Page {
 														}
 														tbody {
 															class: "divide-y divide-cloud-100 bg-white",
-															{
-																items.clone().into_iter().map(|deployment| page!(|deployment: DeploymentInfo| {
-																	tr {
-																		data_deployment_id: deployment.id.to_string(),
-																		td {
-																			class: "px-4 py-2 font-mono text-xs text-ink-600",
-																			{
-																				deployment.id.to_string()
-																			}
-																		}
-																		td {
-																			class: "px-4 py-2 font-semibold text-ink-950",
-																			{
-																				deployment.project_name.clone()
-																			}
-																		}
-																		td {
-																			class: "px-4 py-2 font-mono text-xs text-ink-600",
-																			{
-																				deployment.cluster_id.to_string()
-																			}
-																		}
-																		td {
-																			class: "px-4 py-2",
-																			{
-																				let(color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
-																				page!(|color: &'static str, label: &'static str| {
-																					span {
-																						class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"),
-																						{ label }
-																					}
-																				})(color, label)
-																			}
-																		}
-																		td {
-																			class: "max-w-xs truncate px-4 py-2 text-ink-600",
-																			{ deployment.image }
+															{ items.clone().into_iter().map(|deployment| page!(|deployment: DeploymentInfo| {
+																tr {
+																	data_deployment_id: deployment.id.to_string(),
+																	td {
+																		class: "px-4 py-2 font-mono text-xs text-ink-600",
+																		{
+																			deployment.id.to_string()
 																		}
 																	}
-																})(deployment)).collect::<Vec<_>>()
-															}
+																	td {
+																		class: "px-4 py-2 font-semibold text-ink-950",
+																		{
+																			deployment.project_name.clone()
+																		}
+																	}
+																	td {
+																		class: "px-4 py-2 font-mono text-xs text-ink-600",
+																		{
+																			deployment.cluster_id.to_string()
+																		}
+																	}
+																	td {
+																		class: "px-4 py-2",
+																		{
+																			let(color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
+																			page!(|color: &'static str, label: &'static str| {
+																				span {
+																					class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"),
+																					{ label }
+																				}
+																			})(color, label)
+																		}
+																	}
+																	td {
+																		class: "max-w-xs truncate px-4 py-2 text-ink-600",
+																		{ deployment.image }
+																	}
+																}
+															})(deployment)).collect::<Vec<_>>() }
 														}
 													}
 												}
@@ -443,10 +443,7 @@ pub fn deployments_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Create Deployment"
 							}
-							{
-								self::alert(create_error.clone())
-							}
-							{
+							{ self::alert(create_error.clone()) } {
 								match clusters_for_create.get() {
 									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), create_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
@@ -458,15 +455,12 @@ pub fn deployments_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ create_view }
-							{
+							{ create_view } {
 								if create_submitting.get() {
 									page!(|| {
 										p {
@@ -494,12 +488,9 @@ pub fn deployments_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Deployment Operations"
 							}
-							{
-								self::alert(edit_error.clone())
-							}
-							{
+							{ self::alert(edit_error.clone()) } {
 								match deployments_for_edit.get() {
-									ResourceState::Success(items) => {
+									ResourceState::Success(items)=> {
 										let deployments_for_change = items.clone();
 										let project_name_signal = edit_project_name.clone();
 										let image_signal = edit_image.clone();
@@ -511,8 +502,7 @@ pub fn deployments_list_page() -> Page {
 												status_signal.set(deployment.status.clone());
 											}
 										}, )
-									}
-									ResourceState::Loading => page!(|| {
+									}ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
 											"Loading deployments..."
@@ -521,15 +511,12 @@ pub fn deployments_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ edit_view }
-							{
+							{ edit_view } {
 								if edit_dirty.get() {
 									page!(|| {
 										p {
@@ -552,10 +539,7 @@ pub fn deployments_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{
-								self::alert(status_error.clone())
-							}
-							{
+							{ self::alert(status_error.clone()) } {
 								match deployments_for_status.get() {
 									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), status_deployment_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
@@ -567,15 +551,12 @@ pub fn deployments_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ status_view }
-							{
+							{ status_view } {
 								if status_submitting.get() {
 									page!(|| {
 										p {
@@ -588,10 +569,7 @@ pub fn deployments_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{
-								self::alert(delete_error.clone())
-							}
-							{
+							{ self::alert(delete_error.clone()) } {
 								match deployments_for_delete.get() {
 									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), delete_deployment_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
@@ -603,15 +581,12 @@ pub fn deployments_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ delete_view }
-							{
+							{ delete_view } {
 								if delete_submitting.get() {
 									page!(|| {
 										p {

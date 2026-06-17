@@ -11,14 +11,23 @@ use reinhardt::{CurrentUser, Query, Response, StatusCode, get, post};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
+use crate::apps::auth::models::User;
+use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
-use crate::apps::github::services::client::{GitHubAppClient, GitHubUserInstallation};
-use crate::apps::github::services::config::GitHubAppSettings;
+use crate::apps::github::services::client::{
+	GitHubAppClient, GitHubUserInstallation, ReqwestGitHubAppClient,
+};
+use crate::apps::github::services::deploy::{
+	send_git_credentials_secret_to_cluster, send_project_apply_to_cluster,
+};
 use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
 use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
+use crate::apps::github::services::{GitHubAppSettings, GitHubAppSettingsKey};
+use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
 use crate::utils::vcs::events::WebhookAction;
 use crate::utils::vcs::signature::verify_github_signature;
 
@@ -37,10 +46,10 @@ pub struct GitHubSetupQuery {
 #[get("/setup/", name = "github-setup")]
 pub async fn github_setup(
 	Query(query): Query<GitHubSetupQuery>,
-	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
-	#[inject] settings: Depends<GitHubAppSettings>,
+	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] settings: Depends<GitHubAppSettingsKey, GitHubAppSettings>,
 ) -> ViewResult<Response> {
-	let storage = crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage::new();
+	let storage = OrmSocialAccountStorage::new();
 	let Some(user_access_token) = storage
 		.access_token_for_user(user.id, "github")
 		.await
@@ -54,8 +63,7 @@ pub async fn github_setup(
 		));
 	};
 
-	let client =
-		crate::apps::github::services::client::ReqwestGitHubAppClient::new((*settings).clone());
+	let client = ReqwestGitHubAppClient::new((*settings).clone());
 	let installation = client
 		.list_user_installations(&user_access_token)
 		.await
@@ -70,8 +78,7 @@ pub async fn github_setup(
 				"GitHub App installation is not accessible to this user".to_string(),
 			)
 		})?;
-	let organization_id =
-		crate::apps::organizations::helpers::current_organization_id_for_user(user.id).await?;
+	let organization_id = current_organization_id_for_user(user.id).await?;
 	upsert_verified_installation(organization_id, installation).await?;
 
 	Ok(Response::temporary_redirect("/github"))
@@ -80,8 +87,8 @@ pub async fn github_setup(
 #[post("/webhooks/github/", name = "github-webhook")]
 pub async fn github_webhook(
 	Body(payload): Body,
-	#[inject] settings: Depends<GitHubAppSettings>,
-	#[inject] agent_registry: Depends<crate::config::grpc::AgentRegistrySingleton>,
+	#[inject] settings: Depends<GitHubAppSettingsKey, GitHubAppSettings>,
+	#[inject] agent_registry: Depends<AgentRegistrySingletonKey, AgentRegistrySingleton>,
 	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
 	let event_type = required_header(&http_request, "X-GitHub-Event")?;
@@ -229,13 +236,9 @@ pub async fn github_webhook(
 			"Failed to refresh GitHub repository credentials".to_string(),
 		));
 	}
-	if let Err(e) = crate::apps::github::services::deploy::send_project_apply_to_cluster(
-		&agent_registry.0,
-		&cluster,
-		&project.project_name,
-		manifest,
-	)
-	.await
+	if let Err(e) =
+		send_project_apply_to_cluster(&agent_registry.0, &cluster, &project.project_name, manifest)
+			.await
 	{
 		error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
 		deployment.status = "error".to_string();
@@ -384,7 +387,7 @@ async fn refresh_git_credentials_secret_for_webhook(
 	cluster: &Cluster,
 	manifest: &str,
 	settings: &GitHubAppSettings,
-	agent_registry: &crate::config::grpc::AgentRegistrySingleton,
+	agent_registry: &AgentRegistrySingleton,
 ) -> Result<(), String> {
 	if !repository.private {
 		return Ok(());
@@ -395,8 +398,7 @@ async fn refresh_git_credentials_secret_for_webhook(
 		.await
 		.map_err(|e| format!("Failed to load GitHub installation: {e}"))?
 		.ok_or_else(|| "GitHub installation not found".to_string())?;
-	let client =
-		crate::apps::github::services::client::ReqwestGitHubAppClient::new(settings.clone());
+	let client = ReqwestGitHubAppClient::new(settings.clone());
 	let installation_token = client
 		.create_installation_access_token(installation.installation_id)
 		.await
@@ -404,7 +406,7 @@ async fn refresh_git_credentials_secret_for_webhook(
 	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(manifest)
 		.map_err(|e| format!("Failed to parse Project manifest: {e}"))?;
 	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
-	crate::apps::github::services::deploy::send_git_credentials_secret_to_cluster(
+	send_git_credentials_secret_to_cluster(
 		&agent_registry.0,
 		cluster,
 		&project.project_name,

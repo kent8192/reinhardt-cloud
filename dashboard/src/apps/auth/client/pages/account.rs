@@ -8,6 +8,7 @@ use crate::apps::auth::server_fn::linked_accounts::LinkedOAuthAccountInfo;
 use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::shared::UserInfo;
+use crate::shared::client::routes::route_href;
 
 #[cfg(wasm)]
 use crate::apps::auth::server_fn::linked_accounts::list_linked_oauth_accounts;
@@ -103,9 +104,7 @@ pub(crate) fn render_account_content(
 							}
 							dd {
 								class: "mt-1 text-ink-950",
-								{
-									user.username.clone()
-								}
+								{ user.username.clone() }
 							}
 						}
 						div {
@@ -115,9 +114,7 @@ pub(crate) fn render_account_content(
 							}
 							dd {
 								class: "mt-1 text-ink-950",
-								{
-									user.email.clone()
-								}
+								{ user.email.clone() }
 							}
 						}
 					}
@@ -135,8 +132,7 @@ pub(crate) fn render_account_content(
 								class: "rc-muted mt-1",
 								"Authentication provider"
 							}
-						}
-						{
+						} {
 							if github_linked {
 								page!(|label: String| {
 									span {
@@ -183,7 +179,7 @@ pub(crate) fn render_account_content(
 }
 
 fn account_error(message: &str) -> Page {
-	let login_href = crate::shared::client::routes::route_href("auth:login_page", "/login");
+	let login_href = route_href("auth:login_page", "/login");
 	page!(|message: String, login_href: String| {
 		div {
 			class: "rc-shell",

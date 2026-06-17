@@ -11,19 +11,20 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 pub async fn logout(
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
 	#[inject] session_service: reinhardt::di::Depends<
-		crate::apps::auth::services::session::SessionService,
+		crate::apps::auth::services::SessionServiceKey,
+		crate::apps::auth::services::SessionService,
 	>,
 ) -> Result<bool, ServerFnError> {
 	use tracing::warn;
 
-	use crate::apps::auth::services::session::session_id_from_cookie_header;
+	use crate::apps::auth::services;
 
 	let session_id = http_request
 		.inner()
 		.headers
 		.get("Cookie")
 		.and_then(|v| v.to_str().ok())
-		.and_then(session_id_from_cookie_header);
+		.and_then(services::session_id_from_cookie_header);
 
 	// Destroy the session in Redis if a session cookie was present
 	if let Some(ref sid) = session_id

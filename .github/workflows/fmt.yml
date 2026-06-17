@@ -33,7 +33,7 @@ jobs:
           tool: cargo-make
 
       - name: Install Reinhardt formatting tools
-        # The dashboard depends on reinhardt-web via `branch = "develop/0.2.0"`
+        # The dashboard depends on reinhardt-web via `branch = "develop/0.3.0"`
         # (see Cargo.toml). The page!/form! DSL formatter MUST be built from the
         # same reinhardt-web source so its formatting rules match the macro
         # syntax the code targets. A stale crates.io pin (previously
@@ -43,8 +43,8 @@ jobs:
         # invoke the formatter in CI.
         # Keep this branch in sync with the reinhardt-web pin in Cargo.toml.
         run: |
-          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.2.0 reinhardt-admin-cli --locked
-          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.2.0 reinhardt-formatter --locked
+          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.3.0 reinhardt-admin-cli --locked
+          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.3.0 reinhardt-formatter --locked
 
       - name: Check code formatting
         run: cargo make fmt-check

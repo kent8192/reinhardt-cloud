@@ -27,6 +27,7 @@ mod tests {
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
 	use crate::apps::organizations::models::OrganizationMembership;
+	use crate::config::test_helpers::build_test_app;
 	use reinhardt::UrlReverser;
 
 	#[fixture]
@@ -42,7 +43,7 @@ mod tests {
 		let (container, conn) = postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations");
-		let (client, urls) = crate::config::test_helpers::build_test_app();
+		let (client, urls) = build_test_app();
 		(container, conn, client, urls)
 	}
 

@@ -1,16 +1,16 @@
 //! Email sending service for auth flows (verification and password reset).
 //!
-//! Provides [`EmailService`] resolved via `#[injectable_factory]`,
+//! Provides [`EmailService`] resolved via `#[injectable]`,
 //! capturing the SMTP backend and `from_email` once at factory time.
 
 use std::sync::Arc;
 
 use reinhardt::conf::EmailSettings;
-use reinhardt::di::{Depends, injectable_factory};
+use reinhardt::di::{Depends, FactoryOutput};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
 use reinhardt::mail::{EmailBackend, backend_from_settings};
 
-use crate::config::settings::ProjectSettings;
+use crate::config::{ProjectSettings, ProjectSettingsKey};
 
 /// Construct an email backend from a resolved `EmailSettings` snapshot.
 ///
@@ -32,16 +32,21 @@ pub struct EmailService {
 	from_email: String,
 }
 
+#[reinhardt::di::injectable_key]
+pub struct EmailServiceKey;
+
 /// DI factory — `singleton` because the SMTP transport pool is reusable
 /// across requests and connection setup is expensive.
-#[injectable_factory(scope = "singleton")]
-async fn create_email_service(#[inject] settings: Depends<ProjectSettings>) -> EmailService {
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_email_service(
+	#[inject] settings: Depends<ProjectSettingsKey, ProjectSettings>,
+) -> FactoryOutput<EmailServiceKey, EmailService> {
 	let backend = build_email_backend(&settings.email)
 		.expect("Failed to build email backend: check Reinhardt email settings");
-	EmailService {
+	FactoryOutput::new(EmailService {
 		backend: Arc::from(backend),
 		from_email: settings.email.from_email.clone(),
-	}
+	})
 }
 
 impl EmailService {

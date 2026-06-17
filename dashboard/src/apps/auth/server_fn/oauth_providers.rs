@@ -42,7 +42,8 @@ pub(crate) fn oauth_start_url(provider_id: &str) -> Result<String, ServerFnError
 #[server_fn]
 pub async fn list_oauth_providers(
 	#[inject] settings: reinhardt::di::Depends<
-		crate::apps::auth::services::oauth::config::OAuthSettings,
+		crate::apps::auth::services::oauth::OAuthSettingsKey,
+		crate::apps::auth::services::oauth::OAuthSettings,
 	>,
 ) -> Result<Vec<OAuthProviderInfo>, ServerFnError> {
 	settings

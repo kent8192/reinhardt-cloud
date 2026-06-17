@@ -22,15 +22,19 @@ pub async fn register(
 	email: String,
 	password: String,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<crate::config::settings::ProjectSettings>,
+	#[inject] settings: reinhardt::di::Depends<
+		crate::config::ProjectSettingsKey,
+		crate::config::ProjectSettings,
+	>,
 	#[inject] email_service: reinhardt::di::Depends<
-		crate::apps::auth::services::email::EmailService,
+		crate::apps::auth::services::EmailServiceKey,
+		crate::apps::auth::services::EmailService,
 	>,
 ) -> Result<AuthResponse, ServerFnError> {
-	use crate::apps::auth::services::registration::register_inactive_user;
+	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
 
-	let created = register_inactive_user(
+	let created = services::register_inactive_user(
 		&username,
 		&email,
 		&password,

@@ -29,7 +29,7 @@ use tracing::warn;
 
 use crate::apps::auth::models::User;
 use crate::apps::health::serializers::{HealthzResponse, STATUS_ERROR, STATUS_OK};
-use crate::config::grpc_client::GrpcChannelSingleton;
+use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 
 /// Per-probe timeout. Each individual probe (DB and gRPC) must complete
 /// within this window or it is reported as `"error"`.
@@ -100,7 +100,7 @@ fn status_str(ok: bool) -> String {
 /// not require credentials.
 #[get("/healthz/", name = "healthz")]
 pub async fn healthz(
-	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
+	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
 	let db_ok = probe_database().await;
 	let grpc_ok = probe_grpc(&grpc_channel).await;

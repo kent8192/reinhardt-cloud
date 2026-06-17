@@ -18,15 +18,18 @@ pub async fn login(
 	username: String,
 	password: String,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<crate::config::settings::ProjectSettings>,
+	#[inject] settings: reinhardt::di::Depends<
+		crate::config::ProjectSettingsKey,
+		crate::config::ProjectSettings,
+	>,
 	#[inject] session_service: reinhardt::di::Depends<
-		crate::apps::auth::services::session::SessionService,
+		crate::apps::auth::services::SessionServiceKey,
+		crate::apps::auth::services::SessionService,
 	>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
 
 	use crate::apps::auth::services;
-	use crate::apps::auth::services::session::session_cookie_header;
 	use crate::shared::UserInfo;
 
 	let user = services::verify_credentials(&username, &password)
@@ -42,7 +45,7 @@ pub async fn login(
 	// The server_fn router reads SharedResponseCookies after the handler
 	// and applies them as Set-Cookie response headers.
 	let is_debug = settings.core.debug;
-	let cookie = session_cookie_header(&session_id, is_debug);
+	let cookie = services::session_cookie_header(&session_id, is_debug);
 	http_request.add_response_cookie(cookie);
 
 	let user_info = UserInfo::from(&user);

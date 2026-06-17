@@ -19,7 +19,7 @@ use web_sys::{MessageEvent, WebSocket};
 
 #[cfg(wasm)]
 use crate::shared::ws_messages::{
-	DeploymentStatusPayload, NotificationLevel, WsClientMessage, WsMessage,
+	DeploymentState, DeploymentStatusPayload, NotificationLevel, WsClientMessage, WsMessage,
 };
 
 #[cfg(wasm)]
@@ -169,8 +169,7 @@ fn handle_ws_message(msg: WsMessage) {
 			update_deployment_badge(&payload);
 			if matches!(
 				payload.status,
-				crate::shared::ws_messages::DeploymentState::Failed
-					| crate::shared::ws_messages::DeploymentState::Degraded
+				DeploymentState::Failed | DeploymentState::Degraded
 			) {
 				show_toast(
 					&NotificationLevel::Warning,

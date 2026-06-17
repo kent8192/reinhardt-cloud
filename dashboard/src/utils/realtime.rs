@@ -3,5 +3,5 @@
 pub mod broadcaster;
 pub mod consumer;
 
-pub use broadcaster::WsBroadcaster;
+pub use broadcaster::{WsBroadcaster, WsBroadcasterKey};
 pub use consumer::NotificationConsumer;

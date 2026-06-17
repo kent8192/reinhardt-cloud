@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use reinhardt::BaseUser;
 use reinhardt::db::orm::Model;
-use reinhardt::di::injectable_factory;
+use reinhardt::di::FactoryOutput;
 use reinhardt_cloud_core::auth::{self, Claims};
 use reinhardt_cloud_core::error::ApiError;
 use reinhardt_cloud_core::traits::AuthService;
@@ -15,6 +15,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::apps::auth::models::User;
+use crate::config::settings::get_jwt_secret;
 
 /// Local authentication service backed by the ORM and JWT utilities.
 ///
@@ -22,6 +23,9 @@ use crate::apps::auth::models::User;
 /// and `reinhardt_cloud_core::auth` for token operations (used by
 /// the gRPC layer).
 pub struct LocalAuthService;
+
+#[reinhardt::di::injectable_key]
+pub struct LocalAuthServiceKey;
 
 impl LocalAuthService {
 	/// Create a new `LocalAuthService`.
@@ -38,22 +42,22 @@ impl Default for LocalAuthService {
 
 /// DI factory — auto-registers `LocalAuthService` as a singleton.
 /// Tests can override via `SingletonScope::set()` before resolution.
-#[injectable_factory(scope = "singleton")]
-async fn create_local_auth_service() -> LocalAuthService {
-	LocalAuthService::new()
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_local_auth_service() -> FactoryOutput<LocalAuthServiceKey, LocalAuthService> {
+	FactoryOutput::new(LocalAuthService::new())
 }
 
 impl LocalAuthService {
 	/// Get the JWT secret for gRPC token operations.
 	///
-	/// Resolves via `crate::config::settings::get_jwt_secret()` (TOML key
+	/// Resolves via `get_jwt_secret()` (TOML key
 	/// `jwt_secret` with `REINHARDT_CLOUD_JWT_SECRET` env-var fallback).
 	/// This is only used by the gRPC `AuthService` trait implementation,
 	/// not by the dashboard's HTTP cookie-based auth.
 	///
 	/// Issue: kent8192/reinhardt-cloud#494
 	fn secret(&self) -> Result<String, ApiError> {
-		crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		get_jwt_secret().ok_or_else(|| {
 			ApiError::Internal(
 				"JWT secret not configured: set jwt_secret in TOML or REINHARDT_CLOUD_JWT_SECRET env var"
 					.to_string(),

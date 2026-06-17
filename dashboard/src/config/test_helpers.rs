@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use reinhardt::OpenApiRouter;
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::{InjectionContext, SingletonScope};
+use reinhardt::di::{FactoryOutput, InjectionContext, SingletonScope};
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -23,18 +23,21 @@ use rstest::fixture;
 ///
 /// Centralizes the four-line setup (`SingletonScope::new` →
 /// `scope.set` overrides → `InjectionContext::builder` → `Arc::new`)
-/// used by services converted to `#[injectable_factory]` for
-/// kent8192/reinhardt-cloud#599. The closure parameter receives the
-/// scope before the context is built so tests can override any
-/// dependency that the factory under test injects via `Depends<T>`.
+/// used by services converted to keyed `#[injectable]` providers. The
+/// closure parameter receives the scope before the context is built so
+/// tests can override any dependency that the factory under test injects
+/// via `Depends<Key, T>`.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// let ctx = make_test_di_context(|scope| {
-///     scope.set(MySettings { jwt_secret: "test".into() });
+///     scope.set(FactoryOutput::<MySettingsKey, MySettings>::new(MySettings {
+///         jwt_secret: "test".into(),
+///     }));
 /// });
-/// let svc: Arc<MyService> = ctx.resolve::<MyService>().await.unwrap();
+/// let svc: Arc<FactoryOutput<MyServiceKey, MyService>> =
+///     ctx.resolve::<FactoryOutput<MyServiceKey, MyService>>().await.unwrap();
 /// ```
 pub fn make_test_di_context<F>(setup: F) -> Arc<InjectionContext>
 where
@@ -48,7 +51,8 @@ where
 use crate::apps::auth::models::User;
 use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
-use crate::config::urls::{AllowedOrigins, DashboardRouter};
+use crate::config::settings::get_redis_url;
+use crate::config::urls::{AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey};
 
 /// Build the dashboard router via DI and return an in-process test client
 /// together with the [`UrlReverser`] for URL reverse-resolution.
@@ -57,13 +61,13 @@ use crate::config::urls::{AllowedOrigins, DashboardRouter};
 /// `OriginGuardMiddleware` accepts requests from `APIClient::from_handler`.
 /// All other singletons (`WsBroadcaster`, `LocalAuthService`,
 /// `DashboardSessionConfig`) are resolved lazily via their
-/// `#[injectable_factory]` registrations.
+/// `#[injectable]` registrations.
 ///
 /// If the global ORM has already been initialised (e.g. by a preceding
 /// `postgres_with_migrations_from_dir` call that invoked
 /// `reinitialize_database`), the resulting `DatabaseConnection` is also
 /// registered in the `SingletonScope` so that view handlers that obtain a DB
-/// connection via `#[inject] Depends<DatabaseConnection>` see the same
+/// connection via DI see the same
 /// TestContainers database as `create_with_conn` helpers. When the global ORM
 /// is not yet initialised (e.g. when `test_app` is constructed before the
 /// TestContainers fixture runs), the `DatabaseConnection` singleton is
@@ -80,14 +84,14 @@ pub fn test_app() -> (APIClient, Arc<UrlReverser>) {
 /// Constructs the DI context and API client. If the global ORM connection is
 /// available at call time (i.e. `reinitialize_database` has already been
 /// called), the `DatabaseConnection` is registered in the `SingletonScope` so
-/// that view handlers using `#[inject] Depends<DatabaseConnection>` see the
+/// that view handlers using DI see the
 /// TestContainers database.
 ///
 /// Exposed as `pub` so that `db` fixtures in individual test modules can call
 /// it **after** `postgres_with_migrations_from_dir` has set up the global ORM,
 /// ensuring the DI context holds the correct `DatabaseConnection` from the
 /// start. Without this ordering, view handlers that use DI-based DB injection
-/// (e.g. `#[inject] Depends<DatabaseConnection>`) would not see the
+/// would not see the
 /// TestContainers database.
 ///
 /// The returned [`UrlReverser`] supports `reverse_with(name, params)` for URL
@@ -95,11 +99,13 @@ pub fn test_app() -> (APIClient, Arc<UrlReverser>) {
 /// tests exercise the same global URL reversal path as application code.
 pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 	let scope = Arc::new(SingletonScope::new());
-	scope.set(AllowedOrigins(vec!["http://testserver".into()]));
+	scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
+		AllowedOrigins(vec!["http://testserver".into()]),
+	));
 
 	// Register the global DatabaseConnection in the DI scope when available.
-	// This ensures view handlers that use `#[inject] Depends<DatabaseConnection>`
-	// see the same DB connection as helpers using `create_with_conn`.
+	// This ensures view handlers see the same DB connection as helpers using
+	// `create_with_conn`.
 	tokio::task::block_in_place(|| {
 		tokio::runtime::Handle::current().block_on(async {
 			if let Ok(conn) = reinhardt::db::orm::get_connection().await {
@@ -110,14 +116,17 @@ pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	let router: Arc<DashboardRouter> = tokio::task::block_in_place(|| {
-		tokio::runtime::Handle::current().block_on(di_ctx.resolve::<DashboardRouter>())
-	})
-	.expect("Failed to resolve DashboardRouter");
+	let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+		tokio::task::block_in_place(|| {
+			tokio::runtime::Handle::current()
+				.block_on(di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>())
+		})
+		.expect("Failed to resolve DashboardRouter");
 
 	let server_router = Arc::new(
 		Arc::try_unwrap(router)
 			.expect("DashboardRouter has multiple owners after resolve")
+			.into_inner()
 			.0
 			.into_server(),
 	);
@@ -138,8 +147,7 @@ pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 /// so sessions saved here are visible to `CookieSessionAuthMiddleware`.
 #[fixture]
 pub fn session_backend() -> Arc<dyn AsyncSessionBackend> {
-	let redis_url = crate::config::settings::get_redis_url()
-		.expect("Redis URL must be configured for session tests");
+	let redis_url = get_redis_url().expect("Redis URL must be configured for session tests");
 	Arc::new(
 		RedisSessionBackend::new_from_url(&redis_url)
 			.expect("Failed to create Redis session backend"),
