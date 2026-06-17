@@ -227,7 +227,10 @@ mod tests {
 		let revision_key = migration_revision_key(&app);
 
 		// Assert
-		assert!(revision_key.contains("@sha256:0123456789abcdef"));
+		assert_eq!(
+			revision_key,
+			"image=registry.example.com/my-app@sha256:0123456789abcdef;version=unknown"
+		);
 	}
 
 	#[rstest]
@@ -258,7 +261,11 @@ mod tests {
 
 		// Assert
 		assert!(name.len() <= 63);
-		assert!(name.contains("-migrate-"));
+		let (prefix, suffix) = name
+			.rsplit_once("-migrate-")
+			.expect("job name must include -migrate- delimiter");
+		assert_eq!(suffix.len(), REVISION_ID_HEX_LEN);
+		assert!(!prefix.is_empty());
 	}
 
 	#[rstest]
