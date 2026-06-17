@@ -79,6 +79,9 @@ pub(crate) fn derive_new_build_status(app: &Project) -> Result<Option<BuildStatu
 	let Some(trigger) = annotation_value(app, BUILD_TRIGGER_ANNOTATION) else {
 		return Ok(None);
 	};
+	if disabled_preview_build_requested(app) {
+		return Ok(None);
+	}
 
 	let name = app.name_any();
 	let short_trigger: String = trigger.chars().take(8).collect();
@@ -532,6 +535,13 @@ pub(crate) async fn reconcile_source_build(
 	client: Client,
 	namespace: &str,
 ) -> Result<BuildDecision, Error> {
+	if annotation_value(app, BUILD_TRIGGER_ANNOTATION).is_some()
+		&& disabled_preview_build_requested(app)
+	{
+		clear_build_annotations(client, namespace, app).await?;
+		return Ok(BuildDecision::NoBuild);
+	}
+
 	let new_build = derive_new_build_status(app)?;
 	let has_new_build = new_build.is_some();
 	if let Some(failed_build) = blocking_failed_build_status(app, has_new_build) {
@@ -623,12 +633,31 @@ fn annotation_value<'a>(app: &'a Project, key: &str) -> Option<&'a str> {
 		.map(String::as_str)
 }
 
-fn preview_pr_number(app: &Project) -> Option<&str> {
+fn previews_enabled(app: &Project) -> bool {
+	app.spec
+		.source
+		.as_ref()
+		.and_then(|source| source.preview.as_ref())
+		.is_some_and(|preview| preview.enabled)
+}
+
+fn preview_action_pr_number(app: &Project) -> Option<&str> {
 	let action = annotation_value(app, PREVIEW_ACTION_ANNOTATION)?;
 	if !matches!(action, "create" | "update") {
 		return None;
 	}
 	annotation_value(app, PR_NUMBER_ANNOTATION)
+}
+
+fn preview_pr_number(app: &Project) -> Option<&str> {
+	if !previews_enabled(app) {
+		return None;
+	}
+	preview_action_pr_number(app)
+}
+
+fn disabled_preview_build_requested(app: &Project) -> bool {
+	preview_action_pr_number(app).is_some() && !previews_enabled(app)
 }
 
 fn image_tag_suffix(image_tag: &str) -> &str {
@@ -641,7 +670,7 @@ mod tests {
 	use k8s_openapi::api::batch::v1::{Job, JobCondition, JobSpec, JobStatus};
 	use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 	use reinhardt_cloud_types::crd::{
-		BuildPhase, BuildStatus, BuildTargetKind, Project, ProjectStatus,
+		BuildPhase, BuildStatus, BuildTargetKind, PreviewSpec, Project, ProjectStatus,
 	};
 	use rstest::rstest;
 
@@ -673,6 +702,19 @@ mod tests {
 			"abcdef1234567890".to_string(),
 		)]));
 		app
+	}
+
+	fn set_previews_enabled(app: &mut Project, enabled: bool) {
+		app.spec
+			.source
+			.as_mut()
+			.expect("test project should have source spec")
+			.preview = Some(PreviewSpec {
+			enabled,
+			ttl: None,
+			url_template: None,
+			overrides: None,
+		});
 	}
 
 	fn test_running_build_status() -> BuildStatus {
@@ -765,6 +807,7 @@ mod tests {
 	fn derive_build_status_for_preview_trigger() {
 		// Arrange
 		let mut app = test_project();
+		set_previews_enabled(&mut app, true);
 		let annotations = app.metadata.annotations.as_mut().unwrap();
 		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
 		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
@@ -788,6 +831,93 @@ mod tests {
 		assert_eq!(status.preview_name.as_deref(), Some("api-pr-42"));
 		assert_eq!(status.pr_number.as_deref(), Some("42"));
 		assert_eq!(status.branch.as_deref(), Some("feature/login"));
+	}
+
+	#[rstest]
+	fn derive_build_status_ignores_preview_trigger_when_preview_config_missing() {
+		// Arrange
+		let mut app = test_project();
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
+		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
+
+		// Act
+		let status = derive_new_build_status(&app).expect("build status derivation should succeed");
+
+		// Assert
+		assert_eq!(status, None);
+	}
+
+	#[rstest]
+	fn derive_build_status_ignores_preview_trigger_when_previews_disabled() {
+		// Arrange
+		let mut app = test_project();
+		set_previews_enabled(&mut app, false);
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "update".to_string());
+		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
+
+		// Act
+		let status = derive_new_build_status(&app).expect("build status derivation should succeed");
+
+		// Assert
+		assert_eq!(status, None);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn reconcile_source_build_clears_disabled_preview_build_request() {
+		use http::Response;
+		use std::sync::{Arc, Mutex};
+		use tower::service_fn;
+
+		// Arrange
+		let mut app = test_project();
+		set_previews_enabled(&mut app, false);
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
+		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let requests_for_service = requests.clone();
+		let response_app = app.clone();
+		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
+			let requests = requests_for_service.clone();
+			let response_app = response_app.clone();
+			async move {
+				let method = req.method().clone();
+				let path = req.uri().path().to_string();
+				requests
+					.lock()
+					.expect("requests lock should not be poisoned")
+					.push(format!("{method} {path}"));
+				Ok::<_, std::convert::Infallible>(
+					Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&response_app)
+								.expect("project json should serialize"),
+						))
+						.expect("response should build"),
+				)
+			}
+		});
+		let client = Client::new(svc, "default");
+
+		// Act
+		let decision = reconcile_source_build(&app, client, "default")
+			.await
+			.expect("disabled preview request should be cleared");
+
+		// Assert
+		assert_eq!(decision, BuildDecision::NoBuild);
+		let requests = requests
+			.lock()
+			.expect("requests lock should not be poisoned");
+		assert!(requests.iter().any(|request| {
+			request
+				== "PATCH /apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/default/projects/api"
+		}));
+		assert!(!requests.iter().any(|request| request.contains("/jobs/")));
 	}
 
 	#[rstest]
