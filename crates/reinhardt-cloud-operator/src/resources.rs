@@ -26,7 +26,6 @@ pub(crate) use autoscaler::{AutoscalerPlan, build_autoscaler, hpa_is_ready};
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;
-pub(crate) use migration::build_migration_job;
 pub(crate) use service::build_service;
 // source::build_kaniko_job and source::should_build_from_source are used
 // directly via crate::resources::source in the reconciler.

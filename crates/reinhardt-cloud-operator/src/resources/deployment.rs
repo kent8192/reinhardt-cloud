@@ -19,10 +19,7 @@ use super::security::context::{build_container_security_context, build_pod_secur
 use super::security::runtime_class::resolve_runtime_class_name;
 use super::validate_port;
 use crate::error::Error;
-use crate::inference::env_vars::{
-	build_core_secret_key_env_vars, build_database_env_vars_from_secret, build_jwt_secret_env_var,
-	build_otel_env_vars, build_redis_cache_env_var, build_system_env_vars, merge_env_vars,
-};
+use crate::inference::env_vars::build_application_env_vars;
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
@@ -76,67 +73,7 @@ pub(crate) fn build_deployment(
 
 	let owner_ref = owner_reference(app)?;
 
-	// Build merged environment variables (system + database + user overrides + OTel).
-	// Inject database connection env vars when a database will be provisioned,
-	// either via an explicit spec.database field or via introspect-derived
-	// infrastructure signals (requires_postgresql).
-	//
-	// The DB host differs between the two provisioning paths:
-	// - Explicit spec.database: "{project_name}-db" (headless Service from infer_database_resources)
-	// - Introspect path: "{project_name}-postgresql" (Service from reconcile_db_service_resource)
-	//
-	// Note: user-provided spec.env values take priority over auto-generated DB env vars
-	// (including REINHARDT_DATABASE_PASSWORD). This is intentional — users may need to
-	// override connection parameters — but plaintext credentials in spec.env are discouraged.
-	let project_name = app.name_any();
-	let explicit_db = app.spec.database.is_some();
-	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
-		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
-	});
-	let needs_db_env = explicit_db || introspect_db;
-	let explicit_cache = app.spec.cache.is_some();
-	let introspect_cache = app.spec.introspect.as_ref().is_some_and(|i| {
-		reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
-	});
-	let redis_session_backend = app.spec.introspect.as_ref().is_some_and(|i| {
-		i.features.infrastructure_signals.session_backend.as_deref() == Some("redis")
-	});
-	let needs_redis_env = explicit_cache || introspect_cache || redis_session_backend;
-	let mut auto_vars = build_system_env_vars();
-	// Inject the per-app `core.secret_key` env var unconditionally so the
-	// generated `production.toml` can resolve its secret-key interpolation at
-	// startup; the value lives in the operator-managed `<app>-core-secret-key`
-	// Secret, never in the Pod spec.
-	auto_vars.extend(build_core_secret_key_env_vars(&project_name));
-	if app.spec.auth.as_ref().is_some_and(|auth| auth.jwt) {
-		auto_vars.push(build_jwt_secret_env_var(&project_name));
-	}
-	if needs_redis_env {
-		auto_vars.push(build_redis_cache_env_var(&project_name));
-	}
-	if needs_db_env {
-		let db_host = if explicit_db {
-			format!("{project_name}-db")
-		} else {
-			format!("{project_name}-postgresql")
-		};
-		auto_vars.extend(build_database_env_vars_from_secret(
-			app,
-			platform,
-			&db_host,
-			&app.spec.env,
-		));
-	}
-	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
-	// Append OTel variables after user-supplied vars. OTel vars are skipped
-	// when a user-supplied var with the same name already exists — user-supplied
-	// env vars take precedence over operator-injected OTel defaults.
-	let otel_vars = build_otel_env_vars(&project_name);
-	for v in otel_vars {
-		if !merged_env.iter().any(|e| e.name == v.name) {
-			merged_env.push(v);
-		}
-	}
+	let merged_env = build_application_env_vars(app, platform);
 
 	// dentdelion WASM plugin volumes and mounts. Empty when spec.plugins is
 	// absent or empty; callers of build_plugin_configmap provision the
@@ -151,30 +88,7 @@ pub(crate) fn build_deployment(
 	let mut volumes: Vec<Volume> = plugin_volumes;
 	let volume_mounts: Vec<VolumeMount> = plugin_mounts;
 
-	// Init container for database migrations when database will be provisioned
-	let mut init_containers: Vec<Container> = if needs_db_env {
-		vec![Container {
-			name: "migrate".to_string(),
-			image: Some(app.spec.image.clone()),
-			command: Some(vec!["manage".to_string(), "migrate".to_string()]),
-			env: Some(merged_env.clone()),
-			volume_mounts: Some(volume_mounts.clone()),
-			resources: Some(ResourceRequirements {
-				requests: Some(BTreeMap::from([
-					("cpu".to_string(), Quantity("100m".to_string())),
-					("memory".to_string(), Quantity("128Mi".to_string())),
-				])),
-				limits: Some(BTreeMap::from([
-					("cpu".to_string(), Quantity("500m".to_string())),
-					("memory".to_string(), Quantity("256Mi".to_string())),
-				])),
-				..Default::default()
-			}),
-			..Default::default()
-		}]
-	} else {
-		Vec::new()
-	};
+	let mut init_containers: Vec<Container> = Vec::new();
 
 	let isolated = app.spec.isolation.is_some();
 
@@ -190,7 +104,7 @@ pub(crate) fn build_deployment(
 			..Default::default()
 		});
 
-		// collectstatic initContainer (after migrate)
+		// collectstatic initContainer
 		let mut collectstatic_mounts = volume_mounts.clone();
 		collectstatic_mounts.push(VolumeMount {
 			name: "static-files".to_string(),
@@ -365,9 +279,9 @@ pub(crate) fn build_deployment(
 					volumes: Some(volumes),
 					// Forward spec.imagePullSecrets verbatim so the kubelet can
 					// authenticate to private registries when pulling the main
-					// application container, the migrate init-container, the
-					// collectstatic init-container, and the static-server
-					// sidecar — they all share this PodSpec.
+					// application container, the collectstatic init-container,
+					// and the static-server sidecar — they all share this
+					// PodSpec.
 					image_pull_secrets: app.spec.image_pull_secrets.clone(),
 					// Bind the workload to a per-app KSA when configured.
 					// The name resolution is centralized in
@@ -671,7 +585,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_deployment_includes_init_container_when_database() {
+	fn test_build_deployment_has_no_migration_init_container_when_database() {
 		// Arrange
 		let app = make_test_app_with_database();
 
@@ -681,11 +595,12 @@ mod tests {
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
-		let init_containers = pod_spec.init_containers.unwrap();
-		assert_eq!(init_containers.len(), 1);
-		assert_eq!(init_containers[0].name, "migrate");
-		let expected_command = vec!["manage".to_string(), "migrate".to_string()];
-		assert_eq!(init_containers[0].command.as_ref(), Some(&expected_command));
+		assert!(
+			pod_spec
+				.init_containers
+				.as_deref()
+				.is_none_or(|containers| !containers.iter().any(|c| c.name == "migrate"))
+		);
 	}
 
 	#[rstest]
@@ -841,20 +756,14 @@ mod tests {
 			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 		let main_env = pod_spec.containers[0].env.as_ref().unwrap();
-		let init_env = pod_spec.init_containers.as_ref().unwrap()[0]
-			.env
-			.as_ref()
-			.unwrap();
 
 		// Assert
-		for env in [main_env, init_env] {
-			let var = env
-				.iter()
-				.find(|e| e.name == "REINHARDT_CLOUD_REDIS_URL")
-				.expect("Redis URL env must exist");
-			assert_eq!(var.value.as_deref(), Some("redis://web-redis:6379/0"));
-			assert!(var.value_from.is_none());
-		}
+		let var = main_env
+			.iter()
+			.find(|e| e.name == "REINHARDT_CLOUD_REDIS_URL")
+			.expect("Redis URL env must exist");
+		assert_eq!(var.value.as_deref(), Some("redis://web-redis:6379/0"));
+		assert!(var.value_from.is_none());
 	}
 
 	#[rstest]
@@ -875,45 +784,63 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_deployment_init_container_has_same_image_as_main() {
+	fn test_build_deployment_collectstatic_has_same_image_as_main() {
 		// Arrange
-		let app = make_test_app_with_database();
+		let app = make_test_app("web", "web:latest", None);
+		let pages = make_default_pages_config();
 
 		// Act
-		let deployment =
-			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise)
+			.expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
 
 		// Assert
 		let main_image = pod_spec.containers[0].image.as_deref();
-		let init_image = pod_spec.init_containers.as_ref().unwrap()[0]
-			.image
-			.as_deref();
+		let collectstatic = pod_spec
+			.init_containers
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|container| container.name == "collectstatic")
+			.expect("collectstatic init container should exist");
+		let init_image = collectstatic.image.as_deref();
 		assert_eq!(main_image, init_image);
 		assert_eq!(main_image, Some("web:latest"));
 	}
 
 	#[rstest]
-	fn test_build_deployment_init_container_has_resource_limits() {
+	fn test_build_deployment_collectstatic_extends_main_env() {
 		// Arrange
-		let app = make_test_app_with_database();
+		let app = make_test_app("web", "web:latest", None);
+		let pages = make_default_pages_config();
 
 		// Act
-		let deployment =
-			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise)
+			.expect("build should succeed");
 		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
-		let init_container = &pod_spec.init_containers.as_ref().unwrap()[0];
+		let main_env = pod_spec.containers[0].env.as_ref().unwrap();
+		let collectstatic = pod_spec
+			.init_containers
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|container| container.name == "collectstatic")
+			.expect("collectstatic init container should exist");
+		let collectstatic_env = collectstatic.env.as_ref().unwrap();
 
 		// Assert
-		let resources = init_container.resources.as_ref().unwrap();
-		assert!(resources.requests.is_some());
-		assert!(resources.limits.is_some());
-		let requests = resources.requests.as_ref().unwrap();
-		assert!(requests.contains_key("cpu"));
-		assert!(requests.contains_key("memory"));
-		let limits = resources.limits.as_ref().unwrap();
-		assert!(limits.contains_key("cpu"));
-		assert!(limits.contains_key("memory"));
+		for env in main_env {
+			assert!(
+				collectstatic_env
+					.iter()
+					.any(|candidate| candidate.name == env.name),
+				"collectstatic env should include {}",
+				env.name
+			);
+		}
+		assert!(collectstatic_env.iter().any(|env| {
+			env.name == "REINHARDT_STATIC_ROOT" && env.value.as_deref() == Some("/app/staticfiles")
+		}));
 	}
 
 	#[rstest]
@@ -936,23 +863,6 @@ mod tests {
 		// Verify no duplicates
 		let count = env.iter().filter(|e| e.name == "REINHARDT_ENV").count();
 		assert_eq!(count, 1);
-	}
-
-	#[rstest]
-	fn test_build_deployment_init_container_shares_env_with_main() {
-		// Arrange
-		let app = make_test_app_with_database();
-
-		// Act
-		let deployment =
-			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
-		let pod_spec = deployment.spec.unwrap().template.spec.unwrap();
-		let main_env = pod_spec.containers[0].env.clone();
-		let init_containers = pod_spec.init_containers.unwrap();
-		let init_env = init_containers[0].env.clone();
-
-		// Assert
-		assert_eq!(main_env, init_env);
 	}
 
 	// ── Pages sidecar tests ───────────────────────────────────────────
@@ -1340,8 +1250,8 @@ mod tests {
 
 		// Arrange — a pages-enabled deployment shares the same PodSpec
 		// across the main container, the static-server sidecar, and the
-		// migrate / collectstatic init-containers, so a single pod-level
-		// imagePullSecrets covers them all.
+		// collectstatic init-container, so a single pod-level imagePullSecrets
+		// setting covers them all.
 		let mut app = make_test_app_with_database();
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
 			name: "regcred".to_string(),
@@ -1361,7 +1271,7 @@ mod tests {
 		assert_eq!(pull_secrets[0].name, "regcred");
 		// Sanity check: the PodSpec really does host the additional containers.
 		let init_containers = pod_spec.init_containers.as_ref().unwrap();
-		assert!(init_containers.iter().any(|c| c.name == "migrate"));
+		assert!(!init_containers.iter().any(|c| c.name == "migrate"));
 		assert!(init_containers.iter().any(|c| c.name == "collectstatic"));
 		assert!(
 			pod_spec

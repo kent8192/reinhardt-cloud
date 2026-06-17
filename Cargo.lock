@@ -5783,15 +5783,21 @@ dependencies = [
 name = "reinhardt-cloud-integration-tests"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "chrono",
+ "k8s-openapi",
+ "kube",
  "prost-types 0.13.5",
  "reinhardt-cloud-core",
+ "reinhardt-cloud-dashboard",
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
  "rstest",
  "serde_json",
+ "serde_yaml",
+ "serial_test",
  "tokio",
  "tokio-stream",
  "tonic 0.13.1",

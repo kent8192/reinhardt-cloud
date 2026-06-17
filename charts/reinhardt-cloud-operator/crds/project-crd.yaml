@@ -1004,6 +1004,7 @@ spec:
                       - Ready
                       - Progressing
                       - Degraded
+                      - MigrationReady
                       - DatabaseReady
                       - CacheReady
                       - WorkerReady

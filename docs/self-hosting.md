@@ -201,7 +201,8 @@ kubectl -n reinhardt-cloud-system get pods \
   -l app.kubernetes.io/name=reinhardt-cloud-dashboard
 ```
 
-The `Project` status surfaces standard Kubernetes conditions
-(`Ready`, `Progressing`, `Degraded`). If `Ready` stays `False` for longer
-than the workflow's wait timeout, investigate the operator logs before
-re-running the workflow.
+The `Project` status surfaces standard Kubernetes conditions including
+`Ready`, `MigrationReady`, `Progressing`, and `Degraded`. If `Ready` or a
+database-backed deployment's `MigrationReady` stays `False` for longer than
+the workflow's wait timeout, investigate the operator logs before re-running
+the workflow.

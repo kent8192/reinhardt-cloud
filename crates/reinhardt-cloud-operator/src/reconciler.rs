@@ -13,7 +13,7 @@ use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
-use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
@@ -31,6 +31,9 @@ use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{build_core_secret_key_secret, build_jwt_secret};
 use crate::metrics::Metrics;
 use crate::resources::credentials;
+use crate::resources::migration::{
+	build_migration_job, migration_job_name, migration_revision_key,
+};
 use crate::resources::preview;
 use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
@@ -42,8 +45,7 @@ use crate::resources::source::{
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, AutoscalerPlan, build_autoscaler, build_db_secret, build_db_service,
-	build_db_statefulset, build_deployment, build_ingress, build_migration_job, build_service,
-	hpa_is_ready,
+	build_db_statefulset, build_deployment, build_ingress, build_service, hpa_is_ready,
 };
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
@@ -305,31 +307,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_app_service_account(&ctx.client, namespace, &workload_sa).await?;
 	}
 
-	// Reconcile owned Deployment via server-side apply
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
-	deployments
-		.patch(
-			&name,
-			&PatchParams::apply("reinhardt-cloud-operator").force(),
-			&Patch::Apply(&desired_deployment),
-		)
-		.await
-		.map_err(Error::Kube)?;
-	info!("Reconciled Deployment {namespace}/{name}");
-
-	// Reconcile owned Service via server-side apply
-	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
-	let desired_service = build_service(&app, pages_config.is_some())?;
-	services
-		.patch(
-			&name,
-			&PatchParams::apply("reinhardt-cloud-operator").force(),
-			&Patch::Apply(&desired_service),
-		)
-		.await
-		.map_err(Error::Kube)?;
-	info!("Reconciled Service {namespace}/{name}");
 
 	// Database provisioning — explicit spec.database takes precedence,
 	// falling back to introspect infrastructure signals.
@@ -366,8 +344,59 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_db_secret(&app, &ctx.client, namespace).await?;
 		reconcile_db_statefulset(&app, &ctx.client, namespace).await?;
 		reconcile_db_service_resource(&app, &ctx.client, namespace).await?;
-		reconcile_migration_job_resource(&app, &ctx.client, namespace).await?;
 	}
+
+	let migration_state = if should_provision_postgresql(&app) {
+		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform.platform)
+			.await?
+	} else {
+		MigrationGateState::NotRequired
+	};
+
+	if matches!(
+		migration_state,
+		MigrationGateState::Running | MigrationGateState::Failed
+	) {
+		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
+		update_status(
+			&app,
+			ctx,
+			namespace,
+			false,
+			ready_replicas,
+			migration_state,
+			Vec::new(),
+		)
+		.await?;
+		return Ok(Action::await_change());
+	}
+
+	// Reconcile owned Deployment only after the target migration revision
+	// has completed, so a new workload image never serves before its schema
+	// change gate succeeds.
+	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
+	deployments
+		.patch(
+			&name,
+			&PatchParams::apply("reinhardt-cloud-operator").force(),
+			&Patch::Apply(&desired_deployment),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled Deployment {namespace}/{name}");
+
+	// Reconcile owned Service via server-side apply
+	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
+	let desired_service = build_service(&app, pages_config.is_some())?;
+	services
+		.patch(
+			&name,
+			&PatchParams::apply("reinhardt-cloud-operator").force(),
+			&Patch::Apply(&desired_service),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled Service {namespace}/{name}");
 
 	// Ingress — explicit services.ingress_host takes precedence,
 	// falling back to introspect routes.
@@ -416,7 +445,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				reconcile_hpa(&ctx.client, namespace, &name, &hpa).await?;
 			}
 			AutoscalerPlan::Unsupported { reason, message } => {
-				child_conditions.push(child_condition(
+				child_conditions.push(build_condition(
 					&app,
 					ConditionType::AutoscalerReady,
 					ConditionStatus::False,
@@ -732,13 +761,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	// Derive readiness from the observed Deployment status
-	let live_deployment = deployments.get(&name).await.map_err(Error::Kube)?;
 	let desired_replicas = app.spec.replicas.unwrap_or(1);
-	let ready_replicas = live_deployment
-		.status
-		.as_ref()
-		.and_then(|s| s.ready_replicas)
-		.unwrap_or(0);
+	let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
 	let ready = ready_replicas >= desired_replicas;
 
 	if let Some(condition) = tls_condition(&app, &ctx.client, namespace).await? {
@@ -755,11 +779,21 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		namespace,
 		ready,
 		ready_replicas,
+		migration_state,
 		child_conditions,
 	)
 	.await?;
 
 	Ok(Action::await_change())
+}
+
+async fn observed_ready_replicas(deployments: &Api<Deployment>, name: &str) -> Result<i32, Error> {
+	Ok(deployments
+		.get_opt(name)
+		.await
+		.map_err(Error::Kube)?
+		.and_then(|deployment| deployment.status.and_then(|status| status.ready_replicas))
+		.unwrap_or(0))
 }
 
 /// Clean up external resources when a `Project` is deleted.
@@ -824,7 +858,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// explicitly for a cleaner teardown sequence.
 	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
 	delete_if_exists::<HorizontalPodAutoscaler>(&ctx.client, namespace, &name).await?;
-	delete_if_exists::<Job>(&ctx.client, namespace, &format!("{name}-migrate")).await?;
+	delete_migration_jobs(&ctx.client, namespace, &name).await?;
 
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
@@ -920,6 +954,41 @@ fn should_provision_cache(app: &Project) -> bool {
 			reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
 		})
 		.unwrap_or(false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MigrationGateState {
+	NotRequired,
+	Running,
+	Succeeded,
+	Failed,
+}
+
+impl MigrationGateState {
+	fn condition_status(self) -> ConditionStatus {
+		match self {
+			Self::NotRequired | Self::Succeeded => ConditionStatus::True,
+			Self::Running | Self::Failed => ConditionStatus::False,
+		}
+	}
+
+	fn reason(self) -> &'static str {
+		match self {
+			Self::NotRequired => "MigrationNotRequired",
+			Self::Running => "MigrationRunning",
+			Self::Succeeded => "MigrationSucceeded",
+			Self::Failed => "MigrationFailed",
+		}
+	}
+
+	fn message(self) -> &'static str {
+		match self {
+			Self::NotRequired => "No database migration is required for this project",
+			Self::Running => "Waiting for the deployment revision migration to complete",
+			Self::Succeeded => "Deployment revision migration completed successfully",
+			Self::Failed => "Deployment revision migration failed; rollout is blocked",
+		}
+	}
 }
 
 /// Resolve the effective application port.
@@ -1096,51 +1165,56 @@ async fn reconcile_db_service_resource(
 
 /// Reconciles the database migration `Job`.
 ///
-/// - If the job completed successfully, skips re-creation.
-/// - If the job failed, deletes it and recreates.
-/// - If the job is still running, skips.
-/// - If no job exists, creates one.
+/// - If the revision job completed successfully, returns `Succeeded`.
+/// - If the revision job failed, returns `Failed` and leaves it for inspection.
+/// - If the revision job is still running, returns `Running`.
+/// - If no revision job exists, creates one and returns `Running`.
 async fn reconcile_migration_job_resource(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
-) -> Result<(), Error> {
-	let name = app.name_any();
-	let job_name = format!("{name}-migrate");
+	platform: &Platform,
+) -> Result<MigrationGateState, Error> {
+	let revision_key = migration_revision_key(app);
+	let job_name = migration_job_name(app, &revision_key);
 	let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
 
 	if let Some(existing) = job_api.get_opt(&job_name).await.map_err(Error::Kube)? {
 		let status = existing.status.as_ref();
 		let succeeded = status.and_then(|s| s.succeeded).unwrap_or(0);
-		let failed = status.and_then(|s| s.failed).unwrap_or(0);
-		let active = status.and_then(|s| s.active).unwrap_or(0);
 
-		if succeeded > 0 {
-			info!("Migration Job {namespace}/{job_name} already completed, skipping");
-			return Ok(());
+		if succeeded > 0 || job_condition_is_true(status, "Complete") {
+			info!("Migration Job {namespace}/{job_name} completed for current revision");
+			return Ok(MigrationGateState::Succeeded);
 		}
-		if active > 0 {
-			info!("Migration Job {namespace}/{job_name} is still running, skipping");
-			return Ok(());
+		if job_condition_is_true(status, "Failed") {
+			warn!("Migration Job {namespace}/{job_name} failed for current revision");
+			return Ok(MigrationGateState::Failed);
 		}
-		if failed > 0 {
-			warn!("Migration Job {namespace}/{job_name} failed, deleting for re-creation");
-			// Use propagation policy to clean up pods
-			let dp = DeleteParams {
-				propagation_policy: Some(kube::api::PropagationPolicy::Background),
-				..Default::default()
-			};
-			job_api.delete(&job_name, &dp).await.map_err(Error::Kube)?;
-		}
+		info!("Migration Job {namespace}/{job_name} is still running");
+		return Ok(MigrationGateState::Running);
 	}
 
-	let desired = build_migration_job(app)?;
+	let desired = build_migration_job(app, platform, &revision_key)?;
 	job_api
 		.create(&PostParams::default(), &desired)
 		.await
 		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
 	info!("Created migration Job {namespace}/{job_name}");
-	Ok(())
+	Ok(MigrationGateState::Running)
+}
+
+fn job_condition_is_true(
+	status: Option<&k8s_openapi::api::batch::v1::JobStatus>,
+	condition_type: &str,
+) -> bool {
+	status
+		.and_then(|status| status.conditions.as_ref())
+		.is_some_and(|conditions| {
+			conditions
+				.iter()
+				.any(|condition| condition.type_ == condition_type && condition.status == "True")
+		})
 }
 
 /// Apply a database `StatefulSet` via server-side apply.
@@ -1754,47 +1828,29 @@ async fn reconcile_pss_labels(client: &Client, namespace: &str) -> Result<(), Er
 	Ok(())
 }
 
-/// Deletes a namespaced Kubernetes resource if it exists.
-///
-/// Silently succeeds if the resource is already absent.
-async fn delete_if_exists<K>(client: &Client, namespace: &str, name: &str) -> Result<(), Error>
-where
-	K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
-		+ Clone
-		+ serde::de::DeserializeOwned
-		+ fmt::Debug
-		+ k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
-{
-	let api: Api<K> = Api::namespaced(client.clone(), namespace);
-	if api.get_opt(name).await.map_err(Error::Kube)?.is_some() {
-		api.delete(name, &Default::default())
-			.await
-			.map_err(Error::Kube)?;
-	}
-	Ok(())
-}
-
-fn child_condition(
+fn build_condition(
 	app: &Project,
-	type_: ConditionType,
+	condition_type: ConditionType,
 	status: ConditionStatus,
 	reason: &str,
 	message: &str,
 ) -> ProjectCondition {
-	let existing = app.status.as_ref().and_then(|s| {
+	let existing_condition = app.status.as_ref().and_then(|s| {
 		s.conditions
 			.iter()
-			.find(|condition| condition.type_ == type_)
+			.find(|condition| condition.type_ == condition_type)
 	});
-	let last_transition_time =
-		if should_update_transition_time(existing.map(|condition| &condition.status), &status) {
-			Some(chrono::Utc::now().to_rfc3339())
-		} else {
-			existing.and_then(|condition| condition.last_transition_time.clone())
-		};
+	let last_transition_time = if should_update_transition_time(
+		existing_condition.map(|condition| &condition.status),
+		&status,
+	) {
+		Some(chrono::Utc::now().to_rfc3339())
+	} else {
+		existing_condition.and_then(|condition| condition.last_transition_time.clone())
+	};
 
 	ProjectCondition {
-		type_,
+		type_: condition_type,
 		status,
 		reason: reason.to_string(),
 		message: message.to_string(),
@@ -1821,7 +1877,7 @@ async fn tls_condition(
 	let host = services.ingress_host.as_deref().unwrap_or_default();
 	let secret_name = tls.secret_name.as_deref().unwrap_or_default();
 	if host.is_empty() || secret_name.is_empty() {
-		return Ok(Some(child_condition(
+		return Ok(Some(build_condition(
 			app,
 			ConditionType::TlsReady,
 			ConditionStatus::False,
@@ -1867,7 +1923,7 @@ async fn tls_condition(
 		)
 	};
 
-	Ok(Some(child_condition(
+	Ok(Some(build_condition(
 		app,
 		ConditionType::TlsReady,
 		status,
@@ -1913,13 +1969,55 @@ async fn autoscaler_condition(
 		)
 	};
 
-	Ok(Some(child_condition(
+	Ok(Some(build_condition(
 		app,
 		ConditionType::AutoscalerReady,
 		status,
 		reason,
 		&message,
 	)))
+}
+
+/// Deletes a namespaced Kubernetes resource if it exists.
+///
+/// Silently succeeds if the resource is already absent.
+async fn delete_if_exists<K>(client: &Client, namespace: &str, name: &str) -> Result<(), Error>
+where
+	K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
+		+ Clone
+		+ serde::de::DeserializeOwned
+		+ fmt::Debug
+		+ k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
+{
+	let api: Api<K> = Api::namespaced(client.clone(), namespace);
+	if api.get_opt(name).await.map_err(Error::Kube)?.is_some() {
+		api.delete(name, &Default::default())
+			.await
+			.map_err(Error::Kube)?;
+	}
+	Ok(())
+}
+
+async fn delete_migration_jobs(
+	client: &Client,
+	namespace: &str,
+	app_name: &str,
+) -> Result<(), Error> {
+	let api: Api<Job> = Api::namespaced(client.clone(), namespace);
+	let jobs = api
+		.list(&ListParams::default().labels(&format!(
+			"app.kubernetes.io/name={app_name},app.kubernetes.io/component=migration"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+	for job in jobs {
+		if let Some(name) = job.metadata.name {
+			api.delete(&name, &DeleteParams::default())
+				.await
+				.map_err(Error::Kube)?;
+		}
+	}
+	Ok(())
 }
 
 /// Builds the desired `ProjectStatus` for the given readiness state.
@@ -1930,9 +2028,12 @@ fn build_status(
 	app: &Project,
 	ready: bool,
 	ready_replicas: i32,
+	migration_state: MigrationGateState,
 	mut child_conditions: Vec<ProjectCondition>,
 ) -> ProjectStatus {
-	let phase = if ready {
+	let phase = if migration_state == MigrationGateState::Failed {
+		ProjectPhase::Degraded
+	} else if ready {
 		ProjectPhase::Running
 	} else {
 		ProjectPhase::Deploying
@@ -1944,31 +2045,17 @@ fn build_status(
 	};
 	let reason = if ready {
 		"ReconcileSuccess"
+	} else if migration_state == MigrationGateState::Failed {
+		"MigrationFailed"
 	} else {
 		"ReconcileInProgress"
 	};
 	let message = if ready {
 		"Application is ready"
+	} else if migration_state == MigrationGateState::Failed {
+		"Migration failed; rollout is blocked"
 	} else {
 		"Waiting for deployment rollout to complete"
-	};
-
-	// Determine lastTransitionTime: preserve existing value if status unchanged
-	let existing_ready_condition = app.status.as_ref().and_then(|s| {
-		s.conditions
-			.iter()
-			.find(|c| c.type_ == ConditionType::Ready)
-	});
-
-	let last_transition_time = if should_update_transition_time(
-		existing_ready_condition.map(|c| &c.status),
-		&condition_status,
-	) {
-		// Status changed or no prior condition: set new transition time
-		Some(chrono::Utc::now().to_rfc3339())
-	} else {
-		// Status unchanged: preserve existing transition time
-		existing_ready_condition.and_then(|c| c.last_transition_time.clone())
 	};
 
 	// Track database sub-resource status if database is configured
@@ -1982,14 +2069,25 @@ fn build_status(
 		None
 	};
 
-	let mut conditions = vec![ProjectCondition {
-		type_: ConditionType::Ready,
-		status: condition_status,
-		reason: reason.to_string(),
-		message: message.to_string(),
-		last_transition_time,
-		observed_generation: app.metadata.generation,
-	}];
+	let mut conditions = vec![
+		build_condition(app, ConditionType::Ready, condition_status, reason, message),
+		build_condition(
+			app,
+			ConditionType::MigrationReady,
+			migration_state.condition_status(),
+			migration_state.reason(),
+			migration_state.message(),
+		),
+	];
+	if migration_state == MigrationGateState::Failed {
+		conditions.push(build_condition(
+			app,
+			ConditionType::Degraded,
+			ConditionStatus::True,
+			"MigrationFailed",
+			"Migration failed for the target deployment revision",
+		));
+	}
 	conditions.append(&mut child_conditions);
 
 	ProjectStatus {
@@ -2012,10 +2110,17 @@ async fn update_status(
 	namespace: &str,
 	ready: bool,
 	ready_replicas: i32,
+	migration_state: MigrationGateState,
 	child_conditions: Vec<ProjectCondition>,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let typed_status = build_status(app, ready, ready_replicas, child_conditions);
+	let typed_status = build_status(
+		app,
+		ready,
+		ready_replicas,
+		migration_state,
+		child_conditions,
+	);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -2149,6 +2254,7 @@ pub(crate) fn error_policy(obj: Arc<Project>, error: &Error, ctx: Arc<Context>) 
 pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let apps: Api<Project> = Api::all(client.clone());
 	let deployments: Api<Deployment> = Api::all(client.clone());
+	let jobs: Api<Job> = Api::all(client.clone());
 	let services: Api<Service> = Api::all(client.clone());
 	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
 	let network_policies: Api<NetworkPolicy> = Api::all(client.clone());
@@ -2166,6 +2272,11 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	Controller::new(apps, watcher::Config::default())
 		.owns(
 			deployments,
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
+		)
+		.owns(
+			jobs,
 			watcher::Config::default()
 				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
 		)
@@ -2226,6 +2337,14 @@ mod tests {
 		}
 	}
 
+	fn find_condition(status: &ProjectStatus, condition_type: ConditionType) -> &ProjectCondition {
+		status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == condition_type)
+			.expect("condition should exist")
+	}
+
 	// ── should_update_transition_time tests ──────────────────────────
 
 	#[rstest]
@@ -2283,15 +2402,18 @@ mod tests {
 		let app = make_test_app("ready-app");
 
 		// Act
-		let status = build_status(&app, true, 3, Vec::new());
+		let status = build_status(&app, true, 3, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
-		assert_eq!(status.conditions.len(), 1);
-		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
-		assert_eq!(status.conditions[0].status, ConditionStatus::True);
-		assert_eq!(status.conditions[0].reason, "ReconcileSuccess");
-		assert_eq!(status.conditions[0].message, "Application is ready");
+		assert_eq!(status.conditions.len(), 2);
+		let ready = find_condition(&status, ConditionType::Ready);
+		assert_eq!(ready.status, ConditionStatus::True);
+		assert_eq!(ready.reason, "ReconcileSuccess");
+		assert_eq!(ready.message, "Application is ready");
+		let migration = find_condition(&status, ConditionType::MigrationReady);
+		assert_eq!(migration.status, ConditionStatus::True);
+		assert_eq!(migration.reason, "MigrationNotRequired");
 	}
 
 	#[rstest]
@@ -2300,18 +2422,51 @@ mod tests {
 		let app = make_test_app("deploying-app");
 
 		// Act
-		let status = build_status(&app, false, 0, Vec::new());
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
-		assert_eq!(status.conditions.len(), 1);
-		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
-		assert_eq!(status.conditions[0].status, ConditionStatus::False);
-		assert_eq!(status.conditions[0].reason, "ReconcileInProgress");
-		assert_eq!(
-			status.conditions[0].message,
-			"Waiting for deployment rollout to complete"
-		);
+		assert_eq!(status.conditions.len(), 2);
+		let ready = find_condition(&status, ConditionType::Ready);
+		assert_eq!(ready.status, ConditionStatus::False);
+		assert_eq!(ready.reason, "ReconcileInProgress");
+		assert_eq!(ready.message, "Waiting for deployment rollout to complete");
+		let migration = find_condition(&status, ConditionType::MigrationReady);
+		assert_eq!(migration.status, ConditionStatus::True);
+		assert_eq!(migration.reason, "MigrationNotRequired");
+	}
+
+	#[rstest]
+	fn test_build_status_sets_migration_running_condition() {
+		// Arrange
+		let app = make_test_app("migration-running-app");
+
+		// Act
+		let status = build_status(&app, false, 0, MigrationGateState::Running, Vec::new());
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
+		let migration = find_condition(&status, ConditionType::MigrationReady);
+		assert_eq!(migration.status, ConditionStatus::False);
+		assert_eq!(migration.reason, "MigrationRunning");
+	}
+
+	#[rstest]
+	fn test_build_status_sets_degraded_phase_when_migration_failed() {
+		// Arrange
+		let app = make_test_app("migration-failed-app");
+
+		// Act
+		let status = build_status(&app, false, 0, MigrationGateState::Failed, Vec::new());
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Degraded));
+		let migration = find_condition(&status, ConditionType::MigrationReady);
+		assert_eq!(migration.status, ConditionStatus::False);
+		assert_eq!(migration.reason, "MigrationFailed");
+		let degraded = find_condition(&status, ConditionType::Degraded);
+		assert_eq!(degraded.status, ConditionStatus::True);
+		assert_eq!(degraded.reason, "MigrationFailed");
 	}
 
 	#[rstest]
@@ -2328,12 +2483,13 @@ mod tests {
 		};
 
 		// Act
-		let status = build_status(&app, true, 1, vec![child]);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, vec![child]);
 
 		// Assert
-		assert_eq!(status.conditions.len(), 2);
+		assert_eq!(status.conditions.len(), 3);
 		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
-		assert_eq!(status.conditions[1].type_, ConditionType::TlsReady);
+		assert_eq!(status.conditions[1].type_, ConditionType::MigrationReady);
+		assert_eq!(status.conditions[2].type_, ConditionType::TlsReady);
 	}
 
 	#[rstest]
@@ -2343,7 +2499,7 @@ mod tests {
 		app.metadata.generation = Some(5);
 
 		// Act
-		let status = build_status(&app, true, 1, Vec::new());
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.observed_generation, Some(5));
@@ -2356,7 +2512,7 @@ mod tests {
 		let app = make_test_app("replicas-app");
 
 		// Act
-		let status = build_status(&app, true, 7, Vec::new());
+		let status = build_status(&app, true, 7, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.ready_replicas, Some(7));
@@ -2383,7 +2539,7 @@ mod tests {
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
-		let status = build_status(&app, true, 1, Vec::new());
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be preserved
 		assert_eq!(
@@ -2413,7 +2569,7 @@ mod tests {
 		});
 
 		// Act — readiness changed from True to False
-		let status = build_status(&app, false, 0, Vec::new());
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be updated (not the old value)
 		assert_ne!(
@@ -2429,7 +2585,7 @@ mod tests {
 		let app = make_test_app("new-app");
 
 		// Act
-		let status = build_status(&app, true, 1, Vec::new());
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — should have a transition time since there's no prior condition
 		assert!(status.conditions[0].last_transition_time.is_some());
@@ -2449,7 +2605,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, Vec::new());
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		let db_status = status.database.expect("database status should be present");
@@ -2467,7 +2623,7 @@ mod tests {
 		let app = make_test_app("no-db-app");
 
 		// Act
-		let status = build_status(&app, true, 1, Vec::new());
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert!(status.database.is_none());

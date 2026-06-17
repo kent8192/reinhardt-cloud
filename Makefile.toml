@@ -280,6 +280,27 @@ description = "Run the local Dashboard self-deploy E2E harness against the activ
 command = "bash"
 args = ["scripts/dashboard_self_deploy_e2e.sh"]
 
+[tasks.source-pipeline-e2e-build-operator]
+description = "Build the local operator binary used by source pipeline E2E smoke tests"
+command = "cargo"
+args = ["build", "--locked", "-p", "reinhardt-cloud-operator"]
+
+[tasks.source-pipeline-e2e]
+description = "Run deterministic source build, webhook, and preview E2E smoke tests"
+dependencies = ["source-pipeline-e2e-build-operator"]
+env = { REINHARDT_CLOUD_SOURCE_PIPELINE_E2E = "1", REINHARDT_CLOUD_E2E_OPERATOR_BIN = "target/debug/reinhardt-cloud-operator" }
+command = "cargo"
+args = [
+	"nextest",
+	"run",
+	"--locked",
+	"-p",
+	"reinhardt-cloud-integration-tests",
+	"--test",
+	"source_pipeline_e2e",
+	"--no-fail-fast",
+]
+
 # ============================================================================
 # Combined Checks (run before PR)
 # ============================================================================
