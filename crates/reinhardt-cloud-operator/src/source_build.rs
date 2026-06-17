@@ -8,6 +8,7 @@ use reinhardt_cloud_types::crd::{
 	BuildPhase, BuildStatus, BuildTargetKind, ConditionStatus, ConditionType, Project,
 	ProjectCondition,
 };
+use tracing::warn;
 
 use crate::error::Error;
 use crate::resources::{preview, source};
@@ -475,7 +476,14 @@ pub(crate) async fn clear_preview_build_for_delete(
 		{
 			Ok(_) => {}
 			Err(kube::Error::Api(status)) if status.code == 404 => {}
-			Err(error) => return Err(Error::Kube(error)),
+			Err(error) => {
+				warn!(
+					"failed to delete preview build Job {} for {}/{}: {error}",
+					build.job_name,
+					namespace,
+					app.name_any()
+				);
+			}
 		}
 	}
 
@@ -1224,6 +1232,83 @@ mod tests {
 
 		// Assert
 		assert_eq!(patch, None);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn clear_preview_build_for_delete_continues_when_job_delete_fails() {
+		use http::Response;
+		use std::sync::{Arc, Mutex};
+		use tower::service_fn;
+
+		// Arrange
+		let mut app = test_project();
+		app.metadata.generation = Some(10);
+		let build = test_preview_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(build),
+			..Default::default()
+		});
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let requests_for_service = requests.clone();
+		let response_app = app.clone();
+		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
+			let requests = requests_for_service.clone();
+			let response_app = response_app.clone();
+			async move {
+				let method = req.method().clone();
+				let path = req.uri().path().to_string();
+				requests
+					.lock()
+					.expect("requests lock should not be poisoned")
+					.push(format!("{method} {path}"));
+				let response = if method == http::Method::DELETE && path.contains("/jobs/") {
+					Response::builder()
+						.status(500)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&serde_json::json!({
+								"kind": "Status",
+								"apiVersion": "v1",
+								"status": "Failure",
+								"message": "job delete failed",
+								"reason": "InternalError",
+								"code": 500
+							}))
+							.expect("status json should serialize"),
+						))
+						.expect("response should build")
+				} else {
+					Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&response_app)
+								.expect("project json should serialize"),
+						))
+						.expect("response should build")
+				};
+				Ok::<_, std::convert::Infallible>(response)
+			}
+		});
+		let client = Client::new(svc, "default");
+
+		// Act
+		let cleared = clear_preview_build_for_delete(&app, client, "default", "42", "api-pr-42")
+			.await
+			.expect("job delete failure should not block preview cleanup");
+
+		// Assert
+		assert!(cleared);
+		let requests = requests
+			.lock()
+			.expect("requests lock should not be poisoned");
+		assert!(
+			requests.iter().any(|request| request
+				== "DELETE /apis/batch/v1/namespaces/default/jobs/api-build-abcdef12")
+		);
+		assert!(requests.iter().any(|request| {
+			request
+				== "PATCH /apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/default/projects/api/status"
+		}));
 	}
 
 	#[rstest]
