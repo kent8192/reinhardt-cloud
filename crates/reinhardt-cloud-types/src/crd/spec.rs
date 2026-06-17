@@ -50,21 +50,21 @@ pub struct ScaleSpec {
 impl ScaleSpec {
 	/// Validates the autoscaling specification.
 	///
-	/// Checks that replica counts are non-negative, max >= min when both
+	/// Checks that replica counts are positive, max >= min when both
 	/// are present, and target_value is positive.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
 		if let Some(min) = self.min_replicas
-			&& min < 0
+			&& min < 1
 		{
-			errors.push(ValidationError::new("scale.min_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.min_replicas must be >= 1"));
 		}
 
 		if let Some(max) = self.max_replicas
-			&& max < 0
+			&& max < 1
 		{
-			errors.push(ValidationError::new("scale.max_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.max_replicas must be >= 1"));
 		}
 
 		if let (Some(min), Some(max)) = (self.min_replicas, self.max_replicas)
@@ -610,7 +610,27 @@ mod tests {
 		// Assert
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 1);
-		assert_eq!(errors[0].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 1");
+	}
+
+	#[rstest]
+	fn scale_spec_validation_zero_replicas() {
+		// Arrange
+		let spec = ScaleSpec {
+			min_replicas: Some(0),
+			max_replicas: Some(0),
+			metric: None,
+			target_value: None,
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 2);
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 1");
+		assert_eq!(errors[1].message, "scale.max_replicas must be >= 1");
 	}
 
 	#[rstest]
@@ -850,8 +870,8 @@ mod tests {
 		// replicas(-1) + min(-1) + max(-2) + max<min + target(0) + health.port(0) + interval(0) + services.port(0) + services.target_port(65536)
 		assert_eq!(errors.len(), 9);
 		assert_eq!(errors[0].message, "spec.replicas must be >= 0");
-		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
-		assert_eq!(errors[2].message, "scale.max_replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 1");
+		assert_eq!(errors[2].message, "scale.max_replicas must be >= 1");
 		assert_eq!(
 			errors[3].message,
 			"scale.max_replicas must be >= scale.min_replicas"

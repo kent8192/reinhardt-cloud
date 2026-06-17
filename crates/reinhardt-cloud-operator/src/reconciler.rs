@@ -412,7 +412,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	if let Some(plan) = build_autoscaler(&app)? {
 		match plan {
 			AutoscalerPlan::Apply(hpa) => {
-				reconcile_hpa(&ctx.client, namespace, &hpa).await?;
+				let name = app.name_any();
+				reconcile_hpa(&ctx.client, namespace, &name, &hpa).await?;
 			}
 			AutoscalerPlan::Unsupported { reason, message } => {
 				child_conditions.push(child_condition(
@@ -1321,16 +1322,12 @@ async fn reconcile_ingress_resource_with_host(
 async fn reconcile_hpa(
 	client: &Client,
 	namespace: &str,
+	name: &str,
 	hpa: &HorizontalPodAutoscaler,
 ) -> Result<(), Error> {
-	let name = hpa
-		.metadata
-		.name
-		.clone()
-		.expect("HPA builder always sets name");
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let hpas: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
-	hpas.patch(&name, &ssapply, &Patch::Apply(hpa))
+	hpas.patch(name, &ssapply, &Patch::Apply(hpa))
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled HPA {namespace}/{name}");

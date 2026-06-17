@@ -283,8 +283,35 @@ The operator reports the following conditions on the CRD status:
 `Ready`, `Progressing`, `Degraded`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady`
 
 Autoscaling uses Kubernetes `autoscaling/v2` HPA for `cpu` and `memory`.
-For `memory`, `target_value` is MiB. `rps` is reserved for custom/external
-metrics and surfaces `AutoscalerReady=False` until a custom metrics provider is supported.
+`min_replicas` and `max_replicas` must be at least `1`. For `memory`,
+`target_value` is MiB. `rps` is reserved for custom/external metrics and
+surfaces `AutoscalerReady=False` until a custom metrics provider is supported.
+
+The `[scale]` example above generates an HPA like:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+For `metric = "memory"` with `target_value = 512`, the generated resource
+target uses `type: AverageValue` and `averageValue: 512Mi`.
 
 ## Installation
 

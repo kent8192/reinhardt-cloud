@@ -185,7 +185,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `isolation` | no | Per-app isolation overrides (`level`, `runtimeClass`, `networkPolicy`) |
 | `mail` | no | SMTP credentials secret reference |
 | `pages` | no | Static-site configuration for reinhardt-pages apps |
-| `scale` | no | HPA configuration (min/max replicas, metrics) |
+| `scale` | no | HPA configuration (min/max replicas, metrics; min/max must be at least `1`) |
 | `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
 | `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
@@ -210,6 +210,34 @@ From `charts/reinhardt-cloud-operator/crds/`:
 secret reference, and the referenced Secret exists in the Project namespace.
 `AutoscalerReady=True` means the generated HPA has observed its current
 generation and reports `AbleToScale=True` plus `ScalingActive=True`.
+
+For a Project with `scale.min_replicas=2`, `scale.max_replicas=6`,
+`scale.metric=cpu`, and `scale.target_value=70`, the operator applies an HPA
+like:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+For `scale.metric=memory` with `scale.target_value=512`, the generated metric
+target uses `type: AverageValue` and `averageValue: 512Mi`.
 
 Note: the served/storage version matrix may change release-to-release. The upcoming
 `reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at

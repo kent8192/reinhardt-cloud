@@ -349,6 +349,37 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_ingress_with_namespace_issuer_annotation() {
+		// Arrange
+		let mut app = make_test_app("web");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8000),
+			ingress_host: Some("app.example.com".to_string()),
+			tls: Some(ServiceTlsSpec {
+				enabled: true,
+				secret_name: Some("app-example-com-tls".to_string()),
+				issuer: Some("letsencrypt-ns".to_string()),
+				cluster_issuer: None,
+			}),
+		});
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("app.example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations");
+		assert_eq!(
+			annotations.get("cert-manager.io/issuer"),
+			Some(&"letsencrypt-ns".to_string())
+		);
+		assert_eq!(annotations.get("cert-manager.io/cluster-issuer"), None);
+	}
+
+	#[rstest]
 	fn test_build_ingress_without_host() {
 		// Arrange
 		let app = make_test_app("web");

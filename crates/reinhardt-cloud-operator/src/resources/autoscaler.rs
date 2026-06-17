@@ -33,10 +33,11 @@ struct ResolvedScale {
 }
 
 fn resolve_scale(app: &Project, scale: &ScaleSpec) -> ResolvedScale {
-	let min_replicas = scale.min_replicas.or(app.spec.replicas).unwrap_or(1);
+	let min_replicas = scale.min_replicas.or(app.spec.replicas).unwrap_or(1).max(1);
 	let max_replicas = scale
 		.max_replicas
-		.unwrap_or_else(|| DEFAULT_MAX_REPLICAS.max(min_replicas));
+		.unwrap_or_else(|| DEFAULT_MAX_REPLICAS.max(min_replicas))
+		.max(min_replicas);
 	let metric = scale.metric.clone().unwrap_or(ScaleMetric::Cpu);
 	let target_value = scale.target_value.unwrap_or(DEFAULT_TARGET_VALUE);
 
@@ -264,6 +265,33 @@ mod tests {
 		let resource = spec.metrics.unwrap()[0].resource.clone().unwrap();
 		assert_eq!(resource.name, "cpu");
 		assert_eq!(resource.target.average_utilization, Some(70));
+	}
+
+	#[rstest]
+	fn build_hpa_keeps_replica_bounds_positive() {
+		// Arrange
+		let mut app = make_test_app("web");
+		app.spec.replicas = Some(0);
+		app.spec.scale = Some(ScaleSpec {
+			min_replicas: Some(0),
+			max_replicas: Some(0),
+			metric: Some(ScaleMetric::Cpu),
+			target_value: Some(70),
+		});
+
+		// Act
+		let plan = build_autoscaler(&app)
+			.expect("builder should succeed")
+			.expect("scale should create a plan");
+
+		// Assert
+		let hpa = match plan {
+			AutoscalerPlan::Apply(hpa) => *hpa,
+			AutoscalerPlan::Unsupported { .. } => panic!("cpu should be supported"),
+		};
+		let spec = hpa.spec.expect("spec");
+		assert_eq!(spec.min_replicas, Some(1));
+		assert_eq!(spec.max_replicas, 1);
 	}
 
 	#[rstest]
