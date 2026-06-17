@@ -275,6 +275,12 @@ The operator reports the following conditions on the CRD status:
 
 `Ready`, `Progressing`, `Degraded`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`
 
+For source-driven deployments, source builds populate `status.build` with the active or most
+recent Kaniko build. `status.build.jobName`, `status.build.trigger`, `status.build.image`, and
+`status.build.imageTag` identify the build Job and produced image. Production `spec.image`
+updates and preview Project image updates are applied only after the associated Kaniko Job
+succeeds.
+
 ## Installation
 
 ### Prerequisites

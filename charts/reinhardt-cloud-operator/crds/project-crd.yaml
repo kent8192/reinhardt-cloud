@@ -928,6 +928,72 @@ spec:
             description: Status of the `Project` custom resource.
             nullable: true
             properties:
+              build:
+                description: Status of the active or most recent source build.
+                nullable: true
+                properties:
+                  branch:
+                    description: Source branch used by the build.
+                    nullable: true
+                    type: string
+                  image:
+                    description: Full image reference produced by the build.
+                    type: string
+                  imageTag:
+                    description: Image tag passed to Kaniko and preview spec generation.
+                    type: string
+                  jobName:
+                    description: Kaniko Job name associated with this build.
+                    type: string
+                  lastTransitionTime:
+                    description: Last time the build phase changed.
+                    nullable: true
+                    type: string
+                  message:
+                    description: Human-readable build status message.
+                    nullable: true
+                    type: string
+                  phase:
+                    description: Current build phase.
+                    enum:
+                    - pending
+                    - running
+                    - succeeded
+                    - failed
+                    type: string
+                  prNumber:
+                    description: Pull request or merge request number for preview builds.
+                    nullable: true
+                    type: string
+                  previewName:
+                    description: Preview `Project` name for preview builds.
+                    nullable: true
+                    type: string
+                  reason:
+                    description: Machine-readable reason for the current build state.
+                    nullable: true
+                    type: string
+                  startedAt:
+                    description: Time when the operator accepted the build trigger.
+                    nullable: true
+                    type: string
+                  target:
+                    description: Whether the build updates the parent app or a preview app.
+                    enum:
+                    - production
+                    - preview
+                    type: string
+                  trigger:
+                    description: Trigger value accepted by the operator.
+                    type: string
+                required:
+                - image
+                - imageTag
+                - jobName
+                - phase
+                - target
+                - trigger
+                type: object
               cache:
                 description: Status of the provisioned cache sub-resource
                 nullable: true
