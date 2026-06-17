@@ -149,7 +149,12 @@ impl ServiceTlsSpec {
 	pub fn validate(&self, ingress_host: Option<&str>) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		if self.enabled && ingress_host.is_none() {
+		if self.enabled
+			&& ingress_host
+				.map(str::trim)
+				.filter(|host| !host.is_empty())
+				.is_none()
+		{
 			errors.push(ValidationError::new(
 				"services.tls.enabled requires services.ingress_host",
 			));
@@ -765,6 +770,36 @@ mod tests {
 
 		// Act
 		let errors = spec.validate().expect_err("missing host should fail");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"services.tls.enabled requires services.ingress_host"
+		);
+	}
+
+	#[rstest]
+	fn services_tls_validation_rejects_blank_ingress_host() {
+		// Arrange
+		let spec = ProjectSpec {
+			image: "img:v1".to_string(),
+			services: Some(ServicesSpec {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: Some("   ".to_string()),
+				tls: Some(ServiceTlsSpec {
+					enabled: true,
+					secret_name: Some("app-tls".to_string()),
+					issuer: None,
+					cluster_issuer: None,
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("blank host should fail");
 
 		// Assert
 		assert_eq!(errors.len(), 1);
