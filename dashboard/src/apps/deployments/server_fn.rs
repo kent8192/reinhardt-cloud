@@ -3,26 +3,6 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
-#[cfg(native)]
-use reinhardt::{CurrentUser, Model, di::Depends};
-#[cfg(native)]
-use reinhardt_cloud_proto::common::PaginationRequest;
-#[cfg(native)]
-use reinhardt_cloud_proto::log as log_pb;
-#[cfg(native)]
-use reinhardt_cloud_types::crd::Project;
-
-#[cfg(native)]
-use crate::apps::auth::models::User;
-#[cfg(native)]
-use crate::apps::clusters::models::Cluster;
-#[cfg(native)]
-use crate::apps::deployments::models::Deployment;
-#[cfg(native)]
-use crate::apps::organizations::helpers::current_organization_id_for_user;
-#[cfg(native)]
-use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentInfo {
 	pub id: i64,
@@ -40,14 +20,14 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &User) -> Result<i64, ServerFnError> {
-	current_organization_id_for_user(user.id)
+async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
 
 #[cfg(native)]
-fn deployment_info(deployment: Deployment) -> DeploymentInfo {
+fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> DeploymentInfo {
 	let cluster_id = *deployment.cluster_id();
 	DeploymentInfo {
 		id: deployment.id.unwrap_or_default(),
@@ -60,6 +40,8 @@ fn deployment_info(deployment: Deployment) -> DeploymentInfo {
 
 #[cfg(native)]
 fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
+	use reinhardt_cloud_types::crd::Project;
+
 	if manifest.trim().is_empty() {
 		return Ok(());
 	}
@@ -81,8 +63,12 @@ fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
 
 #[server_fn]
 pub async fn list_deployments_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<DeploymentInfo>, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let deployments = Deployment::objects()
 		.filter(Deployment::field_organization_id().eq(organization_id))
@@ -99,8 +85,13 @@ pub async fn create_deployment_for_current_org(
 	cluster_id: String,
 	image: String,
 	project_yaml: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let project_name = project_name.trim().to_string();
 	let image = image.trim().to_string();
@@ -152,8 +143,12 @@ pub async fn update_deployment_for_current_org(
 	project_name: String,
 	image: String,
 	status: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -195,8 +190,12 @@ pub async fn update_deployment_for_current_org(
 #[server_fn]
 pub async fn delete_deployment_for_current_org(
 	deployment_id: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<(), ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -219,8 +218,12 @@ pub async fn delete_deployment_for_current_org(
 pub async fn update_deployment_status_for_current_org(
 	deployment_id: String,
 	status: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
@@ -248,9 +251,18 @@ pub async fn update_deployment_status_for_current_org(
 #[server_fn]
 pub async fn deployment_logs_for_current_org(
 	deployment_id: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
-	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] grpc_channel: reinhardt::di::Depends<
+		crate::config::GrpcChannelSingletonKey,
+		crate::config::GrpcChannelSingleton,
+	>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
+	use reinhardt::Model;
+	use reinhardt_cloud_proto::common::PaginationRequest;
+	use reinhardt_cloud_proto::log as log_pb;
+
+	use crate::apps::deployments::models::Deployment;
+
 	let organization_id = current_org_id(&user).await?;
 	let deployment_id: i64 = deployment_id
 		.parse()

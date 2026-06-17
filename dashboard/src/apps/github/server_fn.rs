@@ -3,47 +3,6 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
-#[cfg(native)]
-use std::sync::Arc;
-
-#[cfg(native)]
-use reinhardt::di::{ContextLevel, FactoryOutput, get_di_context};
-#[cfg(native)]
-use reinhardt::{CurrentUser, Model};
-#[cfg(native)]
-use reinhardt_cloud_grpc::registry::AgentRegistry;
-
-#[cfg(native)]
-use crate::apps::auth::models::{SocialAccount, User};
-#[cfg(native)]
-use crate::apps::clusters::models::Cluster;
-#[cfg(native)]
-use crate::apps::deployments::models::Deployment;
-#[cfg(native)]
-use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
-#[cfg(native)]
-use crate::apps::github::services::GitHubAppSettings;
-#[cfg(native)]
-use crate::apps::github::services::client::{
-	GitHubAppClient, GitHubInstallationRepository, ReqwestGitHubAppClient,
-};
-#[cfg(native)]
-use crate::apps::github::services::deploy::{
-	send_git_credentials_secret_to_cluster, send_project_apply_to_cluster,
-};
-#[cfg(native)]
-use crate::apps::github::services::import::{
-	enrich_import_spec, import_spec_from_repository, source_project_yaml,
-};
-#[cfg(native)]
-use crate::apps::github::services::pipeline::{
-	GitHubDeployPipelineInput, run_github_deploy_pipeline,
-};
-#[cfg(native)]
-use crate::apps::organizations::helpers::current_organization_id_for_user;
-#[cfg(native)]
-use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubInstallationInfo {
 	pub id: i64,
@@ -82,14 +41,20 @@ pub struct GitHubOnboardingInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &User) -> Result<i64, ServerFnError> {
-	current_organization_id_for_user(user.id)
+async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
 
 #[cfg(native)]
-async fn github_account_linked(user: &User) -> Result<bool, ServerFnError> {
+async fn github_account_linked(
+	user: &crate::apps::auth::models::User,
+) -> Result<bool, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::auth::models::SocialAccount;
+
 	SocialAccount::objects()
 		.filter(SocialAccount::field_user_id().eq(user.id.to_string()))
 		.filter(SocialAccount::field_provider().eq("github"))
@@ -101,7 +66,9 @@ async fn github_account_linked(user: &User) -> Result<bool, ServerFnError> {
 }
 
 #[cfg(native)]
-async fn ensure_github_account_linked(user: &User) -> Result<(), ServerFnError> {
+async fn ensure_github_account_linked(
+	user: &crate::apps::auth::models::User,
+) -> Result<(), ServerFnError> {
 	let linked = github_account_linked(user).await?;
 	if linked {
 		Ok(())
@@ -115,6 +82,10 @@ async fn ensure_github_account_linked(user: &User) -> Result<(), ServerFnError> 
 
 #[cfg(native)]
 async fn rollback_created_deployment(deployment_id: i64) {
+	use reinhardt::Model;
+
+	use crate::apps::deployments::models::Deployment;
+
 	if let Err(delete_err) = Deployment::objects().delete(deployment_id).await {
 		tracing::warn!(
 			"Failed to roll back deployment {deployment_id} after GitHub import persistence error: {delete_err}"
@@ -124,6 +95,10 @@ async fn rollback_created_deployment(deployment_id: i64) {
 
 #[cfg(native)]
 async fn rollback_created_github_project(project_id: i64) {
+	use reinhardt::Model;
+
+	use crate::apps::github::models::GitHubProject;
+
 	if let Err(delete_err) = GitHubProject::objects().delete(project_id).await {
 		tracing::warn!(
 			"Failed to roll back GitHub project {project_id} after repository update error: {delete_err}"
@@ -132,7 +107,12 @@ async fn rollback_created_github_project(project_id: i64) {
 }
 
 #[cfg(native)]
-async fn agent_registry() -> Result<Arc<AgentRegistry>, ServerFnError> {
+async fn agent_registry()
+-> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
+	use reinhardt::di::{ContextLevel, FactoryOutput, get_di_context};
+
+	use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
+
 	let ctx = get_di_context(ContextLevel::Root);
 	let registry = ctx
 		.resolve::<FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton>>()
@@ -142,7 +122,9 @@ async fn agent_registry() -> Result<Arc<AgentRegistry>, ServerFnError> {
 }
 
 #[cfg(native)]
-pub(crate) fn github_installation_info(installation: GitHubInstallation) -> GitHubInstallationInfo {
+pub(crate) fn github_installation_info(
+	installation: crate::apps::github::models::GitHubInstallation,
+) -> GitHubInstallationInfo {
 	GitHubInstallationInfo {
 		id: installation.id.unwrap_or_default(),
 		installation_id: installation.installation_id,
@@ -153,7 +135,9 @@ pub(crate) fn github_installation_info(installation: GitHubInstallation) -> GitH
 }
 
 #[cfg(native)]
-pub(crate) fn github_repository_info(repository: GitHubRepository) -> GitHubRepositoryInfo {
+pub(crate) fn github_repository_info(
+	repository: crate::apps::github::models::GitHubRepository,
+) -> GitHubRepositoryInfo {
 	GitHubRepositoryInfo {
 		id: repository.id.unwrap_or_default(),
 		github_repository_id: repository.github_repository_id,
@@ -167,7 +151,9 @@ pub(crate) fn github_repository_info(repository: GitHubRepository) -> GitHubRepo
 }
 
 #[cfg(native)]
-pub(crate) fn github_project_info(project: GitHubProject) -> GitHubProjectInfo {
+pub(crate) fn github_project_info(
+	project: crate::apps::github::models::GitHubProject,
+) -> GitHubProjectInfo {
 	GitHubProjectInfo {
 		id: project.id.unwrap_or_default(),
 		repository_id: *project.repository_id(),
@@ -181,8 +167,10 @@ pub(crate) fn github_project_info(project: GitHubProject) -> GitHubProjectInfo {
 #[cfg(native)]
 pub(crate) fn repository_from_installation_repository(
 	installation_row_id: i64,
-	repository: GitHubInstallationRepository,
-) -> GitHubRepository {
+	repository: crate::apps::github::services::client::GitHubInstallationRepository,
+) -> crate::apps::github::models::GitHubRepository {
+	use crate::apps::github::models::GitHubRepository;
+
 	GitHubRepository::build()
 		.installation(installation_row_id)
 		.github_repository_id(repository.id)
@@ -197,8 +185,14 @@ pub(crate) fn repository_from_installation_repository(
 
 #[cfg(native)]
 async fn sync_repositories_for_installation(
-	installation: &GitHubInstallation,
+	installation: &crate::apps::github::models::GitHubInstallation,
 ) -> Result<(), ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::github::models::GitHubRepository;
+	use crate::apps::github::services::GitHubAppSettings;
+	use crate::apps::github::services::client::{GitHubAppClient, ReqwestGitHubAppClient};
+
 	let installation_row_id = installation
 		.id
 		.ok_or_else(|| ServerFnError::application("GitHub installation row missing primary key"))?;
@@ -251,10 +245,12 @@ async fn sync_repositories_for_installation(
 
 #[server_fn]
 pub async fn get_github_onboarding_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<GitHubOnboardingInfo, ServerFnError> {
 	#[cfg(native)]
 	{
+		use crate::apps::github::services::GitHubAppSettings;
+
 		Ok(GitHubOnboardingInfo {
 			github_account_linked: github_account_linked(&user).await?,
 			install_url: GitHubAppSettings::install_url_from_env(),
@@ -269,8 +265,12 @@ pub async fn get_github_onboarding_for_current_org(
 
 #[server_fn]
 pub async fn list_github_installations_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<GitHubInstallationInfo>, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::github::models::GitHubInstallation;
+
 	ensure_github_account_linked(&user).await?;
 	let organization_id = current_org_id(&user).await?;
 	let installations = GitHubInstallation::objects()
@@ -293,8 +293,25 @@ pub async fn import_github_repository_for_current_org(
 	cluster_id: String,
 	project_name: String,
 	registry: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<GitHubProjectInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+	use crate::apps::deployments::models::Deployment;
+	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
+	use crate::apps::github::services::GitHubAppSettings;
+	use crate::apps::github::services::client::ReqwestGitHubAppClient;
+	use crate::apps::github::services::deploy::{
+		send_git_credentials_secret_to_cluster, send_project_apply_to_cluster,
+	};
+	use crate::apps::github::services::import::{
+		enrich_import_spec, import_spec_from_repository, source_project_yaml,
+	};
+	use crate::apps::github::services::pipeline::{
+		GitHubDeployPipelineInput, run_github_deploy_pipeline,
+	};
+
 	ensure_github_account_linked(&user).await?;
 	let organization_id = current_org_id(&user).await?;
 	let repository_id: i64 = repository_id
@@ -446,8 +463,12 @@ pub async fn import_github_repository_for_current_org(
 
 #[server_fn]
 pub async fn list_github_repositories_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<GitHubRepositoryInfo>, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
+
 	ensure_github_account_linked(&user).await?;
 	let organization_id = current_org_id(&user).await?;
 	let installations = GitHubInstallation::objects()
@@ -485,8 +506,12 @@ pub async fn list_github_repositories_for_current_org(
 #[server_fn]
 pub async fn list_github_repositories_for_installation(
 	installation_row_id: i64,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<GitHubRepositoryInfo>, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::github::models::{GitHubInstallation, GitHubRepository};
+
 	ensure_github_account_linked(&user).await?;
 	let organization_id = current_org_id(&user).await?;
 	let installation = GitHubInstallation::objects()

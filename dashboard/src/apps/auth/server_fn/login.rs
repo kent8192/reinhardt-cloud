@@ -4,19 +4,8 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
-#[cfg(native)]
-use reinhardt::di::Depends;
-#[cfg(native)]
-use reinhardt::pages::server_fn::ServerFnRequest;
 
 use crate::shared::AuthResponse;
-#[cfg(native)]
-use crate::shared::UserInfo;
-
-#[cfg(native)]
-use crate::apps::auth::services::{self, SessionService, SessionServiceKey};
-#[cfg(native)]
-use crate::config::{ProjectSettings, ProjectSettingsKey};
 
 /// Authenticate user with credentials and set session cookie.
 ///
@@ -28,11 +17,20 @@ use crate::config::{ProjectSettings, ProjectSettingsKey};
 pub async fn login(
 	username: String,
 	password: String,
-	#[inject] http_request: ServerFnRequest,
-	#[inject] settings: Depends<ProjectSettingsKey, ProjectSettings>,
-	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
+	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] settings: reinhardt::di::Depends<
+		crate::config::ProjectSettingsKey,
+		crate::config::ProjectSettings,
+	>,
+	#[inject] session_service: reinhardt::di::Depends<
+		crate::apps::auth::services::SessionServiceKey,
+		crate::apps::auth::services::SessionService,
+	>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
+
+	use crate::apps::auth::services;
+	use crate::shared::UserInfo;
 
 	let user = services::verify_credentials(&username, &password)
 		.await

@@ -2,14 +2,6 @@
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
-#[cfg(native)]
-use reinhardt::di::Depends;
-#[cfg(native)]
-use reinhardt::pages::server_fn::ServerFnRequest;
-
-#[cfg(native)]
-use crate::apps::auth::services::{self, SessionService, SessionServiceKey};
-
 /// Invalidate the current session and clear the session cookie.
 ///
 /// Extracts the session ID from the request cookie, destroys the
@@ -17,10 +9,15 @@ use crate::apps::auth::services::{self, SessionService, SessionServiceKey};
 /// browser to delete the `sessionid` cookie.
 #[server_fn]
 pub async fn logout(
-	#[inject] http_request: ServerFnRequest,
-	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
+	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
+	#[inject] session_service: reinhardt::di::Depends<
+		crate::apps::auth::services::SessionServiceKey,
+		crate::apps::auth::services::SessionService,
+	>,
 ) -> Result<bool, ServerFnError> {
 	use tracing::warn;
+
+	use crate::apps::auth::services;
 
 	let session_id = http_request
 		.inner()

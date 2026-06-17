@@ -3,16 +3,6 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
-#[cfg(native)]
-use reinhardt::di::Depends;
-#[cfg(native)]
-use reinhardt::urls::prelude::UnifiedRouter;
-
-#[cfg(native)]
-use crate::apps::auth::services::oauth::{OAuthSettings, OAuthSettingsKey};
-#[cfg(native)]
-use crate::apps::auth::urls as auth_urls;
-
 /// Public OAuth provider metadata safe to expose to the browser.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthProviderInfo {
@@ -31,12 +21,14 @@ pub(crate) fn label_for_provider(id: &str) -> &'static str {
 
 #[cfg(native)]
 pub(crate) fn oauth_start_url(provider_id: &str) -> Result<String, ServerFnError> {
+	use reinhardt::urls::prelude::UnifiedRouter;
+
 	const ROUTE_NAME: &str = "oauth-start";
 	const PROVIDER_PARAM: &str = "provider_id";
 
 	UnifiedRouter::new()
 		.with_prefix("/api/")
-		.mount_unified("/auth/", auth_urls::url_patterns())
+		.mount_unified("/auth/", crate::apps::auth::urls::url_patterns())
 		.into_server()
 		.reverse(ROUTE_NAME, &[(PROVIDER_PARAM, provider_id)])
 		.ok_or_else(|| {
@@ -49,7 +41,10 @@ pub(crate) fn oauth_start_url(provider_id: &str) -> Result<String, ServerFnError
 /// Return the currently enabled OAuth providers.
 #[server_fn]
 pub async fn list_oauth_providers(
-	#[inject] settings: Depends<OAuthSettingsKey, OAuthSettings>,
+	#[inject] settings: reinhardt::di::Depends<
+		crate::apps::auth::services::oauth::OAuthSettingsKey,
+		crate::apps::auth::services::oauth::OAuthSettings,
+	>,
 ) -> Result<Vec<OAuthProviderInfo>, ServerFnError> {
 	settings
 		.enabled_provider_ids()

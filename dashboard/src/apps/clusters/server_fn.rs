@@ -3,20 +3,6 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
-#[cfg(native)]
-use reinhardt::{CurrentUser, Model, di::Depends};
-#[cfg(native)]
-use uuid::Uuid;
-
-#[cfg(native)]
-use crate::apps::auth::models::User;
-#[cfg(native)]
-use crate::apps::clusters::models::Cluster;
-#[cfg(native)]
-use crate::apps::clusters::services::{AgentTokenService, AgentTokenServiceKey};
-#[cfg(native)]
-use crate::apps::organizations::helpers::current_organization_id_for_user;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClusterInfo {
 	pub id: i64,
@@ -33,14 +19,14 @@ pub struct ClusterTokenInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &User) -> Result<i64, ServerFnError> {
-	current_organization_id_for_user(user.id)
+async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
 
 #[cfg(native)]
-fn cluster_info(cluster: Cluster) -> ClusterInfo {
+fn cluster_info(cluster: crate::apps::clusters::models::Cluster) -> ClusterInfo {
 	ClusterInfo {
 		id: cluster.id.unwrap_or_default(),
 		name: cluster.name,
@@ -51,18 +37,22 @@ fn cluster_info(cluster: Cluster) -> ClusterInfo {
 }
 
 #[cfg(native)]
-fn cluster_id_from_pk(id: Option<i64>) -> Result<Uuid, ServerFnError> {
+fn cluster_id_from_pk(id: Option<i64>) -> Result<uuid::Uuid, ServerFnError> {
 	let pk = id.ok_or_else(|| {
 		ServerFnError::application("Cluster row missing primary key after insert")
 	})?;
 	let mut bytes = [0u8; 16];
 	bytes[..8].copy_from_slice(b"RHCL-CID");
 	bytes[8..].copy_from_slice(&pk.to_be_bytes());
-	Ok(Uuid::from_bytes(bytes))
+	Ok(uuid::Uuid::from_bytes(bytes))
 }
 
 #[cfg(native)]
 async fn rollback_created_cluster(cluster_id: i64) {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	if let Err(delete_err) = Cluster::objects().delete(cluster_id).await {
 		tracing::warn!(
 			"Failed to roll back cluster {cluster_id} after token persistence error: {delete_err}"
@@ -72,8 +62,12 @@ async fn rollback_created_cluster(cluster_id: i64) {
 
 #[server_fn]
 pub async fn list_clusters_for_current_org(
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<ClusterInfo>, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	let organization_id = current_org_id(&user).await?;
 	let clusters = Cluster::objects()
 		.filter(Cluster::field_organization_id().eq(organization_id))
@@ -88,9 +82,16 @@ pub async fn list_clusters_for_current_org(
 pub async fn create_cluster_for_current_org(
 	name: String,
 	api_url: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
-	#[inject] agent_token_service: Depends<AgentTokenServiceKey, AgentTokenService>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] agent_token_service: reinhardt::di::Depends<
+		crate::apps::clusters::services::AgentTokenServiceKey,
+		crate::apps::clusters::services::AgentTokenService,
+	>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	let organization_id = current_org_id(&user).await?;
 	let name = name.trim().to_string();
 	let api_url = api_url.trim().to_string();
@@ -153,8 +154,12 @@ pub async fn update_cluster_for_current_org(
 	name: String,
 	api_url: String,
 	is_active: bool,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<ClusterInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
@@ -199,8 +204,12 @@ pub async fn update_cluster_for_current_org(
 #[server_fn]
 pub async fn delete_cluster_for_current_org(
 	cluster_id: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<(), ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
@@ -226,9 +235,16 @@ pub async fn delete_cluster_for_current_org(
 #[server_fn]
 pub async fn rotate_cluster_token_for_current_org(
 	cluster_id: String,
-	#[inject] CurrentUser(user): CurrentUser<User>,
-	#[inject] agent_token_service: Depends<AgentTokenServiceKey, AgentTokenService>,
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] agent_token_service: reinhardt::di::Depends<
+		crate::apps::clusters::services::AgentTokenServiceKey,
+		crate::apps::clusters::services::AgentTokenService,
+	>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
+	use reinhardt::Model;
+
+	use crate::apps::clusters::models::Cluster;
+
 	let organization_id = current_org_id(&user).await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
