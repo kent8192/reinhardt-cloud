@@ -16,7 +16,7 @@ pub enum DeploymentStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deployment {
 	pub id: Uuid,
-	pub app_name: String,
+	pub project_name: String,
 	pub cluster_id: Uuid,
 	pub status: DeploymentStatus,
 	pub image: String,
@@ -24,10 +24,10 @@ pub struct Deployment {
 
 impl Deployment {
 	/// Creates a new deployment in `Pending` status.
-	pub fn new(app_name: &str, cluster_id: Uuid, image: &str) -> Self {
+	pub fn new(project_name: &str, cluster_id: Uuid, image: &str) -> Self {
 		Self {
 			id: Uuid::now_v7(),
-			app_name: app_name.to_string(),
+			project_name: project_name.to_string(),
 			cluster_id,
 			status: DeploymentStatus::Pending,
 			image: image.to_string(),
@@ -57,7 +57,7 @@ mod tests {
 		let deploy = Deployment::new("my-app", cluster_id, "my-app:latest");
 
 		// Assert
-		assert_eq!(deploy.app_name, "my-app");
+		assert_eq!(deploy.project_name, "my-app");
 		assert_eq!(deploy.cluster_id, cluster_id);
 		assert_eq!(deploy.image, "my-app:latest");
 		assert_eq!(deploy.status, DeploymentStatus::Pending);

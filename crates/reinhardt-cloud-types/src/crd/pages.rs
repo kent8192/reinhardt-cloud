@@ -9,7 +9,7 @@ use crate::validation::ValidationError;
 
 /// reinhardt-pages frontend deployment configuration.
 ///
-/// Presence of `Some(PagesSpec)` in `ReinhardtAppSpec.pages` implicitly enables
+/// Presence of `Some(PagesSpec)` in `ProjectSpec.pages` implicitly enables
 /// pages deployment. There is no separate `enabled` field --- use `None` to disable.
 /// This matches the pattern of `DatabaseSpec`, `CacheSpec`, etc.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]

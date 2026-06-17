@@ -19,9 +19,9 @@ pub struct Deployment {
 	#[rel(foreign_key, related_name = "deployments")]
 	pub organization: ForeignKeyField<Organization>,
 
-	/// Application name
+	/// Project name
 	#[field(max_length = 255)]
-	pub app_name: String,
+	pub project_name: String,
 
 	/// Cluster targeted by this deployment.
 	#[rel(foreign_key, related_name = "deployments")]
@@ -35,9 +35,9 @@ pub struct Deployment {
 	#[field(max_length = 512)]
 	pub image: String,
 
-	/// Submitted `ReinhardtApp` manifest YAML for operator-driven deployment.
+	/// Submitted `Project` manifest YAML for operator-driven deployment.
 	#[field(max_length = 65535)]
-	pub reinhardt_app_yaml: Option<String>,
+	pub project_yaml: Option<String>,
 
 	/// Deployment creation timestamp
 	#[field(auto_now_add = true)]

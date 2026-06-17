@@ -1,11 +1,11 @@
-//! Status types for the `ReinhardtApp` custom resource.
+//! Status types for the `Project` custom resource.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::cache::CacheStatus;
 use super::database::DatabaseStatus;
-use super::enums::AppPhase;
+use super::enums::ProjectPhase;
 use super::worker::WorkerStatus;
 
 /// Type of a Kubernetes-style status condition.
@@ -38,7 +38,7 @@ pub enum ConditionStatus {
 /// but implements `JsonSchema` for CRD schema generation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct AppCondition {
+pub struct ProjectCondition {
 	/// Type of the condition
 	#[serde(rename = "type")]
 	pub type_: ConditionType,
@@ -54,15 +54,15 @@ pub struct AppCondition {
 	pub observed_generation: Option<i64>,
 }
 
-/// Status of the `ReinhardtApp` custom resource.
+/// Status of the `Project` custom resource.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct ReinhardtAppStatus {
+pub struct ProjectStatus {
 	/// Current phase of the application
-	pub phase: Option<AppPhase>,
+	pub phase: Option<ProjectPhase>,
 	/// Standard Kubernetes condition list
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub conditions: Vec<AppCondition>,
+	pub conditions: Vec<ProjectCondition>,
 	/// The generation last observed by the controller
 	pub observed_generation: Option<i64>,
 	/// Number of ready replicas
@@ -86,9 +86,9 @@ mod tests {
 	#[rstest]
 	fn crd_status_with_conditions() {
 		// Arrange
-		let status = ReinhardtAppStatus {
-			phase: Some(AppPhase::Running),
-			conditions: vec![AppCondition {
+		let status = ProjectStatus {
+			phase: Some(ProjectPhase::Running),
+			conditions: vec![ProjectCondition {
 				type_: ConditionType::Ready,
 				status: ConditionStatus::True,
 				reason: "ReconcileSuccess".to_string(),
@@ -103,11 +103,11 @@ mod tests {
 
 		// Act
 		let json = serde_json::to_string(&status).expect("serialization should succeed");
-		let deserialized: ReinhardtAppStatus =
+		let deserialized: ProjectStatus =
 			serde_json::from_str(&json).expect("deserialization should succeed");
 
 		// Assert
-		assert_eq!(deserialized.phase, Some(AppPhase::Running));
+		assert_eq!(deserialized.phase, Some(ProjectPhase::Running));
 		assert_eq!(deserialized.conditions.len(), 1);
 		assert_eq!(deserialized.conditions[0].type_, ConditionType::Ready);
 		assert_eq!(deserialized.conditions[0].status, ConditionStatus::True);
@@ -154,8 +154,8 @@ mod tests {
 	fn test_status_with_database_status() {
 		// Arrange
 		use super::super::database::ResourcePhase;
-		let status = ReinhardtAppStatus {
-			phase: Some(AppPhase::Running),
+		let status = ProjectStatus {
+			phase: Some(ProjectPhase::Running),
 			database: Some(DatabaseStatus {
 				phase: ResourcePhase::Ready,
 				endpoint: Some("mydb.rds.amazonaws.com:5432".to_string()),
@@ -166,7 +166,7 @@ mod tests {
 
 		// Act
 		let json = serde_json::to_string(&status).unwrap();
-		let parsed: ReinhardtAppStatus = serde_json::from_str(&json).unwrap();
+		let parsed: ProjectStatus = serde_json::from_str(&json).unwrap();
 
 		// Assert
 		assert_eq!(parsed.database.unwrap().phase, ResourcePhase::Ready);
@@ -175,9 +175,9 @@ mod tests {
 	#[rstest]
 	fn status_camelcase_serialization() {
 		// Arrange
-		let status = ReinhardtAppStatus {
-			phase: Some(AppPhase::Running),
-			conditions: vec![AppCondition {
+		let status = ProjectStatus {
+			phase: Some(ProjectPhase::Running),
+			conditions: vec![ProjectCondition {
 				type_: ConditionType::Ready,
 				status: ConditionStatus::True,
 				reason: "ReconcileSuccess".to_string(),

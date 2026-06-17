@@ -5,24 +5,24 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
 
-/// Builds an opaque `Secret` containing SMTP credential placeholders for the given `ReinhardtApp`.
+/// Builds an opaque `Secret` containing SMTP credential placeholders for the given `Project`.
 ///
 /// The secret includes `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
 /// and `SMTP_USE_TLS` keys with sensible defaults.
-pub(crate) fn build_mail_secret(app: &ReinhardtApp) -> Result<Secret, Error> {
+pub(crate) fn build_mail_secret(app: &Project) -> Result<Secret, Error> {
 	let labels = standard_labels(app, Component::Web);
 	let namespace = super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	Ok(Secret {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-smtp-credentials", app_name)),
+			name: Some(format!("{}-smtp-credentials", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			owner_references: Some(vec![owner_ref]),
@@ -45,10 +45,10 @@ mod tests {
 	use super::*;
 	use rstest::rstest;
 
-	fn test_app(name: &str) -> ReinhardtApp {
+	fn test_app(name: &str) -> Project {
 		let json = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
-			"kind": "ReinhardtApp",
+			"kind": "Project",
 			"metadata": { "name": name, "namespace": "default", "uid": "test-uid" },
 			"spec": { "image": "myapp:latest" }
 		});

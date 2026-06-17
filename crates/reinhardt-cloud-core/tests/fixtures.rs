@@ -34,11 +34,11 @@ pub fn local_build_service() -> LocalBuildService {
 	LocalBuildService::new()
 }
 
-/// Creates a `BuildRequest` with a unique `app_name` to avoid collisions.
+/// Creates a `BuildRequest` with a unique `project_name` to avoid collisions.
 #[fixture]
 pub fn build_request() -> BuildRequest {
 	BuildRequest {
-		app_name: format!("test-app-{}", Uuid::now_v7()),
+		project_name: format!("test-app-{}", Uuid::now_v7()),
 		image: "registry.example.com/test:latest".to_string(),
 		env_vars: vec![],
 		dockerfile: None,

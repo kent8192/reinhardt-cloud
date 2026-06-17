@@ -114,7 +114,7 @@ helm install reinhardt-cloud charts/reinhardt-cloud-operator \
 
 ## Per-App Infrastructure (Issue #420)
 
-Once an application's `ReinhardtApp` CRD has an `infrastructure:` block, use the CLI to generate per-app HCL:
+Once an application's `Project` CRD has an `infrastructure:` block, use the CLI to generate per-app HCL:
 
 ```bash
 reinhardt-cloud terraform generate \
@@ -127,11 +127,11 @@ terraform init
 terraform apply
 ```
 
-Example `ReinhardtApp` with infrastructure declaration:
+Example `Project` with infrastructure declaration:
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: orders-api
   namespace: tenant-acme

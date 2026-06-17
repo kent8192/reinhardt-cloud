@@ -1,4 +1,4 @@
-//! Migration Job builder for operator-managed `ReinhardtApp` resources.
+//! Migration Job builder for operator-managed `Project` resources.
 
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -6,26 +6,26 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
 
-/// Builds a `Job` that runs database migrations for the given `ReinhardtApp`.
+/// Builds a `Job` that runs database migrations for the given `Project`.
 ///
 /// The job uses the same image as the application and executes
 /// `["manage", "migrate"]`. Database credentials are injected from the
-/// `{app_name}-db-credentials` secret via `envFrom`.
-pub(crate) fn build_migration_job(app: &ReinhardtApp) -> Result<Job, Error> {
+/// `{project_name}-db-credentials` secret via `envFrom`.
+pub(crate) fn build_migration_job(app: &Project) -> Result<Job, Error> {
 	let namespace = super::require_namespace(app)?;
 	let labels = standard_labels(app, Component::Migration);
 	let owner_ref = owner_reference(app)?;
-	let app_name = app.name_any();
-	let secret_name = format!("{}-db-credentials", app_name);
+	let project_name = app.name_any();
+	let secret_name = format!("{}-db-credentials", project_name);
 
 	Ok(Job {
 		metadata: ObjectMeta {
-			name: Some(format!("{}-migrate", app_name)),
+			name: Some(format!("{}-migrate", project_name)),
 			namespace: Some(namespace),
 			labels: Some(labels.clone()),
 			owner_references: Some(vec![owner_ref]),
@@ -69,18 +69,18 @@ pub(crate) fn build_migration_job(app: &ReinhardtApp) -> Result<Job, Error> {
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn test_app(name: &str, image: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn test_app(name: &str, image: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: image.to_string(),
 				..Default::default()
 			},

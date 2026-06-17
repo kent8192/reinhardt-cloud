@@ -18,7 +18,7 @@ pub struct GitHubDeployPipelineInput {
 	pub installation_id: i64,
 	pub full_name: String,
 	pub branch: String,
-	pub app_name: String,
+	pub project_name: String,
 	pub namespace: String,
 	pub registry: String,
 	pub private: bool,
@@ -48,12 +48,12 @@ impl Drop for GitHubCheckout {
 	}
 }
 
-pub fn github_credentials_secret_name(app_name: &str) -> String {
-	format!("{app_name}-github-git-credentials")
+pub fn github_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-github-git-credentials")
 }
 
-pub fn credentials_secret_for_repository(app_name: &str, private: bool) -> Option<String> {
-	private.then(|| github_credentials_secret_name(app_name))
+pub fn credentials_secret_for_repository(project_name: &str, private: bool) -> Option<String> {
+	private.then(|| github_credentials_secret_name(project_name))
 }
 
 pub async fn run_github_deploy_pipeline(
@@ -66,7 +66,7 @@ pub async fn run_github_deploy_pipeline(
 	let introspect = run_manage_introspect(checkout.repository_dir()).await?;
 	Ok(GitHubDeployPipelineOutput {
 		introspect,
-		credentials_secret: credentials_secret_for_repository(&input.app_name, input.private),
+		credentials_secret: credentials_secret_for_repository(&input.project_name, input.private),
 	})
 }
 

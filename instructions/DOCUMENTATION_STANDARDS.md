@@ -142,7 +142,7 @@ All code examples in documentation must be tested and working.
 
 **Use Doc Tests:**
 ```rust
-/// Reconciles the state of a ReinhardtApp.
+/// Reconciles the state of a Project.
 ///
 /// # Examples
 ///
@@ -151,7 +151,7 @@ All code examples in documentation must be tested and working.
 ///
 /// // reconcile is called automatically by the controller
 /// ```
-pub async fn reconcile(obj: Arc<ReinhardtApp>, ctx: Arc<Context>) -> Result<Action> {
+pub async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Action> {
     // ...
 }
 ```
@@ -179,7 +179,7 @@ cargo test --doc  # Runs all doc tests
 //!
 //! ## Features
 //!
-//! - ReinhardtApp CRD for declarative app deployment ✅
+//! - Project CRD for declarative app deployment ✅
 //! - Automatic Deployment and Service creation ✅
 //!
 //! ## Planned Features

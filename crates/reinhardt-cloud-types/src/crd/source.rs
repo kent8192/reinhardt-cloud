@@ -1,6 +1,6 @@
-//! Git source and CI/CD pipeline types for `ReinhardtApp`.
+//! Git source and CI/CD pipeline types for `Project`.
 //!
-//! Defines the source specification for linking a ReinhardtApp to a Git
+//! Defines the source specification for linking a Project to a Git
 //! repository, including build, webhook, and preview environment configuration.
 
 use std::collections::BTreeMap;
@@ -191,7 +191,7 @@ impl PreviewSpec {
 	}
 }
 
-/// Git source configuration for a `ReinhardtApp`.
+/// Git source configuration for a `Project`.
 ///
 /// Links the application to a Git repository and configures CI/CD
 /// pipeline behavior including builds, webhooks, and preview environments.

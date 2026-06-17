@@ -19,8 +19,8 @@ pub(crate) enum ConfigError {
 pub(crate) struct CliConfig {
 	/// Control-plane target base URL
 	pub api_url: Option<String>,
-	/// Application name
-	pub app_name: Option<String>,
+	/// Project name
+	pub project_name: Option<String>,
 }
 
 impl CliConfig {
@@ -107,15 +107,15 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_default_config_has_no_app_name() {
+	fn test_default_config_has_no_project_name() {
 		// Arrange
 		let config = CliConfig::default();
 
 		// Act
-		let app_name = &config.app_name;
+		let project_name = &config.project_name;
 
 		// Assert
-		assert!(app_name.is_none());
+		assert!(project_name.is_none());
 	}
 
 	#[rstest]
@@ -123,7 +123,7 @@ mod tests {
 		// Arrange
 		let config = CliConfig {
 			api_url: Some("http://custom:9000".to_string()),
-			app_name: None,
+			project_name: None,
 		};
 
 		// Act
@@ -195,7 +195,7 @@ mod tests {
 			&path,
 			r#"
 api_url = "http://staging.example.com:8080"
-app_name = "myapp"
+project_name = "myapp"
 "#,
 		)
 		.unwrap();
@@ -208,7 +208,7 @@ app_name = "myapp"
 			config.api_url.as_deref(),
 			Some("http://staging.example.com:8080")
 		);
-		assert_eq!(config.app_name.as_deref(), Some("myapp"));
+		assert_eq!(config.project_name.as_deref(), Some("myapp"));
 	}
 
 	#[rstest]

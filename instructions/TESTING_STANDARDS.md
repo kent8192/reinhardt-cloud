@@ -171,7 +171,7 @@ For unimplemented features, use one of the following:
 Use for features that **WILL** be implemented later
 
 ```rust
-fn reconcile_ingress(app: &ReinhardtApp) -> Result<Action> {
+fn reconcile_ingress(app: &Project) -> Result<Action> {
     todo!("Add Ingress reconciliation - planned for next sprint")
 }
 ```
@@ -190,7 +190,7 @@ Use for planning without runtime panics
 
 ```rust
 // TODO: Add support for custom ingress annotations
-fn build_ingress(app: &ReinhardtApp) -> Ingress {
+fn build_ingress(app: &Project) -> Ingress {
     // Temporary implementation
     Ingress::default()
 }
@@ -303,7 +303,7 @@ Use ONLY these standard labels:
 #[rstest]
 fn test_crd_spec_defaults() {
     // Arrange
-    let spec = ReinhardtAppSpec {
+    let spec = ProjectSpec {
         image: "myapp:latest".to_string(),
         replicas: None,
     };
@@ -318,7 +318,7 @@ fn test_crd_spec_defaults() {
 
 ```rust
 #[rstest]
-fn test_reconciler_action(app_fixture: Arc<ReinhardtApp>) {
+fn test_reconciler_action(app_fixture: Arc<Project>) {
     // Arrange: provided by app_fixture
 
     // Act
@@ -431,15 +431,15 @@ Fixtures serve as the **Arrange** phase in the AAA pattern.
 use rstest::*;
 
 #[fixture]
-fn app_spec() -> ReinhardtAppSpec {
-    ReinhardtAppSpec {
+fn app_spec() -> ProjectSpec {
+    ProjectSpec {
         image: "myapp:latest".to_string(),
         replicas: Some(2),
     }
 }
 
 #[rstest]
-fn test_with_fixture(app_spec: ReinhardtAppSpec) {
+fn test_with_fixture(app_spec: ProjectSpec) {
     assert_eq!(app_spec.replicas, Some(2));
 }
 ```

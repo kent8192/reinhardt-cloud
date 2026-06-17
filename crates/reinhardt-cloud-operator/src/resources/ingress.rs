@@ -1,4 +1,4 @@
-//! Ingress builder for operator-managed `ReinhardtApp` resources.
+//! Ingress builder for operator-managed `Project` resources.
 
 use std::collections::BTreeMap;
 
@@ -8,14 +8,14 @@ use k8s_openapi::api::networking::v1::{
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 use reinhardt_cloud_types::introspect::{InfraSignals, RouteMetadata};
 
 use super::labels::{Component, owner_reference, standard_labels};
 use crate::error::Error;
 use crate::inference::pages::ResolvedPagesConfig;
 
-/// Builds an `Ingress` for the given `ReinhardtApp` from introspected route metadata.
+/// Builds an `Ingress` for the given `Project` from introspected route metadata.
 ///
 /// Each [`RouteMetadata`] entry becomes an `HTTPIngressPath` with `Prefix` path type,
 /// routing to the app's Service on the specified port.
@@ -75,27 +75,27 @@ fn build_http_path(path: &str, service_name: &str, port: u16) -> HTTPIngressPath
 }
 
 pub(crate) fn build_ingress(
-	app: &ReinhardtApp,
+	app: &Project,
 	routes: &[RouteMetadata],
 	app_port: u16,
 	host: Option<&str>,
 	signals: Option<&InfraSignals>,
 	pages_config: Option<&ResolvedPagesConfig>,
 ) -> Result<Option<Ingress>, Error> {
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 
 	let mut paths: Vec<HTTPIngressPath> = routes
 		.iter()
-		.map(|route| build_http_path(&route.path, &app_name, app_port))
+		.map(|route| build_http_path(&route.path, &project_name, app_port))
 		.collect();
 
 	// Append signal-driven paths if not already present in routes
 	if let Some(signals) = signals {
 		if signals.graphql && !paths.iter().any(|p| p.path.as_deref() == Some("/graphql/")) {
-			paths.push(build_http_path("/graphql/", &app_name, app_port));
+			paths.push(build_http_path("/graphql/", &project_name, app_port));
 		}
 		if signals.admin_panel && !paths.iter().any(|p| p.path.as_deref() == Some("/admin/")) {
-			paths.push(build_http_path("/admin/", &app_name, app_port));
+			paths.push(build_http_path("/admin/", &project_name, app_port));
 		}
 	}
 
@@ -105,7 +105,7 @@ pub(crate) fn build_ingress(
 			.iter()
 			.any(|p| p.path.as_deref() == Some(config.static_url.as_str()))
 	{
-		let static_path = build_http_path(&config.static_url, &app_name, 8080);
+		let static_path = build_http_path(&config.static_url, &project_name, 8080);
 		if let Some(root_idx) = paths.iter().position(|p| p.path.as_deref() == Some("/")) {
 			paths.insert(root_idx, static_path);
 		} else {
@@ -137,7 +137,7 @@ pub(crate) fn build_ingress(
 
 	Ok(Some(Ingress {
 		metadata: ObjectMeta {
-			name: Some(app_name),
+			name: Some(project_name),
 			namespace: Some(namespace),
 			labels: Some(labels),
 			annotations,
@@ -157,18 +157,18 @@ pub(crate) fn build_ingress(
 mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ReinhardtAppSpec;
+	use reinhardt_cloud_types::crd::ProjectSpec;
 	use rstest::rstest;
 
-	fn make_test_app(name: &str) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: "img:v1".to_string(),
 				..Default::default()
 			},

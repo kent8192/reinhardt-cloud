@@ -57,7 +57,7 @@
 ### 1. Initialize from an existing Reinhardt project
 
 ```bash
-cd my-reinhardt-app
+cd my-project
 reinhardt-cloud init        # Detects project structure, generates reinhardt-cloud.toml
 ```
 
@@ -91,7 +91,7 @@ target_value = 70
 ### 2. Preview and deploy
 
 ```bash
-reinhardt-cloud deploy --dry-run   # Preview the generated ReinhardtApp CRD as YAML
+reinhardt-cloud deploy --dry-run   # Preview the generated Project CRD as YAML
 reinhardt-cloud deploy             # Deploy to the platform
 ```
 
@@ -105,7 +105,7 @@ reinhardt-cloud status --name my-app
 
 Deploying a Reinhardt web application to Kubernetes typically means writing Deployments, Services, StatefulSets, Ingresses, and more — even though the framework already knows what the app needs.
 
-Reinhardt Cloud takes a different approach: **convention-driven deployment**. The CLI runs `manage introspect` against your Reinhardt project, detects its feature flags (database, auth, cache, pages, etc.), and generates a single `ReinhardtApp` CRD. The operator reconciles that CRD into real Kubernetes resources.
+Reinhardt Cloud takes a different approach: **convention-driven deployment**. The CLI runs `manage introspect` against your Reinhardt project, detects its feature flags (database, auth, cache, pages, etc.), and generates a single `Project` CRD. The operator reconciles that CRD into real Kubernetes resources.
 
 | Inspiration | What We Borrowed | What We Added |
 |---|---|---|
@@ -127,7 +127,7 @@ C4Container
     Person(dev, "Developer", "Builds Reinhardt web applications")
 
     Container_Boundary(cli_plane, "CLI Plane") {
-        Container(cli, "reinhardt-cloud CLI", "Rust, clap", "Analyzes projects via manage introspect and generates ReinhardtApp CRDs")
+        Container(cli, "reinhardt-cloud CLI", "Rust, clap", "Analyzes projects via manage introspect and generates Project CRDs")
     }
 
     Container_Boundary(cp_plane, "Control Plane") {
@@ -136,9 +136,9 @@ C4Container
     }
 
     Container_Boundary(k8s_plane, "Kubernetes Cluster") {
-        Container(operator, "Operator", "Rust, kube-rs", "Reconciles ReinhardtApp CRDs into Deployments, Services, StatefulSets, Ingress, HPA")
+        Container(operator, "Operator", "Rust, kube-rs", "Reconciles Project CRDs into Deployments, Services, StatefulSets, Ingress, HPA")
         Container(agent, "Agent", "Rust, tonic", "Bidirectional gRPC streaming with control plane")
-        ContainerDb(crd, "ReinhardtApp CRD", "v1alpha2", "Desired application state")
+        ContainerDb(crd, "Project CRD", "v1alpha2", "Desired application state")
     }
 
     Rel(dev, cli, "Uses")
@@ -156,7 +156,7 @@ C4Container
 |---|---|---|
 | **CLI** | `reinhardt-cloud-cli` | Developer-facing tool. Analyzes projects via `manage introspect`, generates CRDs, communicates with the control plane. |
 | **Control Plane** | `dashboard` | A [reinhardt-web](https://github.com/kent8192/reinhardt-web) application providing a Pages UI, server functions, authentication, and project management. |
-| **Operator** | `reinhardt-cloud-operator` | Kubernetes controller that watches `ReinhardtApp` CRDs and reconciles them into infrastructure resources. |
+| **Operator** | `reinhardt-cloud-operator` | Kubernetes controller that watches `Project` CRDs and reconciles them into infrastructure resources. |
 
 **Supporting services:**
 
@@ -168,7 +168,7 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 ## Key Features
 
 - **Convention-Driven Deployment** — CLI introspects your Reinhardt project and infers infrastructure needs from Cargo feature flags and settings
-- **ReinhardtApp CRD** — Single custom resource (`paas.reinhardt-cloud.dev/v1alpha2`) that declares your entire application stack
+- **Project CRD** — Single custom resource (`paas.reinhardt-cloud.dev/v1alpha2`) that declares your entire application stack
 - **Automatic Infrastructure** — PostgreSQL/MySQL database, Redis cache, S3/GCS/PVC object storage, SMTP mail, background workers
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
@@ -198,7 +198,7 @@ reinhardt-cloud [--server <URL>] <command>
 |---|---|
 | `init` | Generate `reinhardt-cloud.toml` from project analysis |
 | `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
-| `deploy` | Build the `ReinhardtApp` CRD and apply it |
+| `deploy` | Build the `Project` CRD and apply it |
 | `status` | Check deployment status |
 | `login` | Authenticate with the platform |
 | `credentials` | Manage Git and container-registry credentials |
@@ -208,11 +208,11 @@ See [`docs/tools/cli.md`](docs/tools/cli.md) for flags, subcommand details, exam
 
 ## CRD Reference
 
-The `ReinhardtApp` custom resource is the single source of truth for your application's desired state.
+The `Project` custom resource is the single source of truth for your application's desired state.
 
 ```yaml
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: my-app
   namespace: default
@@ -346,7 +346,7 @@ isolation:
 
 ## Configuration
 
-The `reinhardt-cloud.toml` file is the human-readable project configuration. It maps 1:1 to the `ReinhardtApp` CRD spec.
+The `reinhardt-cloud.toml` file is the human-readable project configuration. It maps 1:1 to the `Project` CRD spec.
 
 Generate it automatically:
 
@@ -471,7 +471,7 @@ cargo run --bin reinhardt-cloud-operator
 
 | Component | Stability | Notes |
 |---|---|---|
-| `ReinhardtApp` CRD (`v1alpha2`) | Alpha | Schema may change |
+| `Project` CRD (`v1alpha2`) | Alpha | Schema may change |
 | CLI commands | Alpha | Flags and behavior may change |
 | gRPC services | Alpha | Protobuf schema may change |
 | Helm chart | Alpha | Values structure may change |
@@ -482,7 +482,7 @@ Breaking changes will be documented in release notes.
 ## Self-hosting
 
 The Reinhardt Cloud Dashboard can be self-hosted through its own operator
-as a `ReinhardtApp`. A canonical manifest (`manifests/dashboard-app.yaml`)
+as a `Project`. A canonical manifest (`manifests/dashboard-app.yaml`)
 and a release-triggered deploy workflow
 (`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
 dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for

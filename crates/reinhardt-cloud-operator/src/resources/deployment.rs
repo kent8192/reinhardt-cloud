@@ -1,4 +1,4 @@
-//! Deployment builder for operator-managed `ReinhardtApp` resources.
+//! Deployment builder for operator-managed `Project` resources.
 
 use std::collections::BTreeMap;
 
@@ -11,7 +11,7 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::ResourceExt;
-use reinhardt_cloud_types::crd::ReinhardtApp;
+use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
 use super::plugins::build_plugin_volumes;
@@ -26,10 +26,7 @@ use crate::inference::env_vars::{
 use crate::inference::pages::ResolvedPagesConfig;
 use crate::inference::platform::Platform;
 
-fn build_main_container_probe(
-	app: &ReinhardtApp,
-	default_port: i32,
-) -> Result<Option<Probe>, Error> {
+fn build_main_container_probe(app: &Project, default_port: i32) -> Result<Option<Probe>, Error> {
 	let Some(health) = app.spec.health.as_ref() else {
 		return Ok(None);
 	};
@@ -54,14 +51,14 @@ fn build_main_container_probe(
 	}))
 }
 
-/// Builds a `Deployment` for the given `ReinhardtApp`.
+/// Builds a `Deployment` for the given `Project`.
 ///
 /// Uses the app's own namespace as the single source of truth.
 /// When `pages_config` is provided, adds a collectstatic initContainer,
 /// a static-server sidecar container, and a shared emptyDir volume.
 /// Returns an error if the owner reference cannot be computed.
 pub(crate) fn build_deployment(
-	app: &ReinhardtApp,
+	app: &Project,
 	pages_config: Option<&ResolvedPagesConfig>,
 	platform: &Platform,
 ) -> Result<Deployment, Error> {
@@ -85,13 +82,13 @@ pub(crate) fn build_deployment(
 	// infrastructure signals (requires_postgresql).
 	//
 	// The DB host differs between the two provisioning paths:
-	// - Explicit spec.database: "{app_name}-db" (headless Service from infer_database_resources)
-	// - Introspect path: "{app_name}-postgresql" (Service from reconcile_db_service_resource)
+	// - Explicit spec.database: "{project_name}-db" (headless Service from infer_database_resources)
+	// - Introspect path: "{project_name}-postgresql" (Service from reconcile_db_service_resource)
 	//
 	// Note: user-provided spec.env values take priority over auto-generated DB env vars
 	// (including REINHARDT_DATABASE_PASSWORD). This is intentional — users may need to
 	// override connection parameters — but plaintext credentials in spec.env are discouraged.
-	let app_name = app.name_any();
+	let project_name = app.name_any();
 	let explicit_db = app.spec.database.is_some();
 	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
 		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
@@ -110,18 +107,18 @@ pub(crate) fn build_deployment(
 	// generated `production.toml` can resolve its secret-key interpolation at
 	// startup; the value lives in the operator-managed `<app>-core-secret-key`
 	// Secret, never in the Pod spec.
-	auto_vars.extend(build_core_secret_key_env_vars(&app_name));
+	auto_vars.extend(build_core_secret_key_env_vars(&project_name));
 	if app.spec.auth.as_ref().is_some_and(|auth| auth.jwt) {
-		auto_vars.push(build_jwt_secret_env_var(&app_name));
+		auto_vars.push(build_jwt_secret_env_var(&project_name));
 	}
 	if needs_redis_env {
-		auto_vars.push(build_redis_cache_env_var(&app_name));
+		auto_vars.push(build_redis_cache_env_var(&project_name));
 	}
 	if needs_db_env {
 		let db_host = if explicit_db {
-			format!("{app_name}-db")
+			format!("{project_name}-db")
 		} else {
-			format!("{app_name}-postgresql")
+			format!("{project_name}-postgresql")
 		};
 		auto_vars.extend(build_database_env_vars_from_secret(
 			app,
@@ -134,7 +131,7 @@ pub(crate) fn build_deployment(
 	// Append OTel variables after user-supplied vars. OTel vars are skipped
 	// when a user-supplied var with the same name already exists — user-supplied
 	// env vars take precedence over operator-injected OTel defaults.
-	let otel_vars = build_otel_env_vars(&app_name);
+	let otel_vars = build_otel_env_vars(&project_name);
 	for v in otel_vars {
 		if !merged_env.iter().any(|e| e.name == v.name) {
 			merged_env.push(v);
@@ -395,18 +392,18 @@ mod tests {
 	use reinhardt_cloud_types::crd::cache::{CacheBackend, CacheSpec};
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
-	use reinhardt_cloud_types::crd::{HealthSpec, ReinhardtAppSpec, ServicesSpec};
+	use reinhardt_cloud_types::crd::{HealthSpec, ProjectSpec, ServicesSpec};
 	use rstest::rstest;
 
-	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> ReinhardtApp {
-		ReinhardtApp {
+	fn make_test_app(name: &str, image: &str, replicas: Option<i32>) -> Project {
+		Project {
 			metadata: ObjectMeta {
 				name: Some(name.to_string()),
 				namespace: Some("default".to_string()),
 				uid: Some("test-uid-12345".to_string()),
 				..Default::default()
 			},
-			spec: ReinhardtAppSpec {
+			spec: ProjectSpec {
 				image: image.to_string(),
 				replicas,
 				..Default::default()
@@ -415,7 +412,7 @@ mod tests {
 		}
 	}
 
-	fn make_test_app_with_database() -> ReinhardtApp {
+	fn make_test_app_with_database() -> Project {
 		let mut app = make_test_app("web", "web:latest", None);
 		app.spec.database = Some(DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -578,7 +575,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_deployment_uses_app_namespace() {
+	fn test_build_deployment_uses_project_namespace() {
 		// Arrange
 		let mut app = make_test_app("web", "web:v1", None);
 		app.metadata.namespace = Some("staging".to_string());

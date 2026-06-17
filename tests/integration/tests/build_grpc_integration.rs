@@ -57,7 +57,7 @@ async fn test_local_build_through_grpc_roundtrip() {
 	let mut client = connect_build_client(addr).await;
 
 	let request = pb::StartBuildRequest {
-		app_name: "integration-app".to_string(),
+		project_name: "integration-app".to_string(),
 		image: "registry.example.com/integration:v1".to_string(),
 		env_vars: vec![],
 		dockerfile: None,

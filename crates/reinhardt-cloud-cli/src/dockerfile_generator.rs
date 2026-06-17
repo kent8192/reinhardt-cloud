@@ -152,7 +152,7 @@ pub(crate) fn collect_signals(
 	let project_relative_path = compute_project_relative_path(project_dir);
 
 	Ok(DockerfileSignals {
-		app_name: metadata.name.clone(),
+		project_name: metadata.name.clone(),
 		rust_version,
 		pages: signals.pages,
 		grpc: signals.grpc,
@@ -214,7 +214,7 @@ mod tests {
 
 	fn minimal_signals() -> DockerfileSignals {
 		DockerfileSignals {
-			app_name: "my-app".to_string(),
+			project_name: "my-app".to_string(),
 			rust_version: "1.94.1".to_string(),
 			pages: false,
 			grpc: false,

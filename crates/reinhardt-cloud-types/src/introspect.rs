@@ -33,7 +33,7 @@ pub struct IntrospectOutput {
 /// Basic application identity.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct AppMetadata {
-	/// Application name.
+	/// Project name.
 	#[serde(default)]
 	pub name: String,
 	/// Application version string.

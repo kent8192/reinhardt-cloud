@@ -31,7 +31,7 @@ OPERATOR_PID=""
 PORT_FORWARD_PID=""
 OPERATOR_LOG="${ARTIFACT_DIR}/operator.log"
 PORT_FORWARD_LOG="${ARTIFACT_DIR}/port-forward.log"
-DRY_RUN_YAML="${ARTIFACT_DIR}/reinhardt-app.yaml"
+DRY_RUN_YAML="${ARTIFACT_DIR}/project.yaml"
 CREATED_NAMESPACE=0
 
 kubectl_args=()
@@ -63,8 +63,8 @@ collect_diagnostics() {
 	log "collecting diagnostics in ${ARTIFACT_DIR}"
 
 	kubectl_cmd get namespace "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/namespace.yaml" 2>&1 || true
-	kubectl_cmd get reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/reinhardtapp-live.yaml" 2>&1 || true
-	kubectl_cmd describe reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" >"${ARTIFACT_DIR}/reinhardtapp-describe.txt" 2>&1 || true
+	kubectl_cmd get project "${APP_NAME}" -n "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/project-live.yaml" 2>&1 || true
+	kubectl_cmd describe project "${APP_NAME}" -n "${NAMESPACE}" >"${ARTIFACT_DIR}/project-describe.txt" 2>&1 || true
 	kubectl_cmd get all,secrets,configmaps,pvc -n "${NAMESPACE}" -o wide >"${ARTIFACT_DIR}/namespace-resources.txt" 2>&1 || true
 	kubectl_cmd get events -n "${NAMESPACE}" --sort-by=.lastTimestamp >"${ARTIFACT_DIR}/events.txt" 2>&1 || true
 	kubectl_cmd get deployment "${APP_NAME}" -n "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/deployment-live.yaml" 2>&1 || true
@@ -116,7 +116,7 @@ cleanup() {
 		log "deleting namespace ${NAMESPACE}"
 		kubectl_cmd delete namespace "${NAMESPACE}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
 	else
-		kubectl_cmd delete reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+		kubectl_cmd delete project "${APP_NAME}" -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 	fi
 
 	exit "${status}"
@@ -145,9 +145,9 @@ ensure_namespace() {
 }
 
 ensure_crd() {
-	log "applying ReinhardtApp CRD"
-	kubectl_cmd apply -f "${ROOT_DIR}/charts/reinhardt-cloud-operator/crds/reinhardtapp-crd.yaml"
-	kubectl_cmd wait --for=condition=Established crd/reinhardtapps.paas.reinhardt-cloud.dev --timeout="${TIMEOUT}"
+	log "applying Project CRD"
+	kubectl_cmd apply -f "${ROOT_DIR}/charts/reinhardt-cloud-operator/crds/project-crd.yaml"
+	kubectl_cmd wait --for=condition=Established crd/projects.paas.reinhardt-cloud.dev --timeout="${TIMEOUT}"
 }
 
 ensure_runtime_secret() {
@@ -287,9 +287,9 @@ start_local_operator() {
 	fi
 }
 
-generate_reinhardt_app_yaml() {
+generate_project_yaml() {
 	mkdir -p "${ARTIFACT_DIR}"
-	log "generating dry-run ReinhardtApp YAML"
+	log "generating dry-run Project YAML"
 	(
 		cd "${ROOT_DIR}"
 		export REINHARDT_ENV="${MANAGE_ENV}"
@@ -303,11 +303,11 @@ generate_reinhardt_app_yaml() {
 			--dry-run
 	) >"${DRY_RUN_YAML}"
 
-	grep -q '^kind: ReinhardtApp$' "${DRY_RUN_YAML}" || die "dry-run output did not contain a ReinhardtApp manifest"
+	grep -q '^kind: Project$' "${DRY_RUN_YAML}" || die "dry-run output did not contain a Project manifest"
 }
 
-apply_reinhardt_app_direct() {
-	log "applying ReinhardtApp through the CLI --direct path"
+apply_project_direct() {
+	log "applying Project through the CLI --direct path"
 	(
 		cd "${ROOT_DIR}"
 		export REINHARDT_ENV="${MANAGE_ENV}"
@@ -321,7 +321,7 @@ apply_reinhardt_app_direct() {
 			"${cli_cluster_args[@]}" \
 			--direct
 	)
-	kubectl_cmd patch reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" --type merge \
+	kubectl_cmd patch project "${APP_NAME}" -n "${NAMESPACE}" --type merge \
 		-p "{\"spec\":{\"env\":{\"REINHARDT_ENV\":\"${MANAGE_ENV}\"}}}" >/dev/null
 }
 
@@ -384,17 +384,17 @@ wait_for_app_ready_condition() {
 	local ready
 	deadline=$((SECONDS + $(timeout_seconds)))
 
-	log "waiting for ReinhardtApp/${APP_NAME} Ready condition"
+	log "waiting for Project/${APP_NAME} Ready condition"
 	while (( SECONDS < deadline )); do
-		phase="$(kubectl_cmd get reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
-		ready="$(kubectl_cmd get reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+		phase="$(kubectl_cmd get project "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+		ready="$(kubectl_cmd get project "${APP_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
 		if [[ "${phase}" == "running" && "${ready}" == "True" ]]; then
 			return
 		fi
 		sleep 3
 	done
 
-	die "ReinhardtApp/${APP_NAME} did not reach phase=running and Ready=True before ${TIMEOUT}"
+	die "Project/${APP_NAME} did not reach phase=running and Ready=True before ${TIMEOUT}"
 }
 
 wait_for_reconciliation() {
@@ -411,7 +411,7 @@ wait_for_reconciliation() {
 	kubectl_cmd wait --for=jsonpath='{.status.readyReplicas}'=1 "statefulset/${FOUND_RESOURCE_NAME}" -n "${NAMESPACE}" --timeout="${TIMEOUT}"
 	wait_for_app_ready_condition
 
-	kubectl_cmd get reinhardtapp "${APP_NAME}" -n "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/reinhardtapp-ready.yaml"
+	kubectl_cmd get project "${APP_NAME}" -n "${NAMESPACE}" -o yaml >"${ARTIFACT_DIR}/project-ready.yaml"
 	kubectl_cmd get deployment,service,statefulset,pod -n "${NAMESPACE}" \
 		-l "app.kubernetes.io/name=${APP_NAME}" -o wide >"${ARTIFACT_DIR}/ready-resources.txt"
 }
@@ -534,8 +534,8 @@ main() {
 	build_dashboard_image
 	build_local_binaries
 	ensure_operator
-	generate_reinhardt_app_yaml
-	apply_reinhardt_app_direct
+	generate_project_yaml
+	apply_project_direct
 	wait_for_reconciliation
 	seed_authenticated_user
 	start_dashboard_port_forward

@@ -20,7 +20,7 @@ use crate::apps::github::services::client::{
 	GitHubAppClient, GitHubUserInstallation, ReqwestGitHubAppClient,
 };
 use crate::apps::github::services::deploy::{
-	send_git_credentials_secret_to_cluster, send_reinhardt_app_apply_to_cluster,
+	send_git_credentials_secret_to_cluster, send_project_apply_to_cluster,
 };
 use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
@@ -166,7 +166,7 @@ pub async fn github_webhook(
 			AppError::Internal("Failed to load deployment".to_string())
 		})?
 		.ok_or_else(|| AppError::NotFound("Deployment not found".to_string()))?;
-	let Some(current_yaml) = deployment.reinhardt_app_yaml.as_deref() else {
+	let Some(current_yaml) = deployment.project_yaml.as_deref() else {
 		return json_response(
 			StatusCode::CONFLICT,
 			GitHubWebhookResponse {
@@ -192,10 +192,10 @@ pub async fn github_webhook(
 		);
 	};
 
-	deployment.reinhardt_app_yaml = Some(next_yaml);
+	deployment.project_yaml = Some(next_yaml);
 	deployment.status = "pending".to_string();
 	let manifest = deployment
-		.reinhardt_app_yaml
+		.project_yaml
 		.as_deref()
 		.ok_or_else(|| AppError::Internal("Updated deployment missing manifest".to_string()))?;
 	Deployment::objects()
@@ -236,13 +236,9 @@ pub async fn github_webhook(
 			"Failed to refresh GitHub repository credentials".to_string(),
 		));
 	}
-	if let Err(e) = send_reinhardt_app_apply_to_cluster(
-		&agent_registry.0,
-		&cluster,
-		&project.app_name,
-		manifest,
-	)
-	.await
+	if let Err(e) =
+		send_project_apply_to_cluster(&agent_registry.0, &cluster, &project.project_name, manifest)
+			.await
 	{
 		error!("Failed to apply deployment {deployment_id} from GitHub webhook: {e}");
 		deployment.status = "error".to_string();
@@ -252,7 +248,7 @@ pub async fn github_webhook(
 			);
 		}
 		return Err(AppError::Internal(
-			"Failed to apply ReinhardtApp manifest".to_string(),
+			"Failed to apply Project manifest".to_string(),
 		));
 	}
 	info!("github webhook applied {action_name} to deployment {deployment_id}");
@@ -407,15 +403,15 @@ async fn refresh_git_credentials_secret_for_webhook(
 		.create_installation_access_token(installation.installation_id)
 		.await
 		.map_err(|e| format!("Failed to mint GitHub installation access token: {e}"))?;
-	let app = reinhardt_cloud_k8s::resources::parse_reinhardt_app_yaml(manifest)
-		.map_err(|e| format!("Failed to parse ReinhardtApp manifest: {e}"))?;
+	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(manifest)
+		.map_err(|e| format!("Failed to parse Project manifest: {e}"))?;
 	let namespace = app.metadata.namespace.as_deref().unwrap_or("default");
 	send_git_credentials_secret_to_cluster(
 		&agent_registry.0,
 		cluster,
-		&project.app_name,
+		&project.project_name,
 		namespace,
-		&github_credentials_secret_name(&project.app_name),
+		&github_credentials_secret_name(&project.project_name),
 		&installation_token.token,
 	)
 	.await

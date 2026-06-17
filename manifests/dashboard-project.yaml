@@ -1,14 +1,14 @@
-# Canonical ReinhardtApp manifest for self-hosting the Reinhardt Cloud Dashboard.
+# Canonical Project manifest for self-hosting the Reinhardt Cloud Dashboard.
 #
 # This manifest is applied by the .github/workflows/deploy-dashboard.yml
 # workflow on every GitHub release. The workflow replaces the __VERSION__
 # placeholder with the release tag (with any leading "v" stripped).
 #
 # Field names match crates/reinhardt-cloud-types/src/crd/spec.rs
-# (ReinhardtAppSpec, apiVersion v1alpha2).
+# (ProjectSpec, apiVersion v1alpha2).
 #
 # Prerequisites:
-#   - The Reinhardt Cloud Operator is installed and the reinhardtapps CRD
+#   - The Reinhardt Cloud Operator is installed and the projects CRD
 #     is registered (v1alpha2).
 #   - The `reinhardt-cloud-system` namespace exists.
 #   - A Secret named `reinhardt-cloud-dashboard-secrets` with keys
@@ -17,7 +17,7 @@
 # See docs/self-hosting.md for the full bootstrap, upgrade, and rollback flow.
 ---
 apiVersion: paas.reinhardt-cloud.dev/v1alpha2
-kind: ReinhardtApp
+kind: Project
 metadata:
   name: reinhardt-cloud-dashboard
   namespace: reinhardt-cloud-system
@@ -37,7 +37,7 @@ spec:
   # an accidental `kubectl delete` cannot wipe production state.
   deletion_policy: retain
   # Autoscaling bounds. The operator wires these into the HPA / KEDA
-  # ScaledObject it owns for this ReinhardtApp.
+  # ScaledObject it owns for this Project.
   scale:
     min_replicas: 2
     max_replicas: 6
