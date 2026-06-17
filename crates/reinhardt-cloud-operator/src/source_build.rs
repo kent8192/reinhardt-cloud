@@ -1,11 +1,8 @@
-// Task 4 wires this build lifecycle surface into reconciler.rs.
-#![allow(dead_code)]
-
 use std::time::Duration;
 
 use chrono::Utc;
 use k8s_openapi::api::batch::v1::Job;
-use kube::api::{Patch, PatchParams, PostParams};
+use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Api, Client, ResourceExt};
 use reinhardt_cloud_types::crd::{
 	BuildPhase, BuildStatus, BuildTargetKind, ConditionStatus, ConditionType, Project,
@@ -54,10 +51,30 @@ pub(crate) fn active_build_status(app: &Project) -> Option<BuildStatus> {
 		.cloned()
 }
 
+pub(crate) fn blocking_failed_build_status(
+	app: &Project,
+	has_new_build: bool,
+) -> Option<BuildStatus> {
+	if has_new_build {
+		return None;
+	}
+
+	app.status
+		.as_ref()
+		.and_then(|status| status.build.as_ref())
+		.filter(|build| build.phase == BuildPhase::Failed)
+		.cloned()
+}
+
 pub(crate) fn derive_new_build_status(app: &Project) -> Result<Option<BuildStatus>, Error> {
-	let Some(source_spec) = app.spec.source.as_ref() else {
+	if !source::should_build_from_source(app) {
 		return Ok(None);
-	};
+	}
+	let source_spec = app
+		.spec
+		.source
+		.as_ref()
+		.ok_or(Error::MissingField("spec.source"))?;
 	let Some(trigger) = annotation_value(app, BUILD_TRIGGER_ANNOTATION) else {
 		return Ok(None);
 	};
@@ -291,6 +308,69 @@ pub(crate) fn clear_build_annotations_patch() -> serde_json::Value {
 	})
 }
 
+pub(crate) fn preview_delete_annotations_patch() -> serde_json::Value {
+	clear_build_annotations_patch()
+}
+
+fn preview_build_matches(build: &BuildStatus, pr_number: &str, preview_name: &str) -> bool {
+	build.target == BuildTargetKind::Preview
+		&& ((!pr_number.is_empty() && build.pr_number.as_deref() == Some(pr_number))
+			|| build.preview_name.as_deref() == Some(preview_name))
+}
+
+fn matching_preview_build_status<'a>(
+	app: &'a Project,
+	pr_number: &str,
+	preview_name: &str,
+) -> Option<&'a BuildStatus> {
+	app.status
+		.as_ref()
+		.and_then(|status| status.build.as_ref())
+		.filter(|build| preview_build_matches(build, pr_number, preview_name))
+}
+
+pub(crate) fn clear_preview_build_status_patch(
+	app: &Project,
+	pr_number: &str,
+	preview_name: &str,
+) -> Option<serde_json::Value> {
+	matching_preview_build_status(app, pr_number, preview_name)?;
+
+	let message =
+		format!("Preview build for {preview_name} was cancelled because the preview was deleted");
+	let mut conditions = app
+		.status
+		.as_ref()
+		.map(|status| status.conditions.clone())
+		.unwrap_or_default();
+	let mut progressing = build_condition(
+		ConditionType::Progressing,
+		ConditionStatus::False,
+		"PreviewDeleted",
+		&message,
+		app.metadata.generation,
+	);
+	let mut degraded = build_condition(
+		ConditionType::Degraded,
+		ConditionStatus::False,
+		"PreviewDeleted",
+		&message,
+		app.metadata.generation,
+	);
+	preserve_transition_time_for_unchanged_status(app, &mut progressing);
+	preserve_transition_time_for_unchanged_status(app, &mut degraded);
+	upsert_condition(&mut conditions, progressing);
+	upsert_condition(&mut conditions, degraded);
+
+	Some(serde_json::json!({
+		"status": {
+			"build": null,
+			"conditions": conditions,
+			"observedGeneration": app.metadata.generation,
+		}
+	}))
+}
+
 async fn patch_build_status(
 	client: Client,
 	namespace: &str,
@@ -308,6 +388,43 @@ async fn patch_build_status(
 	.await
 	.map_err(Error::Kube)?;
 	Ok(())
+}
+
+pub(crate) async fn clear_preview_build_for_delete(
+	app: &Project,
+	client: Client,
+	namespace: &str,
+	pr_number: &str,
+	preview_name: &str,
+) -> Result<bool, Error> {
+	let Some(build) = matching_preview_build_status(app, pr_number, preview_name).cloned() else {
+		return Ok(false);
+	};
+
+	let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
+	if !build.job_name.trim().is_empty() {
+		match job_api
+			.delete(&build.job_name, &DeleteParams::default())
+			.await
+		{
+			Ok(_) => {}
+			Err(kube::Error::Api(status)) if status.code == 404 => {}
+			Err(error) => return Err(Error::Kube(error)),
+		}
+	}
+
+	let Some(patch) = clear_preview_build_status_patch(app, pr_number, preview_name) else {
+		return Ok(false);
+	};
+	let api: Api<Project> = Api::namespaced(client, namespace);
+	api.patch_status(
+		&app.name_any(),
+		&PatchParams::default(),
+		&Patch::Merge(&patch),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	Ok(true)
 }
 
 async fn clear_build_annotations(
@@ -342,8 +459,14 @@ pub(crate) async fn reconcile_source_build(
 	namespace: &str,
 ) -> Result<BuildDecision, Error> {
 	let new_build = derive_new_build_status(app)?;
-	let active_build = active_build_status(app);
 	let has_new_build = new_build.is_some();
+	if let Some(failed_build) = blocking_failed_build_status(app, has_new_build) {
+		return Ok(BuildDecision::Failed(BuildFailure {
+			status: failed_build,
+		}));
+	}
+
+	let active_build = active_build_status(app);
 	let Some(mut build) = new_build.or(active_build) else {
 		return Ok(BuildDecision::NoBuild);
 	};
@@ -532,6 +655,36 @@ mod tests {
 		}
 	}
 
+	fn test_failed_build_status() -> BuildStatus {
+		let mut build = test_running_build_status();
+		build.phase = BuildPhase::Failed;
+		build.reason = Some("BuildFailed".to_string());
+		build.message = Some("Kaniko build Job failed".to_string());
+		build
+	}
+
+	fn test_preview_build_status() -> BuildStatus {
+		let mut build = test_running_build_status();
+		build.target = BuildTargetKind::Preview;
+		build.image = "ghcr.io/acme/api:pr-42-abcdef12".to_string();
+		build.image_tag = "pr-42-abcdef12".to_string();
+		build.preview_name = Some("api-pr-42".to_string());
+		build.pr_number = Some("42".to_string());
+		build.branch = Some("feature/login".to_string());
+		build
+	}
+
+	fn dummy_client() -> Client {
+		use http::Response;
+		use http_body_util::Empty;
+		use tower::service_fn;
+
+		let svc = service_fn(|_req: http::Request<kube::client::Body>| async {
+			Ok::<_, std::convert::Infallible>(Response::builder().body(Empty::new()).unwrap())
+		});
+		Client::new(svc, "default")
+	}
+
 	fn patch_condition<'a>(patch: &'a serde_json::Value, type_: &str) -> &'a serde_json::Value {
 		patch["status"]["conditions"]
 			.as_array()
@@ -615,6 +768,51 @@ mod tests {
 
 		// Assert
 		assert_eq!(active, Some(running));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn reconcile_source_build_blocks_failed_status_without_trigger() {
+		// Arrange
+		let mut app = test_project();
+		app.metadata.annotations = None;
+		let failed = test_failed_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(failed.clone()),
+			..Default::default()
+		});
+
+		// Act
+		let decision = reconcile_source_build(&app, dummy_client(), "default")
+			.await
+			.expect("failed build should produce a decision");
+
+		// Assert
+		assert_eq!(
+			decision,
+			BuildDecision::Failed(BuildFailure { status: failed })
+		);
+	}
+
+	#[rstest]
+	fn blocking_failed_build_status_allows_new_trigger_to_override_failure() {
+		// Arrange
+		let mut app = test_project();
+		let failed = test_failed_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(failed),
+			..Default::default()
+		});
+		let has_new_build = derive_new_build_status(&app)
+			.expect("new build status should be derived")
+			.is_some();
+
+		// Act
+		let blocking = blocking_failed_build_status(&app, has_new_build);
+
+		// Assert
+		assert!(has_new_build);
+		assert_eq!(blocking, None);
 	}
 
 	#[rstest]
@@ -796,23 +994,101 @@ mod tests {
 
 	#[rstest]
 	fn clear_build_annotations_patch_removes_trigger_and_preview_inputs() {
-		// Arrange
-		let expected = serde_json::json!({
-			"metadata": {
-				"annotations": {
-					"reinhardt.dev/build-trigger": null,
-					"reinhardt.dev/preview-action": null,
-					"reinhardt.dev/pr-number": null,
-					"reinhardt.dev/pr-branch": null,
-				}
-			}
-		});
-
 		// Act
 		let patch = clear_build_annotations_patch();
 
 		// Assert
-		assert_eq!(patch, expected);
+		let annotations = &patch["metadata"]["annotations"];
+		assert!(annotations["reinhardt.dev/build-trigger"].is_null());
+		assert!(annotations["reinhardt.dev/preview-action"].is_null());
+		assert!(annotations["reinhardt.dev/pr-number"].is_null());
+		assert!(annotations["reinhardt.dev/pr-branch"].is_null());
+	}
+
+	#[rstest]
+	fn preview_delete_annotations_patch_removes_trigger_and_preview_inputs() {
+		// Act
+		let patch = preview_delete_annotations_patch();
+
+		// Assert
+		let annotations = &patch["metadata"]["annotations"];
+		assert!(annotations["reinhardt.dev/build-trigger"].is_null());
+		assert!(annotations["reinhardt.dev/preview-action"].is_null());
+		assert!(annotations["reinhardt.dev/pr-number"].is_null());
+		assert!(annotations["reinhardt.dev/pr-branch"].is_null());
+	}
+
+	#[rstest]
+	fn clear_preview_build_status_patch_clears_matching_preview_build() {
+		// Arrange
+		let mut app = test_project();
+		app.metadata.generation = Some(10);
+		let mut build = test_preview_build_status();
+		build.phase = BuildPhase::Succeeded;
+		app.status = Some(ProjectStatus {
+			build: Some(build),
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
+				reason: "ReconcileSucceeded".to_string(),
+				message: "Project is ready".to_string(),
+				last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(9),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let patch = clear_preview_build_status_patch(&app, "42", "api-pr-42")
+			.expect("matching preview build should produce status patch");
+
+		// Assert
+		assert!(patch["status"]["build"].is_null());
+		assert_eq!(patch["status"]["observedGeneration"], serde_json::json!(10));
+		let progressing = patch_condition(&patch, "Progressing");
+		let degraded = patch_condition(&patch, "Degraded");
+		assert_eq!(progressing["status"], serde_json::json!("False"));
+		assert_eq!(progressing["reason"], serde_json::json!("PreviewDeleted"));
+		assert_eq!(degraded["status"], serde_json::json!("False"));
+		assert_eq!(degraded["reason"], serde_json::json!("PreviewDeleted"));
+		assert_eq!(
+			patch_condition(&patch, "Ready")["status"],
+			serde_json::json!("True")
+		);
+	}
+
+	#[rstest]
+	fn clear_preview_build_status_patch_ignores_different_preview_build() {
+		// Arrange
+		let mut app = test_project();
+		let build = test_preview_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(build),
+			..Default::default()
+		});
+
+		// Act
+		let patch = clear_preview_build_status_patch(&app, "43", "api-pr-43");
+
+		// Assert
+		assert_eq!(patch, None);
+	}
+
+	#[rstest]
+	fn clear_preview_build_status_patch_ignores_production_build() {
+		// Arrange
+		let mut app = test_project();
+		let build = test_running_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(build),
+			..Default::default()
+		});
+
+		// Act
+		let patch = clear_preview_build_status_patch(&app, "42", "api-pr-42");
+
+		// Assert
+		assert_eq!(patch, None);
 	}
 
 	#[rstest]

@@ -35,19 +35,19 @@ use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
-use crate::resources::source::{
-	build_kaniko_job, build_kaniko_job_for_branch, built_image_reference, should_build_from_source,
-};
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
 	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
 	build_migration_job, build_service,
 };
+use crate::source_build::{self, BuildDecision};
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
-use reinhardt_cloud_types::crd::{Project, ProjectCondition, ProjectPhase, ProjectStatus};
+use reinhardt_cloud_types::crd::{
+	BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
+};
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
@@ -220,25 +220,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
-	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
-	// Deletion of a stale ConfigMap is left to owner-reference GC once the
-	// owning Project is removed and to deliberate cleanup when
-	// spec.plugins transitions from Some(..) to None (not implemented here
-	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
-	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
-		let cm_name = plugin_cm
-			.metadata
-			.name
-			.clone()
-			.unwrap_or_else(|| format!("{name}-dentdelion-plugins"));
-		cm_api
-			.patch(&cm_name, &ssapply, &Patch::Apply(&plugin_cm))
-			.await
-			.map_err(Error::Kube)?;
-		info!("Reconciled ConfigMap {namespace}/{cm_name}");
-	}
-
 	// Create the per-app `core.secret_key` Secret unconditionally, so every
 	// reinhardt-web app reconciled by this operator can resolve
 	// `core.secret_key` from `production.toml` via Secret-backed env-var
@@ -290,6 +271,74 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// by the inference module) caused a convention conflict: the early Secret was
 	// created first, then `apply_db_secret_if_absent` silently skipped it, leaving
 	// the credentials mismatched with the init-SQL in the ConfigMap.
+
+	// Git credentials validation (#278)
+	if let Some(secret_name) = credentials::should_warn_missing_credentials(&app) {
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			warn!("Git credentials Secret '{secret_name}' referenced by {name} does not exist");
+		}
+	}
+
+	if reconcile_preview_delete_action(&app, &ctx.client, namespace).await? {
+		return Ok(Action::await_change());
+	}
+	reconcile_preview_ttl_cleanup(&app, &ctx.client, namespace).await?;
+
+	// Source build (#275) — gate workload updates on completed Kaniko builds.
+	match source_build::reconcile_source_build(&app, ctx.client.clone(), namespace).await? {
+		BuildDecision::NoBuild => {}
+		BuildDecision::Waiting { requeue_after } => {
+			return Ok(Action::requeue(requeue_after));
+		}
+		BuildDecision::Succeeded(completion) => {
+			match completion.status.target {
+				BuildTargetKind::Production => {
+					patch_project_image(&app, &ctx.client, namespace, &completion.status.image)
+						.await?;
+				}
+				BuildTargetKind::Preview => {
+					reconcile_preview_from_build(&app, &ctx.client, namespace, &completion.status)
+						.await?;
+				}
+			}
+			source_build::mark_build_succeeded(
+				&app,
+				ctx.client.clone(),
+				namespace,
+				completion.status,
+			)
+			.await?;
+			return Ok(Action::await_change());
+		}
+		BuildDecision::Failed(_failure) => {
+			return Ok(Action::await_change());
+		}
+	}
+
+	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
+	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+	// Deletion of a stale ConfigMap is left to owner-reference GC once the
+	// owning Project is removed and to deliberate cleanup when
+	// spec.plugins transitions from Some(..) to None (not implemented here
+	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
+	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
+		let cm_name = plugin_cm
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| format!("{name}-dentdelion-plugins"));
+		cm_api
+			.patch(&cm_name, &ssapply, &Patch::Apply(&plugin_cm))
+			.await
+			.map_err(Error::Kube)?;
+		info!("Reconciled ConfigMap {namespace}/{cm_name}");
+	}
 
 	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
 	let pages_config = resolve_pages_config(&app);
@@ -452,94 +501,9 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
 	}
 
-	// Git credentials validation (#278)
-	if let Some(secret_name) = credentials::should_warn_missing_credentials(&app) {
-		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
-		if secret_api
-			.get_opt(&secret_name)
-			.await
-			.map_err(Error::Kube)?
-			.is_none()
-		{
-			warn!("Git credentials Secret '{secret_name}' referenced by {name} does not exist");
-		}
-	}
-
-	// Source build (#275) — triggered by build-trigger annotation
-	if should_build_from_source(&app) {
-		let trigger = app
-			.metadata
-			.annotations
-			.as_ref()
-			.and_then(|a| a.get("reinhardt.dev/build-trigger"));
-		if let Some(trigger_ts) = trigger {
-			let short_trigger: String = trigger_ts.chars().take(8).collect();
-			let preview_action = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/preview-action"))
-				.map(String::as_str);
-			let pr_number = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-number"));
-			let pr_branch = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
-				.map(String::as_str);
-			let preview_build = matches!(preview_action, Some("create" | "update"))
-				.then_some(pr_number)
-				.flatten();
-			let image_tag = preview_build.map_or_else(
-				|| format!("{name}-{short_trigger}"),
-				|pr_number| preview::preview_image_tag(pr_number, &short_trigger),
-			);
-			let job = if preview_build.is_some() {
-				build_kaniko_job_for_branch(&app, &image_tag, pr_branch)?
-			} else {
-				build_kaniko_job(&app, &image_tag)?
-			};
-			let built_image = built_image_reference(&app, &image_tag)?;
-			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
-			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
-			if job_api
-				.get_opt(job_name)
-				.await
-				.map_err(Error::Kube)?
-				.is_none()
-			{
-				job_api
-					.create(&PostParams::default(), &job)
-					.await
-					.map_err(Error::Kube)?;
-				info!("Created build Job {namespace}/{job_name}");
-			}
-
-			// Clear the build-trigger annotation. Production builds also
-			// point the parent workload at the image that the build Job pushes.
-			let mut patch = serde_json::json!({
-				"metadata": {
-					"annotations": {
-						"reinhardt.dev/build-trigger": null
-					}
-				}
-			});
-			if preview_build.is_none() {
-				patch["spec"] = serde_json::json!({ "image": built_image });
-			}
-			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-			app_api
-				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-				.await
-				.map_err(Error::Kube)?;
-		}
-	}
-
-	// Preview environment reconciliation (#277)
+	// Preview environment create/update is reconciled only after source build
+	// success. This late block is intentionally non-mutating so it cannot clear
+	// annotations that the source build lifecycle still needs.
 	if app
 		.spec
 		.source
@@ -559,111 +523,22 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.and_then(|a| a.get("reinhardt.dev/pr-number"))
 				.cloned()
 				.unwrap_or_default();
-			let pr_branch = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
-				.map(String::as_str);
 			let preview_name = preview::preview_project_name(&name, &pr_number);
-			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 
 			match action.as_str() {
 				"create" | "update" => {
-					let short_trigger = app
-						.metadata
-						.annotations
-						.as_ref()
-						.and_then(|a| a.get("reinhardt.dev/build-trigger"))
-						.map(|trigger| trigger.chars().take(8).collect::<String>())
-						.unwrap_or_else(|| "latest".to_string());
-					let image_tag = preview::preview_image_tag(&pr_number, &short_trigger);
-					let preview_spec =
-						preview::build_preview_spec(&app, &pr_number, &image_tag, pr_branch)?;
-					let preview_labels = preview::preview_labels(&name, &pr_number);
-					let preview_app = Project {
-						metadata: kube::api::ObjectMeta {
-							name: Some(preview_name.clone()),
-							namespace: Some(namespace.to_string()),
-							labels: Some(preview_labels),
-							owner_references: Some(vec![resources::labels::owner_reference(&app)?]),
-							annotations: Some(BTreeMap::from([(
-								"reinhardt.dev/last-activity".to_string(),
-								chrono::Utc::now().to_rfc3339(),
-							)])),
-							..Default::default()
-						},
-						spec: preview_spec,
-						status: None,
-					};
-					app_api
-						.patch(
-							&preview_name,
-							&PatchParams::apply("reinhardt-cloud-operator").force(),
-							&Patch::Apply(&preview_app),
-						)
-						.await
-						.map_err(Error::Kube)?;
-					info!("Reconciled preview environment {namespace}/{preview_name}");
+					info!(
+						"Preview action {action} for {namespace}/{preview_name} waits for source build completion"
+					);
 				}
 				"delete" => {
-					let _ = app_api
-						.delete(&preview_name, &DeleteParams::default())
-						.await;
-					info!("Deleted preview environment {namespace}/{preview_name}");
+					info!(
+						"Preview delete action for {namespace}/{preview_name} was already handled before source build gating"
+					);
 				}
 				_ => {
 					warn!("Unknown preview action: {action}");
 				}
-			}
-
-			// Clear preview-action annotation after processing
-			let patch = serde_json::json!({
-				"metadata": {
-					"annotations": {
-						"reinhardt.dev/preview-action": null,
-						"reinhardt.dev/pr-number": null,
-						"reinhardt.dev/pr-branch": null
-					}
-				}
-			});
-			let parent_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-			parent_api
-				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-				.await
-				.map_err(Error::Kube)?;
-		}
-
-		// TTL cleanup for existing previews
-		let preview_list = Api::<Project>::namespaced(ctx.client.clone(), namespace)
-			.list(&kube::api::ListParams::default().labels(&format!(
-				"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
-			)))
-			.await
-			.map_err(Error::Kube)?;
-
-		let ttl = app
-			.spec
-			.source
-			.as_ref()
-			.and_then(|s| s.preview.as_ref())
-			.and_then(|p| p.ttl.as_deref())
-			.unwrap_or("72h");
-
-		for preview_app in preview_list {
-			let last_activity = preview_app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/last-activity"));
-			if let Some(ts) = last_activity
-				&& preview::is_ttl_expired(ts, ttl)
-			{
-				let pname = preview_app.name_any();
-				let _ = Api::<Project>::namespaced(ctx.client.clone(), namespace)
-					.delete(&pname, &DeleteParams::default())
-					.await;
-				info!("TTL expired, deleted preview {namespace}/{pname}");
 			}
 		}
 	}
@@ -1616,6 +1491,179 @@ async fn reconcile_tenant_resources(
 		"Reconciled tenant resources for namespace {namespace_name} (tenant org={}, team={:?})",
 		tenant.organization, tenant.team
 	);
+	Ok(())
+}
+
+async fn reconcile_preview_delete_action(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<bool, Error> {
+	let Some(action) = app
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|annotations| annotations.get("reinhardt.dev/preview-action"))
+	else {
+		return Ok(false);
+	};
+	if action != "delete" {
+		return Ok(false);
+	}
+
+	let parent_name = app.name_any();
+	let pr_number = app
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|annotations| annotations.get("reinhardt.dev/pr-number"))
+		.cloned()
+		.unwrap_or_default();
+	let preview_name = preview::preview_project_name(&parent_name, &pr_number);
+	source_build::clear_preview_build_for_delete(
+		app,
+		client.clone(),
+		namespace,
+		&pr_number,
+		&preview_name,
+	)
+	.await?;
+
+	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	match api.delete(&preview_name, &DeleteParams::default()).await {
+		Ok(_) => {
+			info!("Deleted preview environment {namespace}/{preview_name}");
+		}
+		Err(kube::Error::Api(status)) if status.code == 404 => {
+			info!("Preview environment {namespace}/{preview_name} was already absent");
+		}
+		Err(error) => {
+			return Err(Error::Kube(error));
+		}
+	}
+
+	let patch = source_build::preview_delete_annotations_patch();
+	api.patch(&parent_name, &PatchParams::default(), &Patch::Merge(&patch))
+		.await
+		.map_err(Error::Kube)?;
+	Ok(true)
+}
+
+async fn reconcile_preview_ttl_cleanup(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	if !app.spec.source.as_ref().is_some_and(|source| {
+		source
+			.preview
+			.as_ref()
+			.is_some_and(|preview| preview.enabled)
+	}) {
+		return Ok(());
+	}
+
+	let parent_name = app.name_any();
+	let preview_list = Api::<Project>::namespaced(client.clone(), namespace)
+		.list(&kube::api::ListParams::default().labels(&format!(
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={parent_name}"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+
+	let ttl = app
+		.spec
+		.source
+		.as_ref()
+		.and_then(|source| source.preview.as_ref())
+		.and_then(|preview| preview.ttl.as_deref())
+		.unwrap_or("72h");
+
+	for preview_app in preview_list {
+		let last_activity = preview_app
+			.metadata
+			.annotations
+			.as_ref()
+			.and_then(|annotations| annotations.get("reinhardt.dev/last-activity"));
+		if let Some(ts) = last_activity
+			&& preview::is_ttl_expired(ts, ttl)
+		{
+			let preview_name = preview_app.name_any();
+			let _ = Api::<Project>::namespaced(client.clone(), namespace)
+				.delete(&preview_name, &DeleteParams::default())
+				.await;
+			info!("TTL expired, deleted preview {namespace}/{preview_name}");
+		}
+	}
+
+	Ok(())
+}
+
+async fn patch_project_image(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+	image: &str,
+) -> Result<(), Error> {
+	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	let patch = serde_json::json!({
+		"spec": {
+			"image": image
+		}
+	});
+	api.patch(
+		&app.name_any(),
+		&PatchParams::default(),
+		&Patch::Merge(&patch),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	Ok(())
+}
+
+async fn reconcile_preview_from_build(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+	build: &reinhardt_cloud_types::crd::BuildStatus,
+) -> Result<(), Error> {
+	let pr_number = build
+		.pr_number
+		.as_deref()
+		.ok_or(Error::MissingField("status.build.prNumber"))?;
+	let preview_name = build
+		.preview_name
+		.as_deref()
+		.ok_or(Error::MissingField("status.build.previewName"))?;
+	let preview_spec =
+		preview::build_preview_spec(app, pr_number, &build.image_tag, build.branch.as_deref())?;
+	let parent_name = app.name_any();
+	let preview_labels = preview::preview_labels(&parent_name, pr_number);
+	let preview_app = Project {
+		metadata: kube::api::ObjectMeta {
+			name: Some(preview_name.to_string()),
+			namespace: Some(namespace.to_string()),
+			labels: Some(preview_labels),
+			owner_references: Some(vec![resources::labels::owner_reference(app)?]),
+			annotations: Some(BTreeMap::from([(
+				"reinhardt.dev/last-activity".to_string(),
+				chrono::Utc::now().to_rfc3339(),
+			)])),
+			..Default::default()
+		},
+		spec: preview_spec,
+		status: None,
+	};
+
+	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	api.patch(
+		preview_name,
+		&PatchParams::apply("reinhardt-cloud-operator").force(),
+		&Patch::Apply(&preview_app),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	info!("Reconciled preview environment {namespace}/{preview_name}");
 	Ok(())
 }
 
