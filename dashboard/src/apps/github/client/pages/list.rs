@@ -45,16 +45,19 @@ fn format_server_error(raw: &str) -> String {
 fn alert(error: Signal<Option<String>>) -> Page {
 	page!(|error: Signal<Option<String>>| {
 		{
-			error.get().map(|message| {
-			page!(|message: String| {
-				div {
-					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-					{
-						self::format_server_error(&message)
-					}
+			error
+	.get()
+	.map(|message| {
+		page!(|message: String| {
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				{
+					self::format_server_error(&message)
 				}
-			})(message)
-		}).unwrap_or(Page::Empty)
+			}
+		})(message)
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})(error)
 }

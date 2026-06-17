@@ -36,16 +36,19 @@ fn format_server_error(raw: &str) -> String {
 fn alert(error: Signal<Option<String>>) -> Page {
 	page!(|error: Signal<Option<String>>| {
 		{
-			error.get().map(|message| {
-			page!(|message: String| {
-				div {
-					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-					{
-						self::format_server_error(&message)
-					}
+			error
+	.get()
+	.map(|message| {
+		page!(|message: String| {
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				{
+					self::format_server_error(&message)
 				}
-			})(message)
-		}).unwrap_or(Page::Empty)
+			}
+		})(message)
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})(error)
 }
@@ -254,8 +257,7 @@ pub fn clusters_list_page() -> Page {
 							div {
 								class: "rc-panel-head",
 								"Cluster Inventory"
-							}
-							{
+							} {
 								match clusters_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
@@ -266,12 +268,10 @@ pub fn clusters_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										div {
 											class: "px-4 py-8 text-sm font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
-									ResourceState::Success(items) => {
+									ResourceState::Success(items)=> {
 										if items.is_empty() {
 											page!(|| {
 												div {
@@ -312,41 +312,39 @@ pub fn clusters_list_page() -> Page {
 														}
 														tbody {
 															class: "divide-y divide-cloud-100 bg-white",
-															{
-																items.clone().into_iter().map(|cluster| page!(|cluster: ClusterInfo| {
-																	tr {
-																		td {
-																			class: "px-4 py-2 font-mono text-xs text-ink-600",
+															{ items.clone().into_iter().map(|cluster| page!(|cluster: ClusterInfo| {
+																tr {
+																	td {
+																		class: "px-4 py-2 font-mono text-xs text-ink-600",
+																		{
+																			cluster.id.to_string()
+																		}
+																	}
+																	td {
+																		class: "px-4 py-2 font-semibold text-ink-950",
+																		{ cluster.name }
+																	}
+																	td {
+																		class: "px-4 py-2 text-ink-600",
+																		{ cluster.api_url }
+																	}
+																	td {
+																		class: "px-4 py-2",
+																		span {
+																			class: if cluster.is_active { "rounded-full bg-control-500/10 px-2 py-0.5 text-xs font-semibold text-control-700" } else { "rounded-full bg-cloud-100 px-2 py-0.5 text-xs font-semibold text-ink-600" },
 																			{
-																				cluster.id.to_string()
-																			}
-																		}
-																		td {
-																			class: "px-4 py-2 font-semibold text-ink-950",
-																			{ cluster.name }
-																		}
-																		td {
-																			class: "px-4 py-2 text-ink-600",
-																			{ cluster.api_url }
-																		}
-																		td {
-																			class: "px-4 py-2",
-																			span {
-																				class: if cluster.is_active { "rounded-full bg-control-500/10 px-2 py-0.5 text-xs font-semibold text-control-700" } else { "rounded-full bg-cloud-100 px-2 py-0.5 text-xs font-semibold text-ink-600" },
-																				{
-																					if cluster.is_active { "Active" } else { "Inactive" }
-																				}
-																			}
-																		}
-																		td {
-																			class: "px-4 py-2 text-ink-600",
-																			{
-																				cluster.token_last_rotated_at.clone().unwrap_or_else(||"never".to_string())
+																				if cluster.is_active { "Active" } else { "Inactive" }
 																			}
 																		}
 																	}
-																})(cluster)).collect::<Vec<_>>()
-															}
+																	td {
+																		class: "px-4 py-2 text-ink-600",
+																		{
+																			cluster.token_last_rotated_at.clone().unwrap_or_else(||"never".to_string())
+																		}
+																	}
+																}
+															})(cluster)).collect::<Vec<_>>() }
 														}
 													}
 												}
@@ -362,11 +360,8 @@ pub fn clusters_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Register Cluster"
 							}
-							{
-								self::alert(create_error.clone())
-							}
-							{ create_view }
-							{
+							{ self::alert(create_error.clone()) }
+							{ create_view } {
 								if create_submitting.get() {
 									page!(|| {
 										p {
@@ -394,12 +389,9 @@ pub fn clusters_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Cluster Operations"
 							}
-							{
-								self::alert(edit_error.clone())
-							}
-							{
+							{ self::alert(edit_error.clone()) } {
 								match clusters_for_edit.get() {
-									ResourceState::Success(items) => {
+									ResourceState::Success(items)=> {
 										let clusters_for_change = items.clone();
 										let name_signal = edit_name.clone();
 										let api_url_signal = edit_api_url.clone();
@@ -411,8 +403,7 @@ pub fn clusters_list_page() -> Page {
 												is_active_signal.set(cluster.is_active);
 											}
 										}, )
-									}
-									ResourceState::Loading => page!(|| {
+									}ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
 											"Loading clusters..."
@@ -421,15 +412,12 @@ pub fn clusters_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ edit_view }
-							{
+							{ edit_view } {
 								if edit_dirty.get() {
 									page!(|| {
 										p {
@@ -452,10 +440,7 @@ pub fn clusters_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{
-								self::alert(rotate_error.clone())
-							}
-							{
+							{ self::alert(rotate_error.clone()) } {
 								match clusters_for_rotate.get() {
 									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), rotate_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
@@ -467,15 +452,12 @@ pub fn clusters_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ rotate_view }
-							{
+							{ rotate_view } {
 								if rotate_submitting.get() {
 									page!(|| {
 										p {
@@ -488,10 +470,7 @@ pub fn clusters_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{
-								self::alert(delete_error.clone())
-							}
-							{
+							{ self::alert(delete_error.clone()) } {
 								match clusters_for_delete.get() {
 									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), delete_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
@@ -503,15 +482,12 @@ pub fn clusters_list_page() -> Page {
 									ResourceState::Error(message) => page!(|message: String| {
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&message)
-											}
+											{ self::format_server_error(&message) }
 										}
 									})(message),
 								}
 							}
-							{ delete_view }
-							{
+							{ delete_view } {
 								if delete_submitting.get() {
 									page!(|| {
 										p {
