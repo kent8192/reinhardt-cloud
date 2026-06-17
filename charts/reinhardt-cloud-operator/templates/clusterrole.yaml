@@ -19,6 +19,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Base: Job management for source builds and deployment revision migrations.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Base: Service, ConfigMap, Secret management (always required)
   - apiGroups: [""]
     resources: ["services", "configmaps", "secrets"]

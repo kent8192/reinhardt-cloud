@@ -14,6 +14,8 @@ pub enum ConditionType {
 	Ready,
 	Progressing,
 	Degraded,
+	/// Database migration for the active deployment revision has completed.
+	MigrationReady,
 	/// Database sub-resource is provisioned and reachable
 	DatabaseReady,
 	/// Cache sub-resource is provisioned and reachable
@@ -122,6 +124,7 @@ mod tests {
 			(ConditionType::Ready, "\"Ready\""),
 			(ConditionType::Progressing, "\"Progressing\""),
 			(ConditionType::Degraded, "\"Degraded\""),
+			(ConditionType::MigrationReady, "\"MigrationReady\""),
 			(ConditionType::DatabaseReady, "\"DatabaseReady\""),
 			(ConditionType::CacheReady, "\"CacheReady\""),
 			(ConditionType::WorkerReady, "\"WorkerReady\""),
