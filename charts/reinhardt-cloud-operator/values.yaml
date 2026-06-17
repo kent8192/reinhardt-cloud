@@ -24,9 +24,10 @@ features:
   database: true
   # Enable cache (Redis) inference and reconciliation.
   cache: false
-  # Enable ingress resource inference and reconciliation.
+  # Enable Ingress resource inference and reconciliation, including
+  # Project.spec.services.tls on generated Ingress objects.
   ingress: false
-  # Enable horizontal autoscaling (HPA) support.
+  # Enable horizontal autoscaling (HPA) reconciliation for Project.spec.scale.
   autoscaling: false
   # Enable persistent storage (PVC) inference and reconciliation.
   storage: false

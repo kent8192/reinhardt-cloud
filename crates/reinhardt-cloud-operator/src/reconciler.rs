@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscaler;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
@@ -40,13 +41,15 @@ use crate::resources::source::{
 };
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
-	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
-	build_migration_job, build_service,
+	self, AutoscalerPlan, build_autoscaler, build_db_secret, build_db_service,
+	build_db_statefulset, build_deployment, build_ingress, build_migration_job, build_service,
+	hpa_is_ready,
 };
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
+use reinhardt_cloud_types::crd::spec::ScaleMetric;
 use reinhardt_cloud_types::crd::{Project, ProjectCondition, ProjectPhase, ProjectStatus};
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
@@ -405,6 +408,24 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		.await?;
 	}
 
+	let mut child_conditions = Vec::new();
+	if let Some(plan) = build_autoscaler(&app)? {
+		match plan {
+			AutoscalerPlan::Apply(hpa) => {
+				reconcile_hpa(&ctx.client, namespace, &hpa).await?;
+			}
+			AutoscalerPlan::Unsupported { reason, message } => {
+				child_conditions.push(child_condition(
+					&app,
+					ConditionType::AutoscalerReady,
+					ConditionStatus::False,
+					reason,
+					&message,
+				));
+			}
+		}
+	}
+
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
@@ -719,8 +740,23 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		.unwrap_or(0);
 	let ready = ready_replicas >= desired_replicas;
 
+	if let Some(condition) = tls_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+	if let Some(condition) = autoscaler_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+
 	// Update status sub-resource
-	update_status(&app, ctx, namespace, ready, ready_replicas).await?;
+	update_status(
+		&app,
+		ctx,
+		namespace,
+		ready,
+		ready_replicas,
+		child_conditions,
+	)
+	.await?;
 
 	Ok(Action::await_change())
 }
@@ -786,6 +822,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// (Ingress, migration Job). These have ownerReferences but we delete
 	// explicitly for a cleaner teardown sequence.
 	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
+	delete_if_exists::<HorizontalPodAutoscaler>(&ctx.client, namespace, &name).await?;
 	delete_if_exists::<Job>(&ctx.client, namespace, &format!("{name}-migrate")).await?;
 
 	match app.spec.deletion_policy {
@@ -1281,6 +1318,25 @@ async fn reconcile_ingress_resource_with_host(
 	Ok(())
 }
 
+async fn reconcile_hpa(
+	client: &Client,
+	namespace: &str,
+	hpa: &HorizontalPodAutoscaler,
+) -> Result<(), Error> {
+	let name = hpa
+		.metadata
+		.name
+		.clone()
+		.expect("HPA builder always sets name");
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	let hpas: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	hpas.patch(&name, &ssapply, &Patch::Apply(hpa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled HPA {namespace}/{name}");
+	Ok(())
+}
+
 /// Reconciles the Redis cache `Deployment` via server-side apply.
 async fn reconcile_cache_deployment(
 	app: &Project,
@@ -1721,11 +1777,164 @@ where
 	Ok(())
 }
 
+fn child_condition(
+	app: &Project,
+	type_: ConditionType,
+	status: ConditionStatus,
+	reason: &str,
+	message: &str,
+) -> ProjectCondition {
+	let existing = app.status.as_ref().and_then(|s| {
+		s.conditions
+			.iter()
+			.find(|condition| condition.type_ == type_)
+	});
+	let last_transition_time =
+		if should_update_transition_time(existing.map(|condition| &condition.status), &status) {
+			Some(chrono::Utc::now().to_rfc3339())
+		} else {
+			existing.and_then(|condition| condition.last_transition_time.clone())
+		};
+
+	ProjectCondition {
+		type_,
+		status,
+		reason: reason.to_string(),
+		message: message.to_string(),
+		last_transition_time,
+		observed_generation: app.metadata.generation,
+	}
+}
+
+async fn tls_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(services) = app.spec.services.as_ref() else {
+		return Ok(None);
+	};
+	let Some(tls) = services.tls.as_ref() else {
+		return Ok(None);
+	};
+	if !tls.enabled {
+		return Ok(None);
+	}
+
+	let host = services.ingress_host.as_deref().unwrap_or_default();
+	let secret_name = tls.secret_name.as_deref().unwrap_or_default();
+	if host.is_empty() || secret_name.is_empty() {
+		return Ok(Some(child_condition(
+			app,
+			ConditionType::TlsReady,
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			"Waiting for Ingress TLS host and Secret name to be configured",
+		)));
+	}
+
+	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+	let ingress = ingress_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let secret = secret_api.get_opt(secret_name).await.map_err(Error::Kube)?;
+
+	let ingress_matches = ingress
+		.as_ref()
+		.and_then(|ingress| ingress.spec.as_ref())
+		.and_then(|spec| spec.tls.as_ref())
+		.is_some_and(|tls_entries| {
+			tls_entries.iter().any(|entry| {
+				entry.secret_name.as_deref() == Some(secret_name)
+					&& entry
+						.hosts
+						.as_ref()
+						.is_some_and(|hosts| hosts.iter().any(|candidate| candidate == host))
+			})
+		});
+
+	let ready = ingress_matches && secret.is_some();
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"TlsSecretReady",
+			format!("Ingress TLS references Secret '{secret_name}' and the Secret exists"),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			format!("Waiting for Ingress TLS host '{host}' and Secret '{secret_name}'"),
+		)
+	};
+
+	Ok(Some(child_condition(
+		app,
+		ConditionType::TlsReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
+async fn autoscaler_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(scale) = app.spec.scale.as_ref() else {
+		return Ok(None);
+	};
+	if scale
+		.metric
+		.as_ref()
+		.is_some_and(|metric| matches!(metric, ScaleMetric::Rps))
+	{
+		return Ok(None);
+	}
+
+	let hpa_api: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	let hpa = hpa_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let ready = hpa.as_ref().is_some_and(hpa_is_ready);
+
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"AutoscalerActive",
+			"HorizontalPodAutoscaler is observed and active".to_string(),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"AutoscalerNotReady",
+			"Waiting for HorizontalPodAutoscaler to become observed and active".to_string(),
+		)
+	};
+
+	Ok(Some(child_condition(
+		app,
+		ConditionType::AutoscalerReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
 /// Builds the desired `ProjectStatus` for the given readiness state.
 ///
 /// Pure function that computes the status without any Kubernetes API
 /// calls, making it independently testable.
-fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatus {
+fn build_status(
+	app: &Project,
+	ready: bool,
+	ready_replicas: i32,
+	mut child_conditions: Vec<ProjectCondition>,
+) -> ProjectStatus {
 	let phase = if ready {
 		ProjectPhase::Running
 	} else {
@@ -1776,16 +1985,19 @@ fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatu
 		None
 	};
 
+	let mut conditions = vec![ProjectCondition {
+		type_: ConditionType::Ready,
+		status: condition_status,
+		reason: reason.to_string(),
+		message: message.to_string(),
+		last_transition_time,
+		observed_generation: app.metadata.generation,
+	}];
+	conditions.append(&mut child_conditions);
+
 	ProjectStatus {
 		phase: Some(phase),
-		conditions: vec![ProjectCondition {
-			type_: ConditionType::Ready,
-			status: condition_status,
-			reason: reason.to_string(),
-			message: message.to_string(),
-			last_transition_time,
-			observed_generation: app.metadata.generation,
-		}],
+		conditions,
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
 		database,
@@ -1803,9 +2015,10 @@ async fn update_status(
 	namespace: &str,
 	ready: bool,
 	ready_replicas: i32,
+	child_conditions: Vec<ProjectCondition>,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let typed_status = build_status(app, ready, ready_replicas);
+	let typed_status = build_status(app, ready, ready_replicas, child_conditions);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -2073,7 +2286,7 @@ mod tests {
 		let app = make_test_app("ready-app");
 
 		// Act
-		let status = build_status(&app, true, 3);
+		let status = build_status(&app, true, 3, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
@@ -2090,7 +2303,7 @@ mod tests {
 		let app = make_test_app("deploying-app");
 
 		// Act
-		let status = build_status(&app, false, 0);
+		let status = build_status(&app, false, 0, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
@@ -2105,13 +2318,35 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_status_appends_child_conditions() {
+		// Arrange
+		let app = make_test_app("status-child-app");
+		let child = ProjectCondition {
+			type_: ConditionType::TlsReady,
+			status: ConditionStatus::True,
+			reason: "TlsSecretReady".to_string(),
+			message: "TLS Secret is present".to_string(),
+			last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+			observed_generation: Some(1),
+		};
+
+		// Act
+		let status = build_status(&app, true, 1, vec![child]);
+
+		// Assert
+		assert_eq!(status.conditions.len(), 2);
+		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(status.conditions[1].type_, ConditionType::TlsReady);
+	}
+
+	#[rstest]
 	fn test_build_status_sets_observed_generation() {
 		// Arrange
 		let mut app = make_test_app("gen-app");
 		app.metadata.generation = Some(5);
 
 		// Act
-		let status = build_status(&app, true, 1);
+		let status = build_status(&app, true, 1, Vec::new());
 
 		// Assert
 		assert_eq!(status.observed_generation, Some(5));
@@ -2124,7 +2359,7 @@ mod tests {
 		let app = make_test_app("replicas-app");
 
 		// Act
-		let status = build_status(&app, true, 7);
+		let status = build_status(&app, true, 7, Vec::new());
 
 		// Assert
 		assert_eq!(status.ready_replicas, Some(7));
@@ -2151,7 +2386,7 @@ mod tests {
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
-		let status = build_status(&app, true, 1);
+		let status = build_status(&app, true, 1, Vec::new());
 
 		// Assert — transition time should be preserved
 		assert_eq!(
@@ -2181,7 +2416,7 @@ mod tests {
 		});
 
 		// Act — readiness changed from True to False
-		let status = build_status(&app, false, 0);
+		let status = build_status(&app, false, 0, Vec::new());
 
 		// Assert — transition time should be updated (not the old value)
 		assert_ne!(
@@ -2197,7 +2432,7 @@ mod tests {
 		let app = make_test_app("new-app");
 
 		// Act
-		let status = build_status(&app, true, 1);
+		let status = build_status(&app, true, 1, Vec::new());
 
 		// Assert — should have a transition time since there's no prior condition
 		assert!(status.conditions[0].last_transition_time.is_some());
@@ -2217,7 +2452,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1);
+		let status = build_status(&app, true, 1, Vec::new());
 
 		// Assert
 		let db_status = status.database.expect("database status should be present");
@@ -2235,7 +2470,7 @@ mod tests {
 		let app = make_test_app("no-db-app");
 
 		// Act
-		let status = build_status(&app, true, 1);
+		let status = build_status(&app, true, 1, Vec::new());
 
 		// Assert
 		assert!(status.database.is_none());
@@ -2600,6 +2835,7 @@ mod tests {
 			port: None,
 			target_port: Some(3000),
 			ingress_host: None,
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			settings: SettingsMetadata {
@@ -2753,6 +2989,7 @@ mod tests {
 			port: Some(80),
 			target_port: Some(8080),
 			ingress_host: Some("myapp.example.com".to_string()),
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			routes: vec![RouteMetadata {

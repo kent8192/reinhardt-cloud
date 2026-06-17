@@ -66,8 +66,8 @@ The function signature `build_project_crd(name, namespace, spec,
 api_version) -> serde_yaml::Value` is the CLI's CRD rendering boundary.
 The conversion from `reinhardt-cloud.toml` to `ProjectSpec` happens
 before that boundary so typed TOML sections such as `health`, `services`,
-`scale`, `env`, `database`, `cache`, `worker`, `storage`, and `mail` are
-not dropped during manifest construction.
+`services.tls`, `scale`, `env`, `database`, `cache`, `worker`, `storage`,
+and `mail` are not dropped during manifest construction.
 
 ### Dashboard Server-Function Relay Path
 
@@ -171,6 +171,12 @@ today, and on the Intended dashboard path. Feature flags from
 `crates/reinhardt-cloud-types/src/introspect.rs:11-31`, with fields
 `app`, `databases`, `routes`, `middleware`, `settings`, `features`) gate
 the optional resources.
+
+When `Project.spec.services.tls` is enabled, the operator materializes TLS on
+the generated Ingress and reports `TlsReady` from the live Ingress and Secret
+state. When `Project.spec.scale` is present with `cpu` or `memory`, the
+operator materializes an `autoscaling/v2` HPA and reports `AutoscalerReady`
+from the live HPA status conditions.
 
 ```mermaid
 flowchart TD

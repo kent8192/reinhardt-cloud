@@ -80,6 +80,12 @@ interval_seconds = 10
 [services]
 port = 80
 target_port = 8000
+ingress_host = "app.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "app-example-com-tls"
+cluster_issuer = "letsencrypt-prod"
 
 [scale]
 min_replicas = 2
@@ -254,9 +260,10 @@ spec:
 | `auth` | `AuthSpec?` | JWT + OAuth configuration |
 | `storage` | `StorageSpec?` | S3 / GCS / PVC object storage |
 | `mail` | `MailSpec?` | SMTP configuration |
-| `scale` | `ScaleSpec?` | HPA autoscaling (CPU, Memory, RPS) |
+| `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
 | `services` | `ServicesSpec?` | Port + Ingress exposure |
+| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
 | `deletion_policy` | `DeletionPolicy` | `Retain` (default) or `Delete` |
@@ -273,7 +280,11 @@ spec:
 
 The operator reports the following conditions on the CRD status:
 
-`Ready`, `Progressing`, `Degraded`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`
+`Ready`, `Progressing`, `Degraded`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady`
+
+Autoscaling uses Kubernetes `autoscaling/v2` HPA for `cpu` and `memory`.
+For `memory`, `target_value` is MiB. `rps` is reserved for custom/external
+metrics and surfaces `AutoscalerReady=False` until a custom metrics provider is supported.
 
 ## Installation
 
@@ -379,6 +390,11 @@ interval_seconds = 15
 port = 443
 target_port = 3000
 ingress_host = "app.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "app-example-com-tls"
+cluster_issuer = "letsencrypt-prod"
 
 [replicas]
 count = 3

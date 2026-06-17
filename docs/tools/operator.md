@@ -186,7 +186,10 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `mail` | no | SMTP credentials secret reference |
 | `pages` | no | Static-site configuration for reinhardt-pages apps |
 | `scale` | no | HPA configuration (min/max replicas, metrics) |
+| `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
+| `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
+| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
 | `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |
@@ -197,11 +200,16 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `ProjectPhase` | Top-level application lifecycle phase. Values: `pending`, `provisioning`, `deploying`, `running`, `degraded`, `failed`, `terminating` |
-| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types: `Ready`, `Progressing`, `Degraded` |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types: `Ready`, `Progressing`, `Degraded`, `TlsReady`, `AutoscalerReady` |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
 | `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
 | `observedGeneration` | int64 | Last generation observed by the controller |
+
+`TlsReady=True` means the generated Ingress contains the expected TLS host and
+secret reference, and the referenced Secret exists in the Project namespace.
+`AutoscalerReady=True` means the generated HPA has observed its current
+generation and reports `AbleToScale=True` plus `ScalingActive=True`.
 
 Note: the served/storage version matrix may change release-to-release. The upcoming
 `reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at
@@ -290,6 +298,10 @@ permissions are present; all rules follow the least-privilege principle (project
 | `features.cache=true`, `platform=gcp` | `redis.cnrm.cloud.google.com` | `redisinstances` | get, list, watch, create, update, patch, delete |
 | `features.ingress=true` | `networking.k8s.io` | `ingresses` | get, list, watch, create, update, patch, delete |
 | `features.autoscaling=true` | `autoscaling` | `horizontalpodautoscalers` | get, list, watch, create, update, patch, delete |
+
+TLS readiness reads core Secrets, which are covered by the always-present core
+RBAC rule. HPA reconciliation requires `features.autoscaling=true`; Ingress TLS
+reconciliation requires `features.ingress=true`.
 
 ServiceAccount: name is resolved by the `reinhardt-cloud-operator.serviceAccountName` helper in
 `_helpers.tpl` — defaults to the Helm release name, or `values.serviceAccount.name` if set.
