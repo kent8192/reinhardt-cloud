@@ -159,28 +159,23 @@ pub(crate) fn build_database_env_vars_from_secret(
 
 /// Build OpenTelemetry environment variables for an application Pod.
 ///
-/// Propagates the active trace context into the Pod so that application spans
-/// are correlated with the operator's reconcile span. Also sets standard OTel
-/// configuration variables so the Pod's SDK picks up the correct exporter and
-/// service identity without requiring manual configuration.
+/// Sets standard OTel configuration variables so the Pod's SDK picks up the
+/// correct exporter and service identity without requiring manual
+/// configuration.
 ///
 /// * `project_name` — value for `OTEL_SERVICE_NAME` (typically the app's name).
 ///
 /// Variables injected:
-/// * `TRACEPARENT` — W3C `traceparent` of the current reconcile span (omitted
-///   when the current span context is not valid). Note: OTel SDKs do not read
-///   `TRACEPARENT` automatically; the application must bootstrap context by
-///   reading this variable and explicitly setting it as the parent for the
-///   process's root span.
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `project_name`.
 /// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
 ///   environment variable of the same name when present.
+///
+/// The operator's per-reconcile `TRACEPARENT` is deliberately not injected:
+/// it is reconcile-scoped, so embedding it in a long-lived workload template
+/// would change the Pod spec on every reconciliation and trigger repeated
+/// rollouts. Application spans therefore start as independent roots.
 pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
-	use opentelemetry::trace::TraceContextExt;
-	use tracing::Span;
-	use tracing_opentelemetry::OpenTelemetrySpanExt;
-
 	let mut vars = vec![
 		env_var("OTEL_PROPAGATORS", "tracecontext"),
 		env_var("OTEL_SERVICE_NAME", project_name),
@@ -192,16 +187,6 @@ pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
 		&& !endpoint.is_empty()
 	{
 		vars.push(env_var("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint));
-	}
-
-	// Propagate the current reconcile span's traceparent so that application
-	// spans are nested inside the operator's reconcile trace.
-	let otel_cx = Span::current().context();
-	let otel_span = otel_cx.span();
-	if otel_span.span_context().is_valid()
-		&& let Some(tp) = reinhardt_cloud_telemetry::traceparent_from_context(&otel_cx)
-	{
-		vars.push(env_var("TRACEPARENT", &tp));
 	}
 
 	vars
