@@ -295,6 +295,72 @@ fn transition_build_status(
 		Some(preserved_transition_time.unwrap_or_else(|| Utc::now().to_rfc3339()));
 }
 
+#[derive(Debug, Clone)]
+struct BuildDecisionTransition {
+	decision: BuildDecision,
+	status_patch: Option<(BuildStatus, ProjectCondition)>,
+}
+
+fn build_decision_from_job_state(
+	app: &Project,
+	mut build: BuildStatus,
+	job_state: JobBuildState,
+) -> BuildDecisionTransition {
+	match job_state {
+		JobBuildState::Running => {
+			transition_build_status(
+				app,
+				&mut build,
+				BuildPhase::Running,
+				"BuildRunning",
+				"Kaniko build Job is still running",
+			);
+			let condition = build_condition(
+				ConditionType::Progressing,
+				ConditionStatus::True,
+				"BuildRunning",
+				"Kaniko build Job is still running",
+				app.metadata.generation,
+			);
+			BuildDecisionTransition {
+				decision: BuildDecision::Waiting {
+					requeue_after: Duration::from_secs(BUILD_REQUEUE_SECS),
+				},
+				status_patch: Some((build, condition)),
+			}
+		}
+		JobBuildState::Succeeded => {
+			transition_build_status(
+				app,
+				&mut build,
+				BuildPhase::Succeeded,
+				"BuildSucceeded",
+				"Kaniko build Job succeeded",
+			);
+			BuildDecisionTransition {
+				decision: BuildDecision::Succeeded(BuildCompletion { status: build }),
+				status_patch: None,
+			}
+		}
+		JobBuildState::Failed { reason, message } => {
+			transition_build_status(app, &mut build, BuildPhase::Failed, &reason, &message);
+			let condition = build_condition(
+				ConditionType::Degraded,
+				ConditionStatus::True,
+				"BuildFailed",
+				&message,
+				app.metadata.generation,
+			);
+			BuildDecisionTransition {
+				decision: BuildDecision::Failed(BuildFailure {
+					status: build.clone(),
+				}),
+				status_patch: Some((build, condition)),
+			}
+		}
+	}
+}
+
 pub(crate) fn clear_build_annotations_patch() -> serde_json::Value {
 	serde_json::json!({
 		"metadata": {
@@ -515,50 +581,14 @@ pub(crate) async fn reconcile_source_build(
 		clear_build_annotations(client.clone(), namespace, app).await?;
 	}
 
-	match classify_job_state(&live_job) {
-		JobBuildState::Running => {
-			transition_build_status(
-				app,
-				&mut build,
-				BuildPhase::Running,
-				"BuildRunning",
-				"Kaniko build Job is still running",
-			);
-			let condition = build_condition(
-				ConditionType::Progressing,
-				ConditionStatus::True,
-				"BuildRunning",
-				"Kaniko build Job is still running",
-				app.metadata.generation,
-			);
-			patch_build_status(client, namespace, app, build, condition).await?;
-			Ok(BuildDecision::Waiting {
-				requeue_after: Duration::from_secs(BUILD_REQUEUE_SECS),
-			})
-		}
-		JobBuildState::Succeeded => {
-			transition_build_status(
-				app,
-				&mut build,
-				BuildPhase::Succeeded,
-				"BuildSucceeded",
-				"Kaniko build Job succeeded",
-			);
-			Ok(BuildDecision::Succeeded(BuildCompletion { status: build }))
-		}
-		JobBuildState::Failed { reason, message } => {
-			transition_build_status(app, &mut build, BuildPhase::Failed, &reason, &message);
-			let condition = build_condition(
-				ConditionType::Degraded,
-				ConditionStatus::True,
-				"BuildFailed",
-				&message,
-				app.metadata.generation,
-			);
-			patch_build_status(client, namespace, app, build.clone(), condition).await?;
-			Ok(BuildDecision::Failed(BuildFailure { status: build }))
-		}
+	let BuildDecisionTransition {
+		decision,
+		status_patch,
+	} = build_decision_from_job_state(app, build, classify_job_state(&live_job));
+	if let Some((build, condition)) = status_patch {
+		patch_build_status(client, namespace, app, build, condition).await?;
 	}
+	Ok(decision)
 }
 
 pub(crate) async fn mark_build_succeeded(
@@ -600,7 +630,7 @@ fn image_tag_suffix(image_tag: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-	use k8s_openapi::api::batch::v1::{Job, JobSpec, JobStatus};
+	use k8s_openapi::api::batch::v1::{Job, JobCondition, JobSpec, JobStatus};
 	use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 	use reinhardt_cloud_types::crd::{
 		BuildPhase, BuildStatus, BuildTargetKind, Project, ProjectStatus,
@@ -990,6 +1020,111 @@ mod tests {
 			build.last_transition_time.as_deref(),
 			Some("2026-01-01T00:00:00Z")
 		);
+	}
+
+	#[rstest]
+	fn running_job_state_decision_waits_and_marks_build_running() {
+		// Arrange
+		let app = test_project();
+		let mut build = test_running_build_status();
+		build.phase = BuildPhase::Pending;
+		build.reason = Some("BuildPending".to_string());
+		build.message = Some("Kaniko build Job has been accepted".to_string());
+
+		// Act
+		let transition = build_decision_from_job_state(&app, build, JobBuildState::Running);
+
+		// Assert
+		assert_eq!(
+			transition.decision,
+			BuildDecision::Waiting {
+				requeue_after: Duration::from_secs(BUILD_REQUEUE_SECS),
+			}
+		);
+		let (build, condition) = transition
+			.status_patch
+			.expect("running job should update build status");
+		assert_eq!(build.phase, BuildPhase::Running);
+		assert_eq!(build.reason.as_deref(), Some("BuildRunning"));
+		assert_eq!(
+			build.message.as_deref(),
+			Some("Kaniko build Job is still running")
+		);
+		assert_eq!(condition.type_, ConditionType::Progressing);
+		assert_eq!(condition.status, ConditionStatus::True);
+		assert_eq!(condition.reason, "BuildRunning");
+	}
+
+	#[rstest]
+	fn succeeded_job_state_decision_succeeds_and_marks_build_succeeded() {
+		// Arrange
+		let app = test_project();
+		let build = test_running_build_status();
+
+		// Act
+		let transition = build_decision_from_job_state(&app, build, JobBuildState::Succeeded);
+
+		// Assert
+		assert!(transition.status_patch.is_none());
+		match transition.decision {
+			BuildDecision::Succeeded(BuildCompletion { status }) => {
+				assert_eq!(status.phase, BuildPhase::Succeeded);
+				assert_eq!(status.reason.as_deref(), Some("BuildSucceeded"));
+				assert_eq!(
+					status.message.as_deref(),
+					Some("Kaniko build Job succeeded")
+				);
+			}
+			other => panic!("expected succeeded decision, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn failed_live_job_state_decision_fails_and_copies_reason() {
+		// Arrange
+		let app = test_project();
+		let build = test_running_build_status();
+		let job = Job {
+			status: Some(JobStatus {
+				conditions: Some(vec![JobCondition {
+					type_: "Failed".to_string(),
+					status: "True".to_string(),
+					reason: Some("BackoffLimitExceeded".to_string()),
+					message: Some("Kaniko build Job exceeded backoff limit".to_string()),
+					..Default::default()
+				}]),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let transition = build_decision_from_job_state(&app, build, classify_job_state(&job));
+
+		// Assert
+		let (patched_build, condition) = transition
+			.status_patch
+			.expect("failed job should update build status");
+		match transition.decision {
+			BuildDecision::Failed(BuildFailure { status }) => {
+				assert_eq!(status.phase, BuildPhase::Failed);
+				assert_eq!(status.reason.as_deref(), Some("BackoffLimitExceeded"));
+				assert_eq!(
+					status.message.as_deref(),
+					Some("Kaniko build Job exceeded backoff limit")
+				);
+			}
+			other => panic!("expected failed decision, got {other:?}"),
+		}
+		assert_eq!(patched_build.phase, BuildPhase::Failed);
+		assert_eq!(
+			patched_build.reason.as_deref(),
+			Some("BackoffLimitExceeded")
+		);
+		assert_eq!(condition.type_, ConditionType::Degraded);
+		assert_eq!(condition.status, ConditionStatus::True);
+		assert_eq!(condition.reason, "BuildFailed");
+		assert_eq!(condition.message, "Kaniko build Job exceeded backoff limit");
 	}
 
 	#[rstest]

@@ -46,7 +46,7 @@ use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
 use reinhardt_cloud_types::crd::{
-	BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
+	BuildStatus, BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
 };
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
@@ -75,6 +75,33 @@ pub(crate) struct Context {
 	/// `managed_apps{phase}` gauge in sync as objects transition between
 	/// phases and when they are deleted. Key is `(namespace, name)`.
 	pub phase_state: Arc<DashMap<(String, String), String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SourceBuildGateAction {
+	Continue,
+	Requeue { requeue_after: Duration },
+	UpdateProductionImage { build: BuildStatus },
+	UpdatePreview { build: BuildStatus },
+	AwaitChange,
+}
+
+fn source_build_gate_action(decision: BuildDecision) -> SourceBuildGateAction {
+	match decision {
+		BuildDecision::NoBuild => SourceBuildGateAction::Continue,
+		BuildDecision::Waiting { requeue_after } => {
+			SourceBuildGateAction::Requeue { requeue_after }
+		}
+		BuildDecision::Succeeded(completion) => match completion.status.target {
+			BuildTargetKind::Production => SourceBuildGateAction::UpdateProductionImage {
+				build: completion.status,
+			},
+			BuildTargetKind::Preview => SourceBuildGateAction::UpdatePreview {
+				build: completion.status,
+			},
+		},
+		BuildDecision::Failed(_failure) => SourceBuildGateAction::AwaitChange,
+	}
 }
 
 /// Base backoff duration for transient Kube API errors.
@@ -291,32 +318,24 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	reconcile_preview_ttl_cleanup(&app, &ctx.client, namespace).await?;
 
 	// Source build (#275) — gate workload updates on completed Kaniko builds.
-	match source_build::reconcile_source_build(&app, ctx.client.clone(), namespace).await? {
-		BuildDecision::NoBuild => {}
-		BuildDecision::Waiting { requeue_after } => {
+	let source_build_decision =
+		source_build::reconcile_source_build(&app, ctx.client.clone(), namespace).await?;
+	match source_build_gate_action(source_build_decision) {
+		SourceBuildGateAction::Continue => {}
+		SourceBuildGateAction::Requeue { requeue_after } => {
 			return Ok(Action::requeue(requeue_after));
 		}
-		BuildDecision::Succeeded(completion) => {
-			match completion.status.target {
-				BuildTargetKind::Production => {
-					patch_project_image(&app, &ctx.client, namespace, &completion.status.image)
-						.await?;
-				}
-				BuildTargetKind::Preview => {
-					reconcile_preview_from_build(&app, &ctx.client, namespace, &completion.status)
-						.await?;
-				}
-			}
-			source_build::mark_build_succeeded(
-				&app,
-				ctx.client.clone(),
-				namespace,
-				completion.status,
-			)
-			.await?;
+		SourceBuildGateAction::UpdateProductionImage { build } => {
+			patch_project_image(&app, &ctx.client, namespace, &build.image).await?;
+			source_build::mark_build_succeeded(&app, ctx.client.clone(), namespace, build).await?;
 			return Ok(Action::await_change());
 		}
-		BuildDecision::Failed(_failure) => {
+		SourceBuildGateAction::UpdatePreview { build } => {
+			reconcile_preview_from_build(&app, &ctx.client, namespace, &build).await?;
+			source_build::mark_build_succeeded(&app, ctx.client.clone(), namespace, build).await?;
+			return Ok(Action::await_change());
+		}
+		SourceBuildGateAction::AwaitChange => {
 			return Ok(Action::await_change());
 		}
 	}
@@ -2090,6 +2109,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::source_build::{BuildCompletion, BuildFailure};
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::{
 		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
@@ -2114,6 +2134,97 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
+		let mut build = BuildStatus {
+			phase: BuildPhase::Succeeded,
+			target,
+			trigger: "abcdef1234567890".to_string(),
+			job_name: "ready-app-build-abcdef12".to_string(),
+			image: "registry.example.com/ready-app:ready-app-abcdef12".to_string(),
+			image_tag: "ready-app-abcdef12".to_string(),
+			preview_name: None,
+			pr_number: None,
+			branch: Some("main".to_string()),
+			reason: Some("BuildSucceeded".to_string()),
+			message: Some("Kaniko build Job succeeded".to_string()),
+			started_at: Some("2026-06-17T00:00:00Z".to_string()),
+			last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+		};
+		if build.target == BuildTargetKind::Preview {
+			build.image = "registry.example.com/ready-app:pr-42-abcdef12".to_string();
+			build.image_tag = "pr-42-abcdef12".to_string();
+			build.preview_name = Some("ready-app-pr-42".to_string());
+			build.pr_number = Some("42".to_string());
+			build.branch = Some("feature/login".to_string());
+		}
+		build
+	}
+
+	#[rstest]
+	fn source_build_gate_action_gates_waiting_without_runtime_update() {
+		// Arrange
+		let decision = BuildDecision::Waiting {
+			requeue_after: Duration::from_secs(10),
+		};
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(
+			action,
+			SourceBuildGateAction::Requeue {
+				requeue_after: Duration::from_secs(10),
+			}
+		);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_gates_failed_without_runtime_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Production);
+		let decision = BuildDecision::Failed(BuildFailure { status: build });
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(action, SourceBuildGateAction::AwaitChange);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_routes_succeeded_production_to_image_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Production);
+		let decision = BuildDecision::Succeeded(BuildCompletion {
+			status: build.clone(),
+		});
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(
+			action,
+			SourceBuildGateAction::UpdateProductionImage { build }
+		);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_routes_succeeded_preview_to_preview_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Preview);
+		let decision = BuildDecision::Succeeded(BuildCompletion {
+			status: build.clone(),
+		});
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(action, SourceBuildGateAction::UpdatePreview { build });
 	}
 
 	// ── should_update_transition_time tests ──────────────────────────
@@ -2294,6 +2405,48 @@ mod tests {
 			.expect("ready condition");
 		assert_eq!(progressing.reason, "BuildRunning");
 		assert_eq!(ready.reason, "ReconcileInProgress");
+	}
+
+	#[rstest]
+	fn build_status_does_not_create_degraded_when_ready_without_existing_degraded() {
+		// Arrange
+		let mut app = make_test_app("ready-with-progressing-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Progressing,
+				status: ConditionStatus::True,
+				reason: "BuildRunning".to_string(),
+				message: "Kaniko build Job is still running".to_string(),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Running));
+		assert!(
+			status
+				.conditions
+				.iter()
+				.all(|condition| condition.type_ != ConditionType::Degraded)
+		);
+		let progressing = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Progressing)
+			.expect("progressing condition");
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		assert_eq!(progressing.status, ConditionStatus::True);
+		assert_eq!(progressing.reason, "BuildRunning");
+		assert_eq!(ready.status, ConditionStatus::True);
 	}
 
 	#[rstest]
