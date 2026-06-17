@@ -1774,6 +1774,7 @@ where
 /// Pure function that computes the status without any Kubernetes API
 /// calls, making it independently testable.
 fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatus {
+	let existing_status = app.status.as_ref();
 	let phase = if ready {
 		ProjectPhase::Running
 	} else {
@@ -1796,7 +1797,7 @@ fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatu
 	};
 
 	// Determine lastTransitionTime: preserve existing value if status unchanged
-	let existing_ready_condition = app.status.as_ref().and_then(|s| {
+	let existing_ready_condition = existing_status.and_then(|s| {
 		s.conditions
 			.iter()
 			.find(|c| c.type_ == ConditionType::Ready)
@@ -1823,19 +1824,56 @@ fn build_status(app: &Project, ready: bool, ready_replicas: i32) -> ProjectStatu
 	} else {
 		None
 	};
-
-	ProjectStatus {
-		phase: Some(phase),
-		conditions: vec![ProjectCondition {
+	let mut conditions = existing_status
+		.map(|status| status.conditions.clone())
+		.unwrap_or_default();
+	let build = existing_status.and_then(|status| status.build.clone());
+	upsert_project_condition(
+		&mut conditions,
+		ProjectCondition {
 			type_: ConditionType::Ready,
 			status: condition_status,
 			reason: reason.to_string(),
 			message: message.to_string(),
 			last_transition_time,
 			observed_generation: app.metadata.generation,
-		}],
+		},
+	);
+	if ready
+		&& let Some(existing_degraded_condition) = existing_status.and_then(|status| {
+			status
+				.conditions
+				.iter()
+				.find(|condition| condition.type_ == ConditionType::Degraded)
+		}) {
+		let degraded_status = ConditionStatus::False;
+		let degraded_transition_time = if should_update_transition_time(
+			Some(&existing_degraded_condition.status),
+			&degraded_status,
+		) {
+			Some(chrono::Utc::now().to_rfc3339())
+		} else {
+			existing_degraded_condition.last_transition_time.clone()
+		};
+		upsert_project_condition(
+			&mut conditions,
+			ProjectCondition {
+				type_: ConditionType::Degraded,
+				status: degraded_status,
+				reason: reason.to_string(),
+				message: message.to_string(),
+				last_transition_time: degraded_transition_time,
+				observed_generation: app.metadata.generation,
+			},
+		);
+	}
+
+	ProjectStatus {
+		phase: Some(phase),
+		conditions,
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
+		build,
 		database,
 		..Default::default()
 	}
@@ -1934,6 +1972,17 @@ fn should_update_transition_time(
 	new_status: &reinhardt_cloud_types::ConditionStatus,
 ) -> bool {
 	!matches!(existing_status, Some(existing) if existing == new_status)
+}
+
+fn upsert_project_condition(conditions: &mut Vec<ProjectCondition>, next: ProjectCondition) {
+	if let Some(existing) = conditions
+		.iter_mut()
+		.find(|condition| condition.type_ == next.type_)
+	{
+		*existing = next;
+	} else {
+		conditions.push(next);
+	}
 }
 
 /// Error policy: classify the error and select an exponential backoff
@@ -2042,7 +2091,10 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 mod tests {
 	use super::*;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use reinhardt_cloud_types::crd::{ProjectCondition, ProjectPhase, ProjectSpec, ProjectStatus};
+	use reinhardt_cloud_types::crd::{
+		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
+		ProjectStatus,
+	};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
 
@@ -2176,6 +2228,113 @@ mod tests {
 
 		// Assert
 		assert_eq!(status.ready_replicas, Some(7));
+	}
+
+	#[rstest]
+	fn build_status_preserves_existing_build_status() {
+		// Arrange
+		let mut app = make_test_app("build-app");
+		app.status = Some(ProjectStatus {
+			build: Some(BuildStatus {
+				phase: BuildPhase::Running,
+				target: BuildTargetKind::Production,
+				trigger: "abcdef12".to_string(),
+				job_name: "build-app-build-abcdef12".to_string(),
+				image: "registry.example.com/build-app:abcdef12".to_string(),
+				image_tag: "abcdef12".to_string(),
+				preview_name: None,
+				pr_number: None,
+				branch: Some("main".to_string()),
+				reason: Some("BuildRunning".to_string()),
+				message: Some("Kaniko build Job is still running".to_string()),
+				started_at: Some("2026-06-17T00:00:00Z".to_string()),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+			}),
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		let build = status.build.expect("build status");
+		assert_eq!(build.job_name, "build-app-build-abcdef12");
+	}
+
+	#[rstest]
+	fn build_status_preserves_existing_progressing_condition() {
+		// Arrange
+		let mut app = make_test_app("progressing-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Progressing,
+				status: ConditionStatus::True,
+				reason: "BuildRunning".to_string(),
+				message: "Kaniko build Job is still running".to_string(),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, false, 0);
+
+		// Assert
+		assert_eq!(status.conditions.len(), 2);
+		let progressing = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Progressing)
+			.expect("progressing condition");
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		assert_eq!(progressing.reason, "BuildRunning");
+		assert_eq!(ready.reason, "ReconcileInProgress");
+	}
+
+	#[rstest]
+	fn build_status_clears_existing_degraded_when_ready() {
+		// Arrange
+		let old_time = "2026-06-16T00:00:00Z";
+		let mut app = make_test_app("recovered-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Degraded,
+				status: ConditionStatus::True,
+				reason: "BuildFailed".to_string(),
+				message: "Kaniko build Job failed".to_string(),
+				last_transition_time: Some(old_time.to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1);
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Running));
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		let degraded = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Degraded)
+			.expect("degraded condition");
+		assert_eq!(ready.status, ConditionStatus::True);
+		assert_eq!(degraded.status, ConditionStatus::False);
+		assert_eq!(degraded.reason, "ReconcileSuccess");
+		assert_eq!(degraded.message, "Application is ready");
+		assert_eq!(degraded.observed_generation, Some(1));
+		assert_ne!(degraded.last_transition_time, Some(old_time.to_string()));
+		assert!(degraded.last_transition_time.is_some());
 	}
 
 	#[rstest]
