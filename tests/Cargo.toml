@@ -6,6 +6,7 @@ publish = false
 
 [dev-dependencies]
 reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-dashboard = { path = "../dashboard" }
 reinhardt-cloud-grpc = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
@@ -16,7 +17,12 @@ tonic-health = "0.13"
 rstest = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+anyhow = { workspace = true }
+k8s-openapi = { workspace = true }
+kube = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+serial_test = "3.2"
 async-trait = "0.1"
 prost-types = "0.13"
 
@@ -35,6 +41,10 @@ path = "integration/tests/plugin_pipeline_integration.rs"
 [[test]]
 name = "agent_grpc_integration"
 path = "integration/tests/agent_grpc_integration.rs"
+
+[[test]]
+name = "source_pipeline_e2e"
+path = "e2e/source_pipeline.rs"
 
 [lints]
 workspace = true
