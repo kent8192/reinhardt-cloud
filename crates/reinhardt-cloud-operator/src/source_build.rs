@@ -1,11 +1,12 @@
-// Task 3 wires this Task 2 helper surface into reconciliation.
+// Task 4 wires this build lifecycle surface into reconciler.rs.
 #![allow(dead_code)]
 
 use std::time::Duration;
 
 use chrono::Utc;
 use k8s_openapi::api::batch::v1::Job;
-use kube::ResourceExt;
+use kube::api::{Patch, PatchParams, PostParams};
+use kube::{Api, Client, ResourceExt};
 use reinhardt_cloud_types::crd::{
 	BuildPhase, BuildStatus, BuildTargetKind, ConditionStatus, ConditionType, Project,
 	ProjectCondition,
@@ -157,6 +158,302 @@ pub(crate) fn build_condition(
 	}
 }
 
+fn upsert_condition(conditions: &mut Vec<ProjectCondition>, next: ProjectCondition) {
+	if let Some(existing) = conditions
+		.iter_mut()
+		.find(|condition| condition.type_ == next.type_)
+	{
+		*existing = next;
+	} else {
+		conditions.push(next);
+	}
+}
+
+fn preserve_transition_time_for_unchanged_status(app: &Project, condition: &mut ProjectCondition) {
+	let Some(existing) = app.status.as_ref().and_then(|status| {
+		status.conditions.iter().find(|existing| {
+			existing.type_ == condition.type_ && existing.status == condition.status
+		})
+	}) else {
+		return;
+	};
+
+	condition.last_transition_time = existing.last_transition_time.clone();
+}
+
+fn has_condition_status(app: &Project, type_: ConditionType, status: ConditionStatus) -> bool {
+	app.status.as_ref().is_some_and(|status_value| {
+		status_value
+			.conditions
+			.iter()
+			.any(|condition| condition.type_ == type_ && condition.status == status)
+	})
+}
+
+fn companion_build_condition(
+	app: &Project,
+	condition: &ProjectCondition,
+) -> Option<ProjectCondition> {
+	let should_clear_degraded = condition.type_ == ConditionType::Progressing
+		&& condition.status == ConditionStatus::True
+		&& has_condition_status(app, ConditionType::Degraded, ConditionStatus::True);
+	let should_clear_progressing =
+		condition.type_ == ConditionType::Degraded && condition.status == ConditionStatus::True;
+	let should_clear_degraded_after_success = condition.type_ == ConditionType::Progressing
+		&& condition.status == ConditionStatus::False
+		&& condition.reason == "BuildSucceeded";
+
+	if should_clear_degraded || should_clear_degraded_after_success {
+		return Some(build_condition(
+			ConditionType::Degraded,
+			ConditionStatus::False,
+			&condition.reason,
+			&condition.message,
+			condition.observed_generation,
+		));
+	}
+
+	if should_clear_progressing {
+		return Some(build_condition(
+			ConditionType::Progressing,
+			ConditionStatus::False,
+			&condition.reason,
+			&condition.message,
+			condition.observed_generation,
+		));
+	}
+
+	None
+}
+
+pub(crate) fn build_status_patch(
+	app: &Project,
+	build: BuildStatus,
+	mut condition: ProjectCondition,
+) -> serde_json::Value {
+	let mut companion = companion_build_condition(app, &condition);
+	preserve_transition_time_for_unchanged_status(app, &mut condition);
+	let mut conditions = app
+		.status
+		.as_ref()
+		.map(|status| status.conditions.clone())
+		.unwrap_or_default();
+	upsert_condition(&mut conditions, condition);
+	if let Some(ref mut companion_condition) = companion {
+		preserve_transition_time_for_unchanged_status(app, companion_condition);
+		upsert_condition(&mut conditions, companion_condition.clone());
+	}
+
+	serde_json::json!({
+		"status": {
+			"build": build,
+			"conditions": conditions,
+			"observedGeneration": app.metadata.generation,
+		}
+	})
+}
+
+fn transition_build_status(
+	app: &Project,
+	build: &mut BuildStatus,
+	phase: BuildPhase,
+	reason: &str,
+	message: &str,
+) {
+	let preserved_transition_time = app
+		.status
+		.as_ref()
+		.and_then(|status| status.build.as_ref())
+		.filter(|existing| {
+			existing.phase == phase
+				&& existing.trigger == build.trigger
+				&& existing.job_name == build.job_name
+		})
+		.and_then(|existing| existing.last_transition_time.clone());
+
+	build.phase = phase;
+	build.reason = Some(reason.to_string());
+	build.message = Some(message.to_string());
+	build.last_transition_time =
+		Some(preserved_transition_time.unwrap_or_else(|| Utc::now().to_rfc3339()));
+}
+
+pub(crate) fn clear_build_annotations_patch() -> serde_json::Value {
+	serde_json::json!({
+		"metadata": {
+			"annotations": {
+				"reinhardt.dev/build-trigger": null,
+				"reinhardt.dev/preview-action": null,
+				"reinhardt.dev/pr-number": null,
+				"reinhardt.dev/pr-branch": null,
+			}
+		}
+	})
+}
+
+async fn patch_build_status(
+	client: Client,
+	namespace: &str,
+	app: &Project,
+	build: BuildStatus,
+	condition: ProjectCondition,
+) -> Result<(), Error> {
+	let api: Api<Project> = Api::namespaced(client, namespace);
+	let patch = build_status_patch(app, build, condition);
+	api.patch_status(
+		&app.name_any(),
+		&PatchParams::default(),
+		&Patch::Merge(&patch),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	Ok(())
+}
+
+async fn clear_build_annotations(
+	client: Client,
+	namespace: &str,
+	app: &Project,
+) -> Result<(), Error> {
+	let api: Api<Project> = Api::namespaced(client, namespace);
+	let patch = clear_build_annotations_patch();
+	api.patch(
+		&app.name_any(),
+		&PatchParams::default(),
+		&Patch::Merge(&patch),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	Ok(())
+}
+
+fn build_job_for_status(app: &Project, status: &BuildStatus) -> Result<Job, Error> {
+	match status.target {
+		BuildTargetKind::Production => source::build_kaniko_job(app, &status.image_tag),
+		BuildTargetKind::Preview => {
+			source::build_kaniko_job_for_branch(app, &status.image_tag, status.branch.as_deref())
+		}
+	}
+}
+
+pub(crate) async fn reconcile_source_build(
+	app: &Project,
+	client: Client,
+	namespace: &str,
+) -> Result<BuildDecision, Error> {
+	let new_build = derive_new_build_status(app)?;
+	let active_build = active_build_status(app);
+	let has_new_build = new_build.is_some();
+	let Some(mut build) = new_build.or(active_build) else {
+		return Ok(BuildDecision::NoBuild);
+	};
+
+	let job_name = build.job_name.clone();
+	let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
+	let live_job = match job_api.get_opt(&job_name).await.map_err(Error::Kube)? {
+		Some(job) => job,
+		None if has_new_build => {
+			let expected_job = build_job_for_status(app, &build)?;
+			job_api
+				.create(&PostParams::default(), &expected_job)
+				.await
+				.map_err(Error::Kube)?
+		}
+		None => {
+			let message = format!("Kaniko build Job {job_name} is missing");
+			transition_build_status(
+				app,
+				&mut build,
+				BuildPhase::Failed,
+				"BuildJobMissing",
+				&message,
+			);
+			let condition = build_condition(
+				ConditionType::Degraded,
+				ConditionStatus::True,
+				"BuildJobMissing",
+				&message,
+				app.metadata.generation,
+			);
+			patch_build_status(client, namespace, app, build.clone(), condition).await?;
+			return Ok(BuildDecision::Failed(BuildFailure { status: build }));
+		}
+	};
+
+	if has_new_build {
+		let condition = build_condition(
+			ConditionType::Progressing,
+			ConditionStatus::True,
+			"BuildPending",
+			"Kaniko build Job has been accepted",
+			app.metadata.generation,
+		);
+		patch_build_status(client.clone(), namespace, app, build.clone(), condition).await?;
+		clear_build_annotations(client.clone(), namespace, app).await?;
+	}
+
+	match classify_job_state(&live_job) {
+		JobBuildState::Running => {
+			transition_build_status(
+				app,
+				&mut build,
+				BuildPhase::Running,
+				"BuildRunning",
+				"Kaniko build Job is still running",
+			);
+			let condition = build_condition(
+				ConditionType::Progressing,
+				ConditionStatus::True,
+				"BuildRunning",
+				"Kaniko build Job is still running",
+				app.metadata.generation,
+			);
+			patch_build_status(client, namespace, app, build, condition).await?;
+			Ok(BuildDecision::Waiting {
+				requeue_after: Duration::from_secs(BUILD_REQUEUE_SECS),
+			})
+		}
+		JobBuildState::Succeeded => {
+			transition_build_status(
+				app,
+				&mut build,
+				BuildPhase::Succeeded,
+				"BuildSucceeded",
+				"Kaniko build Job succeeded",
+			);
+			Ok(BuildDecision::Succeeded(BuildCompletion { status: build }))
+		}
+		JobBuildState::Failed { reason, message } => {
+			transition_build_status(app, &mut build, BuildPhase::Failed, &reason, &message);
+			let condition = build_condition(
+				ConditionType::Degraded,
+				ConditionStatus::True,
+				"BuildFailed",
+				&message,
+				app.metadata.generation,
+			);
+			patch_build_status(client, namespace, app, build.clone(), condition).await?;
+			Ok(BuildDecision::Failed(BuildFailure { status: build }))
+		}
+	}
+}
+
+pub(crate) async fn mark_build_succeeded(
+	app: &Project,
+	client: Client,
+	namespace: &str,
+	build: BuildStatus,
+) -> Result<(), Error> {
+	let condition = build_condition(
+		ConditionType::Progressing,
+		ConditionStatus::False,
+		"BuildSucceeded",
+		"Kaniko build Job succeeded",
+		app.metadata.generation,
+	);
+	patch_build_status(client, namespace, app, build, condition).await
+}
+
 fn annotation_value<'a>(app: &'a Project, key: &str) -> Option<&'a str> {
 	app.metadata
 		.annotations
@@ -215,6 +512,33 @@ mod tests {
 			"abcdef1234567890".to_string(),
 		)]));
 		app
+	}
+
+	fn test_running_build_status() -> BuildStatus {
+		BuildStatus {
+			phase: BuildPhase::Running,
+			target: BuildTargetKind::Production,
+			trigger: "abcdef1234567890".to_string(),
+			job_name: "api-build-abcdef12".to_string(),
+			image: "ghcr.io/acme/api:api-abcdef12".to_string(),
+			image_tag: "api-abcdef12".to_string(),
+			preview_name: None,
+			pr_number: None,
+			branch: Some("main".to_string()),
+			reason: Some("BuildRunning".to_string()),
+			message: Some("Kaniko build Job is running".to_string()),
+			started_at: Some("2026-01-01T00:00:00Z".to_string()),
+			last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
+		}
+	}
+
+	fn patch_condition<'a>(patch: &'a serde_json::Value, type_: &str) -> &'a serde_json::Value {
+		patch["status"]["conditions"]
+			.as_array()
+			.expect("conditions should be an array")
+			.iter()
+			.find(|condition| condition["type"] == serde_json::json!(type_))
+			.expect("condition should exist")
 	}
 
 	#[rstest]
@@ -280,21 +604,7 @@ mod tests {
 		// Arrange
 		let mut app = test_project();
 		app.metadata.annotations = None;
-		let running = BuildStatus {
-			phase: BuildPhase::Running,
-			target: BuildTargetKind::Production,
-			trigger: "abcdef1234567890".to_string(),
-			job_name: "api-build-abcdef12".to_string(),
-			image: "ghcr.io/acme/api:api-abcdef12".to_string(),
-			image_tag: "api-abcdef12".to_string(),
-			preview_name: None,
-			pr_number: None,
-			branch: Some("main".to_string()),
-			reason: Some("BuildRunning".to_string()),
-			message: Some("Kaniko build Job is running".to_string()),
-			started_at: Some("2026-01-01T00:00:00Z".to_string()),
-			last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
-		};
+		let running = test_running_build_status();
 		app.status = Some(ProjectStatus {
 			build: Some(running.clone()),
 			..Default::default()
@@ -305,6 +615,204 @@ mod tests {
 
 		// Assert
 		assert_eq!(active, Some(running));
+	}
+
+	#[rstest]
+	fn build_status_patch_preserves_ready_condition_and_adds_progressing() {
+		// Arrange
+		let mut app = test_project();
+		app.metadata.generation = Some(7);
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Ready,
+				status: ConditionStatus::True,
+				reason: "ReconcileSucceeded".to_string(),
+				message: "Project is ready".to_string(),
+				last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(6),
+			}],
+			..Default::default()
+		});
+		let mut build = derive_new_build_status(&app)
+			.expect("build status should be derived")
+			.expect("trigger should create build status");
+		build.phase = BuildPhase::Running;
+		let condition = build_condition(
+			ConditionType::Progressing,
+			ConditionStatus::True,
+			"BuildRunning",
+			"Kaniko build Job is still running",
+			app.metadata.generation,
+		);
+
+		// Act
+		let patch = build_status_patch(&app, build, condition);
+
+		// Assert
+		assert_eq!(
+			patch["status"]["build"]["phase"],
+			serde_json::json!("running")
+		);
+		assert_eq!(patch["status"]["observedGeneration"], serde_json::json!(7));
+		let conditions = patch["status"]["conditions"]
+			.as_array()
+			.expect("conditions should be an array");
+		assert_eq!(conditions.len(), 2);
+		assert_eq!(conditions[0]["type"], serde_json::json!("Ready"));
+		assert_eq!(conditions[0]["status"], serde_json::json!("True"));
+		assert_eq!(
+			conditions[0]["lastTransitionTime"],
+			serde_json::json!("2026-01-01T00:00:00Z")
+		);
+		assert_eq!(conditions[1]["type"], serde_json::json!("Progressing"));
+		assert_eq!(conditions[1]["status"], serde_json::json!("True"));
+		assert_eq!(conditions[1]["reason"], serde_json::json!("BuildRunning"));
+	}
+
+	#[rstest]
+	fn failed_patch_clears_progressing_condition_and_sets_degraded() {
+		// Arrange
+		let mut app = test_project();
+		app.metadata.generation = Some(8);
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Progressing,
+				status: ConditionStatus::True,
+				reason: "BuildRunning".to_string(),
+				message: "Kaniko build Job is still running".to_string(),
+				last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(7),
+			}],
+			..Default::default()
+		});
+		let mut build = derive_new_build_status(&app)
+			.expect("build status should be derived")
+			.expect("trigger should create build status");
+		transition_build_status(
+			&app,
+			&mut build,
+			BuildPhase::Failed,
+			"BackoffLimitExceeded",
+			"Kaniko build Job exceeded backoff limit",
+		);
+		let condition = build_condition(
+			ConditionType::Degraded,
+			ConditionStatus::True,
+			"BuildFailed",
+			"Kaniko build Job exceeded backoff limit",
+			app.metadata.generation,
+		);
+
+		// Act
+		let patch = build_status_patch(&app, build, condition);
+
+		// Assert
+		let progressing = patch_condition(&patch, "Progressing");
+		let degraded = patch_condition(&patch, "Degraded");
+		assert_eq!(progressing["status"], serde_json::json!("False"));
+		assert_eq!(progressing["reason"], serde_json::json!("BuildFailed"));
+		assert_eq!(degraded["status"], serde_json::json!("True"));
+		assert_eq!(degraded["reason"], serde_json::json!("BuildFailed"));
+	}
+
+	#[rstest]
+	fn succeeded_patch_clears_degraded_condition_and_sets_progressing_false() {
+		// Arrange
+		let mut app = test_project();
+		app.metadata.generation = Some(9);
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Degraded,
+				status: ConditionStatus::True,
+				reason: "BuildFailed".to_string(),
+				message: "Kaniko build Job failed".to_string(),
+				last_transition_time: Some("2026-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(8),
+			}],
+			..Default::default()
+		});
+		let mut build = derive_new_build_status(&app)
+			.expect("build status should be derived")
+			.expect("trigger should create build status");
+		transition_build_status(
+			&app,
+			&mut build,
+			BuildPhase::Succeeded,
+			"BuildSucceeded",
+			"Kaniko build Job succeeded",
+		);
+		let condition = build_condition(
+			ConditionType::Progressing,
+			ConditionStatus::False,
+			"BuildSucceeded",
+			"Kaniko build Job succeeded",
+			app.metadata.generation,
+		);
+
+		// Act
+		let patch = build_status_patch(&app, build, condition);
+
+		// Assert
+		let progressing = patch_condition(&patch, "Progressing");
+		let degraded = patch_condition(&patch, "Degraded");
+		assert_eq!(progressing["status"], serde_json::json!("False"));
+		assert_eq!(progressing["reason"], serde_json::json!("BuildSucceeded"));
+		assert_eq!(degraded["status"], serde_json::json!("False"));
+		assert_eq!(degraded["reason"], serde_json::json!("BuildSucceeded"));
+	}
+
+	#[rstest]
+	fn running_transition_preserves_last_transition_time_for_existing_running_build() {
+		// Arrange
+		let mut app = test_project();
+		let running = test_running_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(running.clone()),
+			..Default::default()
+		});
+		let mut build = running;
+
+		// Act
+		transition_build_status(
+			&app,
+			&mut build,
+			BuildPhase::Running,
+			"BuildRunning",
+			"Kaniko build Job is still running",
+		);
+
+		// Assert
+		assert_eq!(build.phase, BuildPhase::Running);
+		assert_eq!(build.reason.as_deref(), Some("BuildRunning"));
+		assert_eq!(
+			build.message.as_deref(),
+			Some("Kaniko build Job is still running")
+		);
+		assert_eq!(
+			build.last_transition_time.as_deref(),
+			Some("2026-01-01T00:00:00Z")
+		);
+	}
+
+	#[rstest]
+	fn clear_build_annotations_patch_removes_trigger_and_preview_inputs() {
+		// Arrange
+		let expected = serde_json::json!({
+			"metadata": {
+				"annotations": {
+					"reinhardt.dev/build-trigger": null,
+					"reinhardt.dev/preview-action": null,
+					"reinhardt.dev/pr-number": null,
+					"reinhardt.dev/pr-branch": null,
+				}
+			}
+		});
+
+		// Act
+		let patch = clear_build_annotations_patch();
+
+		// Assert
+		assert_eq!(patch, expected);
 	}
 
 	#[rstest]
