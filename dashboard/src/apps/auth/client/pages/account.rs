@@ -104,7 +104,9 @@ pub(crate) fn render_account_content(
 							}
 							dd {
 								class: "mt-1 text-ink-950",
-								{ user.username.clone() }
+								{
+									user.username.clone()
+								}
 							}
 						}
 						div {
@@ -114,7 +116,9 @@ pub(crate) fn render_account_content(
 							}
 							dd {
 								class: "mt-1 text-ink-950",
-								{ user.email.clone() }
+								{
+									user.email.clone()
+								}
 							}
 						}
 					}
@@ -132,7 +136,8 @@ pub(crate) fn render_account_content(
 								class: "rc-muted mt-1",
 								"Authentication provider"
 							}
-						} {
+						}
+						{
 							if github_linked {
 								page!(|label: String| {
 									span {
