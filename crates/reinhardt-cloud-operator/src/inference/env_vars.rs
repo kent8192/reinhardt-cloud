@@ -11,6 +11,59 @@ use reinhardt_cloud_types::crd::Project;
 
 use super::platform::Platform;
 
+/// Build the complete application environment managed by the operator.
+///
+/// This is shared by the workload `Deployment` and revision-scoped
+/// migration `Job` so database, cache, auth, and telemetry settings stay
+/// consistent across rollout gates and the serving Pods.
+pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> Vec<EnvVar> {
+	let project_name = app.name_any();
+	let explicit_db = app.spec.database.is_some();
+	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
+	});
+	let needs_db_env = explicit_db || introspect_db;
+	let explicit_cache = app.spec.cache.is_some();
+	let introspect_cache = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
+	});
+	let redis_session_backend = app.spec.introspect.as_ref().is_some_and(|i| {
+		i.features.infrastructure_signals.session_backend.as_deref() == Some("redis")
+	});
+	let needs_redis_env = explicit_cache || introspect_cache || redis_session_backend;
+
+	let mut auto_vars = build_system_env_vars();
+	auto_vars.extend(build_core_secret_key_env_vars(&project_name));
+	if app.spec.auth.as_ref().is_some_and(|auth| auth.jwt) {
+		auto_vars.push(build_jwt_secret_env_var(&project_name));
+	}
+	if needs_redis_env {
+		auto_vars.push(build_redis_cache_env_var(&project_name));
+	}
+	if needs_db_env {
+		let db_host = if explicit_db {
+			format!("{project_name}-db")
+		} else {
+			format!("{project_name}-postgresql")
+		};
+		auto_vars.extend(build_database_env_vars_from_secret(
+			app,
+			platform,
+			&db_host,
+			&app.spec.env,
+		));
+	}
+
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	let otel_vars = build_otel_env_vars(&project_name);
+	for var in otel_vars {
+		if !merged_env.iter().any(|env| env.name == var.name) {
+			merged_env.push(var);
+		}
+	}
+	merged_env
+}
+
 /// Build database connection environment variables that reference a
 /// Kubernetes `Secret` for the password, keeping the sensitive value out
 /// of the pod spec.

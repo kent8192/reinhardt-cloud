@@ -53,8 +53,9 @@ fn sanitize_db_name(name: &str) -> String {
 
 /// Builds a `Secret` containing PostgreSQL credentials for the given `Project`.
 ///
-/// The secret includes `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
-/// and a fully-formed `DATABASE_URL` connection string.
+/// The secret includes `username`/`password` aliases for application env
+/// injection, `POSTGRES_*` keys for the database container, and a
+/// fully-formed `DATABASE_URL` connection string for compatibility.
 pub(crate) fn build_db_secret(app: &Project) -> Result<Secret, Error> {
 	let labels = standard_labels(app, Component::Database);
 	let namespace = super::require_namespace(app)?;
@@ -79,6 +80,8 @@ pub(crate) fn build_db_secret(app: &Project) -> Result<Secret, Error> {
 		},
 		type_: Some("Opaque".to_string()),
 		string_data: Some(BTreeMap::from([
+			("username".to_string(), user.clone()),
+			("password".to_string(), password.clone()),
 			("POSTGRES_USER".to_string(), user),
 			("POSTGRES_PASSWORD".to_string(), password),
 			("POSTGRES_DB".to_string(), db),
@@ -264,6 +267,8 @@ mod tests {
 		let data = secret.string_data.as_ref().unwrap();
 
 		// Assert
+		assert!(data.contains_key("username"));
+		assert!(data.contains_key("password"));
 		assert!(data.contains_key("POSTGRES_USER"));
 		assert!(data.contains_key("POSTGRES_PASSWORD"));
 		assert!(data.contains_key("POSTGRES_DB"));

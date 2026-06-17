@@ -273,7 +273,14 @@ spec:
 
 The operator reports the following conditions on the CRD status:
 
-`Ready`, `Progressing`, `Degraded`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`
+`Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`
+
+For database-backed projects, the operator runs a revision-scoped migration
+Job before applying the new workload `Deployment`. `MigrationReady=False`
+with reason `MigrationRunning` means rollout is waiting on that Job;
+`MigrationReady=False` with reason `MigrationFailed` blocks the rollout and
+marks the project degraded until the spec changes or the failed revision is
+handled.
 
 ## Installation
 
