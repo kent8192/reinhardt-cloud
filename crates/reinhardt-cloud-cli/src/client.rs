@@ -98,6 +98,7 @@ impl ReinhardtCloudClient {
 	}
 
 	/// Reusable POST helper — foundation for the #703 deploy endpoint.
+	#[allow(dead_code)] // Exercised by the #703 deploy relay (CLI -> Dashboard POST).
 	pub(crate) async fn post<T, R>(&self, path: &str, body: &T) -> Result<R, ClientError>
 	where
 		T: Serialize,
