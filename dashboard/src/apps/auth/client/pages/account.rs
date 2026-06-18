@@ -204,6 +204,7 @@ fn account_error(message: &str) -> Page {
 }
 
 /// Render the account page.
+#[reinhardt::pages::component("/account", "auth:account_page")]
 pub fn account_page() -> Page {
 	let user = use_resource(|| async move { self::load_current_user().await }, ());
 	let providers = use_resource(|| async move { self::load_oauth_providers().await }, ());

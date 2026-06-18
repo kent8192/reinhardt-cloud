@@ -16,5 +16,5 @@ use crate::apps::dashboard::client::layout::dashboard_shell;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| s)
-		.client(|c| c.route("home", "/", dashboard_shell))
+		.client(|c| c.page("home", "/", dashboard_shell))
 }

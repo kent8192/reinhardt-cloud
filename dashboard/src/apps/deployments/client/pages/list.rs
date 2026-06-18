@@ -152,6 +152,7 @@ fn deployment_select_options(items: &[DeploymentInfo]) -> Vec<EntitySelectOption
 }
 
 /// Render the deployments page.
+#[reinhardt::pages::component("/deployments", "deployments:list")]
 pub fn deployments_list_page() -> Page {
 	let deployments = use_resource(|| async move { self::load_deployments().await }, ());
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
