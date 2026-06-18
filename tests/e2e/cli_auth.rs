@@ -13,6 +13,7 @@
 //! contract against an externally-provisioned dashboard.
 
 use reqwest::StatusCode;
+use rstest::rstest;
 
 const RUN_ENV: &str = "REINHARDT_CLOUD_CLI_AUTH_E2E";
 
@@ -30,6 +31,7 @@ fn valid_token() -> Option<String> {
 }
 
 /// A valid bearer token authenticates and returns the user.
+#[rstest]
 #[tokio::test]
 async fn api_me_accepts_valid_bearer_token() {
 	// Arrange
@@ -58,6 +60,7 @@ async fn api_me_accepts_valid_bearer_token() {
 }
 
 /// A missing token is rejected with 401.
+#[rstest]
 #[tokio::test]
 async fn api_me_rejects_missing_token() {
 	// Arrange
@@ -79,6 +82,7 @@ async fn api_me_rejects_missing_token() {
 }
 
 /// An unknown / malformed bearer token is rejected with 401.
+#[rstest]
 #[tokio::test]
 async fn api_me_rejects_unknown_token() {
 	// Arrange
@@ -106,6 +110,7 @@ async fn api_me_rejects_unknown_token() {
 ///
 /// Requires `$REINHARDT_CLOUD_E2E_REVOKED_TOKEN` — a token that was issued
 /// then revoked via `manage revoke-api-token` by the harness.
+#[rstest]
 #[tokio::test]
 async fn api_me_rejects_revoked_token() {
 	// Arrange

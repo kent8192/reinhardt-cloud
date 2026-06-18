@@ -30,7 +30,7 @@ impl Middleware for ApiTokenAuthMiddleware {
 		// Only a verified bearer token may replace the current AuthState.
 		// Invalid bearer input falls through so it cannot erase a valid session.
 		if let Some(token) = bearer_token(&request) {
-			let auth_state = resolve_auth_state_for_bearer(&token).await;
+			let auth_state = resolve_auth_state_for_bearer(token).await;
 			if auth_state.is_authenticated() {
 				request.extensions.insert(auth_state);
 			}
@@ -57,8 +57,8 @@ pub async fn resolve_auth_state_for_bearer(plaintext: &str) -> AuthState {
 }
 
 /// Extract a bearer token from the `Authorization` header, if present.
-fn bearer_token(request: &Request) -> Option<String> {
+fn bearer_token(request: &Request) -> Option<&str> {
 	let header = request.headers.get("Authorization")?.to_str().ok()?;
 	let value = header.strip_prefix("Bearer ")?.trim();
-	(!value.is_empty()).then(|| value.to_string())
+	(!value.is_empty()).then_some(value)
 }

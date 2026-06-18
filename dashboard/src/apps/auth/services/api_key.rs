@@ -32,6 +32,8 @@ const DISPLAY_PREFIX_LEN: usize = 12;
 pub enum ApiKeyError {
 	#[error("database error: {0}")]
 	Database(String),
+	#[error("entropy source unavailable: {0}")]
+	EntropyUnavailable(String),
 	#[error("user not found: {0}")]
 	UserNotFound(String),
 }
@@ -56,7 +58,7 @@ pub async fn generate_api_key(
 	let mut entropy = [0u8; TOKEN_ENTROPY_BYTES];
 	OsRng
 		.try_fill_bytes(&mut entropy)
-		.expect("CSPRNG fill failed");
+		.map_err(|e| ApiKeyError::EntropyUnavailable(e.to_string()))?;
 	let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(entropy));
 	let token_hash = sha256_hex(plaintext.as_bytes());
 	let prefix: String = plaintext.chars().take(DISPLAY_PREFIX_LEN).collect();
@@ -109,7 +111,7 @@ pub async fn verify_api_key(plaintext: &str) -> Option<(User, i64)> {
 	if !user.is_active {
 		return None;
 	}
-	Some((user, api_key.id.unwrap_or_default()))
+	Some((user, api_key.id?))
 }
 
 /// Soft-revoke a token by id.
@@ -145,6 +147,16 @@ pub async fn touch_last_used(id: i64) {
 		return;
 	};
 
+	// Workaround for kent8192/reinhardt-web#5370 (tracked in reinhardt-cloud#726).
+	// Remove this workaround when `QuerySet` supports atomic conditional partial
+	// updates that preserve filters in the generated `UPDATE ... WHERE ...`.
+	//
+	// Ideal implementation (without workaround):
+	//   ApiKey::objects()
+	//       .filter(ApiKey::field_id().eq(id))
+	//       .filter(ApiKey::field_revoked_at().is_null())
+	//       .update_fields([(ApiKey::field_last_used_at(), Utc::now())])
+	//       .await?;
 	let mut stmt = Query::update();
 	stmt.table(Alias::new("auth_api_keys"))
 		.value(Alias::new("last_used_at"), Utc::now())

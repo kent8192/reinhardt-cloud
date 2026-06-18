@@ -197,9 +197,8 @@ pub async fn verify_email(
 ///
 /// `GET /api/auth/me/` — called by `reinhardt-cloud login` to validate the
 /// bearer token and resolve the username for local credentials. The
-/// `AuthUser<User>` extractor reads the `AuthState` injected by
-/// `ApiTokenAuthMiddleware`; an unauthenticated request yields 401
-/// (`AuthUser` is fail-fast, unlike the deprecated `CurrentUser`).
+/// `CurrentUser<User>` extractor reads the `AuthState` injected by
+/// `ApiTokenAuthMiddleware`; an unauthenticated request yields 401.
 #[get("/me/", name = "api-me")]
 pub async fn api_me(
 	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,

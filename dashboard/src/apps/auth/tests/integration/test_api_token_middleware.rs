@@ -12,7 +12,7 @@ mod tests {
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use rstest::*;
+	use rstest::{fixture, rstest};
 	use serial_test::serial;
 	use std::sync::Arc;
 

@@ -13,7 +13,7 @@ mod tests {
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use rstest::*;
+	use rstest::{fixture, rstest};
 	use serial_test::serial;
 	use std::sync::Arc;
 
@@ -87,7 +87,8 @@ mod tests {
 		assert_eq!(model.label, "CI deploy");
 		let resolved = verify_api_key(&plaintext).await.expect("verify");
 		assert_eq!(resolved.0.id(), user.id());
-		assert_eq!(resolved.1, model.id.unwrap_or_default());
+		let api_key_id = model.id.expect("persisted api key id");
+		assert_eq!(resolved.1, api_key_id);
 	}
 
 	/// A revoked token must not verify.
@@ -110,9 +111,8 @@ mod tests {
 			.expect("generate");
 
 		// Act
-		revoke_api_key(model.id.unwrap_or_default())
-			.await
-			.expect("revoke");
+		let api_key_id = model.id.expect("persisted api key id");
+		revoke_api_key(api_key_id).await.expect("revoke");
 		let resolved = verify_api_key(&plaintext).await;
 
 		// Assert
@@ -167,7 +167,7 @@ mod tests {
 		let (_plaintext, model) = generate_api_key(user.id, "touch".to_string(), None)
 			.await
 			.expect("generate");
-		let id = model.id.unwrap_or_default();
+		let id = model.id.expect("persisted api key id");
 		revoke_api_key(id).await.expect("revoke");
 		let revoked = ApiKey::objects()
 			.filter(ApiKey::field_id().eq(id))
