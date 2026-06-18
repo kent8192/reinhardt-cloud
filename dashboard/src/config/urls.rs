@@ -362,6 +362,7 @@ async fn make_router(
 			.with_middleware(SecurityMiddleware::new())
 			.with_middleware(CspPathMiddleware)
 			.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
+			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware)
 			.with_middleware(CookieSessionAuthMiddleware::with_config(
 				infra.session_backend,
 				infra.session_config,
