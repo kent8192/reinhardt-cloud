@@ -110,7 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	match &cli.command {
 		Commands::Deploy(args) => commands::deploy::execute(args, &client).await,
 		Commands::Status(args) => commands::status::execute(args, &client).await,
-		Commands::Login(args) => commands::login::execute(args, &client).await,
+		Commands::Login(args) => {
+			let info = commands::login::execute(args, &client).await?;
+			println!("Logged in as {}", info.username);
+			Ok(())
+		}
 		Commands::Init(args) => commands::init::execute(args).await,
 		Commands::Sync(args) => commands::sync::execute(args).await,
 		Commands::Credentials(args) => commands::credentials::execute(args).await,
@@ -179,7 +183,7 @@ mod tests {
 	#[rstest]
 	fn test_parse_login_command() {
 		// Arrange
-		let args = vec!["reinhardt-cloud", "login", "--username", "alice"];
+		let args = vec!["reinhardt-cloud", "login", "--token", "rct_test"];
 
 		// Act
 		let cli = Cli::try_parse_from(args);
