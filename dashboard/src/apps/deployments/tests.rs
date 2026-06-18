@@ -1,6 +1,7 @@
 //! Tests for deployments app.
 
 pub mod integration {
+	pub mod test_deployment_logs;
 	pub mod test_lazy_grpc;
 }
 pub mod unit {

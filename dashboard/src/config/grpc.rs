@@ -14,12 +14,15 @@ use reinhardt_cloud_grpc::interceptor::AgentJwtInterceptor;
 use reinhardt_cloud_grpc::registry::AgentRegistry;
 use reinhardt_cloud_grpc::services::build::BuildServiceGrpc;
 use reinhardt_cloud_grpc::services::cluster_agent::{AgentServiceGrpc, RegistryBackedAgentService};
+use reinhardt_cloud_grpc::services::log::LogServiceGrpc;
 use reinhardt_cloud_proto::build::build_service_server::BuildServiceServer;
 use reinhardt_cloud_proto::cluster_agent::agent_service_server::AgentServiceServer;
+use reinhardt_cloud_proto::log::log_service_server::LogServiceServer;
 use tonic::transport::Server;
 use tracing::info;
 
 use crate::apps::clusters::services::{JwtSecret, JwtSecretKey};
+use crate::config::settings::{LogBackend, get_log_backend, get_loki_endpoint};
 
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
@@ -31,6 +34,36 @@ pub struct AgentRegistrySingletonKey;
 async fn create_agent_registry_singleton()
 -> FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton> {
 	FactoryOutput::new(AgentRegistrySingleton(Arc::new(AgentRegistry::new())))
+}
+
+/// Wrapper holding the resolved log backend (`Arc<dyn LogService>`) injected
+/// into the gRPC `LogServiceServer`.
+#[derive(Clone)]
+pub struct LogServiceSingleton(pub Arc<dyn reinhardt_cloud_core::traits::LogService>);
+
+#[reinhardt::di::injectable_key]
+pub struct LogServiceSingletonKey;
+
+/// Build the configured log backend from settings.
+///
+/// `Memory` (default) serves an in-process ring buffer (`LocalLogService`); `Loki`
+/// routes reads to the configured Loki endpoint via the read-oriented
+/// `LokiLogService`. Constructed once as a singleton so the TLS/connection
+/// pool cost is paid only at startup.
+fn build_log_service() -> Arc<dyn reinhardt_cloud_core::traits::LogService> {
+	use reinhardt_cloud_core::services::log::{LocalLogService, LogBuffer};
+	use reinhardt_cloud_telemetry::LokiLogService;
+
+	match get_log_backend() {
+		LogBackend::Memory => Arc::new(LocalLogService::new(Arc::new(LogBuffer::new(1000)))),
+		LogBackend::Loki => Arc::new(LokiLogService::new(get_loki_endpoint())),
+	}
+}
+
+#[reinhardt::di::injectable(scope = "singleton")]
+async fn create_log_service_singleton() -> FactoryOutput<LogServiceSingletonKey, LogServiceSingleton>
+{
+	FactoryOutput::new(LogServiceSingleton(build_log_service()))
 }
 
 /// Mark a gRPC service as SERVING in the health reporter.
@@ -92,9 +125,21 @@ pub async fn start_grpc_server(
 	let agent_grpc =
 		AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(agent_registry)));
 
+	// Resolve the configured log backend (in-memory or Loki) and wrap it in the
+	// gRPC LogService. The dashboard server functions and the WebSocket
+	// consumer both call this server.
+	let log_service = di_context
+		.resolve::<FactoryOutput<LogServiceSingletonKey, LogServiceSingleton>>()
+		.await
+		.expect("Cannot start gRPC server without LogServiceSingleton")
+		.0
+		.clone();
+	let log_grpc = LogServiceGrpc::new(log_service);
+
 	// Mark active services as SERVING for health checks
 	mark_service_healthy(&mut health_reporter, health::BUILD_SERVICE_NAME).await;
 	mark_service_healthy(&mut health_reporter, health::AGENT_SERVICE_NAME).await;
+	mark_service_healthy(&mut health_reporter, health::LOG_SERVICE_NAME).await;
 
 	// Build reflection service from proto file descriptors
 	let reflection_service = tonic_reflection::server::Builder::configure()
@@ -117,6 +162,7 @@ pub async fn start_grpc_server(
 		.add_service(health_service)
 		.add_service(reflection_service)
 		.add_service(BuildServiceServer::new(build_grpc))
+		.add_service(LogServiceServer::new(log_grpc))
 		// AgentJwtInterceptor verifies the agent JWT and injects
 		// `AgentClaims` into request extensions so downstream service
 		// methods can route by the authenticated `cluster_id`.
