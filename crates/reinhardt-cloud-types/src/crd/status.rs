@@ -56,6 +56,27 @@ pub struct ProjectCondition {
 	pub observed_generation: Option<i64>,
 }
 
+/// Status of a single preview environment, aggregated on the parent `Project`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PreviewStatus {
+	/// Preview Project name, e.g. `my-app-pr-42`.
+	pub name: String,
+	/// Pull/merge request number.
+	pub pr_number: String,
+	/// Resolved preview URL, e.g. `https://my-app-pr-42.preview.example.com`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<String>,
+	/// Current phase reported by the preview Project.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub phase: Option<ProjectPhase>,
+	/// Ready replicas of the preview Project.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ready_replicas: Option<i32>,
+	/// Last activity timestamp (RFC 3339), mirrors the TTL annotation.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_activity: Option<String>,
+}
+
 /// Status of the `Project` custom resource.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +99,9 @@ pub struct ProjectStatus {
 	/// Status of the worker deployment sub-resource
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub worker: Option<WorkerStatus>,
+	/// Preview environments aggregated from child preview Projects.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub previews: Vec<PreviewStatus>,
 }
 
 #[cfg(test)]
@@ -210,5 +234,45 @@ mod tests {
 		assert!(condition.get("observed_generation").is_none());
 		// "type" field keeps explicit rename over rename_all
 		assert!(condition.get("type").is_some());
+	}
+
+	#[rstest]
+	fn project_status_with_previews_roundtrip() {
+		// Arrange
+		let status = ProjectStatus {
+			previews: vec![PreviewStatus {
+				name: "my-app-pr-42".to_string(),
+				pr_number: "42".to_string(),
+				url: Some("https://my-app-pr-42.preview.example.com".to_string()),
+				phase: Some(ProjectPhase::Running),
+				ready_replicas: Some(1),
+				last_activity: Some("2026-06-18T00:00:00Z".to_string()),
+			}],
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&status).unwrap();
+		let back: ProjectStatus = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(back.previews.len(), 1);
+		assert_eq!(back.previews[0].pr_number, "42");
+		assert_eq!(
+			back.previews[0].url.as_deref(),
+			Some("https://my-app-pr-42.preview.example.com")
+		);
+	}
+
+	#[rstest]
+	fn empty_previews_is_skipped_in_json() {
+		// Arrange
+		let status = ProjectStatus::default();
+
+		// Act
+		let json = serde_json::to_string(&status).unwrap();
+
+		// Assert
+		assert!(!json.contains("previews"), "empty previews must be omitted");
 	}
 }
