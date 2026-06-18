@@ -288,6 +288,12 @@ handled.
 
 - Kubernetes 1.31+
 - Helm 3
+- **cert-manager** (required for preview environments) — the operator emits a
+  per-namespace `cert-manager.io/v1` `Issuer` for each `{parent}-preview`
+  namespace so preview hosts get automatic TLS. Configure the issuer with:
+  - `REINHARDT_CLOUD_PREVIEW_INGRESS_CLASS` (default `nginx`)
+  - `REINHARDT_CLOUD_PREVIEW_ACME_SERVER` (default Let's Encrypt production)
+  - `REINHARDT_CLOUD_PREVIEW_ACME_EMAIL` (registration email; set in production)
 
 ### Install the operator
 
