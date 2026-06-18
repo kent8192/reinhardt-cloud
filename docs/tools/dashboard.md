@@ -101,20 +101,26 @@ Rollback capability via the Dashboard UI is not confirmed in source. To roll bac
 
 ### Logs viewer
 
-Logs reach the Dashboard through the cluster agent's gRPC connection. The agent pushes log lines via the `LogService.PushLogs` RPC (client-streaming); the Dashboard serves `LogService.TailLogs` (server-streaming) back to the browser over a WebSocket connection. A `WebSocketRouter` is constructed in `dashboard/src/config/urls.rs`, and the WASM client connects via `web-sys::WebSocket`.
+Application logs are read through the Dashboard's gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
-Filters available in the log stream depend on the `TailLogsRequest` fields defined in `crates/reinhardt-cloud-proto/proto/log.proto` (`log_level`, `since` timestamp, `tail` line count).
+Managed application pods are written to Loki by the Helm chart's Promtail app scrape job when `logging.scrapeApps=true`. The Dashboard resolves the selected `deployment_id` through the current user's organization, enforces `LogsRead`, then maps the deployment's project name to the Loki `app` label. Historical log requests use `deployment_logs_for_current_org`; live tailing uses the authenticated `/ws/notifications` WebSocket and sends `SubscribeAppLogs { deployment_id }`.
+
+Filters available in the log stream depend on `crates/reinhardt-cloud-proto/proto/log.proto` and `reinhardt_cloud_types::log::LogFilter`: `source` (project/app label), `min_level`, `since`, `until`, `search`, and `deployment_id`.
 
 > **Security note**: Logs may contain personally identifiable information if applications log request bodies, headers, or user input. The Dashboard streams log content without server-side masking or redaction. App Developers should ensure their applications do not log sensitive data at `INFO` level or above.
 
 ### Metrics and status
 
-The operator does not emit custom Prometheus metrics (audit §3.8 — no `register_counter`, `register_histogram`, or `metrics::` calls found in operator source). Dashboard metric views for application health are therefore based on:
+The operator exposes custom Prometheus metrics on `/metrics` when chart metrics are enabled:
 
-- kube-state-metrics (Deployment replicas, pod readiness) — standard Kubernetes metrics
-- Agent-reported deployment status pushed via `AgentService.ReportDeployStatus` and `AgentService.ReportHealth` gRPC calls, which the Dashboard stores and surfaces
+- `reinhardt_cloud_operator_reconcile_total{result}`
+- `reinhardt_cloud_operator_reconcile_duration_seconds{result}`
+- `reinhardt_cloud_operator_requeue_total{reason}`
+- `reinhardt_cloud_operator_managed_apps{phase}`
+- `reinhardt_cloud_operator_managed_apps_ready_replicas{namespace,project}`
+- `reinhardt_cloud_operator_managed_apps_desired_replicas{namespace,project}`
 
-There is an open issue [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) tracking custom operator metrics.
+Dashboard status views can combine these operator metrics with kube-state-metrics and agent-reported deployment status from `AgentService.ReportDeployStatus` / `AgentService.ReportHealth`.
 
 ### Settings
 

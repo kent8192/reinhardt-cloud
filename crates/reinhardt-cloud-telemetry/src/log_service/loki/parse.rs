@@ -6,6 +6,20 @@
 
 use reinhardt_cloud_types::log::{LogEntry, LogLevel};
 
+/// Extract Loki's `{ "status": "error", "error": "..." }` response.
+pub(crate) fn loki_error_message(body: &str) -> Option<String> {
+	let root: serde_json::Value = serde_json::from_str(body).ok()?;
+	if root.get("status").and_then(|v| v.as_str()) != Some("error") {
+		return None;
+	}
+	Some(
+		root.get("error")
+			.and_then(|v| v.as_str())
+			.unwrap_or("loki returned status=error")
+			.to_string(),
+	)
+}
+
 /// Parse the body of `/loki/api/v1/query_range` into log entries.
 pub(crate) fn parse_query_range(body: &str) -> Result<Vec<LogEntry>, serde_json::Error> {
 	let root: serde_json::Value = serde_json::from_str(body)?;
@@ -176,6 +190,18 @@ mod tests {
 
 		// Assert
 		assert!(entries.is_empty());
+	}
+
+	#[rstest]
+	fn extracts_loki_status_error_message() {
+		// Arrange
+		let body = r#"{"status":"error","error":"parse error at line 1"}"#;
+
+		// Act
+		let message = loki_error_message(body);
+
+		// Assert
+		assert_eq!(message.as_deref(), Some("parse error at line 1"));
 	}
 
 	#[rstest]

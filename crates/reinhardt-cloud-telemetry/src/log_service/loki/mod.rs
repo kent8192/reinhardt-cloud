@@ -11,12 +11,18 @@ pub(crate) mod tail;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use reinhardt_cloud_core::error::ApiError;
 use reinhardt_cloud_core::pagination::{PaginatedResponse, PaginationParams};
-use reinhardt_cloud_core::traits::LogService;
-use reinhardt_cloud_types::log::{LogEntry, LogFilter};
+use reinhardt_cloud_core::traits::LogService as CoreLogService;
+use reinhardt_cloud_types::log::{LogEntry, LogFilter, LogLevel as CoreLogLevel};
 
-use self::parse::parse_query_range;
+use self::parse::{loki_error_message, parse_query_range};
+use crate::log_service::{
+	LogFilter as LegacyLogFilter, LogService as LegacyLogService, LogServiceError, Pagination,
+	RetentionPolicy,
+};
+use crate::schema::{LogFields, LogLevel, LogRecord};
 
 /// Bounded default window for `list_logs` when the filter sets no `since`.
 /// Prevents unbounded `query_range` scans over all retained history.
@@ -49,7 +55,7 @@ impl LokiLogService {
 }
 
 #[async_trait]
-impl LogService for LokiLogService {
+impl CoreLogService for LokiLogService {
 	async fn push_logs(&self, _entries: Vec<LogEntry>) -> Result<(), ApiError> {
 		// Write path is out-of-process (Promtail). Reject in-process pushes so a
 		// caller that targets the read-oriented backend fails loudly.
@@ -98,15 +104,27 @@ impl LogService for LokiLogService {
 			.append_pair("limit", &limit.to_string())
 			.append_pair("direction", "backward");
 
-		let resp = self
+		let response = self
 			.http
 			.get(url)
 			.send()
 			.await
-			.map_err(|e| ApiError::Internal(format!("loki query_range request failed: {e}")))?
+			.map_err(|e| ApiError::Internal(format!("loki query_range request failed: {e}")))?;
+		let status = response.status();
+		let resp = response
 			.text()
 			.await
 			.map_err(|e| ApiError::Internal(format!("loki query_range body failed: {e}")))?;
+		if !status.is_success() {
+			return Err(ApiError::Internal(format!(
+				"loki query_range returned HTTP {status}: {resp}"
+			)));
+		}
+		if let Some(message) = loki_error_message(&resp) {
+			return Err(ApiError::Internal(format!(
+				"loki query_range returned error: {message}"
+			)));
+		}
 
 		let entries = parse_query_range(&resp)
 			.map_err(|e| ApiError::Internal(format!("loki query_range parse failed: {e}")))?;
@@ -115,6 +133,142 @@ impl LogService for LokiLogService {
 		// total and a single page (pagination is window+limit based, not offset).
 		let total = entries.len() as u64;
 		Ok(PaginatedResponse::new(entries, total, &pagination))
+	}
+}
+
+fn api_error_to_legacy(error: ApiError) -> LogServiceError {
+	match error {
+		ApiError::BadRequest(message) => LogServiceError::Rejected(message),
+		other => LogServiceError::Unavailable(other.to_string()),
+	}
+}
+
+fn legacy_level_to_core(level: LogLevel) -> CoreLogLevel {
+	match level {
+		LogLevel::Trace | LogLevel::Debug => CoreLogLevel::Debug,
+		LogLevel::Info => CoreLogLevel::Info,
+		LogLevel::Warn => CoreLogLevel::Warn,
+		LogLevel::Error => CoreLogLevel::Error,
+	}
+}
+
+fn core_level_to_legacy(level: CoreLogLevel) -> LogLevel {
+	match level {
+		CoreLogLevel::Debug => LogLevel::Debug,
+		CoreLogLevel::Info => LogLevel::Info,
+		CoreLogLevel::Warn => LogLevel::Warn,
+		CoreLogLevel::Error => LogLevel::Error,
+	}
+}
+
+fn legacy_filter_to_core(filter: LegacyLogFilter) -> LogFilter {
+	LogFilter {
+		min_level: filter.min_level.map(legacy_level_to_core),
+		deployment_id: filter.deployment_id,
+		..Default::default()
+	}
+}
+
+fn legacy_filter_requires_post_filter(filter: &LegacyLogFilter) -> bool {
+	filter.reconcile_id.is_some() || filter.namespace.is_some()
+}
+
+fn legacy_record_matches_post_filter(record: &LogRecord, filter: &LegacyLogFilter) -> bool {
+	if let Some(ref reconcile_id) = filter.reconcile_id
+		&& record.fields.reconcile_id.as_ref() != Some(reconcile_id)
+	{
+		return false;
+	}
+	if let Some(ref namespace) = filter.namespace
+		&& record.fields.resource_namespace.as_ref() != Some(namespace)
+	{
+		return false;
+	}
+	true
+}
+
+fn legacy_page_to_core(page: Pagination) -> PaginationParams {
+	let limit = page.limit.max(1) as u64;
+	let page_number = (page.offset as u64 / limit) + 1;
+	PaginationParams::new(Some(page_number), Some(limit))
+}
+
+fn legacy_page_to_prefilter_core(page: Pagination) -> PaginationParams {
+	PaginationParams::new(Some(1), Some((page.offset + page.limit).max(1) as u64))
+}
+
+fn core_entry_to_legacy(entry: LogEntry) -> LogRecord {
+	let fields = entry
+		.metadata
+		.and_then(|value| serde_json::from_value::<LogFields>(value).ok())
+		.unwrap_or_default();
+	LogRecord {
+		ts: entry.timestamp,
+		level: core_level_to_legacy(entry.level),
+		msg: entry.message,
+		fields,
+	}
+}
+
+#[async_trait]
+impl LegacyLogService for LokiLogService {
+	async fn ingest(&self, _record: LogRecord) -> Result<(), LogServiceError> {
+		Ok(())
+	}
+
+	async fn tail(
+		&self,
+		filter: LegacyLogFilter,
+	) -> Result<futures::stream::BoxStream<'static, LogRecord>, LogServiceError> {
+		let post_filter = filter.clone();
+		let stream = CoreLogService::tail_logs(self, legacy_filter_to_core(filter))
+			.await
+			.map_err(api_error_to_legacy)?;
+		Ok(stream
+			.filter_map(move |entry| {
+				let post_filter = post_filter.clone();
+				async move {
+					entry
+						.ok()
+						.map(core_entry_to_legacy)
+						.filter(|record| legacy_record_matches_post_filter(record, &post_filter))
+				}
+			})
+			.boxed())
+	}
+
+	async fn list(
+		&self,
+		filter: LegacyLogFilter,
+		page: Pagination,
+	) -> Result<Vec<LogRecord>, LogServiceError> {
+		let needs_post_filter = legacy_filter_requires_post_filter(&filter);
+		let core_page = if needs_post_filter {
+			legacy_page_to_prefilter_core(page)
+		} else {
+			legacy_page_to_core(page)
+		};
+		let response =
+			CoreLogService::list_logs(self, legacy_filter_to_core(filter.clone()), core_page)
+				.await
+				.map_err(api_error_to_legacy)?;
+		let records = response
+			.items
+			.into_iter()
+			.map(core_entry_to_legacy)
+			.filter(|record| legacy_record_matches_post_filter(record, &filter));
+		if needs_post_filter {
+			Ok(records.skip(page.offset).take(page.limit).collect())
+		} else {
+			Ok(records.collect())
+		}
+	}
+
+	fn retention_policy(&self) -> RetentionPolicy {
+		RetentionPolicy {
+			capacity: None,
+			ttl: Duration::from_secs(60 * 60 * 24 * 7),
+		}
 	}
 }
 
@@ -143,5 +297,132 @@ mod tests {
 
 		// Assert — read-only backend rejects in-process pushes.
 		assert!(matches!(result, Err(ApiError::BadRequest(_))));
+	}
+
+	async fn loki_endpoint_with_response(
+		status_line: &str,
+		body: &str,
+	) -> (String, tokio::task::JoinHandle<()>) {
+		use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+			.await
+			.expect("bind test listener");
+		let addr = listener.local_addr().expect("listener addr");
+		let status_line = status_line.to_string();
+		let body = body.to_string();
+		let handle = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.expect("accept request");
+			let mut buf = [0u8; 1024];
+			let _ = socket.read(&mut buf).await;
+			let response = format!(
+				"{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+				body.len()
+			);
+			socket
+				.write_all(response.as_bytes())
+				.await
+				.expect("write response");
+		});
+		(format!("http://{addr}"), handle)
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn list_logs_surfaces_loki_http_error_status() {
+		// Arrange
+		let (endpoint, server) =
+			loki_endpoint_with_response("HTTP/1.1 500 Internal Server Error", "boom").await;
+		let svc = LokiLogService::new(endpoint);
+
+		// Act
+		let result = svc
+			.list_logs(LogFilter::default(), PaginationParams::default())
+			.await;
+		server.await.expect("server task");
+
+		// Assert
+		match result {
+			Err(ApiError::Internal(message)) => {
+				assert_eq!(
+					message,
+					"loki query_range returned HTTP 500 Internal Server Error: boom"
+				);
+			}
+			_ => panic!("expected HTTP status ApiError"),
+		}
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn list_logs_surfaces_loki_status_error_body() {
+		// Arrange
+		let (endpoint, server) = loki_endpoint_with_response(
+			"HTTP/1.1 200 OK",
+			r#"{"status":"error","error":"bad logql"}"#,
+		)
+		.await;
+		let svc = LokiLogService::new(endpoint);
+
+		// Act
+		let result = svc
+			.list_logs(LogFilter::default(), PaginationParams::default())
+			.await;
+		server.await.expect("server task");
+
+		// Assert
+		match result {
+			Err(ApiError::Internal(message)) => {
+				assert_eq!(message, "loki query_range returned error: bad logql");
+			}
+			_ => panic!("expected Loki status error ApiError"),
+		}
+	}
+
+	#[rstest]
+	fn legacy_post_filter_matches_reconcile_id_and_namespace() {
+		// Arrange
+		let mut record = LogRecord::new(LogLevel::Info, "message");
+		record.fields.reconcile_id = Some("r-1".to_string());
+		record.fields.resource_namespace = Some("tenant-a".to_string());
+		let matching = LegacyLogFilter {
+			reconcile_id: Some("r-1".to_string()),
+			namespace: Some("tenant-a".to_string()),
+			..Default::default()
+		};
+		let mismatched = LegacyLogFilter {
+			reconcile_id: Some("r-2".to_string()),
+			namespace: Some("tenant-a".to_string()),
+			..Default::default()
+		};
+
+		// Act + Assert
+		assert_eq!(legacy_record_matches_post_filter(&record, &matching), true);
+		assert_eq!(
+			legacy_record_matches_post_filter(&record, &mismatched),
+			false
+		);
+	}
+
+	#[rstest]
+	fn implements_legacy_log_service_trait() {
+		// Arrange + Act
+		fn assert_legacy_impl<T: crate::LogService>() {}
+
+		// Assert
+		assert_legacy_impl::<LokiLogService>();
+	}
+
+	#[rstest]
+	fn legacy_retention_policy_reports_loki_default() {
+		// Arrange
+		let svc = LokiLogService::new("http://loki:3100");
+
+		// Act
+		let policy = LegacyLogService::retention_policy(&svc);
+
+		// Assert
+		assert_eq!(policy.capacity, None);
+		assert_eq!(policy.ttl, Duration::from_secs(60 * 60 * 24 * 7));
 	}
 }

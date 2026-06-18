@@ -32,6 +32,7 @@ use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 #[cfg(wasm)]
 thread_local! {
 	static SUBSCRIBED_IDS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+	static APP_LOG_DEPLOYMENT_ID: RefCell<Option<String>> = const { RefCell::new(None) };
 	static RECONNECT_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
 	/// Holds the current WebSocket so it can be explicitly closed on reconnect,
 	/// preventing leaked Closures from accumulating across connection cycles.
@@ -52,7 +53,8 @@ pub fn should_connect_notifications_for_path(path: &str) -> bool {
 /// Session cookies are sent automatically with the WebSocket handshake,
 /// so no explicit authentication message is needed. On open, the
 /// connection re-subscribes to any deployment IDs previously registered
-/// via [`track_subscriptions`].
+/// via [`track_subscriptions`] and any app-log deployment registered via
+/// [`subscribe_app_logs`].
 ///
 /// Automatically reconnects on close up to [`MAX_RECONNECT_ATTEMPTS`]
 /// times with a fixed 3-second delay.
@@ -97,9 +99,18 @@ pub fn connect_notifications() {
 				let sub = WsClientMessage::Subscribe {
 					deployment_ids: ids.iter().cloned().collect(),
 				};
-				if let Ok(json) = serde_json::to_string(&sub) {
-					let _ = ws_for_open.send_with_str(&json);
-				}
+				send_client_message(&ws_for_open, &sub);
+			}
+		});
+
+		APP_LOG_DEPLOYMENT_ID.with(|deployment_id| {
+			if let Some(deployment_id) = deployment_id.borrow().as_deref() {
+				send_client_message(
+					&ws_for_open,
+					&WsClientMessage::SubscribeAppLogs {
+						deployment_id: deployment_id.to_string(),
+					},
+				);
 			}
 		});
 	}) as Box<dyn FnMut(_)>);
@@ -159,6 +170,61 @@ pub fn track_subscriptions(deployment_ids: &[String]) {
 			ids.insert(id.clone());
 		}
 	});
+}
+
+/// Subscribe the live app-log stream for the selected deployment.
+#[cfg(wasm)]
+pub fn subscribe_app_logs(deployment_id: &str) {
+	let deployment_id = deployment_id.trim();
+	if deployment_id.is_empty() {
+		unsubscribe_logs();
+		return;
+	}
+
+	APP_LOG_DEPLOYMENT_ID.with(|current| {
+		*current.borrow_mut() = Some(deployment_id.to_string());
+	});
+	ensure_notifications_connected();
+	CURRENT_WS.with(|current| {
+		if let Some(ws) = current.borrow().as_ref()
+			&& ws.ready_state() == WebSocket::OPEN
+		{
+			send_client_message(
+				ws,
+				&WsClientMessage::SubscribeAppLogs {
+					deployment_id: deployment_id.to_string(),
+				},
+			);
+		}
+	});
+}
+
+#[cfg(not(wasm))]
+pub fn subscribe_app_logs(_deployment_id: &str) {}
+
+/// Stop the active app-log stream.
+#[cfg(wasm)]
+pub fn unsubscribe_logs() {
+	APP_LOG_DEPLOYMENT_ID.with(|current| {
+		*current.borrow_mut() = None;
+	});
+	CURRENT_WS.with(|current| {
+		if let Some(ws) = current.borrow().as_ref()
+			&& ws.ready_state() == WebSocket::OPEN
+		{
+			send_client_message(ws, &WsClientMessage::UnsubscribeLogs);
+		}
+	});
+}
+
+#[cfg(not(wasm))]
+pub fn unsubscribe_logs() {}
+
+#[cfg(wasm)]
+fn send_client_message(ws: &WebSocket, message: &WsClientMessage) {
+	if let Ok(json) = serde_json::to_string(message) {
+		let _ = ws.send_with_str(&json);
+	}
 }
 
 /// Dispatch a parsed server message to the appropriate UI handler.

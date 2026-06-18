@@ -873,6 +873,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// Decrement the `managed_apps` gauge for the phase this object was
 	// last observed in, so the gauge reflects only live objects.
 	drop_managed_apps_gauge(ctx, &app);
+	drop_replica_gauges(ctx, namespace, &app);
 
 	Ok(Action::await_change())
 }
@@ -2012,6 +2013,19 @@ fn update_replica_gauges(ctx: &Context, namespace: &str, app: &Project, ready: i
 		.managed_apps_desired_replicas
 		.with_label_values(&labels)
 		.set(desired as f64);
+}
+
+/// Remove replica gauge series for an object that is being cleaned up.
+fn drop_replica_gauges(ctx: &Context, namespace: &str, app: &Project) {
+	let labels = [namespace, app.metadata.name.as_deref().unwrap_or("")];
+	let _ = ctx
+		.metrics
+		.managed_apps_ready_replicas
+		.remove_label_values(&labels);
+	let _ = ctx
+		.metrics
+		.managed_apps_desired_replicas
+		.remove_label_values(&labels);
 }
 
 /// Decrement the `managed_apps` gauge for the phase this object was
@@ -3783,6 +3797,44 @@ mod tests {
 			.with_label_values(&["Running"])
 			.get();
 		assert_eq!(running, 0.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_replica_gauges_removes_deleted_project_series() {
+		// Arrange
+		let app = make_test_app("replica-cleanup-app");
+		let ctx = test_context();
+		update_replica_gauges(&ctx, "tenant-cleanup", &app, 2, 3);
+		let labels = ["tenant-cleanup", "replica-cleanup-app"];
+		assert_eq!(
+			ctx.metrics
+				.managed_apps_ready_replicas
+				.with_label_values(&labels)
+				.get(),
+			2.0,
+		);
+		assert_eq!(
+			ctx.metrics
+				.managed_apps_desired_replicas
+				.with_label_values(&labels)
+				.get(),
+			3.0,
+		);
+
+		// Act
+		drop_replica_gauges(&ctx, "tenant-cleanup", &app);
+
+		// Assert
+		let after = String::from_utf8(ctx.metrics.encode()).expect("utf8");
+		let retained_series: Vec<&str> = after
+			.lines()
+			.filter(|line| {
+				line.starts_with("reinhardt_cloud_operator_managed_apps_")
+					&& line.contains(r#"project="replica-cleanup-app""#)
+			})
+			.collect();
+		assert_eq!(retained_series, Vec::<&str>::new());
 	}
 
 	// ── error_policy: dependency-not-ready branch ───────────────────

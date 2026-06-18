@@ -683,8 +683,9 @@ INFO Reconciled worker deployment for my-app
 At `WARN` level: `Controller loop terminated, shutting down` (emitted when the main
 `reconciler::run` future returns).
 
-The dashboard (Issue #371) will consume `LogService.tail` for live log
-streaming.
+The dashboard consumes the configured `LogService` read backend for historical
+and live application logs; Loki-backed deployments read through `query_range`
+and `/tail`.
 
 To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
 

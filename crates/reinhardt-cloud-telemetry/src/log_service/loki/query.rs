@@ -33,6 +33,23 @@ fn escape_regex(term: &str) -> String {
 	out
 }
 
+/// Escape a value for a double-quoted LogQL string literal.
+fn escape_logql_string_literal(value: &str) -> String {
+	let mut out = String::with_capacity(value.len());
+	for ch in value.chars() {
+		match ch {
+			'"' => out.push_str(r#"\""#),
+			'\\' => out.push_str(r#"\\"#),
+			'\n' => out.push_str(r#"\n"#),
+			'\r' => out.push_str(r#"\r"#),
+			'\t' => out.push_str(r#"\t"#),
+			ch if ch.is_control() => out.push_str(&format!(r#"\x{:02x}"#, ch as u32)),
+			ch => out.push(ch),
+		}
+	}
+	out
+}
+
 /// Build a LogQL query string for Loki `query_range` / `tail` from a filter.
 ///
 /// `source` maps to the `app` label (the project name written by Promtail);
@@ -43,11 +60,14 @@ pub(crate) fn build_logql(filter: &LogFilter) -> String {
 
 	// The `app` selector is the primary key. Default to a broad match when unset.
 	match &filter.source {
-		Some(app) => selectors.push(format!(r#"app="{app}""#)),
+		Some(app) => selectors.push(format!(r#"app="{}""#, escape_logql_string_literal(app))),
 		None => selectors.push(r#"app=~".+""#.to_string()),
 	}
 	if let Some(deployment_id) = &filter.deployment_id {
-		selectors.push(format!(r#"deployment_id="{deployment_id}""#));
+		selectors.push(format!(
+			r#"deployment_id="{}""#,
+			escape_logql_string_literal(deployment_id)
+		));
 	}
 	if let Some(min_level) = filter.min_level {
 		selectors.push(format!(r#"level=~"{}""#, levels_at_or_above(min_level)));
@@ -56,7 +76,11 @@ pub(crate) fn build_logql(filter: &LogFilter) -> String {
 	let mut query = format!("{{{}}}", selectors.join(","));
 
 	if let Some(search) = &filter.search {
-		query.push_str(&format!("|~\"{}\"", escape_regex(search)));
+		let escaped_regex = escape_regex(search);
+		query.push_str(&format!(
+			"|~\"{}\"",
+			escape_logql_string_literal(&escaped_regex)
+		));
 	}
 	query
 }
@@ -125,7 +149,42 @@ mod tests {
 
 		// Assert — parens and the `?` quantifier are escaped; alphanumerics are
 		// left literal so the search matches as plain text in RE2.
-		assert_eq!(q, r#"{app="p"}|~"rate \(limit\)\?""#);
+		assert_eq!(q, r#"{app="p"}|~"rate \\(limit\\)\\?""#);
+	}
+
+	#[rstest]
+	fn label_values_escape_quotes_backslashes_and_newlines() {
+		// Arrange
+		let filter = LogFilter {
+			source: Some("my\"project\\name\nnext".to_string()),
+			deployment_id: Some("deploy\"7\\x".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let q = build_logql(&filter);
+
+		// Assert
+		assert_eq!(
+			q,
+			r#"{app="my\"project\\name\nnext",deployment_id="deploy\"7\\x"}"#
+		);
+	}
+
+	#[rstest]
+	fn search_string_escapes_regex_and_logql_literal_characters() {
+		// Arrange
+		let filter = LogFilter {
+			source: Some("p".to_string()),
+			search: Some("quote \" slash \\ newline\n bell\u{0007}".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let q = build_logql(&filter);
+
+		// Assert
+		assert_eq!(q, r#"{app="p"}|~"quote \" slash \\\\ newline\n bell\x07""#);
 	}
 
 	#[rstest]
