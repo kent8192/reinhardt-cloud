@@ -6,7 +6,7 @@ use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Api, Client, ResourceExt};
 use reinhardt_cloud_types::crd::{
 	BuildPhase, BuildStatus, BuildTargetKind, ConditionStatus, ConditionType, Project,
-	ProjectCondition,
+	ProjectCondition, ProjectPhase,
 };
 use tracing::warn;
 
@@ -79,7 +79,7 @@ pub(crate) fn derive_new_build_status(app: &Project) -> Result<Option<BuildStatu
 	let Some(trigger) = annotation_value(app, BUILD_TRIGGER_ANNOTATION) else {
 		return Ok(None);
 	};
-	if disabled_preview_build_requested(app) {
+	if disabled_preview_build_requested(app) || malformed_preview_build_requested(app) {
 		return Ok(None);
 	}
 
@@ -252,6 +252,11 @@ pub(crate) fn build_status_patch(
 	build: BuildStatus,
 	mut condition: ProjectCondition,
 ) -> serde_json::Value {
+	let phase = match build.phase {
+		BuildPhase::Pending | BuildPhase::Running => Some(ProjectPhase::Deploying),
+		BuildPhase::Failed => Some(ProjectPhase::Degraded),
+		BuildPhase::Succeeded => None,
+	};
 	let mut companion = companion_build_condition(app, &condition);
 	preserve_transition_time_for_unchanged_status(app, &mut condition);
 	let mut conditions = app
@@ -265,13 +270,15 @@ pub(crate) fn build_status_patch(
 		upsert_condition(&mut conditions, companion_condition.clone());
 	}
 
-	serde_json::json!({
-		"status": {
-			"build": build,
-			"conditions": conditions,
-			"observedGeneration": app.metadata.generation,
-		}
-	})
+	let mut status = serde_json::json!({
+		"build": build,
+		"conditions": conditions,
+		"observedGeneration": app.metadata.generation,
+	});
+	if let Some(phase) = phase {
+		status["phase"] = serde_json::json!(phase);
+	}
+	serde_json::json!({ "status": status })
 }
 
 fn transition_build_status(
@@ -535,12 +542,12 @@ pub(crate) async fn reconcile_source_build(
 	client: Client,
 	namespace: &str,
 ) -> Result<BuildDecision, Error> {
-	let disabled_preview_request = annotation_value(app, BUILD_TRIGGER_ANNOTATION).is_some()
-		&& disabled_preview_build_requested(app);
-	if disabled_preview_request {
+	let ignored_preview_request = annotation_value(app, BUILD_TRIGGER_ANNOTATION).is_some()
+		&& (disabled_preview_build_requested(app) || malformed_preview_build_requested(app));
+	if ignored_preview_request {
 		clear_build_annotations(client.clone(), namespace, app).await?;
 	}
-	let new_build = if disabled_preview_request {
+	let new_build = if ignored_preview_request {
 		None
 	} else {
 		derive_new_build_status(app)?
@@ -643,12 +650,14 @@ fn previews_enabled(app: &Project) -> bool {
 		.is_some_and(|preview| preview.enabled)
 }
 
-fn preview_action_pr_number(app: &Project) -> Option<&str> {
+fn preview_build_action(app: &Project) -> Option<&str> {
 	let action = annotation_value(app, PREVIEW_ACTION_ANNOTATION)?;
-	if !matches!(action, "create" | "update") {
-		return None;
-	}
-	annotation_value(app, PR_NUMBER_ANNOTATION)
+	matches!(action, "create" | "update").then_some(action)
+}
+
+fn preview_action_pr_number(app: &Project) -> Option<&str> {
+	preview_build_action(app)?;
+	annotation_value(app, PR_NUMBER_ANNOTATION).filter(|pr_number| !pr_number.trim().is_empty())
 }
 
 fn preview_pr_number(app: &Project) -> Option<&str> {
@@ -660,6 +669,10 @@ fn preview_pr_number(app: &Project) -> Option<&str> {
 
 fn disabled_preview_build_requested(app: &Project) -> bool {
 	preview_action_pr_number(app).is_some() && !previews_enabled(app)
+}
+
+fn malformed_preview_build_requested(app: &Project) -> bool {
+	preview_build_action(app).is_some() && preview_action_pr_number(app).is_none()
 }
 
 #[cfg(test)]
@@ -889,6 +902,21 @@ mod tests {
 	}
 
 	#[rstest]
+	fn derive_build_status_ignores_preview_trigger_when_pr_number_missing() {
+		// Arrange
+		let mut app = test_project();
+		set_previews_enabled(&mut app, true);
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
+
+		// Act
+		let status = derive_new_build_status(&app).expect("build status derivation should succeed");
+
+		// Assert
+		assert_eq!(status, None);
+	}
+
+	#[rstest]
 	#[tokio::test]
 	async fn reconcile_source_build_clears_disabled_preview_build_request() {
 		use http::Response;
@@ -931,6 +959,61 @@ mod tests {
 		let decision = reconcile_source_build(&app, client, "default")
 			.await
 			.expect("disabled preview request should be cleared");
+
+		// Assert
+		assert_eq!(decision, BuildDecision::NoBuild);
+		let requests = requests
+			.lock()
+			.expect("requests lock should not be poisoned");
+		assert!(requests.iter().any(|request| {
+			request
+				== "PATCH /apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/default/projects/api"
+		}));
+		assert!(!requests.iter().any(|request| request.contains("/jobs/")));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn reconcile_source_build_clears_malformed_preview_build_request() {
+		use http::Response;
+		use std::sync::{Arc, Mutex};
+		use tower::service_fn;
+
+		// Arrange
+		let mut app = test_project();
+		set_previews_enabled(&mut app, true);
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "update".to_string());
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let requests_for_service = requests.clone();
+		let response_app = app.clone();
+		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
+			let requests = requests_for_service.clone();
+			let response_app = response_app.clone();
+			async move {
+				let method = req.method().clone();
+				let path = req.uri().path().to_string();
+				requests
+					.lock()
+					.expect("requests lock should not be poisoned")
+					.push(format!("{method} {path}"));
+				Ok::<_, std::convert::Infallible>(
+					Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&response_app)
+								.expect("project json should serialize"),
+						))
+						.expect("response should build"),
+				)
+			}
+		});
+		let client = Client::new(svc, "default");
+
+		// Act
+		let decision = reconcile_source_build(&app, client, "default")
+			.await
+			.expect("malformed preview request should be cleared");
 
 		// Assert
 		assert_eq!(decision, BuildDecision::NoBuild);
@@ -1107,6 +1190,7 @@ mod tests {
 			patch["status"]["build"]["phase"],
 			serde_json::json!("running")
 		);
+		assert_eq!(patch["status"]["phase"], serde_json::json!("deploying"));
 		assert_eq!(patch["status"]["observedGeneration"], serde_json::json!(7));
 		let conditions = patch["status"]["conditions"]
 			.as_array()
@@ -1161,6 +1245,7 @@ mod tests {
 		let patch = build_status_patch(&app, build, condition);
 
 		// Assert
+		assert_eq!(patch["status"]["phase"], serde_json::json!("degraded"));
 		let progressing = patch_condition(&patch, "Progressing");
 		let degraded = patch_condition(&patch, "Degraded");
 		assert_eq!(progressing["status"], serde_json::json!("False"));
