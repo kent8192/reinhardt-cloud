@@ -13,6 +13,7 @@ use crate::apps::auth::server_fn::register::register;
 use crate::shared::client::routes::route_href;
 
 /// Render the registration page inside the shared auth layout.
+#[reinhardt::pages::component("/register", "auth:register_page")]
 pub fn register_page() -> Page {
 	let register_form = form! {
 		name: RegisterForm,

@@ -13,6 +13,7 @@ use crate::apps::auth::server_fn::login::login;
 use crate::shared::client::routes::route_href;
 
 /// Render the login page.
+#[reinhardt::pages::component("/login", "auth:login_page")]
 pub fn login_page() -> Page {
 	let login_form = form! {
 		name: LoginForm,

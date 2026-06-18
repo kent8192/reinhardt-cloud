@@ -132,6 +132,7 @@ pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
 }
 
 /// Render the main dashboard shell with navigation sidebar and overview cards.
+#[reinhardt::pages::component("/", "dashboard:home")]
 pub fn dashboard_shell() -> Page {
 	let clusters_href = route_href("clusters:list", "/clusters");
 	let deployments_href = route_href("deployments:list", "/deployments");

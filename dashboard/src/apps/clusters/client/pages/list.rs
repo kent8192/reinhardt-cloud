@@ -84,6 +84,7 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 }
 
 /// Render the clusters page.
+#[reinhardt::pages::component("/clusters", "clusters:list")]
 pub fn clusters_list_page() -> Page {
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
 
