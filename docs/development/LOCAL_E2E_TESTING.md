@@ -103,6 +103,51 @@ responses are also preserved there. This harness validates the generated-config
 Dashboard → Agent relay is still limited as described in
 [Known limitations](#known-limitations).
 
+## Automated source pipeline smoke harness
+
+For source builds, webhook automation, and preview environment lifecycle, run
+the deterministic smoke suite:
+
+```bash
+cargo make source-pipeline-e2e
+```
+
+The task builds the local Operator binary, applies the `Project` CRD, creates a
+temporary namespace, starts a local Operator unless an in-cluster Operator is
+already installed, and runs the `source_pipeline_e2e` nextest target. The suite
+uses real Kubernetes reconciliation for the source-build and preview paths, and
+uses the Dashboard GitHub webhook helpers for deterministic webhook payload and
+manifest assertions.
+
+This is intentionally a smoke tier. It verifies that a source `Project`
+creates the expected Kaniko `Job`, that the parent `Project` image and
+annotations are updated, that GitHub push and pull request payloads map to the
+expected pipeline annotations, and that preview create, update, delete, TTL
+cleanup, and owner-reference cleanup are reconciled. It does **not** require a
+real GitHub push, external Git clone, registry authentication, or a successful
+Kaniko image push. Add those as an opt-in full-build tier when CI has a stable
+registry and credentials.
+
+Useful overrides:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `REINHARDT_CLOUD_SOURCE_PIPELINE_E2E` | set to `1` by `cargo make source-pipeline-e2e` | Enables the cluster-backed tests. Without it, those tests report a skip and return success. |
+| `REINHARDT_CLOUD_SOURCE_PIPELINE_E2E_NAMESPACE` | `rc-e2e-<test>-<uuid>` | Reuse or name the test namespace. Existing namespaces are not deleted; only labeled test `Project` resources are removed. |
+| `REINHARDT_CLOUD_SOURCE_PIPELINE_E2E_TIMEOUT_SECONDS` | `90` | Wait timeout for CRD/operator reconciliation assertions. |
+| `REINHARDT_CLOUD_SOURCE_PIPELINE_E2E_ARTIFACT_DIR` | `target/source-pipeline-e2e/<namespace>` | Operator logs and failure diagnostics. |
+| `REINHARDT_CLOUD_SOURCE_PIPELINE_E2E_KEEP_RESOURCES` | `0` | Set to `1` to keep the namespace and artifacts for debugging. |
+| `REINHARDT_CLOUD_E2E_OPERATOR_MODE` | `auto` | `auto`, `existing`, `local`, or `skip`. |
+| `REINHARDT_CLOUD_E2E_OPERATOR_BIN` | `target/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
+
+Direct nextest invocation is also supported:
+
+```bash
+REINHARDT_CLOUD_SOURCE_PIPELINE_E2E=1 \
+REINHARDT_CLOUD_E2E_OPERATOR_BIN=target/debug/reinhardt-cloud-operator \
+cargo nextest run --locked -p reinhardt-cloud-integration-tests --test source_pipeline_e2e
+```
+
 ## 1. Bring up a local Kubernetes cluster
 
 Pick one of the two options.

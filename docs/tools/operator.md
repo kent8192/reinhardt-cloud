@@ -197,7 +197,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `ProjectPhase` | Top-level application lifecycle phase. Values: `pending`, `provisioning`, `deploying`, `running`, `degraded`, `failed`, `terminating` |
-| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types: `Ready`, `Progressing`, `Degraded` |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types include `Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady` |
 | `build` | `BuildStatus?` | Active or most recent source build status, including `phase`, `target`, `trigger`, `jobName`, `image`, `imageTag`, and preview identifiers (`previewName`, `prNumber`) |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
@@ -208,6 +208,13 @@ For source-driven projects, source builds are deployment-aware: the operator cre
 the Kaniko Job for the requested deployment and records it in `status.build`. The parent
 `spec.image` and preview Project image are not advanced until the associated Kaniko Job succeeds.
 Failed builds set `Degraded=True` and leave the previous runtime image target unchanged.
+
+For projects that provision PostgreSQL, the operator creates a migration Job
+for each deployment revision and waits for it before applying the new
+application `Deployment`. A running migration reports `MigrationReady=False`
+with reason `MigrationRunning`; a failed migration reports
+`MigrationReady=False`, `Degraded=True`, and leaves the current workload
+unchanged.
 
 Note: the served/storage version matrix may change release-to-release. The upcoming
 `reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at

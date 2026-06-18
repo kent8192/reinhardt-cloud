@@ -11,6 +11,59 @@ use reinhardt_cloud_types::crd::Project;
 
 use super::platform::Platform;
 
+/// Build the complete application environment managed by the operator.
+///
+/// This is shared by the workload `Deployment` and revision-scoped
+/// migration `Job` so database, cache, auth, and telemetry settings stay
+/// consistent across rollout gates and the serving Pods.
+pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> Vec<EnvVar> {
+	let project_name = app.name_any();
+	let explicit_db = app.spec.database.is_some();
+	let introspect_db = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_postgresql(&i.features.infrastructure_signals)
+	});
+	let needs_db_env = explicit_db || introspect_db;
+	let explicit_cache = app.spec.cache.is_some();
+	let introspect_cache = app.spec.introspect.as_ref().is_some_and(|i| {
+		reinhardt_cloud_core::inference::requires_cache(&i.features.infrastructure_signals)
+	});
+	let redis_session_backend = app.spec.introspect.as_ref().is_some_and(|i| {
+		i.features.infrastructure_signals.session_backend.as_deref() == Some("redis")
+	});
+	let needs_redis_env = explicit_cache || introspect_cache || redis_session_backend;
+
+	let mut auto_vars = build_system_env_vars();
+	auto_vars.extend(build_core_secret_key_env_vars(&project_name));
+	if app.spec.auth.as_ref().is_some_and(|auth| auth.jwt) {
+		auto_vars.push(build_jwt_secret_env_var(&project_name));
+	}
+	if needs_redis_env {
+		auto_vars.push(build_redis_cache_env_var(&project_name));
+	}
+	if needs_db_env {
+		let db_host = if explicit_db {
+			format!("{project_name}-db")
+		} else {
+			format!("{project_name}-postgresql")
+		};
+		auto_vars.extend(build_database_env_vars_from_secret(
+			app,
+			platform,
+			&db_host,
+			&app.spec.env,
+		));
+	}
+
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	let otel_vars = build_otel_env_vars(&project_name);
+	for var in otel_vars {
+		if !merged_env.iter().any(|env| env.name == var.name) {
+			merged_env.push(var);
+		}
+	}
+	merged_env
+}
+
 /// Build database connection environment variables that reference a
 /// Kubernetes `Secret` for the password, keeping the sensitive value out
 /// of the pod spec.
@@ -106,28 +159,23 @@ pub(crate) fn build_database_env_vars_from_secret(
 
 /// Build OpenTelemetry environment variables for an application Pod.
 ///
-/// Propagates the active trace context into the Pod so that application spans
-/// are correlated with the operator's reconcile span. Also sets standard OTel
-/// configuration variables so the Pod's SDK picks up the correct exporter and
-/// service identity without requiring manual configuration.
+/// Sets standard OTel configuration variables so the Pod's SDK picks up the
+/// correct exporter and service identity without requiring manual
+/// configuration.
 ///
 /// * `project_name` — value for `OTEL_SERVICE_NAME` (typically the app's name).
 ///
 /// Variables injected:
-/// * `TRACEPARENT` — W3C `traceparent` of the current reconcile span (omitted
-///   when the current span context is not valid). Note: OTel SDKs do not read
-///   `TRACEPARENT` automatically; the application must bootstrap context by
-///   reading this variable and explicitly setting it as the parent for the
-///   process's root span.
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `project_name`.
 /// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
 ///   environment variable of the same name when present.
+///
+/// The operator's per-reconcile `TRACEPARENT` is deliberately not injected:
+/// it is reconcile-scoped, so embedding it in a long-lived workload template
+/// would change the Pod spec on every reconciliation and trigger repeated
+/// rollouts. Application spans therefore start as independent roots.
 pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
-	use opentelemetry::trace::TraceContextExt;
-	use tracing::Span;
-	use tracing_opentelemetry::OpenTelemetrySpanExt;
-
 	let mut vars = vec![
 		env_var("OTEL_PROPAGATORS", "tracecontext"),
 		env_var("OTEL_SERVICE_NAME", project_name),
@@ -139,16 +187,6 @@ pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
 		&& !endpoint.is_empty()
 	{
 		vars.push(env_var("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint));
-	}
-
-	// Propagate the current reconcile span's traceparent so that application
-	// spans are nested inside the operator's reconcile trace.
-	let otel_cx = Span::current().context();
-	let otel_span = otel_cx.span();
-	if otel_span.span_context().is_valid()
-		&& let Some(tp) = reinhardt_cloud_telemetry::traceparent_from_context(&otel_cx)
-	{
-		vars.push(env_var("TRACEPARENT", &tp));
 	}
 
 	vars
