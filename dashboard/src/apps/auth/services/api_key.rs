@@ -11,7 +11,10 @@
 
 use chrono::{DateTime, Utc};
 use rand::{TryRngCore, rngs::OsRng};
-use reinhardt::db::orm::Model;
+use reinhardt::db::orm::{Model, execution::convert_values, get_connection};
+use reinhardt::query::prelude::{
+	Alias, Expr, ExprTrait, PostgresQueryBuilder, Query, QueryBuilder,
+};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -138,15 +141,20 @@ pub async fn list_api_keys_for_user(user_id: Uuid) -> Result<Vec<ApiKey>, ApiKey
 /// Record a successful verification timestamp. Fire-and-forget on the hot path
 /// to avoid a write-per-request; callers spawn it without awaiting.
 pub async fn touch_last_used(id: i64) {
-	let Ok(Some(mut api_key)) = ApiKey::objects()
-		.filter(ApiKey::field_id().eq(id))
-		.first()
-		.await
-	else {
+	let Ok(conn) = get_connection().await else {
 		return;
 	};
-	api_key.last_used_at = Some(Utc::now());
-	let _ = ApiKey::objects().update(&api_key).await;
+
+	let mut stmt = Query::update();
+	stmt.table(Alias::new("auth_api_keys"))
+		.value(Alias::new("last_used_at"), Utc::now())
+		.and_where(Expr::col(Alias::new("id")).eq(id))
+		.and_where(Expr::col(Alias::new("revoked_at")).is_null());
+
+	let builder = PostgresQueryBuilder::new();
+	let (sql, values) = builder.build_update(&stmt);
+	let params = convert_values(values);
+	let _ = conn.execute(&sql, params).await;
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

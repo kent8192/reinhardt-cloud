@@ -17,9 +17,9 @@ mod tests {
 	use serial_test::serial;
 	use std::sync::Arc;
 
-	use crate::apps::auth::models::User;
+	use crate::apps::auth::models::{ApiKey, User};
 	use crate::apps::auth::services::api_key::{
-		generate_api_key, list_api_keys_for_user, revoke_api_key, verify_api_key,
+		generate_api_key, list_api_keys_for_user, revoke_api_key, touch_last_used, verify_api_key,
 	};
 	use crate::config::test_helpers::build_test_app;
 
@@ -147,6 +147,48 @@ mod tests {
 
 		// Assert
 		assert!(resolved.is_none(), "expired token must not verify");
+	}
+
+	/// touch_last_used must not update or reactivate revoked tokens.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_touch_last_used_skips_revoked_token(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let user = create_test_user("touch-revoked").await;
+		let (_plaintext, model) = generate_api_key(user.id, "touch".to_string(), None)
+			.await
+			.expect("generate");
+		let id = model.id.unwrap_or_default();
+		revoke_api_key(id).await.expect("revoke");
+		let revoked = ApiKey::objects()
+			.filter(ApiKey::field_id().eq(id))
+			.first()
+			.await
+			.expect("lookup revoked")
+			.expect("revoked token exists");
+		let revoked_at = revoked.revoked_at;
+
+		// Act
+		touch_last_used(id).await;
+
+		// Assert
+		let after_touch = ApiKey::objects()
+			.filter(ApiKey::field_id().eq(id))
+			.first()
+			.await
+			.expect("lookup after touch")
+			.expect("token still exists");
+		assert_eq!(after_touch.revoked_at, revoked_at);
+		assert_eq!(after_touch.last_used_at, None);
 	}
 
 	/// list_api_keys_for_user returns every key for the user.
