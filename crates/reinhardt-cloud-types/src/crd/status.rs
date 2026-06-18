@@ -34,6 +34,63 @@ pub enum ConditionStatus {
 	Unknown,
 }
 
+/// Lifecycle phase of a source build.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildPhase {
+	Pending,
+	Running,
+	Succeeded,
+	Failed,
+}
+
+/// Deployment target updated by a source build.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildTargetKind {
+	Production,
+	Preview,
+}
+
+/// Status of the active or most recent source build for a `Project`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildStatus {
+	/// Current build phase.
+	pub phase: BuildPhase,
+	/// Whether the build updates the parent app or a preview app.
+	pub target: BuildTargetKind,
+	/// Trigger value accepted by the operator.
+	pub trigger: String,
+	/// Kaniko Job name associated with this build.
+	pub job_name: String,
+	/// Full image reference produced by the build.
+	pub image: String,
+	/// Image tag passed to Kaniko and preview spec generation.
+	pub image_tag: String,
+	/// Preview `Project` name for preview builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub preview_name: Option<String>,
+	/// Pull request or merge request number for preview builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pr_number: Option<String>,
+	/// Source branch used by the build.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub branch: Option<String>,
+	/// Machine-readable reason for the current build state.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reason: Option<String>,
+	/// Human-readable build status message.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message: Option<String>,
+	/// Time when the operator accepted the build trigger.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub started_at: Option<String>,
+	/// Last time the build phase changed.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_transition_time: Option<String>,
+}
+
 /// Standard Kubernetes-style condition for status reporting.
 ///
 /// Compatible with `k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition`
@@ -69,6 +126,9 @@ pub struct ProjectStatus {
 	pub observed_generation: Option<i64>,
 	/// Number of ready replicas
 	pub ready_replicas: Option<i32>,
+	/// Status of the active or most recent source build.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build: Option<BuildStatus>,
 	/// Status of the provisioned database sub-resource
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<DatabaseStatus>,
@@ -151,6 +211,125 @@ mod tests {
 			// Assert
 			assert_eq!(json, *expected);
 		}
+	}
+
+	#[rstest]
+	fn build_phase_serialization_roundtrip() {
+		// Arrange
+		let phases = [
+			(BuildPhase::Pending, "\"pending\""),
+			(BuildPhase::Running, "\"running\""),
+			(BuildPhase::Succeeded, "\"succeeded\""),
+			(BuildPhase::Failed, "\"failed\""),
+		];
+
+		for (phase, expected) in phases {
+			// Act
+			let json = serde_json::to_string(&phase).expect("serialization should succeed");
+			let parsed: BuildPhase =
+				serde_json::from_str(&json).expect("deserialization should succeed");
+
+			// Assert
+			assert_eq!(json, expected);
+			assert_eq!(parsed, phase);
+		}
+	}
+
+	#[rstest]
+	fn build_target_kind_serialization_roundtrip() {
+		// Arrange
+		let targets = [
+			(BuildTargetKind::Production, "\"production\""),
+			(BuildTargetKind::Preview, "\"preview\""),
+		];
+
+		for (target, expected) in targets {
+			// Act
+			let json = serde_json::to_string(&target).expect("serialization should succeed");
+			let parsed: BuildTargetKind =
+				serde_json::from_str(&json).expect("deserialization should succeed");
+
+			// Assert
+			assert_eq!(json, expected);
+			assert_eq!(parsed, target);
+		}
+	}
+
+	#[rstest]
+	fn build_status_production_json_roundtrip() {
+		// Arrange
+		let status = ProjectStatus {
+			build: Some(BuildStatus {
+				phase: BuildPhase::Running,
+				target: BuildTargetKind::Production,
+				trigger: "abcdef1234567890".to_string(),
+				job_name: "api-build-abcdef12".to_string(),
+				image: "ghcr.io/acme/api:api-abcdef12".to_string(),
+				image_tag: "api-abcdef12".to_string(),
+				preview_name: None,
+				pr_number: None,
+				branch: Some("main".to_string()),
+				reason: Some("BuildRunning".to_string()),
+				message: Some("Kaniko build Job is still running".to_string()),
+				started_at: Some("2026-06-17T00:00:00Z".to_string()),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&status).expect("serialization should succeed");
+		let parsed: ProjectStatus =
+			serde_json::from_str(&json).expect("deserialization should succeed");
+		let value: serde_json::Value =
+			serde_json::from_str(&json).expect("json parsing should succeed");
+
+		// Assert
+		assert_eq!(
+			parsed.build.as_ref().expect("build status").phase,
+			BuildPhase::Running
+		);
+		assert_eq!(value["build"]["target"], serde_json::json!("production"));
+		assert_eq!(
+			value["build"]["imageTag"],
+			serde_json::json!("api-abcdef12")
+		);
+		assert!(value["build"].get("previewName").is_none());
+	}
+
+	#[rstest]
+	fn build_status_preview_json_roundtrip() {
+		// Arrange
+		let status = ProjectStatus {
+			build: Some(BuildStatus {
+				phase: BuildPhase::Succeeded,
+				target: BuildTargetKind::Preview,
+				trigger: "1234567890abcdef".to_string(),
+				job_name: "api-build-34567890".to_string(),
+				image: "ghcr.io/acme/api:pr-42-12345678".to_string(),
+				image_tag: "pr-42-12345678".to_string(),
+				preview_name: Some("api-pr-42".to_string()),
+				pr_number: Some("42".to_string()),
+				branch: Some("feature/login".to_string()),
+				reason: Some("BuildSucceeded".to_string()),
+				message: Some("Kaniko build Job succeeded".to_string()),
+				started_at: Some("2026-06-17T00:00:00Z".to_string()),
+				last_transition_time: Some("2026-06-17T00:03:00Z".to_string()),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_string(&status).expect("serialization should succeed");
+		let parsed: ProjectStatus =
+			serde_json::from_str(&json).expect("deserialization should succeed");
+		let build = parsed.build.expect("build status");
+
+		// Assert
+		assert_eq!(build.target, BuildTargetKind::Preview);
+		assert_eq!(build.preview_name, Some("api-pr-42".to_string()));
+		assert_eq!(build.pr_number, Some("42".to_string()));
+		assert_eq!(build.branch, Some("feature/login".to_string()));
 	}
 
 	#[rstest]

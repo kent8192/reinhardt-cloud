@@ -282,6 +282,12 @@ with reason `MigrationRunning` means rollout is waiting on that Job;
 marks the project degraded until the spec changes or the failed revision is
 handled.
 
+For source-driven deployments, source builds populate `status.build` with the active or most
+recent Kaniko build. `status.build.jobName`, `status.build.trigger`, `status.build.image`, and
+`status.build.imageTag` identify the build Job and produced image. Production `spec.image`
+updates and preview Project image updates are applied only after the associated Kaniko Job
+succeeds.
+
 ## Installation
 
 ### Prerequisites
@@ -489,7 +495,7 @@ Breaking changes will be documented in release notes.
 ## Self-hosting
 
 The Reinhardt Cloud Dashboard can be self-hosted through its own operator
-as a `Project`. A canonical manifest (`manifests/dashboard-app.yaml`)
+as a `Project`. A canonical manifest (`manifests/dashboard-project.yaml`)
 and a release-triggered deploy workflow
 (`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
 dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for
