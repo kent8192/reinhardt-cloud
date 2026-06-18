@@ -34,7 +34,7 @@ const LEGACY_PREFILTER_SCAN_LIMIT: usize = 5_000;
 fn timestamp_nanos(timestamp: chrono::DateTime<chrono::Utc>, field: &str) -> Result<i64, ApiError> {
 	timestamp
 		.timestamp_nanos_opt()
-		.ok_or_else(|| ApiError::BadRequest(format!("invalid `{field}` timestamp range")))
+		.ok_or_else(|| ApiError::BadRequest(format!("invalid `{}` timestamp range", field)))
 }
 
 fn legacy_fetch_target(page: Pagination) -> usize {
