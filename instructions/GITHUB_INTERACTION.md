@@ -201,31 +201,169 @@ When changes affect multiple crates or modules, provide impact analysis:
 
 ## Copilot Review Handling
 
-### CR-1 (MUST): Automated Review Response Policy
+### CR-1 (MUST): Post-PR Copilot Review Workflow
 
-When GitHub Copilot posts review comments on a PR created by Claude Code:
+After creating a PR, Claude Code MUST handle GitHub Copilot's automated review comments as part of the PR workflow when authorized by PP-1 (explicit user instruction or Plan Mode approval).
 
-1. **Authorization**: Plan Mode approval or explicit user instruction to create a PR implicitly authorizes handling Copilot review comments
-2. **No additional user confirmation** is needed to resolve Copilot review conversations
-3. **Code fixes** resulting from valid Copilot suggestions follow normal commit policy
+**Workflow:**
 
-### CR-2 (MUST): Evaluation Criteria for Copilot Suggestions
+```mermaid
+flowchart TD
+    A[PR created] --> B[Fetch review threads via GraphQL]
+    B --> C{Copilot review exists?}
+    C -->|No| D[Report to user and wait]
+    C -->|Yes| E[Filter unresolved Copilot threads]
+    E --> F[Evaluate each thread]
+    F --> G{Valid concern?}
+    G -->|Yes| H[Fix code + reply + resolve]
+    G -->|False positive| I[Reply with explanation + resolve]
+    G -->|Already addressed| J[Reply with reference + resolve]
+    H --> K[Commit fixes]
+    I --> K
+    J --> K
+    K --> L[Report summary to user]
+```
 
-Evaluate each Copilot suggestion against:
+**Authorization:**
+- Follows PP-1: requires explicit user instruction or Plan Mode approval
+- When Plan Mode approves a PR creation workflow, Copilot review handling is included in that authorization scope
+- Fix commits follow standard commit policy (CE-1)
 
-| Criterion | Accept | Reject |
-|-----------|--------|--------|
-| Code correctness | Fixes a real bug or logic error | False positive or misunderstanding |
-| Project conventions | Aligns with CLAUDE.md and instructions/ | Contradicts project standards |
-| Security | Addresses a genuine vulnerability | Overly paranoid for internal code |
-| Performance | Measurable improvement | Premature optimization |
-| Readability | Genuinely improves clarity | Style preference with no clear benefit |
+### CR-2 (MUST): Fetching Copilot Review Threads
 
-### CR-3 (MUST): Resolution Protocol
+Use `gh api graphql` to retrieve review threads from a PR:
 
-- **Accepted suggestions**: Fix the code → commit → resolve the conversation
-- **Rejected suggestions**: Resolve the conversation (reply with brief technical justification only if the suggestion represents a common misconception that future reviewers might also raise)
-- **All conversations MUST be resolved** before the PR is considered complete
+```bash
+gh api graphql -f query='
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          comments(first: 10) {
+            nodes {
+              author {
+                login
+              }
+              body
+              path
+              line
+              diffHunk
+            }
+          }
+        }
+      }
+    }
+  }
+}' -f owner='kent8192' -f repo='reinhardt-cloud' -F pr=<PR_NUMBER>
+```
+
+**Filtering Criteria:**
+- Filter by `author.login` matching Copilot bot (e.g., `copilot-pull-request-reviewer[bot]`)
+- Filter by `isResolved == false` to process only unresolved threads
+
+**Polling Prohibition:**
+- **NEVER** poll in a loop waiting for Copilot review to appear
+- If no Copilot review exists yet, report to user once and wait for further instruction
+
+### CR-3 (MUST): Evaluating and Responding to Comments
+
+Evaluate each Copilot comment against these categories:
+
+| Category | Action | Response |
+|----------|--------|----------|
+| Valid concern | Fix code | Reply with fix description → Resolve |
+| False positive | No code change | Reply with technical explanation → Resolve |
+| Already addressed | No code change | Reply with reference to existing handling → Resolve |
+
+**Response Template (extends RR-2):**
+
+For valid concerns with code fix:
+```markdown
+**Fixed:** [Brief description of the fix]
+
+[Technical explanation of the change]
+
+Commit: [commit hash] — `path/to/file.rs:L42`
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+For false positives or already addressed:
+```markdown
+**Re: [Copilot's concern summary]**
+
+[Technical explanation of why this is not an issue or is already handled]
+
+Reference: `path/to/file.rs:L42` — [Description of existing handling]
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+**Guidelines:**
+- Follow RR-3 for code reference format (repository-relative paths)
+- Follow FF-1 for Claude Code attribution footer
+- Follow CG-2 content restrictions (no absolute paths, no user request details)
+- Every thread MUST receive a reply before being resolved (no silent resolves)
+
+### CR-4 (MUST): Resolving Threads via GraphQL
+
+**Step 1: Reply to the thread**
+
+```bash
+gh api graphql -f query='
+mutation($threadId: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: {
+    pullRequestReviewThreadId: $threadId,
+    body: $body
+  }) {
+    comment {
+      id
+    }
+  }
+}' -f threadId='<THREAD_ID>' -f body='<REPLY_BODY>'
+```
+
+**Step 2: Resolve the thread**
+
+```bash
+gh api graphql -f query='
+mutation($threadId: ID!) {
+  resolveReviewThread(input: {
+    threadId: $threadId
+  }) {
+    thread {
+      isResolved
+    }
+  }
+}' -f threadId='<THREAD_ID>'
+```
+
+**Rules:**
+- **MUST** reply before resolving (CR-3 compliance)
+- **NEVER** resolve a thread without posting a reply first
+- Verify `isResolved: true` in the mutation response
+
+### CR-5 (SHOULD): Completion Summary
+
+After processing all Copilot review threads, report a summary to the user:
+
+**Summary Format:**
+
+```markdown
+## Copilot Review Handling Summary
+
+| # | File | Line | Category | Action |
+|---|------|------|----------|--------|
+| 1 | `path/to/file.rs` | L42 | Valid concern | Fixed (commit abc1234) |
+| 2 | `path/to/other.rs` | L15 | False positive | Explained |
+| 3 | `path/to/third.rs` | L88 | Already addressed | Referenced |
+
+**Commits created:** 1
+**Threads resolved:** 3 / 3
+```
 
 ---
 

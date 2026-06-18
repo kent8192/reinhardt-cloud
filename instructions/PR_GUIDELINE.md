@@ -24,20 +24,22 @@ This file defines the pull request (PR) policy for the Reinhardt Cloud project. 
 - **MUST** prefer GitHub MCP tools (`create_pull_request`) for creating pull requests when available
 - **Fallback**: Use GitHub CLI (`gh pr create`) when GitHub MCP is not available
 - **NEVER** use web browser UI for PR creation when MCP or CLI is available
-- **Autonomy (Reinhardt family)**: Creating a **Draft** PR is authorized without further user confirmation in `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc` (see Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md`); the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed. Marking a PR as Ready for Review is also authorized autonomously once the implementation is complete (CI completion is **not** required).
+- **Autonomy (Reinhardt family)**: Creating a **Draft** PR is authorized without further user confirmation in `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc` (see Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md`); the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed. Marking a PR as Ready for Review is **REQUIRED** (MUST) immediately once the implementation is complete; CI completion is **not** a prerequisite. See § PC-4a.
 
-The following diagram summarizes the PR creation flow:
+The following diagram summarizes the PR creation flow. Ready-for-Review conversion is governed separately by § PC-4a (MUST immediately upon implementation completion — CI completion is NOT a prerequisite):
 
 ```mermaid
 flowchart TD
-    A[Create new PR] --> B{GitHub MCP available?}
-    B -->|Yes| C[Use create_pull_request MCP tool]
-    B -->|No| D[Use gh pr create CLI]
+    A[Create new PR as Draft] --> B{GitHub MCP available?}
+    B -->|Yes| C[create_pull_request with draft=true]
+    B -->|No| D[gh pr create --draft]
     C --> E[Follow PR template structure]
     D --> E
     E --> F[Add appropriate labels]
-    F --> G[Run pre-review checks]
-    G --> H[Request review]
+    F --> G[PR created as Draft]
+    G --> H["Implementation complete?<br/>see § PC-4a"]
+    H -->|Yes - MUST| I[Mark Ready immediately<br/>gh pr ready]
+    H -->|No| G
 ```
 
 **PR Template Location:** `.github/PULL_REQUEST_TEMPLATE.md`
@@ -91,15 +93,63 @@ chore/ci-update-kubernetes-version
 ### PC-4 (SHOULD): Draft PRs for Work in Progress
 
 - Use draft PRs for incomplete work
-- Convert to Ready for Review **once the implementation is complete** — CI completion is **not** a prerequisite (the Reinhardt-family Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` overrides any "wait for all tests to pass" criterion for the Draft→Ready transition)
+- **MUST** convert to Ready for Review **immediately once the implementation is complete** — CI completion is **not** a prerequisite (the Reinhardt-family Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` overrides any "wait for all tests to pass" criterion for the Draft→Ready transition)
 - Draft PRs allow early feedback without formal review requests
 
 **Example:**
 ```bash
 gh pr create --draft --title "feat(crd): add Project CRD (WIP)"
 
-# Convert to Ready once implementation is complete (no need to wait for CI):
+# MUST convert to Ready immediately once implementation is complete (CI completion NOT required):
 gh pr ready <number>
+```
+
+### PC-4a (MUST): Mandatory Draft → Ready Conversion on Implementation Completion
+
+Converting a Draft PR to Ready for Review is **mandatory once the implementation is complete**. "Implementation complete" means no `todo!()` / `// TODO:` markers introduced by this PR remain in the diff. **CI completion is NOT a prerequisite** — the Reinhardt-family Autonomous Operation Policy explicitly waives "wait for CI green / tests to pass". The agent MUST convert immediately upon implementation completion, and MUST NOT leave the PR in Draft state once the implementation is complete.
+
+**Rules:**
+- The agent **MUST** convert a Draft PR to Ready for Review immediately once the implementation is complete
+- The agent **MUST** convert immediately upon explicit user instruction (regardless of CI state)
+- The agent **MUST NOT** leave a PR in Draft state after the implementation is complete
+- Use `gh pr ready <number>` (or the equivalent GitHub MCP call) for conversion
+
+**Readiness Criterion (single check):**
+- [ ] Implementation is complete (no remaining `todo!()` or `// TODO:` introduced by this PR)
+
+> Other quality requirements (fmt-clippy clean, PR description following the template, documentation updated) are already enforced by the commit/push policies and the PR creation policy — they are NOT additional preconditions for the Draft → Ready transition.
+
+**Example:**
+```bash
+# Mandatory conversion once implementation is complete
+gh pr ready 123
+
+# Verify PR status after conversion
+gh pr view 123 --json isDraft
+```
+
+**Authorization Comparison:**
+
+| Action | Explicit Instruction | Plan Mode Approval | Implementation Complete |
+|--------|---------------------|-------------------|--------------------------|
+| Commit | ✅ Authorized | ✅ Authorized | n/a |
+| Push | ✅ Authorized | ✅ Authorized | n/a |
+| GitHub Comments | ✅ Authorized | ✅ Authorized | n/a |
+| Draft PR → Ready | ✅ **REQUIRED** | ✅ **REQUIRED** | ✅ **REQUIRED (MUST convert immediately)** |
+
+The following diagram illustrates the Draft PR lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: gh pr create --draft
+    Draft --> Draft: Implementation continues
+    Draft --> Draft: CI checks run
+    Draft --> ReadyForReview: Implementation complete OR user instructs (MANDATORY)
+    note right of ReadyForReview: Agent MUST convert immediately\nonce implementation is complete
+    ReadyForReview --> Review: Reviewers notified (incl. Copilot)
+    Review --> Merged: Approved and merged
+    Review --> Draft: Converted back to draft
+    Merged --> [*]
 ```
 
 ### PC-5 (MUST): PR Labels
@@ -225,9 +275,9 @@ Include additional sections when relevant:
 
 ## PR Review Process
 
-### RP-1 (MUST): Pre-Review Checklist
+### RP-1 (MUST): Pre-Merge Checklist
 
-Before requesting review, ensure:
+Before **merging** (NOT before Draft → Ready conversion — see § PC-4a, which mandates immediate Ready conversion upon implementation completion), ensure:
 
 - [ ] All CI checks pass
 - [ ] All tests pass locally
@@ -263,67 +313,45 @@ cargo make clippy-check
 
 ### RP-6 (MUST): Copilot Review Workflow
 
-After creating a PR, Claude Code MUST wait for GitHub Copilot's automated review and handle it as part of the PR completion process.
+After creating a PR, Claude Code MUST handle GitHub Copilot's automated review comments as part of the PR workflow when authorized by the posting policy in `instructions/GITHUB_INTERACTION.md` PP-1.
 
 **Workflow:**
 
-1. **Wait for Copilot review** — After PR creation, poll for Copilot's review using `gh pr checks` and `gh api` to monitor review status
-2. **Retrieve review comments** — Once Copilot review arrives, fetch all review comments using `gh pr view <number> --comments` and `gh api repos/{owner}/{repo}/pulls/{number}/comments`
+1. **Fetch review threads** — Use the GraphQL review-thread query documented in `instructions/GITHUB_INTERACTION.md` CR-2
+2. **Report once if absent** — If no Copilot review exists, report that state once and wait for further instruction; do not poll in a loop
 3. **Evaluate each comment** — For each Copilot suggestion:
    - Assess whether the suggestion is valid and improves code quality
    - Check if the suggestion aligns with project conventions (CLAUDE.md, instructions/)
    - Determine if the change is necessary or cosmetic
 4. **Act on evaluation:**
-   - **Valid suggestion** → Fix the code, commit the change, then resolve the conversation
-   - **Invalid or unnecessary suggestion** → Resolve the conversation without changes (reply with brief technical justification if needed)
+   - **Valid suggestion** → Fix the code, reply with the fix description, commit the change, then resolve the conversation
+   - **Invalid or unnecessary suggestion** → Reply with a brief technical justification, then resolve the conversation
 5. **Verify completion** — Ensure all Copilot review conversations are resolved before considering the PR ready
 
 The following diagram summarizes the Copilot review handling flow:
 
 ```mermaid
 flowchart TD
-    A[PR created] --> B[Poll for Copilot review]
-    B --> C{Copilot review received?}
-    C -->|No| D[Wait and retry]
-    D --> C
-    C -->|Yes| E[Fetch all review comments]
+    A[PR created] --> B[Fetch review threads via GraphQL]
+    B --> C{Copilot review exists?}
+    C -->|No| D[Report once and wait]
+    C -->|Yes| E[Filter unresolved Copilot threads]
     E --> F[Evaluate each comment]
     F --> G{Suggestion valid?}
-    G -->|Yes| H[Fix code and commit]
+    G -->|Yes| H[Fix code + reply + commit]
     H --> I[Resolve conversation]
-    G -->|No| J[Resolve conversation<br/>with justification]
+    G -->|No| J[Reply with justification<br/>then resolve]
     I --> K{More comments?}
     J --> K
     K -->|Yes| F
     K -->|No| L[All conversations resolved]
 ```
 
-**Polling Commands:**
-```bash
-# Check PR review status
-gh pr checks <number>
-
-# List reviews on a PR
-gh api repos/{owner}/{repo}/pulls/{number}/reviews
-
-# Get review comments
-gh api repos/{owner}/{repo}/pulls/{number}/comments
-
-# Resolve a review thread (GraphQL)
-gh api graphql -f query='
-  mutation {
-    resolveReviewThread(input: {threadId: "<thread_id>"}) {
-      thread { isResolved }
-    }
-  }
-'
-```
-
 **Important Notes:**
 - Copilot review is treated as automated feedback, NOT as a blocking human review
-- Plan Mode approval authorizes handling Copilot review comments (no additional user confirmation needed)
+- Plan Mode approval authorizes handling Copilot review comments within the approved PR workflow
 - Fixes for Copilot suggestions follow the same commit policy as other changes
-- If Copilot review does not arrive within a reasonable time, proceed without it
+- Every thread MUST receive a reply before being resolved; see `instructions/GITHUB_INTERACTION.md` CR-3 and CR-4
 
 ### RP-4 (SHOULD): Keep PRs Small
 
@@ -463,12 +491,13 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Follow Conventional Commits format for titles
 - Include Summary, Type of Change, Motivation and Context, How Was This Tested, Checklist sections
 - Include Labels to Apply section with appropriate type and scope labels
-- Run all checks before requesting review
+- Run all checks before **merging** (NOT before Draft → Ready conversion — § PC-4a mandates immediate Ready conversion)
 - Address all review comments
-- Wait for Copilot review after PR creation and handle all comments (RP-6)
+- Handle Copilot review comments according to RP-6 when authorized
 - Resolve all Copilot review conversations before considering PR complete
 - Ensure all CI checks pass before merge
 - Use three-dot diff (`main...branch`) for PR verification to exclude merge history noise
+- **MUST** convert Draft PRs to Ready for Review **immediately** once the implementation is complete (CI completion is NOT required), OR upon explicit user instruction (see § PC-4a)
 
 ### ❌ NEVER DO
 - Write PR titles or descriptions in non-English languages
@@ -481,6 +510,8 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Force push after review has started (unless explicitly requested)
 - Use rebase or force-push to resolve PR conflicts (use worktree merge instead)
 - Use two-dot diff (`main..branch`) for PR verification (includes merge history noise)
+- Convert Draft PRs to Ready for Review while the implementation is incomplete (`todo!()` or `// TODO:` introduced by the PR still present), without explicit user override
+- Leave a PR in Draft state after the implementation is complete (MUST convert to Ready for Review immediately; CI completion is NOT a prerequisite)
 
 ---
 
