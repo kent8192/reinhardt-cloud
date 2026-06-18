@@ -80,6 +80,12 @@ interval_seconds = 10
 [services]
 port = 80
 target_port = 8000
+ingress_host = "app.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "app-example-com-tls"
+cluster_issuer = "letsencrypt-prod"
 
 [scale]
 min_replicas = 2
@@ -254,9 +260,10 @@ spec:
 | `auth` | `AuthSpec?` | JWT + OAuth configuration |
 | `storage` | `StorageSpec?` | S3 / GCS / PVC object storage |
 | `mail` | `MailSpec?` | SMTP configuration |
-| `scale` | `ScaleSpec?` | HPA autoscaling (CPU, Memory, RPS) |
+| `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
 | `services` | `ServicesSpec?` | Port + Ingress exposure |
+| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
 | `deletion_policy` | `DeletionPolicy` | `Retain` (default) or `Delete` |
@@ -273,7 +280,7 @@ spec:
 
 The operator reports the following conditions on the CRD status:
 
-`Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`
+`Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady`
 
 For database-backed projects, the operator runs a revision-scoped migration
 Job before applying the new workload `Deployment`. `MigrationReady=False`
@@ -281,6 +288,37 @@ with reason `MigrationRunning` means rollout is waiting on that Job;
 `MigrationReady=False` with reason `MigrationFailed` blocks the rollout and
 marks the project degraded until the spec changes or the failed revision is
 handled.
+
+Autoscaling uses Kubernetes `autoscaling/v2` HPA for `cpu` and `memory`.
+`min_replicas` and `max_replicas` must be at least `1`. For `memory`,
+`target_value` is MiB. `rps` is reserved for custom/external metrics and
+surfaces `AutoscalerReady=False` until a custom metrics provider is supported.
+
+The `[scale]` example above generates an HPA like:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+For `metric = "memory"` with `target_value = 512`, the generated resource
+target uses `type: AverageValue` and `averageValue: 512Mi`.
 
 For source-driven deployments, source builds populate `status.build` with the active or most
 recent Kaniko build. `status.build.jobName`, `status.build.trigger`, `status.build.image`, and
@@ -392,6 +430,11 @@ interval_seconds = 15
 port = 443
 target_port = 3000
 ingress_host = "app.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "app-example-com-tls"
+cluster_issuer = "letsencrypt-prod"
 
 [replicas]
 count = 3

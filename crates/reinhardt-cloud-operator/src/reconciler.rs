@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscaler;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
@@ -40,14 +41,15 @@ use crate::resources::security::network_policy::{
 };
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
-	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
-	build_service,
+	self, AutoscalerPlan, build_autoscaler, build_db_secret, build_db_service,
+	build_db_statefulset, build_deployment, build_ingress, build_service, hpa_is_ready,
 };
 use crate::source_build::{self, BuildDecision};
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
+use reinhardt_cloud_types::crd::spec::ScaleMetric;
 use reinhardt_cloud_types::crd::{
 	BuildStatus, BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
 };
@@ -424,7 +426,16 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		MigrationGateState::Running | MigrationGateState::Failed
 	) {
 		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
-		update_status(&app, ctx, namespace, false, ready_replicas, migration_state).await?;
+		update_status(
+			&app,
+			ctx,
+			namespace,
+			false,
+			ready_replicas,
+			migration_state,
+			Vec::new(),
+		)
+		.await?;
 		update_replica_gauges(
 			ctx,
 			namespace,
@@ -499,6 +510,25 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 			pages_config.as_ref(),
 		)
 		.await?;
+	}
+
+	let mut child_conditions = Vec::new();
+	if let Some(plan) = build_autoscaler(&app)? {
+		match plan {
+			AutoscalerPlan::Apply(hpa) => {
+				let name = app.name_any();
+				reconcile_hpa(&ctx.client, namespace, &name, &hpa).await?;
+			}
+			AutoscalerPlan::Unsupported { reason, message } => {
+				child_conditions.push(build_condition(
+					&app,
+					ConditionType::AutoscalerReady,
+					ConditionStatus::False,
+					reason,
+					&message,
+				));
+			}
+		}
 	}
 
 	// Cache provisioning — explicit spec.cache takes precedence,
@@ -636,8 +666,24 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
 	let ready = ready_replicas >= desired_replicas;
 
+	if let Some(condition) = tls_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+	if let Some(condition) = autoscaler_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+
 	// Update status sub-resource
-	update_status(&app, ctx, namespace, ready, ready_replicas, migration_state).await?;
+	update_status(
+		&app,
+		ctx,
+		namespace,
+		ready,
+		ready_replicas,
+		migration_state,
+		child_conditions,
+	)
+	.await?;
 	update_replica_gauges(ctx, namespace, &app, ready_replicas, desired_replicas);
 
 	Ok(Action::await_change())
@@ -713,6 +759,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// (Ingress, migration Job). These have ownerReferences but we delete
 	// explicitly for a cleaner teardown sequence.
 	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
+	delete_if_exists::<HorizontalPodAutoscaler>(&ctx.client, namespace, &name).await?;
 	delete_migration_jobs(&ctx.client, namespace, &name).await?;
 
 	match app.spec.deletion_policy {
@@ -1246,6 +1293,21 @@ async fn reconcile_ingress_resource_with_host(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled Ingress {namespace}/{name}");
+	Ok(())
+}
+
+async fn reconcile_hpa(
+	client: &Client,
+	namespace: &str,
+	name: &str,
+	hpa: &HorizontalPodAutoscaler,
+) -> Result<(), Error> {
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	let hpas: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	hpas.patch(name, &ssapply, &Patch::Apply(hpa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled HPA {namespace}/{name}");
 	Ok(())
 }
 
@@ -1873,6 +1935,125 @@ fn build_condition(
 	}
 }
 
+async fn tls_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(services) = app.spec.services.as_ref() else {
+		return Ok(None);
+	};
+	let Some(tls) = services.tls.as_ref() else {
+		return Ok(None);
+	};
+	if !tls.enabled {
+		return Ok(None);
+	}
+
+	let host = services.ingress_host.as_deref().unwrap_or_default();
+	let secret_name = tls.secret_name.as_deref().unwrap_or_default();
+	if host.is_empty() || secret_name.is_empty() {
+		return Ok(Some(build_condition(
+			app,
+			ConditionType::TlsReady,
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			"Waiting for Ingress TLS host and Secret name to be configured",
+		)));
+	}
+
+	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+	let ingress = ingress_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let secret = secret_api.get_opt(secret_name).await.map_err(Error::Kube)?;
+
+	let ingress_matches = ingress
+		.as_ref()
+		.and_then(|ingress| ingress.spec.as_ref())
+		.and_then(|spec| spec.tls.as_ref())
+		.is_some_and(|tls_entries| {
+			tls_entries.iter().any(|entry| {
+				entry.secret_name.as_deref() == Some(secret_name)
+					&& entry
+						.hosts
+						.as_ref()
+						.is_some_and(|hosts| hosts.iter().any(|candidate| candidate == host))
+			})
+		});
+
+	let ready = ingress_matches && secret.is_some();
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"TlsSecretReady",
+			format!("Ingress TLS references Secret '{secret_name}' and the Secret exists"),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			format!("Waiting for Ingress TLS host '{host}' and Secret '{secret_name}'"),
+		)
+	};
+
+	Ok(Some(build_condition(
+		app,
+		ConditionType::TlsReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
+async fn autoscaler_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(scale) = app.spec.scale.as_ref() else {
+		return Ok(None);
+	};
+	if scale
+		.metric
+		.as_ref()
+		.is_some_and(|metric| matches!(metric, ScaleMetric::Rps))
+	{
+		return Ok(None);
+	}
+
+	let hpa_api: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	let hpa = hpa_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let ready = hpa.as_ref().is_some_and(hpa_is_ready);
+
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"AutoscalerActive",
+			"HorizontalPodAutoscaler is observed and active".to_string(),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"AutoscalerNotReady",
+			"Waiting for HorizontalPodAutoscaler to become observed and active".to_string(),
+		)
+	};
+
+	Ok(Some(build_condition(
+		app,
+		ConditionType::AutoscalerReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
 /// Deletes a namespaced Kubernetes resource if it exists.
 ///
 /// Silently succeeds if the resource is already absent.
@@ -1924,6 +2105,7 @@ fn build_status(
 	ready: bool,
 	ready_replicas: i32,
 	migration_state: MigrationGateState,
+	child_conditions: Vec<ProjectCondition>,
 ) -> ProjectStatus {
 	let existing_status = app.status.as_ref();
 	let phase = if migration_state == MigrationGateState::Failed {
@@ -2020,6 +2202,9 @@ fn build_status(
 			},
 		);
 	}
+	for condition in child_conditions {
+		upsert_project_condition(&mut conditions, condition);
+	}
 
 	ProjectStatus {
 		phase: Some(phase),
@@ -2043,9 +2228,16 @@ async fn update_status(
 	ready: bool,
 	ready_replicas: i32,
 	migration_state: MigrationGateState,
+	child_conditions: Vec<ProjectCondition>,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let typed_status = build_status(app, ready, ready_replicas, migration_state);
+	let typed_status = build_status(
+		app,
+		ready,
+		ready_replicas,
+		migration_state,
+		child_conditions,
+	);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -2461,7 +2653,7 @@ mod tests {
 		let app = make_test_app("ready-app");
 
 		// Act
-		let status = build_status(&app, true, 3, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 3, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
@@ -2481,7 +2673,7 @@ mod tests {
 		let app = make_test_app("deploying-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::NotRequired);
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
@@ -2501,7 +2693,7 @@ mod tests {
 		let app = make_test_app("migration-running-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::Running);
+		let status = build_status(&app, false, 0, MigrationGateState::Running, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
@@ -2516,7 +2708,7 @@ mod tests {
 		let app = make_test_app("migration-failed-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::Failed);
+		let status = build_status(&app, false, 0, MigrationGateState::Failed, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Degraded));
@@ -2529,13 +2721,74 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_status_appends_child_conditions() {
+		// Arrange
+		let app = make_test_app("status-child-app");
+		let child = ProjectCondition {
+			type_: ConditionType::TlsReady,
+			status: ConditionStatus::True,
+			reason: "TlsSecretReady".to_string(),
+			message: "TLS Secret is present".to_string(),
+			last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+			observed_generation: Some(1),
+		};
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, vec![child]);
+
+		// Assert
+		assert_eq!(status.conditions.len(), 3);
+		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(status.conditions[1].type_, ConditionType::MigrationReady);
+		assert_eq!(status.conditions[2].type_, ConditionType::TlsReady);
+	}
+
+	#[rstest]
+	fn test_build_status_upserts_child_conditions() {
+		// Arrange
+		let mut app = make_test_app("status-child-upsert-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::TlsReady,
+				status: ConditionStatus::False,
+				reason: "TlsSecretMissing".to_string(),
+				message: "TLS Secret is missing".to_string(),
+				last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+		let child = ProjectCondition {
+			type_: ConditionType::TlsReady,
+			status: ConditionStatus::True,
+			reason: "TlsSecretReady".to_string(),
+			message: "TLS Secret is present".to_string(),
+			last_transition_time: Some("2025-01-02T00:00:00Z".to_string()),
+			observed_generation: Some(1),
+		};
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, vec![child]);
+
+		// Assert
+		let tls_conditions: Vec<_> = status
+			.conditions
+			.iter()
+			.filter(|condition| condition.type_ == ConditionType::TlsReady)
+			.collect();
+		assert_eq!(tls_conditions.len(), 1);
+		assert_eq!(tls_conditions[0].status, ConditionStatus::True);
+		assert_eq!(tls_conditions[0].reason, "TlsSecretReady");
+	}
+
+	#[rstest]
 	fn test_build_status_sets_observed_generation() {
 		// Arrange
 		let mut app = make_test_app("gen-app");
 		app.metadata.generation = Some(5);
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.observed_generation, Some(5));
@@ -2548,7 +2801,7 @@ mod tests {
 		let app = make_test_app("replicas-app");
 
 		// Act
-		let status = build_status(&app, true, 7, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 7, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.ready_replicas, Some(7));
@@ -2578,7 +2831,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		let build = status.build.expect("build status");
@@ -2602,7 +2855,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::NotRequired);
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.conditions.len(), 3);
@@ -2637,7 +2890,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
@@ -2680,7 +2933,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
@@ -2724,7 +2977,7 @@ mod tests {
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be preserved
 		assert_eq!(
@@ -2754,7 +3007,7 @@ mod tests {
 		});
 
 		// Act — readiness changed from True to False
-		let status = build_status(&app, false, 0, MigrationGateState::NotRequired);
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be updated (not the old value)
 		assert_ne!(
@@ -2770,7 +3023,7 @@ mod tests {
 		let app = make_test_app("new-app");
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — should have a transition time since there's no prior condition
 		assert!(status.conditions[0].last_transition_time.is_some());
@@ -2790,7 +3043,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		let db_status = status.database.expect("database status should be present");
@@ -2808,7 +3061,7 @@ mod tests {
 		let app = make_test_app("no-db-app");
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert!(status.database.is_none());
@@ -3173,6 +3426,7 @@ mod tests {
 			port: None,
 			target_port: Some(3000),
 			ingress_host: None,
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			settings: SettingsMetadata {
@@ -3326,6 +3580,7 @@ mod tests {
 			port: Some(80),
 			target_port: Some(8080),
 			ingress_host: Some("myapp.example.com".to_string()),
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			routes: vec![RouteMetadata {

@@ -115,6 +115,7 @@ mod tests {
 			port: Some(443),
 			target_port: Some(9090),
 			ingress_host: None,
+			tls: None,
 		});
 
 		// Act
@@ -198,6 +199,7 @@ mod tests {
 			port: Some(0),
 			target_port: None,
 			ingress_host: None,
+			tls: None,
 		});
 
 		// Act
@@ -220,6 +222,7 @@ mod tests {
 			port: Some(65536),
 			target_port: None,
 			ingress_host: None,
+			tls: None,
 		});
 
 		// Act
@@ -242,6 +245,7 @@ mod tests {
 			port: Some(80),
 			target_port: Some(70000),
 			ingress_host: None,
+			tls: None,
 		});
 
 		// Act
