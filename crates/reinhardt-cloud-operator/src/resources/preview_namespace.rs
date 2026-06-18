@@ -43,7 +43,9 @@ const QUOTA_NAME: &str = "preview-default-quota";
 const LIMIT_RANGE_NAME: &str = "preview-default-limits";
 const DEFAULT_DENY_NAME: &str = "preview-default-deny";
 const ALLOW_INGRESS_NAME: &str = "preview-allow-ingress-and-dns";
-const ISSUER_NAME: &str = "preview-issuer";
+/// Name of the cert-manager `Issuer` emitted into each preview namespace.
+/// Referenced by the preview Ingress TLS annotation, so it is `pub(crate)`.
+pub(crate) const ISSUER_NAME: &str = "preview-issuer";
 /// Fallback pod cap applied when no `PreviewBudget` is set, so a runaway
 /// preview cannot exhaust the cluster.
 const DEFAULT_POD_CAP: &str = "50";

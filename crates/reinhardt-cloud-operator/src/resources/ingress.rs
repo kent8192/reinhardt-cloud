@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::networking::v1::{
 	HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
-	IngressServiceBackend, IngressSpec, ServiceBackendPort,
+	IngressServiceBackend, IngressSpec, IngressTLS, ServiceBackendPort,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
@@ -135,6 +135,28 @@ pub(crate) fn build_ingress(
 		);
 	}
 
+	// Preview Projects carry the `reinhardt.dev/preview=true` label. Give such
+	// Projects a cert-manager TLS section plus the per-namespace Issuer
+	// annotation so cert-manager issues a certificate for the preview host.
+	let is_preview = app
+		.metadata
+		.labels
+		.as_ref()
+		.and_then(|labels| labels.get("reinhardt.dev/preview"))
+		.is_some_and(|value| value == "true");
+	let tls = if is_preview && host.is_some() {
+		annotations.get_or_insert_with(BTreeMap::new).insert(
+			"cert-manager.io/issuer".to_string(),
+			crate::resources::preview_namespace::ISSUER_NAME.to_string(),
+		);
+		Some(vec![IngressTLS {
+			hosts: Some(vec![host.map(|h| h.to_string()).unwrap_or_default()]),
+			secret_name: Some(format!("{project_name}-tls")),
+		}])
+	} else {
+		None
+	};
+
 	Ok(Some(Ingress {
 		metadata: ObjectMeta {
 			name: Some(project_name),
@@ -147,6 +169,7 @@ pub(crate) fn build_ingress(
 		spec: Some(IngressSpec {
 			ingress_class_name: Some("nginx".to_string()),
 			rules: Some(vec![rule]),
+			tls,
 			..Default::default()
 		}),
 		..Default::default()
@@ -222,6 +245,75 @@ mod tests {
 		let backend = paths[0].backend.service.as_ref().unwrap();
 		assert_eq!(backend.name, "web");
 		assert_eq!(backend.port.as_ref().unwrap().number, Some(8080));
+	}
+
+	#[rstest]
+	fn test_build_ingress_adds_tls_for_preview_with_host() {
+		// Arrange — a preview-labeled Project with an ingress host.
+		let mut app = make_test_app("my-app-pr-42");
+		app.metadata.labels = Some(
+			[("reinhardt.dev/preview".to_string(), "true".to_string())]
+				.into_iter()
+				.collect(),
+		);
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(
+			&app,
+			&routes,
+			8080,
+			Some("my-app-pr-42.preview.example.com"),
+			None,
+			None,
+		)
+		.expect("build should succeed")
+		.expect("ingress should be created");
+
+		// Assert — TLS section targets the host and the cert-manager annotation
+		// points at the preview Issuer.
+		let spec = ingress.spec.expect("spec");
+		let tls = spec.tls.expect("preview ingress must carry TLS");
+		assert_eq!(tls.len(), 1);
+		assert_eq!(
+			tls[0].hosts.as_ref().unwrap()[0],
+			"my-app-pr-42.preview.example.com"
+		);
+		assert_eq!(
+			ingress
+				.metadata
+				.annotations
+				.as_ref()
+				.unwrap()
+				.get("cert-manager.io/issuer")
+				.map(String::as_str),
+			Some(crate::resources::preview_namespace::ISSUER_NAME)
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_omits_tls_for_non_preview() {
+		// Arrange — a regular (non-preview) Project with a host.
+		let app = make_test_app("web");
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert — no TLS section and no cert-manager annotation for non-previews.
+		let spec = ingress.spec.expect("spec");
+		assert!(spec.tls.is_none(), "non-preview ingress must not carry TLS");
+		assert!(
+			ingress
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|annotations| annotations.get("cert-manager.io/issuer"))
+				.is_none(),
+			"non-preview ingress must not carry a cert-manager annotation"
+		);
 	}
 
 	#[rstest]
