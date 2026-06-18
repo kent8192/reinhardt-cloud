@@ -1,23 +1,3 @@
-// Workaround for reinhardt-web MigrationAutodetector spurious-migration bug
-// (tracked in kent8192/reinhardt-cloud#719,
-// upstream: kent8192/reinhardt-web#5367).
-//
-// This migration is hand-extracted from `cargo make makemigrations` output:
-// only the `auth_api_keys` CreateTable is kept. The generator co-emits
-// spurious operations for already-applied schema:
-//   - AlterColumn `auth_permission.id`, `auth_group.id`,
-//     `auth_social_accounts.id` to `Uuid` (already `Uuid` since `0003`)
-//   - AlterColumn `auth_users.email`/`first_name`/`is_active`/`is_staff`/
-//     `is_superuser`/`last_name` (re-asserting existing defaults/constraints)
-//   - AddConstraint `auth_user_email_uniq` (already added in `0002`)
-// This is a regression of reinhardt-web#475 on the 0.3 line. The production
-// schema is correct; only the generator misdetects drift.
-//
-// Remove this workaround and regenerate normally via
-// `cargo make makemigrations` once the upstream spurious-migration bug is
-// fixed. The ideal generated file would contain only this CreateTable
-// operation with no manual edits.
-
 use reinhardt::db::migrations::FieldType;
 use reinhardt::db::migrations::prelude::*;
 pub fn migration() -> Migration {
@@ -117,7 +97,10 @@ pub fn migration() -> Migration {
 			interleave_in_parent: None,
 			partition: None,
 		}],
-		dependencies: vec![("auth".to_string(), "0006_add_social_account_token_metadata".to_string())],
+		dependencies: vec![(
+			"auth".to_string(),
+			"0006_add_social_account_token_metadata".to_string(),
+		)],
 		atomic: true,
 		replaces: vec![],
 		initial: Some(false),
