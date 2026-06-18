@@ -742,6 +742,27 @@ spec:
                     format: int32
                     nullable: true
                     type: integer
+                  tls:
+                    description: TLS configuration for generated Ingress resources
+                    nullable: true
+                    properties:
+                      cluster_issuer:
+                        description: cert-manager ClusterIssuer name
+                        nullable: true
+                        type: string
+                      enabled:
+                        default: false
+                        description: Whether TLS should be configured on the generated Ingress
+                        type: boolean
+                      issuer:
+                        description: cert-manager Issuer name in the same namespace
+                        nullable: true
+                        type: string
+                      secret_name:
+                        description: Secret containing the certificate and private key
+                        nullable: true
+                        type: string
+                    type: object
                 type: object
               source:
                 description: Git source and CI/CD pipeline configuration.
@@ -1054,6 +1075,8 @@ spec:
                       - CacheReady
                       - WorkerReady
                       - IngressReady
+                      - TlsReady
+                      - AutoscalerReady
                       type: string
                   required:
                   - message

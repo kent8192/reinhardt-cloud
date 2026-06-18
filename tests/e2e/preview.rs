@@ -245,6 +245,7 @@ fn preview_parent_project(
 				port: Some(80),
 				target_port: Some(8080),
 				ingress_host: Some("preview-parent.example.test".to_string()),
+				tls: None,
 			}),
 			env: BTreeMap::from([("REINHARDT_ENV".to_string(), "preview".to_string())]),
 			source: Some(SourceSpec {

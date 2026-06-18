@@ -118,6 +118,7 @@ fn build_config(
 			port: Some(DEFAULT_SERVICE_PORT),
 			target_port: Some(DEFAULT_APP_PORT),
 			ingress_host: None,
+			tls: None,
 		}),
 		scale: Some(ScaleSection {
 			min_replicas: Some(DEFAULT_MIN_REPLICAS),
@@ -588,6 +589,7 @@ mod tests {
 				port: Some(DEFAULT_SERVICE_PORT),
 				target_port: Some(DEFAULT_APP_PORT),
 				ingress_host: None,
+				tls: None,
 			}),
 			scale: Some(ScaleSection {
 				min_replicas: Some(DEFAULT_MIN_REPLICAS),

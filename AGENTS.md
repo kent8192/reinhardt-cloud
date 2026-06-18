@@ -175,7 +175,7 @@ Autonomously Allowed (no per-action confirmation required):
 | `git commit` | On any non-protected branch |
 | `git push` | On any non-protected branch (`feature/...`, `fix/...`, `refactor/...`, `docs/...`, `chore/...`, `test/...`, `perf/...`, `debug/...`, etc.); **never** on `main`, `master`, `develop/*`, or `release/*` |
 | Create a **Draft** Pull Request | `gh pr create --draft` / MCP `create_pull_request` with `draft=true`; body MUST follow `.github/PULL_REQUEST_TEMPLATE.md` |
-| Convert Draft PR to **Ready for Review** | **Implementation-complete is the only readiness criterion** — CI completion is **not** required (overrides any "CI green" criterion elsewhere in this document or in `instructions/`) |
+| Convert Draft PR to **Ready for Review** | **CI completion is not required** — this overrides any "CI green / tests pass" criterion in `instructions/`. All other PC-4a readiness criteria (implementation complete, PR description follows template, fmt/clippy clean, docs updated) still apply — see `instructions/PR_GUIDELINE.md` § PC-4a |
 | Create an Issue | `gh issue create` / MCP `issue_write`; MUST follow the appropriate issue template and apply at least one type label |
 
 **Protected Branches** (commit/push always require explicit user authorization):
@@ -189,9 +189,7 @@ Still Requires Explicit User Authorization (no autonomy):
 - `git push --force`, `--force-with-lease`, or any other history-rewriting push
 - `git rebase`, `git reset --hard`, `git branch -D`, deleting tags, or any other history-destructive operation
 - Closing, merging, or deleting PRs
-- Closing or deleting Issues
-- Deleting or hiding comments (on PRs, Issues, or commits)
-- Resolving or unresolving review threads
+- Closing or deleting Issues, comments, or review threads
 - Creating release tags or any PR carrying the `release` label
 - Posting comments / replies / reviews on PRs/Issues — the comment-posting authorization model in `instructions/GITHUB_INTERACTION.md` PP-1 is unchanged; the autonomous policy covers only the **creation** of commits, pushes, Draft PRs, and Issues, not commenting
 
@@ -201,9 +199,17 @@ Unchanged Quality Guardrails (apply equally to autonomous operations):
 - Issue body MUST follow `.github/ISSUE_TEMPLATE/*.yml`
 - Branch naming, commit message format, Codex attribution footer, English-only policy, and all other rules in this document remain in force
 
+**Draft PR Policy:**
+- The agent MAY convert a Draft PR to Ready for Review autonomously once the PC-4a readiness criteria are met. CI completion is **not** required (the Autonomous Operation Policy overrides the previous "CI green / tests pass" prerequisite); fmt/clippy cleanliness and the other PC-4a criteria are still required
+- Explicit user instruction also authorizes conversion at any time (overrides readiness check)
+- The agent MUST NOT convert when any PC-4a readiness criterion (other than CI completion) is unmet, unless the user explicitly overrides
+- Use `gh pr ready <number>` (or GitHub MCP equivalent) for conversion
+- See instructions/PR_GUIDELINE.md § PC-4a for full details
+
 **Branch Operations:**
 - When merging branches and resolving conflicts, execute immediately without entering Plan Mode
 - Before creating branches, verify names don't conflict with existing ones using `git worktree list` and `git branch -a`
+- Issue-linked branches: `<type>/issue-XXXX-to-YYYY-<desc>` (range), `<type>/issue-XXXX-to-YYYY-and-WWWW-to-ZZZZ-<desc>` (multiple ranges)
 
 **PR Conflict Resolution:**
 - **MUST** use worktree-based merge strategy for resolving PR conflicts (NOT rebase or force-push)
@@ -254,7 +260,14 @@ See instructions/COMMIT_GUIDELINE.md for detailed commit guidelines including:
 
 ### Release & Publishing Policy
 
-This project manages releases manually using conventional commits and GitHub releases.
+**Automated Releases with release-plz:**
+
+This project uses [release-plz](https://release-plz.ieni.dev/) for automated release management:
+
+- **Automated Versioning**: Versions determined from conventional commits
+- **Automated CHANGELOGs**: Generated from commit messages
+- **Release PRs**: Automatically created when changes are pushed to main
+- **GitHub Releases**: Application and binary packages are released through GitHub Releases, not crates.io
 
 **Commit-to-Version Mapping:**
 
@@ -281,10 +294,29 @@ This project manages releases manually using conventional commits and GitHub rel
 | `test` | Testing |
 | `style` | Styling |
 
+**Tagging Strategy (Per-Package Tagging):**
+- Format: `[package-name]@v[version]`
+  - Examples: `reinhardt-cloud@v0.1.0`, `reinhardt-cloud-cli@v0.1.0`
+- Tags are created automatically by release-plz upon Release PR merge
+- **NEVER** create release tags manually
+
+**Release Workflow:**
+1. Write commits following Conventional Commits format
+2. Push to main branch
+3. release-plz creates Release PR with version bumps and CHANGELOG updates
+4. Review and merge Release PR
+5. release-plz creates GitHub Releases and Git tags according to `release-plz.toml`
+
+**Release PR Branch Policy:**
+- **NEVER** push code fixes directly to a release-plz branch (`release-plz-*` or `develop-release-plz-*`) — direct pushes bypass review and may be overwritten when release-plz regenerates the PR
+- If a code fix is needed before merging a Release PR, create a `fix/` or `hotfix/` branch from the Release PR's **base branch** (e.g., `main` or `develop/*`), open a PR targeting that base branch, and merge it — release-plz will regenerate the Release PR automatically
+- CHANGELOG or version edits on the Release PR branch are acceptable via GitHub UI when done immediately before merging (these are release metadata adjustments, not code changes)
+
 **Critical Rules:**
-- **MUST** use conventional commit format
-- **MUST** review changes before tagging a release
-- **NEVER** create release tags without confirming all CI checks pass
+- **MUST** use conventional commit format for proper version detection
+- **MUST** review Release PRs before merging
+- **NEVER** manually bump versions in feature branches
+- **NEVER** create release tags manually
 
 ### Workflow Best Practices
 
@@ -529,7 +561,7 @@ Before submitting code:
 - Delete temp files from `/tmp` immediately
 - Wait for explicit user instruction before commits (except where the Autonomous Operation Policy applies)
 - Understand that Plan Mode approval authorizes both implementation and commits
-- Treat the Autonomous Operation Policy (Reinhardt family) as a standing exception that allows commit and push on any non-protected branch (anything other than `main`/`master`/`develop/*`/`release/*`), Draft PR creation, Draft→Ready conversion (implementation-complete only — no CI requirement), and Issue creation without further confirmation
+- Treat the Autonomous Operation Policy (Reinhardt family) as a standing exception that allows commit and push on any non-protected branch (anything other than `main`/`master`/`develop/*`/`release/*`), Draft PR creation, Draft→Ready conversion once PC-4a readiness criteria are met (CI completion is not required), and Issue creation without further confirmation
 - When editing `AGENTS.md` or `CLAUDE.md`, mirror the change into the other file in the same commit (AGENTS.md ↔ CLAUDE.md sync policy)
 - Mark placeholders with `todo!()` or `// TODO:`
 - Use `#[serial(group_name)]` for global state tests
@@ -539,6 +571,7 @@ Before submitting code:
 - Start commit description with lowercase letter (e.g., `feat: add feature`)
 - Use `!` notation for breaking changes (e.g., `feat!:` or `feat(scope)!:`)
 - Write commit descriptions as standalone CHANGELOG entries (meaningful without additional context)
+- Let release-plz handle version bumps, changelog updates, GitHub Releases, and release tags from conventional commits
 - Use `security` type for security vulnerability fixes (dedicated CHANGELOG section)
 - Use `deprecated` type for marking features/APIs as deprecated (dedicated CHANGELOG section)
 - Use GitHub CLI (`gh`) for all GitHub operations (PR, issues, releases)
@@ -567,7 +600,7 @@ Before submitting code:
 - Use repository-relative paths (not absolute) in GitHub comments
 - Provide structured agent context using AC-2 template format
 - Fall back to `gh` CLI when GitHub MCP tools return errors
-- Wait for Copilot review after PR creation and handle all comments (see @instructions/PR_GUIDELINE.md RP-6)
+- Handle Copilot review comments according to @instructions/PR_GUIDELINE.md RP-6 and @instructions/GITHUB_INTERACTION.md CR-1 ~ CR-5 when authorized
 - Evaluate Copilot suggestions against project conventions before accepting
 - Resolve all Copilot review conversations before considering PR complete
 - Verify branch name uniqueness before creation (`git worktree list` and `git branch -a`)
@@ -594,6 +627,8 @@ Before submitting code:
 - Force-push, rebase-and-push, or otherwise rewrite history without explicit user authorization (the Autonomous Operation Policy does NOT cover history-rewriting pushes)
 - Close, merge, or delete PRs / Issues / comments without explicit user authorization (autonomy covers creation only, not destruction)
 - Create release tags or any PR with the `release` label without explicit user authorization
+- Push code fixes directly to a release-plz branch (`release-plz-*` or `develop-release-plz-*`)
+- Manually bump versions in feature branches
 - Commit a change that touches only `AGENTS.md` without mirroring it into `CLAUDE.md` (and vice versa)
 - Leave docs outdated after code changes
 - Document user requests or AI interactions in project documentation
@@ -639,7 +674,7 @@ Before submitting code:
 - Create PRs/Issues without following template structure
 - Enter Plan Mode for merge operations, branch deletion, or worktree cleanup
 - Retry GitHub MCP tools after errors instead of falling back to `gh` CLI
-- Leave Copilot review conversations unresolved on PRs
+- Leave Copilot review conversations unresolved on PRs when handling them is authorized
 - Accept Copilot suggestions that contradict project conventions without evaluation
 - Create branches without checking for name conflicts
 - Use rebase or force-push to resolve PR conflicts (use worktree merge instead)

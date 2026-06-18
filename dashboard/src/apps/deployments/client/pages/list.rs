@@ -12,15 +12,19 @@ use crate::apps::clusters::server_fn::ClusterInfo;
 use crate::apps::clusters::server_fn::list_clusters_for_current_org;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::log_viewer::log_viewer_container;
-#[cfg(wasm)]
-use crate::apps::deployments::server_fn::list_deployments_for_current_org;
 use crate::apps::deployments::server_fn::{
-	DeploymentInfo, create_deployment_for_current_org, delete_deployment_for_current_org,
-	update_deployment_for_current_org, update_deployment_status_for_current_org,
+	DeploymentInfo, DeploymentLogInfo, create_deployment_for_current_org,
+	delete_deployment_for_current_org, update_deployment_for_current_org,
+	update_deployment_status_for_current_org,
+};
+#[cfg(wasm)]
+use crate::apps::deployments::server_fn::{
+	deployment_logs_for_current_org, list_deployments_for_current_org,
 };
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
+use crate::shared::client::ws::subscribe_app_logs;
 #[cfg(wasm)]
 use crate::shared::client::ws::track_subscriptions;
 use crate::shared::ws_messages::DeploymentState;
@@ -103,6 +107,21 @@ async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
 
 #[cfg(not(wasm))]
 async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
+	Ok(Vec::new())
+}
+
+#[cfg(wasm)]
+async fn load_deployment_logs(deployment_id: String) -> Result<Vec<DeploymentLogInfo>, String> {
+	if deployment_id.trim().is_empty() {
+		return Ok(Vec::new());
+	}
+	deployment_logs_for_current_org(deployment_id)
+		.await
+		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(wasm))]
+async fn load_deployment_logs(_deployment_id: String) -> Result<Vec<DeploymentLogInfo>, String> {
 	Ok(Vec::new())
 }
 
@@ -296,14 +315,26 @@ pub fn deployments_list_page() -> Page {
 	let delete_error = delete_form.error().clone();
 	let delete_view = delete_form.into_page();
 
-	let logs = log_viewer_container();
+	let log_deployment_id = Signal::new(String::new());
+	let log_history = use_resource(
+		{
+			let log_deployment_id = log_deployment_id.clone();
+			move || {
+				let deployment_id = log_deployment_id.get();
+				async move { self::load_deployment_logs(deployment_id).await }
+			}
+		},
+		(log_deployment_id.clone(),),
+	);
+	let logs = log_viewer_container(log_history);
 	let deployments_for_inventory = deployments.clone();
+	let deployments_for_logs = deployments.clone();
 	let deployments_for_edit = deployments.clone();
 	let deployments_for_status = deployments.clone();
 	let deployments_for_delete = deployments.clone();
 	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, logs: Page| {
+	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_logs: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, log_deployment_id: Signal<String>, logs: Page| {
 		div {
 			class: "rc-shell",
 			div {
@@ -477,8 +508,29 @@ pub fn deployments_list_page() -> Page {
 							h2 {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Live Logs"
+							} {
+								match deployments_for_logs.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), log_deployment_id.clone(), |value| {
+										self::subscribe_app_logs(&value);
+									}, ),
+									ResourceState::Loading => page!(|| {
+										p {
+											class: "mb-3 text-xs text-ink-600",
+											"Loading deployments..."
+										}
+									})(),
+									ResourceState::Error(message) => page!(|message: String| {
+										p {
+											class: "mb-3 text-xs font-medium text-red-700",
+											{ self::format_server_error(&message) }
+										}
+									})(message),
+								}
 							}
-							{ logs }
+							div {
+								class: "mt-3",
+								{ logs }
+							}
 						}
 					}
 					aside {
@@ -604,6 +656,7 @@ pub fn deployments_list_page() -> Page {
 		}
 	})(
 		deployments_for_inventory,
+		deployments_for_logs,
 		deployments_for_edit,
 		deployments_for_status,
 		deployments_for_delete,
@@ -628,6 +681,7 @@ pub fn deployments_list_page() -> Page {
 		delete_error,
 		delete_state.is_submitting,
 		delete_deployment_id,
+		log_deployment_id,
 		logs,
 	);
 	dashboard_app_shell("deployments", content)

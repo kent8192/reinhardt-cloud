@@ -303,6 +303,53 @@ pub fn get_redis_url() -> Option<String> {
 	get_env_or_top_level_string("REINHARDT_CLOUD_REDIS_URL", "redis_url")
 }
 
+/// Log backend selected for the dashboard's gRPC `LogServiceServer`.
+///
+/// `Memory` (default) uses an in-process ring buffer (`LocalLogService`); `Loki`
+/// routes reads to a Loki instance via the read-oriented `LokiLogService`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogBackend {
+	/// In-memory ring buffer (dev/test).
+	#[default]
+	Memory,
+	/// Loki read path (production).
+	Loki,
+}
+
+/// Resolve the configured log backend.
+///
+/// Priority (highest to lowest):
+/// 1. `REINHARDT_CLOUD_LOG_BACKEND` environment variable
+/// 2. `log_backend` key in the active TOML settings file
+/// 3. `LogBackend::Memory` default
+pub fn get_log_backend() -> LogBackend {
+	match get_env_or_top_level_string("REINHARDT_CLOUD_LOG_BACKEND", "log_backend")
+		.as_deref()
+		.map(str::to_ascii_lowercase)
+		.as_deref()
+	{
+		Some("loki") => LogBackend::Loki,
+		Some("memory") => LogBackend::Memory,
+		Some(other) => {
+			panic!(
+				"invalid REINHARDT_CLOUD_LOG_BACKEND/log_backend value `{other}`; expected `loki` or `memory`"
+			)
+		}
+		None => LogBackend::Memory,
+	}
+}
+
+/// Resolve the Loki base URL used when the backend is [`LogBackend::Loki`].
+///
+/// Priority (highest to lowest):
+/// 1. `REINHARDT_CLOUD_LOKI_ENDPOINT` environment variable
+/// 2. `loki_endpoint` key in the active TOML settings file
+/// 3. The in-cluster default `http://loki.monitoring.svc.cluster.local:3100`
+pub fn get_loki_endpoint() -> String {
+	get_env_or_top_level_string("REINHARDT_CLOUD_LOKI_ENDPOINT", "loki_endpoint")
+		.unwrap_or_else(|| "http://loki.monitoring.svc.cluster.local:3100".to_string())
+}
+
 /// Get the JWT signing secret from settings or environment.
 ///
 /// Priority (highest to lowest):

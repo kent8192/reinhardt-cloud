@@ -185,8 +185,11 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `isolation` | no | Per-app isolation overrides (`level`, `runtimeClass`, `networkPolicy`) |
 | `mail` | no | SMTP credentials secret reference |
 | `pages` | no | Static-site configuration for reinhardt-pages apps |
-| `scale` | no | HPA configuration (min/max replicas, metrics) |
+| `scale` | no | HPA configuration (min/max replicas, metrics; min/max must be at least `1`) |
+| `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
+| `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
+| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
 | `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |
@@ -197,7 +200,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `ProjectPhase` | Top-level application lifecycle phase. Values: `pending`, `provisioning`, `deploying`, `running`, `degraded`, `failed`, `terminating` |
-| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types include `Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady` |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types include `Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady` |
 | `build` | `BuildStatus?` | Active or most recent source build status, including `phase`, `target`, `trigger`, `jobName`, `image`, `imageTag`, and preview identifiers (`previewName`, `prNumber`) |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
@@ -215,6 +218,39 @@ application `Deployment`. A running migration reports `MigrationReady=False`
 with reason `MigrationRunning`; a failed migration reports
 `MigrationReady=False`, `Degraded=True`, and leaves the current workload
 unchanged.
+
+`TlsReady=True` means the generated Ingress contains the expected TLS host and
+secret reference, and the referenced Secret exists in the Project namespace.
+`AutoscalerReady=True` means the generated HPA has observed its current
+generation and reports `AbleToScale=True` plus `ScalingActive=True`.
+
+For a Project with `scale.min_replicas=2`, `scale.max_replicas=6`,
+`scale.metric=cpu`, and `scale.target_value=70`, the operator applies an HPA
+like:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+For `scale.metric=memory` with `scale.target_value=512`, the generated metric
+target uses `type: AverageValue` and `averageValue: 512Mi`.
 
 Note: the served/storage version matrix may change release-to-release. The upcoming
 `reinhardt-cloud crd generate` workflow pins a specific version at CLI build time; tracking at
@@ -304,6 +340,10 @@ permissions are present; all rules follow the least-privilege principle (project
 | `features.ingress=true` | `networking.k8s.io` | `ingresses` | get, list, watch, create, update, patch, delete |
 | `features.autoscaling=true` | `autoscaling` | `horizontalpodautoscalers` | get, list, watch, create, update, patch, delete |
 
+TLS readiness reads core Secrets, which are covered by the always-present core
+RBAC rule. HPA reconciliation requires `features.autoscaling=true`; Ingress TLS
+reconciliation requires `features.ingress=true`.
+
 ServiceAccount: name is resolved by the `reinhardt-cloud-operator.serviceAccountName` helper in
 `_helpers.tpl` — defaults to the Helm release name, or `values.serviceAccount.name` if set.
 
@@ -321,10 +361,11 @@ This section is intentionally brief; deep design lives outside this file.
 - **Requeue strategy**: currently a fixed `Action::requeue(Duration::from_secs(30))` regardless of
   error kind. Exponential backoff is tracked at
   [#365](https://github.com/kent8192/reinhardt-cloud/issues/365).
-- **Observability**: no custom Prometheus metrics are emitted today
-  ([#366](https://github.com/kent8192/reinhardt-cloud/issues/366)). Logs use the `tracing` ecosystem
-  — set `RUST_LOG` (via `operator.env.RUST_LOG` in values) to adjust verbosity. The default directive
-  is `reinhardt_cloud_operator=info`. Structured log fields include namespace, app name, and the
+- **Observability**: custom Prometheus metrics are emitted on `/metrics` when `metrics.enabled`
+  (reconcile count/duration, requeues, managed apps by phase, and ready/desired replicas per
+  project) — see [Monitoring](#monitoring). Logs use the `tracing` ecosystem — set `RUST_LOG`
+  (via `operator.env.RUST_LOG` in values) to adjust verbosity. The default directive is
+  `reinhardt_cloud_operator=info`. Structured log fields include namespace, app name, and the
   specific resource being reconciled (e.g. `"Reconciled Deployment {namespace}/{name}"`).
 
 ## For Platform Operators
@@ -361,9 +402,10 @@ Optional capabilities (omit if the relevant feature flag is disabled):
   `isolation.runtimeClasses.kata.enabled: true` or `isolation.runtimeClasses.gvisor.enabled: true`
   (both enabled by default in the AWS and GCP overlays)
 
-> No cert-manager or Prometheus Operator integration is shipped in the current chart. Those keys do
-> not exist in `values.yaml` and should not be configured. Custom metrics are tracked at
-> [#366](https://github.com/kent8192/reinhardt-cloud/issues/366).
+> No cert-manager integration is shipped in the current chart; that key does not exist in
+> `values.yaml` and should not be configured. Prometheus Operator integration **is** shipped: set
+> `metrics.enabled=true` and `metrics.serviceMonitor.enabled=true` (requires the Prometheus
+> Operator CRDs) to expose the operator's custom metrics — see [Monitoring](#monitoring).
 
 #### Install from source (current recommended path)
 
@@ -475,9 +517,9 @@ list and default values.
 > controllers for the configured platform, set `features.database=false` until the controllers are
 > installed.
 >
-> Custom metrics (`serviceMonitor`, Prometheus scraping) are not yet available. Operator telemetry
-> is currently log-only; see [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for
-> tracking.
+> Custom metrics are available: `--set metrics.enabled=true` exposes `/metrics`, and
+> `--set metrics.serviceMonitor.enabled=true` registers a `ServiceMonitor` with the Prometheus
+> Operator. See [Monitoring](#monitoring) for the metric catalog.
 
 ### Upgrade
 
@@ -558,32 +600,47 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 
 #### Monitoring
 
-The operator does **not** emit custom Prometheus metrics today. This is tracked in
-[#366](https://github.com/kent8192/reinhardt-cloud/issues/366). Until that work lands, platform
-operators have the following signals available:
+The operator emits custom Prometheus metrics on `/metrics` (served by the operator's HTTP server,
+enabled via `metrics.enabled`). A shipped `ServiceMonitor` template exposes them to the Prometheus
+Operator when `metrics.serviceMonitor.enabled` is set (requires the Prometheus Operator CRDs).
+The HTTP server always serves `/healthz` for kubelet probes; `metrics.enabled` controls only the
+`/metrics` endpoint contents (it returns 404 when disabled).
 
-- **Kubernetes Deployment metrics** — `kube-state-metrics` scrapes all Deployments including the
-  operator's own Deployment in `reinhardt-cloud-system`. These metrics are available with no extra
-  configuration on clusters running kube-state-metrics.
+**Metrics catalog:**
 
-- **Controller-runtime metrics** — The operator binary does not wire up any in-process Prometheus
-  server, OpenTelemetry exporter, or `tokio-metrics` endpoint (verified: no matches for
-  `prometheus::`, `opentelemetry`, or `tokio_metrics` in
-  `crates/reinhardt-cloud-operator/`). No scrape target is exposed on any port.
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `reinhardt_cloud_operator_reconcile_total` | counter | `result` | Reconciliation attempts, labeled by result (`success` or error class). |
+| `reinhardt_cloud_operator_reconcile_duration_seconds` | histogram | `result` | Reconciliation duration in seconds, labeled by result. |
+| `reinhardt_cloud_operator_requeue_total` | counter | `reason` | Requeues issued by the error policy, labeled by backoff class. |
+| `reinhardt_cloud_operator_managed_apps` | gauge | `phase` | Number of `Project` objects tracked, labeled by phase. |
+| `reinhardt_cloud_operator_managed_apps_ready_replicas` | gauge | `namespace`, `project` | Ready replicas of the managed `Deployment`. |
+| `reinhardt_cloud_operator_managed_apps_desired_replicas` | gauge | `namespace`, `project` | Desired replicas of the managed `Deployment`. |
 
-- **Log-derived alerts** — Until #366 lands, the recommended approach is to alert on structured log
-  patterns (see [Logging](#logging) below).
+**Enabling metrics:**
 
-A representative PromQL expression to check that the operator pod is healthy:
-
-```promql
-kube_pod_status_ready{
-  namespace="reinhardt-cloud-system",
-  condition="true"
-} == 1
+```bash
+helm upgrade reinhardt-cloud-operator charts/reinhardt-cloud-operator \
+  --namespace reinhardt-cloud-system \
+  --reuse-values \
+  --set metrics.enabled=true \
+  --set metrics.serviceMonitor.enabled=true
 ```
 
-Pair this with `kube_deployment_status_replicas_available` for a complete operator-health rule.
+**Representative PromQL:**
+
+```promql
+# Projects whose ready replicas are below desired
+reinhardt_cloud_operator_managed_apps_ready_replicas
+  < on(namespace, project)
+reinhardt_cloud_operator_managed_apps_desired_replicas
+
+# Operator pod health (kube-state-metrics, always available regardless of metrics.enabled)
+kube_pod_status_ready{namespace="reinhardt-cloud-system", condition="true"} == 1
+```
+
+`kube-state-metrics` remains available on clusters that run it, providing Deployment-level signals
+(pod status, restart counts) alongside the operator's custom metrics.
 
 #### Logging
 
@@ -672,8 +729,9 @@ INFO Reconciled worker deployment for my-app
 At `WARN` level: `Controller loop terminated, shutting down` (emitted when the main
 `reconciler::run` future returns).
 
-The dashboard (Issue #371) will consume `LogService.tail` for live log
-streaming.
+The dashboard consumes the configured `LogService` read backend for historical
+and live application logs; Loki-backed deployments read through `query_range`
+and `/tail`.
 
 To see every reconcile invocation and all Kubernetes client calls, set `RUST_LOG=debug`.
 
@@ -710,14 +768,32 @@ operator pods and forwards logs to `logging.loki.endpoint` (default
 The operator pod does **not** embed a Loki client — the write path is out-of-process so that
 operator pod restarts never block on log-ingest.
 
+**Application logs in Loki**
+
+With `logging.scrapeApps=true` (default), Promtail additionally collects managed application pods
+in namespaces matching `logging.appNamespaces` (default `tenant-.*`) and ships them to Loki with
+labels `{namespace, app, pod, container, level}`, where `app` is the project name
+(`app.kubernetes.io/name`). This is what makes a deployed `Project`'s own logs browsable from the
+dashboard. Loki multi-tenancy (per-namespace access isolation) is not enforced; the dashboard reads
+across these namespaces as a platform-admin tool.
+
+The dashboard maps its log filters to LogQL as:
+
+| Dashboard filter | LogQL |
+|---|---|
+| Project (source) | `{app="<project>"}` |
+| Min level | `level=~"<warn\|error>"` |
+| Search | `\|~ "<regex>"` |
+| Time range | `query_range` `start`/`end` |
+
 **Programmatic access**
 
-`reinhardt-cloud-telemetry` exposes the `LogService` trait with two implementations:
-
-- `InMemoryLogService` — bounded ring buffer + broadcast fan-out for live tail. Default: 1000
-  records, 1-hour TTL.
-- `LokiLogService` — read-oriented stub pointing at a Loki instance (writes are expected to flow
-  through the DaemonSet above).
+`reinhardt-cloud-telemetry` exposes a Loki-backed `LogService` (implementing
+`reinhardt-cloud-core::traits::LogService`) that serves `list` via Loki `query_range` and `tail` via
+the Loki `/tail` WebSocket. The dashboard's gRPC `LogServiceServer` is backed by this impl when
+`log_backend = "loki"` (or `REINHARDT_CLOUD_LOG_BACKEND=loki`), and by the in-memory
+`LocalLogService` otherwise (the dev/default). An in-process `InMemoryLogService` is also available
+for tests.
 
 #### Distributed Tracing
 
@@ -1246,4 +1322,18 @@ These variants are marked `#[allow(dead_code)]` and may be activated in future r
 
 ## Appendix D: Metrics catalog
 
-The Reinhardt Cloud operator does not emit custom Prometheus metrics at this time. See [#366](https://github.com/kent8192/reinhardt-cloud/issues/366) for planned metrics support. Indirect signals are available through kube-state-metrics on the operator Deployment (restart count, pod status), pod resource usage, and condition status on the Project resource itself.
+The operator emits the following custom Prometheus metrics on `/metrics` (enabled via
+`metrics.enabled`; scraped via the shipped `ServiceMonitor` when
+`metrics.serviceMonitor.enabled`):
+
+| Metric | Type | Labels |
+|---|---|---|
+| `reinhardt_cloud_operator_reconcile_total` | counter | `result` |
+| `reinhardt_cloud_operator_reconcile_duration_seconds` | histogram | `result` |
+| `reinhardt_cloud_operator_requeue_total` | counter | `reason` |
+| `reinhardt_cloud_operator_managed_apps` | gauge | `phase` |
+| `reinhardt_cloud_operator_managed_apps_ready_replicas` | gauge | `namespace`, `project` |
+| `reinhardt_cloud_operator_managed_apps_desired_replicas` | gauge | `namespace`, `project` |
+
+Indirect signals are also available through `kube-state-metrics` on the operator Deployment (restart
+count, pod status) and condition status on the `Project` resource itself.

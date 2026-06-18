@@ -39,6 +39,8 @@ defaults:
     # GCE L7 load balancer IngressClass (overrides nginx).
     class: gce
     annotations:
+      # Project-level TLS is configured through spec.services.tls; these
+      # annotations remain provider-specific Ingress controller defaults.
       kubernetes.io/ingress.class: gce
 
 isolation:

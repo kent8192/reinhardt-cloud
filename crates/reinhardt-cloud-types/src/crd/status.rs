@@ -24,6 +24,10 @@ pub enum ConditionType {
 	WorkerReady,
 	/// Ingress resource is configured and healthy
 	IngressReady,
+	/// TLS Ingress configuration is present and its Secret exists
+	TlsReady,
+	/// Autoscaler resource is configured and active
+	AutoscalerReady,
 }
 
 /// Status value for a Kubernetes-style status condition.
@@ -189,6 +193,8 @@ mod tests {
 			(ConditionType::CacheReady, "\"CacheReady\""),
 			(ConditionType::WorkerReady, "\"WorkerReady\""),
 			(ConditionType::IngressReady, "\"IngressReady\""),
+			(ConditionType::TlsReady, "\"TlsReady\""),
+			(ConditionType::AutoscalerReady, "\"AutoscalerReady\""),
 		];
 		let statuses = [
 			(ConditionStatus::True, "\"True\""),
