@@ -1,26 +1,46 @@
-//! Parse a Loki `query_range` / `tail` JSON response into `LogEntry` records.
+//! Parse Loki JSON responses into `LogEntry` records.
+//!
+//! Two response shapes are handled:
+//! - `query_range`: `{ "data": { "result": [ { "stream": {...}, "values": [...] } ] } }`
+//! - `/tail` (WebSocket frames): `{ "streams": [ { "stream": {...}, "values": [...] } ], "dropped_entries": [] }`
 
 use reinhardt_cloud_types::log::{LogEntry, LogLevel};
 
-/// Parse the body of `/loki/api/v1/query_range` (or a `/tail` frame) into log
-/// entries.
-///
-/// Loki shape: `{ "data": { "result": [ { "stream": {...}, "values": [ [tsNs, line], ... ] } ] } }`.
-/// Each `line` may itself be a JSON object with `level`/`msg`; otherwise the
-/// whole line is treated as the message.
-pub fn parse_query_range(body: &str) -> Result<Vec<LogEntry>, serde_json::Error> {
+/// Parse the body of `/loki/api/v1/query_range` into log entries.
+pub(crate) fn parse_query_range(body: &str) -> Result<Vec<LogEntry>, serde_json::Error> {
 	let root: serde_json::Value = serde_json::from_str(body)?;
-	let mut entries = Vec::new();
-
-	let Some(result) = root
+	let streams = root
 		.get("data")
 		.and_then(|d| d.get("result"))
-		.and_then(|r| r.as_array())
-	else {
+		.and_then(|r| r.as_array());
+	let entries = parse_streams(streams)?;
+	// `query_range` with `direction=backward` returns newest-first; sort ascending
+	// by timestamp for a stable oldest-first dashboard log order. Sorting (rather
+	// than a blind reverse) also tolerates streams whose `values` are not strictly
+	// pre-sorted by the server.
+	let mut entries = entries;
+	entries.sort_by_key(|e| e.timestamp);
+	Ok(entries)
+}
+
+/// Parse a `/loki/api/v1/tail` WebSocket frame into log entries.
+///
+/// The frame top-level is `{ "streams": [...], "dropped_entries": [...] }`. Each
+/// stream has the same `{ "stream": {...}, "values": [[ts, line], ...] }` shape
+/// as a `query_range` result entry.
+pub(crate) fn parse_tail_frame(body: &str) -> Result<Vec<LogEntry>, serde_json::Error> {
+	let root: serde_json::Value = serde_json::from_str(body)?;
+	let streams = root.get("streams").and_then(|s| s.as_array());
+	parse_streams(streams)
+}
+
+/// Shared per-stream parser turning a `values` array into `LogEntry` records.
+fn parse_streams(streams: Option<&Vec<serde_json::Value>>) -> Result<Vec<LogEntry>, serde_json::Error> {
+	let mut entries = Vec::new();
+	let Some(streams) = streams else {
 		return Ok(entries);
 	};
-
-	for stream in result {
+	for stream in streams {
 		let labels = stream.get("stream").and_then(|s| s.as_object());
 		let Some(values) = stream.get("values").and_then(|v| v.as_array()) else {
 			continue;
@@ -48,12 +68,6 @@ pub fn parse_query_range(body: &str) -> Result<Vec<LogEntry>, serde_json::Error>
 			});
 		}
 	}
-
-	// `query_range` with `direction=backward` returns newest-first; sort ascending
-	// by timestamp for a stable oldest-first dashboard log order. Sorting (rather
-	// than a blind reverse) also tolerates streams whose `values` are not strictly
-	// pre-sorted by the server.
-	entries.sort_by_key(|e| e.timestamp);
 	Ok(entries)
 }
 
@@ -171,10 +185,37 @@ mod tests {
 		// Act
 		let entries = parse_query_range(body).unwrap();
 
-		// Assert — reversed to oldest-first.
+		// Assert — sorted ascending by timestamp.
 		assert_eq!(
 			entries.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
 			vec!["a".to_string(), "b".to_string(), "c".to_string()]
 		);
+	}
+
+	#[rstest]
+	fn parse_tail_frame_reads_streams_toplevel() {
+		// Arrange — /tail frame shape: {"streams":[...],"dropped_entries":[]}
+		let body = r#"{"streams":[{"stream":{"app":"p","level":"warn"},"values":[["1700000000000000000","tail-line"]]}],"dropped_entries":[]}"#;
+
+		// Act
+		let entries = parse_tail_frame(body).unwrap();
+
+		// Assert
+		assert_eq!(entries.len(), 1);
+		assert_eq!(entries[0].source, "p");
+		assert_eq!(entries[0].level, LogLevel::Warn);
+		assert_eq!(entries[0].message, "tail-line");
+	}
+
+	#[rstest]
+	fn parse_tail_frame_returns_empty_when_no_streams() {
+		// Arrange
+		let body = r#"{"streams":[],"dropped_entries":[]}"#;
+
+		// Act
+		let entries = parse_tail_frame(body).unwrap();
+
+		// Assert
+		assert!(entries.is_empty());
 	}
 }

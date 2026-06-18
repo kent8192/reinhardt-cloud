@@ -36,5 +36,10 @@ rstest = { workspace = true }
 serial_test = "3.2"
 testcontainers = { workspace = true }
 
+[features]
+# Integration tests require Docker (TestContainers) and are opt-in.
+default = []
+integration = []
+
 [lints]
 workspace = true

@@ -38,7 +38,7 @@ fn escape_regex(term: &str) -> String {
 /// `source` maps to the `app` label (the project name written by Promtail);
 /// `min_level` narrows the `level` label; `search` becomes a regex line filter;
 /// `deployment_id` adds a `deployment_id` label matcher only when set.
-pub fn build_logql(filter: &LogFilter) -> String {
+pub(crate) fn build_logql(filter: &LogFilter) -> String {
 	let mut selectors: Vec<String> = Vec::new();
 
 	// The `app` selector is the primary key. Default to a broad match when unset.
