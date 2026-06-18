@@ -5,9 +5,9 @@
 //! the same injection point `CurrentUser<T>` / `AuthUser<T>` read, so both
 //! session-cookie and bearer-token callers unify behind one injection point.
 //!
-//! When no bearer header is present the middleware falls through unchanged,
-//! leaving the session middleware (`CookieSessionAuthMiddleware`) to own
-//! browser requests. No auth-flow regression for the Pages UI.
+//! The middleware is registered after `CookieSessionAuthMiddleware`: a valid
+//! bearer token replaces the session-derived state, while a missing or invalid
+//! bearer header leaves any existing session state untouched.
 
 use std::sync::Arc;
 
@@ -27,11 +27,13 @@ impl Middleware for ApiTokenAuthMiddleware {
 		request: Request,
 		next: Arc<dyn Handler>,
 	) -> reinhardt::core::exception::Result<Response> {
-		// Only act when a bearer token is present; otherwise fall through to
-		// the session middleware (browser path).
+		// Only a verified bearer token may replace the current AuthState.
+		// Invalid bearer input falls through so it cannot erase a valid session.
 		if let Some(token) = bearer_token(&request) {
 			let auth_state = resolve_auth_state_for_bearer(&token).await;
-			request.extensions.insert(auth_state);
+			if auth_state.is_authenticated() {
+				request.extensions.insert(auth_state);
+			}
 		}
 		next.handle(request).await
 	}

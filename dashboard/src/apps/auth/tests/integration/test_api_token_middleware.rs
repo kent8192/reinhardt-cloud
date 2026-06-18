@@ -7,6 +7,7 @@
 mod tests {
 	use reinhardt::UrlReverser;
 	use reinhardt::db::orm::Model;
+	use reinhardt::pages::server_fn::ServerFnMetadata;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -19,6 +20,7 @@ mod tests {
 	use crate::apps::auth::models::User;
 	use crate::apps::auth::services::api_key::generate_api_key;
 	use crate::config::test_helpers::build_test_app;
+	use crate::shared::UserInfo;
 
 	#[fixture]
 	async fn db() -> (
@@ -107,5 +109,43 @@ mod tests {
 			"unknown token must resolve to an anonymous state"
 		);
 		assert!(state.is_anonymous());
+	}
+
+	/// A bearer token authenticates a real server function route.
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_server_fn_accepts_bearer_token(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, client, _urls) = db.await;
+		let user = create_test_user("middleware-server-fn").await;
+		let (plaintext, _model) = generate_api_key(user.id, "server-fn".to_string(), None)
+			.await
+			.expect("generate");
+		let path = <crate::apps::auth::server_fn::me::me::marker as ServerFnMetadata>::PATH;
+		let authorization = format!("Bearer {plaintext}");
+
+		// Act
+		let response = client
+			.post_raw_with_headers(
+				path,
+				b"{}",
+				"application/json",
+				&[("Authorization", authorization.as_str())],
+			)
+			.await
+			.expect("request server_fn");
+
+		// Assert
+		assert_eq!(response.status_code(), 200);
+		let body: UserInfo = response.json().expect("decode server_fn response");
+		assert_eq!(body.username, user.username);
 	}
 }
