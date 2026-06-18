@@ -130,7 +130,14 @@ pub(crate) fn build_preview_spec(
 
 	let overrides = preview_config.and_then(|p| p.overrides.as_ref());
 
-	let replicas = overrides.and_then(|o| o.replicas).or(Some(1));
+	// Clamp the requested replica count to the per-parent budget ceiling, if any.
+	let budget = preview_config.and_then(|p| p.budget.as_ref());
+	let requested_replicas = overrides.and_then(|o| o.replicas).or(Some(1));
+	let replicas = match (requested_replicas, budget.and_then(|b| b.max_replicas)) {
+		(Some(requested), Some(max)) => Some(requested.min(max)),
+		(Some(requested), None) => Some(requested),
+		(None, _) => Some(1),
+	};
 
 	// Database and cache from overrides
 	let database = overrides.and_then(|o| o.database).and_then(|enabled| {
@@ -249,6 +256,7 @@ fn parse_duration(s: &str) -> Option<chrono::Duration> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use reinhardt_cloud_types::crd::source::{PreviewBudget, PreviewOverrides};
 	use rstest::rstest;
 
 	fn test_app_with_preview(name: &str) -> Project {
@@ -333,6 +341,70 @@ mod tests {
 		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
 
 		// Assert — parent has 3, preview overrides to 1
+		assert_eq!(spec.replicas, Some(1));
+	}
+
+	#[rstest]
+	fn test_build_preview_spec_clamps_replicas_to_budget_max() {
+		// Arrange — overrides ask for 5, budget caps at 2.
+		let mut parent = test_app_with_preview("my-app");
+		{
+			let preview = parent
+				.spec
+				.source
+				.as_mut()
+				.unwrap()
+				.preview
+				.as_mut()
+				.unwrap();
+			preview.overrides = Some(PreviewOverrides {
+				replicas: Some(5),
+				database: Some(false),
+				cache: Some(false),
+			});
+			preview.budget = Some(PreviewBudget {
+				max_replicas: Some(2),
+				max_cpu: None,
+				max_memory: None,
+			});
+		}
+
+		// Act
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
+
+		// Assert — clamped to the budget ceiling, not the requested 5.
+		assert_eq!(spec.replicas, Some(2));
+	}
+
+	#[rstest]
+	fn test_build_preview_spec_keeps_lower_replicas_under_budget() {
+		// Arrange — overrides ask for 1, budget caps at 3.
+		let mut parent = test_app_with_preview("my-app");
+		{
+			let preview = parent
+				.spec
+				.source
+				.as_mut()
+				.unwrap()
+				.preview
+				.as_mut()
+				.unwrap();
+			preview.overrides = Some(PreviewOverrides {
+				replicas: Some(1),
+				database: Some(false),
+				cache: Some(false),
+			});
+			preview.budget = Some(PreviewBudget {
+				max_replicas: Some(3),
+				max_cpu: None,
+				max_memory: None,
+			});
+		}
+
+		// Act
+		let spec = build_preview_spec(&parent, "42", "sha-abc123", None).unwrap();
+
+		// Assert — under the ceiling, the requested count is preserved.
 		assert_eq!(spec.replicas, Some(1));
 	}
 

@@ -106,14 +106,25 @@ rules:
   - apiGroups: [""]
     resources: ["limitranges", "resourcequotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Namespace management for tenant isolation (#416).
-  # - get/list/watch: detect existing tenant namespaces and label state
-  # - create: initially provision the per-tenant namespace
-  # - update/patch: keep tenant labels in sync (and Pod Security Standards
-  #   labels written by the per-app `reconcile_pss_labels` path)
-  # delete is intentionally OMITTED — namespaces are shared across CRs in
-  # the tenant, and a tenant-scoped controller (future issue) will own
-  # cleanup once the namespace is empty.
+  # Namespace management for tenant isolation (#416) and preview environments
+  # (#707).
+  # - get/list/watch: detect existing namespaces and label state
+  # - create: provision the per-tenant or per-parent preview namespace
+  # - update/patch: keep labels in sync (and Pod Security Standards labels
+  #   written by the per-app `reconcile_pss_labels` path)
+  # - delete: remove the dedicated `{parent}-preview` namespace when a parent
+  #   Project with previews enabled is deleted (#707). Unlike tenant namespaces
+  #   (shared across CRs), preview namespaces are exclusive to one parent, so
+  #   the operator owns their full lifecycle. The operator code only ever
+  #   deletes preview namespaces; tenant namespaces are left for a future
+  #   tenant-scoped cleanup controller.
   - apiGroups: [""]
     resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Preview environments (#707): cert-manager `Issuer` resources emitted into
+  # each `{parent}-preview` namespace. cert-manager CRDs are a platform
+  # prerequisite (see README); delete is not needed because Issuers are
+  # namespace-scoped and vanish with the preview namespace.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["issuers"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]

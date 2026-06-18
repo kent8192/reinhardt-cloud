@@ -65,12 +65,42 @@ const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 /// re-triggers reconciliation. The value is consumed read-only here.
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 
+/// Platform-level preview environment configuration read from the environment.
+///
+/// These values feed the cert-manager `Issuer` and the preview Ingress
+/// `ingressClassName` for every `{parent}-preview` namespace (#707).
+#[derive(Debug, Clone)]
+pub(crate) struct PreviewConfig {
+	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
+	pub ingress_class: String,
+	/// ACME directory endpoint (e.g. Let's Encrypt production/staging).
+	pub acme_server: String,
+	/// ACME registration email (empty for staging/local).
+	pub acme_email: String,
+}
+
+impl PreviewConfig {
+	/// Read preview configuration from `REINHARDT_CLOUD_PREVIEW_*` env vars,
+	/// applying platform-safe defaults when unset.
+	pub(crate) fn from_env() -> Self {
+		Self {
+			ingress_class: std::env::var("REINHARDT_CLOUD_PREVIEW_INGRESS_CLASS")
+				.unwrap_or_else(|_| "nginx".to_string()),
+			acme_server: std::env::var("REINHARDT_CLOUD_PREVIEW_ACME_SERVER")
+				.unwrap_or_else(|_| "https://acme-v02.api.letsencrypt.org/directory".to_string()),
+			acme_email: std::env::var("REINHARDT_CLOUD_PREVIEW_ACME_EMAIL").unwrap_or_default(),
+		}
+	}
+}
+
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
 	/// Platform-specific configuration for resource inference.
 	pub platform: PlatformConfig,
+	/// Platform-level preview environment configuration (#707).
+	pub preview_config: PreviewConfig,
 	/// Prometheus metrics shared with the exporter task.
 	pub metrics: Arc<Metrics>,
 	/// Per-object consecutive-failure counter used to drive exponential
@@ -317,10 +347,33 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	if reconcile_preview_delete_action(&app, &ctx.client, namespace).await? {
+	let preview_namespace = resources::preview_namespace::preview_namespace_name(&name);
+	let previews_enabled = app.spec.source.as_ref().is_some_and(|source| {
+		source
+			.preview
+			.as_ref()
+			.is_some_and(|preview| preview.enabled)
+	});
+	if previews_enabled {
+		reconcile_preview_namespace(
+			&ctx.client,
+			&name,
+			app.spec
+				.source
+				.as_ref()
+				.and_then(|source| source.preview.as_ref())
+				.and_then(|preview| preview.budget.as_ref()),
+			&ctx.preview_config,
+		)
+		.await?;
+	}
+
+	if reconcile_preview_delete_action(&app, &ctx.client, namespace, &preview_namespace).await? {
 		return Ok(Action::await_change());
 	}
-	reconcile_preview_ttl_cleanup(&app, &ctx.client, namespace).await?;
+	if previews_enabled {
+		reconcile_preview_ttl_cleanup(&app, &ctx.client, &preview_namespace).await?;
+	}
 
 	// Source build (#275) — gate workload updates on completed Kaniko builds.
 	let source_build_decision =
@@ -336,7 +389,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 			return Ok(Action::await_change());
 		}
 		SourceBuildGateAction::UpdatePreview { build } => {
-			reconcile_preview_from_build(&app, &ctx.client, namespace, &build).await?;
+			reconcile_preview_from_build(&app, &ctx.client, &preview_namespace, &build).await?;
 			source_build::mark_build_succeeded(&app, ctx.client.clone(), namespace, build).await?;
 			return Ok(Action::await_change());
 		}
@@ -578,48 +631,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
 	}
 
-	// Preview environment create/update is reconciled only after source build
-	// success. This late block is intentionally non-mutating so it cannot clear
-	// annotations that the source build lifecycle still needs.
-	if app
-		.spec
-		.source
-		.as_ref()
-		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
-	{
-		let preview_action = app
-			.metadata
-			.annotations
-			.as_ref()
-			.and_then(|a| a.get("reinhardt.dev/preview-action"));
-		if let Some(action) = preview_action {
-			let pr_number = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-number"))
-				.cloned()
-				.unwrap_or_default();
-			let preview_name = preview::preview_project_name(&name, &pr_number);
-
-			match action.as_str() {
-				"create" | "update" => {
-					info!(
-						"Preview action {action} for {namespace}/{preview_name} waits for source build completion"
-					);
-				}
-				"delete" => {
-					info!(
-						"Preview delete action for {namespace}/{preview_name} was already handled before source build gating"
-					);
-				}
-				_ => {
-					warn!("Unknown preview action: {action}");
-				}
-			}
-		}
-	}
-
 	// Session backend: ensure Redis when session_backend=redis (Phase 4)
 	let needs_redis_sessions = app
 		.spec
@@ -684,6 +695,9 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		child_conditions,
 	)
 	.await?;
+	if previews_enabled {
+		reconcile_preview_status(&app, &ctx.client, namespace, &preview_namespace).await?;
+	}
 	update_replica_gauges(ctx, namespace, &app, ready_replicas, desired_replicas);
 
 	Ok(Action::await_change())
@@ -808,6 +822,32 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				.await?;
 			delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-postgresql"))
 				.await?;
+		}
+	}
+
+	// Preview namespace (#707): when previews were enabled, the operator owns a
+	// dedicated `{name}-preview` namespace. Deleting it cascade-removes every
+	// preview child Project and its sub-resources. Best-effort: a missing
+	// namespace (previews never enabled) is not an error.
+	if app
+		.spec
+		.source
+		.as_ref()
+		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
+	{
+		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
+		if ns_api
+			.get_opt(&preview_ns)
+			.await
+			.map_err(Error::Kube)?
+			.is_some()
+		{
+			ns_api
+				.delete(&preview_ns, &DeleteParams::default())
+				.await
+				.map_err(Error::Kube)?;
+			info!("Deleted preview namespace {preview_ns} during cleanup of {name}");
 		}
 	}
 
@@ -1649,10 +1689,91 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
+/// Reconcile the `{parent}-preview` namespace and its resource guardrails.
+///
+/// The preview namespace is intentionally separate from the parent namespace,
+/// so preview Projects do not use owner references to the parent `Project`.
+async fn reconcile_preview_namespace(
+	client: &Client,
+	parent_name: &str,
+	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
+	preview_config: &PreviewConfig,
+) -> Result<(), Error> {
+	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	let namespaces: Api<Namespace> = Api::all(client.clone());
+	namespaces
+		.patch(
+			&ns_name,
+			&ssapply,
+			&Patch::Apply(&resources::preview_namespace::build_namespace(parent_name)),
+		)
+		.await
+		.map_err(Error::Kube)?;
+
+	let quota = resources::preview_namespace::build_resource_quota(parent_name, budget);
+	let quota_name = quota
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-default-quota".to_string());
+	Api::<k8s_openapi::api::core::v1::ResourceQuota>::namespaced(client.clone(), &ns_name)
+		.patch(&quota_name, &ssapply, &Patch::Apply(&quota))
+		.await
+		.map_err(Error::Kube)?;
+
+	let limit_range = resources::preview_namespace::build_limit_range(parent_name);
+	let limit_range_name = limit_range
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-default-limits".to_string());
+	Api::<LimitRange>::namespaced(client.clone(), &ns_name)
+		.patch(&limit_range_name, &ssapply, &Patch::Apply(&limit_range))
+		.await
+		.map_err(Error::Kube)?;
+
+	for policy in [
+		resources::preview_namespace::build_default_deny_policy(parent_name),
+		resources::preview_namespace::build_allow_ingress_and_dns_policy(parent_name),
+	] {
+		let policy_name = policy
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| "preview-policy".to_string());
+		Api::<NetworkPolicy>::namespaced(client.clone(), &ns_name)
+			.patch(&policy_name, &ssapply, &Patch::Apply(&policy))
+			.await
+			.map_err(Error::Kube)?;
+	}
+
+	let issuer = resources::preview_namespace::build_issuer(
+		parent_name,
+		&preview_config.acme_server,
+		&preview_config.acme_email,
+		&preview_config.ingress_class,
+	);
+	let issuer_name = issuer
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-issuer".to_string());
+	Api::<crate::resources::issuer::Issuer>::namespaced(client.clone(), &ns_name)
+		.patch(&issuer_name, &ssapply, &Patch::Apply(&issuer))
+		.await
+		.map_err(Error::Kube)?;
+
+	info!("Reconciled preview namespace {ns_name}");
+	Ok(())
+}
+
 async fn reconcile_preview_delete_action(
 	app: &Project,
 	client: &Client,
-	namespace: &str,
+	parent_namespace: &str,
+	preview_namespace: &str,
 ) -> Result<bool, Error> {
 	let Some(action) = app
 		.metadata
@@ -1678,19 +1799,22 @@ async fn reconcile_preview_delete_action(
 	source_build::clear_preview_build_for_delete(
 		app,
 		client.clone(),
-		namespace,
+		parent_namespace,
 		&pr_number,
 		&preview_name,
 	)
 	.await?;
 
-	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
-	match api.delete(&preview_name, &DeleteParams::default()).await {
+	let preview_api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
+	match preview_api
+		.delete(&preview_name, &DeleteParams::default())
+		.await
+	{
 		Ok(_) => {
-			info!("Deleted preview environment {namespace}/{preview_name}");
+			info!("Deleted preview environment {preview_namespace}/{preview_name}");
 		}
 		Err(kube::Error::Api(status)) if status.code == 404 => {
-			info!("Preview environment {namespace}/{preview_name} was already absent");
+			info!("Preview environment {preview_namespace}/{preview_name} was already absent");
 		}
 		Err(error) => {
 			return Err(Error::Kube(error));
@@ -1698,7 +1822,9 @@ async fn reconcile_preview_delete_action(
 	}
 
 	let patch = source_build::preview_delete_annotations_patch();
-	api.patch(&parent_name, &PatchParams::default(), &Patch::Merge(&patch))
+	let parent_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
+	parent_api
+		.patch(&parent_name, &PatchParams::default(), &Patch::Merge(&patch))
 		.await
 		.map_err(Error::Kube)?;
 	Ok(true)
@@ -1707,20 +1833,11 @@ async fn reconcile_preview_delete_action(
 async fn reconcile_preview_ttl_cleanup(
 	app: &Project,
 	client: &Client,
-	namespace: &str,
+	preview_namespace: &str,
 ) -> Result<(), Error> {
-	if !app.spec.source.as_ref().is_some_and(|source| {
-		source
-			.preview
-			.as_ref()
-			.is_some_and(|preview| preview.enabled)
-	}) {
-		return Ok(());
-	}
-
 	let parent_name = app.name_any();
-	let preview_list = Api::<Project>::namespaced(client.clone(), namespace)
-		.list(&kube::api::ListParams::default().labels(&format!(
+	let preview_list = Api::<Project>::namespaced(client.clone(), preview_namespace)
+		.list(&ListParams::default().labels(&format!(
 			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={parent_name}"
 		)))
 		.await
@@ -1744,10 +1861,10 @@ async fn reconcile_preview_ttl_cleanup(
 			&& preview::is_ttl_expired(ts, ttl)
 		{
 			let preview_name = preview_app.name_any();
-			let _ = Api::<Project>::namespaced(client.clone(), namespace)
+			let _ = Api::<Project>::namespaced(client.clone(), preview_namespace)
 				.delete(&preview_name, &DeleteParams::default())
 				.await;
-			info!("TTL expired, deleted preview {namespace}/{preview_name}");
+			info!("TTL expired, deleted preview {preview_namespace}/{preview_name}");
 		}
 	}
 
@@ -1779,7 +1896,7 @@ async fn patch_project_image(
 async fn reconcile_preview_from_build(
 	app: &Project,
 	client: &Client,
-	namespace: &str,
+	preview_namespace: &str,
 	build: &reinhardt_cloud_types::crd::BuildStatus,
 ) -> Result<(), Error> {
 	let pr_number = build
@@ -1797,9 +1914,8 @@ async fn reconcile_preview_from_build(
 	let preview_app = Project {
 		metadata: kube::api::ObjectMeta {
 			name: Some(preview_name.to_string()),
-			namespace: Some(namespace.to_string()),
+			namespace: Some(preview_namespace.to_string()),
 			labels: Some(preview_labels),
-			owner_references: Some(vec![resources::labels::owner_reference(app)?]),
 			annotations: Some(BTreeMap::from([(
 				"reinhardt.dev/last-activity".to_string(),
 				chrono::Utc::now().to_rfc3339(),
@@ -1810,7 +1926,7 @@ async fn reconcile_preview_from_build(
 		status: None,
 	};
 
-	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	let api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
 	api.patch(
 		preview_name,
 		&PatchParams::apply("reinhardt-cloud-operator").force(),
@@ -1818,7 +1934,38 @@ async fn reconcile_preview_from_build(
 	)
 	.await
 	.map_err(Error::Kube)?;
-	info!("Reconciled preview environment {namespace}/{preview_name}");
+	info!("Reconciled preview environment {preview_namespace}/{preview_name}");
+	Ok(())
+}
+
+async fn reconcile_preview_status(
+	app: &Project,
+	client: &Client,
+	parent_namespace: &str,
+	preview_namespace: &str,
+) -> Result<(), Error> {
+	let parent_name = app.name_any();
+	let preview_list = Api::<Project>::namespaced(client.clone(), preview_namespace)
+		.list(&ListParams::default().labels(&format!(
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={parent_name}"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+	let previews =
+		resources::preview_status::build_preview_status_list(&preview_list.items, "https");
+	let status_patch = serde_json::json!({ "status": { "previews": previews } });
+	let parent_status_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
+	if let Err(error) = parent_status_api
+		.patch_status(
+			&parent_name,
+			&PatchParams::default(),
+			&Patch::Merge(&status_patch),
+		)
+		.await
+	{
+		warn!("failed to write preview status for {parent_namespace}/{parent_name}: {error}");
+	}
+
 	Ok(())
 }
 
@@ -2149,6 +2296,9 @@ fn build_status(
 		.map(|status| status.conditions.clone())
 		.unwrap_or_default();
 	let build = existing_status.and_then(|status| status.build.clone());
+	let previews = existing_status
+		.map(|status| status.previews.clone())
+		.unwrap_or_default();
 	upsert_project_condition(
 		&mut conditions,
 		build_condition(app, ConditionType::Ready, condition_status, reason, message),
@@ -2213,6 +2363,7 @@ fn build_status(
 		ready_replicas: Some(ready_replicas),
 		build,
 		database,
+		previews,
 		..Default::default()
 	}
 }
@@ -2420,6 +2571,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let context = Arc::new(Context {
 		client,
 		platform,
+		preview_config: PreviewConfig::from_env(),
 		metrics,
 		backoff_state: Arc::new(DashMap::new()),
 		phase_state: Arc::new(DashMap::new()),
@@ -3116,6 +3268,7 @@ mod tests {
 		Arc::new(Context {
 			client: dummy_client(),
 			platform: PlatformConfig::onprem_defaults(),
+			preview_config: PreviewConfig::from_env(),
 			metrics: Metrics::new(),
 			backoff_state: Arc::new(DashMap::new()),
 			phase_state: Arc::new(DashMap::new()),

@@ -145,6 +145,87 @@ impl E2eHarness {
 		bail!("Project {name} still existed after {:?}", self.timeout)
 	}
 
+	/// Raw kube client, for ad-hoc cross-namespace operations (e.g. preview
+	/// child Projects that live in a `{parent}-preview` namespace distinct
+	/// from the test namespace).
+	pub(crate) fn client(&self) -> &Client {
+		&self.client
+	}
+
+	/// Like [`wait_project`](Self::wait_project) but in an explicit namespace.
+	pub(crate) async fn wait_project_in<F>(
+		&self,
+		namespace: &str,
+		name: &str,
+		description: &str,
+		predicate: F,
+	) -> Result<Project>
+	where
+		F: Fn(&Project) -> bool,
+	{
+		let deadline = Instant::now() + self.timeout;
+		let projects: Api<Project> = Api::namespaced(self.client.clone(), namespace);
+		let mut last: Option<Project> = None;
+		while Instant::now() < deadline {
+			if let Some(project) = projects
+				.get_opt(name)
+				.await
+				.with_context(|| format!("failed to get Project {namespace}/{name}"))?
+			{
+				if predicate(&project) {
+					return Ok(project);
+				}
+				last = Some(project);
+			}
+			tokio::time::sleep(Duration::from_millis(500)).await;
+		}
+		bail!("Project {namespace}/{name} did not satisfy {description}; last state: {last:#?}")
+	}
+
+	/// Like [`wait_project_absent`](Self::wait_project_absent) but in an
+	/// explicit namespace.
+	pub(crate) async fn wait_project_absent_in(&self, namespace: &str, name: &str) -> Result<()> {
+		let deadline = Instant::now() + self.timeout;
+		let projects: Api<Project> = Api::namespaced(self.client.clone(), namespace);
+		while Instant::now() < deadline {
+			if projects
+				.get_opt(name)
+				.await
+				.with_context(|| format!("failed to get Project {namespace}/{name}"))?
+				.is_none()
+			{
+				return Ok(());
+			}
+			tokio::time::sleep(Duration::from_millis(500)).await;
+		}
+		bail!(
+			"Project {namespace}/{name} still existed after {:?}",
+			self.timeout
+		)
+	}
+
+	/// Waits for a namespace to be absent (used to assert preview-namespace
+	/// cascade cleanup when a parent Project is deleted).
+	pub(crate) async fn wait_namespace_absent(&self, namespace: &str) -> Result<()> {
+		let deadline = Instant::now() + self.timeout;
+		let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(self.client.clone());
+		while Instant::now() < deadline {
+			if namespaces
+				.get_opt(namespace)
+				.await
+				.with_context(|| format!("failed to get Namespace {namespace}"))?
+				.is_none()
+			{
+				return Ok(());
+			}
+			tokio::time::sleep(Duration::from_millis(500)).await;
+		}
+		bail!(
+			"Namespace {namespace} still existed after {:?}",
+			self.timeout
+		)
+	}
+
 	pub(crate) async fn wait_job_named(&self, name: &str) -> Result<Job> {
 		let deadline = Instant::now() + self.timeout;
 		let jobs = self.jobs();

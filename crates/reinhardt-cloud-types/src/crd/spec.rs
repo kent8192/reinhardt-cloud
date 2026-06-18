@@ -1408,6 +1408,7 @@ mod tests {
 						database: Some(false),
 						cache: Some(false),
 					}),
+					budget: None,
 				}),
 			}),
 			..Default::default()

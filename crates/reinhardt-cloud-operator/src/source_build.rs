@@ -724,6 +724,7 @@ mod tests {
 			ttl: None,
 			url_template: None,
 			overrides: None,
+			budget: None,
 		});
 	}
 
