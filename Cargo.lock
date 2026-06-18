@@ -5724,6 +5724,7 @@ dependencies = [
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
+ "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "reinhardt-web",
  "reqwest 0.12.28",
