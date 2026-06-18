@@ -134,7 +134,7 @@ There is no `settings` application module in `dashboard/src/apps/` at this commi
 
 ### Installation options
 
-There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying the canonical `Project` manifest in `manifests/dashboard-app.yaml`.
+There is no Helm chart for the Dashboard. The `charts/` directory contains only `charts/reinhardt-cloud-operator/`. Deploy the Dashboard by applying the canonical `Project` manifest in `manifests/dashboard-project.yaml`.
 
 The published Dashboard image contains two runtime binaries:
 

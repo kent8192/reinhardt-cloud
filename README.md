@@ -489,7 +489,7 @@ Breaking changes will be documented in release notes.
 ## Self-hosting
 
 The Reinhardt Cloud Dashboard can be self-hosted through its own operator
-as a `Project`. A canonical manifest (`manifests/dashboard-app.yaml`)
+as a `Project`. A canonical manifest (`manifests/dashboard-project.yaml`)
 and a release-triggered deploy workflow
 (`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
 dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for
