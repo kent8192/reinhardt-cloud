@@ -781,7 +781,7 @@ mod tests {
 			.as_array()
 			.expect("conditions should be an array")
 			.iter()
-			.find(|condition| condition["type"] == serde_json::json!(type_))
+			.find(|condition| condition["type"].as_str() == Some(type_))
 			.expect("condition should exist")
 	}
 
