@@ -45,4 +45,41 @@ data:
           - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
             target_label: __path__
             replacement: /var/log/pods/*$1/$2/*.log
+      {{- if .Values.logging.scrapeApps }}
+      - job_name: reinhardt-cloud-apps
+        kubernetes_sd_configs:
+          - role: pod
+        pipeline_stages:
+          - match:
+              selector: '{pod=~".+"}'
+              stages:
+                - json:
+                    expressions:
+                      level: level
+                - labels:
+                    level:
+        relabel_configs:
+          # Only collect pods in the configured app namespaces (default tenant-*).
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: {{ .Values.logging.appNamespaces | quote }}
+            action: keep
+          # Only pods managed by this operator.
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_managed_by]
+            regex: reinhardt-cloud-operator
+            action: keep
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          # `app.kubernetes.io/name` carries the project name; expose it as the
+          # `app` label so the dashboard can select a Project's logs with
+          # `{app="<project>"}`.
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            target_label: __path__
+            replacement: /var/log/pods/*$1/$2/*.log
+      {{- end }}
 {{- end }}

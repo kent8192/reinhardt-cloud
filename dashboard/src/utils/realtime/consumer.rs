@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use reinhardt::{ConsumerContext, Message, WebSocketConsumer, WebSocketResult};
+use reinhardt::{ConsumerContext, Message, Model, WebSocketConsumer, WebSocketResult};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -15,6 +15,9 @@ use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 
 use crate::apps::auth::services::session::validate_session;
+use crate::apps::deployments::models::Deployment;
+use crate::apps::organizations::permissions::action::Action;
+use crate::apps::organizations::permissions::guard::require_permission;
 use crate::shared::ws_messages::{
 	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
 	SystemNotificationPayload, WsClientMessage, WsMessage,
@@ -44,7 +47,7 @@ pub(crate) enum ParsedAction {
 	/// Subscribe to build log events via the gRPC bridge.
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log events via the gRPC `LogService` bridge.
-	SubscribeAppLogs { project_name: String },
+	SubscribeAppLogs { deployment_id: String },
 	/// Acknowledged log stream subscription — send ack and start/stop stream.
 	/// Currently unused; will be wired when build log streaming is connected to the match arm.
 	#[allow(dead_code)]
@@ -165,7 +168,7 @@ impl NotificationConsumer {
 				}
 				ParsedAction::SubscribeBuildLogs { build_id }
 			}
-			WsClientMessage::SubscribeAppLogs { project_name } => {
+			WsClientMessage::SubscribeAppLogs { deployment_id } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -177,7 +180,7 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeAppLogs { project_name }
+				ParsedAction::SubscribeAppLogs { deployment_id }
 			}
 			WsClientMessage::UnsubscribeLogs => {
 				if user_id.is_none() {
@@ -203,6 +206,50 @@ impl NotificationConsumer {
 			h.abort();
 		}
 	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthorizedAppLogSubscription {
+	deployment_id: i64,
+	project_name: String,
+}
+
+fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
+	WsMessage::LogStreamAck(LogStreamAckPayload {
+		acknowledged: false,
+		message: message.into(),
+	})
+}
+
+async fn authorize_app_log_subscription(
+	user_id: &str,
+	deployment_id: &str,
+) -> Result<AuthorizedAppLogSubscription, WsMessage> {
+	let user_id = Uuid::parse_str(user_id)
+		.map_err(|_| log_stream_rejected("Authentication required for app logs"))?;
+	let deployment_id: i64 = deployment_id
+		.parse()
+		.map_err(|_| log_stream_rejected("Invalid deployment id for app logs"))?;
+	let organization_id = require_permission(user_id, Action::LogsRead)
+		.await
+		.map_err(|_| log_stream_rejected("Not authorized to read deployment logs"))?;
+	let deployment = Deployment::objects()
+		.filter(Deployment::field_id().eq(deployment_id))
+		.filter(Deployment::field_organization_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load deployment for app-log subscription"
+			);
+			log_stream_rejected("Failed to load deployment for logs")
+		})?
+		.ok_or_else(|| log_stream_rejected("Deployment not found for log subscription"))?;
+	Ok(AuthorizedAppLogSubscription {
+		deployment_id,
+		project_name: deployment.project_name,
+	})
 }
 
 /// Extract a named cookie value from a `Cookie` header string.
@@ -424,7 +471,21 @@ impl WebSocketConsumer for NotificationConsumer {
 				*handle_guard = Some(handle);
 				drop(handle_guard);
 			}
-			ParsedAction::SubscribeAppLogs { project_name } => {
+			ParsedAction::SubscribeAppLogs { deployment_id } => {
+				let Some(uid) = user_id.as_deref() else {
+					let _ = context
+						.connection
+						.send_json(&log_stream_rejected("Authentication required for app logs"))
+						.await;
+					return Ok(());
+				};
+				let subscription = match authorize_app_log_subscription(uid, &deployment_id).await {
+					Ok(subscription) => subscription,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -435,7 +496,7 @@ impl WebSocketConsumer for NotificationConsumer {
 				// connection is established, so the client is not misled when
 				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
-				let project = project_name.clone();
+				let project = subscription.project_name.clone();
 				let endpoint = grpc_endpoint();
 				let handle_ref = Arc::clone(&self.log_stream_handle);
 
@@ -563,7 +624,117 @@ impl WebSocketConsumer for NotificationConsumer {
 mod tests {
 	use super::*;
 	use crate::shared::ws_messages::WsClientMessage;
+	use chrono::Utc;
+	use reinhardt::prelude::DatabaseConnection;
+	use reinhardt::test::fixtures::{
+		ContainerAsync, GenericImage, postgres_with_migrations_from_dir,
+	};
+	use rstest::fixture;
 	use rstest::rstest;
+	use serial_test::serial;
+
+	use crate::apps::auth::models::User;
+	use crate::apps::clusters::models::Cluster;
+	use crate::apps::organizations::models::{Organization, OrganizationMembership};
+	use crate::apps::organizations::roles::MembershipRole;
+
+	#[fixture]
+	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
+		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+		postgres_with_migrations_from_dir(&migrations_dir)
+			.await
+			.expect("Failed to start PostgreSQL with migrations")
+	}
+
+	async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
+		User::objects()
+			.create_with_conn(
+				conn,
+				&User::build()
+					.username(username.to_string())
+					.email(format!("{username}@example.com"))
+					.first_name(String::new())
+					.last_name(String::new())
+					.password_hash(None)
+					.is_active(true)
+					.is_staff(false)
+					.is_superuser(false)
+					.finish(),
+			)
+			.await
+			.expect("create user")
+	}
+
+	async fn create_org(
+		conn: &Arc<DatabaseConnection>,
+		creator: &User,
+		slug: &str,
+	) -> Organization {
+		let now = Utc::now();
+		Organization::objects()
+			.create_with_conn(
+				conn,
+				&Organization {
+					id: None,
+					slug: slug.to_string(),
+					name: slug.to_string(),
+					created_by: creator.id,
+					created_at: now,
+					updated_at: now,
+				},
+			)
+			.await
+			.expect("create org")
+	}
+
+	async fn add_membership(conn: &Arc<DatabaseConnection>, user: &User, org: &Organization) {
+		OrganizationMembership::objects()
+			.create_with_conn(
+				conn,
+				&OrganizationMembership::build()
+					.organization(org.id.expect("created org has id"))
+					.user(user.id)
+					.role(MembershipRole::Viewer.as_db_str().to_string())
+					.finish(),
+			)
+			.await
+			.expect("create membership");
+	}
+
+	async fn create_deployment(
+		conn: &Arc<DatabaseConnection>,
+		org: &Organization,
+		project_name: &str,
+	) -> Deployment {
+		let cluster = Cluster::objects()
+			.create_with_conn(
+				conn,
+				&Cluster::build()
+					.organization(org.id.expect("created org has id"))
+					.name(format!("{project_name}-cluster"))
+					.api_url("https://k8s.example.com".to_string())
+					.is_active(true)
+					.token_hash(None)
+					.token_last_rotated_at(None)
+					.finish(),
+			)
+			.await
+			.expect("create cluster");
+		Deployment::objects()
+			.create_with_conn(
+				conn,
+				&Deployment::build()
+					.organization(org.id.expect("created org has id"))
+					.project_name(project_name.to_string())
+					.cluster(cluster.id.expect("created cluster has id"))
+					.status("running".to_string())
+					.image("ghcr.io/example/app:latest".to_string())
+					.project_yaml(None)
+					.finish(),
+			)
+			.await
+			.expect("create deployment")
+	}
 
 	#[rstest]
 	fn test_parse_subscribe_without_auth_rejected() {
@@ -766,7 +937,7 @@ mod tests {
 	fn test_parse_subscribe_app_logs_with_auth() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeAppLogs {
-			project_name: "my-service".to_string(),
+			deployment_id: "42".to_string(),
 		};
 
 		// Act
@@ -774,8 +945,8 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeAppLogs { project_name } => {
-				assert_eq!(project_name, "my-service");
+			ParsedAction::SubscribeAppLogs { deployment_id } => {
+				assert_eq!(deployment_id, "42");
 			}
 			_ => panic!("expected SubscribeAppLogs action"),
 		}
@@ -785,7 +956,7 @@ mod tests {
 	fn test_parse_subscribe_app_logs_without_auth_rejected() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeAppLogs {
-			project_name: "my-service".to_string(),
+			deployment_id: "42".to_string(),
 		};
 
 		// Act
@@ -801,6 +972,95 @@ mod tests {
 				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
+		}
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_app_log_subscription_allows_deployment_in_current_org(
+		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "logs-allowed").await;
+		let org = create_org(&conn, &user, "logs-allowed").await;
+		add_membership(&conn, &user, &org).await;
+		let deployment = create_deployment(&conn, &org, "allowed-project").await;
+
+		// Act
+		let subscription = authorize_app_log_subscription(
+			&user.id.to_string(),
+			&deployment.id.unwrap().to_string(),
+		)
+		.await
+		.expect("authorized subscription");
+
+		// Assert
+		assert_eq!(subscription.deployment_id, deployment.id.unwrap());
+		assert_eq!(subscription.project_name, "allowed-project");
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_app_log_subscription_rejects_user_without_membership(
+		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let owner = create_user(&conn, "logs-owner").await;
+		let user = create_user(&conn, "logs-stranded").await;
+		let org = create_org(&conn, &owner, "logs-owner").await;
+		let deployment = create_deployment(&conn, &org, "owned-project").await;
+
+		// Act
+		let result = authorize_app_log_subscription(
+			&user.id.to_string(),
+			&deployment.id.unwrap().to_string(),
+		)
+		.await;
+
+		// Assert
+		match result {
+			Err(WsMessage::LogStreamAck(payload)) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, "Not authorized to read deployment logs");
+			}
+			_ => panic!("expected rejected LogStreamAck"),
+		}
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_app_log_subscription_rejects_cross_org_deployment_guess(
+		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "logs-user").await;
+		let other_user = create_user(&conn, "logs-other").await;
+		let own_org = create_org(&conn, &user, "logs-user").await;
+		let other_org = create_org(&conn, &other_user, "logs-other").await;
+		add_membership(&conn, &user, &own_org).await;
+		add_membership(&conn, &other_user, &other_org).await;
+		let other_deployment = create_deployment(&conn, &other_org, "other-project").await;
+
+		// Act
+		let result = authorize_app_log_subscription(
+			&user.id.to_string(),
+			&other_deployment.id.unwrap().to_string(),
+		)
+		.await;
+
+		// Assert
+		match result {
+			Err(WsMessage::LogStreamAck(payload)) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, "Deployment not found for log subscription");
+			}
+			_ => panic!("expected rejected LogStreamAck"),
 		}
 	}
 

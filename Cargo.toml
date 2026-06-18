@@ -85,6 +85,12 @@ schemars = "1"
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
+# WebSocket client (Loki /tail live log stream)
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+
+# Async stream construction (tail_logs streaming)
+async-stream = "0.3"
+
 # Internal workspace crates
 reinhardt-cloud = { path = "crates/reinhardt-cloud" }
 reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types" }
@@ -101,6 +107,7 @@ rand = "0.9"
 rstest = "0.26"
 tokio-test = "0.4"
 proptest = "1"
+testcontainers = "0.27"
 
 [workspace.lints.clippy]
 module_name_repetitions = "allow"
