@@ -201,10 +201,16 @@ From `charts/reinhardt-cloud-operator/crds/`:
 |---|---|---|
 | `phase` | `ProjectPhase` | Top-level application lifecycle phase. Values: `pending`, `provisioning`, `deploying`, `running`, `degraded`, `failed`, `terminating` |
 | `conditions` | `[]Condition` | Standard Kubernetes conditions. Observed types include `Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady` |
+| `build` | `BuildStatus?` | Active or most recent source build status, including `phase`, `target`, `trigger`, `jobName`, `image`, `imageTag`, and preview identifiers (`previewName`, `prNumber`) |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
 | `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
 | `observedGeneration` | int64 | Last generation observed by the controller |
+
+For source-driven projects, source builds are deployment-aware: the operator creates or reuses
+the Kaniko Job for the requested deployment and records it in `status.build`. The parent
+`spec.image` and preview Project image are not advanced until the associated Kaniko Job succeeds.
+Failed builds set `Degraded=True` and leave the previous runtime image target unchanged.
 
 For projects that provision PostgreSQL, the operator creates a migration Job
 for each deployment revision and waits for it before applying the new
@@ -1244,6 +1250,7 @@ stateDiagram-v2
 | `conditions` | Standard Kubernetes condition list (Ready, Progressing, Degraded, DatabaseReady, CacheReady, WorkerReady, IngressReady) |
 | `observedGeneration` | The generation last observed by the controller |
 | `phase` | Lifecycle phase (pending, deploying, running, failed, terminating, provisioning, degraded) |
+| `build` | Active or recent Kaniko source build, including target, trigger, Job name, produced image, and preview identifiers |
 | `readyReplicas` | Number of ready replicas in the Deployment |
 | `database` | Status of the provisioned database sub-resource (phase, endpoint, credentials_secret) |
 | `cache` | Status of the provisioned cache sub-resource (phase, endpoint) |

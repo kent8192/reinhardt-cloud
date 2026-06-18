@@ -18,7 +18,7 @@ This page covers:
 - [Observability](#observability)
 - [Deployment flow architecture](architecture/deployment-flow.md)
 
-The canonical manifest lives at [`manifests/dashboard-app.yaml`](../manifests/dashboard-app.yaml)
+The canonical manifest lives at [`manifests/dashboard-project.yaml`](../manifests/dashboard-project.yaml)
 and the workflow at
 [`.github/workflows/deploy-dashboard.yml`](../.github/workflows/deploy-dashboard.yml).
 
@@ -129,7 +129,7 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
 
    ```bash
    VERSION=1.0.0
-   sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-app.yaml \
+   sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-project.yaml \
      | kubectl apply -f -
    ```
 

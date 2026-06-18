@@ -27,9 +27,8 @@ async fn source_build_trigger_creates_kaniko_job_and_updates_parent_image() -> R
 		source_build_project(harness.namespace(), SOURCE_APP, Some("abcdef1234567890"));
 	harness.create_project(&source_project).await?;
 
-	let job = harness
-		.wait_job_named("source-build-app-build-abcdef12")
-		.await?;
+	let build_job_name = "source-build-app-build-source-build-app-abcdef12";
+	let job = harness.wait_job_named(build_job_name).await?;
 	let job_metadata = job.metadata;
 	assert_eq!(
 		job_metadata.labels.as_ref().and_then(|labels| {
@@ -110,6 +109,7 @@ async fn source_build_trigger_creates_kaniko_job_and_updates_parent_image() -> R
 		Some("registry-auth")
 	);
 
+	harness.mark_job_succeeded(build_job_name).await?;
 	harness
 		.wait_project(SOURCE_APP, "built image patch", |project| {
 			project.spec.image

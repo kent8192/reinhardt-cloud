@@ -124,9 +124,10 @@ before drawing conclusions.**
 > in-cluster using server-side apply, so the operator owns the derived
 > workload reconciliation. When the manifest carries
 > `reinhardt.dev/build-trigger`, the operator creates the Kaniko build Job
-> and patches `spec.image` to the same image reference used as the Kaniko
-> destination, allowing the next workload reconciliation to deploy the built
-> image instead of the initial pending placeholder.
+> and records the active build in `status.build`. The operator advances
+> `spec.image` or the preview `Project` image only after the Kaniko Job
+> reports success, so the running workload keeps its previous image while
+> the build is pending or failed.
 
 ## Sequence Diagram
 
