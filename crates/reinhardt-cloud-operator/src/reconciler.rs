@@ -63,12 +63,52 @@ const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 /// re-triggers reconciliation. The value is consumed read-only here.
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 
+/// Platform-level preview environment configuration read from the environment.
+///
+/// These values feed the cert-manager `Issuer` and the preview Ingress
+/// `ingressClassName` for every `{parent}-preview` namespace (#707).
+///
+/// Workaround for reinhardt-cloud#707 (tracked in the same effort):
+// The fields are read once the preview-namespace reconciler consumes them
+// (Task 10). Ideal implementation (without workaround): drop the `dead_code`
+// allow once `reconcile_preview_namespace` builds the Issuer from these values.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct PreviewConfig {
+	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
+	pub ingress_class: String,
+	/// ACME directory endpoint (e.g. Let's Encrypt production/staging).
+	pub acme_server: String,
+	/// ACME registration email (empty for staging/local).
+	pub acme_email: String,
+}
+
+impl PreviewConfig {
+	/// Read preview configuration from `REINHARDT_CLOUD_PREVIEW_*` env vars,
+	/// applying platform-safe defaults when unset.
+	pub(crate) fn from_env() -> Self {
+		Self {
+			ingress_class: std::env::var("REINHARDT_CLOUD_PREVIEW_INGRESS_CLASS")
+				.unwrap_or_else(|_| "nginx".to_string()),
+			acme_server: std::env::var("REINHARDT_CLOUD_PREVIEW_ACME_SERVER")
+				.unwrap_or_else(|_| "https://acme-v02.api.letsencrypt.org/directory".to_string()),
+			acme_email: std::env::var("REINHARDT_CLOUD_PREVIEW_ACME_EMAIL").unwrap_or_default(),
+		}
+	}
+}
+
 /// Shared context available to every reconciliation call.
 pub(crate) struct Context {
 	/// Kubernetes API client.
 	pub client: Client,
 	/// Platform-specific configuration for resource inference.
 	pub platform: PlatformConfig,
+	/// Platform-level preview environment configuration (#707).
+	// Read by `reconcile_preview_namespace` once the preview reconciler lands
+	// (Task 10). Ideal implementation (without workaround): drop the
+	// `dead_code` allow when that wiring consumes `ctx.preview_config`.
+	#[allow(dead_code)]
+	pub preview_config: PreviewConfig,
 	/// Prometheus metrics shared with the exporter task.
 	pub metrics: Arc<Metrics>,
 	/// Per-object consecutive-failure counter used to drive exponential
@@ -2074,6 +2114,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let context = Arc::new(Context {
 		client,
 		platform,
+		preview_config: PreviewConfig::from_env(),
 		metrics,
 		backoff_state: Arc::new(DashMap::new()),
 		phase_state: Arc::new(DashMap::new()),
@@ -2465,6 +2506,7 @@ mod tests {
 		Arc::new(Context {
 			client: dummy_client(),
 			platform: PlatformConfig::onprem_defaults(),
+			preview_config: PreviewConfig::from_env(),
 			metrics: Metrics::new(),
 			backoff_state: Arc::new(DashMap::new()),
 			phase_state: Arc::new(DashMap::new()),
