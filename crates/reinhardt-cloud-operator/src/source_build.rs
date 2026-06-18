@@ -535,14 +535,16 @@ pub(crate) async fn reconcile_source_build(
 	client: Client,
 	namespace: &str,
 ) -> Result<BuildDecision, Error> {
-	if annotation_value(app, BUILD_TRIGGER_ANNOTATION).is_some()
-		&& disabled_preview_build_requested(app)
-	{
-		clear_build_annotations(client, namespace, app).await?;
-		return Ok(BuildDecision::NoBuild);
+	let disabled_preview_request = annotation_value(app, BUILD_TRIGGER_ANNOTATION).is_some()
+		&& disabled_preview_build_requested(app);
+	if disabled_preview_request {
+		clear_build_annotations(client.clone(), namespace, app).await?;
 	}
-
-	let new_build = derive_new_build_status(app)?;
+	let new_build = if disabled_preview_request {
+		None
+	} else {
+		derive_new_build_status(app)?
+	};
 	let has_new_build = new_build.is_some();
 	if let Some(failed_build) = blocking_failed_build_status(app, has_new_build) {
 		return Ok(BuildDecision::Failed(BuildFailure {
@@ -932,6 +934,70 @@ mod tests {
 
 		// Assert
 		assert_eq!(decision, BuildDecision::NoBuild);
+		let requests = requests
+			.lock()
+			.expect("requests lock should not be poisoned");
+		assert!(requests.iter().any(|request| {
+			request
+				== "PATCH /apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/default/projects/api"
+		}));
+		assert!(!requests.iter().any(|request| request.contains("/jobs/")));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn reconcile_source_build_preserves_failed_gate_for_disabled_preview_request() {
+		use http::Response;
+		use std::sync::{Arc, Mutex};
+		use tower::service_fn;
+
+		// Arrange
+		let mut app = test_project();
+		set_previews_enabled(&mut app, false);
+		let failed = test_failed_build_status();
+		app.status = Some(ProjectStatus {
+			build: Some(failed.clone()),
+			..Default::default()
+		});
+		let annotations = app.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
+		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let requests_for_service = requests.clone();
+		let response_app = app.clone();
+		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
+			let requests = requests_for_service.clone();
+			let response_app = response_app.clone();
+			async move {
+				let method = req.method().clone();
+				let path = req.uri().path().to_string();
+				requests
+					.lock()
+					.expect("requests lock should not be poisoned")
+					.push(format!("{method} {path}"));
+				Ok::<_, std::convert::Infallible>(
+					Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&response_app)
+								.expect("project json should serialize"),
+						))
+						.expect("response should build"),
+				)
+			}
+		});
+		let client = Client::new(svc, "default");
+
+		// Act
+		let decision = reconcile_source_build(&app, client, "default")
+			.await
+			.expect("disabled preview request should be cleared");
+
+		// Assert
+		assert_eq!(
+			decision,
+			BuildDecision::Failed(BuildFailure { status: failed })
+		);
 		let requests = requests
 			.lock()
 			.expect("requests lock should not be poisoned");
