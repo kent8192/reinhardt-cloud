@@ -2,6 +2,7 @@
 //!
 //! Shared by auth server functions.
 
+pub mod api_key;
 pub mod credentials;
 pub mod email;
 pub mod local_auth;
