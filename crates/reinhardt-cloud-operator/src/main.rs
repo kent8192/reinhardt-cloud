@@ -5,6 +5,7 @@ mod inference;
 mod metrics;
 mod reconciler;
 mod resources;
+mod source_build;
 
 use std::net::SocketAddr;
 

@@ -282,6 +282,12 @@ with reason `MigrationRunning` means rollout is waiting on that Job;
 marks the project degraded until the spec changes or the failed revision is
 handled.
 
+For source-driven deployments, source builds populate `status.build` with the active or most
+recent Kaniko build. `status.build.jobName`, `status.build.trigger`, `status.build.image`, and
+`status.build.imageTag` identify the build Job and produced image. Production `spec.image`
+updates and preview Project image updates are applied only after the associated Kaniko Job
+succeeds.
+
 ## Installation
 
 ### Prerequisites
