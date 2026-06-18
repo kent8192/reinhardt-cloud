@@ -25,6 +25,7 @@ serde_yaml = { workspace = true }
 serial_test = "3.2"
 async-trait = "0.1"
 prost-types = "0.13"
+reqwest = { workspace = true }
 
 [[test]]
 name = "build_grpc_integration"
@@ -45,6 +46,10 @@ path = "integration/tests/agent_grpc_integration.rs"
 [[test]]
 name = "source_pipeline_e2e"
 path = "e2e/source_pipeline.rs"
+
+[[test]]
+name = "cli_auth_e2e"
+path = "e2e/cli_auth.rs"
 
 [lints]
 workspace = true
