@@ -24,10 +24,17 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+# Core LogService trait + types (read path implements the core trait) and
+# WebSocket/async-stream support for Loki /tail.
+reinhardt-cloud-core = { workspace = true }
+reinhardt-cloud-types = { workspace = true }
+tokio-tungstenite = { workspace = true }
+async-stream = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
 serial_test = "3.2"
+testcontainers = { workspace = true }
 
 [lints]
 workspace = true
