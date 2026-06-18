@@ -287,7 +287,9 @@ impl BaseCommand for RevokeApiTokenCommand {
 		let id: i64 = ctx
 			.arg(0)
 			.cloned()
-			.ok_or_else(|| CommandError::ExecutionError("usage: revoke-api-token <id>".to_string()))?
+			.ok_or_else(|| {
+				CommandError::ExecutionError("usage: revoke-api-token <id>".to_string())
+			})?
 			.parse()
 			.map_err(|_| CommandError::ExecutionError("id must be an integer".to_string()))?;
 		revoke_api_key(id)

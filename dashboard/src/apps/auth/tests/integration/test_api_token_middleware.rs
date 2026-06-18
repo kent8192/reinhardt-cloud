@@ -5,12 +5,12 @@
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::UrlReverser;
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt::UrlReverser;
 	use rstest::*;
 	use serial_test::serial;
 	use std::sync::Arc;

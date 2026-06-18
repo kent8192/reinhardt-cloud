@@ -7,12 +7,12 @@
 #[cfg(test)]
 mod tests {
 	use chrono::{Duration, Utc};
+	use reinhardt::UrlReverser;
 	use reinhardt::db::orm::Model;
 	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
 	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
-	use reinhardt::UrlReverser;
 	use rstest::*;
 	use serial_test::serial;
 	use std::sync::Arc;
@@ -80,7 +80,10 @@ mod tests {
 			.expect("generate");
 
 		// Assert
-		assert!(plaintext.starts_with("rct_"), "token must carry the rct_ prefix");
+		assert!(
+			plaintext.starts_with("rct_"),
+			"token must carry the rct_ prefix"
+		);
 		assert_eq!(model.label, "CI deploy");
 		let resolved = verify_api_key(&plaintext).await.expect("verify");
 		assert_eq!(resolved.0.id(), user.id());
@@ -102,10 +105,9 @@ mod tests {
 		// Arrange
 		let (_container, _conn, _client, _urls) = db.await;
 		let user = create_test_user("bob").await;
-		let (plaintext, model) =
-			generate_api_key(user.id, "labeled".to_string(), None)
-				.await
-				.expect("generate");
+		let (plaintext, model) = generate_api_key(user.id, "labeled".to_string(), None)
+			.await
+			.expect("generate");
 
 		// Act
 		revoke_api_key(model.id.unwrap_or_default())
