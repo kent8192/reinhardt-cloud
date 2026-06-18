@@ -366,6 +366,7 @@ impl ReinhardtCloudToml {
 						database: None,
 						cache: None,
 					}),
+					budget: None,
 				}),
 			}),
 			plugins: None,
