@@ -14,6 +14,7 @@ pub(crate) mod migration;
 pub(crate) mod plugins;
 pub(crate) mod preview;
 pub(crate) mod preview_namespace;
+pub(crate) mod preview_status;
 pub(crate) mod security;
 pub(crate) mod service;
 pub(crate) mod service_account;
