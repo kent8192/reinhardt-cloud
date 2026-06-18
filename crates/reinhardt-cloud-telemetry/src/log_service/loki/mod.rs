@@ -28,6 +28,24 @@ use crate::schema::{LogFields, LogLevel, LogRecord};
 /// Prevents unbounded `query_range` scans over all retained history.
 const DEFAULT_LOOKBACK: Duration = Duration::from_secs(60 * 60); // 1 hour
 
+/// Maximum rows fetched while bridging legacy post-filtered pagination.
+const LEGACY_PREFILTER_SCAN_LIMIT: usize = 5_000;
+
+fn timestamp_nanos(timestamp: chrono::DateTime<chrono::Utc>, field: &str) -> Result<i64, ApiError> {
+	timestamp
+		.timestamp_nanos_opt()
+		.ok_or_else(|| ApiError::BadRequest(format!("invalid `{field}` timestamp range")))
+}
+
+fn legacy_fetch_target(page: Pagination) -> usize {
+	page.offset.saturating_add(page.limit).max(1)
+}
+
+fn next_legacy_prefilter_limit(current: usize, target: usize) -> usize {
+	let cap = target.max(LEGACY_PREFILTER_SCAN_LIMIT);
+	current.saturating_mul(2).max(target).min(cap)
+}
+
 /// Read-oriented Loki client implementing the core `LogService` trait.
 pub struct LokiLogService {
 	endpoint: String,
@@ -51,6 +69,60 @@ impl LokiLogService {
 	/// Configured Loki base URL.
 	pub fn endpoint(&self) -> &str {
 		&self.endpoint
+	}
+
+	async fn query_range_entries(
+		&self,
+		filter: &LogFilter,
+		limit: u64,
+	) -> Result<Vec<LogEntry>, ApiError> {
+		let logql = query::build_logql(filter);
+		// Resolve the time window. `since` defaults to a 1h lookback to bound the
+		// scan; `until` defaults to now.
+		let now = chrono::Utc::now();
+		let start = filter.since.unwrap_or_else(|| {
+			now - chrono::Duration::from_std(DEFAULT_LOOKBACK).unwrap_or_default()
+		});
+		let end = filter.until.unwrap_or(now);
+		let start_ns = timestamp_nanos(start, "since")?;
+		let end_ns = timestamp_nanos(end, "until")?;
+
+		let mut url = reqwest::Url::parse(&format!(
+			"{}/loki/api/v1/query_range",
+			self.endpoint.trim_end_matches('/')
+		))
+		.map_err(|e| ApiError::Internal(format!("invalid loki endpoint: {e}")))?;
+		url.query_pairs_mut()
+			.append_pair("query", &logql)
+			.append_pair("start", &start_ns.to_string())
+			.append_pair("end", &end_ns.to_string())
+			.append_pair("limit", &limit.max(1).to_string())
+			.append_pair("direction", "backward");
+
+		let response = self
+			.http
+			.get(url)
+			.send()
+			.await
+			.map_err(|e| ApiError::Internal(format!("loki query_range request failed: {e}")))?;
+		let status = response.status();
+		let resp = response
+			.text()
+			.await
+			.map_err(|e| ApiError::Internal(format!("loki query_range body failed: {e}")))?;
+		if !status.is_success() {
+			return Err(ApiError::Internal(format!(
+				"loki query_range returned HTTP {status}: {resp}"
+			)));
+		}
+		if let Some(message) = loki_error_message(&resp) {
+			return Err(ApiError::Internal(format!(
+				"loki query_range returned error: {message}"
+			)));
+		}
+
+		parse_query_range(&resp)
+			.map_err(|e| ApiError::Internal(format!("loki query_range parse failed: {e}")))
 	}
 }
 
@@ -79,60 +151,16 @@ impl CoreLogService for LokiLogService {
 		filter: LogFilter,
 		pagination: PaginationParams,
 	) -> Result<PaginatedResponse<LogEntry>, ApiError> {
-		let logql = query::build_logql(&filter);
-		// Resolve the time window. `since` defaults to a 1h lookback to bound the
-		// scan; `until` defaults to now.
-		let now = chrono::Utc::now();
-		let start = filter.since.unwrap_or_else(|| {
-			now - chrono::Duration::from_std(DEFAULT_LOOKBACK).unwrap_or_default()
-		});
-		let end = filter.until.unwrap_or(now);
-		let limit = pagination.page_size();
-
-		let mut url = reqwest::Url::parse(&format!(
-			"{}/loki/api/v1/query_range",
-			self.endpoint.trim_end_matches('/')
-		))
-		.map_err(|e| ApiError::Internal(format!("invalid loki endpoint: {e}")))?;
-		url.query_pairs_mut()
-			.append_pair("query", &logql)
-			.append_pair(
-				"start",
-				&start.timestamp_nanos_opt().unwrap_or(0).to_string(),
-			)
-			.append_pair("end", &end.timestamp_nanos_opt().unwrap_or(0).to_string())
-			.append_pair("limit", &limit.to_string())
-			.append_pair("direction", "backward");
-
-		let response = self
-			.http
-			.get(url)
-			.send()
-			.await
-			.map_err(|e| ApiError::Internal(format!("loki query_range request failed: {e}")))?;
-		let status = response.status();
-		let resp = response
-			.text()
-			.await
-			.map_err(|e| ApiError::Internal(format!("loki query_range body failed: {e}")))?;
-		if !status.is_success() {
-			return Err(ApiError::Internal(format!(
-				"loki query_range returned HTTP {status}: {resp}"
-			)));
-		}
-		if let Some(message) = loki_error_message(&resp) {
-			return Err(ApiError::Internal(format!(
-				"loki query_range returned error: {message}"
-			)));
-		}
-
-		let entries = parse_query_range(&resp)
-			.map_err(|e| ApiError::Internal(format!("loki query_range parse failed: {e}")))?;
-
-		// Loki returns no total count; report the page length as a best-effort
-		// total and a single page (pagination is window+limit based, not offset).
+		let offset = pagination.offset() as usize;
+		let page_size = pagination.page_size() as usize;
+		let fetch_limit = offset.saturating_add(page_size).max(1) as u64;
+		let entries = self.query_range_entries(&filter, fetch_limit).await?;
 		let total = entries.len() as u64;
-		Ok(PaginatedResponse::new(entries, total, &pagination))
+		let items = entries.into_iter().skip(offset).take(page_size).collect();
+
+		// Loki returns no total count; report the fetched window length as a
+		// best-effort total for the bounded query window.
+		Ok(PaginatedResponse::new(items, total, &pagination))
 	}
 }
 
@@ -187,16 +215,6 @@ fn legacy_record_matches_post_filter(record: &LogRecord, filter: &LegacyLogFilte
 	true
 }
 
-fn legacy_page_to_core(page: Pagination) -> PaginationParams {
-	let limit = page.limit.max(1) as u64;
-	let page_number = (page.offset as u64 / limit) + 1;
-	PaginationParams::new(Some(page_number), Some(limit))
-}
-
-fn legacy_page_to_prefilter_core(page: Pagination) -> PaginationParams {
-	PaginationParams::new(Some(1), Some((page.offset + page.limit).max(1) as u64))
-}
-
 fn core_entry_to_legacy(entry: LogEntry) -> LogRecord {
 	let fields = entry
 		.metadata
@@ -213,7 +231,9 @@ fn core_entry_to_legacy(entry: LogEntry) -> LogRecord {
 #[async_trait]
 impl LegacyLogService for LokiLogService {
 	async fn ingest(&self, _record: LogRecord) -> Result<(), LogServiceError> {
-		Ok(())
+		Err(LogServiceError::Rejected(
+			"LokiLogService is read-only; use the Promtail write path".to_string(),
+		))
 	}
 
 	async fn tail(
@@ -242,25 +262,50 @@ impl LegacyLogService for LokiLogService {
 		filter: LegacyLogFilter,
 		page: Pagination,
 	) -> Result<Vec<LogRecord>, LogServiceError> {
-		let needs_post_filter = legacy_filter_requires_post_filter(&filter);
-		let core_page = if needs_post_filter {
-			legacy_page_to_prefilter_core(page)
-		} else {
-			legacy_page_to_core(page)
-		};
-		let response =
-			CoreLogService::list_logs(self, legacy_filter_to_core(filter.clone()), core_page)
+		let target = legacy_fetch_target(page);
+		let core_filter = legacy_filter_to_core(filter.clone());
+		if !legacy_filter_requires_post_filter(&filter) {
+			let entries = self
+				.query_range_entries(&core_filter, target as u64)
 				.await
 				.map_err(api_error_to_legacy)?;
-		let records = response
-			.items
-			.into_iter()
-			.map(core_entry_to_legacy)
-			.filter(|record| legacy_record_matches_post_filter(record, &filter));
-		if needs_post_filter {
-			Ok(records.skip(page.offset).take(page.limit).collect())
-		} else {
-			Ok(records.collect())
+			return Ok(entries
+				.into_iter()
+				.map(core_entry_to_legacy)
+				.skip(page.offset)
+				.take(page.limit)
+				.collect());
+		}
+
+		let scan_cap = target.max(LEGACY_PREFILTER_SCAN_LIMIT);
+		let mut fetch_limit = target;
+		loop {
+			let entries = self
+				.query_range_entries(&core_filter, fetch_limit as u64)
+				.await
+				.map_err(api_error_to_legacy)?;
+			let raw_count = entries.len();
+			let records = entries
+				.into_iter()
+				.map(core_entry_to_legacy)
+				.filter(|record| legacy_record_matches_post_filter(record, &filter))
+				.collect::<Vec<_>>();
+			if records.len() >= target || raw_count < fetch_limit || fetch_limit >= scan_cap {
+				return Ok(records
+					.into_iter()
+					.skip(page.offset)
+					.take(page.limit)
+					.collect());
+			}
+			let next_limit = next_legacy_prefilter_limit(fetch_limit, target);
+			if next_limit == fetch_limit {
+				return Ok(records
+					.into_iter()
+					.skip(page.offset)
+					.take(page.limit)
+					.collect());
+			}
+			fetch_limit = next_limit;
 		}
 	}
 
@@ -275,6 +320,7 @@ impl LegacyLogService for LokiLogService {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use chrono::TimeZone;
 	use rstest::rstest;
 
 	#[rstest]
@@ -297,6 +343,58 @@ mod tests {
 
 		// Assert — read-only backend rejects in-process pushes.
 		assert!(matches!(result, Err(ApiError::BadRequest(_))));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn legacy_ingest_is_rejected() {
+		// Arrange
+		let svc = LokiLogService::new("http://loki:3100");
+
+		// Act
+		let result =
+			LegacyLogService::ingest(&svc, LogRecord::new(LogLevel::Info, "message")).await;
+
+		// Assert
+		match result {
+			Err(LogServiceError::Rejected(message)) => {
+				assert_eq!(
+					message,
+					"LokiLogService is read-only; use the Promtail write path"
+				);
+			}
+			_ => panic!("expected read-only legacy ingest rejection"),
+		}
+	}
+
+	#[rstest]
+	fn timestamp_nanos_rejects_out_of_range_dates() {
+		// Arrange
+		let timestamp = chrono::Utc.with_ymd_and_hms(3000, 1, 1, 0, 0, 0).unwrap();
+
+		// Act
+		let result = timestamp_nanos(timestamp, "since");
+
+		// Assert
+		match result {
+			Err(ApiError::BadRequest(message)) => {
+				assert_eq!(message, "invalid `since` timestamp range");
+			}
+			_ => panic!("expected bad request for out-of-range timestamp"),
+		}
+	}
+
+	#[rstest]
+	fn legacy_prefilter_limit_grows_until_scan_cap() {
+		// Arrange
+		let target = 125;
+
+		// Act + Assert
+		assert_eq!(next_legacy_prefilter_limit(125, target), 250);
+		assert_eq!(
+			next_legacy_prefilter_limit(LEGACY_PREFILTER_SCAN_LIMIT, target),
+			LEGACY_PREFILTER_SCAN_LIMIT
+		);
 	}
 
 	async fn loki_endpoint_with_response(

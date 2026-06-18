@@ -238,7 +238,13 @@ async fn authorize_app_log_subscription(
 		.filter(Deployment::field_organization_id().eq(organization_id))
 		.first()
 		.await
-		.map_err(|e| log_stream_rejected(format!("Failed to load deployment for logs: {e}")))?
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load deployment for app-log subscription"
+			);
+			log_stream_rejected("Failed to load deployment for logs")
+		})?
 		.ok_or_else(|| log_stream_rejected("Deployment not found for log subscription"))?;
 	Ok(AuthorizedAppLogSubscription {
 		deployment_id,
@@ -490,7 +496,6 @@ impl WebSocketConsumer for NotificationConsumer {
 				// connection is established, so the client is not misled when
 				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
-				let deployment_id = subscription.deployment_id;
 				let project = subscription.project_name.clone();
 				let endpoint = grpc_endpoint();
 				let handle_ref = Arc::clone(&self.log_stream_handle);
@@ -525,7 +530,6 @@ impl WebSocketConsumer for NotificationConsumer {
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
 							source: Some(project.clone()),
-							deployment_id: Some(deployment_id.to_string()),
 							..Default::default()
 						}),
 					};

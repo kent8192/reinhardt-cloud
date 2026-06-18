@@ -68,14 +68,14 @@ fn parse_streams(
 				.and_then(|v| v.as_str())
 				.and_then(|s| s.parse::<i64>().ok());
 			let line = iter.next().and_then(|v| v.as_str()).unwrap_or("");
-			let timestamp = ts_ns
-				.and_then(|ns| {
-					chrono::DateTime::from_timestamp(
-						ns / 1_000_000_000,
-						(ns % 1_000_000_000) as u32,
-					)
-				})
-				.unwrap_or_else(chrono::Utc::now);
+			let Some(timestamp) = ts_ns.and_then(|ns| {
+				chrono::DateTime::from_timestamp(
+					ns.div_euclid(1_000_000_000),
+					ns.rem_euclid(1_000_000_000) as u32,
+				)
+			}) else {
+				continue;
+			};
 
 			let (level, source, message, metadata) = split_line(line, labels);
 			entries.push(LogEntry {
@@ -190,6 +190,19 @@ mod tests {
 
 		// Assert
 		assert!(entries.is_empty());
+	}
+
+	#[rstest]
+	fn skips_entries_with_malformed_timestamp() {
+		// Arrange
+		let body = r#"{"data":{"result":[{"stream":{"app":"p"},"values":[["not-nanos","bad"],["1700000000000000000","good"]]}]}}"#;
+
+		// Act
+		let entries = parse_query_range(body).unwrap();
+
+		// Assert
+		assert_eq!(entries.len(), 1);
+		assert_eq!(entries[0].message, "good");
 	}
 
 	#[rstest]

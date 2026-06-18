@@ -15,6 +15,7 @@ use reinhardt_cloud_core::pagination::PaginationParams;
 use reinhardt_cloud_core::traits::LogService;
 use reinhardt_cloud_telemetry::LokiLogService;
 use reinhardt_cloud_types::log::LogFilter;
+use rstest::rstest;
 use testcontainers::GenericImage;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
@@ -73,6 +74,7 @@ async fn push_line(endpoint: &str, app: &str, line: &str) {
 		.expect("push 2xx");
 }
 
+#[rstest]
 #[tokio::test]
 async fn list_returns_pushed_line() {
 	// Arrange
@@ -102,6 +104,7 @@ async fn list_returns_pushed_line() {
 	);
 }
 
+#[rstest]
 #[tokio::test]
 async fn tail_yields_pushed_line() {
 	// Arrange
@@ -126,7 +129,11 @@ async fn tail_yields_pushed_line() {
 		interval.tick().await; // first tick is immediate
 		loop {
 			tokio::select! {
-				Some(Ok(entry)) = tail.next() => return entry,
+				next = tail.next() => match next {
+					Some(Ok(entry)) => return entry,
+					Some(Err(e)) => panic!("tail stream returned error: {e}"),
+					None => panic!("tail stream ended before yielding a log entry"),
+				},
 				_ = interval.tick() => {
 					// Re-push in case the subscription raced past the first line.
 					push_line(&endpoint, "p-tail", "hello-tail").await;

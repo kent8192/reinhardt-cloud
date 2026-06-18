@@ -330,7 +330,12 @@ pub fn get_log_backend() -> LogBackend {
 	{
 		Some("loki") => LogBackend::Loki,
 		Some("memory") => LogBackend::Memory,
-		_ => LogBackend::Memory,
+		Some(other) => {
+			panic!(
+				"invalid REINHARDT_CLOUD_LOG_BACKEND/log_backend value `{other}`; expected `loki` or `memory`"
+			)
+		}
+		None => LogBackend::Memory,
 	}
 }
 

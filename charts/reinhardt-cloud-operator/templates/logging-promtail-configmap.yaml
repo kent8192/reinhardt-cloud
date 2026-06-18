@@ -61,7 +61,7 @@ data:
         relabel_configs:
           # Only collect pods in the configured app namespaces (default tenant-*).
           - source_labels: [__meta_kubernetes_namespace]
-            regex: {{ .Values.logging.appNamespaces }}
+            regex: {{ .Values.logging.appNamespaces | quote }}
             action: keep
           # Only pods managed by this operator.
           - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_managed_by]

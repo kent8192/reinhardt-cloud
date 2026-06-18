@@ -387,11 +387,30 @@ mod tests {
 			.set(3.0);
 		let text = String::from_utf8(metrics.encode()).expect("utf8");
 
-		// Assert — both gauges are registered and encode with their labels.
-		assert!(text.contains("reinhardt_cloud_operator_managed_apps_ready_replicas"));
-		assert!(text.contains("reinhardt_cloud_operator_managed_apps_desired_replicas"));
-		assert!(text.contains("namespace=\"tenant-acme\""));
-		assert!(text.contains("project=\"my-app\""));
+		// Assert — both gauges are registered and encode exact labeled samples.
+		let sample_lines = text
+			.lines()
+			.filter(|line| !line.starts_with('#'))
+			.collect::<Vec<_>>();
+		let ready_sample = sample_lines
+			.iter()
+			.copied()
+			.find(|line| line.starts_with("reinhardt_cloud_operator_managed_apps_ready_replicas{"));
+		let desired_sample = sample_lines.iter().copied().find(|line| {
+			line.starts_with("reinhardt_cloud_operator_managed_apps_desired_replicas{")
+		});
+		assert_eq!(
+			ready_sample,
+			Some(
+				r#"reinhardt_cloud_operator_managed_apps_ready_replicas{namespace="tenant-acme",project="my-app"} 3"#
+			)
+		);
+		assert_eq!(
+			desired_sample,
+			Some(
+				r#"reinhardt_cloud_operator_managed_apps_desired_replicas{namespace="tenant-acme",project="my-app"} 3"#
+			)
+		);
 	}
 
 	#[rstest]
