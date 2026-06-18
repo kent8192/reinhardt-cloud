@@ -357,6 +357,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	) {
 		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
 		update_status(&app, ctx, namespace, false, ready_replicas, migration_state).await?;
+		update_replica_gauges(ctx, namespace, &app, ready_replicas, app.spec.replicas.unwrap_or(1));
 		return Ok(Action::await_change());
 	}
 
@@ -737,6 +738,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Update status sub-resource
 	update_status(&app, ctx, namespace, ready, ready_replicas, migration_state).await?;
+	update_replica_gauges(ctx, namespace, &app, ready_replicas, desired_replicas);
 
 	Ok(Action::await_change())
 }
@@ -1989,6 +1991,21 @@ fn update_managed_apps_gauge(ctx: &Context, app: &Project, new_phase: &str) {
 			.with_label_values(&[new_phase])
 			.inc();
 	}
+}
+
+/// Update the `managed_apps_ready_replicas` / `managed_apps_desired_replicas`
+/// gauges for a single object. Set from the observed Deployment status so
+/// Project health and deployment state can be queried via Prometheus.
+fn update_replica_gauges(ctx: &Context, namespace: &str, app: &Project, ready: i32, desired: i32) {
+	let labels = [namespace, app.metadata.name.as_deref().unwrap_or("")];
+	ctx.metrics
+		.managed_apps_ready_replicas
+		.with_label_values(&labels)
+		.set(ready as f64);
+	ctx.metrics
+		.managed_apps_desired_replicas
+		.with_label_values(&labels)
+		.set(desired as f64);
 }
 
 /// Decrement the `managed_apps` gauge for the phase this object was
