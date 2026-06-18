@@ -92,7 +92,7 @@ pub(crate) fn derive_new_build_status(app: &Project) -> Result<Option<BuildStatu
 		format!("{name}-{short_trigger}")
 	};
 	let image = source::built_image_reference(app, &image_tag)?;
-	let job_name = format!("{name}-build-{}", image_tag_suffix(&image_tag));
+	let job_name = source::build_job_name(&name, &image_tag);
 	let branch = annotation_value(app, PR_BRANCH_ANNOTATION)
 		.filter(|branch| !branch.trim().is_empty())
 		.or(source_spec.branch.as_deref())
@@ -660,11 +660,6 @@ fn disabled_preview_build_requested(app: &Project) -> bool {
 	preview_action_pr_number(app).is_some() && !previews_enabled(app)
 }
 
-fn image_tag_suffix(image_tag: &str) -> &str {
-	let start = image_tag.len().saturating_sub(8);
-	&image_tag[start..]
-}
-
 #[cfg(test)]
 mod tests {
 	use k8s_openapi::api::batch::v1::{Job, JobCondition, JobSpec, JobStatus};
@@ -722,7 +717,7 @@ mod tests {
 			phase: BuildPhase::Running,
 			target: BuildTargetKind::Production,
 			trigger: "abcdef1234567890".to_string(),
-			job_name: "api-build-abcdef12".to_string(),
+			job_name: "api-build-api-abcdef12".to_string(),
 			image: "ghcr.io/acme/api:api-abcdef12".to_string(),
 			image_tag: "api-abcdef12".to_string(),
 			preview_name: None,
@@ -746,6 +741,7 @@ mod tests {
 	fn test_preview_build_status() -> BuildStatus {
 		let mut build = test_running_build_status();
 		build.target = BuildTargetKind::Preview;
+		build.job_name = "api-build-pr-42-abcdef12".to_string();
 		build.image = "ghcr.io/acme/api:pr-42-abcdef12".to_string();
 		build.image_tag = "pr-42-abcdef12".to_string();
 		build.preview_name = Some("api-pr-42".to_string());
@@ -788,7 +784,7 @@ mod tests {
 		assert_eq!(status.phase, BuildPhase::Pending);
 		assert_eq!(status.target, BuildTargetKind::Production);
 		assert_eq!(status.trigger, "abcdef1234567890");
-		assert_eq!(status.job_name, "api-build-abcdef12");
+		assert_eq!(status.job_name, "api-build-api-abcdef12");
 		assert_eq!(status.image_tag, "api-abcdef12");
 		assert_eq!(status.image, "ghcr.io/acme/api:api-abcdef12");
 		assert_eq!(status.branch.as_deref(), Some("main"));
@@ -825,12 +821,38 @@ mod tests {
 		assert_eq!(status.phase, BuildPhase::Pending);
 		assert_eq!(status.target, BuildTargetKind::Preview);
 		assert_eq!(status.trigger, "abcdef1234567890");
-		assert_eq!(status.job_name, "api-build-abcdef12");
+		assert_eq!(status.job_name, "api-build-pr-42-abcdef12");
 		assert_eq!(status.image_tag, "pr-42-abcdef12");
 		assert_eq!(status.image, "ghcr.io/acme/api:pr-42-abcdef12");
 		assert_eq!(status.preview_name.as_deref(), Some("api-pr-42"));
 		assert_eq!(status.pr_number.as_deref(), Some("42"));
 		assert_eq!(status.branch.as_deref(), Some("feature/login"));
+	}
+
+	#[rstest]
+	fn derive_build_status_uses_distinct_job_names_for_production_and_preview() {
+		// Arrange
+		let production = test_project();
+		let mut preview = test_project();
+		set_previews_enabled(&mut preview, true);
+		let annotations = preview.metadata.annotations.as_mut().unwrap();
+		annotations.insert(PREVIEW_ACTION_ANNOTATION.to_string(), "create".to_string());
+		annotations.insert(PR_NUMBER_ANNOTATION.to_string(), "42".to_string());
+
+		// Act
+		let production_status = derive_new_build_status(&production)
+			.expect("production build status should derive")
+			.expect("production trigger should create build status");
+		let preview_status = derive_new_build_status(&preview)
+			.expect("preview build status should derive")
+			.expect("preview trigger should create build status");
+
+		// Assert
+		assert_eq!(production_status.trigger, preview_status.trigger);
+		assert_ne!(production_status.image_tag, preview_status.image_tag);
+		assert_ne!(production_status.job_name, preview_status.job_name);
+		assert_eq!(production_status.job_name, "api-build-api-abcdef12");
+		assert_eq!(preview_status.job_name, "api-build-pr-42-abcdef12");
 	}
 
 	#[rstest]
@@ -1431,10 +1453,8 @@ mod tests {
 		let requests = requests
 			.lock()
 			.expect("requests lock should not be poisoned");
-		assert!(
-			requests.iter().any(|request| request
-				== "DELETE /apis/batch/v1/namespaces/default/jobs/api-build-abcdef12")
-		);
+		assert!(requests.iter().any(|request| request
+			== "DELETE /apis/batch/v1/namespaces/default/jobs/api-build-pr-42-abcdef12"));
 		assert!(requests.iter().any(|request| {
 			request
 				== "PATCH /apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/default/projects/api/status"
