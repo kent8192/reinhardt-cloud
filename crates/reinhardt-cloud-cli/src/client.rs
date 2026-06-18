@@ -5,7 +5,7 @@
 //! control plane. Token-path endpoints (e.g. `GET /api/auth/me/`) are the
 //! foundation for `login` and the future deploy relay (#703).
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use url::Url;
 
@@ -195,10 +195,14 @@ mod tests {
 		let server = wiremock::MockServer::start().await;
 		wiremock::Mock::given(wiremock::matchers::method("GET"))
 			.and(wiremock::matchers::path("/api/auth/me/"))
-			.and(wiremock::matchers::header("Authorization", "Bearer rct_abc"))
-			.respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-				serde_json::json!({ "id": "u-1", "username": "alice" }),
+			.and(wiremock::matchers::header(
+				"Authorization",
+				"Bearer rct_abc",
 			))
+			.respond_with(
+				wiremock::ResponseTemplate::new(200)
+					.set_body_json(serde_json::json!({ "id": "u-1", "username": "alice" })),
+			)
 			.mount(&server)
 			.await;
 		let client = ReinhardtCloudClient::new(&server.uri())

@@ -36,7 +36,10 @@ pub(crate) async fn execute(
 	// Persist credentials. A write failure is non-fatal (e.g. a one-off
 	// `--token` invocation) — log rather than abort a successful login.
 	if let Err(e) = crate::config::save_token(&creds, &crate::config::credentials_path()) {
-		tracing::warn!("logged in as {} but failed to persist credentials: {e}", info.username);
+		tracing::warn!(
+			"logged in as {} but failed to persist credentials: {e}",
+			info.username
+		);
 	}
 	tracing::info!("logged in as {}", info.username);
 	Ok(info)
@@ -85,9 +88,10 @@ mod tests {
 		let server = wiremock::MockServer::start().await;
 		wiremock::Mock::given(wiremock::matchers::method("GET"))
 			.and(wiremock::matchers::path("/api/auth/me/"))
-			.respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-				serde_json::json!({ "id": "u-1", "username": "alice" }),
-			))
+			.respond_with(
+				wiremock::ResponseTemplate::new(200)
+					.set_body_json(serde_json::json!({ "id": "u-1", "username": "alice" })),
+			)
 			.mount(&server)
 			.await;
 		let client = ReinhardtCloudClient::new(&server.uri()).unwrap();
