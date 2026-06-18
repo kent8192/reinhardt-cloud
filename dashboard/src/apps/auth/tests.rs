@@ -17,6 +17,7 @@ pub mod unit {
 }
 pub mod integration {
 	pub mod test_api_key_service;
+	pub mod test_api_token_middleware;
 	pub mod test_credential_service;
 	pub mod test_oauth_linking;
 	pub mod test_oauth_storage;

@@ -12,6 +12,8 @@ pub mod admin;
 // in `crate::config::urls::make_router` (kent8192/reinhardt-web#4068).
 pub mod client;
 #[cfg(native)]
+pub mod middleware;
+#[cfg(native)]
 pub mod models;
 #[cfg(native)]
 pub mod serializers;
