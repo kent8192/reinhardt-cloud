@@ -15,9 +15,9 @@ use reinhardt_cloud_core::pagination::PaginationParams;
 use reinhardt_cloud_core::traits::LogService;
 use reinhardt_cloud_telemetry::LokiLogService;
 use reinhardt_cloud_types::log::LogFilter;
+use testcontainers::GenericImage;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::GenericImage;
 use tokio_stream::StreamExt;
 
 /// Start a single-node Loki container and return `(container, base_url)`.

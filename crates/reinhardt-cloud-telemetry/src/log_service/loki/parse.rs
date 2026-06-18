@@ -35,7 +35,9 @@ pub(crate) fn parse_tail_frame(body: &str) -> Result<Vec<LogEntry>, serde_json::
 }
 
 /// Shared per-stream parser turning a `values` array into `LogEntry` records.
-fn parse_streams(streams: Option<&Vec<serde_json::Value>>) -> Result<Vec<LogEntry>, serde_json::Error> {
+fn parse_streams(
+	streams: Option<&Vec<serde_json::Value>>,
+) -> Result<Vec<LogEntry>, serde_json::Error> {
 	let mut entries = Vec::new();
 	let Some(streams) = streams else {
 		return Ok(entries);
@@ -54,7 +56,10 @@ fn parse_streams(streams: Option<&Vec<serde_json::Value>>) -> Result<Vec<LogEntr
 			let line = iter.next().and_then(|v| v.as_str()).unwrap_or("");
 			let timestamp = ts_ns
 				.and_then(|ns| {
-					chrono::DateTime::from_timestamp(ns / 1_000_000_000, (ns % 1_000_000_000) as u32)
+					chrono::DateTime::from_timestamp(
+						ns / 1_000_000_000,
+						(ns % 1_000_000_000) as u32,
+					)
 				})
 				.unwrap_or_else(chrono::Utc::now);
 
@@ -187,7 +192,10 @@ mod tests {
 
 		// Assert — sorted ascending by timestamp.
 		assert_eq!(
-			entries.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+			entries
+				.iter()
+				.map(|e| e.message.clone())
+				.collect::<Vec<_>>(),
 			vec!["a".to_string(), "b".to_string(), "c".to_string()]
 		);
 	}

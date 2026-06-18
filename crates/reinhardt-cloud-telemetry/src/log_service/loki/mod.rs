@@ -61,7 +61,10 @@ impl LogService for LokiLogService {
 	async fn tail_logs(
 		&self,
 		filter: LogFilter,
-	) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<LogEntry, ApiError>> + Send>>, ApiError> {
+	) -> Result<
+		std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<LogEntry, ApiError>> + Send>>,
+		ApiError,
+	> {
 		tail::tail_logs(self, filter).await
 	}
 
@@ -74,9 +77,9 @@ impl LogService for LokiLogService {
 		// Resolve the time window. `since` defaults to a 1h lookback to bound the
 		// scan; `until` defaults to now.
 		let now = chrono::Utc::now();
-		let start = filter
-			.since
-			.unwrap_or_else(|| now - chrono::Duration::from_std(DEFAULT_LOOKBACK).unwrap_or_default());
+		let start = filter.since.unwrap_or_else(|| {
+			now - chrono::Duration::from_std(DEFAULT_LOOKBACK).unwrap_or_default()
+		});
 		let end = filter.until.unwrap_or(now);
 		let limit = pagination.page_size();
 
@@ -87,7 +90,10 @@ impl LogService for LokiLogService {
 		.map_err(|e| ApiError::Internal(format!("invalid loki endpoint: {e}")))?;
 		url.query_pairs_mut()
 			.append_pair("query", &logql)
-			.append_pair("start", &start.timestamp_nanos_opt().unwrap_or(0).to_string())
+			.append_pair(
+				"start",
+				&start.timestamp_nanos_opt().unwrap_or(0).to_string(),
+			)
 			.append_pair("end", &end.timestamp_nanos_opt().unwrap_or(0).to_string())
 			.append_pair("limit", &limit.to_string())
 			.append_pair("direction", "backward");

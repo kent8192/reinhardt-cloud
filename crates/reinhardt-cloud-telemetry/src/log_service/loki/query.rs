@@ -4,7 +4,7 @@
 //! `since`/`until` filter fields are intentionally NOT part of the LogQL string
 //! — they become the `start`/`end` query parameters of `query_range`.
 
-use reinhardt_cloud_types::log::{LogLevel, LogFilter};
+use reinhardt_cloud_types::log::{LogFilter, LogLevel};
 
 /// Levels at or above the given severity, in Loki `level` label regex form.
 fn levels_at_or_above(level: LogLevel) -> &'static str {
@@ -65,7 +65,7 @@ pub(crate) fn build_logql(filter: &LogFilter) -> String {
 mod tests {
 	use super::*;
 	use chrono::TimeZone;
-	use reinhardt_cloud_types::log::{LogLevel, LogFilter};
+	use reinhardt_cloud_types::log::{LogFilter, LogLevel};
 	use rstest::rstest;
 
 	#[rstest]

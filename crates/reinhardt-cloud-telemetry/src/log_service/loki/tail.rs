@@ -29,7 +29,11 @@ fn tail_url(endpoint: &str, logql: &str) -> Result<String, ApiError> {
 	let ws_scheme = match url.scheme() {
 		"https" => "wss",
 		"http" => "ws",
-		other => return Err(ApiError::Internal(format!("unsupported loki scheme: {other}"))),
+		other => {
+			return Err(ApiError::Internal(format!(
+				"unsupported loki scheme: {other}"
+			)));
+		}
 	};
 	let _ = url.set_scheme(ws_scheme);
 	Ok(url.as_str().to_string())

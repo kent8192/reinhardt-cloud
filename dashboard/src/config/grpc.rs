@@ -22,7 +22,7 @@ use tonic::transport::Server;
 use tracing::info;
 
 use crate::apps::clusters::services::{JwtSecret, JwtSecretKey};
-use crate::config::settings::{LogBackend, get_loki_endpoint, get_log_backend};
+use crate::config::settings::{LogBackend, get_log_backend, get_loki_endpoint};
 
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
@@ -61,8 +61,8 @@ fn build_log_service() -> Arc<dyn reinhardt_cloud_core::traits::LogService> {
 }
 
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_log_service_singleton()
--> FactoryOutput<LogServiceSingletonKey, LogServiceSingleton> {
+async fn create_log_service_singleton() -> FactoryOutput<LogServiceSingletonKey, LogServiceSingleton>
+{
 	FactoryOutput::new(LogServiceSingleton(build_log_service()))
 }
 

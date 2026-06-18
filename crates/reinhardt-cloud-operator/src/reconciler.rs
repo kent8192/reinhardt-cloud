@@ -357,7 +357,13 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	) {
 		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
 		update_status(&app, ctx, namespace, false, ready_replicas, migration_state).await?;
-		update_replica_gauges(ctx, namespace, &app, ready_replicas, app.spec.replicas.unwrap_or(1));
+		update_replica_gauges(
+			ctx,
+			namespace,
+			&app,
+			ready_replicas,
+			app.spec.replicas.unwrap_or(1),
+		);
 		return Ok(Action::await_change());
 	}
 
