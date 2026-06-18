@@ -6,6 +6,9 @@ use reinhardt::commands::{BaseCommand, CommandContext, CommandError, CommandResu
 use reinhardt::db::orm::Model;
 
 use crate::apps::auth::models::User;
+use crate::apps::auth::services::api_key::{
+	generate_api_key, list_api_keys_for_user, revoke_api_key,
+};
 use crate::apps::auth::services::registration::ensure_personal_organization;
 use crate::apps::organizations::models::OrganizationMembership;
 use crate::config::settings::get_settings;
@@ -154,4 +157,143 @@ async fn ensure_membership(user: &User) -> CommandResult<()> {
 	ensure_personal_organization(user)
 		.await
 		.map_err(|e| CommandError::ExecutionError(format!("failed to provision E2E org: {e}")))
+}
+
+/// Create an API token for a user. Prints the plaintext once to stdout.
+///
+/// Usage: `manage create-api-token <username> [label] [expires_in_days]`.
+pub struct CreateApiTokenCommand;
+
+#[async_trait]
+impl BaseCommand for CreateApiTokenCommand {
+	fn name(&self) -> &str {
+		"create-api-token"
+	}
+	fn description(&self) -> &str {
+		"Create a long-lived API token for a user"
+	}
+	fn requires_system_checks(&self) -> bool {
+		false
+	}
+
+	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
+		initialize_orm_database().await?;
+		let username = ctx.arg(0).cloned().ok_or_else(|| {
+			CommandError::ExecutionError(
+				"usage: create-api-token <username> [label] [expires_in_days]".to_string(),
+			)
+		})?;
+		let label = ctx.arg(1).cloned().unwrap_or_else(|| "cli".to_string());
+		let expires_at = match ctx.arg(2) {
+			Some(days) => {
+				let days: i64 = days.parse().map_err(|_| {
+					CommandError::ExecutionError("expires_in_days must be an integer".to_string())
+				})?;
+				Some(chrono::Utc::now() + chrono::Duration::days(days))
+			}
+			None => None,
+		};
+
+		let user = User::objects()
+			.filter(User::field_username().eq(username.clone()))
+			.first()
+			.await
+			.map_err(|e| CommandError::ExecutionError(format!("query user: {e}")))?
+			.ok_or_else(|| CommandError::ExecutionError(format!("user not found: {username}")))?;
+
+		let (plaintext, model) = generate_api_key(user.id, label.clone(), expires_at)
+			.await
+			.map_err(|e| CommandError::ExecutionError(e.to_string()))?;
+		ctx.success(&format!(
+			"Created API token id={} label={label} prefix={}\nTOKEN (shown once): {plaintext}",
+			model.id.unwrap_or_default(),
+			model.prefix,
+		));
+		Ok(())
+	}
+}
+
+/// List a user's API tokens (no hashes).
+///
+/// Usage: `manage list-api-tokens <username>`.
+pub struct ListApiTokensCommand;
+
+#[async_trait]
+impl BaseCommand for ListApiTokensCommand {
+	fn name(&self) -> &str {
+		"list-api-tokens"
+	}
+	fn description(&self) -> &str {
+		"List API tokens for a user"
+	}
+	fn requires_system_checks(&self) -> bool {
+		false
+	}
+
+	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
+		initialize_orm_database().await?;
+		let username = ctx.arg(0).cloned().ok_or_else(|| {
+			CommandError::ExecutionError("usage: list-api-tokens <username>".to_string())
+		})?;
+		let user = User::objects()
+			.filter(User::field_username().eq(username.clone()))
+			.first()
+			.await
+			.map_err(|e| CommandError::ExecutionError(format!("query user: {e}")))?
+			.ok_or_else(|| CommandError::ExecutionError(format!("user not found: {username}")))?;
+
+		let keys = list_api_keys_for_user(user.id)
+			.await
+			.map_err(|e| CommandError::ExecutionError(e.to_string()))?;
+		let mut lines = String::from("id\tprefix\tlabel\tcreated\tstatus\n");
+		for k in keys {
+			let status = match (k.revoked_at, k.expires_at) {
+				(Some(_), _) => "revoked",
+				(_, Some(exp)) if exp <= chrono::Utc::now() => "expired",
+				_ => "active",
+			};
+			lines.push_str(&format!(
+				"{}\t{}\t{}\t{}\t{status}\n",
+				k.id.unwrap_or_default(),
+				k.prefix,
+				k.label,
+				k.created_at,
+			));
+		}
+		ctx.success(&lines);
+		Ok(())
+	}
+}
+
+/// Revoke an API token by id.
+///
+/// Usage: `manage revoke-api-token <id>`.
+pub struct RevokeApiTokenCommand;
+
+#[async_trait]
+impl BaseCommand for RevokeApiTokenCommand {
+	fn name(&self) -> &str {
+		"revoke-api-token"
+	}
+	fn description(&self) -> &str {
+		"Revoke an API token by id"
+	}
+	fn requires_system_checks(&self) -> bool {
+		false
+	}
+
+	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
+		initialize_orm_database().await?;
+		let id: i64 = ctx
+			.arg(0)
+			.cloned()
+			.ok_or_else(|| CommandError::ExecutionError("usage: revoke-api-token <id>".to_string()))?
+			.parse()
+			.map_err(|_| CommandError::ExecutionError("id must be an integer".to_string()))?;
+		revoke_api_key(id)
+			.await
+			.map_err(|e| CommandError::ExecutionError(e.to_string()))?;
+		ctx.success(&format!("Revoked API token id={id}"));
+		Ok(())
+	}
 }
