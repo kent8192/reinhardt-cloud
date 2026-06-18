@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
-	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec, ProjectSpec,
-	ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend, StorageSpec, WebhookEvent,
-	WebhookSpec, WorkerSpec,
+	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewBudget, PreviewOverrides,
+	PreviewSpec, ProjectSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend,
+	StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`
@@ -248,6 +248,9 @@ pub struct PreviewTomlSection {
 	/// Resource overrides for preview deployments
 	#[serde(default)]
 	pub overrides: Option<PreviewOverridesTomlSection>,
+	/// Cost ceiling for preview environments
+	#[serde(default)]
+	pub budget: Option<PreviewBudgetTomlSection>,
 }
 
 /// Preview resource overrides section of `reinhardt-cloud.toml`
@@ -255,6 +258,17 @@ pub struct PreviewTomlSection {
 pub struct PreviewOverridesTomlSection {
 	/// Override replica count for preview
 	pub replicas: Option<i32>,
+}
+
+/// Preview budget section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PreviewBudgetTomlSection {
+	/// Hard cap on replicas per preview Project
+	pub max_replicas: Option<i32>,
+	/// Namespace-wide CPU limit
+	pub max_cpu: Option<String>,
+	/// Namespace-wide memory limit
+	pub max_memory: Option<String>,
 }
 
 impl ReinhardtCloudToml {
@@ -366,7 +380,11 @@ impl ReinhardtCloudToml {
 						database: None,
 						cache: None,
 					}),
-					budget: None,
+					budget: p.budget.as_ref().map(|b| PreviewBudget {
+						max_replicas: b.max_replicas,
+						max_cpu: b.max_cpu.clone(),
+						max_memory: b.max_memory.clone(),
+					}),
 				}),
 			}),
 			plugins: None,
@@ -722,6 +740,11 @@ url_template = "{branch}.preview.example.com"
 
 [source.preview.overrides]
 replicas = 1
+
+[source.preview.budget]
+max_replicas = 3
+max_cpu = "2"
+max_memory = "4Gi"
 "#;
 		// Act
 		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
@@ -739,6 +762,10 @@ replicas = 1
 			Some("{branch}.preview.example.com")
 		);
 		assert_eq!(preview.overrides.unwrap().replicas, Some(1));
+		let budget = preview.budget.unwrap();
+		assert_eq!(budget.max_replicas, Some(3));
+		assert_eq!(budget.max_cpu.as_deref(), Some("2"));
+		assert_eq!(budget.max_memory.as_deref(), Some("4Gi"));
 	}
 
 	#[rstest]
@@ -776,6 +803,11 @@ replicas = 1
 					ttl: Some("48h".into()),
 					url_template: Some("{branch}.dev.example.com".into()),
 					overrides: Some(PreviewOverridesTomlSection { replicas: Some(2) }),
+					budget: Some(PreviewBudgetTomlSection {
+						max_replicas: Some(2),
+						max_cpu: Some("1".into()),
+						max_memory: Some("2Gi".into()),
+					}),
 				}),
 			}),
 			..Default::default()
@@ -809,6 +841,10 @@ replicas = 1
 		assert_eq!(overrides.replicas, Some(2));
 		assert!(overrides.database.is_none());
 		assert!(overrides.cache.is_none());
+		let budget = preview.budget.unwrap();
+		assert_eq!(budget.max_replicas, Some(2));
+		assert_eq!(budget.max_cpu.as_deref(), Some("1"));
+		assert_eq!(budget.max_memory.as_deref(), Some("2Gi"));
 	}
 
 	#[rstest]

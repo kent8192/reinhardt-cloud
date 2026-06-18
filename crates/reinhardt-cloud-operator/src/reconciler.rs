@@ -655,7 +655,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 							name: Some(preview_name.clone()),
 							namespace: Some(preview_ns.clone()),
 							labels: Some(preview_labels),
-							owner_references: Some(vec![resources::labels::owner_reference(&app)?]),
 							annotations: Some(BTreeMap::from([(
 								"reinhardt.dev/last-activity".to_string(),
 								chrono::Utc::now().to_rfc3339(),
@@ -676,10 +675,20 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 					info!("Reconciled preview environment {preview_ns}/{preview_name}");
 				}
 				"delete" => {
-					let _ = app_api
+					match app_api
 						.delete(&preview_name, &DeleteParams::default())
-						.await;
-					info!("Deleted preview environment {preview_ns}/{preview_name}");
+						.await
+					{
+						Ok(_) => {
+							info!("Deleted preview environment {preview_ns}/{preview_name}");
+						}
+						Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
+							info!(
+								"Preview environment {preview_ns}/{preview_name} was already absent"
+							);
+						}
+						Err(error) => return Err(Error::Kube(error)),
+					}
 				}
 				_ => {
 					warn!("Unknown preview action: {action}");
@@ -746,7 +755,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 			.map_err(Error::Kube)?;
 		let previews =
 			resources::preview_status::build_preview_status_list(&survivors.items, "https");
-		let status_patch = serde_json::json!({ "previews": previews });
+		let status_patch = serde_json::json!({ "status": { "previews": previews } });
 		let parent_status_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
 		if let Err(error) = parent_status_api
 			.patch_status(&name, &PatchParams::default(), &Patch::Merge(&status_patch))

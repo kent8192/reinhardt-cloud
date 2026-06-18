@@ -782,6 +782,24 @@ spec:
                     description: Preview environment configuration.
                     nullable: true
                     properties:
+                      budget:
+                        description: Per-parent cost ceiling applied to the preview namespace.
+                        nullable: true
+                        properties:
+                          max_cpu:
+                            description: Namespace-wide CPU limit, e.g. `"2"` -> ResourceQuota `hard.limits.cpu`.
+                            nullable: true
+                            type: string
+                          max_memory:
+                            description: Namespace-wide memory limit, e.g. `"4Gi"` -> ResourceQuota `hard.limits.memory`.
+                            nullable: true
+                            type: string
+                          max_replicas:
+                            description: Hard cap on replicas per preview Project (enforced in `build_preview_spec`).
+                            format: int32
+                            nullable: true
+                            type: integer
+                        type: object
                       enabled:
                         default: false
                         description: Whether preview environments are enabled.
@@ -1036,6 +1054,47 @@ spec:
                 - degraded
                 nullable: true
                 type: string
+              previews:
+                description: Preview environments aggregated from child preview Projects.
+                items:
+                  description: Status of a single preview environment, aggregated on the parent `Project`.
+                  properties:
+                    lastActivity:
+                      description: Last activity timestamp (RFC 3339), mirrors the TTL annotation.
+                      nullable: true
+                      type: string
+                    name:
+                      description: Preview Project name, e.g. `my-app-pr-42`.
+                      type: string
+                    phase:
+                      description: Phase of the `Project` lifecycle.
+                      enum:
+                      - pending
+                      - deploying
+                      - running
+                      - failed
+                      - terminating
+                      - provisioning
+                      - degraded
+                      nullable: true
+                      type: string
+                    prNumber:
+                      description: Pull/merge request number.
+                      type: string
+                    readyReplicas:
+                      description: Ready replicas of the preview Project.
+                      format: int32
+                      nullable: true
+                      type: integer
+                    url:
+                      description: Resolved preview URL, e.g. `https://my-app-pr-42.preview.example.com`.
+                      nullable: true
+                      type: string
+                  required:
+                  - name
+                  - prNumber
+                  type: object
+                type: array
               readyReplicas:
                 description: Number of ready replicas
                 format: int32
