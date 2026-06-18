@@ -44,18 +44,16 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 			}
 			div {
 				class: "grid gap-2",
-				{
-					providers.clone().into_iter().map(|provider| {
-						page!(|href: String, label: String| {
-							a {
-								href: href,
-								rel: "external",
-								class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
-								{ label }
-							}
-						})(provider.start_url, provider.label)
-					}).collect::<Vec<_>>()
-				}
+				{ providers.clone().into_iter().map(|provider| {
+					page!(|href: String, label: String| {
+						a {
+							href: href,
+							rel: "external",
+							class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
+							{ label }
+						}
+					})(provider.start_url, provider.label)
+				}).collect::<Vec<_>>() }
 			}
 		}
 	})(providers)
