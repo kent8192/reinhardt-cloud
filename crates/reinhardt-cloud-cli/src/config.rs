@@ -73,19 +73,57 @@ pub(crate) fn config_path() -> PathBuf {
 	credentials_dir().join("config.toml")
 }
 
-/// Loads stored credentials from the credentials file.
-///
-/// Returns `Ok(None)` if the file does not exist.
-pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
-	let path = credentials_path();
+/// Load credentials from a specific path (returns `Ok(None)` if absent).
+pub(crate) fn load_token_from(
+	path: &Path,
+) -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
 	if !path.exists() {
 		return Ok(None);
 	}
-	let content = std::fs::read_to_string(&path)
+	let content = std::fs::read_to_string(path)
 		.map_err(|e| format!("Failed to read credentials file: {e}"))?;
 	let creds: Credentials =
 		serde_json::from_str(&content).map_err(|e| format!("Failed to parse credentials: {e}"))?;
 	Ok(Some(creds))
+}
+
+/// Load credentials from the default credentials path.
+pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
+	load_token_from(&credentials_path())
+}
+
+/// Persist credentials to `path`, creating parent directories as needed.
+pub(crate) fn save_token(
+	creds: &Credentials,
+	path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+	if let Some(parent) = path.parent() {
+		std::fs::create_dir_all(parent)?;
+	}
+	let json = serde_json::to_string_pretty(creds)?;
+	std::fs::write(path, json)?;
+	Ok(())
+}
+
+/// Resolve the API token by priority: explicit flag > env var > saved file.
+///
+/// Returns the first non-empty source. Used by every command that needs to
+/// authenticate against the control plane.
+pub(crate) fn resolve_token(flag: Option<String>, credentials_file: &Path) -> Option<String> {
+	if let Some(t) = flag
+		&& !t.is_empty()
+	{
+		return Some(t);
+	}
+	if let Ok(t) = std::env::var("REINHARDT_CLOUD_API_TOKEN")
+		&& !t.is_empty()
+	{
+		return Some(t);
+	}
+	load_token_from(credentials_file)
+		.ok()
+		.flatten()
+		.map(|c| c.token)
 }
 
 #[cfg(test)]
@@ -292,5 +330,59 @@ project_name = "myapp"
 		let loaded: Credentials =
 			serde_json::from_str(&std::fs::read_to_string(&cred_path).unwrap()).unwrap();
 		assert_eq!(loaded.token, "tok");
+	}
+
+	#[rstest]
+	fn test_save_token_then_load_roundtrip() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		let creds = Credentials {
+			token: "rct_xyz".to_string(),
+			username: "alice".to_string(),
+		};
+
+		// Act
+		save_token(&creds, &path).unwrap();
+		let loaded = load_token_from(&path).unwrap().unwrap();
+
+		// Assert
+		assert_eq!(loaded.token, "rct_xyz");
+		assert_eq!(loaded.username, "alice");
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn test_resolve_token_priority_flag_over_env_over_file() {
+		// Arrange — file on disk, env set, flag provided
+		// SAFETY: This test runs serially via #[serial(env)] and no other
+		// thread depends on this env var during execution.
+		unsafe {
+			std::env::set_var("REINHARDT_CLOUD_API_TOKEN", "from-env");
+		}
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let with_flag = resolve_token(Some("from-flag".to_string()), &path);
+		let from_env = resolve_token(None, &path);
+
+		// Assert
+		assert_eq!(with_flag.as_deref(), Some("from-flag"));
+		assert_eq!(from_env.as_deref(), Some("from-env"));
+
+		// Cleanup
+		// SAFETY: serial test; env var removed after assertions.
+		unsafe {
+			std::env::remove_var("REINHARDT_CLOUD_API_TOKEN");
+		}
 	}
 }
