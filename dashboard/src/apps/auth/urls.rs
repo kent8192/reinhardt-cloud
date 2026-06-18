@@ -17,7 +17,8 @@ pub fn url_patterns() -> UnifiedRouter {
 			#[cfg(native)]
 			let s = s.endpoint(server_urls::verify_email)
 				.endpoint(server_urls::oauth_start)
-				.endpoint(server_urls::oauth_callback);
+				.endpoint(server_urls::oauth_callback)
+				.endpoint(server_urls::api_me);
 			s
 		})
 		.client(|c| {
@@ -50,6 +51,21 @@ mod tests {
 			callback,
 			Some("/api/auth/oauth/github/callback/".to_string())
 		);
+	}
+
+	#[rstest]
+	fn api_me_route_is_registered_under_auth_api_prefix() {
+		// Arrange
+		let router = UnifiedRouter::new()
+			.with_prefix("/api/")
+			.mount_unified("/auth/", super::url_patterns())
+			.into_server();
+
+		// Act
+		let me = router.reverse("api-me", &[]);
+
+		// Assert — the CLI calls this endpoint to verify a bearer token.
+		assert_eq!(me, Some("/api/auth/me/".to_string()));
 	}
 
 	#[rstest]

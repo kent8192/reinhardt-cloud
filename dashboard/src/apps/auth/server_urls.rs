@@ -10,7 +10,7 @@ use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::pages::server_fn::ServerFnRequest;
-use reinhardt::{BaseUser, Path, Query, Response, StatusCode, get};
+use reinhardt::{BaseUser, CurrentUser, Path, Query, Response, StatusCode, get};
 use serde::Deserialize;
 use tracing::{error, info};
 
@@ -187,6 +187,26 @@ pub async fn verify_email(
 	let body = serde_json::json!({
 		"success": true,
 		"message": "Email verified successfully"
+	});
+	Ok(Response::new(StatusCode::OK)
+		.with_header("Content-Type", "application/json")
+		.with_body(json::to_vec(&body)?))
+}
+
+/// CLI token verification + user info.
+///
+/// `GET /api/auth/me/` — called by `reinhardt-cloud login` to validate the
+/// bearer token and resolve the username for local credentials. The
+/// `AuthUser<User>` extractor reads the `AuthState` injected by
+/// `ApiTokenAuthMiddleware`; an unauthenticated request yields 401
+/// (`AuthUser` is fail-fast, unlike the deprecated `CurrentUser`).
+#[get("/me/", name = "api-me")]
+pub async fn api_me(
+	#[inject] CurrentUser(user): CurrentUser<crate::apps::auth::models::User>,
+) -> ViewResult<Response> {
+	let body = serde_json::json!({
+		"id": user.id,
+		"username": user.get_username(),
 	});
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")
