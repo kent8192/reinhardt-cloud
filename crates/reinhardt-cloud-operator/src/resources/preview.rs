@@ -181,6 +181,7 @@ pub(crate) fn build_preview_spec(
 				port: s.port,
 				target_port: s.target_port,
 				ingress_host: ingress_host.or_else(|| s.ingress_host.clone()),
+				tls: s.tls.clone(),
 			});
 
 	Ok(ProjectSpec {

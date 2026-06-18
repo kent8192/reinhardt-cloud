@@ -92,6 +92,7 @@ mod tests {
 					port: Some(80),
 					target_port: Some(8080),
 					ingress_host: Some("my-app-pr-42.preview.example.com".to_string()),
+					tls: None,
 				}),
 				..Default::default()
 			},
@@ -139,6 +140,7 @@ mod tests {
 					port: Some(80),
 					target_port: Some(8080),
 					ingress_host: None,
+					tls: None,
 				}),
 				..Default::default()
 			},

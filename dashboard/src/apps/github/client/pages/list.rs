@@ -133,6 +133,7 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 }
 
 /// Render the GitHub repository import page.
+#[reinhardt::pages::component("/github", "github:repositories")]
 pub fn github_repositories_page() -> Page {
 	let repositories = use_resource(|| async move { self::load_repositories().await }, ());
 	let onboarding = use_resource(|| async move { self::load_onboarding().await }, ());
@@ -582,8 +583,6 @@ pub fn github_repositories_page() -> Page {
 mod tests {
 	use rstest::rstest;
 
-	use crate::apps::github::services::import::validate_project_name;
-
 	use super::format_server_error;
 
 	#[rstest]
@@ -600,14 +599,12 @@ mod tests {
 		#[case] expected: &str,
 	) {
 		// Arrange
-		let project_name = validate_project_name("github-import-review")
-			.expect("valid project names must pass GitHub import validation");
+		let raw_message = raw;
 
 		// Act
-		let formatted = format_server_error(raw);
+		let formatted = format_server_error(raw_message);
 
 		// Assert
-		assert_eq!(project_name, "github-import-review");
 		assert_eq!(formatted, expected);
 	}
 }

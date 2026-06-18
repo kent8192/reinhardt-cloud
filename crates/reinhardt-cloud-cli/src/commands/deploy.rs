@@ -1473,6 +1473,7 @@ features:
 				port: Some(80),
 				target_port: Some(8000),
 				ingress_host: None,
+				tls: None,
 			}),
 			replicas: Some(ReplicasSection { count: 2 }),
 			scale: Some(ScaleSection {

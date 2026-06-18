@@ -39,6 +39,8 @@ defaults:
     # AWS Load Balancer Controller ALB IngressClass (overrides nginx).
     class: alb
     annotations:
+      # Project-level TLS is configured through spec.services.tls; these
+      # annotations remain provider-specific Ingress controller defaults.
       kubernetes.io/ingress.class: alb
       alb.ingress.kubernetes.io/scheme: internet-facing
 

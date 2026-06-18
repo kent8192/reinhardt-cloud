@@ -244,6 +244,21 @@ impl E2eHarness {
 		bail!("Job {name} was not created within {:?}", self.timeout)
 	}
 
+	pub(crate) async fn mark_job_succeeded(&self, name: &str) -> Result<Job> {
+		self.jobs()
+			.patch_status(
+				name,
+				&PatchParams::default(),
+				&Patch::Merge(&serde_json::json!({
+					"status": {
+						"succeeded": 1,
+					}
+				})),
+			)
+			.await
+			.with_context(|| format!("failed to mark Job {name} succeeded"))
+	}
+
 	pub(crate) async fn assert_no_job_named_after(
 		&self,
 		name: &str,

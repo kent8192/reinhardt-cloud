@@ -7,7 +7,8 @@
 //! [`UnifiedRouter::register_globally`] call installs the server router
 //! (empty here — server-side routes live in `crate::config::urls`) and
 //! the `ClientUrlReverser` in one step, so callers of `url_for(name)`
-//! on either side can resolve every `route` declared below.
+//! on either side can resolve every route-backed component declared
+//! below.
 //!
 //! Global access at runtime is provided by `reinhardt::pages::with_router`,
 //! which is installed by `ClientLauncher::launch()`. This module no
@@ -15,18 +16,16 @@
 //!
 //! # Route names
 //!
-//! Every SPA route is registered via [`ClientRouter::route`] so that
-//! client-side URL resolution works. Names follow the `<app>:<name>`
-//! namespace convention used by server-side view macros. SPA names use
-//! a `_page` suffix where a server-side route already owns the
-//! unsuffixed name (e.g. `auth:login` is the POST API, while
-//! `auth:login_page` is the SPA page).
+//! Every SPA route is registered from route-backed component metadata
+//! via `ClientRouter::component`, so the path and name live with the
+//! page component declaration. Names follow the `<app>:<name>` namespace
+//! convention used by server-side view macros. SPA names use a `_page`
+//! suffix where a server-side route already owns the unsuffixed name
+//! (e.g. `auth:login` is the POST API, while `auth:login_page` is the
+//! SPA page).
 //!
-//! `clusters:list` and `deployments:list` currently resolve to a
-//! placeholder page that delegates to the shared 404 view; the route
-//! handlers live with each app under
-//! `apps/<app>/client/pages/list.rs` so the SPA pages can be filled in
-//! per app without further refactoring of this file.
+//! Route handlers live with each app under `apps/<app>/client/pages`
+//! so SPA pages can evolve per app without central router path drift.
 
 use reinhardt::urls::prelude::{ClientRouter, UnifiedRouter};
 
@@ -46,13 +45,13 @@ use crate::shared::client::pages::not_found::not_found_page;
 pub fn init_router() -> ClientRouter {
 	UnifiedRouter::new()
 		.client(|c| {
-			c.route("dashboard:home", "/", dashboard_shell)
-				.route("auth:account_page", "/account", account_page)
-				.route("auth:login_page", "/login", login_page)
-				.route("auth:register_page", "/register", register_page)
-				.route("clusters:list", "/clusters", clusters_list_page)
-				.route("deployments:list", "/deployments", deployments_list_page)
-				.route("github:repositories", "/github", github_repositories_page)
+			c.component(dashboard_shell)
+				.component(account_page)
+				.component(login_page)
+				.component(register_page)
+				.component(clusters_list_page)
+				.component(deployments_list_page)
+				.component(github_repositories_page)
 				.not_found(not_found_page)
 		})
 		.register_globally()

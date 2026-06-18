@@ -262,8 +262,12 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt_cloud_proto::log as log_pb;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::permissions::action::Action;
+	use crate::apps::organizations::permissions::guard::require_permission;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = require_permission(user.id, Action::LogsRead)
+		.await
+		.map_err(|e| ServerFnError::application(e.to_string()))?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;

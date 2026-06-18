@@ -24,9 +24,10 @@ features:
   database: true
   # Enable cache (Redis) inference and reconciliation.
   cache: false
-  # Enable ingress resource inference and reconciliation.
+  # Enable Ingress resource inference and reconciliation, including
+  # Project.spec.services.tls on generated Ingress objects.
   ingress: false
-  # Enable horizontal autoscaling (HPA) support.
+  # Enable horizontal autoscaling (HPA) reconciliation for Project.spec.scale.
   autoscaling: false
   # Enable persistent storage (PVC) inference and reconciliation.
   storage: false
@@ -50,6 +51,14 @@ logging:
   # Output format for operator logs. "text" (default) is human-readable;
   # "json" emits one structured JSON object per line for log aggregators.
   format: text
+  # When true, Promtail also scrapes managed application pods (in namespaces
+  # matched by `appNamespaces`) so a deployed Project's own logs reach Loki
+  # and are browsable from the dashboard. Requires `loki.enabled`. Loki
+  # multi-tenancy is not enforced; the dashboard reads across these namespaces.
+  scrapeApps: true
+  # Regex of namespaces whose app pods Promtail collects. Defaults to tenant
+  # namespaces provisioned by the operator (see Multi-tenancy).
+  appNamespaces: "tenant-.*"
   loki:
     # When true, deploys a Promtail DaemonSet that tails operator pods and
     # forwards logs to the configured Loki endpoint.

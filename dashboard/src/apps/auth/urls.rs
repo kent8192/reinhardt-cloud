@@ -21,9 +21,9 @@ pub fn url_patterns() -> UnifiedRouter {
 			s
 		})
 		.client(|c| {
-			c.route("account_page", "/account", account_page)
-				.route("login_page", "/login", login_page)
-				.route("register_page", "/register", register_page)
+			c.page("account_page", "/account", account_page)
+				.page("login_page", "/login", login_page)
+				.page("register_page", "/register", register_page)
 		})
 }
 

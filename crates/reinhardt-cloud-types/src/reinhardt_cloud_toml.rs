@@ -11,8 +11,8 @@ use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
 	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewBudget, PreviewOverrides,
-	PreviewSpec, ProjectSpec, ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend,
-	StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
+	PreviewSpec, ProjectSpec, ScaleMetric, ScaleSpec, ServiceTlsSpec, ServicesSpec, SourceSpec,
+	StorageBackend, StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`
@@ -111,6 +111,23 @@ pub struct ServicesSection {
 	pub target_port: Option<i32>,
 	/// Ingress hostname for external access
 	pub ingress_host: Option<String>,
+	/// TLS configuration for generated Ingress resources
+	#[serde(default)]
+	pub tls: Option<ServiceTlsSection>,
+}
+
+/// TLS configuration section nested under `[services]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServiceTlsSection {
+	/// Whether TLS should be configured on the generated Ingress
+	#[serde(default)]
+	pub enabled: bool,
+	/// Secret containing the certificate and private key
+	pub secret_name: Option<String>,
+	/// cert-manager Issuer name in the same namespace
+	pub issuer: Option<String>,
+	/// cert-manager ClusterIssuer name
+	pub cluster_issuer: Option<String>,
 }
 
 /// Replica count configuration section of `reinhardt-cloud.toml`
@@ -300,6 +317,12 @@ impl ReinhardtCloudToml {
 				port: s.port,
 				target_port: s.target_port,
 				ingress_host: s.ingress_host.clone(),
+				tls: s.tls.as_ref().map(|tls| ServiceTlsSpec {
+					enabled: tls.enabled,
+					secret_name: tls.secret_name.clone(),
+					issuer: tls.issuer.clone(),
+					cluster_issuer: tls.cluster_issuer.clone(),
+				}),
 			}),
 			scale: self.scale.as_ref().map(|s| ScaleSpec {
 				min_replicas: s.min_replicas,
@@ -600,6 +623,38 @@ min_replicas = 2
 		assert!(scale.max_replicas.is_none());
 		assert!(scale.metric.is_none());
 		assert!(scale.target_value.is_none());
+	}
+
+	#[rstest]
+	fn test_services_tls_section_maps_to_project_spec() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "tls-test"
+image = "tls-test:latest"
+
+[services]
+port = 80
+target_port = 8000
+ingress_host = "tls.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "tls-example-com"
+cluster_issuer = "letsencrypt-prod"
+"#;
+
+		// Act
+		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
+		let spec = config.to_project_spec();
+
+		// Assert
+		let services = spec.services.expect("services section should map");
+		let tls = services.tls.expect("tls section should map");
+		assert!(tls.enabled);
+		assert_eq!(tls.secret_name.as_deref(), Some("tls-example-com"));
+		assert_eq!(tls.cluster_issuer.as_deref(), Some("letsencrypt-prod"));
+		assert!(tls.issuer.is_none());
 	}
 
 	#[rstest]

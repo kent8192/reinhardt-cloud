@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscaler;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
@@ -38,19 +39,20 @@ use crate::resources::security::limit_range::build_limit_range;
 use crate::resources::security::network_policy::{
 	build_app_ingress_policy, build_default_deny_policy, build_managed_service_egress_policy,
 };
-use crate::resources::source::{
-	build_kaniko_job, build_kaniko_job_for_branch, built_image_reference, should_build_from_source,
-};
 use crate::resources::tenant as tenant_resources;
 use crate::resources::{
-	self, build_db_secret, build_db_service, build_db_statefulset, build_deployment, build_ingress,
-	build_service,
+	self, AutoscalerPlan, build_autoscaler, build_db_secret, build_db_service,
+	build_db_statefulset, build_deployment, build_ingress, build_service, hpa_is_ready,
 };
+use crate::source_build::{self, BuildDecision};
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::DynamicObject;
 use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
-use reinhardt_cloud_types::crd::{Project, ProjectCondition, ProjectPhase, ProjectStatus};
+use reinhardt_cloud_types::crd::spec::ScaleMetric;
+use reinhardt_cloud_types::crd::{
+	BuildStatus, BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
+};
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
@@ -108,6 +110,33 @@ pub(crate) struct Context {
 	/// `managed_apps{phase}` gauge in sync as objects transition between
 	/// phases and when they are deleted. Key is `(namespace, name)`.
 	pub phase_state: Arc<DashMap<(String, String), String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SourceBuildGateAction {
+	Continue,
+	Requeue { requeue_after: Duration },
+	UpdateProductionImage { build: BuildStatus },
+	UpdatePreview { build: BuildStatus },
+	AwaitChange,
+}
+
+fn source_build_gate_action(decision: BuildDecision) -> SourceBuildGateAction {
+	match decision {
+		BuildDecision::NoBuild => SourceBuildGateAction::Continue,
+		BuildDecision::Waiting { requeue_after } => {
+			SourceBuildGateAction::Requeue { requeue_after }
+		}
+		BuildDecision::Succeeded(completion) => match completion.status.target {
+			BuildTargetKind::Production => SourceBuildGateAction::UpdateProductionImage {
+				build: completion.status,
+			},
+			BuildTargetKind::Preview => SourceBuildGateAction::UpdatePreview {
+				build: completion.status,
+			},
+		},
+		BuildDecision::Failed(_failure) => SourceBuildGateAction::AwaitChange,
+	}
 }
 
 /// Base backoff duration for transient Kube API errors.
@@ -253,25 +282,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
-	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
-	// Deletion of a stale ConfigMap is left to owner-reference GC once the
-	// owning Project is removed and to deliberate cleanup when
-	// spec.plugins transitions from Some(..) to None (not implemented here
-	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
-	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
-		let cm_name = plugin_cm
-			.metadata
-			.name
-			.clone()
-			.unwrap_or_else(|| format!("{name}-dentdelion-plugins"));
-		cm_api
-			.patch(&cm_name, &ssapply, &Patch::Apply(&plugin_cm))
-			.await
-			.map_err(Error::Kube)?;
-		info!("Reconciled ConfigMap {namespace}/{cm_name}");
-	}
-
 	// Create the per-app `core.secret_key` Secret unconditionally, so every
 	// reinhardt-web app reconciled by this operator can resolve
 	// `core.secret_key` from `production.toml` via Secret-backed env-var
@@ -323,6 +333,89 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// by the inference module) caused a convention conflict: the early Secret was
 	// created first, then `apply_db_secret_if_absent` silently skipped it, leaving
 	// the credentials mismatched with the init-SQL in the ConfigMap.
+
+	// Git credentials validation (#278)
+	if let Some(secret_name) = credentials::should_warn_missing_credentials(&app) {
+		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+		if secret_api
+			.get_opt(&secret_name)
+			.await
+			.map_err(Error::Kube)?
+			.is_none()
+		{
+			warn!("Git credentials Secret '{secret_name}' referenced by {name} does not exist");
+		}
+	}
+
+	let preview_namespace = resources::preview_namespace::preview_namespace_name(&name);
+	let previews_enabled = app.spec.source.as_ref().is_some_and(|source| {
+		source
+			.preview
+			.as_ref()
+			.is_some_and(|preview| preview.enabled)
+	});
+	if previews_enabled {
+		reconcile_preview_namespace(
+			&ctx.client,
+			&name,
+			app.spec
+				.source
+				.as_ref()
+				.and_then(|source| source.preview.as_ref())
+				.and_then(|preview| preview.budget.as_ref()),
+			&ctx.preview_config,
+		)
+		.await?;
+	}
+
+	if reconcile_preview_delete_action(&app, &ctx.client, namespace, &preview_namespace).await? {
+		return Ok(Action::await_change());
+	}
+	if previews_enabled {
+		reconcile_preview_ttl_cleanup(&app, &ctx.client, &preview_namespace).await?;
+	}
+
+	// Source build (#275) — gate workload updates on completed Kaniko builds.
+	let source_build_decision =
+		source_build::reconcile_source_build(&app, ctx.client.clone(), namespace).await?;
+	match source_build_gate_action(source_build_decision) {
+		SourceBuildGateAction::Continue => {}
+		SourceBuildGateAction::Requeue { requeue_after } => {
+			return Ok(Action::requeue(requeue_after));
+		}
+		SourceBuildGateAction::UpdateProductionImage { build } => {
+			patch_project_image(&app, &ctx.client, namespace, &build.image).await?;
+			source_build::mark_build_succeeded(&app, ctx.client.clone(), namespace, build).await?;
+			return Ok(Action::await_change());
+		}
+		SourceBuildGateAction::UpdatePreview { build } => {
+			reconcile_preview_from_build(&app, &ctx.client, &preview_namespace, &build).await?;
+			source_build::mark_build_succeeded(&app, ctx.client.clone(), namespace, build).await?;
+			return Ok(Action::await_change());
+		}
+		SourceBuildGateAction::AwaitChange => {
+			return Ok(Action::await_change());
+		}
+	}
+
+	// Reconcile dentdelion plugin ConfigMap when spec.plugins is present.
+	let cm_api: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), namespace);
+	// Deletion of a stale ConfigMap is left to owner-reference GC once the
+	// owning Project is removed and to deliberate cleanup when
+	// spec.plugins transitions from Some(..) to None (not implemented here
+	// yet — see the ongoing reinhardt-cloud plugin lifecycle work).
+	if let Some(plugin_cm) = crate::resources::plugins::build_plugin_configmap(&app)? {
+		let cm_name = plugin_cm
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| format!("{name}-dentdelion-plugins"));
+		cm_api
+			.patch(&cm_name, &ssapply, &Patch::Apply(&plugin_cm))
+			.await
+			.map_err(Error::Kube)?;
+		info!("Reconciled ConfigMap {namespace}/{cm_name}");
+	}
 
 	// Resolve pages configuration (explicit spec.pages > introspect signals > disabled)
 	let pages_config = resolve_pages_config(&app);
@@ -386,7 +479,23 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		MigrationGateState::Running | MigrationGateState::Failed
 	) {
 		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
-		update_status(&app, ctx, namespace, false, ready_replicas, migration_state).await?;
+		update_status(
+			&app,
+			ctx,
+			namespace,
+			false,
+			ready_replicas,
+			migration_state,
+			Vec::new(),
+		)
+		.await?;
+		update_replica_gauges(
+			ctx,
+			namespace,
+			&app,
+			ready_replicas,
+			app.spec.replicas.unwrap_or(1),
+		);
 		return Ok(Action::await_change());
 	}
 
@@ -456,6 +565,25 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		.await?;
 	}
 
+	let mut child_conditions = Vec::new();
+	if let Some(plan) = build_autoscaler(&app)? {
+		match plan {
+			AutoscalerPlan::Apply(hpa) => {
+				let name = app.name_any();
+				reconcile_hpa(&ctx.client, namespace, &name, &hpa).await?;
+			}
+			AutoscalerPlan::Unsupported { reason, message } => {
+				child_conditions.push(build_condition(
+					&app,
+					ConditionType::AutoscalerReady,
+					ConditionStatus::False,
+					reason,
+					&message,
+				));
+			}
+		}
+	}
+
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
@@ -501,268 +629,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Mail provisioning (Phase 4)
 	if should_provision_mail(&app) {
 		reconcile_mail_secret(&app, &ctx.client, namespace).await?;
-	}
-
-	// Git credentials validation (#278)
-	if let Some(secret_name) = credentials::should_warn_missing_credentials(&app) {
-		let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
-		if secret_api
-			.get_opt(&secret_name)
-			.await
-			.map_err(Error::Kube)?
-			.is_none()
-		{
-			warn!("Git credentials Secret '{secret_name}' referenced by {name} does not exist");
-		}
-	}
-
-	// Source build (#275) — triggered by build-trigger annotation
-	if should_build_from_source(&app) {
-		let trigger = app
-			.metadata
-			.annotations
-			.as_ref()
-			.and_then(|a| a.get("reinhardt.dev/build-trigger"));
-		if let Some(trigger_ts) = trigger {
-			let short_trigger: String = trigger_ts.chars().take(8).collect();
-			let preview_action = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/preview-action"))
-				.map(String::as_str);
-			let pr_number = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-number"));
-			let pr_branch = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
-				.map(String::as_str);
-			let preview_build = matches!(preview_action, Some("create" | "update"))
-				.then_some(pr_number)
-				.flatten();
-			let image_tag = preview_build.map_or_else(
-				|| format!("{name}-{short_trigger}"),
-				|pr_number| preview::preview_image_tag(pr_number, &short_trigger),
-			);
-			let job = if preview_build.is_some() {
-				build_kaniko_job_for_branch(&app, &image_tag, pr_branch)?
-			} else {
-				build_kaniko_job(&app, &image_tag)?
-			};
-			let built_image = built_image_reference(&app, &image_tag)?;
-			let job_api: Api<Job> = Api::namespaced(ctx.client.clone(), namespace);
-			let job_name = job.metadata.name.as_deref().unwrap_or("unknown");
-			if job_api
-				.get_opt(job_name)
-				.await
-				.map_err(Error::Kube)?
-				.is_none()
-			{
-				job_api
-					.create(&PostParams::default(), &job)
-					.await
-					.map_err(Error::Kube)?;
-				info!("Created build Job {namespace}/{job_name}");
-			}
-
-			// Clear the build-trigger annotation. Production builds also
-			// point the parent workload at the image that the build Job pushes.
-			let mut patch = serde_json::json!({
-				"metadata": {
-					"annotations": {
-						"reinhardt.dev/build-trigger": null
-					}
-				}
-			});
-			if preview_build.is_none() {
-				patch["spec"] = serde_json::json!({ "image": built_image });
-			}
-			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-			app_api
-				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-				.await
-				.map_err(Error::Kube)?;
-		}
-	}
-
-	// Preview environment reconciliation (#277, hardened in #707)
-	if app
-		.spec
-		.source
-		.as_ref()
-		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
-	{
-		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
-
-		// Ensure the dedicated preview namespace + ResourceQuota + LimitRange +
-		// NetworkPolicy + cert-manager Issuer exist before placing previews.
-		reconcile_preview_namespace(
-			&ctx.client,
-			&name,
-			app.spec
-				.source
-				.as_ref()
-				.and_then(|s| s.preview.as_ref())
-				.and_then(|p| p.budget.as_ref()),
-			&ctx.preview_config,
-		)
-		.await?;
-
-		let preview_action = app
-			.metadata
-			.annotations
-			.as_ref()
-			.and_then(|a| a.get("reinhardt.dev/preview-action"));
-		if let Some(action) = preview_action {
-			let pr_number = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-number"))
-				.cloned()
-				.unwrap_or_default();
-			let pr_branch = app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
-				.map(String::as_str);
-			let preview_name = preview::preview_project_name(&name, &pr_number);
-			// Preview child Projects live in the dedicated `{parent}-preview`
-			// namespace, not the parent's namespace.
-			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), &preview_ns);
-
-			match action.as_str() {
-				"create" | "update" => {
-					let short_trigger = app
-						.metadata
-						.annotations
-						.as_ref()
-						.and_then(|a| a.get("reinhardt.dev/build-trigger"))
-						.map(|trigger| trigger.chars().take(8).collect::<String>())
-						.unwrap_or_else(|| "latest".to_string());
-					let image_tag = preview::preview_image_tag(&pr_number, &short_trigger);
-					let preview_spec =
-						preview::build_preview_spec(&app, &pr_number, &image_tag, pr_branch)?;
-					let preview_labels = preview::preview_labels(&name, &pr_number);
-					let preview_app = Project {
-						metadata: kube::api::ObjectMeta {
-							name: Some(preview_name.clone()),
-							namespace: Some(preview_ns.clone()),
-							labels: Some(preview_labels),
-							annotations: Some(BTreeMap::from([(
-								"reinhardt.dev/last-activity".to_string(),
-								chrono::Utc::now().to_rfc3339(),
-							)])),
-							..Default::default()
-						},
-						spec: preview_spec,
-						status: None,
-					};
-					app_api
-						.patch(
-							&preview_name,
-							&PatchParams::apply("reinhardt-cloud-operator").force(),
-							&Patch::Apply(&preview_app),
-						)
-						.await
-						.map_err(Error::Kube)?;
-					info!("Reconciled preview environment {preview_ns}/{preview_name}");
-				}
-				"delete" => {
-					match app_api
-						.delete(&preview_name, &DeleteParams::default())
-						.await
-					{
-						Ok(_) => {
-							info!("Deleted preview environment {preview_ns}/{preview_name}");
-						}
-						Err(kube::Error::Api(api_error)) if api_error.code == 404 => {
-							info!(
-								"Preview environment {preview_ns}/{preview_name} was already absent"
-							);
-						}
-						Err(error) => return Err(Error::Kube(error)),
-					}
-				}
-				_ => {
-					warn!("Unknown preview action: {action}");
-				}
-			}
-
-			// Clear preview-action annotation after processing (on the parent).
-			let patch = serde_json::json!({
-				"metadata": {
-					"annotations": {
-						"reinhardt.dev/preview-action": null,
-						"reinhardt.dev/pr-number": null,
-						"reinhardt.dev/pr-branch": null
-					}
-				}
-			});
-			let parent_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-			parent_api
-				.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
-				.await
-				.map_err(Error::Kube)?;
-		}
-
-		// TTL cleanup for existing previews in the dedicated preview namespace.
-		let preview_list_params = kube::api::ListParams::default().labels(&format!(
-			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
-		));
-		let preview_list = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
-			.list(&preview_list_params)
-			.await
-			.map_err(Error::Kube)?;
-
-		let ttl = app
-			.spec
-			.source
-			.as_ref()
-			.and_then(|s| s.preview.as_ref())
-			.and_then(|p| p.ttl.as_deref())
-			.unwrap_or("72h");
-
-		for preview_app in &preview_list {
-			let last_activity = preview_app
-				.metadata
-				.annotations
-				.as_ref()
-				.and_then(|a| a.get("reinhardt.dev/last-activity"));
-			if let Some(ts) = last_activity
-				&& preview::is_ttl_expired(ts, ttl)
-			{
-				let pname = preview_app.name_any();
-				let _ = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
-					.delete(&pname, &DeleteParams::default())
-					.await;
-				info!("TTL expired, deleted preview {preview_ns}/{pname}");
-			}
-		}
-
-		// Aggregate surviving previews into the parent status so the Dashboard
-		// can discover them. Re-list after TTL deletions to reflect survivors;
-		// best-effort status write so a status hiccup never blocks availability.
-		let survivors = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
-			.list(&preview_list_params)
-			.await
-			.map_err(Error::Kube)?;
-		let previews =
-			resources::preview_status::build_preview_status_list(&survivors.items, "https");
-		let status_patch = serde_json::json!({ "status": { "previews": previews } });
-		let parent_status_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-		if let Err(error) = parent_status_api
-			.patch_status(&name, &PatchParams::default(), &Patch::Merge(&status_patch))
-			.await
-		{
-			warn!("failed to write preview status for {namespace}/{name}: {error}");
-		}
 	}
 
 	// Session backend: ensure Redis when session_backend=redis (Phase 4)
@@ -811,8 +677,28 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
 	let ready = ready_replicas >= desired_replicas;
 
+	if let Some(condition) = tls_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+	if let Some(condition) = autoscaler_condition(&app, &ctx.client, namespace).await? {
+		child_conditions.push(condition);
+	}
+
 	// Update status sub-resource
-	update_status(&app, ctx, namespace, ready, ready_replicas, migration_state).await?;
+	update_status(
+		&app,
+		ctx,
+		namespace,
+		ready,
+		ready_replicas,
+		migration_state,
+		child_conditions,
+	)
+	.await?;
+	if previews_enabled {
+		reconcile_preview_status(&app, &ctx.client, namespace, &preview_namespace).await?;
+	}
+	update_replica_gauges(ctx, namespace, &app, ready_replicas, desired_replicas);
 
 	Ok(Action::await_change())
 }
@@ -887,6 +773,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// (Ingress, migration Job). These have ownerReferences but we delete
 	// explicitly for a cleaner teardown sequence.
 	delete_if_exists::<Ingress>(&ctx.client, namespace, &name).await?;
+	delete_if_exists::<HorizontalPodAutoscaler>(&ctx.client, namespace, &name).await?;
 	delete_migration_jobs(&ctx.client, namespace, &name).await?;
 
 	match app.spec.deletion_policy {
@@ -967,6 +854,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// Decrement the `managed_apps` gauge for the phase this object was
 	// last observed in, so the gauge reflects only live objects.
 	drop_managed_apps_gauge(ctx, &app);
+	drop_replica_gauges(ctx, namespace, &app);
 
 	Ok(Action::await_change())
 }
@@ -1448,6 +1336,21 @@ async fn reconcile_ingress_resource_with_host(
 	Ok(())
 }
 
+async fn reconcile_hpa(
+	client: &Client,
+	namespace: &str,
+	name: &str,
+	hpa: &HorizontalPodAutoscaler,
+) -> Result<(), Error> {
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	let hpas: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	hpas.patch(name, &ssapply, &Patch::Apply(hpa))
+		.await
+		.map_err(Error::Kube)?;
+	info!("Reconciled HPA {namespace}/{name}");
+	Ok(())
+}
+
 /// Reconciles the Redis cache `Deployment` via server-side apply.
 async fn reconcile_cache_deployment(
 	app: &Project,
@@ -1786,15 +1689,10 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
-/// Reconcile the `{parent}-preview` namespace and its resource triple plus a
-/// cert-manager `Issuer` (#707).
+/// Reconcile the `{parent}-preview` namespace and its resource guardrails.
 ///
-/// Mirrors [`reconcile_tenant_resources`] but specialized to the 1:1
-/// parent-to-preview-namespace relationship: the namespace carries the
-/// parent's budget as a `ResourceQuota`, a default `LimitRange`, a
-/// default-deny + ingress/DNS allow `NetworkPolicy` pair, and a cert-manager
-/// `Issuer` configured from platform env settings. Everything is server-side
-/// applied for idempotency.
+/// The preview namespace is intentionally separate from the parent namespace,
+/// so preview Projects do not use owner references to the parent `Project`.
 async fn reconcile_preview_namespace(
 	client: &Client,
 	parent_name: &str,
@@ -1804,7 +1702,6 @@ async fn reconcile_preview_namespace(
 	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
-	// Namespace is cluster-scoped; use Api::all.
 	let namespaces: Api<Namespace> = Api::all(client.clone());
 	namespaces
 		.patch(
@@ -1869,6 +1766,206 @@ async fn reconcile_preview_namespace(
 		.map_err(Error::Kube)?;
 
 	info!("Reconciled preview namespace {ns_name}");
+	Ok(())
+}
+
+async fn reconcile_preview_delete_action(
+	app: &Project,
+	client: &Client,
+	parent_namespace: &str,
+	preview_namespace: &str,
+) -> Result<bool, Error> {
+	let Some(action) = app
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|annotations| annotations.get("reinhardt.dev/preview-action"))
+	else {
+		return Ok(false);
+	};
+	if action != "delete" {
+		return Ok(false);
+	}
+
+	let parent_name = app.name_any();
+	let pr_number = app
+		.metadata
+		.annotations
+		.as_ref()
+		.and_then(|annotations| annotations.get("reinhardt.dev/pr-number"))
+		.cloned()
+		.unwrap_or_default();
+	let preview_name = preview::preview_project_name(&parent_name, &pr_number);
+	source_build::clear_preview_build_for_delete(
+		app,
+		client.clone(),
+		parent_namespace,
+		&pr_number,
+		&preview_name,
+	)
+	.await?;
+
+	let preview_api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
+	match preview_api
+		.delete(&preview_name, &DeleteParams::default())
+		.await
+	{
+		Ok(_) => {
+			info!("Deleted preview environment {preview_namespace}/{preview_name}");
+		}
+		Err(kube::Error::Api(status)) if status.code == 404 => {
+			info!("Preview environment {preview_namespace}/{preview_name} was already absent");
+		}
+		Err(error) => {
+			return Err(Error::Kube(error));
+		}
+	}
+
+	let patch = source_build::preview_delete_annotations_patch();
+	let parent_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
+	parent_api
+		.patch(&parent_name, &PatchParams::default(), &Patch::Merge(&patch))
+		.await
+		.map_err(Error::Kube)?;
+	Ok(true)
+}
+
+async fn reconcile_preview_ttl_cleanup(
+	app: &Project,
+	client: &Client,
+	preview_namespace: &str,
+) -> Result<(), Error> {
+	let parent_name = app.name_any();
+	let preview_list = Api::<Project>::namespaced(client.clone(), preview_namespace)
+		.list(&ListParams::default().labels(&format!(
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={parent_name}"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+
+	let ttl = app
+		.spec
+		.source
+		.as_ref()
+		.and_then(|source| source.preview.as_ref())
+		.and_then(|preview| preview.ttl.as_deref())
+		.unwrap_or("72h");
+
+	for preview_app in preview_list {
+		let last_activity = preview_app
+			.metadata
+			.annotations
+			.as_ref()
+			.and_then(|annotations| annotations.get("reinhardt.dev/last-activity"));
+		if let Some(ts) = last_activity
+			&& preview::is_ttl_expired(ts, ttl)
+		{
+			let preview_name = preview_app.name_any();
+			let _ = Api::<Project>::namespaced(client.clone(), preview_namespace)
+				.delete(&preview_name, &DeleteParams::default())
+				.await;
+			info!("TTL expired, deleted preview {preview_namespace}/{preview_name}");
+		}
+	}
+
+	Ok(())
+}
+
+async fn patch_project_image(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+	image: &str,
+) -> Result<(), Error> {
+	let api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	let patch = serde_json::json!({
+		"spec": {
+			"image": image
+		}
+	});
+	api.patch(
+		&app.name_any(),
+		&PatchParams::default(),
+		&Patch::Merge(&patch),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	Ok(())
+}
+
+async fn reconcile_preview_from_build(
+	app: &Project,
+	client: &Client,
+	preview_namespace: &str,
+	build: &reinhardt_cloud_types::crd::BuildStatus,
+) -> Result<(), Error> {
+	let pr_number = build
+		.pr_number
+		.as_deref()
+		.ok_or(Error::MissingField("status.build.prNumber"))?;
+	let preview_name = build
+		.preview_name
+		.as_deref()
+		.ok_or(Error::MissingField("status.build.previewName"))?;
+	let preview_spec =
+		preview::build_preview_spec(app, pr_number, &build.image_tag, build.branch.as_deref())?;
+	let parent_name = app.name_any();
+	let preview_labels = preview::preview_labels(&parent_name, pr_number);
+	let preview_app = Project {
+		metadata: kube::api::ObjectMeta {
+			name: Some(preview_name.to_string()),
+			namespace: Some(preview_namespace.to_string()),
+			labels: Some(preview_labels),
+			annotations: Some(BTreeMap::from([(
+				"reinhardt.dev/last-activity".to_string(),
+				chrono::Utc::now().to_rfc3339(),
+			)])),
+			..Default::default()
+		},
+		spec: preview_spec,
+		status: None,
+	};
+
+	let api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
+	api.patch(
+		preview_name,
+		&PatchParams::apply("reinhardt-cloud-operator").force(),
+		&Patch::Apply(&preview_app),
+	)
+	.await
+	.map_err(Error::Kube)?;
+	info!("Reconciled preview environment {preview_namespace}/{preview_name}");
+	Ok(())
+}
+
+async fn reconcile_preview_status(
+	app: &Project,
+	client: &Client,
+	parent_namespace: &str,
+	preview_namespace: &str,
+) -> Result<(), Error> {
+	let parent_name = app.name_any();
+	let preview_list = Api::<Project>::namespaced(client.clone(), preview_namespace)
+		.list(&ListParams::default().labels(&format!(
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={parent_name}"
+		)))
+		.await
+		.map_err(Error::Kube)?;
+	let previews =
+		resources::preview_status::build_preview_status_list(&preview_list.items, "https");
+	let status_patch = serde_json::json!({ "status": { "previews": previews } });
+	let parent_status_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
+	if let Err(error) = parent_status_api
+		.patch_status(
+			&parent_name,
+			&PatchParams::default(),
+			&Patch::Merge(&status_patch),
+		)
+		.await
+	{
+		warn!("failed to write preview status for {parent_namespace}/{parent_name}: {error}");
+	}
+
 	Ok(())
 }
 
@@ -1985,6 +2082,125 @@ fn build_condition(
 	}
 }
 
+async fn tls_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(services) = app.spec.services.as_ref() else {
+		return Ok(None);
+	};
+	let Some(tls) = services.tls.as_ref() else {
+		return Ok(None);
+	};
+	if !tls.enabled {
+		return Ok(None);
+	}
+
+	let host = services.ingress_host.as_deref().unwrap_or_default();
+	let secret_name = tls.secret_name.as_deref().unwrap_or_default();
+	if host.is_empty() || secret_name.is_empty() {
+		return Ok(Some(build_condition(
+			app,
+			ConditionType::TlsReady,
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			"Waiting for Ingress TLS host and Secret name to be configured",
+		)));
+	}
+
+	let ingress_api: Api<Ingress> = Api::namespaced(client.clone(), namespace);
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+	let ingress = ingress_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let secret = secret_api.get_opt(secret_name).await.map_err(Error::Kube)?;
+
+	let ingress_matches = ingress
+		.as_ref()
+		.and_then(|ingress| ingress.spec.as_ref())
+		.and_then(|spec| spec.tls.as_ref())
+		.is_some_and(|tls_entries| {
+			tls_entries.iter().any(|entry| {
+				entry.secret_name.as_deref() == Some(secret_name)
+					&& entry
+						.hosts
+						.as_ref()
+						.is_some_and(|hosts| hosts.iter().any(|candidate| candidate == host))
+			})
+		});
+
+	let ready = ingress_matches && secret.is_some();
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"TlsSecretReady",
+			format!("Ingress TLS references Secret '{secret_name}' and the Secret exists"),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"TlsSecretNotReady",
+			format!("Waiting for Ingress TLS host '{host}' and Secret '{secret_name}'"),
+		)
+	};
+
+	Ok(Some(build_condition(
+		app,
+		ConditionType::TlsReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
+async fn autoscaler_condition(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<Option<ProjectCondition>, Error> {
+	let Some(scale) = app.spec.scale.as_ref() else {
+		return Ok(None);
+	};
+	if scale
+		.metric
+		.as_ref()
+		.is_some_and(|metric| matches!(metric, ScaleMetric::Rps))
+	{
+		return Ok(None);
+	}
+
+	let hpa_api: Api<HorizontalPodAutoscaler> = Api::namespaced(client.clone(), namespace);
+	let hpa = hpa_api
+		.get_opt(&app.name_any())
+		.await
+		.map_err(Error::Kube)?;
+	let ready = hpa.as_ref().is_some_and(hpa_is_ready);
+
+	let (status, reason, message) = if ready {
+		(
+			ConditionStatus::True,
+			"AutoscalerActive",
+			"HorizontalPodAutoscaler is observed and active".to_string(),
+		)
+	} else {
+		(
+			ConditionStatus::False,
+			"AutoscalerNotReady",
+			"Waiting for HorizontalPodAutoscaler to become observed and active".to_string(),
+		)
+	};
+
+	Ok(Some(build_condition(
+		app,
+		ConditionType::AutoscalerReady,
+		status,
+		reason,
+		&message,
+	)))
+}
+
 /// Deletes a namespaced Kubernetes resource if it exists.
 ///
 /// Silently succeeds if the resource is already absent.
@@ -2036,7 +2252,9 @@ fn build_status(
 	ready: bool,
 	ready_replicas: i32,
 	migration_state: MigrationGateState,
+	child_conditions: Vec<ProjectCondition>,
 ) -> ProjectStatus {
+	let existing_status = app.status.as_ref();
 	let phase = if migration_state == MigrationGateState::Failed {
 		ProjectPhase::Degraded
 	} else if ready {
@@ -2074,9 +2292,19 @@ fn build_status(
 	} else {
 		None
 	};
-
-	let mut conditions = vec![
+	let mut conditions = existing_status
+		.map(|status| status.conditions.clone())
+		.unwrap_or_default();
+	let build = existing_status.and_then(|status| status.build.clone());
+	let previews = existing_status
+		.map(|status| status.previews.clone())
+		.unwrap_or_default();
+	upsert_project_condition(
+		&mut conditions,
 		build_condition(app, ConditionType::Ready, condition_status, reason, message),
+	);
+	upsert_project_condition(
+		&mut conditions,
 		build_condition(
 			app,
 			ConditionType::MigrationReady,
@@ -2084,15 +2312,48 @@ fn build_status(
 			migration_state.reason(),
 			migration_state.message(),
 		),
-	];
+	);
 	if migration_state == MigrationGateState::Failed {
-		conditions.push(build_condition(
-			app,
-			ConditionType::Degraded,
-			ConditionStatus::True,
-			"MigrationFailed",
-			"Migration failed for the target deployment revision",
-		));
+		upsert_project_condition(
+			&mut conditions,
+			build_condition(
+				app,
+				ConditionType::Degraded,
+				ConditionStatus::True,
+				"MigrationFailed",
+				"Migration failed for the target deployment revision",
+			),
+		);
+	} else if ready
+		&& let Some(existing_degraded_condition) = existing_status.and_then(|status| {
+			status
+				.conditions
+				.iter()
+				.find(|condition| condition.type_ == ConditionType::Degraded)
+		}) {
+		let degraded_status = ConditionStatus::False;
+		let degraded_transition_time = if should_update_transition_time(
+			Some(&existing_degraded_condition.status),
+			&degraded_status,
+		) {
+			Some(chrono::Utc::now().to_rfc3339())
+		} else {
+			existing_degraded_condition.last_transition_time.clone()
+		};
+		upsert_project_condition(
+			&mut conditions,
+			ProjectCondition {
+				type_: ConditionType::Degraded,
+				status: degraded_status,
+				reason: reason.to_string(),
+				message: message.to_string(),
+				last_transition_time: degraded_transition_time,
+				observed_generation: app.metadata.generation,
+			},
+		);
+	}
+	for condition in child_conditions {
+		upsert_project_condition(&mut conditions, condition);
 	}
 
 	ProjectStatus {
@@ -2100,7 +2361,9 @@ fn build_status(
 		conditions,
 		observed_generation: app.metadata.generation,
 		ready_replicas: Some(ready_replicas),
+		build,
 		database,
+		previews,
 		..Default::default()
 	}
 }
@@ -2116,9 +2379,16 @@ async fn update_status(
 	ready: bool,
 	ready_replicas: i32,
 	migration_state: MigrationGateState,
+	child_conditions: Vec<ProjectCondition>,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let typed_status = build_status(app, ready, ready_replicas, migration_state);
+	let typed_status = build_status(
+		app,
+		ready,
+		ready_replicas,
+		migration_state,
+		child_conditions,
+	);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -2179,6 +2449,34 @@ fn update_managed_apps_gauge(ctx: &Context, app: &Project, new_phase: &str) {
 	}
 }
 
+/// Update the `managed_apps_ready_replicas` / `managed_apps_desired_replicas`
+/// gauges for a single object. Set from the observed Deployment status so
+/// Project health and deployment state can be queried via Prometheus.
+fn update_replica_gauges(ctx: &Context, namespace: &str, app: &Project, ready: i32, desired: i32) {
+	let labels = [namespace, app.metadata.name.as_deref().unwrap_or("")];
+	ctx.metrics
+		.managed_apps_ready_replicas
+		.with_label_values(&labels)
+		.set(ready as f64);
+	ctx.metrics
+		.managed_apps_desired_replicas
+		.with_label_values(&labels)
+		.set(desired as f64);
+}
+
+/// Remove replica gauge series for an object that is being cleaned up.
+fn drop_replica_gauges(ctx: &Context, namespace: &str, app: &Project) {
+	let labels = [namespace, app.metadata.name.as_deref().unwrap_or("")];
+	let _ = ctx
+		.metrics
+		.managed_apps_ready_replicas
+		.remove_label_values(&labels);
+	let _ = ctx
+		.metrics
+		.managed_apps_desired_replicas
+		.remove_label_values(&labels);
+}
+
 /// Decrement the `managed_apps` gauge for the phase this object was
 /// last observed in, if any. Called when the object is being cleaned up.
 fn drop_managed_apps_gauge(ctx: &Context, app: &Project) {
@@ -2199,6 +2497,17 @@ fn should_update_transition_time(
 	new_status: &reinhardt_cloud_types::ConditionStatus,
 ) -> bool {
 	!matches!(existing_status, Some(existing) if existing == new_status)
+}
+
+fn upsert_project_condition(conditions: &mut Vec<ProjectCondition>, next: ProjectCondition) {
+	if let Some(existing) = conditions
+		.iter_mut()
+		.find(|condition| condition.type_ == next.type_)
+	{
+		*existing = next;
+	} else {
+		conditions.push(next);
+	}
 }
 
 /// Error policy: classify the error and select an exponential backoff
@@ -2313,8 +2622,12 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::source_build::{BuildCompletion, BuildFailure};
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
-	use reinhardt_cloud_types::crd::{ProjectCondition, ProjectPhase, ProjectSpec, ProjectStatus};
+	use reinhardt_cloud_types::crd::{
+		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
+		ProjectStatus,
+	};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
 
@@ -2334,6 +2647,97 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
+		let mut build = BuildStatus {
+			phase: BuildPhase::Succeeded,
+			target,
+			trigger: "abcdef1234567890".to_string(),
+			job_name: "ready-app-build-abcdef12".to_string(),
+			image: "registry.example.com/ready-app:ready-app-abcdef12".to_string(),
+			image_tag: "ready-app-abcdef12".to_string(),
+			preview_name: None,
+			pr_number: None,
+			branch: Some("main".to_string()),
+			reason: Some("BuildSucceeded".to_string()),
+			message: Some("Kaniko build Job succeeded".to_string()),
+			started_at: Some("2026-06-17T00:00:00Z".to_string()),
+			last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+		};
+		if build.target == BuildTargetKind::Preview {
+			build.image = "registry.example.com/ready-app:pr-42-abcdef12".to_string();
+			build.image_tag = "pr-42-abcdef12".to_string();
+			build.preview_name = Some("ready-app-pr-42".to_string());
+			build.pr_number = Some("42".to_string());
+			build.branch = Some("feature/login".to_string());
+		}
+		build
+	}
+
+	#[rstest]
+	fn source_build_gate_action_gates_waiting_without_runtime_update() {
+		// Arrange
+		let decision = BuildDecision::Waiting {
+			requeue_after: Duration::from_secs(10),
+		};
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(
+			action,
+			SourceBuildGateAction::Requeue {
+				requeue_after: Duration::from_secs(10),
+			}
+		);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_gates_failed_without_runtime_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Production);
+		let decision = BuildDecision::Failed(BuildFailure { status: build });
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(action, SourceBuildGateAction::AwaitChange);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_routes_succeeded_production_to_image_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Production);
+		let decision = BuildDecision::Succeeded(BuildCompletion {
+			status: build.clone(),
+		});
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(
+			action,
+			SourceBuildGateAction::UpdateProductionImage { build }
+		);
+	}
+
+	#[rstest]
+	fn source_build_gate_action_routes_succeeded_preview_to_preview_update() {
+		// Arrange
+		let build = make_test_build_status(BuildTargetKind::Preview);
+		let decision = BuildDecision::Succeeded(BuildCompletion {
+			status: build.clone(),
+		});
+
+		// Act
+		let action = source_build_gate_action(decision);
+
+		// Assert
+		assert_eq!(action, SourceBuildGateAction::UpdatePreview { build });
 	}
 
 	fn find_condition(status: &ProjectStatus, condition_type: ConditionType) -> &ProjectCondition {
@@ -2401,7 +2805,7 @@ mod tests {
 		let app = make_test_app("ready-app");
 
 		// Act
-		let status = build_status(&app, true, 3, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 3, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Running));
@@ -2421,7 +2825,7 @@ mod tests {
 		let app = make_test_app("deploying-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::NotRequired);
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
@@ -2441,7 +2845,7 @@ mod tests {
 		let app = make_test_app("migration-running-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::Running);
+		let status = build_status(&app, false, 0, MigrationGateState::Running, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Deploying));
@@ -2456,7 +2860,7 @@ mod tests {
 		let app = make_test_app("migration-failed-app");
 
 		// Act
-		let status = build_status(&app, false, 0, MigrationGateState::Failed);
+		let status = build_status(&app, false, 0, MigrationGateState::Failed, Vec::new());
 
 		// Assert
 		assert_eq!(status.phase, Some(ProjectPhase::Degraded));
@@ -2469,13 +2873,74 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_status_appends_child_conditions() {
+		// Arrange
+		let app = make_test_app("status-child-app");
+		let child = ProjectCondition {
+			type_: ConditionType::TlsReady,
+			status: ConditionStatus::True,
+			reason: "TlsSecretReady".to_string(),
+			message: "TLS Secret is present".to_string(),
+			last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+			observed_generation: Some(1),
+		};
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, vec![child]);
+
+		// Assert
+		assert_eq!(status.conditions.len(), 3);
+		assert_eq!(status.conditions[0].type_, ConditionType::Ready);
+		assert_eq!(status.conditions[1].type_, ConditionType::MigrationReady);
+		assert_eq!(status.conditions[2].type_, ConditionType::TlsReady);
+	}
+
+	#[rstest]
+	fn test_build_status_upserts_child_conditions() {
+		// Arrange
+		let mut app = make_test_app("status-child-upsert-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::TlsReady,
+				status: ConditionStatus::False,
+				reason: "TlsSecretMissing".to_string(),
+				message: "TLS Secret is missing".to_string(),
+				last_transition_time: Some("2025-01-01T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+		let child = ProjectCondition {
+			type_: ConditionType::TlsReady,
+			status: ConditionStatus::True,
+			reason: "TlsSecretReady".to_string(),
+			message: "TLS Secret is present".to_string(),
+			last_transition_time: Some("2025-01-02T00:00:00Z".to_string()),
+			observed_generation: Some(1),
+		};
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, vec![child]);
+
+		// Assert
+		let tls_conditions: Vec<_> = status
+			.conditions
+			.iter()
+			.filter(|condition| condition.type_ == ConditionType::TlsReady)
+			.collect();
+		assert_eq!(tls_conditions.len(), 1);
+		assert_eq!(tls_conditions[0].status, ConditionStatus::True);
+		assert_eq!(tls_conditions[0].reason, "TlsSecretReady");
+	}
+
+	#[rstest]
 	fn test_build_status_sets_observed_generation() {
 		// Arrange
 		let mut app = make_test_app("gen-app");
 		app.metadata.generation = Some(5);
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.observed_generation, Some(5));
@@ -2488,10 +2953,159 @@ mod tests {
 		let app = make_test_app("replicas-app");
 
 		// Act
-		let status = build_status(&app, true, 7, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 7, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert_eq!(status.ready_replicas, Some(7));
+	}
+
+	#[rstest]
+	fn build_status_preserves_existing_build_status() {
+		// Arrange
+		let mut app = make_test_app("build-app");
+		app.status = Some(ProjectStatus {
+			build: Some(BuildStatus {
+				phase: BuildPhase::Running,
+				target: BuildTargetKind::Production,
+				trigger: "abcdef12".to_string(),
+				job_name: "build-app-build-abcdef12".to_string(),
+				image: "registry.example.com/build-app:abcdef12".to_string(),
+				image_tag: "abcdef12".to_string(),
+				preview_name: None,
+				pr_number: None,
+				branch: Some("main".to_string()),
+				reason: Some("BuildRunning".to_string()),
+				message: Some("Kaniko build Job is still running".to_string()),
+				started_at: Some("2026-06-17T00:00:00Z".to_string()),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+			}),
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
+
+		// Assert
+		let build = status.build.expect("build status");
+		assert_eq!(build.job_name, "build-app-build-abcdef12");
+	}
+
+	#[rstest]
+	fn build_status_preserves_existing_progressing_condition() {
+		// Arrange
+		let mut app = make_test_app("progressing-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Progressing,
+				status: ConditionStatus::True,
+				reason: "BuildRunning".to_string(),
+				message: "Kaniko build Job is still running".to_string(),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
+
+		// Assert
+		assert_eq!(status.conditions.len(), 3);
+		let progressing = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Progressing)
+			.expect("progressing condition");
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		assert_eq!(progressing.reason, "BuildRunning");
+		assert_eq!(ready.reason, "ReconcileInProgress");
+	}
+
+	#[rstest]
+	fn build_status_does_not_create_degraded_when_ready_without_existing_degraded() {
+		// Arrange
+		let mut app = make_test_app("ready-with-progressing-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Progressing,
+				status: ConditionStatus::True,
+				reason: "BuildRunning".to_string(),
+				message: "Kaniko build Job is still running".to_string(),
+				last_transition_time: Some("2026-06-17T00:00:00Z".to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Running));
+		assert!(
+			status
+				.conditions
+				.iter()
+				.all(|condition| condition.type_ != ConditionType::Degraded)
+		);
+		let progressing = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Progressing)
+			.expect("progressing condition");
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		assert_eq!(progressing.status, ConditionStatus::True);
+		assert_eq!(progressing.reason, "BuildRunning");
+		assert_eq!(ready.status, ConditionStatus::True);
+	}
+
+	#[rstest]
+	fn build_status_clears_existing_degraded_when_ready() {
+		// Arrange
+		let old_time = "2026-06-16T00:00:00Z";
+		let mut app = make_test_app("recovered-app");
+		app.status = Some(ProjectStatus {
+			conditions: vec![ProjectCondition {
+				type_: ConditionType::Degraded,
+				status: ConditionStatus::True,
+				reason: "BuildFailed".to_string(),
+				message: "Kaniko build Job failed".to_string(),
+				last_transition_time: Some(old_time.to_string()),
+				observed_generation: Some(1),
+			}],
+			..Default::default()
+		});
+
+		// Act
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
+
+		// Assert
+		assert_eq!(status.phase, Some(ProjectPhase::Running));
+		let ready = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Ready)
+			.expect("ready condition");
+		let degraded = status
+			.conditions
+			.iter()
+			.find(|condition| condition.type_ == ConditionType::Degraded)
+			.expect("degraded condition");
+		assert_eq!(ready.status, ConditionStatus::True);
+		assert_eq!(degraded.status, ConditionStatus::False);
+		assert_eq!(degraded.reason, "ReconcileSuccess");
+		assert_eq!(degraded.message, "Application is ready");
+		assert_eq!(degraded.observed_generation, Some(1));
+		assert_ne!(degraded.last_transition_time, Some(old_time.to_string()));
+		assert!(degraded.last_transition_time.is_some());
 	}
 
 	#[rstest]
@@ -2515,7 +3129,7 @@ mod tests {
 		});
 
 		// Act — same readiness state (ready=true matching existing True)
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be preserved
 		assert_eq!(
@@ -2545,7 +3159,7 @@ mod tests {
 		});
 
 		// Act — readiness changed from True to False
-		let status = build_status(&app, false, 0, MigrationGateState::NotRequired);
+		let status = build_status(&app, false, 0, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — transition time should be updated (not the old value)
 		assert_ne!(
@@ -2561,7 +3175,7 @@ mod tests {
 		let app = make_test_app("new-app");
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert — should have a transition time since there's no prior condition
 		assert!(status.conditions[0].last_transition_time.is_some());
@@ -2581,7 +3195,7 @@ mod tests {
 		});
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		let db_status = status.database.expect("database status should be present");
@@ -2599,7 +3213,7 @@ mod tests {
 		let app = make_test_app("no-db-app");
 
 		// Act
-		let status = build_status(&app, true, 1, MigrationGateState::NotRequired);
+		let status = build_status(&app, true, 1, MigrationGateState::NotRequired, Vec::new());
 
 		// Assert
 		assert!(status.database.is_none());
@@ -2965,6 +3579,7 @@ mod tests {
 			port: None,
 			target_port: Some(3000),
 			ingress_host: None,
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			settings: SettingsMetadata {
@@ -3118,6 +3733,7 @@ mod tests {
 			port: Some(80),
 			target_port: Some(8080),
 			ingress_host: Some("myapp.example.com".to_string()),
+			tls: None,
 		});
 		app.spec.introspect = Some(IntrospectOutput {
 			routes: vec![RouteMetadata {
@@ -3950,6 +4566,44 @@ mod tests {
 			.with_label_values(&["Running"])
 			.get();
 		assert_eq!(running, 0.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn drop_replica_gauges_removes_deleted_project_series() {
+		// Arrange
+		let app = make_test_app("replica-cleanup-app");
+		let ctx = test_context();
+		update_replica_gauges(&ctx, "tenant-cleanup", &app, 2, 3);
+		let labels = ["tenant-cleanup", "replica-cleanup-app"];
+		assert_eq!(
+			ctx.metrics
+				.managed_apps_ready_replicas
+				.with_label_values(&labels)
+				.get(),
+			2.0,
+		);
+		assert_eq!(
+			ctx.metrics
+				.managed_apps_desired_replicas
+				.with_label_values(&labels)
+				.get(),
+			3.0,
+		);
+
+		// Act
+		drop_replica_gauges(&ctx, "tenant-cleanup", &app);
+
+		// Assert
+		let after = String::from_utf8(ctx.metrics.encode()).expect("utf8");
+		let retained_series: Vec<&str> = after
+			.lines()
+			.filter(|line| {
+				line.starts_with("reinhardt_cloud_operator_managed_apps_")
+					&& line.contains(r#"project="replica-cleanup-app""#)
+			})
+			.collect();
+		assert_eq!(retained_series, Vec::<&str>::new());
 	}
 
 	// ── error_policy: dependency-not-ready branch ───────────────────
