@@ -7,6 +7,7 @@ pub(crate) mod deployment;
 pub(crate) mod grpc;
 pub(crate) mod i18n;
 pub(crate) mod ingress;
+pub(crate) mod issuer;
 pub(crate) mod labels;
 pub(crate) mod mail;
 pub(crate) mod migration;
