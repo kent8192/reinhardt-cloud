@@ -5794,6 +5794,7 @@ dependencies = [
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
+ "reqwest 0.12.28",
  "rstest",
  "serde_json",
  "serde_yaml",
