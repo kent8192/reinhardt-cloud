@@ -3,13 +3,6 @@
 //! The reconciler lists the live preview child Projects in the `{parent}-preview`
 //! namespace and calls [`build_preview_status_list`] to fold them into the
 //! `previews` field of the parent `ProjectStatus`, which the Dashboard reads.
-//!
-//! Workaround for reinhardt-cloud#707 (tracked in the same effort):
-// This mapper is dead in non-test builds until the preview reconciler
-// aggregates previews into the parent status (Task 10). Ideal implementation
-// (without workaround): drop the `dead_code` allow once `reconcile` writes
-// `status.previews` for every enabled preview parent.
-#![allow(dead_code)]
 
 use kube::ResourceExt;
 use reinhardt_cloud_types::crd::Project;

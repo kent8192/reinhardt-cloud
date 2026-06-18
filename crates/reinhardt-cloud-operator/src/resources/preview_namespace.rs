@@ -5,13 +5,6 @@
 //! `ResourceQuota` (from `PreviewBudget`), a `LimitRange`, a default-deny
 //! `NetworkPolicy` with an ingress-controller + DNS allow policy, and a
 //! cert-manager `Issuer`. These are pure builders modeled on `resources::tenant`.
-//!
-//! Workaround for reinhardt-cloud#707 (tracked in the same effort):
-// These builders are dead in non-test builds until the preview-namespace
-// reconciler (`reconcile_preview_namespace`) is wired in (Task 10). Ideal
-// implementation (without workaround): drop the `dead_code` allow once the
-// reconciler applies these resources for every enabled preview parent.
-#![allow(dead_code)]
 
 use std::collections::BTreeMap;
 

@@ -67,12 +67,6 @@ const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 ///
 /// These values feed the cert-manager `Issuer` and the preview Ingress
 /// `ingressClassName` for every `{parent}-preview` namespace (#707).
-///
-/// Workaround for reinhardt-cloud#707 (tracked in the same effort):
-// The fields are read once the preview-namespace reconciler consumes them
-// (Task 10). Ideal implementation (without workaround): drop the `dead_code`
-// allow once `reconcile_preview_namespace` builds the Issuer from these values.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
 	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
@@ -104,10 +98,6 @@ pub(crate) struct Context {
 	/// Platform-specific configuration for resource inference.
 	pub platform: PlatformConfig,
 	/// Platform-level preview environment configuration (#707).
-	// Read by `reconcile_preview_namespace` once the preview reconciler lands
-	// (Task 10). Ideal implementation (without workaround): drop the
-	// `dead_code` allow when that wiring consumes `ctx.preview_config`.
-	#[allow(dead_code)]
 	pub preview_config: PreviewConfig,
 	/// Prometheus metrics shared with the exporter task.
 	pub metrics: Arc<Metrics>,
@@ -600,13 +590,29 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	// Preview environment reconciliation (#277)
+	// Preview environment reconciliation (#277, hardened in #707)
 	if app
 		.spec
 		.source
 		.as_ref()
 		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
+		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+
+		// Ensure the dedicated preview namespace + ResourceQuota + LimitRange +
+		// NetworkPolicy + cert-manager Issuer exist before placing previews.
+		reconcile_preview_namespace(
+			&ctx.client,
+			&name,
+			app.spec
+				.source
+				.as_ref()
+				.and_then(|s| s.preview.as_ref())
+				.and_then(|p| p.budget.as_ref()),
+			&ctx.preview_config,
+		)
+		.await?;
+
 		let preview_action = app
 			.metadata
 			.annotations
@@ -627,7 +633,9 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.and_then(|a| a.get("reinhardt.dev/pr-branch"))
 				.map(String::as_str);
 			let preview_name = preview::preview_project_name(&name, &pr_number);
-			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
+			// Preview child Projects live in the dedicated `{parent}-preview`
+			// namespace, not the parent's namespace.
+			let app_api: Api<Project> = Api::namespaced(ctx.client.clone(), &preview_ns);
 
 			match action.as_str() {
 				"create" | "update" => {
@@ -645,7 +653,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 					let preview_app = Project {
 						metadata: kube::api::ObjectMeta {
 							name: Some(preview_name.clone()),
-							namespace: Some(namespace.to_string()),
+							namespace: Some(preview_ns.clone()),
 							labels: Some(preview_labels),
 							owner_references: Some(vec![resources::labels::owner_reference(&app)?]),
 							annotations: Some(BTreeMap::from([(
@@ -665,20 +673,20 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 						)
 						.await
 						.map_err(Error::Kube)?;
-					info!("Reconciled preview environment {namespace}/{preview_name}");
+					info!("Reconciled preview environment {preview_ns}/{preview_name}");
 				}
 				"delete" => {
 					let _ = app_api
 						.delete(&preview_name, &DeleteParams::default())
 						.await;
-					info!("Deleted preview environment {namespace}/{preview_name}");
+					info!("Deleted preview environment {preview_ns}/{preview_name}");
 				}
 				_ => {
 					warn!("Unknown preview action: {action}");
 				}
 			}
 
-			// Clear preview-action annotation after processing
+			// Clear preview-action annotation after processing (on the parent).
 			let patch = serde_json::json!({
 				"metadata": {
 					"annotations": {
@@ -695,11 +703,12 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.map_err(Error::Kube)?;
 		}
 
-		// TTL cleanup for existing previews
-		let preview_list = Api::<Project>::namespaced(ctx.client.clone(), namespace)
-			.list(&kube::api::ListParams::default().labels(&format!(
-				"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
-			)))
+		// TTL cleanup for existing previews in the dedicated preview namespace.
+		let preview_list_params = kube::api::ListParams::default().labels(&format!(
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app={name}"
+		));
+		let preview_list = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
+			.list(&preview_list_params)
 			.await
 			.map_err(Error::Kube)?;
 
@@ -711,7 +720,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 			.and_then(|p| p.ttl.as_deref())
 			.unwrap_or("72h");
 
-		for preview_app in preview_list {
+		for preview_app in &preview_list {
 			let last_activity = preview_app
 				.metadata
 				.annotations
@@ -721,11 +730,29 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				&& preview::is_ttl_expired(ts, ttl)
 			{
 				let pname = preview_app.name_any();
-				let _ = Api::<Project>::namespaced(ctx.client.clone(), namespace)
+				let _ = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
 					.delete(&pname, &DeleteParams::default())
 					.await;
-				info!("TTL expired, deleted preview {namespace}/{pname}");
+				info!("TTL expired, deleted preview {preview_ns}/{pname}");
 			}
+		}
+
+		// Aggregate surviving previews into the parent status so the Dashboard
+		// can discover them. Re-list after TTL deletions to reflect survivors;
+		// best-effort status write so a status hiccup never blocks availability.
+		let survivors = Api::<Project>::namespaced(ctx.client.clone(), &preview_ns)
+			.list(&preview_list_params)
+			.await
+			.map_err(Error::Kube)?;
+		let previews =
+			resources::preview_status::build_preview_status_list(&survivors.items, "https");
+		let status_patch = serde_json::json!({ "previews": previews });
+		let parent_status_api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
+		if let Err(error) = parent_status_api
+			.patch_status(&name, &PatchParams::default(), &Patch::Merge(&status_patch))
+			.await
+		{
+			warn!("failed to write preview status for {namespace}/{name}: {error}");
 		}
 	}
 
@@ -899,6 +926,32 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				.await?;
 			delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-postgresql"))
 				.await?;
+		}
+	}
+
+	// Preview namespace (#707): when previews were enabled, the operator owns a
+	// dedicated `{name}-preview` namespace. Deleting it cascade-removes every
+	// preview child Project and its sub-resources. Best-effort: a missing
+	// namespace (previews never enabled) is not an error.
+	if app
+		.spec
+		.source
+		.as_ref()
+		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
+	{
+		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
+		if ns_api
+			.get_opt(&preview_ns)
+			.await
+			.map_err(Error::Kube)?
+			.is_some()
+		{
+			ns_api
+				.delete(&preview_ns, &DeleteParams::default())
+				.await
+				.map_err(Error::Kube)?;
+			info!("Deleted preview namespace {preview_ns} during cleanup of {name}");
 		}
 	}
 
@@ -1721,6 +1774,92 @@ async fn reconcile_tenant_resources(
 		"Reconciled tenant resources for namespace {namespace_name} (tenant org={}, team={:?})",
 		tenant.organization, tenant.team
 	);
+	Ok(())
+}
+
+/// Reconcile the `{parent}-preview` namespace and its resource triple plus a
+/// cert-manager `Issuer` (#707).
+///
+/// Mirrors [`reconcile_tenant_resources`] but specialized to the 1:1
+/// parent-to-preview-namespace relationship: the namespace carries the
+/// parent's budget as a `ResourceQuota`, a default `LimitRange`, a
+/// default-deny + ingress/DNS allow `NetworkPolicy` pair, and a cert-manager
+/// `Issuer` configured from platform env settings. Everything is server-side
+/// applied for idempotency.
+async fn reconcile_preview_namespace(
+	client: &Client,
+	parent_name: &str,
+	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
+	preview_config: &PreviewConfig,
+) -> Result<(), Error> {
+	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
+	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+
+	// Namespace is cluster-scoped; use Api::all.
+	let namespaces: Api<Namespace> = Api::all(client.clone());
+	namespaces
+		.patch(
+			&ns_name,
+			&ssapply,
+			&Patch::Apply(&resources::preview_namespace::build_namespace(parent_name)),
+		)
+		.await
+		.map_err(Error::Kube)?;
+
+	let quota = resources::preview_namespace::build_resource_quota(parent_name, budget);
+	let quota_name = quota
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-default-quota".to_string());
+	Api::<k8s_openapi::api::core::v1::ResourceQuota>::namespaced(client.clone(), &ns_name)
+		.patch(&quota_name, &ssapply, &Patch::Apply(&quota))
+		.await
+		.map_err(Error::Kube)?;
+
+	let limit_range = resources::preview_namespace::build_limit_range(parent_name);
+	let limit_range_name = limit_range
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-default-limits".to_string());
+	Api::<LimitRange>::namespaced(client.clone(), &ns_name)
+		.patch(&limit_range_name, &ssapply, &Patch::Apply(&limit_range))
+		.await
+		.map_err(Error::Kube)?;
+
+	for policy in [
+		resources::preview_namespace::build_default_deny_policy(parent_name),
+		resources::preview_namespace::build_allow_ingress_and_dns_policy(parent_name),
+	] {
+		let policy_name = policy
+			.metadata
+			.name
+			.clone()
+			.unwrap_or_else(|| "preview-policy".to_string());
+		Api::<NetworkPolicy>::namespaced(client.clone(), &ns_name)
+			.patch(&policy_name, &ssapply, &Patch::Apply(&policy))
+			.await
+			.map_err(Error::Kube)?;
+	}
+
+	let issuer = resources::preview_namespace::build_issuer(
+		parent_name,
+		&preview_config.acme_server,
+		&preview_config.acme_email,
+		&preview_config.ingress_class,
+	);
+	let issuer_name = issuer
+		.metadata
+		.name
+		.clone()
+		.unwrap_or_else(|| "preview-issuer".to_string());
+	Api::<crate::resources::issuer::Issuer>::namespaced(client.clone(), &ns_name)
+		.patch(&issuer_name, &ssapply, &Patch::Apply(&issuer))
+		.await
+		.map_err(Error::Kube)?;
+
+	info!("Reconciled preview namespace {ns_name}");
 	Ok(())
 }
 

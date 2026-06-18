@@ -3,13 +3,6 @@
 //! cert-manager is a platform prerequisite. Rather than depend on an external
 //! cert-manager crate, we model only the ACME + HTTP-01 shape the operator
 //! emits, strongly typed via `#[derive(CustomResource)]` (CD-1).
-//!
-//! Workaround for reinhardt-cloud#707 (tracked in the same effort):
-// The types below are dead in non-test builds until the preview-namespace
-// builder in `resources::preview_namespace` (`build_issuer`) is wired in.
-// Ideal implementation (without workaround): drop the `dead_code` allow once
-// `build_issuer` constructs these types for the preview namespace reconciler.
-#![allow(dead_code)]
 
 use kube::CustomResource;
 use schemars::JsonSchema;
