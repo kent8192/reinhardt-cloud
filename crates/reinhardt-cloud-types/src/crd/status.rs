@@ -58,6 +58,7 @@ pub struct ProjectCondition {
 
 /// Status of a single preview environment, aggregated on the parent `Project`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PreviewStatus {
 	/// Preview Project name, e.g. `my-app-pr-42`.
 	pub name: String,
@@ -261,6 +262,23 @@ mod tests {
 		assert_eq!(
 			back.previews[0].url.as_deref(),
 			Some("https://my-app-pr-42.preview.example.com")
+		);
+		// Casing: nested preview fields must be camelCase, consistent with ProjectStatus.
+		assert!(
+			json.contains("\"prNumber\""),
+			"pr_number must serialize as prNumber"
+		);
+		assert!(
+			json.contains("\"readyReplicas\""),
+			"ready_replicas must serialize as readyReplicas"
+		);
+		assert!(
+			json.contains("\"lastActivity\""),
+			"last_activity must serialize as lastActivity"
+		);
+		assert!(
+			!json.contains("pr_number"),
+			"snake_case pr_number must not appear"
 		);
 	}
 
