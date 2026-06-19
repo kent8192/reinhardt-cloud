@@ -358,6 +358,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_preview_namespace(
 			&ctx.client,
 			&name,
+			namespace,
+			app.meta().uid.as_deref(),
 			app.spec
 				.source
 				.as_ref()
@@ -837,17 +839,31 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	{
 		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
 		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
-		if ns_api
-			.get_opt(&preview_ns)
-			.await
-			.map_err(Error::Kube)?
-			.is_some()
-		{
-			ns_api
-				.delete(&preview_ns, &DeleteParams::default())
-				.await
-				.map_err(Error::Kube)?;
-			info!("Deleted preview namespace {preview_ns} during cleanup of {name}");
+		if let Some(parent_uid) = app.meta().uid.as_deref() {
+			if let Some(existing_ns) = ns_api.get_opt(&preview_ns).await.map_err(Error::Kube)? {
+				if resources::preview_namespace::labels_match_preview_owner(
+					existing_ns.metadata.labels.as_ref(),
+					&name,
+					namespace,
+					parent_uid,
+				) {
+					ns_api
+						.delete(&preview_ns, &DeleteParams::default())
+						.await
+						.map_err(Error::Kube)?;
+					info!(
+						"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
+					);
+				} else {
+					warn!(
+						"Skipping preview namespace cleanup for {namespace}/{name}: {preview_ns} is not labeled as owned by this Project"
+					);
+				}
+			}
+		} else {
+			warn!(
+				"Skipping preview namespace cleanup for {namespace}/{name}: Project UID is missing"
+			);
 		}
 	}
 
@@ -1696,6 +1712,8 @@ async fn reconcile_tenant_resources(
 async fn reconcile_preview_namespace(
 	client: &Client,
 	parent_name: &str,
+	parent_namespace: &str,
+	parent_uid: Option<&str>,
 	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
 	preview_config: &PreviewConfig,
 ) -> Result<(), Error> {
@@ -1703,11 +1721,21 @@ async fn reconcile_preview_namespace(
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let namespaces: Api<Namespace> = Api::all(client.clone());
+	let Some(parent_uid) = parent_uid else {
+		warn!(
+			"Skipping preview namespace reconciliation for {parent_namespace}/{parent_name}: Project UID is missing"
+		);
+		return Ok(());
+	};
 	namespaces
 		.patch(
 			&ns_name,
 			&ssapply,
-			&Patch::Apply(&resources::preview_namespace::build_namespace(parent_name)),
+			&Patch::Apply(&resources::preview_namespace::build_namespace(
+				parent_name,
+				parent_namespace,
+				parent_uid,
+			)),
 		)
 		.await
 		.map_err(Error::Kube)?;
