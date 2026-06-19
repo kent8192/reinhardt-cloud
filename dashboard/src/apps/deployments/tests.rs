@@ -9,4 +9,5 @@ pub mod unit {
 	pub mod test_deployment_property;
 	pub mod test_request_validation;
 	pub mod test_serializer;
+	pub mod test_submit_service;
 }
