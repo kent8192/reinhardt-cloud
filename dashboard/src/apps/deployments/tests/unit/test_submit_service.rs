@@ -50,7 +50,7 @@ spec:
 
 		// Act
 		let project =
-			validate_submission_manifest(input).expect("matching manifest should validate");
+			validate_submission_manifest(input, "web").expect("matching manifest should validate");
 
 		// Assert
 		assert_eq!(project.metadata.name.as_deref(), Some("web"));
@@ -73,7 +73,7 @@ spec:
 		};
 
 		// Act
-		let project = validate_submission_manifest(input)
+		let project = validate_submission_manifest(input, "web")
 			.expect("trimmed project name should match manifest metadata name");
 
 		// Assert
@@ -95,7 +95,7 @@ spec:
 		};
 
 		// Act
-		let error = validate_submission_manifest(input).unwrap_err();
+		let error = validate_submission_manifest(input, "web").unwrap_err();
 
 		// Assert
 		assert_eq!(
@@ -122,7 +122,7 @@ spec:
 		};
 
 		// Act
-		let error = validate_submission_manifest(input).unwrap_err();
+		let error = validate_submission_manifest(input, "web").unwrap_err();
 
 		// Assert
 		assert_eq!(
@@ -149,7 +149,7 @@ spec:
 		};
 
 		// Act
-		let error = validate_submission_manifest(input).unwrap_err();
+		let error = validate_submission_manifest(input, "web").unwrap_err();
 
 		// Assert
 		assert_eq!(
@@ -175,7 +175,7 @@ spec:
 		};
 
 		// Act
-		let error = validate_submission_manifest(input).unwrap_err();
+		let error = validate_submission_manifest(input, "web").unwrap_err();
 
 		// Assert
 		assert_eq!(

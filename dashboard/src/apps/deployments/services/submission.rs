@@ -66,7 +66,7 @@ pub async fn submit_project_deployment(
 ) -> Result<Deployment, SubmitProjectDeploymentError> {
 	let project_name = validate_project_name(input.project_name)?;
 	let image = validate_image(input.image)?;
-	validate_submission_manifest(input)?;
+	validate_submission_manifest(input, &project_name)?;
 	validate_submission_cluster(input.cluster)?;
 	let cluster_id = input.cluster.id.ok_or_else(|| {
 		SubmitProjectDeploymentError::Internal("Cluster row missing primary key".to_string())
@@ -117,6 +117,7 @@ pub fn validate_submission_cluster(cluster: &Cluster) -> Result<(), SubmitProjec
 
 pub fn validate_submission_manifest(
 	input: SubmitProjectDeploymentInput<'_>,
+	project_name: &str,
 ) -> Result<Project, SubmitProjectDeploymentError> {
 	if input.project_yaml.trim().is_empty() {
 		return Err(SubmitProjectDeploymentError::BadRequest(
@@ -139,8 +140,7 @@ pub fn validate_submission_manifest(
 				"Project YAML metadata.name is required".to_string(),
 			)
 		})?;
-	let project_name = validate_project_name(input.project_name)?;
-	if manifest_name != project_name.as_str() {
+	if manifest_name != project_name {
 		return Err(SubmitProjectDeploymentError::BadRequest(
 			"Project YAML metadata.name must match project_name".to_string(),
 		));
