@@ -300,13 +300,13 @@ mod tests {
 	#[rstest]
 	fn test_cli_deploy_request_serializes_expected_fields() {
 		// Arrange
+		let project_yaml = "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n";
 		let request = CliDeployRequest {
 			project_name: "demo".to_string(),
 			cluster: "prod".to_string(),
 			namespace: "default".to_string(),
 			image: "demo:latest".to_string(),
-			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
-				.to_string(),
+			project_yaml: project_yaml.to_string(),
 		};
 
 		// Act
@@ -317,12 +317,7 @@ mod tests {
 		assert_eq!(json["cluster"], "prod");
 		assert_eq!(json["namespace"], "default");
 		assert_eq!(json["image"], "demo:latest");
-		assert!(
-			json["project_yaml"]
-				.as_str()
-				.unwrap()
-				.contains("kind: Project")
-		);
+		assert_eq!(json["project_yaml"], project_yaml);
 	}
 
 	#[rstest]
@@ -330,12 +325,20 @@ mod tests {
 	async fn test_submit_deploy_posts_bearer_json_and_decodes_response() {
 		// Arrange
 		let server = wiremock::MockServer::start().await;
+		let project_yaml = "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n";
 		wiremock::Mock::given(wiremock::matchers::method("POST"))
 			.and(wiremock::matchers::path("/api/deployments/cli/"))
 			.and(wiremock::matchers::header(
 				"Authorization",
 				"Bearer rct_valid",
 			))
+			.and(wiremock::matchers::body_json(serde_json::json!({
+				"project_name": "demo",
+				"cluster": "prod",
+				"namespace": "default",
+				"image": "demo:latest",
+				"project_yaml": project_yaml
+			})))
 			.respond_with(
 				wiremock::ResponseTemplate::new(202).set_body_json(serde_json::json!({
 					"deployment_id": 7,
@@ -355,8 +358,7 @@ mod tests {
 			cluster: "prod".to_string(),
 			namespace: "default".to_string(),
 			image: "demo:latest".to_string(),
-			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
-				.to_string(),
+			project_yaml: project_yaml.to_string(),
 		};
 
 		// Act
@@ -422,6 +424,41 @@ mod tests {
 			result,
 			Err(ClientError::ServiceUnavailable(message))
 				if message == "No agent connected for cluster prod"
+		));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_submit_deploy_maps_409_error_body() {
+		// Arrange
+		let server = wiremock::MockServer::start().await;
+		wiremock::Mock::given(wiremock::matchers::method("POST"))
+			.and(wiremock::matchers::path("/api/deployments/cli/"))
+			.respond_with(wiremock::ResponseTemplate::new(409).set_body_json(
+				serde_json::json!({ "error": "Deployment already exists for project demo" }),
+			))
+			.mount(&server)
+			.await;
+		let client = ReinhardtCloudClient::new(&server.uri())
+			.unwrap()
+			.with_token("rct_valid".to_string());
+		let request = CliDeployRequest {
+			project_name: "demo".to_string(),
+			cluster: "prod".to_string(),
+			namespace: "default".to_string(),
+			image: "demo:latest".to_string(),
+			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
+				.to_string(),
+		};
+
+		// Act
+		let result = client.submit_deploy(&request).await;
+
+		// Assert
+		assert!(matches!(
+			result,
+			Err(ClientError::Conflict(message))
+				if message == "Deployment already exists for project demo"
 		));
 	}
 }
