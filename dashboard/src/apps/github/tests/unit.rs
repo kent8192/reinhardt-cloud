@@ -1332,7 +1332,7 @@ pub mod server_fn_tests {
 	}
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod setup_state_tests {
 	use rstest::rstest;
 	use uuid::Uuid;
