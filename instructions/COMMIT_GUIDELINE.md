@@ -114,6 +114,71 @@ git apply --cached /tmp/changes.patch
 - Verify staged files before committing
 - Use `git status` to confirm no ignored files are included
 
+### CE-4a (MUST): Excluded Tooling Artifacts
+
+The following categories of files MUST NOT be committed, even if not in `.gitignore`:
+
+- **Superpowers skill documentation**: Any documentation, prompts, or reference material from the `superpowers` skill family or its sub-skills.
+  - Why: These are agent-runtime artifacts and are not part of the project's source of truth.
+  - How to apply: If `git status` shows files under paths like `superpowers/`, `.superpowers/`, or skill prompt dumps, exclude them from staging. If you find them already tracked, remove them in a dedicated `chore:` commit.
+- **Claude/agent runtime caches and tool-result spills**: Files under `.claude/projects/.../tool-results/`, `.claude/projects/.../memory/`, or similar runtime locations.
+  - Why: Per-machine, per-session, and may contain sensitive context.
+
+If unsure whether an artifact qualifies, default to excluding it and ask the user.
+
+### CE-5: Automated Releases with release-plz
+
+**Overview:**
+
+This project uses [release-plz](https://release-plz.ieni.dev/) for automated release management. Version bumps, CHANGELOG updates, GitHub Releases, and Git tags are handled automatically based on conventional commits and `release-plz.toml`.
+
+**How It Works:**
+
+1. Write commits following [Conventional Commits](https://www.conventionalcommits.org/) format
+2. Push to main branch
+3. release-plz automatically creates a Release PR with:
+   - Version bumps in `Cargo.toml` files
+   - Updated CHANGELOG.md files
+   - Summary of changes
+4. Review and merge the Release PR
+5. release-plz creates GitHub Releases and Git tags for configured packages
+
+**Commit-to-Version Mapping:**
+
+| Commit Type | Version Bump | Example |
+|-------------|--------------|---------|
+| `feat:` | MINOR | `feat(operator): add deployment rollout controls` |
+| `fix:` | PATCH | `fix(dashboard): resolve project import validation` |
+| `feat!:` or `BREAKING CHANGE:` | MAJOR | `feat!: change Project CRD apiVersion` |
+| Other types | PATCH | `docs:`, `chore:`, `refactor:`, etc. |
+
+**Manual Intervention:**
+
+- Edit the Release PR to adjust CHANGELOG entries or version numbers if needed
+- Release PRs can be modified before merging
+
+**Critical Rules:**
+- Use conventional commit format for proper version detection
+- Review Release PRs before merging
+- NEVER manually bump versions in feature branches (let release-plz handle it)
+- NEVER create release tags manually (release-plz creates them)
+
+The following diagram illustrates the release-plz automated workflow:
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Git as Git/GitHub
+    participant RP as release-plz
+
+    Dev->>Git: Push conventional commits to main
+    RP->>Git: Analyze commits since last release
+    RP->>Git: Create Release PR (version bumps + CHANGELOG)
+    Dev->>Git: Review and merge Release PR
+    RP->>Git: Create GitHub Releases
+    RP->>Git: Create git tags (package@vX.Y.Z)
+```
+
 ---
 
 ## Commit Message Structure
@@ -311,23 +376,40 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ### CG-1: Commit Type to CHANGELOG Section Mapping
 
+The following diagram shows how commit types map to version bumps and CHANGELOG sections:
+
+```mermaid
+flowchart LR
+    A["feat:"] --> B["MINOR bump"]
+    C["fix:"] --> D["PATCH bump"]
+    E["feat!: / BREAKING CHANGE:"] --> F["MAJOR bump"]
+    G["other types"] --> H["PATCH bump"]
+
+    B --> I["Added section"]
+    D --> J["Fixed section"]
+    F --> K["Breaking section"]
+    H --> L["Maintenance/Other section"]
+```
+
 Every commit type maps to a specific CHANGELOG section:
 
-| Commit Type | CHANGELOG Section |
-|-------------|-------------------|
-| `feat` | Added |
-| `fix` | Fixed |
-| `perf` | Performance |
-| `refactor` | Changed |
-| `docs` | Documentation |
-| `revert` | Reverted |
-| `deprecated` | Deprecated |
-| `security` | Security |
-| `chore` | Maintenance |
-| `ci` | Maintenance |
-| `build` | Maintenance |
-| `test` | Testing |
-| `style` | Styling |
+| Commit Type | CHANGELOG Section | Keep a Changelog Category |
+|-------------|-------------------|---------------------------|
+| `feat` | Added | Added |
+| `fix` | Fixed | Fixed |
+| `perf` | Performance | — (custom) |
+| `refactor` | Changed | Changed |
+| `docs` | Documentation | — (custom) |
+| `revert` | Reverted | — (custom) |
+| `deprecated` | Deprecated | Deprecated |
+| `security` | Security | Security |
+| `chore` | Maintenance | — (custom) |
+| `ci` | Maintenance | — (custom) |
+| `build` | Maintenance | — (custom) |
+| `test` | Testing | — (custom) |
+| `style` | Styling | — (custom) |
+
+All commit types are included in the CHANGELOG. No commit type is silently dropped.
 
 ### CG-2: Writing CHANGELOG-Friendly Descriptions
 
@@ -338,9 +420,57 @@ Commit descriptions appear directly in the CHANGELOG. Write them so they make se
 - ✅ Good: `fix(reconciler): resolve status update panic when deployment is missing`
 - ✅ Good: `refactor(crd): extract condition builder into dedicated module`
 
+**Guidelines:**
+
+- Write descriptions that are meaningful to users reading release notes
+- Include the affected component in the scope when applicable
+- Be specific about what changed, not just that something changed
+
+### CG-3: Scope and Breaking Change Rendering
+
+**Scope**: The `(scope)` portion of the commit type is preserved in the CHANGELOG entry. Use scopes consistently to help users filter relevant changes.
+
+**Breaking changes**: When `protect_breaking_commits = true` is set in `release-plz.toml`, commits with `!` or `BREAKING CHANGE:` footer are always included in the CHANGELOG, even if the commit type would otherwise be skipped. Breaking changes are rendered with a `[**breaking**]` prefix in the CHANGELOG.
+
+### CG-4: GitHub Issue/PR Reference Auto-Linking
+
+References to GitHub issues and PRs in commit messages are automatically converted to clickable links:
+
+- `#123` → `[#123](https://github.com/kent8192/reinhardt-cloud/issues/123)`
+
+This is handled by `commit_preprocessors` in `release-plz.toml`. Use `#NNN` format in commit descriptions or bodies to reference issues.
+
+### CG-5: Automatically Skipped Commits
+
+The following commit patterns are excluded from CHANGELOG generation:
+
+| Pattern | Reason |
+|---------|--------|
+| `chore: release` | release-plz automation commits |
+| `Merge ...` | Git merge commits |
+| `Revert "..."` | GitHub-generated revert commits (manual `revert:` type commits are included) |
+| `Initial plan ...` | Plan mode initialization commits |
+
+**Note**: Even skipped commits with breaking changes are included due to `protect_breaking_commits = true`.
+
+### CG-6: CHANGELOG Verification
+
+After pushing commits, verify CHANGELOG generation in the Release PR:
+
+1. Check that each commit appears in the expected section
+2. Verify breaking changes are highlighted
+3. Confirm issue references are properly linked
+4. Review the Release PR diff for `CHANGELOG.md` files
+
+```bash
+# Preview what release-plz will generate (requires release-plz CLI)
+release-plz generate-changelog
+```
+
 ---
 
 ## Related Documentation
 
 - **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
 - **Main Standards**: @CLAUDE.md
+- **Release Configuration**: @release-plz.toml

@@ -10,5 +10,5 @@ use crate::apps::clusters::client::pages::clusters_list_page;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| s)
-		.client(|c| c.route("list", "/clusters", clusters_list_page))
+		.client(|c| c.page("list", "/clusters", clusters_list_page))
 }

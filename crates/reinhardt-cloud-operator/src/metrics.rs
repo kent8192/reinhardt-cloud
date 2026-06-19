@@ -20,6 +20,10 @@
 //!   Incremented when a new phase is observed during status update and
 //!   decremented when the object is cleaned up or transitions to a
 //!   different phase.
+//! - `reinhardt_cloud_operator_managed_apps_ready_replicas{namespace,project}` —
+//!   ready replicas of the managed `Deployment`, set from observed status.
+//! - `reinhardt_cloud_operator_managed_apps_desired_replicas{namespace,project}` —
+//!   desired replicas (`spec.replicas`, default 1) of the managed `Deployment`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,6 +61,8 @@ pub(crate) struct Metrics {
 	pub(crate) reconcile_duration: HistogramVec,
 	pub(crate) requeue_total: CounterVec,
 	pub(crate) managed_apps: GaugeVec,
+	pub(crate) managed_apps_ready_replicas: GaugeVec,
+	pub(crate) managed_apps_desired_replicas: GaugeVec,
 }
 
 impl Metrics {
@@ -104,6 +110,24 @@ impl Metrics {
 		)
 		.expect("valid gauge definition");
 
+		let managed_apps_ready_replicas = GaugeVec::new(
+			Opts::new(
+				"reinhardt_cloud_operator_managed_apps_ready_replicas",
+				"Ready replicas of the managed Deployment, labeled by namespace and project.",
+			),
+			&["namespace", "project"],
+		)
+		.expect("valid gauge definition");
+
+		let managed_apps_desired_replicas = GaugeVec::new(
+			Opts::new(
+				"reinhardt_cloud_operator_managed_apps_desired_replicas",
+				"Desired replicas of the managed Deployment, labeled by namespace and project.",
+			),
+			&["namespace", "project"],
+		)
+		.expect("valid gauge definition");
+
 		// Register; unwrap is safe because definitions above are static.
 		registry
 			.register(Box::new(reconcile_total.clone()))
@@ -117,6 +141,12 @@ impl Metrics {
 		registry
 			.register(Box::new(managed_apps.clone()))
 			.expect("metric registration");
+		registry
+			.register(Box::new(managed_apps_ready_replicas.clone()))
+			.expect("metric registration");
+		registry
+			.register(Box::new(managed_apps_desired_replicas.clone()))
+			.expect("metric registration");
 
 		Arc::new(Self {
 			registry,
@@ -124,6 +154,8 @@ impl Metrics {
 			reconcile_duration,
 			requeue_total,
 			managed_apps,
+			managed_apps_ready_replicas,
+			managed_apps_desired_replicas,
 		})
 	}
 
@@ -337,6 +369,48 @@ mod tests {
 		assert!(text.contains("reinhardt_cloud_operator_reconcile_total"));
 		assert!(text.contains("reinhardt_cloud_operator_requeue_total"));
 		assert!(text.contains("reinhardt_cloud_operator_managed_apps"));
+	}
+
+	#[rstest]
+	fn replica_gauges_register_and_round_trip() {
+		// Arrange
+		let metrics = Metrics::new();
+
+		// Act — set both replica gauges for one (namespace, project) pair.
+		metrics
+			.managed_apps_ready_replicas
+			.with_label_values(&["tenant-acme", "my-app"])
+			.set(3.0);
+		metrics
+			.managed_apps_desired_replicas
+			.with_label_values(&["tenant-acme", "my-app"])
+			.set(3.0);
+		let text = String::from_utf8(metrics.encode()).expect("utf8");
+
+		// Assert — both gauges are registered and encode exact labeled samples.
+		let sample_lines = text
+			.lines()
+			.filter(|line| !line.starts_with('#'))
+			.collect::<Vec<_>>();
+		let ready_sample = sample_lines
+			.iter()
+			.copied()
+			.find(|line| line.starts_with("reinhardt_cloud_operator_managed_apps_ready_replicas{"));
+		let desired_sample = sample_lines.iter().copied().find(|line| {
+			line.starts_with("reinhardt_cloud_operator_managed_apps_desired_replicas{")
+		});
+		assert_eq!(
+			ready_sample,
+			Some(
+				r#"reinhardt_cloud_operator_managed_apps_ready_replicas{namespace="tenant-acme",project="my-app"} 3"#
+			)
+		);
+		assert_eq!(
+			desired_sample,
+			Some(
+				r#"reinhardt_cloud_operator_managed_apps_desired_replicas{namespace="tenant-acme",project="my-app"} 3"#
+			)
+		);
 	}
 
 	#[rstest]

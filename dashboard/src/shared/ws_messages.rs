@@ -115,8 +115,8 @@ pub enum WsClientMessage {
 	Unsubscribe { deployment_ids: Vec<String> },
 	/// Subscribe to build log events.
 	SubscribeBuildLogs { build_id: String },
-	/// Subscribe to application log stream.
-	SubscribeAppLogs { project_name: String },
+	/// Subscribe to application log stream for an authorized deployment.
+	SubscribeAppLogs { deployment_id: String },
 	/// Unsubscribe from all log streams.
 	UnsubscribeLogs,
 }
@@ -199,7 +199,7 @@ mod tests {
 	fn test_ws_client_message_subscribe_app_logs_roundtrip() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeAppLogs {
-			project_name: "my-project".to_string(),
+			deployment_id: "42".to_string(),
 		};
 
 		// Act
@@ -209,10 +209,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(parsed["type"], "SubscribeAppLogs");
-		assert_eq!(parsed["payload"]["project_name"], "my-project");
+		assert_eq!(parsed["payload"]["deployment_id"], "42");
 		match roundtrip {
-			WsClientMessage::SubscribeAppLogs { project_name } => {
-				assert_eq!(project_name, "my-project");
+			WsClientMessage::SubscribeAppLogs { deployment_id } => {
+				assert_eq!(deployment_id, "42");
 			}
 			_ => panic!("expected SubscribeAppLogs"),
 		}

@@ -1,5 +1,6 @@
 //! Kubernetes resource builders for operator-managed resources.
 
+pub(crate) mod autoscaler;
 pub(crate) mod cache;
 pub(crate) mod credentials;
 pub(crate) mod database;
@@ -7,11 +8,14 @@ pub(crate) mod deployment;
 pub(crate) mod grpc;
 pub(crate) mod i18n;
 pub(crate) mod ingress;
+pub(crate) mod issuer;
 pub(crate) mod labels;
 pub(crate) mod mail;
 pub(crate) mod migration;
 pub(crate) mod plugins;
 pub(crate) mod preview;
+pub(crate) mod preview_namespace;
+pub(crate) mod preview_status;
 pub(crate) mod security;
 pub(crate) mod service;
 pub(crate) mod service_account;
@@ -21,6 +25,7 @@ pub(crate) mod tenant;
 pub(crate) mod worker;
 
 // Re-exports for convenient access from parent modules
+pub(crate) use autoscaler::{AutoscalerPlan, build_autoscaler, hpa_is_ready};
 pub(crate) use database::{build_db_secret, build_db_service, build_db_statefulset};
 pub(crate) use deployment::build_deployment;
 pub(crate) use ingress::build_ingress;

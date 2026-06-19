@@ -58,6 +58,27 @@ pub(crate) fn build_kaniko_job(app: &Project, image_tag: &str) -> Result<Job, Er
 	build_kaniko_job_for_branch(app, image_tag, None)
 }
 
+pub(crate) fn build_job_name(project_name: &str, image_tag: &str) -> String {
+	let image_tag_name = image_tag
+		.chars()
+		.map(|ch| {
+			if ch.is_ascii_alphanumeric() || ch == '-' {
+				ch.to_ascii_lowercase()
+			} else {
+				'-'
+			}
+		})
+		.collect::<String>()
+		.trim_matches('-')
+		.to_string();
+	let image_tag_name = if image_tag_name.is_empty() {
+		"image".to_string()
+	} else {
+		image_tag_name
+	};
+	format!("{project_name}-build-{image_tag_name}")
+}
+
 pub(crate) fn build_kaniko_job_for_branch(
 	app: &Project,
 	image_tag: &str,
@@ -85,10 +106,7 @@ pub(crate) fn build_kaniko_job_for_branch(
 	let context = build.and_then(|b| b.context.as_deref()).unwrap_or(".");
 	let destination = built_image_reference(app, image_tag)?;
 
-	// Truncate tag to 8 chars for the job name
-	let tag_prefix_start = image_tag.len().saturating_sub(8);
-	let tag_prefix = &image_tag[tag_prefix_start..];
-	let job_name = format!("{project_name}-build-{tag_prefix}");
+	let job_name = build_job_name(&project_name, image_tag);
 
 	// Build kaniko args
 	let mut args = vec![
@@ -270,7 +288,40 @@ mod tests {
 		let job = build_kaniko_job(&app, "abc12345def").unwrap();
 
 		// Assert
-		assert_eq!(job.metadata.name.as_deref(), Some("my-app-build-12345def"));
+		assert_eq!(
+			job.metadata.name.as_deref(),
+			Some("my-app-build-abc12345def")
+		);
+	}
+
+	#[rstest]
+	fn test_job_name_uses_full_image_tag_to_distinguish_targets() {
+		// Arrange
+		let app = test_app_with_source("my-app");
+
+		// Act
+		let production = build_kaniko_job(&app, "my-app-abcdef12").unwrap();
+		let preview = build_kaniko_job(&app, "pr-42-abcdef12").unwrap();
+
+		// Assert
+		assert_eq!(
+			production.metadata.name.as_deref(),
+			Some("my-app-build-my-app-abcdef12")
+		);
+		assert_eq!(
+			preview.metadata.name.as_deref(),
+			Some("my-app-build-pr-42-abcdef12")
+		);
+		assert_ne!(production.metadata.name, preview.metadata.name);
+	}
+
+	#[rstest]
+	fn test_job_name_sanitizes_image_tag() {
+		// Act
+		let name = build_job_name("my-app", "Release_2026.06.18");
+
+		// Assert
+		assert_eq!(name, "my-app-build-release-2026-06-18");
 	}
 
 	#[rstest]

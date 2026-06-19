@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
-	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewOverrides, PreviewSpec, ProjectSpec,
-	ScaleMetric, ScaleSpec, ServicesSpec, SourceSpec, StorageBackend, StorageSpec, WebhookEvent,
-	WebhookSpec, WorkerSpec,
+	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewBudget, PreviewOverrides,
+	PreviewSpec, ProjectSpec, ScaleMetric, ScaleSpec, ServiceTlsSpec, ServicesSpec, SourceSpec,
+	StorageBackend, StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
 };
 
 /// Root configuration structure for `reinhardt-cloud.toml`
@@ -111,6 +111,23 @@ pub struct ServicesSection {
 	pub target_port: Option<i32>,
 	/// Ingress hostname for external access
 	pub ingress_host: Option<String>,
+	/// TLS configuration for generated Ingress resources
+	#[serde(default)]
+	pub tls: Option<ServiceTlsSection>,
+}
+
+/// TLS configuration section nested under `[services]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServiceTlsSection {
+	/// Whether TLS should be configured on the generated Ingress
+	#[serde(default)]
+	pub enabled: bool,
+	/// Secret containing the certificate and private key
+	pub secret_name: Option<String>,
+	/// cert-manager Issuer name in the same namespace
+	pub issuer: Option<String>,
+	/// cert-manager ClusterIssuer name
+	pub cluster_issuer: Option<String>,
 }
 
 /// Replica count configuration section of `reinhardt-cloud.toml`
@@ -248,6 +265,9 @@ pub struct PreviewTomlSection {
 	/// Resource overrides for preview deployments
 	#[serde(default)]
 	pub overrides: Option<PreviewOverridesTomlSection>,
+	/// Cost ceiling for preview environments
+	#[serde(default)]
+	pub budget: Option<PreviewBudgetTomlSection>,
 }
 
 /// Preview resource overrides section of `reinhardt-cloud.toml`
@@ -255,6 +275,17 @@ pub struct PreviewTomlSection {
 pub struct PreviewOverridesTomlSection {
 	/// Override replica count for preview
 	pub replicas: Option<i32>,
+}
+
+/// Preview budget section of `reinhardt-cloud.toml`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PreviewBudgetTomlSection {
+	/// Hard cap on replicas per preview Project
+	pub max_replicas: Option<i32>,
+	/// Namespace-wide CPU limit
+	pub max_cpu: Option<String>,
+	/// Namespace-wide memory limit
+	pub max_memory: Option<String>,
 }
 
 impl ReinhardtCloudToml {
@@ -286,6 +317,12 @@ impl ReinhardtCloudToml {
 				port: s.port,
 				target_port: s.target_port,
 				ingress_host: s.ingress_host.clone(),
+				tls: s.tls.as_ref().map(|tls| ServiceTlsSpec {
+					enabled: tls.enabled,
+					secret_name: tls.secret_name.clone(),
+					issuer: tls.issuer.clone(),
+					cluster_issuer: tls.cluster_issuer.clone(),
+				}),
 			}),
 			scale: self.scale.as_ref().map(|s| ScaleSpec {
 				min_replicas: s.min_replicas,
@@ -365,6 +402,11 @@ impl ReinhardtCloudToml {
 						replicas: o.replicas,
 						database: None,
 						cache: None,
+					}),
+					budget: p.budget.as_ref().map(|b| PreviewBudget {
+						max_replicas: b.max_replicas,
+						max_cpu: b.max_cpu.clone(),
+						max_memory: b.max_memory.clone(),
 					}),
 				}),
 			}),
@@ -584,6 +626,38 @@ min_replicas = 2
 	}
 
 	#[rstest]
+	fn test_services_tls_section_maps_to_project_spec() {
+		// Arrange
+		let toml_str = r#"
+[app]
+name = "tls-test"
+image = "tls-test:latest"
+
+[services]
+port = 80
+target_port = 8000
+ingress_host = "tls.example.com"
+
+[services.tls]
+enabled = true
+secret_name = "tls-example-com"
+cluster_issuer = "letsencrypt-prod"
+"#;
+
+		// Act
+		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
+		let spec = config.to_project_spec();
+
+		// Assert
+		let services = spec.services.expect("services section should map");
+		let tls = services.tls.expect("tls section should map");
+		assert!(tls.enabled);
+		assert_eq!(tls.secret_name.as_deref(), Some("tls-example-com"));
+		assert_eq!(tls.cluster_issuer.as_deref(), Some("letsencrypt-prod"));
+		assert!(tls.issuer.is_none());
+	}
+
+	#[rstest]
 	fn test_storage_section_s3_backend() {
 		// Arrange
 		let config = ReinhardtCloudToml {
@@ -721,6 +795,11 @@ url_template = "{branch}.preview.example.com"
 
 [source.preview.overrides]
 replicas = 1
+
+[source.preview.budget]
+max_replicas = 3
+max_cpu = "2"
+max_memory = "4Gi"
 "#;
 		// Act
 		let config: ReinhardtCloudToml = toml::from_str(toml_str).unwrap();
@@ -738,6 +817,10 @@ replicas = 1
 			Some("{branch}.preview.example.com")
 		);
 		assert_eq!(preview.overrides.unwrap().replicas, Some(1));
+		let budget = preview.budget.unwrap();
+		assert_eq!(budget.max_replicas, Some(3));
+		assert_eq!(budget.max_cpu.as_deref(), Some("2"));
+		assert_eq!(budget.max_memory.as_deref(), Some("4Gi"));
 	}
 
 	#[rstest]
@@ -775,6 +858,11 @@ replicas = 1
 					ttl: Some("48h".into()),
 					url_template: Some("{branch}.dev.example.com".into()),
 					overrides: Some(PreviewOverridesTomlSection { replicas: Some(2) }),
+					budget: Some(PreviewBudgetTomlSection {
+						max_replicas: Some(2),
+						max_cpu: Some("1".into()),
+						max_memory: Some("2Gi".into()),
+					}),
 				}),
 			}),
 			..Default::default()
@@ -808,6 +896,10 @@ replicas = 1
 		assert_eq!(overrides.replicas, Some(2));
 		assert!(overrides.database.is_none());
 		assert!(overrides.cache.is_none());
+		let budget = preview.budget.unwrap();
+		assert_eq!(budget.max_replicas, Some(2));
+		assert_eq!(budget.max_cpu.as_deref(), Some("1"));
+		assert_eq!(budget.max_memory.as_deref(), Some("2Gi"));
 	}
 
 	#[rstest]

@@ -71,21 +71,21 @@ pub struct ScaleConfig {
 impl ScaleConfig {
 	/// Validates the autoscaling configuration.
 	///
-	/// Checks that replica counts are non-negative, max >= min when both
+	/// Checks that replica counts are positive, max >= min when both
 	/// are present, and target_value is positive.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
 		if let Some(min) = self.min_replicas
-			&& min < 0
+			&& min < 1
 		{
-			errors.push(ValidationError::new("scale.min_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.min_replicas must be >= 1"));
 		}
 
 		if let Some(max) = self.max_replicas
-			&& max < 0
+			&& max < 1
 		{
-			errors.push(ValidationError::new("scale.max_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.max_replicas must be >= 1"));
 		}
 
 		if let (Some(min), Some(max)) = (self.min_replicas, self.max_replicas)
@@ -367,8 +367,8 @@ name = "minimal-app"
 		let errors = result.unwrap_err();
 		// min(-1) + max(-2) + max<min + target(0)
 		assert_eq!(errors.len(), 4);
-		assert_eq!(errors[0].message, "scale.min_replicas must be >= 0");
-		assert_eq!(errors[1].message, "scale.max_replicas must be >= 0");
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 1");
+		assert_eq!(errors[1].message, "scale.max_replicas must be >= 1");
 		assert_eq!(
 			errors[2].message,
 			"scale.max_replicas must be >= scale.min_replicas"
@@ -461,7 +461,7 @@ name = "minimal-app"
 		// deploy.replicas(-1) + scale.min(-1) + services.port(0) + health.interval(0)
 		assert_eq!(errors.len(), 4);
 		assert_eq!(errors[0].message, "deploy.replicas must be >= 0");
-		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 1");
 		assert_eq!(
 			errors[2].message,
 			"services.port must be between 1 and 65535"

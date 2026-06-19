@@ -135,6 +135,20 @@ pub struct PreviewOverrides {
 	pub cache: Option<bool>,
 }
 
+/// Per-parent cost ceiling for preview environments.
+///
+/// `max_replicas` is enforced as a per-preview clamp inside `build_preview_spec`.
+/// `max_cpu` and `max_memory` become namespace-wide `ResourceQuota` hard limits.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PreviewBudget {
+	/// Hard cap on replicas per preview Project (enforced in `build_preview_spec`).
+	pub max_replicas: Option<i32>,
+	/// Namespace-wide CPU limit, e.g. `"2"` -> ResourceQuota `hard.limits.cpu`.
+	pub max_cpu: Option<String>,
+	/// Namespace-wide memory limit, e.g. `"4Gi"` -> ResourceQuota `hard.limits.memory`.
+	pub max_memory: Option<String>,
+}
+
 /// Preview environment configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PreviewSpec {
@@ -148,6 +162,9 @@ pub struct PreviewSpec {
 	pub url_template: Option<String>,
 	/// Resource overrides for preview deployments.
 	pub overrides: Option<PreviewOverrides>,
+	/// Per-parent cost ceiling applied to the preview namespace.
+	#[serde(default)]
+	pub budget: Option<PreviewBudget>,
 }
 
 impl PreviewSpec {
@@ -180,6 +197,15 @@ impl PreviewSpec {
 		{
 			errors.push(ValidationError::new(
 				"source.preview.overrides.replicas must be > 0",
+			));
+		}
+
+		if let Some(ref budget) = self.budget
+			&& let Some(max_replicas) = budget.max_replicas
+			&& max_replicas <= 0
+		{
+			errors.push(ValidationError::new(
+				"source.preview.budget.max_replicas must be > 0",
 			));
 		}
 
@@ -536,6 +562,7 @@ mod tests {
 				database: Some(false),
 				cache: Some(false),
 			}),
+			budget: None,
 		};
 
 		// Act
@@ -553,6 +580,7 @@ mod tests {
 			ttl: Some(String::new()),
 			url_template: None,
 			overrides: None,
+			budget: None,
 		};
 
 		// Act
@@ -572,6 +600,7 @@ mod tests {
 			ttl: None,
 			url_template: Some(String::new()),
 			overrides: None,
+			budget: None,
 		};
 
 		// Act
@@ -595,6 +624,7 @@ mod tests {
 				database: None,
 				cache: None,
 			}),
+			budget: None,
 		};
 
 		// Act
@@ -618,6 +648,7 @@ mod tests {
 				database: None,
 				cache: None,
 			}),
+			budget: None,
 		};
 
 		// Act
@@ -641,6 +672,7 @@ mod tests {
 				database: None,
 				cache: None,
 			}),
+			budget: None,
 		};
 
 		// Act
@@ -663,6 +695,7 @@ mod tests {
 				database: Some(true),
 				cache: Some(false),
 			}),
+			budget: None,
 		};
 
 		// Act
@@ -723,6 +756,7 @@ mod tests {
 					database: Some(false),
 					cache: Some(false),
 				}),
+				budget: None,
 			}),
 		};
 
@@ -867,6 +901,7 @@ mod tests {
 				ttl: Some(String::new()),
 				url_template: None,
 				overrides: None,
+				budget: None,
 			}),
 		};
 
@@ -907,6 +942,7 @@ mod tests {
 					database: None,
 					cache: None,
 				}),
+				budget: None,
 			}),
 		};
 
@@ -948,6 +984,7 @@ mod tests {
 					database: Some(true),
 					cache: Some(false),
 				}),
+				budget: None,
 			}),
 		};
 
@@ -996,5 +1033,50 @@ mod tests {
 		assert!(spec.build.is_none());
 		assert!(spec.webhook.is_none());
 		assert!(spec.preview.is_none());
+	}
+
+	// --- PreviewBudget ---
+
+	#[rstest]
+	fn preview_budget_roundtrip() {
+		// Arrange
+		let budget = PreviewBudget {
+			max_replicas: Some(2),
+			max_cpu: Some("2".to_string()),
+			max_memory: Some("4Gi".to_string()),
+		};
+
+		// Act
+		let json = serde_json::to_string(&budget).unwrap();
+		let back: PreviewBudget = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(back, budget);
+	}
+
+	#[rstest]
+	fn preview_spec_with_budget_validates() {
+		// Arrange
+		let spec = PreviewSpec {
+			enabled: true,
+			ttl: Some("72h".to_string()),
+			url_template: None,
+			overrides: None,
+			budget: Some(PreviewBudget {
+				max_replicas: Some(0), // zero is invalid
+				max_cpu: None,
+				max_memory: None,
+			}),
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.expect_err("max_replicas <= 0 must fail");
+		assert!(errors.iter().any(|e| {
+			e.message
+				.contains("source.preview.budget.max_replicas must be > 0")
+		}));
 	}
 }

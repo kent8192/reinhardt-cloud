@@ -1,6 +1,6 @@
 name: Deploy Dashboard
 
-# Applies the canonical dashboard ReinhardtApp manifest whenever a new
+# Applies the canonical dashboard Project manifest whenever a new
 # release is published. Also runnable manually via workflow_dispatch so that
 # operators can pin a specific version without cutting a new release.
 #
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   deploy-dashboard:
-    name: Deploy dashboard via ReinhardtApp
+    name: Deploy dashboard via Project
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -61,7 +61,7 @@ jobs:
 
       - name: Configure kubeconfig
         # The KUBECONFIG secret must contain a base64-encoded kubeconfig that
-        # grants permission to apply ReinhardtApp resources in the
+        # grants permission to apply Project resources in the
         # reinhardt-cloud-system namespace. Cluster operators should scope
         # this credential tightly (see docs/self-hosting.md).
         env:
@@ -81,18 +81,18 @@ jobs:
         run: |
           # Substitute the __VERSION__ placeholder so the committed manifest
           # stays generic while the applied manifest pins a concrete tag.
-          sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-app.yaml \
-            > /tmp/dashboard-app.rendered.yaml
+          sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-project.yaml \
+            > /tmp/dashboard-project.rendered.yaml
           echo "Rendered manifest:"
-          cat /tmp/dashboard-app.rendered.yaml
+          cat /tmp/dashboard-project.rendered.yaml
 
-      - name: Apply ReinhardtApp manifest
+      - name: Apply Project manifest
         run: |
-          kubectl apply -f /tmp/dashboard-app.rendered.yaml
+          kubectl apply -f /tmp/dashboard-project.rendered.yaml
 
       - name: Wait for rollout
         run: |
           kubectl -n reinhardt-cloud-system wait \
             --for=condition=Ready \
             --timeout=5m \
-            reinhardtapp/reinhardt-cloud-dashboard
+            project/reinhardt-cloud-dashboard

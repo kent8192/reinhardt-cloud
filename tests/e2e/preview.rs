@@ -5,10 +5,10 @@ use chrono::{Duration, Utc};
 use k8s_openapi::api::core::v1::LocalObjectReference;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::ResourceExt;
-use kube::api::{DeleteParams, ObjectMeta};
+use kube::api::{Api, DeleteParams, ObjectMeta, PostParams};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
 use reinhardt_cloud_types::crd::source::{
-	BuildSpec, GitProvider, PreviewOverrides, PreviewSpec, SourceSpec,
+	BuildSpec, GitProvider, PreviewBudget, PreviewOverrides, PreviewSpec, SourceSpec,
 };
 use reinhardt_cloud_types::crd::{Project, ProjectSpec, ServicesSpec};
 use rstest::rstest;
@@ -19,6 +19,9 @@ use crate::harness::{E2eHarness, e2e_labels};
 const PREVIEW_PARENT: &str = "preview-parent";
 const PREVIEW_NAME: &str = "preview-parent-pr-42";
 const EXPIRED_PREVIEW_NAME: &str = "preview-parent-pr-99";
+/// Dedicated preview namespace the operator provisions for `PREVIEW_PARENT`
+/// (`{parent}-preview`). Preview child Projects live here (#707).
+const PREVIEW_NAMESPACE: &str = "preview-parent-preview";
 
 #[rstest]
 #[tokio::test]
@@ -40,9 +43,14 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 	harness.create_project(&parent).await?;
 
 	let created = harness
-		.wait_project(PREVIEW_NAME, "preview creation", |project| {
-			project.spec.image == "registry.local/reinhardt/preview-parent:pr-42-abcdef12"
-		})
+		.wait_project_in(
+			PREVIEW_NAMESPACE,
+			PREVIEW_NAME,
+			"preview creation",
+			|project| {
+				project.spec.image == "registry.local/reinhardt/preview-parent:pr-42-abcdef12"
+			},
+		)
 		.await?;
 	assert_preview_project(
 		&created,
@@ -79,15 +87,20 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 		)
 		.await?;
 	let updated = harness
-		.wait_project(PREVIEW_NAME, "preview update", |project| {
-			project.spec.image == "registry.local/reinhardt/preview-parent:pr-42-fedcba98"
-				&& project
-					.spec
-					.services
-					.as_ref()
-					.and_then(|services| services.ingress_host.as_deref())
-					== Some("feature-updated.pr-42.preview-parent-pr-42.example.test")
-		})
+		.wait_project_in(
+			PREVIEW_NAMESPACE,
+			PREVIEW_NAME,
+			"preview update",
+			|project| {
+				project.spec.image == "registry.local/reinhardt/preview-parent:pr-42-fedcba98"
+					&& project
+						.spec
+						.services
+						.as_ref()
+						.and_then(|services| services.ingress_host.as_deref())
+						== Some("feature-updated.pr-42.preview-parent-pr-42.example.test")
+			},
+		)
 		.await?;
 	assert_preview_project(
 		&updated,
@@ -107,15 +120,22 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 			}),
 		)
 		.await?;
-	harness.wait_project_absent(PREVIEW_NAME).await?;
+	harness
+		.wait_project_absent_in(PREVIEW_NAMESPACE, PREVIEW_NAME)
+		.await?;
 
 	let live_parent = harness
 		.wait_project(PREVIEW_PARENT, "parent uid available", |project| {
 			project.metadata.uid.is_some()
 		})
 		.await?;
-	let expired_preview = expired_preview_project(harness.namespace(), &live_parent);
-	harness.create_project(&expired_preview).await?;
+	// Seed an already-expired preview directly in the dedicated preview
+	// namespace so the TTL cleanup pass (which lists previews there) finds it.
+	let expired_preview = expired_preview_project(PREVIEW_NAMESPACE, &live_parent);
+	let preview_ns_api: Api<Project> = Api::namespaced(harness.client().clone(), PREVIEW_NAMESPACE);
+	preview_ns_api
+		.create(&PostParams::default(), &expired_preview)
+		.await?;
 	harness
 		.patch_project(
 			PREVIEW_PARENT,
@@ -128,7 +148,9 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 			}),
 		)
 		.await?;
-	harness.wait_project_absent(EXPIRED_PREVIEW_NAME).await?;
+	harness
+		.wait_project_absent_in(PREVIEW_NAMESPACE, EXPIRED_PREVIEW_NAME)
+		.await?;
 
 	harness
 		.patch_project(
@@ -146,7 +168,8 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 		)
 		.await?;
 	harness
-		.wait_project(
+		.wait_project_in(
+			PREVIEW_NAMESPACE,
 			PREVIEW_NAME,
 			"preview recreation before parent delete",
 			|project| {
@@ -159,7 +182,12 @@ async fn preview_lifecycle_ttl_and_owner_cascade_are_reconciled() -> Result<()> 
 		.delete(PREVIEW_PARENT, &DeleteParams::default())
 		.await?;
 	harness.wait_project_absent(PREVIEW_PARENT).await?;
-	harness.wait_project_absent(PREVIEW_NAME).await?;
+	// Parent deletion cascade-removes the dedicated preview namespace and the
+	// preview child Project inside it (#707).
+	harness
+		.wait_project_absent_in(PREVIEW_NAMESPACE, PREVIEW_NAME)
+		.await?;
+	harness.wait_namespace_absent(PREVIEW_NAMESPACE).await?;
 
 	harness.collect_diagnostics("preview").await;
 	Ok(())
@@ -245,6 +273,7 @@ fn preview_parent_project(
 				port: Some(80),
 				target_port: Some(8080),
 				ingress_host: Some("preview-parent.example.test".to_string()),
+				tls: None,
 			}),
 			env: BTreeMap::from([("REINHARDT_ENV".to_string(), "preview".to_string())]),
 			source: Some(SourceSpec {
@@ -267,6 +296,11 @@ fn preview_parent_project(
 						replicas: Some(1),
 						database: Some(false),
 						cache: Some(false),
+					}),
+					budget: Some(PreviewBudget {
+						max_replicas: Some(2),
+						max_cpu: Some("2".to_string()),
+						max_memory: Some("4Gi".to_string()),
 					}),
 				}),
 			}),

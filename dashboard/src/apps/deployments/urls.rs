@@ -10,5 +10,5 @@ use crate::apps::deployments::client::pages::deployments_list_page;
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
 		.server(|s| s)
-		.client(|c| c.route("list", "/deployments", deployments_list_page))
+		.client(|c| c.page("list", "/deployments", deployments_list_page))
 }

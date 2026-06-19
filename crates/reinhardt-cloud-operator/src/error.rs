@@ -85,6 +85,13 @@ pub(crate) enum Error {
 	/// the 63-character limit).
 	#[error("invalid spec.tenant: {0}")]
 	InvalidTenant(String),
+
+	/// A preview budget field is malformed (e.g. non-numeric CPU/memory
+	/// quantity in `source.preview.budget`).
+	#[error("invalid preview budget: {0}")]
+	// Constructed by preview budget validation in the reconcile path (#707).
+	#[allow(dead_code)]
+	InvalidBudget(String),
 }
 
 /// Classification of reconciliation errors for backoff decisions.
@@ -130,7 +137,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
 		| Error::TenantMismatch { .. }
-		| Error::InvalidTenant(_) => BackoffClass::Permanent,
+		| Error::InvalidTenant(_)
+		| Error::InvalidBudget(_) => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}
@@ -201,6 +209,18 @@ mod tests {
 	fn invalid_tenant_is_permanent() {
 		// Arrange
 		let err = Error::InvalidTenant("tenant.organization must not be empty".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_budget_is_permanent() {
+		// Arrange
+		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
 
 		// Act
 		let class = backoff_class(&err);

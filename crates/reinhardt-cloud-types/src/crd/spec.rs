@@ -50,21 +50,21 @@ pub struct ScaleSpec {
 impl ScaleSpec {
 	/// Validates the autoscaling specification.
 	///
-	/// Checks that replica counts are non-negative, max >= min when both
+	/// Checks that replica counts are positive, max >= min when both
 	/// are present, and target_value is positive.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
 		if let Some(min) = self.min_replicas
-			&& min < 0
+			&& min < 1
 		{
-			errors.push(ValidationError::new("scale.min_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.min_replicas must be >= 1"));
 		}
 
 		if let Some(max) = self.max_replicas
-			&& max < 0
+			&& max < 1
 		{
-			errors.push(ValidationError::new("scale.max_replicas must be >= 0"));
+			errors.push(ValidationError::new("scale.max_replicas must be >= 1"));
 		}
 
 		if let (Some(min), Some(max)) = (self.min_replicas, self.max_replicas)
@@ -130,6 +130,62 @@ impl HealthSpec {
 	}
 }
 
+/// TLS configuration for generated Ingress resources.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ServiceTlsSpec {
+	/// Whether TLS should be configured on the generated Ingress
+	#[serde(default)]
+	pub enabled: bool,
+	/// Secret containing the certificate and private key
+	pub secret_name: Option<String>,
+	/// cert-manager Issuer name in the same namespace
+	pub issuer: Option<String>,
+	/// cert-manager ClusterIssuer name
+	pub cluster_issuer: Option<String>,
+}
+
+impl ServiceTlsSpec {
+	/// Validates TLS settings against the surrounding service exposure config.
+	pub fn validate(&self, ingress_host: Option<&str>) -> Result<(), Vec<ValidationError>> {
+		let mut errors = Vec::new();
+
+		if self.enabled
+			&& ingress_host
+				.map(str::trim)
+				.filter(|host| !host.is_empty())
+				.is_none()
+		{
+			errors.push(ValidationError::new(
+				"services.tls.enabled requires services.ingress_host",
+			));
+		}
+
+		if self.enabled
+			&& self
+				.secret_name
+				.as_deref()
+				.map(str::is_empty)
+				.unwrap_or(true)
+		{
+			errors.push(ValidationError::new(
+				"services.tls.secret_name is required when services.tls.enabled is true",
+			));
+		}
+
+		if self.issuer.is_some() && self.cluster_issuer.is_some() {
+			errors.push(ValidationError::new(
+				"services.tls.issuer and services.tls.cluster_issuer are mutually exclusive",
+			));
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
 /// Service exposure configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ServicesSpec {
@@ -139,6 +195,8 @@ pub struct ServicesSpec {
 	pub target_port: Option<i32>,
 	/// Ingress hostname for external access
 	pub ingress_host: Option<String>,
+	/// TLS configuration for generated Ingress resources
+	pub tls: Option<ServiceTlsSpec>,
 }
 
 impl ServicesSpec {
@@ -162,6 +220,12 @@ impl ServicesSpec {
 			errors.push(ValidationError::new(
 				"services.target_port must be between 1 and 65535",
 			));
+		}
+
+		if let Some(ref tls) = self.tls
+			&& let Err(errs) = tls.validate(self.ingress_host.as_deref())
+		{
+			errors.extend(errs);
 		}
 
 		if errors.is_empty() {
@@ -453,6 +517,7 @@ mod tests {
 				port: Some(80),
 				target_port: Some(8080),
 				ingress_host: Some("myapp.example.com".to_string()),
+				tls: None,
 			}),
 			pages: None,
 			deletion_policy: DeletionPolicy::default(),
@@ -550,7 +615,27 @@ mod tests {
 		// Assert
 		let errors = result.unwrap_err();
 		assert_eq!(errors.len(), 1);
-		assert_eq!(errors[0].message, "scale.min_replicas must be >= 0");
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 1");
+	}
+
+	#[rstest]
+	fn scale_spec_validation_zero_replicas() {
+		// Arrange
+		let spec = ScaleSpec {
+			min_replicas: Some(0),
+			max_replicas: Some(0),
+			metric: None,
+			target_value: None,
+		};
+
+		// Act
+		let result = spec.validate();
+
+		// Assert
+		let errors = result.unwrap_err();
+		assert_eq!(errors.len(), 2);
+		assert_eq!(errors[0].message, "scale.min_replicas must be >= 1");
+		assert_eq!(errors[1].message, "scale.max_replicas must be >= 1");
 	}
 
 	#[rstest]
@@ -645,6 +730,7 @@ mod tests {
 			port: Some(0),
 			target_port: Some(65536),
 			ingress_host: None,
+			tls: None,
 		};
 
 		// Act
@@ -660,6 +746,128 @@ mod tests {
 		assert_eq!(
 			errors[1].message,
 			"services.target_port must be between 1 and 65535"
+		);
+	}
+
+	#[rstest]
+	fn services_tls_validation_requires_ingress_host() {
+		// Arrange
+		let spec = ProjectSpec {
+			image: "img:v1".to_string(),
+			services: Some(ServicesSpec {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: None,
+				tls: Some(ServiceTlsSpec {
+					enabled: true,
+					secret_name: Some("app-tls".to_string()),
+					issuer: None,
+					cluster_issuer: None,
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("missing host should fail");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"services.tls.enabled requires services.ingress_host"
+		);
+	}
+
+	#[rstest]
+	fn services_tls_validation_rejects_blank_ingress_host() {
+		// Arrange
+		let spec = ProjectSpec {
+			image: "img:v1".to_string(),
+			services: Some(ServicesSpec {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: Some("   ".to_string()),
+				tls: Some(ServiceTlsSpec {
+					enabled: true,
+					secret_name: Some("app-tls".to_string()),
+					issuer: None,
+					cluster_issuer: None,
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("blank host should fail");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"services.tls.enabled requires services.ingress_host"
+		);
+	}
+
+	#[rstest]
+	fn services_tls_validation_requires_secret_name() {
+		// Arrange
+		let spec = ProjectSpec {
+			image: "img:v1".to_string(),
+			services: Some(ServicesSpec {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: Some("app.example.com".to_string()),
+				tls: Some(ServiceTlsSpec {
+					enabled: true,
+					secret_name: None,
+					issuer: None,
+					cluster_issuer: None,
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec.validate().expect_err("missing secret should fail");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"services.tls.secret_name is required when services.tls.enabled is true"
+		);
+	}
+
+	#[rstest]
+	fn services_tls_validation_rejects_both_issuer_fields() {
+		// Arrange
+		let spec = ProjectSpec {
+			image: "img:v1".to_string(),
+			services: Some(ServicesSpec {
+				port: Some(80),
+				target_port: Some(8000),
+				ingress_host: Some("app.example.com".to_string()),
+				tls: Some(ServiceTlsSpec {
+					enabled: true,
+					secret_name: Some("app-tls".to_string()),
+					issuer: Some("letsencrypt-ns".to_string()),
+					cluster_issuer: Some("letsencrypt-prod".to_string()),
+				}),
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("mutually exclusive issuers should fail");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"services.tls.issuer and services.tls.cluster_issuer are mutually exclusive"
 		);
 	}
 
@@ -684,6 +892,7 @@ mod tests {
 				port: Some(0),
 				target_port: Some(65536),
 				ingress_host: None,
+				tls: None,
 			}),
 			..Default::default()
 		};
@@ -696,8 +905,8 @@ mod tests {
 		// replicas(-1) + min(-1) + max(-2) + max<min + target(0) + health.port(0) + interval(0) + services.port(0) + services.target_port(65536)
 		assert_eq!(errors.len(), 9);
 		assert_eq!(errors[0].message, "spec.replicas must be >= 0");
-		assert_eq!(errors[1].message, "scale.min_replicas must be >= 0");
-		assert_eq!(errors[2].message, "scale.max_replicas must be >= 0");
+		assert_eq!(errors[1].message, "scale.min_replicas must be >= 1");
+		assert_eq!(errors[2].message, "scale.max_replicas must be >= 1");
 		assert_eq!(
 			errors[3].message,
 			"scale.max_replicas must be >= scale.min_replicas"
@@ -902,6 +1111,7 @@ mod tests {
 				port: Some(443),
 				target_port: Some(8080),
 				ingress_host: Some("app.example.com".to_string()),
+				tls: None,
 			}),
 			pages: Some(crate::crd::pages::PagesSpec {
 				static_root: Some("/app/dist".to_string()),
@@ -1198,6 +1408,7 @@ mod tests {
 						database: Some(false),
 						cache: Some(false),
 					}),
+					budget: None,
 				}),
 			}),
 			..Default::default()

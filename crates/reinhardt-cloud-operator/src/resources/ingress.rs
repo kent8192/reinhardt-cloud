@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::networking::v1::{
 	HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
-	IngressServiceBackend, IngressSpec, ServiceBackendPort,
+	IngressServiceBackend, IngressSpec, IngressTLS, ServiceBackendPort,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
@@ -74,6 +74,42 @@ fn build_http_path(path: &str, service_name: &str, port: u16) -> HTTPIngressPath
 	}
 }
 
+fn resolve_tls(app: &Project, host: Option<&str>) -> Option<IngressTLS> {
+	let tls = app.spec.services.as_ref()?.tls.as_ref()?;
+	if !tls.enabled {
+		return None;
+	}
+
+	let host = host.or_else(|| app.spec.services.as_ref()?.ingress_host.as_deref())?;
+	let secret_name = tls.secret_name.clone()?;
+
+	Some(IngressTLS {
+		hosts: Some(vec![host.to_string()]),
+		secret_name: Some(secret_name),
+	})
+}
+
+fn merge_tls_annotations(app: &Project, annotations: &mut BTreeMap<String, String>) {
+	let Some(tls) = app.spec.services.as_ref().and_then(|s| s.tls.as_ref()) else {
+		return;
+	};
+
+	if !tls.enabled {
+		return;
+	}
+
+	if let Some(issuer) = &tls.issuer {
+		annotations.insert("cert-manager.io/issuer".to_string(), issuer.clone());
+	}
+
+	if let Some(cluster_issuer) = &tls.cluster_issuer {
+		annotations.insert(
+			"cert-manager.io/cluster-issuer".to_string(),
+			cluster_issuer.clone(),
+		);
+	}
+}
+
 pub(crate) fn build_ingress(
 	app: &Project,
 	routes: &[RouteMetadata],
@@ -127,13 +163,40 @@ pub(crate) fn build_ingress(
 		http: Some(HTTPIngressRuleValue { paths }),
 	};
 
-	let mut annotations = build_annotations(signals);
+	let mut annotations = build_annotations(signals).unwrap_or_default();
+	merge_tls_annotations(app, &mut annotations);
 	if pages_config.is_some() {
-		annotations.get_or_insert_with(BTreeMap::new).insert(
+		annotations.insert(
 			"nginx.ingress.kubernetes.io/proxy-buffering".to_string(),
 			"on".to_string(),
 		);
 	}
+	// Preview Projects carry the `reinhardt.dev/preview=true` label. Give such
+	// Projects a cert-manager TLS section plus the per-namespace Issuer
+	// annotation so cert-manager issues a certificate for the preview host.
+	let is_preview = app
+		.metadata
+		.labels
+		.as_ref()
+		.and_then(|labels| labels.get("reinhardt.dev/preview"))
+		.is_some_and(|value| value == "true");
+	let tls = if is_preview && host.is_some() {
+		annotations.insert(
+			"cert-manager.io/issuer".to_string(),
+			crate::resources::preview_namespace::ISSUER_NAME.to_string(),
+		);
+		Some(vec![IngressTLS {
+			hosts: Some(vec![host.map(|h| h.to_string()).unwrap_or_default()]),
+			secret_name: Some(format!("{project_name}-tls")),
+		}])
+	} else {
+		resolve_tls(app, host).map(|tls| vec![tls])
+	};
+	let annotations = if annotations.is_empty() {
+		None
+	} else {
+		Some(annotations)
+	};
 
 	Ok(Some(Ingress {
 		metadata: ObjectMeta {
@@ -147,6 +210,7 @@ pub(crate) fn build_ingress(
 		spec: Some(IngressSpec {
 			ingress_class_name: Some("nginx".to_string()),
 			rules: Some(vec![rule]),
+			tls,
 			..Default::default()
 		}),
 		..Default::default()
@@ -158,6 +222,7 @@ mod tests {
 	use super::*;
 	use kube::api::ObjectMeta;
 	use reinhardt_cloud_types::crd::ProjectSpec;
+	use reinhardt_cloud_types::crd::spec::{ServiceTlsSpec, ServicesSpec};
 	use rstest::rstest;
 
 	fn make_test_app(name: &str) -> Project {
@@ -225,6 +290,75 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_ingress_adds_tls_for_preview_with_host() {
+		// Arrange — a preview-labeled Project with an ingress host.
+		let mut app = make_test_app("my-app-pr-42");
+		app.metadata.labels = Some(
+			[("reinhardt.dev/preview".to_string(), "true".to_string())]
+				.into_iter()
+				.collect(),
+		);
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(
+			&app,
+			&routes,
+			8080,
+			Some("my-app-pr-42.preview.example.com"),
+			None,
+			None,
+		)
+		.expect("build should succeed")
+		.expect("ingress should be created");
+
+		// Assert — TLS section targets the host and the cert-manager annotation
+		// points at the preview Issuer.
+		let spec = ingress.spec.expect("spec");
+		let tls = spec.tls.expect("preview ingress must carry TLS");
+		assert_eq!(tls.len(), 1);
+		assert_eq!(
+			tls[0].hosts.as_ref().unwrap()[0],
+			"my-app-pr-42.preview.example.com"
+		);
+		assert_eq!(
+			ingress
+				.metadata
+				.annotations
+				.as_ref()
+				.unwrap()
+				.get("cert-manager.io/issuer")
+				.map(String::as_str),
+			Some(crate::resources::preview_namespace::ISSUER_NAME)
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_omits_tls_for_non_preview() {
+		// Arrange — a regular (non-preview) Project with a host.
+		let app = make_test_app("web");
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert — no TLS section and no cert-manager annotation for non-previews.
+		let spec = ingress.spec.expect("spec");
+		assert!(spec.tls.is_none(), "non-preview ingress must not carry TLS");
+		assert!(
+			ingress
+				.metadata
+				.annotations
+				.as_ref()
+				.and_then(|annotations| annotations.get("cert-manager.io/issuer"))
+				.is_none(),
+			"non-preview ingress must not carry a cert-manager annotation"
+		);
+	}
+
+	#[rstest]
 	fn test_build_ingress_with_host() {
 		// Arrange
 		let app = make_test_app("web");
@@ -239,6 +373,100 @@ mod tests {
 		let spec = ingress.spec.unwrap();
 		let rules = spec.rules.as_ref().unwrap();
 		assert_eq!(rules[0].host.as_deref(), Some("example.com"));
+	}
+
+	#[rstest]
+	fn test_build_ingress_with_tls_adds_tls_spec() {
+		// Arrange
+		let mut app = make_test_app("web");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8000),
+			ingress_host: Some("app.example.com".to_string()),
+			tls: Some(ServiceTlsSpec {
+				enabled: true,
+				secret_name: Some("app-example-com-tls".to_string()),
+				issuer: None,
+				cluster_issuer: None,
+			}),
+		});
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("app.example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert
+		let spec = ingress.spec.expect("spec");
+		let tls = spec.tls.expect("tls");
+		assert_eq!(tls.len(), 1);
+		assert_eq!(
+			tls[0].hosts.as_ref().unwrap(),
+			&vec!["app.example.com".to_string()]
+		);
+		assert_eq!(tls[0].secret_name.as_deref(), Some("app-example-com-tls"));
+	}
+
+	#[rstest]
+	fn test_build_ingress_with_cluster_issuer_annotation() {
+		// Arrange
+		let mut app = make_test_app("web");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8000),
+			ingress_host: Some("app.example.com".to_string()),
+			tls: Some(ServiceTlsSpec {
+				enabled: true,
+				secret_name: Some("app-example-com-tls".to_string()),
+				issuer: None,
+				cluster_issuer: Some("letsencrypt-prod".to_string()),
+			}),
+		});
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("app.example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations");
+		assert_eq!(
+			annotations.get("cert-manager.io/cluster-issuer"),
+			Some(&"letsencrypt-prod".to_string())
+		);
+	}
+
+	#[rstest]
+	fn test_build_ingress_with_namespace_issuer_annotation() {
+		// Arrange
+		let mut app = make_test_app("web");
+		app.spec.services = Some(ServicesSpec {
+			port: Some(80),
+			target_port: Some(8000),
+			ingress_host: Some("app.example.com".to_string()),
+			tls: Some(ServiceTlsSpec {
+				enabled: true,
+				secret_name: Some("app-example-com-tls".to_string()),
+				issuer: Some("letsencrypt-ns".to_string()),
+				cluster_issuer: None,
+			}),
+		});
+		let routes = vec![make_route("/")];
+
+		// Act
+		let ingress = build_ingress(&app, &routes, 80, Some("app.example.com"), None, None)
+			.expect("build should succeed")
+			.expect("ingress should be created");
+
+		// Assert
+		let annotations = ingress.metadata.annotations.expect("annotations");
+		assert_eq!(
+			annotations.get("cert-manager.io/issuer"),
+			Some(&"letsencrypt-ns".to_string())
+		);
+		assert_eq!(annotations.get("cert-manager.io/cluster-issuer"), None);
 	}
 
 	#[rstest]

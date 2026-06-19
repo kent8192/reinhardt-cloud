@@ -5658,6 +5658,7 @@ dependencies = [
  "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "reinhardt-web",
+ "reqwest 0.12.28",
  "rstest",
  "rustls",
  "serde",
@@ -5670,6 +5671,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "url",
+ "wiremock",
 ]
 
 [[package]]
@@ -5724,6 +5726,7 @@ dependencies = [
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
+ "reinhardt-cloud-telemetry",
  "reinhardt-cloud-types",
  "reinhardt-web",
  "reqwest 0.12.28",
@@ -5845,6 +5848,7 @@ dependencies = [
  "reinhardt-web",
  "rstest",
  "rustls",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serial_test",
@@ -5873,6 +5877,7 @@ dependencies = [
 name = "reinhardt-cloud-telemetry"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "chrono",
  "futures",
@@ -5880,15 +5885,19 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "prost-types 0.13.5",
+ "reinhardt-cloud-core",
  "reinhardt-cloud-proto",
+ "reinhardt-cloud-types",
  "reqwest 0.12.28",
  "rstest",
  "serde",
  "serde_json",
  "serial_test",
+ "testcontainers",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite 0.28.0",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -8399,8 +8408,12 @@ checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite 0.28.0",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -8861,6 +8874,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.3",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.18",
  "utf-8",

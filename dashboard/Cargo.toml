@@ -41,6 +41,7 @@ reinhardt-cloud-core = { workspace = true }
 reinhardt-cloud-k8s = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
 reinhardt-cloud-grpc = { workspace = true }
+reinhardt-cloud-telemetry = { workspace = true }
 prost-types = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }
