@@ -732,12 +732,15 @@ async fn execute_inner(
 		return Ok(());
 	}
 
+	let standard_cluster = if args.direct {
+		None
+	} else {
+		Some(standard_deploy_cluster_name(args)?)
+	};
 	let yaml = serde_yaml::to_string(&crd)?;
 
 	println!("Deploying {project_name} with image {image} ({replicas} replicas)...");
-	if let Some(ref cluster) = args.cluster
-		&& !args.direct
-	{
+	if let Some(cluster) = standard_cluster {
 		println!("Target cluster: {cluster}");
 	}
 
@@ -748,7 +751,8 @@ async fn execute_inner(
 			args.namespace
 		);
 	} else {
-		let cluster = standard_deploy_cluster_name(args)?;
+		let cluster =
+			standard_cluster.expect("standard deploy cluster was validated before banner");
 		let response = client
 			.submit_deploy(&CliDeployRequest {
 				project_name,
