@@ -226,7 +226,7 @@ Generate a local development key with:
 openssl rand -base64 32
 ```
 
-Set `REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL` to the GitHub App installation URL shown in GitHub App settings. The GitHub repository page uses it for the empty-state install action after the current user has linked a GitHub OAuth account.
+Set `REINHARDT_CLOUD_GITHUB_APP_INSTALL_URL` to the GitHub App installation URL shown in GitHub App settings. The GitHub repository page uses it for the empty-state install action after the current user has linked a GitHub OAuth account. The dashboard appends a signed, short-lived `state` parameter to this URL and requires `OrgUpdate` permission before accepting the `/api/github/setup/` callback, so only organization administrators can bind a GitHub App installation to organization state.
 
 ### Operations
 

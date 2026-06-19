@@ -1331,3 +1331,71 @@ pub mod server_fn_tests {
 		assert_eq!(info.status, "imported");
 	}
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+mod setup_state_tests {
+	use rstest::rstest;
+	use uuid::Uuid;
+
+	use crate::apps::github::services::setup_state::{
+		GitHubSetupStateError, install_url_with_state, issue_setup_state, verify_setup_state,
+	};
+
+	#[rstest]
+	fn test_github_setup_state_round_trips_for_same_user_and_org() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let organization_id = 42;
+		let secret = "webhook-secret";
+
+		// Act
+		let state = issue_setup_state(user_id, organization_id, secret);
+		let result = verify_setup_state(&state, user_id, organization_id, secret);
+
+		// Assert
+		assert_eq!(result, Ok(()));
+	}
+
+	#[rstest]
+	fn test_github_setup_state_rejects_different_organization() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let state = issue_setup_state(user_id, 42, "webhook-secret");
+
+		// Act
+		let result = verify_setup_state(&state, user_id, 43, "webhook-secret");
+
+		// Assert
+		assert_eq!(result, Err(GitHubSetupStateError::ContextMismatch));
+	}
+
+	#[rstest]
+	fn test_github_setup_state_rejects_tampered_signature() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let mut state = issue_setup_state(user_id, 42, "webhook-secret");
+		state.push('a');
+
+		// Act
+		let result = verify_setup_state(&state, user_id, 42, "webhook-secret");
+
+		// Assert
+		assert_eq!(result, Err(GitHubSetupStateError::InvalidSignature));
+	}
+
+	#[rstest]
+	fn test_github_install_url_with_state_appends_query_parameter() {
+		// Arrange
+		let install_url = "https://github.com/apps/reinhardt-cloud/installations/new?target_id=1";
+		let state = "setup-state";
+
+		// Act
+		let url = install_url_with_state(install_url, state).expect("install URL should parse");
+
+		// Assert
+		assert_eq!(
+			url,
+			"https://github.com/apps/reinhardt-cloud/installations/new?target_id=1&state=setup-state"
+		);
+	}
+}
