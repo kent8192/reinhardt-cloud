@@ -22,6 +22,10 @@ pub(crate) enum ClientError {
 	Forbidden,
 	#[error("not found")]
 	NotFound,
+	#[error("conflict: {0}")]
+	Conflict(String),
+	#[error("service unavailable: {0}")]
+	ServiceUnavailable(String),
 	#[error("control plane returned {0}: {1}")]
 	Server(u16, String),
 	#[error("cannot reach control plane: {0}")]
@@ -35,6 +39,31 @@ pub(crate) enum ClientError {
 pub(crate) struct UserInfo {
 	pub id: String,
 	pub username: String,
+}
+
+#[allow(dead_code)] // Constructed by the follow-up #703 deploy command wiring.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CliDeployRequest {
+	pub project_name: String,
+	pub cluster: String,
+	pub namespace: String,
+	pub image: String,
+	pub project_yaml: String,
+}
+
+#[allow(dead_code)] // Decoded by the follow-up #703 deploy command wiring.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub(crate) struct CliDeployResponse {
+	pub deployment_id: i64,
+	pub project_name: String,
+	pub cluster: String,
+	pub status: String,
+	pub image: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiErrorBody {
+	error: String,
 }
 
 /// Target endpoint metadata for the Reinhardt Cloud platform.
@@ -97,6 +126,15 @@ impl ReinhardtCloudClient {
 		Self::decode(resp).await
 	}
 
+	/// Submit a CLI-generated Project manifest to the Dashboard control plane.
+	#[allow(dead_code)] // Called by the follow-up #703 deploy command wiring.
+	pub(crate) async fn submit_deploy(
+		&self,
+		request: &CliDeployRequest,
+	) -> Result<CliDeployResponse, ClientError> {
+		self.post("/api/deployments/cli/", request).await
+	}
+
 	/// Reusable POST helper — foundation for the #703 deploy endpoint.
 	#[allow(dead_code)] // Exercised by the #703 deploy relay (CLI -> Dashboard POST).
 	pub(crate) async fn post<T, R>(&self, path: &str, body: &T) -> Result<R, ClientError>
@@ -121,13 +159,22 @@ impl ReinhardtCloudClient {
 			return Ok(serde_json::from_str(&resp.text().await?)?);
 		}
 		let body = resp.text().await.unwrap_or_default();
+		let message = error_message_from_body(&body);
 		Err(match status.as_u16() {
 			401 => ClientError::Unauthorized,
 			403 => ClientError::Forbidden,
 			404 => ClientError::NotFound,
-			code => ClientError::Server(code, body),
+			409 => ClientError::Conflict(message),
+			503 => ClientError::ServiceUnavailable(message),
+			code => ClientError::Server(code, message),
 		})
 	}
+}
+
+fn error_message_from_body(body: &str) -> String {
+	serde_json::from_str::<ApiErrorBody>(body)
+		.map(|parsed| parsed.error)
+		.unwrap_or_else(|_| body.to_string())
 }
 
 #[cfg(test)]
@@ -248,5 +295,133 @@ mod tests {
 
 		// Assert
 		assert!(matches!(result, Err(ClientError::NoToken)));
+	}
+
+	#[rstest]
+	fn test_cli_deploy_request_serializes_expected_fields() {
+		// Arrange
+		let request = CliDeployRequest {
+			project_name: "demo".to_string(),
+			cluster: "prod".to_string(),
+			namespace: "default".to_string(),
+			image: "demo:latest".to_string(),
+			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
+				.to_string(),
+		};
+
+		// Act
+		let json = serde_json::to_value(&request).unwrap();
+
+		// Assert
+		assert_eq!(json["project_name"], "demo");
+		assert_eq!(json["cluster"], "prod");
+		assert_eq!(json["namespace"], "default");
+		assert_eq!(json["image"], "demo:latest");
+		assert!(
+			json["project_yaml"]
+				.as_str()
+				.unwrap()
+				.contains("kind: Project")
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_submit_deploy_posts_bearer_json_and_decodes_response() {
+		// Arrange
+		let server = wiremock::MockServer::start().await;
+		wiremock::Mock::given(wiremock::matchers::method("POST"))
+			.and(wiremock::matchers::path("/api/deployments/cli/"))
+			.and(wiremock::matchers::header(
+				"Authorization",
+				"Bearer rct_valid",
+			))
+			.respond_with(
+				wiremock::ResponseTemplate::new(202).set_body_json(serde_json::json!({
+					"deployment_id": 7,
+					"project_name": "demo",
+					"cluster": "prod",
+					"status": "pending",
+					"image": "demo:latest"
+				})),
+			)
+			.mount(&server)
+			.await;
+		let client = ReinhardtCloudClient::new(&server.uri())
+			.unwrap()
+			.with_token("rct_valid".to_string());
+		let request = CliDeployRequest {
+			project_name: "demo".to_string(),
+			cluster: "prod".to_string(),
+			namespace: "default".to_string(),
+			image: "demo:latest".to_string(),
+			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
+				.to_string(),
+		};
+
+		// Act
+		let response = client.submit_deploy(&request).await.unwrap();
+
+		// Assert
+		assert_eq!(response.deployment_id, 7);
+		assert_eq!(response.project_name, "demo");
+		assert_eq!(response.cluster, "prod");
+		assert_eq!(response.status, "pending");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_submit_deploy_without_token_is_no_token_error() {
+		// Arrange
+		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
+		let request = CliDeployRequest {
+			project_name: "demo".to_string(),
+			cluster: "prod".to_string(),
+			namespace: "default".to_string(),
+			image: "demo:latest".to_string(),
+			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
+				.to_string(),
+		};
+
+		// Act
+		let result = client.submit_deploy(&request).await;
+
+		// Assert
+		assert!(matches!(result, Err(ClientError::NoToken)));
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_submit_deploy_maps_503_error_body() {
+		// Arrange
+		let server = wiremock::MockServer::start().await;
+		wiremock::Mock::given(wiremock::matchers::method("POST"))
+			.and(wiremock::matchers::path("/api/deployments/cli/"))
+			.respond_with(wiremock::ResponseTemplate::new(503).set_body_json(
+				serde_json::json!({ "error": "No agent connected for cluster prod" }),
+			))
+			.mount(&server)
+			.await;
+		let client = ReinhardtCloudClient::new(&server.uri())
+			.unwrap()
+			.with_token("rct_valid".to_string());
+		let request = CliDeployRequest {
+			project_name: "demo".to_string(),
+			cluster: "prod".to_string(),
+			namespace: "default".to_string(),
+			image: "demo:latest".to_string(),
+			project_yaml: "apiVersion: paas.reinhardt-cloud.dev/v1alpha2\nkind: Project\n"
+				.to_string(),
+		};
+
+		// Act
+		let result = client.submit_deploy(&request).await;
+
+		// Assert
+		assert!(matches!(
+			result,
+			Err(ClientError::ServiceUnavailable(message))
+				if message == "No agent connected for cluster prod"
+		));
 	}
 }
