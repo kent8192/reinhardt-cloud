@@ -20,7 +20,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::commands::{CommandRegistry, execute_from_command_line_with_registry_and_settings};
 #[cfg(not(target_arch = "wasm32"))]
-use reinhardt_cloud_dashboard::config::management::SeedSelfDeployUserCommand;
+use reinhardt_cloud_dashboard::config::management::{
+	CreateApiTokenCommand, ListApiTokensCommand, RevokeApiTokenCommand, SeedSelfDeployUserCommand,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt_cloud_dashboard::config::settings::get_settings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -40,6 +42,9 @@ async fn main() {
 
 	let mut registry = CommandRegistry::new();
 	registry.register(Box::new(SeedSelfDeployUserCommand));
+	registry.register(Box::new(CreateApiTokenCommand));
+	registry.register(Box::new(ListApiTokensCommand));
+	registry.register(Box::new(RevokeApiTokenCommand));
 
 	if let Err(e) =
 		execute_from_command_line_with_registry_and_settings(registry, get_settings()).await
