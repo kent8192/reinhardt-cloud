@@ -1,7 +1,7 @@
 //! Maps child preview `Project`s into `PreviewStatus` records for the parent.
 //!
-//! The reconciler lists the live preview child Projects in the `{parent}-preview`
-//! namespace and calls [`build_preview_status_list`] to fold them into the
+//! The reconciler lists the live preview child Projects in the parent-qualified
+//! preview namespace and calls [`build_preview_status_list`] to fold them into the
 //! `previews` field of the parent `ProjectStatus`, which the Dashboard reads.
 
 use kube::ResourceExt;
