@@ -18,8 +18,10 @@ This page covers:
 - [Observability](#observability)
 - [Deployment flow architecture](architecture/deployment-flow.md)
 
-The canonical manifest lives at [`manifests/dashboard-project.yaml`](../manifests/dashboard-project.yaml)
-and the workflow at
+The canonical manifests live at
+[`manifests/dashboard-rbac.yaml`](../manifests/dashboard-rbac.yaml) and
+[`manifests/dashboard-project.yaml`](../manifests/dashboard-project.yaml), and
+the workflow at
 [`.github/workflows/deploy-dashboard.yml`](../.github/workflows/deploy-dashboard.yml).
 
 ## Prerequisites
@@ -125,7 +127,14 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
      --from-literal=email-host='<smtp-provider-host>'
    ```
 
-3. Render the manifest locally and apply it to bootstrap the first version:
+3. Apply the dashboard RBAC manifest:
+
+   ```bash
+   kubectl apply -f manifests/dashboard-rbac.yaml
+   ```
+
+4. Render the Project manifest locally and apply it to bootstrap the first
+   version:
 
    ```bash
    VERSION=1.0.0
@@ -133,7 +142,7 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
      | kubectl apply -f -
    ```
 
-4. Confirm the operator picked up the resource:
+5. Confirm the operator picked up the resource:
 
    ```bash
    kubectl -n reinhardt-cloud-system get project reinhardt-cloud-dashboard

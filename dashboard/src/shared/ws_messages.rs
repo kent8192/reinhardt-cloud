@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::apps::deployments::server_fn::PreviewSummary;
+
 /// Server-to-client WebSocket message.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", content = "payload")]
@@ -22,6 +24,8 @@ pub enum WsMessage {
 	AppLog(AppLogPayload),
 	/// Cluster agent health update.
 	ClusterHealth(ClusterHealthPayload),
+	/// Preview environment status update for one parent Project.
+	PreviewStatusUpdate(ProjectPreviewUpdatePayload),
 }
 
 /// Build log event payload (streamed from gRPC BuildService).
@@ -52,6 +56,14 @@ pub struct ClusterHealthPayload {
 	pub cpu_usage_percent: f64,
 	pub memory_usage_percent: f64,
 	pub pod_count: u32,
+	pub timestamp: String,
+}
+
+/// Preview status update payload.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProjectPreviewUpdatePayload {
+	pub project_name: String,
+	pub previews: Vec<PreviewSummary>,
 	pub timestamp: String,
 }
 
@@ -119,6 +131,10 @@ pub enum WsClientMessage {
 	SubscribeAppLogs { deployment_id: String },
 	/// Unsubscribe from all log streams.
 	UnsubscribeLogs,
+	/// Subscribe to preview status updates for parent Projects.
+	SubscribePreviews { project_names: Vec<String> },
+	/// Unsubscribe from preview status updates for parent Projects.
+	UnsubscribePreviews { project_names: Vec<String> },
 }
 
 #[cfg(test)]
@@ -215,6 +231,62 @@ mod tests {
 				assert_eq!(deployment_id, "42");
 			}
 			_ => panic!("expected SubscribeAppLogs"),
+		}
+	}
+
+	#[rstest]
+	fn test_ws_message_preview_status_update_roundtrip() {
+		// Arrange
+		let msg = WsMessage::PreviewStatusUpdate(ProjectPreviewUpdatePayload {
+			project_name: "api".to_string(),
+			previews: vec![PreviewSummary {
+				name: "api-pr-42".to_string(),
+				pr_number: "42".to_string(),
+				url: Some("https://api-pr-42.preview.example.com".to_string()),
+				phase: Some("running".to_string()),
+				ready_replicas: Some(1),
+				last_activity: Some("2026-06-19T00:00:00Z".to_string()),
+			}],
+			timestamp: "2026-06-19T00:00:00Z".to_string(),
+		});
+
+		// Act
+		let json = serde_json::to_string(&msg).unwrap();
+		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+		let roundtrip: WsMessage = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed["type"], "PreviewStatusUpdate");
+		assert_eq!(parsed["payload"]["project_name"], "api");
+		match roundtrip {
+			WsMessage::PreviewStatusUpdate(payload) => {
+				assert_eq!(payload.project_name, "api");
+				assert_eq!(payload.previews[0].name, "api-pr-42");
+			}
+			_ => panic!("expected PreviewStatusUpdate"),
+		}
+	}
+
+	#[rstest]
+	fn test_ws_client_message_subscribe_previews_roundtrip() {
+		// Arrange
+		let msg = WsClientMessage::SubscribePreviews {
+			project_names: vec!["api".to_string(), "web".to_string()],
+		};
+
+		// Act
+		let json = serde_json::to_string(&msg).unwrap();
+		let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+		let roundtrip: WsClientMessage = serde_json::from_str(&json).unwrap();
+
+		// Assert
+		assert_eq!(parsed["type"], "SubscribePreviews");
+		assert_eq!(parsed["payload"]["project_names"][0], "api");
+		match roundtrip {
+			WsClientMessage::SubscribePreviews { project_names } => {
+				assert_eq!(project_names, vec!["api", "web"]);
+			}
+			_ => panic!("expected SubscribePreviews"),
 		}
 	}
 

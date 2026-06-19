@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use reinhardt_cloud_k8s::KubeClient;
 use reinhardt_cloud_k8s::resources::{
 	parse_project_yaml, server_side_apply_git_credentials_secret, server_side_apply_project_yaml,
 };
@@ -10,6 +9,7 @@ use reinhardt_cloud_types::agent::AgentCommand;
 use uuid::Uuid;
 
 use crate::apps::clusters::models::Cluster;
+use crate::apps::deployments::services::preview_status::kube_client_for_namespace;
 
 fn validate_cluster_for_apply(cluster: &Cluster) -> Result<(), String> {
 	if !cluster.is_active {
@@ -123,17 +123,4 @@ pub async fn apply_git_credentials_secret_for_cluster(
 				cluster.name
 			)
 		})
-}
-
-async fn kube_client_for_namespace(namespace: &str) -> Result<KubeClient, String> {
-	Ok(match KubeClient::in_cluster(namespace).await {
-		Ok(client) => client,
-		Err(in_cluster_error) => KubeClient::from_kubeconfig(namespace)
-			.await
-			.map_err(|kubeconfig_error| {
-				format!(
-					"Failed to build Kubernetes client from in-cluster config ({in_cluster_error}) or kubeconfig ({kubeconfig_error})"
-				)
-			})?,
-	})
 }

@@ -3,6 +3,8 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
+use crate::apps::deployments::server_fn::ProjectPreviewSummary;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubInstallationInfo {
 	pub id: i64,
@@ -501,6 +503,72 @@ pub async fn list_github_repositories_for_current_org(
 		.into_iter()
 		.map(github_repository_info)
 		.collect())
+}
+
+#[server_fn]
+pub async fn list_github_project_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::server_fn::ProjectSourceKind;
+		use crate::apps::deployments::services::preview_status::{
+			PreviewProjectInput, load_preview_summary,
+		};
+		use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+		let organization_id = current_org_id(&user).await?;
+		let projects = GitHubProject::objects()
+			.filter(GitHubProject::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to list GitHub projects: {e}"))
+			})?;
+
+		let mut summaries = Vec::with_capacity(projects.len());
+		for project in projects {
+			let repository_id = *project.repository_id();
+			let deployment_id = *project.deployment_id();
+			let repository = GitHubRepository::objects()
+				.filter(GitHubRepository::field_id().eq(repository_id))
+				.first()
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to load GitHub repository: {e}"))
+				})?
+				.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+			let deployment = Deployment::objects()
+				.filter(Deployment::field_id().eq(deployment_id))
+				.filter(Deployment::field_organization_id().eq(organization_id))
+				.first()
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to load GitHub deployment: {e}"))
+				})?
+				.ok_or_else(|| ServerFnError::application("GitHub deployment row is missing"))?;
+			let input = PreviewProjectInput {
+				deployment_id,
+				github_project_id: project.id,
+				project_name: project.project_name,
+				display_name: repository.full_name,
+				production_branch: Some(project.production_branch),
+				source_kind: ProjectSourceKind::GitHub,
+				project_yaml: deployment.project_yaml,
+			};
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]

@@ -12,11 +12,46 @@ pub struct DeploymentInfo {
 	pub image: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProjectSourceKind {
+	GitHub,
+	Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PreviewSummary {
+	pub name: String,
+	pub pr_number: String,
+	pub url: Option<String>,
+	pub phase: Option<String>,
+	pub ready_replicas: Option<i32>,
+	pub last_activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectPreviewSummary {
+	pub deployment_id: i64,
+	pub github_project_id: Option<i64>,
+	pub project_name: String,
+	pub display_name: String,
+	pub production_branch: Option<String>,
+	pub source_kind: ProjectSourceKind,
+	pub previews: Vec<PreviewSummary>,
+	pub preview_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentLogInfo {
 	pub timestamp: String,
 	pub level: String,
 	pub message: String,
+}
+
+#[cfg(native)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreviewProjectRef {
+	pub namespace: String,
+	pub name: String,
 }
 
 #[cfg(native)]
@@ -35,6 +70,110 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 		cluster_id,
 		status: deployment.status,
 		image: deployment.image,
+	}
+}
+
+#[cfg(native)]
+pub(crate) fn preview_summary_from_status(
+	status: reinhardt_cloud_types::crd::PreviewStatus,
+) -> PreviewSummary {
+	PreviewSummary {
+		name: status.name,
+		pr_number: status.pr_number,
+		url: status.url,
+		phase: status.phase.and_then(project_phase_serde_string),
+		ready_replicas: status.ready_replicas,
+		last_activity: status.last_activity,
+	}
+}
+
+#[cfg(native)]
+fn project_phase_serde_string(phase: reinhardt_cloud_types::crd::ProjectPhase) -> Option<String> {
+	serde_json::to_value(phase)
+		.ok()
+		.and_then(|value| value.as_str().map(str::to_string))
+}
+
+#[cfg(native)]
+pub(crate) fn preview_project_ref_from_yaml(
+	deployment_project_name: &str,
+	project_yaml: Option<&str>,
+	default_namespace: &str,
+) -> Result<PreviewProjectRef, String> {
+	let Some(project_yaml) = project_yaml.filter(|value| !value.trim().is_empty()) else {
+		return Err("Project manifest is not available".to_string());
+	};
+	let project = reinhardt_cloud_k8s::resources::parse_project_yaml(project_yaml)
+		.map_err(|e| e.to_string())?;
+	let name = project
+		.metadata
+		.name
+		.ok_or_else(|| "Project metadata.name is required".to_string())?;
+	if name != deployment_project_name {
+		return Err(format!(
+			"Project manifest points to '{name}', expected '{deployment_project_name}'"
+		));
+	}
+	let namespace = project
+		.metadata
+		.namespace
+		.filter(|value| !value.trim().is_empty())
+		.unwrap_or_else(|| default_namespace.to_string());
+	Ok(PreviewProjectRef { namespace, name })
+}
+
+#[cfg(native)]
+async fn preview_input_for_deployment(
+	deployment: crate::apps::deployments::models::Deployment,
+	organization_id: i64,
+) -> Result<crate::apps::deployments::services::preview_status::PreviewProjectInput, ServerFnError>
+{
+	use reinhardt::Model;
+
+	use crate::apps::deployments::services::preview_status::PreviewProjectInput;
+	use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+	let deployment_id = deployment.id.unwrap_or_default();
+	let github_project = GitHubProject::objects()
+		.filter(GitHubProject::field_deployment_id().eq(deployment_id))
+		.filter(GitHubProject::field_organization_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to load GitHub project metadata: {e}"))
+		})?;
+	if let Some(github_project) = github_project {
+		let repository_id = *github_project.repository_id();
+		let repository = GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to load GitHub repository metadata: {e}"
+				))
+			})?
+			.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: github_project.id,
+			project_name: github_project.project_name,
+			display_name: repository.full_name,
+			production_branch: Some(github_project.production_branch),
+			source_kind: ProjectSourceKind::GitHub,
+			project_yaml: deployment.project_yaml,
+		})
+	} else {
+		let project_name = deployment.project_name;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: None,
+			project_name: project_name.clone(),
+			display_name: project_name,
+			production_branch: None,
+			source_kind: ProjectSourceKind::Manual,
+			project_yaml: deployment.project_yaml,
+		})
 	}
 }
 
@@ -77,6 +216,43 @@ pub async fn list_deployments_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
 	Ok(deployments.into_iter().map(deployment_info).collect())
+}
+
+#[server_fn]
+pub async fn list_deployment_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::services::preview_status::load_preview_summary;
+		use crate::apps::organizations::permissions::action::Action;
+		use crate::apps::organizations::permissions::guard::require_permission;
+
+		let organization_id = require_permission(user.id, Action::DeploymentRead)
+			.await
+			.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let deployments = Deployment::objects()
+			.filter(Deployment::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
+
+		let mut summaries = Vec::with_capacity(deployments.len());
+		for deployment in deployments {
+			let input = preview_input_for_deployment(deployment, organization_id).await?;
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]

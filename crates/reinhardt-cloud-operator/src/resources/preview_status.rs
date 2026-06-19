@@ -123,8 +123,8 @@ mod tests {
 	}
 
 	#[rstest]
-	fn omits_url_when_no_ingress_host() {
-		// Arrange — a preview Project without an ingress host.
+	fn maps_preview_without_status_to_sparse_status() {
+		// Arrange - a preview Project without status or an ingress host.
 		let project = Project {
 			metadata: ObjectMeta {
 				name: Some("my-app-pr-7".to_string()),
@@ -152,7 +152,11 @@ mod tests {
 
 		// Assert
 		assert_eq!(list.len(), 1);
-		assert!(list[0].url.is_none());
+		assert_eq!(list[0].name, "my-app-pr-7");
 		assert_eq!(list[0].pr_number, "7");
+		assert!(list[0].url.is_none());
+		assert!(list[0].phase.is_none());
+		assert!(list[0].ready_replicas.is_none());
+		assert!(list[0].last_activity.is_none());
 	}
 }

@@ -32,6 +32,7 @@ use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 #[cfg(wasm)]
 thread_local! {
 	static SUBSCRIBED_IDS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+	static SUBSCRIBED_PREVIEW_PROJECTS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 	static APP_LOG_DEPLOYMENT_ID: RefCell<Option<String>> = const { RefCell::new(None) };
 	static RECONNECT_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
 	/// Holds the current WebSocket so it can be explicitly closed on reconnect,
@@ -45,7 +46,7 @@ const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 /// Return whether a SPA path should keep the authenticated notifications
 /// WebSocket connected.
 pub fn should_connect_notifications_for_path(path: &str) -> bool {
-	matches!(path, "/" | "/clusters" | "/deployments")
+	matches!(path, "/" | "/clusters" | "/deployments" | "/github")
 }
 
 /// Open a WebSocket to `/ws/notifications` and wire up event handlers.
@@ -100,6 +101,18 @@ pub fn connect_notifications() {
 					deployment_ids: ids.iter().cloned().collect(),
 				};
 				send_client_message(&ws_for_open, &sub);
+			}
+		});
+
+		SUBSCRIBED_PREVIEW_PROJECTS.with(|project_names| {
+			let project_names = project_names.borrow();
+			if !project_names.is_empty() {
+				send_client_message(
+					&ws_for_open,
+					&WsClientMessage::SubscribePreviews {
+						project_names: project_names.iter().cloned().collect(),
+					},
+				);
 			}
 		});
 
@@ -171,6 +184,33 @@ pub fn track_subscriptions(deployment_ids: &[String]) {
 		}
 	});
 }
+
+/// Record parent Project names that should receive preview status updates.
+#[cfg(wasm)]
+pub fn track_preview_subscriptions(project_names: &[String]) {
+	SUBSCRIBED_PREVIEW_PROJECTS.with(|tracked| {
+		let mut tracked = tracked.borrow_mut();
+		for project_name in project_names {
+			tracked.insert(project_name.clone());
+		}
+	});
+	ensure_notifications_connected();
+	CURRENT_WS.with(|current| {
+		if let Some(ws) = current.borrow().as_ref()
+			&& ws.ready_state() == WebSocket::OPEN
+		{
+			send_client_message(
+				ws,
+				&WsClientMessage::SubscribePreviews {
+					project_names: project_names.to_vec(),
+				},
+			);
+		}
+	});
+}
+
+#[cfg(not(wasm))]
+pub fn track_preview_subscriptions(_project_names: &[String]) {}
 
 /// Subscribe the live app-log stream for the selected deployment.
 #[cfg(wasm)]
@@ -250,12 +290,77 @@ fn handle_ws_message(msg: WsMessage) {
 		WsMessage::AppLog(payload) => log_viewer::append(payload),
 		WsMessage::BuildLog(payload) => log_viewer::append_build(payload),
 		WsMessage::ClusterHealth(payload) => cluster_health::update(payload),
+		WsMessage::PreviewStatusUpdate(payload) => update_preview_list(&payload),
 		// LogStreamAck is surfaced via the connection layer; no DOM update
 		// is required for it today.
 		WsMessage::LogStreamAck(_) => {} // Exhaustive matching is intentional: adding a new `WsMessage`
 		                                 // variant without handling it here will cause a compile-time error,
 		                                 // ensuring no server messages are silently ignored on the client.
 	}
+}
+
+#[cfg(wasm)]
+fn update_preview_list(payload: &crate::shared::ws_messages::ProjectPreviewUpdatePayload) {
+	let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+		return;
+	};
+	let Ok(nodes) = document.query_selector_all("[data-preview-list='true']") else {
+		return;
+	};
+	for idx in 0..nodes.length() {
+		let Some(node) = nodes.item(idx) else {
+			continue;
+		};
+		let Ok(element) = node.dyn_into::<web_sys::Element>() else {
+			continue;
+		};
+		if element.get_attribute("data-project-name").as_deref() == Some(&payload.project_name) {
+			element.set_inner_html(&preview_list_html(&payload.previews));
+		}
+	}
+}
+
+#[cfg(wasm)]
+fn preview_list_html(previews: &[crate::apps::deployments::server_fn::PreviewSummary]) -> String {
+	if previews.is_empty() {
+		return "No active previews".to_string();
+	}
+	previews
+		.iter()
+		.map(|preview| {
+			let label = escape_html(&format!("#{} {}", preview.pr_number, preview.name));
+			let meta = escape_html(&preview_meta(preview));
+			match preview.url.as_ref() {
+				Some(url) => format!(
+					"<li><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"{}\" target=\"_blank\" rel=\"noreferrer\">{label}</a><span class=\"ml-2 text-cloud-500\">{meta}</span></li>",
+					escape_html(url)
+				),
+				None => format!(
+					"<li><span class=\"font-semibold text-ink-950\">{label}</span><span class=\"ml-2 text-cloud-500\">{meta}</span></li>"
+				),
+			}
+		})
+		.collect::<Vec<_>>()
+		.join("")
+}
+
+#[cfg(wasm)]
+fn preview_meta(preview: &crate::apps::deployments::server_fn::PreviewSummary) -> String {
+	match (preview.phase.as_deref(), preview.ready_replicas) {
+		(Some(phase), Some(replicas)) => format!("{phase} / {replicas} ready"),
+		(Some(phase), None) => phase.to_string(),
+		(None, Some(replicas)) => format!("{replicas} ready"),
+		(None, None) => "status pending".to_string(),
+	}
+}
+
+#[cfg(wasm)]
+fn escape_html(value: &str) -> String {
+	value
+		.replace('&', "&amp;")
+		.replace('<', "&lt;")
+		.replace('>', "&gt;")
+		.replace('"', "&quot;")
 }
 
 /// Update a status badge element in the DOM for the given deployment.
@@ -293,6 +398,7 @@ mod tests {
 	#[case::home("/", true)]
 	#[case::clusters("/clusters", true)]
 	#[case::deployments("/deployments", true)]
+	#[case::github("/github", true)]
 	#[case::login("/login", false)]
 	#[case::register("/register", false)]
 	#[case::unknown("/missing", false)]

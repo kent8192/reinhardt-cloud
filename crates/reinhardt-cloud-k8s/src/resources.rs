@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::{Namespace, Secret};
-use kube::api::{Patch, PatchParams};
+use kube::api::{GetParams, Patch, PatchParams};
 use kube::{Api, ResourceExt};
 use reinhardt_cloud_types::crd::Project;
 
@@ -24,6 +24,31 @@ pub fn parse_project_yaml(yaml: &str) -> Result<Project, K8sError> {
 		return Err(K8sError::Validation(messages));
 	}
 	Ok(app)
+}
+
+/// Reads a `Project` from Kubernetes by namespace and name.
+pub async fn get_project(
+	client: &KubeClient,
+	namespace: &str,
+	name: &str,
+) -> Result<Project, K8sError> {
+	Api::<Project>::namespaced(client.inner().clone(), namespace)
+		.get_with(name, &GetParams::default())
+		.await
+		.map_err(|error| map_project_get_error(namespace, name, error))
+}
+
+fn map_project_get_error(namespace: &str, name: &str, error: kube::Error) -> K8sError {
+	match error {
+		kube::Error::Api(status) if status.code == 404 => {
+			K8sError::NotFound(project_resource_key(namespace, name))
+		}
+		error => K8sError::Api(error.to_string()),
+	}
+}
+
+fn project_resource_key(namespace: &str, name: &str) -> String {
+	format!("{namespace}/{name}")
 }
 
 /// Applies a `Project` YAML manifest using Kubernetes server-side apply.
@@ -114,9 +139,13 @@ impl<'a> NamespaceClient<'a> {
 
 #[cfg(test)]
 mod tests {
+	use kube::core::Status;
 	use rstest::rstest;
 
-	use super::{K8sError, git_credentials_secret, parse_project_yaml};
+	use super::{
+		K8sError, git_credentials_secret, map_project_get_error, parse_project_yaml,
+		project_resource_key,
+	};
 
 	#[rstest]
 	fn parse_project_yaml_accepts_valid_manifest() {
@@ -157,6 +186,63 @@ spec:
 
 		// Assert
 		assert!(matches!(err, K8sError::MissingName));
+	}
+
+	#[rstest]
+	#[case("default", "demo", "default/demo")]
+	#[case("demo-preview", "demo-pr-12", "demo-preview/demo-pr-12")]
+	fn project_resource_key_formats_namespace_and_name(
+		#[case] namespace: &str,
+		#[case] name: &str,
+		#[case] expected: &str,
+	) {
+		// Arrange / Act
+		let resource_key = project_resource_key(namespace, name);
+
+		// Assert
+		assert_eq!(resource_key, expected);
+	}
+
+	#[rstest]
+	fn map_project_get_error_maps_404_to_not_found() {
+		// Arrange
+		let error = kube::Error::Api(
+			Status::failure(
+				"projects.paas.reinhardt-cloud.dev \"demo\" not found",
+				"NotFound",
+			)
+			.with_code(404)
+			.boxed(),
+		);
+
+		// Act
+		let err = map_project_get_error("apps", "demo", error);
+
+		// Assert
+		match err {
+			K8sError::NotFound(resource) => assert_eq!(resource, "apps/demo"),
+			other => panic!("expected NotFound, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn map_project_get_error_maps_non_404_to_api_error() {
+		// Arrange
+		let error = kube::Error::Api(
+			Status::failure("project read is forbidden", "Forbidden")
+				.with_code(403)
+				.boxed(),
+		);
+		let expected = error.to_string();
+
+		// Act
+		let err = map_project_get_error("apps", "demo", error);
+
+		// Assert
+		match err {
+			K8sError::Api(message) => assert_eq!(message, expected),
+			other => panic!("expected Api error, got {other:?}"),
+		}
 	}
 
 	#[rstest]

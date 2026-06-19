@@ -12,21 +12,25 @@ use crate::apps::clusters::server_fn::ClusterInfo;
 use crate::apps::clusters::server_fn::list_clusters_for_current_org;
 use crate::apps::dashboard::client::layout::dashboard_app_shell;
 use crate::apps::deployments::client::components::log_viewer::log_viewer_container;
+use crate::apps::deployments::client::components::preview_list::{
+	render_preview_list, render_project_identity,
+};
 use crate::apps::deployments::server_fn::{
-	DeploymentInfo, DeploymentLogInfo, create_deployment_for_current_org,
+	DeploymentInfo, DeploymentLogInfo, ProjectPreviewSummary, create_deployment_for_current_org,
 	delete_deployment_for_current_org, update_deployment_for_current_org,
 	update_deployment_status_for_current_org,
 };
 #[cfg(wasm)]
 use crate::apps::deployments::server_fn::{
-	deployment_logs_for_current_org, list_deployments_for_current_org,
+	deployment_logs_for_current_org, list_deployment_previews_for_current_org,
+	list_deployments_for_current_org,
 };
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
 use crate::shared::client::ws::subscribe_app_logs;
 #[cfg(wasm)]
-use crate::shared::client::ws::track_subscriptions;
+use crate::shared::client::ws::{track_preview_subscriptions, track_subscriptions};
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -87,6 +91,18 @@ fn track_visible_deployments(items: &[DeploymentInfo]) {
 fn track_visible_deployments(_items: &[DeploymentInfo]) {}
 
 #[cfg(wasm)]
+fn track_visible_preview_projects(items: &[ProjectPreviewSummary]) {
+	let names = items
+		.iter()
+		.map(|item| item.project_name.clone())
+		.collect::<Vec<_>>();
+	track_preview_subscriptions(&names);
+}
+
+#[cfg(not(wasm))]
+fn track_visible_preview_projects(_items: &[ProjectPreviewSummary]) {}
+
+#[cfg(wasm)]
 async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
 	list_deployments_for_current_org()
 		.await
@@ -95,6 +111,18 @@ async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
 
 #[cfg(not(wasm))]
 async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
+	Ok(Vec::new())
+}
+
+#[cfg(wasm)]
+async fn load_deployment_previews() -> Result<Vec<ProjectPreviewSummary>, String> {
+	list_deployment_previews_for_current_org()
+		.await
+		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(wasm))]
+async fn load_deployment_previews() -> Result<Vec<ProjectPreviewSummary>, String> {
 	Ok(Vec::new())
 }
 
@@ -151,10 +179,179 @@ fn deployment_select_options(items: &[DeploymentInfo]) -> Vec<EntitySelectOption
 		.collect()
 }
 
+fn render_deployment_project_cell(
+	deployment: &DeploymentInfo,
+	summary: Option<&ProjectPreviewSummary>,
+) -> Page {
+	if let Some(summary) = summary {
+		return page!(|identity: Page, previews: Page| {
+			div {
+				{ identity }
+				{ previews }
+			}
+		})(
+			render_project_identity(summary),
+			render_preview_list(summary),
+		);
+	}
+	page!(|project_name: String| {
+		div {
+			div {
+				class: "font-semibold text-ink-950",
+				{ project_name }
+			}
+			div {
+				class: "mt-2 text-xs font-medium text-cloud-500",
+				"No active previews"
+			}
+		}
+	})(deployment.project_name.clone())
+}
+
+fn render_deployment_status_badge(status: &str) -> Page {
+	let (color, label) = status_badge::badge_style(&self::state_from_status(status));
+	page!(|color: &'static str, label: &'static str| {
+		span {
+			class: format!(
+				"status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"
+			),
+			{ label }
+		}
+	})(color, label)
+}
+
+fn render_deployment_inventory_row(
+	deployment: &DeploymentInfo,
+	summary: Option<&ProjectPreviewSummary>,
+) -> Page {
+	page!(|deployment: DeploymentInfo, project_cell: Page, status_cell: Page| {
+		tr {
+			data_deployment_id: deployment.id.to_string(),
+			td {
+				class: "px-4 py-2 font-mono text-xs text-ink-600",
+				{ deployment.id.to_string() }
+			}
+			td {
+				class: "px-4 py-2",
+				{ project_cell }
+			}
+			td {
+				class: "px-4 py-2 font-mono text-xs text-ink-600",
+				{ deployment.cluster_id.to_string() }
+			}
+			td {
+				class: "px-4 py-2",
+				{ status_cell }
+			}
+			td {
+				class: "max-w-xs truncate px-4 py-2 text-ink-600",
+				{ deployment.image }
+			}
+		}
+	})(
+		deployment.clone(),
+		render_deployment_project_cell(deployment, summary),
+		render_deployment_status_badge(&deployment.status),
+	)
+}
+
+fn render_deployment_inventory_table(
+	items: Vec<DeploymentInfo>,
+	preview_state: ResourceState<Vec<ProjectPreviewSummary>, String>,
+) -> Page {
+	if items.is_empty() {
+		return page!(|| {
+			div {
+				class: "rc-empty",
+				"No deployments created."
+			}
+		})();
+	}
+
+	let (preview_banner, summaries) = match preview_state {
+		ResourceState::Success(summaries) => {
+			self::track_visible_preview_projects(&summaries);
+			(Page::Empty, summaries)
+		}
+		ResourceState::Loading => (
+			page!(|| {
+				div {
+					class: "border-b border-cloud-100 px-4 py-2 text-xs font-medium text-cloud-500",
+					"Loading previews..."
+				}
+			})(),
+			Vec::new(),
+		),
+		ResourceState::Error(_) => (
+			page!(|| {
+				div {
+					class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
+					"Preview status is temporarily unavailable"
+				}
+			})(),
+			Vec::new(),
+		),
+	};
+	let previews_by_deployment = summaries
+		.into_iter()
+		.map(|summary| (summary.deployment_id, summary))
+		.collect::<std::collections::HashMap<_, _>>();
+	let rows = items
+		.iter()
+		.map(|deployment| {
+			self::render_deployment_inventory_row(
+				deployment,
+				previews_by_deployment.get(&deployment.id),
+			)
+		})
+		.collect::<Vec<_>>();
+
+	page!(|preview_banner: Page, rows: Vec<Page>| {
+		{ preview_banner }
+		div {
+			class: "overflow-x-auto",
+			table {
+				class: "rc-table",
+				thead {
+					class: "bg-cloud-50",
+					tr {
+						th {
+							class: "rc-th",
+							"ID"
+						}
+						th {
+							class: "rc-th",
+							"Project"
+						}
+						th {
+							class: "rc-th",
+							"Cluster"
+						}
+						th {
+							class: "rc-th",
+							"Status"
+						}
+						th {
+							class: "rc-th",
+							"Image"
+						}
+					}
+				}
+				tbody {
+					class: "divide-y divide-cloud-100 bg-white",
+					{ rows }
+				}
+			}
+		}
+	})(preview_banner, rows)
+}
+
 /// Render the deployments page.
 #[reinhardt::pages::component("/deployments", "deployments:list")]
 pub fn deployments_list_page() -> Page {
 	let deployments = use_resource(|| async move { self::load_deployments().await }, ());
+	let deployment_previews =
+		use_resource(|| async move { self::load_deployment_previews().await }, ());
 	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
 
 	let create_form = form! {
@@ -332,9 +529,10 @@ pub fn deployments_list_page() -> Page {
 	let deployments_for_edit = deployments.clone();
 	let deployments_for_status = deployments.clone();
 	let deployments_for_delete = deployments.clone();
+	let deployments_for_previews = deployment_previews.clone();
 	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_logs: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, log_deployment_id: Signal<String>, logs: Page| {
+	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_logs: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, deployments_for_previews: Resource<Vec<ProjectPreviewSummary>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, log_deployment_id: Signal<String>, logs: Page| {
 		div {
 			class: "rc-shell",
 			div {
@@ -381,90 +579,7 @@ pub fn deployments_list_page() -> Page {
 									})(message),
 									ResourceState::Success(items)=> {
 										self::track_visible_deployments(&items);
-										if items.is_empty() {
-											page!(|| {
-												div {
-													class: "rc-empty",
-													"No deployments created."
-												}
-											})()
-										} else {
-											page!(|items: Vec<DeploymentInfo>| {
-												div {
-													class: "overflow-x-auto",
-													table {
-														class: "rc-table",
-														thead {
-															class: "bg-cloud-50",
-															tr {
-																th {
-																	class: "rc-th",
-																	"ID"
-																}
-																th {
-																	class: "rc-th",
-																	"App"
-																}
-																th {
-																	class: "rc-th",
-																	"Cluster"
-																}
-																th {
-																	class: "rc-th",
-																	"Status"
-																}
-																th {
-																	class: "rc-th",
-																	"Image"
-																}
-															}
-														}
-														tbody {
-															class: "divide-y divide-cloud-100 bg-white",
-															{ items.clone().into_iter().map(|deployment| page!(|deployment: DeploymentInfo| {
-																tr {
-																	data_deployment_id: deployment.id.to_string(),
-																	td {
-																		class: "px-4 py-2 font-mono text-xs text-ink-600",
-																		{
-																			deployment.id.to_string()
-																		}
-																	}
-																	td {
-																		class: "px-4 py-2 font-semibold text-ink-950",
-																		{
-																			deployment.project_name.clone()
-																		}
-																	}
-																	td {
-																		class: "px-4 py-2 font-mono text-xs text-ink-600",
-																		{
-																			deployment.cluster_id.to_string()
-																		}
-																	}
-																	td {
-																		class: "px-4 py-2",
-																		{
-																			let(color, label) = status_badge::badge_style(&self::state_from_status(&deployment.status));
-																			page!(|color: &'static str, label: &'static str| {
-																				span {
-																					class: format!("status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"),
-																					{ label }
-																				}
-																			})(color, label)
-																		}
-																	}
-																	td {
-																		class: "max-w-xs truncate px-4 py-2 text-ink-600",
-																		{ deployment.image }
-																	}
-																}
-															})(deployment)).collect::<Vec<_>>() }
-														}
-													}
-												}
-											})(items)
-										}
+										self::render_deployment_inventory_table(items, deployments_for_previews.get(), )
 									}
 								}
 							}
@@ -660,6 +775,7 @@ pub fn deployments_list_page() -> Page {
 		deployments_for_edit,
 		deployments_for_status,
 		deployments_for_delete,
+		deployments_for_previews,
 		clusters_for_create,
 		create_view,
 		create_error,
