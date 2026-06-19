@@ -103,6 +103,7 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 				.transpose()?,
 			search: f.search.clone(),
 			deployment_id: f.deployment_id.clone(),
+			namespace: f.namespace.clone(),
 		}),
 		None => Ok(LogFilter::default()),
 	}

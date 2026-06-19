@@ -260,6 +260,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
 	use reinhardt_cloud_proto::log as log_pb;
+	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::organizations::permissions::action::Action;
@@ -271,6 +272,17 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
+	let organization = crate::apps::organizations::models::Organization::objects()
+		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
+		.ok_or_else(|| ServerFnError::server(404, "Organization not found"))?;
+	let namespace = TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	let deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.filter(Deployment::field_organization_id().eq(organization_id))
@@ -284,6 +296,7 @@ pub async fn deployment_logs_for_current_org(
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
 				source: Some(deployment.project_name),
+				namespace: Some(namespace),
 				..Default::default()
 			}),
 			pagination: Some(PaginationRequest {

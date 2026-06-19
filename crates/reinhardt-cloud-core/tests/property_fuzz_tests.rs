@@ -61,6 +61,7 @@ proptest! {
 			until: None,
 			search: filter_search,
 			deployment_id: None,
+			namespace: None,
 		};
 
 		// Act
