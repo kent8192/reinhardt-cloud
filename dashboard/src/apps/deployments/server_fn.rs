@@ -262,6 +262,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt_cloud_proto::log as log_pb;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::models::Organization;
 	use crate::apps::organizations::permissions::action::Action;
 	use crate::apps::organizations::permissions::guard::require_permission;
 
@@ -278,12 +279,24 @@ pub async fn deployment_logs_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
+		.ok_or_else(|| ServerFnError::server(404, "Organization not found"))?;
+	let namespace = reinhardt_cloud_types::crd::TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	let mut client =
 		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
 	let response = client
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
 				source: Some(deployment.project_name),
+				namespace: Some(namespace),
 				..Default::default()
 			}),
 			pagination: Some(PaginationRequest {

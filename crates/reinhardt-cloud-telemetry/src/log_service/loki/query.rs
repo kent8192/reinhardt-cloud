@@ -53,7 +53,8 @@ fn escape_logql_string_literal(value: &str) -> String {
 /// Build a LogQL query string for Loki `query_range` / `tail` from a filter.
 ///
 /// `source` maps to the `app` label (the project name written by Promtail);
-/// `min_level` narrows the `level` label; `search` becomes a regex line filter;
+/// `namespace` scopes application logs to a tenant namespace; `min_level`
+/// narrows the `level` label; `search` becomes a regex line filter;
 /// `deployment_id` adds a `deployment_id` label matcher only when set.
 pub(crate) fn build_logql(filter: &LogFilter) -> String {
 	let mut selectors: Vec<String> = Vec::new();
@@ -62,6 +63,12 @@ pub(crate) fn build_logql(filter: &LogFilter) -> String {
 	match &filter.source {
 		Some(app) => selectors.push(format!(r#"app="{}""#, escape_logql_string_literal(app))),
 		None => selectors.push(r#"app=~".+""#.to_string()),
+	}
+	if let Some(namespace) = &filter.namespace {
+		selectors.push(format!(
+			r#"namespace="{}""#,
+			escape_logql_string_literal(namespace)
+		));
 	}
 	if let Some(deployment_id) = &filter.deployment_id {
 		selectors.push(format!(
@@ -188,6 +195,22 @@ mod tests {
 	}
 
 	#[rstest]
+	fn namespace_label_only_when_set() {
+		// Arrange
+		let filter = LogFilter {
+			source: Some("p".to_string()),
+			namespace: Some("tenant-acme".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let q = build_logql(&filter);
+
+		// Assert
+		assert_eq!(q, r#"{app="p",namespace="tenant-acme"}"#);
+	}
+
+	#[rstest]
 	fn deployment_id_label_only_when_set() {
 		// Arrange
 		let filter = LogFilter {
@@ -208,6 +231,7 @@ mod tests {
 		// Arrange
 		let filter = LogFilter {
 			source: Some("p".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 			min_level: Some(LogLevel::Error),
 			search: Some("oom".to_string()),
 			deployment_id: Some("d1".to_string()),

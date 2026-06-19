@@ -92,6 +92,7 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 	match filter {
 		Some(f) => Ok(LogFilter {
 			source: f.source.clone(),
+			namespace: f.namespace.clone(),
 			min_level: f.min_level.map(proto_level_to_domain),
 			since: f
 				.since
@@ -354,6 +355,7 @@ mod tests {
 		let until = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap();
 		let proto_filter = Some(pb::LogFilter {
 			source: Some("web".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 			min_level: Some(pb::LogLevel::Warn as i32),
 			since: Some(to_proto_ts(since)),
 			until: Some(to_proto_ts(until)),
@@ -366,6 +368,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(domain.source, Some("web".to_string()));
+		assert_eq!(domain.namespace, Some("tenant-acme".to_string()));
 		assert_eq!(domain.min_level, Some(LogLevel::Warn));
 		assert_eq!(domain.since, Some(since));
 		assert_eq!(domain.until, Some(until));
@@ -385,6 +388,7 @@ mod tests {
 
 		// Assert
 		assert!(domain.source.is_none());
+		assert!(domain.namespace.is_none());
 		assert!(domain.min_level.is_none());
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());
@@ -399,6 +403,7 @@ mod tests {
 		// Arrange
 		let proto_filter = Some(pb::LogFilter {
 			source: None,
+			namespace: None,
 			min_level: None,
 			since: None,
 			until: None,
@@ -411,6 +416,7 @@ mod tests {
 
 		// Assert
 		assert!(domain.source.is_none());
+		assert!(domain.namespace.is_none());
 		assert!(domain.min_level.is_none());
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());

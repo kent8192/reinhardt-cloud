@@ -16,6 +16,7 @@ use reinhardt_cloud_proto::log as log_pb;
 
 use crate::apps::auth::services::session::validate_session;
 use crate::apps::deployments::models::Deployment;
+use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
 use crate::shared::ws_messages::{
@@ -212,6 +213,7 @@ impl NotificationConsumer {
 struct AuthorizedAppLogSubscription {
 	deployment_id: i64,
 	project_name: String,
+	namespace: String,
 }
 
 fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
@@ -246,9 +248,29 @@ async fn authorize_app_log_subscription(
 			log_stream_rejected("Failed to load deployment for logs")
 		})?
 		.ok_or_else(|| log_stream_rejected("Deployment not found for log subscription"))?;
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load organization for app-log subscription"
+			);
+			log_stream_rejected("Failed to load deployment namespace for logs")
+		})?
+		.ok_or_else(|| {
+			log_stream_rejected("Deployment namespace not found for log subscription")
+		})?;
+	let namespace = reinhardt_cloud_types::crd::TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	Ok(AuthorizedAppLogSubscription {
 		deployment_id,
 		project_name: deployment.project_name,
+		namespace,
 	})
 }
 
@@ -497,6 +519,7 @@ impl WebSocketConsumer for NotificationConsumer {
 				// the connection subsequently fails.
 				let conn = Arc::clone(&context.connection);
 				let project = subscription.project_name.clone();
+				let namespace = subscription.namespace.clone();
 				let endpoint = grpc_endpoint();
 				let handle_ref = Arc::clone(&self.log_stream_handle);
 
@@ -530,6 +553,7 @@ impl WebSocketConsumer for NotificationConsumer {
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
 							source: Some(project.clone()),
+							namespace: Some(namespace.clone()),
 							..Default::default()
 						}),
 					};
@@ -999,6 +1023,7 @@ mod tests {
 		// Assert
 		assert_eq!(subscription.deployment_id, deployment.id.unwrap());
 		assert_eq!(subscription.project_name, "allowed-project");
+		assert_eq!(subscription.namespace, "tenant-logs-allowed");
 	}
 
 	#[rstest]
