@@ -396,50 +396,42 @@ reinhardt-cloud status --name my-app --cluster staging-context
 
 ### reinhardt-cloud login
 
-Legacy CLI login command. Dashboard credential submission now lives in the
-Pages login form and calls the login server function directly.
+Authenticates with the Reinhardt Cloud platform by verifying an API token with
+the control plane and saving the verified credentials for later CLI commands.
 
 **Synopsis**
 
-```
-reinhardt-cloud login --username <USERNAME>
+```bash
+reinhardt-cloud login --token <API_TOKEN>
 ```
 
 **Flags**
 
 | Flag | Short | Type | Required | Description |
 |------|-------|------|----------|-------------|
-| `--username` | `-u` | `string` | Yes | Username retained for compatibility; no REST login request is sent |
-
-The CLI login command is retained as a legacy invocation shape, but dashboard login REST is no longer supported. Use the Dashboard Pages login form for browser authentication.
+| `--token` | `-t` | `string` | No | API token used for authentication; falls back to `REINHARDT_CLOUD_API_TOKEN`, saved credentials, then an interactive prompt |
 
 **Behavior**
 
-1. Does not prompt for a password.
-2. Returns an explicit unsupported-operation error because dashboard login REST was removed.
-3. Browser login remains available through the Dashboard Pages form, which calls the login server function directly.
+1. Resolves the API token from the flag, environment, saved credentials, or prompt.
+2. Calls the control plane `me()` endpoint to verify the token and resolve the username.
+3. Saves `credentials.json` under the platform config directory for later commands.
 
-> **Security note**: Existing credentials files are read using normal filesystem permissions. The removed CLI login path no longer writes fresh credentials.
-> ```bash
-> chmod 600 "<platform config dir>/reinhardt-cloud/credentials"*
-> ```
-> Replace `<platform config dir>` with the platform-specific path (e.g. `~/.config` on Linux or `~/Library/Application Support` on macOS). This will be tightened to owner-only permissions (`0600`) in a future release.
+> **Security note**: On Unix platforms, `login` creates the `reinhardt-cloud`
+> credentials directory with owner-only permissions (`0700`) and writes
+> `credentials.json` atomically with owner-only permissions (`0600`).
 
 **Example**
 
 ```bash
-# Legacy invocation, currently unsupported
-reinhardt-cloud login --username alice
+reinhardt-cloud login --token rct_example
 ```
 
 **CI pattern**
 
-Do not use `login` in CI. Configure any required credentials through the
-supported credential/config commands for the workflow being tested.
-
-**Troubleshooting**
-
-- **`dashboard login REST is no longer supported...`** — Use the Dashboard Pages login form; it calls the login server function directly.
+Do not use interactive `login` in CI. Pass `--token`, set
+`REINHARDT_CLOUD_API_TOKEN`, or configure credentials through the supported
+credential/config commands for the workflow being tested.
 
 ---
 
@@ -569,7 +561,7 @@ Prints whether the Secret exists, whether a provider label is present, and a sum
 reinhardt-cloud credentials check my-app --namespace production
 ```
 
-**Security note**: The same credential file permission caveat described in the [`login`](#reinhardt-cloud-login) section applies here. After writing any credentials, run `chmod 600 ~/.config/reinhardt-cloud/credentials*` on shared hosts.
+**Security note**: The token file permission behavior described in the [`login`](#reinhardt-cloud-login) section applies to credentials saved by the CLI.
 
 > **For App Developers**: Use `credentials set` once during initial setup to give the operator access to your private repository. Use `credentials check` to confirm the Secret is present before filing a support request about failed pulls.
 
