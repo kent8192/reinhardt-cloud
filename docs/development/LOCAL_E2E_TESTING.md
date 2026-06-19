@@ -76,9 +76,10 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_RUST_VERSION` | nearest `rust-toolchain.toml` channel | Rust image version used when preparing the build Dockerfile. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_MODE` | `auto` | `auto`, `existing`, `local`, or `skip`. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR` | `127.0.0.1:19090` | Metrics/health bind address for the local Operator process. |
-| `DASHBOARD_SELF_DEPLOY_OPERATOR_BIN` | `target/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
-| `DASHBOARD_SELF_DEPLOY_CLI_BIN` | `target/debug/reinhardt-cloud` | Override the local CLI binary path. |
-| `DASHBOARD_SELF_DEPLOY_MANAGE_BIN` | `target/debug/manage` | Override the Dashboard `manage` binary used for strict introspection. |
+| `DASHBOARD_SELF_DEPLOY_TARGET_DIR` | `${CARGO_TARGET_DIR}` if set, otherwise `target` | Cargo target directory used to resolve default local binary paths. |
+| `DASHBOARD_SELF_DEPLOY_OPERATOR_BIN` | `<target-dir>/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
+| `DASHBOARD_SELF_DEPLOY_CLI_BIN` | `<target-dir>/debug/reinhardt-cloud` | Override the local CLI binary path. |
+| `DASHBOARD_SELF_DEPLOY_MANAGE_BIN` | `<target-dir>/debug/manage` | Override the Dashboard `manage` binary used for strict introspection. |
 | `DASHBOARD_SELF_DEPLOY_REINHARDT_ENV` | `ci` | `REINHARDT_ENV` used by local Dashboard `manage introspect`. |
 | `DASHBOARD_SELF_DEPLOY_CORE_SECRET_KEY` | self-deploy fixture value | `REINHARDT_CORE__SECRET_KEY` used by local Dashboard `manage introspect`. |
 | `DASHBOARD_SELF_DEPLOY_JWT_SECRET` | self-deploy fixture value | `REINHARDT_CLOUD_JWT_SECRET` used by local Dashboard `manage introspect`. |
