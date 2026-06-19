@@ -54,10 +54,16 @@ when no in-cluster Operator is already installed, generates the Dashboard
 `Project` with `reinhardt-cloud deploy --dir dashboard --dry-run`, requires
 Dashboard `manage introspect` to succeed, applies the same contract through
 `--direct`, waits for the Operator-owned Deployment, Service, cache/database
-resources, Pods, and live `Project`, seeds an active Dashboard user with
+resources, revision migration Job, Pods, and live `Project`, seeds an active Dashboard user with
 its Personal Organization, verifies login through the deployed frontend server
-function, checks authenticated Dashboard pages, then removes the temporary
+function, checks authenticated Dashboard route shells, then removes the temporary
 namespace.
+
+By default, the harness first uses the configured Kubernetes context when it is
+reachable. If the current context is stopped or missing and `kind` is installed,
+it creates or reuses a local `reinhardt-dashboard-e2e` kind cluster and loads the
+Dashboard image there. Set `DASHBOARD_SELF_DEPLOY_CLUSTER_MODE=existing` to keep
+the older fail-fast behavior.
 
 Useful overrides:
 
@@ -66,17 +72,23 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_NAMESPACE` | `reinhardt-dashboard-e2e-<timestamp>` | Reuse or name the test namespace. |
 | `DASHBOARD_SELF_DEPLOY_IMAGE` | `reinhardt-cloud-dashboard:e2e` | Dashboard image used in the generated CRD. |
 | `DASHBOARD_SELF_DEPLOY_BUILD_IMAGE` | `1` | Set to `0` to use an already-built image. |
+| `DASHBOARD_SELF_DEPLOY_DOCKERFILE` | `dashboard/Dockerfile` | Dockerfile template used for the Dashboard image build. |
+| `DASHBOARD_SELF_DEPLOY_RUST_VERSION` | nearest `rust-toolchain.toml` channel | Rust image version used when preparing the build Dockerfile. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_MODE` | `auto` | `auto`, `existing`, `local`, or `skip`. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR` | `127.0.0.1:19090` | Metrics/health bind address for the local Operator process. |
 | `DASHBOARD_SELF_DEPLOY_OPERATOR_BIN` | `target/debug/reinhardt-cloud-operator` | Override the local Operator binary path. |
 | `DASHBOARD_SELF_DEPLOY_CLI_BIN` | `target/debug/reinhardt-cloud` | Override the local CLI binary path. |
 | `DASHBOARD_SELF_DEPLOY_MANAGE_BIN` | `target/debug/manage` | Override the Dashboard `manage` binary used for strict introspection. |
 | `DASHBOARD_SELF_DEPLOY_REINHARDT_ENV` | `ci` | `REINHARDT_ENV` used by local Dashboard `manage introspect`. |
+| `DASHBOARD_SELF_DEPLOY_CORE_SECRET_KEY` | self-deploy fixture value | `REINHARDT_CORE__SECRET_KEY` used by local Dashboard `manage introspect`. |
+| `DASHBOARD_SELF_DEPLOY_JWT_SECRET` | self-deploy fixture value | `REINHARDT_CLOUD_JWT_SECRET` used by local Dashboard `manage introspect`. |
+| `DASHBOARD_SELF_DEPLOY_DATABASE_PASSWORD` | `postgres` | `REINHARDT_DATABASE_PASSWORD` used by local Dashboard `manage introspect`. |
 | `DASHBOARD_SELF_DEPLOY_KEEP_RESOURCES` | `0` | Set to `1` to keep the namespace after the run. |
 | `DASHBOARD_SELF_DEPLOY_INTROSPECT_TIMEOUT_SECONDS` | `30` | Timeout for each CLI `manage introspect` attempt. The harness fails instead of using zero-config fallback. |
 | `DASHBOARD_SELF_DEPLOY_ARTIFACT_DIR` | `target/dashboard-self-deploy-e2e/<namespace>` | Failure diagnostics and generated YAML. |
+| `DASHBOARD_SELF_DEPLOY_CLUSTER_MODE` | `auto` | `auto`, `existing`, or `create-kind`. `auto` uses a reachable context, then falls back to kind. |
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
-| `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context | Explicit `kind load docker-image` target. |
+| `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context, otherwise `reinhardt-dashboard-e2e` when kind is created | Explicit `kind` cluster target for creation and `kind load docker-image`. |
 | `DASHBOARD_SELF_DEPLOY_E2E_USERNAME` | `e2e-user` | Username seeded inside the deployed Dashboard Pod for authenticated flow checks. |
 | `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | `e2e-password-123456` | Password assigned to the seeded Dashboard user. |
 | `DASHBOARD_SELF_DEPLOY_E2E_EMAIL` | `e2e@example.test` | Email assigned to the seeded Dashboard user. |
