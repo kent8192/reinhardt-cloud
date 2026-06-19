@@ -242,7 +242,10 @@ mod tests {
 		let q = build_logql(&filter);
 
 		// Assert
-		assert_eq!(q, r#"{app="p",deployment_id="d1",level=~"error"}|~"oom""#);
+		assert_eq!(
+			q,
+			r#"{app="p",namespace="tenant-acme",deployment_id="d1",level=~"error"}|~"oom""#
+		);
 	}
 
 	#[rstest]
