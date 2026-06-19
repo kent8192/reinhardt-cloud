@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct CliDeploymentRequest {
 	#[validate(length(min = 1, max = 63))]
 	pub project_name: String,
-	#[validate(length(min = 1, max = 63))]
+	#[validate(length(min = 1, max = 255))]
 	pub cluster: String,
 	#[validate(length(min = 1, max = 63))]
 	pub namespace: String,
