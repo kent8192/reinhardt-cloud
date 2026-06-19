@@ -3,6 +3,15 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+resolve_target_dir() {
+	local target_dir=$1
+	if [[ "${target_dir}" = /* ]]; then
+		printf '%s\n' "${target_dir}"
+	else
+		printf '%s\n' "${ROOT_DIR}/${target_dir}"
+	fi
+}
+
 APP_NAME="${DASHBOARD_SELF_DEPLOY_APP_NAME:-reinhardt-cloud-dashboard}"
 IMAGE="${DASHBOARD_SELF_DEPLOY_IMAGE:-reinhardt-cloud-dashboard:e2e}"
 PROJECT_DIR="${DASHBOARD_SELF_DEPLOY_PROJECT_DIR:-${ROOT_DIR}/dashboard}"
@@ -14,9 +23,11 @@ BUILD_IMAGE="${DASHBOARD_SELF_DEPLOY_BUILD_IMAGE:-1}"
 KEEP_RESOURCES="${DASHBOARD_SELF_DEPLOY_KEEP_RESOURCES:-0}"
 OPERATOR_MODE="${DASHBOARD_SELF_DEPLOY_OPERATOR_MODE:-auto}"
 OPERATOR_METRICS_ADDR="${DASHBOARD_SELF_DEPLOY_OPERATOR_METRICS_ADDR:-127.0.0.1:19090}"
-OPERATOR_BIN="${DASHBOARD_SELF_DEPLOY_OPERATOR_BIN:-${ROOT_DIR}/target/debug/reinhardt-cloud-operator}"
-CLI_BIN="${DASHBOARD_SELF_DEPLOY_CLI_BIN:-${ROOT_DIR}/target/debug/reinhardt-cloud}"
-MANAGE_BIN="${DASHBOARD_SELF_DEPLOY_MANAGE_BIN:-${ROOT_DIR}/target/debug/manage}"
+TARGET_DIR="$(resolve_target_dir "${DASHBOARD_SELF_DEPLOY_TARGET_DIR:-${CARGO_TARGET_DIR:-target}}")"
+DEBUG_BIN_DIR="${TARGET_DIR}/debug"
+OPERATOR_BIN="${DASHBOARD_SELF_DEPLOY_OPERATOR_BIN:-${DEBUG_BIN_DIR}/reinhardt-cloud-operator}"
+CLI_BIN="${DASHBOARD_SELF_DEPLOY_CLI_BIN:-${DEBUG_BIN_DIR}/reinhardt-cloud}"
+MANAGE_BIN="${DASHBOARD_SELF_DEPLOY_MANAGE_BIN:-${DEBUG_BIN_DIR}/manage}"
 DOCKERFILE="${DASHBOARD_SELF_DEPLOY_DOCKERFILE:-${PROJECT_DIR}/Dockerfile}"
 RUST_VERSION="${DASHBOARD_SELF_DEPLOY_RUST_VERSION:-}"
 MANAGE_ENV="${DASHBOARD_SELF_DEPLOY_REINHARDT_ENV:-${REINHARDT_ENV:-ci}}"
@@ -193,17 +204,23 @@ stop_process_tree() {
 	kill "${pid}" >/dev/null 2>&1 || true
 }
 
+cleanup_kubernetes_resources() {
+	if [[ "${CREATED_NAMESPACE}" == "1" ]]; then
+		log "deleting project ${APP_NAME}"
+		kubectl_cmd delete project "${APP_NAME}" -n "${NAMESPACE}" \
+			--ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
+		log "deleting namespace ${NAMESPACE}"
+		kubectl_cmd delete namespace "${NAMESPACE}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+	else
+		kubectl_cmd delete project "${APP_NAME}" -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+	fi
+}
+
 cleanup() {
 	local status=$?
 
 	if [[ "${status}" -ne 0 ]]; then
 		collect_diagnostics
-	fi
-
-	if [[ -n "${OPERATOR_PID}" ]]; then
-		log "stopping local operator process ${OPERATOR_PID}"
-		stop_process_tree "${OPERATOR_PID}"
-		wait "${OPERATOR_PID}" >/dev/null 2>&1 || true
 	fi
 
 	if [[ -n "${PORT_FORWARD_PID}" ]]; then
@@ -217,11 +234,12 @@ cleanup() {
 		exit "${status}"
 	fi
 
-	if [[ "${CREATED_NAMESPACE}" == "1" ]]; then
-		log "deleting namespace ${NAMESPACE}"
-		kubectl_cmd delete namespace "${NAMESPACE}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-	else
-		kubectl_cmd delete project "${APP_NAME}" -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+	cleanup_kubernetes_resources
+
+	if [[ -n "${OPERATOR_PID}" ]]; then
+		log "stopping local operator process ${OPERATOR_PID}"
+		stop_process_tree "${OPERATOR_PID}"
+		wait "${OPERATOR_PID}" >/dev/null 2>&1 || true
 	fi
 
 	exit "${status}"
