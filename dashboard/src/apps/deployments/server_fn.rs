@@ -222,6 +222,8 @@ pub async fn list_deployments_for_current_org(
 pub async fn list_deployment_previews_for_current_org(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
 	#[cfg(native)]
 	{
 		use reinhardt::Model;
@@ -231,7 +233,7 @@ pub async fn list_deployment_previews_for_current_org(
 		use crate::apps::organizations::permissions::action::Action;
 		use crate::apps::organizations::permissions::guard::require_permission;
 
-		let organization_id = require_permission(user.id, Action::DeploymentRead)
+		let organization_id = require_permission(user_id, Action::DeploymentRead)
 			.await
 			.map_err(|e| ServerFnError::application(e.to_string()))?;
 		let deployments = Deployment::objects()
@@ -250,7 +252,7 @@ pub async fn list_deployment_previews_for_current_org(
 	}
 	#[cfg(wasm)]
 	{
-		let _ = user;
+		let _ = user_id;
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

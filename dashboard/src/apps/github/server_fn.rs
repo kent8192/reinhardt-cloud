@@ -509,6 +509,8 @@ pub async fn list_github_repositories_for_current_org(
 pub async fn list_github_project_previews_for_current_org(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
 	#[cfg(native)]
 	{
 		use reinhardt::Model;
@@ -520,7 +522,10 @@ pub async fn list_github_project_previews_for_current_org(
 		};
 		use crate::apps::github::models::{GitHubProject, GitHubRepository};
 
-		let organization_id = current_org_id(&user).await?;
+		let organization_id =
+			crate::apps::organizations::helpers::current_organization_id_for_user(user_id)
+				.await
+				.map_err(|e| ServerFnError::application(e.to_string()))?;
 		let projects = GitHubProject::objects()
 			.filter(GitHubProject::field_organization_id().eq(organization_id))
 			.order_by(&["id"])
@@ -566,7 +571,7 @@ pub async fn list_github_project_previews_for_current_org(
 	}
 	#[cfg(wasm)]
 	{
-		let _ = user;
+		let _ = user_id;
 		unreachable!("server_fn body is replaced on wasm")
 	}
 }

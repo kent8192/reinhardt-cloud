@@ -21,16 +21,23 @@ pub(crate) struct PreviewProjectInput {
 pub(crate) async fn kube_client_for_namespace(
 	namespace: &str,
 ) -> Result<reinhardt_cloud_k8s::KubeClient, String> {
-	Ok(match reinhardt_cloud_k8s::KubeClient::in_cluster(namespace).await {
-		Ok(client) => client,
-		Err(in_cluster_error) => reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
-			.await
-			.map_err(|kubeconfig_error| {
-				format!(
-					"Failed to build Kubernetes client from in-cluster config ({in_cluster_error}) or kubeconfig ({kubeconfig_error})"
-				)
-			})?,
-	})
+	Ok(
+		match reinhardt_cloud_k8s::KubeClient::in_cluster(namespace).await {
+			Ok(client) => client,
+			Err(in_cluster_error) => {
+				let in_cluster_error = in_cluster_error.to_string();
+				reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
+					.await
+					.map_err(|kubeconfig_error| {
+						let kubeconfig_error = kubeconfig_error.to_string();
+						format!(
+							"Failed to build Kubernetes client from in-cluster config ({}) or kubeconfig ({})",
+							in_cluster_error, kubeconfig_error
+						)
+					})?
+			}
+		},
+	)
 }
 
 /// Loads preview status for one project, keeping read errors local to the row.
