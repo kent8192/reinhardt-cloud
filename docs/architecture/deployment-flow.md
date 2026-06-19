@@ -82,9 +82,9 @@ The CLI endpoint `POST /api/deployments/cli/` in
    `metadata.namespace`, and `spec.image` against the request fields.
 4. Persists a `Deployment` ORM record. The model
    (`dashboard/src/apps/deployments/models/deployment.rs:9-40`) tracks:
-   `id`, `organization_id`, `project_name`, `cluster_id`, `status` (one of
-   `pending`/`running`/`failed`/`succeeded`), `image`, `created_at`,
-   `updated_at`. Initial `status` is `pending`.
+   `id`, `organization`, `project_name`, `cluster`, `status` (one of
+   `pending`/`running`/`failed`/`succeeded`), `image`, `project_yaml`,
+   `created_at`, `updated_at`. Initial `status` is `pending`.
 5. Forwards `AgentCommand::ApplyProject` to the registered agent via the gRPC
    bidirectional stream that the agent opened on startup.
 

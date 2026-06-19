@@ -59,6 +59,28 @@ spec:
 	}
 
 	#[rstest]
+	fn test_validate_submission_manifest_accepts_trimmed_project_name() {
+		// Arrange
+		let cluster = active_cluster();
+		let manifest = project_manifest("web", "default");
+		let input = SubmitProjectDeploymentInput {
+			organization_id: 1,
+			project_name: " web ",
+			cluster: &cluster,
+			namespace: Some("default"),
+			image: "ghcr.io/example/web:latest",
+			project_yaml: &manifest,
+		};
+
+		// Act
+		let project = validate_submission_manifest(input)
+			.expect("trimmed project name should match manifest metadata name");
+
+		// Assert
+		assert_eq!(project.metadata.name.as_deref(), Some("web"));
+	}
+
+	#[rstest]
 	fn test_validate_submission_manifest_rejects_name_mismatch() {
 		// Arrange
 		let cluster = active_cluster();

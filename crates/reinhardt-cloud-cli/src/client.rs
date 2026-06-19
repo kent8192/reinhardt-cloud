@@ -41,7 +41,6 @@ pub(crate) struct UserInfo {
 	pub username: String,
 }
 
-#[allow(dead_code)] // Constructed by the follow-up #703 deploy command wiring.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CliDeployRequest {
 	pub project_name: String,
@@ -51,7 +50,6 @@ pub(crate) struct CliDeployRequest {
 	pub project_yaml: String,
 }
 
-#[allow(dead_code)] // Decoded by the follow-up #703 deploy command wiring.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub(crate) struct CliDeployResponse {
 	pub deployment_id: i64,
@@ -127,7 +125,6 @@ impl ReinhardtCloudClient {
 	}
 
 	/// Submit a CLI-generated Project manifest to the Dashboard control plane.
-	#[allow(dead_code)] // Called by the follow-up #703 deploy command wiring.
 	pub(crate) async fn submit_deploy(
 		&self,
 		request: &CliDeployRequest,
@@ -136,7 +133,6 @@ impl ReinhardtCloudClient {
 	}
 
 	/// Reusable POST helper — foundation for the #703 deploy endpoint.
-	#[allow(dead_code)] // Exercised by the #703 deploy relay (CLI -> Dashboard POST).
 	pub(crate) async fn post<T, R>(&self, path: &str, body: &T) -> Result<R, ClientError>
 	where
 		T: Serialize,

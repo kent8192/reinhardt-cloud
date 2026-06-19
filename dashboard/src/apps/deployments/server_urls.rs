@@ -112,18 +112,24 @@ fn trim_request(request: &mut CliDeploymentRequest) {
 }
 
 fn deployment_error_response(error: &SubmitProjectDeploymentError) -> ViewResult<Response> {
-	let status = match error.status_code() {
-		400 => StatusCode::BAD_REQUEST,
-		409 => StatusCode::CONFLICT,
-		503 => StatusCode::SERVICE_UNAVAILABLE,
-		_ => StatusCode::INTERNAL_SERVER_ERROR,
+	let (status, message) = match error {
+		SubmitProjectDeploymentError::BadRequest(message) => {
+			(StatusCode::BAD_REQUEST, message.as_str())
+		}
+		SubmitProjectDeploymentError::Conflict(message) => (StatusCode::CONFLICT, message.as_str()),
+		SubmitProjectDeploymentError::AgentUnavailable(message) => {
+			error!("CLI deploy agent unavailable: {message}");
+			(
+				StatusCode::SERVICE_UNAVAILABLE,
+				"Deployment agent is currently unavailable",
+			)
+		}
+		SubmitProjectDeploymentError::Internal(message) => {
+			error!("CLI deploy internal error: {message}");
+			(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+		}
 	};
-	json_response(
-		status,
-		ApiErrorResponse {
-			error: error.message(),
-		},
-	)
+	json_response(status, ApiErrorResponse { error: message })
 }
 
 fn json_response<T: Serialize>(status: StatusCode, body: T) -> ViewResult<Response> {
@@ -132,4 +138,76 @@ fn json_response<T: Serialize>(status: StatusCode, body: T) -> ViewResult<Respon
 	Ok(Response::new(status)
 		.with_header("Content-Type", "application/json")
 		.with_body(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+	use reinhardt::StatusCode;
+	use rstest::rstest;
+	use serde_json::Value;
+
+	use super::{SubmitProjectDeploymentError, deployment_error_response};
+
+	fn error_response_body(error: SubmitProjectDeploymentError) -> (StatusCode, Value) {
+		let response = deployment_error_response(&error).expect("error response should render");
+		let body = serde_json::from_slice(&response.body).expect("response body should be JSON");
+		(response.status, body)
+	}
+
+	#[rstest]
+	#[case(
+		SubmitProjectDeploymentError::BadRequest("Project YAML is required".to_string()),
+		StatusCode::BAD_REQUEST,
+		"Project YAML is required"
+	)]
+	#[case(
+		SubmitProjectDeploymentError::Conflict("Cluster prod is inactive".to_string()),
+		StatusCode::CONFLICT,
+		"Cluster prod is inactive"
+	)]
+	fn test_deployment_error_response_exposes_user_facing_errors(
+		#[case] error: SubmitProjectDeploymentError,
+		#[case] expected_status: StatusCode,
+		#[case] expected_message: &str,
+	) {
+		// Arrange
+		let input = error;
+
+		// Act
+		let (status, body) = error_response_body(input);
+
+		// Assert
+		assert_eq!(status, expected_status);
+		assert_eq!(body["error"], expected_message);
+	}
+
+	#[rstest]
+	#[case(
+		SubmitProjectDeploymentError::AgentUnavailable(
+			"Failed to enqueue Project apply command: backend detail".to_string()
+		),
+		StatusCode::SERVICE_UNAVAILABLE,
+		"Deployment agent is currently unavailable"
+	)]
+	#[case(
+		SubmitProjectDeploymentError::Internal("database password leaked".to_string()),
+		StatusCode::INTERNAL_SERVER_ERROR,
+		"Internal server error"
+	)]
+	fn test_deployment_error_response_hides_internal_errors(
+		#[case] error: SubmitProjectDeploymentError,
+		#[case] expected_status: StatusCode,
+		#[case] expected_message: &str,
+	) {
+		// Arrange
+		let raw_message = error.message().to_string();
+
+		// Act
+		let (status, body) = error_response_body(error);
+
+		// Assert
+		assert_eq!(status, expected_status);
+		assert_eq!(body["error"], expected_message);
+		assert_ne!(body["error"], raw_message);
+	}
 }

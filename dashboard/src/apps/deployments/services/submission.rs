@@ -139,7 +139,8 @@ pub fn validate_submission_manifest(
 				"Project YAML metadata.name is required".to_string(),
 			)
 		})?;
-	if manifest_name != input.project_name {
+	let project_name = validate_project_name(input.project_name)?;
+	if manifest_name != project_name.as_str() {
 		return Err(SubmitProjectDeploymentError::BadRequest(
 			"Project YAML metadata.name must match project_name".to_string(),
 		));
