@@ -46,10 +46,11 @@ place:
    `reinhardt-cloud-system` namespace with at least these keys:
    - `email-host` — the SMTP host used for outbound dashboard email.
 
-   The operator resolves the `secretRef:<secret>/<key>` values declared in
-   `spec.env` against this `Secret` at reconciliation time. Dashboard JWT,
-   core secret, database credentials, and Redis URL env vars are generated
-   from the typed `auth`, `database`, and `cache` sections.
+   The operator resolves `secretRef:<secret>/<key>` values declared in
+   `spec.env` only when `<secret>` is the app-scoped
+   `<project-name>-secrets` object. Dashboard JWT, core secret, database
+   credentials, and Redis URL env vars are generated from the typed `auth`,
+   `database`, and `cache` sections.
 
 ## Operator bootstrap
 
