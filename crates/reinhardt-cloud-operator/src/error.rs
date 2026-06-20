@@ -71,6 +71,10 @@ pub(crate) enum Error {
 	#[error("git credentials secret '{0}' not found")]
 	CredentialsMissing(String),
 
+	/// Source builds may only mount the app-owned Git credentials Secret.
+	#[error("invalid source credentials secret '{actual}': expected '{expected}'")]
+	InvalidCredentialsSecret { actual: String, expected: String },
+
 	/// Source build failed.
 	/// Used by the build job reconciler when a Kaniko build fails.
 	#[allow(dead_code)]
@@ -149,7 +153,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::ServiceAccountOwnership { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
-		| Error::InvalidBudget(_) => BackoffClass::Permanent,
+		| Error::InvalidBudget(_)
+		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}

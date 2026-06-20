@@ -42,6 +42,8 @@ pub struct LogFilter {
 	pub search: Option<String>,
 	/// Filter by deployment identifier.
 	pub deployment_id: Option<String>,
+	/// Filter by Kubernetes namespace.
+	pub namespace: Option<String>,
 }
 
 #[cfg(test)]
@@ -106,6 +108,7 @@ mod tests {
 			until: None,
 			search: Some("error".to_string()),
 			deployment_id: None,
+			namespace: None,
 		};
 
 		// Act
@@ -217,6 +220,7 @@ mod tests {
 			until: Some(past),
 			search: None,
 			deployment_id: None,
+			namespace: None,
 		};
 
 		// Act
@@ -257,6 +261,7 @@ mod tests {
 			until: None,
 			search: search.map(String::from),
 			deployment_id: None,
+			namespace: None,
 		};
 
 		// Act
