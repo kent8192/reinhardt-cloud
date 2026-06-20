@@ -39,6 +39,16 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// An image-pull secret is not owned by the application.
+	#[error(
+		"invalid imagePullSecret '{secret}' for app '{app}': secret names must start with one of {allowed_prefixes}"
+	)]
+	InvalidImagePullSecret {
+		app: String,
+		secret: String,
+		allowed_prefixes: String,
+	},
+
 	/// Database provisioning failed.
 	/// Used by the inference engine when database resource creation fails.
 	#[allow(dead_code)]
@@ -136,6 +146,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidImagePullSecret { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_) => BackoffClass::Permanent,
