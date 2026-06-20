@@ -223,6 +223,47 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_interceptor_requires_auth_for_log_service_path() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.paas.v1.LogService",
+			"ListLogs",
+		));
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_interceptor_accepts_user_token_for_log_service_path() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::now_v7();
+		let token = auth::create_token(user_id, "log-reader", TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.paas.v1.LogService",
+			"ListLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req).unwrap();
+
+		// Assert
+		let claims = result.extensions().get::<Claims>().unwrap();
+		assert_eq!(claims.sub, user_id.to_string());
+		assert_eq!(claims.username, "log-reader");
+	}
+
+	#[rstest]
 	fn test_interceptor_call_missing_auth_header() {
 		// Arrange
 		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
