@@ -52,11 +52,11 @@ jobs:
             exit 1
           fi
           version="${raw#v}"
-          if [[ ! "${version}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-            echo "Invalid dashboard image tag: must match ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid version '${version}'. Expected SemVer image tag such as '1.2.3' or '1.2.3-rc.1'."
             exit 1
           fi
-          printf 'version=%s\n' "${version}" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
@@ -85,8 +85,16 @@ jobs:
         run: |
           # Substitute the __VERSION__ placeholder so the committed manifest
           # stays generic while the applied manifest pins a concrete tag.
-          sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-project.yaml \
-            > /tmp/dashboard-project.rendered.yaml
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          source = Path("manifests/dashboard-project.yaml")
+          target = Path("/tmp/dashboard-project.rendered.yaml")
+          manifest = source.read_text(encoding="utf-8")
+          target.write_text(manifest.replace("__VERSION__", version), encoding="utf-8")
+          PY
           echo "Rendered manifest:"
           cat /tmp/dashboard-project.rendered.yaml
 

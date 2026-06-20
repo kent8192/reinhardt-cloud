@@ -187,10 +187,11 @@ fn try_build_settings() -> Result<ProjectSettings, BuildError> {
 	let mut settings: ProjectSettings = builder
 		.profile(Profile::parse(&profile_str))
 		.add_source(default_project_settings_source())
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		.add_source(TomlFileSource::new(
-			settings_dir.join(format!("{}.toml", profile_str)),
-		))
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
+		.add_source(
+			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
+				.with_interpolation(),
+		)
 		// Highest priority: process environment values for container/CI overrides.
 		.add_source(EnvSource::new().with_prefix("REINHARDT_"))
 		.build_composed()?;
@@ -356,6 +357,10 @@ pub fn get_loki_endpoint() -> String {
 /// 1. `jwt_secret` top-level key in the active TOML settings file
 /// 2. `REINHARDT_CLOUD_JWT_SECRET` environment variable (fallback for CI/container overrides)
 ///
+/// TOML sources are loaded with interpolation so deployed profiles can keep
+/// `${REINHARDT_CLOUD_JWT_SECRET:?msg}` placeholders in version control
+/// without turning those placeholders into usable signing keys.
+///
 /// Returns `None` if the secret is not configured in either source.
 ///
 /// Issue: kent8192/reinhardt-cloud#494
@@ -375,10 +380,11 @@ fn get_top_level_string(key: &str, env_var: &str) -> Option<String> {
 	let builder = add_dashboard_dotenv_sources(SettingsBuilder::new(), &dotenv_dir, &profile_str);
 
 	let from_toml = builder
-		.add_source(TomlFileSource::new(settings_dir.join("base.toml")))
-		.add_source(TomlFileSource::new(
-			settings_dir.join(format!("{}.toml", profile_str)),
-		))
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
+		.add_source(
+			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
+				.with_interpolation(),
+		)
 		.build()
 		.ok()
 		.and_then(|merged| {
@@ -893,6 +899,39 @@ allow_origins = ["http://localhost:8000"]
 		assert_eq!(
 			secret.as_deref(),
 			Some("runtime-jwt-secret-minimum-32-bytes"),
+		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn test_get_jwt_secret_interpolates_deployed_profile_placeholder() {
+		// Arrange — production.toml stores only an interpolation expression,
+		// never a committed signing secret or a literal fallback.
+		let watched = [
+			"REINHARDT_CLOUD_CONFIG_DIR",
+			"REINHARDT_ENV",
+			"REINHARDT_CLOUD_JWT_SECRET",
+		];
+		let _guard = EnvSnapshot::new(&watched);
+
+		// SAFETY: `#[serial(env_settings_load)]` provides the cross-test
+		// exclusion that `set_var`/`remove_var` need.
+		unsafe {
+			env::remove_var("REINHARDT_CLOUD_CONFIG_DIR");
+			env::set_var("REINHARDT_ENV", "production");
+			env::set_var(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"runtime-production-jwt-secret-minimum-32-bytes",
+			);
+		}
+
+		// Act
+		let secret = get_jwt_secret();
+
+		// Assert
+		assert_eq!(
+			secret.as_deref(),
+			Some("runtime-production-jwt-secret-minimum-32-bytes"),
 		);
 	}
 
