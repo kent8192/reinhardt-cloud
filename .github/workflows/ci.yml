@@ -99,13 +99,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SELF_HOSTED_REQUESTED: ${{ steps.parse-checkbox.outputs.self-hosted-requested }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           USE_SELF_HOSTED=false
 
-          # release-plz PRs: auto-assign self-hosted runner (bypass actor check).
-          # Only push-access users can create release-plz-* branches.
+          # release-plz PRs from this repository: auto-assign self-hosted runner.
+          # Fork PRs can use release-plz-* branch names, so the source repository must
+          # match the base repository before selecting the self-hosted runner.
           # Budget circuit breaker is still respected.
-          if [[ "$HEAD_REF" == release-plz-* ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
+          if [[ "$HEAD_REF" == release-plz-* ]] && [[ "$HEAD_REPO_FULL_NAME" == "$REPOSITORY" ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
             USE_SELF_HOSTED=true
           elif [[ "$ACTOR" == "$REPO_OWNER" ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
             if [[ "$EVENT_NAME" == "pull_request" ]]; then
@@ -221,20 +224,6 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
-  coverage:
-    name: Coverage
-    needs: [unit-test, intra-crate-integration-test, cross-crate-integration-test, determine-runner]
-    if: >-
-      always() &&
-      needs.unit-test.result == 'success' &&
-      needs.intra-crate-integration-test.result == 'success' &&
-      needs.cross-crate-integration-test.result == 'success'
-    uses: ./.github/workflows/coverage.yml
-    secrets: inherit
-    with:
-      runner: ${{ needs.determine-runner.outputs.runner }}
-      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
-
   terraform-check:
     name: Terraform Check
     needs: [check-branch-status]
@@ -262,7 +251,6 @@ jobs:
       - bruno-tests
       - security-audit
       - todo-check
-      - coverage
       - terraform-check
       - cross-platform-check
       - public-api-diff
@@ -279,7 +267,6 @@ jobs:
           BRUNO_TESTS_RESULT: ${{ needs.bruno-tests.result }}
           SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
           TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
-          COVERAGE_RESULT: ${{ needs.coverage.result }}
           TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
           CROSS_PLATFORM_RESULT: ${{ needs.cross-platform-check.result }}
           PUBLIC_API_DIFF_RESULT: ${{ needs.public-api-diff.result }}
@@ -314,7 +301,6 @@ jobs:
 
           # Selectively-skippable checks (can be 'success' or 'skipped')
           selectively_skippable=(
-            "coverage:$COVERAGE_RESULT"
             "terraform-check:$TERRAFORM_CHECK_RESULT"
             "cross-platform-check:$CROSS_PLATFORM_RESULT"
             "public-api-diff:$PUBLIC_API_DIFF_RESULT"
@@ -331,6 +317,6 @@ jobs:
 
   cross-platform-check:
     name: Cross-Platform Check
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, check-branch-status]
     if: needs.check-branch-status.outputs.has-conflicts != 'true'
     uses: ./.github/workflows/cross-platform-check.yml

@@ -5634,6 +5634,7 @@ dependencies = [
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
+ "rstest",
  "rustls",
  "serde",
  "serde_json",
@@ -8570,11 +8571,13 @@ dependencies = [
  "prost 0.13.5",
  "socket2 0.5.10",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",
  "tower-service",
  "tracing",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
