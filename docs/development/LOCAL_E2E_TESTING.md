@@ -273,21 +273,21 @@ In another terminal:
 ```bash
 cargo run -p reinhardt-cloud-agent -- \
   --cluster-name local-cluster \
-  --control-plane-url http://127.0.0.1:50051
+  --control-plane-url https://127.0.0.1:50051 \
+  --auth-token "$AGENT_AUTH_TOKEN"
 ```
 
 | Flag / env var | Default | Purpose |
 |---|---|---|
-| `--control-plane-url` / `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | Dashboard gRPC endpoint. |
+| `--control-plane-url` / `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | Dashboard gRPC endpoint. Must be an HTTPS endpoint for authenticated agent runs. |
 | `--cluster-name` / `CLUSTER_NAME` | (required) | Arbitrary label used in streamed events. |
 | `--node-name` / `NODE_NAME` | `unknown` | Reported as the node identifier. |
 | `--heartbeat-interval` | `30` | Seconds between heartbeats. |
-| `--auth-token` / `AUTH_TOKEN` | unset | Bearer JWT for `AgentServiceClient`. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
+| `--auth-token` / `AUTH_TOKEN` | (required) | JWT for `AgentServiceClient`; the agent sends it as a `Bearer` `Authorization` header. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
 
-When `AUTH_TOKEN` is set, `--control-plane-url` must use `https://` so the
-bearer token is not sent over plaintext gRPC. The local `http://127.0.0.1:50051`
-example is only valid without `AUTH_TOKEN`; authenticated local testing needs a
-TLS-terminating endpoint.
+`--control-plane-url` must use `https://` so the bearer token is not sent over
+plaintext gRPC. Authenticated local testing needs a TLS-terminating endpoint in
+front of the local gRPC server.
 
 Field sources: `crates/reinhardt-cloud-agent/src/main.rs`.
 

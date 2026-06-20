@@ -26,11 +26,16 @@ kubectl -n reinhardt-cloud-system create secret generic reinhardt-cloud-agent-to
   --from-literal=token=<control-plane-issued-token>
 
 # Apply a Deployment referencing the Secret and an HTTPS control-plane URL.
-# The agent refuses plaintext control-plane URLs when AUTH_TOKEN is set.
+# The agent refuses plaintext control-plane URLs.
 # See docs/tools/agent.md for the full manifest.
 ```
 
 See the [full guide](../../docs/tools/agent.md) for enrollment flow, RBAC, and troubleshooting.
+
+The agent requires `AUTH_TOKEN` and attaches it to the control-plane stream as
+`Authorization: Bearer <token>`. Legacy direct Deploy commands are rejected;
+workload rollout changes should be sent as Project manifests so the operator
+performs validation and reconciles the Kubernetes resources.
 
 ## License
 

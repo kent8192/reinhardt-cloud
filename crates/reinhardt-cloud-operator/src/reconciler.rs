@@ -13,6 +13,7 @@ use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
@@ -244,6 +245,66 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 }
 
 /// Apply the desired state for a `Project`.
+fn existing_resource_is_controlled_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn ownership_conflict_error(
+	kind: &'static str,
+	namespace: &str,
+	name: &str,
+	app: &Project,
+) -> Error {
+	Error::ResourceOwnershipConflict {
+		kind,
+		namespace: namespace.to_string(),
+		name: name.to_string(),
+		project_namespace: app.namespace().unwrap_or_default(),
+		project_name: app.name_any(),
+	}
+}
+
+async fn ensure_deployment_apply_target_is_owned(
+	deployments: &Api<Deployment>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match deployments.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Deployment", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
+async fn ensure_service_apply_target_is_owned(
+	services: &Api<Service>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match services.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Service", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
 async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -517,6 +578,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Reconcile owned Deployment only after the target migration revision
 	// has completed, so a new workload image never serves before its schema
 	// change gate succeeds.
+	ensure_deployment_apply_target_is_owned(&deployments, &app, namespace, &name).await?;
 	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
 	deployments
 		.patch(
@@ -530,6 +592,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
+	ensure_service_apply_target_is_owned(&services, &app, namespace, &name).await?;
 	let desired_service = build_service(&app, pages_config.is_some())?;
 	services
 		.patch(
@@ -2782,6 +2845,74 @@ mod tests {
 
 		// Act / Assert
 		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_accepts_matching_controller_owner() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_unowned_resource() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta::default();
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_different_owner_uid() {
+		// Arrange
+		let app = make_test_app("payments");
+		let mut other_app = make_test_app("other");
+		other_app.metadata.uid = Some("other-uid".to_string());
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&other_app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn ownership_conflict_error_names_target_resource_and_project() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let error = ownership_conflict_error("Service", "default", "payments", &app);
+
+		// Assert
+		assert_eq!(
+			error.to_string(),
+			"refusing to manage existing Service default/payments: it is not owned by Project default/payments"
+		);
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
