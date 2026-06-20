@@ -380,7 +380,10 @@ pub async fn import_github_repository_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
 	let client = ReqwestGitHubAppClient::new(settings);
 	let installation_token = client
-		.create_installation_access_token(installation.installation_id)
+		.create_repository_installation_access_token(
+			installation.installation_id,
+			repository.github_repository_id,
+		)
 		.await
 		.map_err(|e| {
 			ServerFnError::application(format!(
