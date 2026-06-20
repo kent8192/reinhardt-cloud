@@ -327,7 +327,7 @@ fn render_deployment_inventory_table(
 					{ rows }
 				}
 			}
-	}
+		}
 	})(preview_banner, rows)
 }
 
