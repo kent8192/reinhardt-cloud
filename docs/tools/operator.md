@@ -36,6 +36,12 @@ Dashboard's API layer) to the kube-apiserver. The operator's controller loop wat
 and reconciles the desired state into concrete Kubernetes resources. Status fields and conditions are
 written back to the `Project` object so the CLI and Dashboard can surface current state to users.
 
+For the primary app `Deployment` and `Service`, reconciliation is intentionally non-adopting:
+if an object with the target name already exists, it must already have a controller owner reference
+for the same `Project` UID before the operator applies changes. This prevents a `Project` author
+from using the operator's elevated permissions to overwrite or garbage-collect an unrelated workload
+or service in the namespace.
+
 ### Supported environments
 
 - **Kubernetes**: no `kubeVersion` constraint in `Chart.yaml`; tested against mainstream releases.
