@@ -118,6 +118,10 @@ pub(crate) enum Error {
 	#[error("invalid spec.tenant: {0}")]
 	InvalidTenant(String),
 
+	/// An explicit Ingress host is unsafe or conflicts with another Ingress.
+	#[error("invalid ingress host: {0}")]
+	InvalidIngressHost(String),
+
 	/// A preview budget field is malformed (e.g. non-numeric CPU/memory
 	/// quantity in `source.preview.budget`).
 	#[error("invalid preview budget: {0}")]
@@ -172,6 +176,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_)
+		| Error::InvalidIngressHost(_)
 		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
@@ -244,6 +249,18 @@ mod tests {
 	fn invalid_tenant_is_permanent() {
 		// Arrange
 		let err = Error::InvalidTenant("tenant.organization must not be empty".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_ingress_host_is_permanent() {
+		// Arrange
+		let err = Error::InvalidIngressHost("host already claimed".to_string());
 
 		// Act
 		let class = backoff_class(&err);
