@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
+use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 use crate::apps::auth::services::session::validate_session;
 use crate::apps::deployments::models::Deployment;
@@ -235,6 +236,23 @@ async fn authorize_app_log_subscription(
 	let organization_id = require_permission(user_id, Action::LogsRead)
 		.await
 		.map_err(|_| log_stream_rejected("Not authorized to read deployment logs"))?;
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load organization for app-log subscription"
+			);
+			log_stream_rejected("Failed to load organization for logs")
+		})?
+		.ok_or_else(|| log_stream_rejected("Organization not found for log subscription"))?;
+	let namespace = TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	let deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.filter(Deployment::field_organization_id().eq(organization_id))

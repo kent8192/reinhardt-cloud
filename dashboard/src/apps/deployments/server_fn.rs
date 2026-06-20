@@ -38,29 +38,6 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 	}
 }
 
-#[cfg(native)]
-fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
-	use reinhardt_cloud_types::crd::Project;
-
-	if manifest.trim().is_empty() {
-		return Ok(());
-	}
-	let app: Project = serde_yaml::from_str(manifest)
-		.map_err(|e| ServerFnError::server(400, format!("Invalid Project YAML: {e}")))?;
-	if let Err(errors) = app.spec.validate() {
-		let messages = errors
-			.into_iter()
-			.map(|e| e.message)
-			.collect::<Vec<_>>()
-			.join("; ");
-		return Err(ServerFnError::server(
-			400,
-			format!("Invalid Project spec: {messages}"),
-		));
-	}
-	Ok(())
-}
-
 #[server_fn]
 pub async fn list_deployments_for_current_org(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
@@ -91,6 +68,7 @@ pub async fn create_deployment_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::deployments::services::manifest::validate_project_manifest;
 
 	let organization_id = current_org_id(&user).await?;
 	let project_name = project_name.trim().to_string();
@@ -116,7 +94,7 @@ pub async fn create_deployment_for_current_org(
 	if !cluster_exists {
 		return Err(ServerFnError::server(404, "Cluster not found"));
 	}
-	validate_manifest(&project_yaml)?;
+	validate_project_manifest(&project_yaml).map_err(|e| ServerFnError::server(400, e))?;
 	let manifest = if project_yaml.trim().is_empty() {
 		None
 	} else {
@@ -260,6 +238,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
 	use reinhardt_cloud_proto::log as log_pb;
+	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::organizations::models::Organization;
@@ -272,6 +251,17 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
+	let organization = crate::apps::organizations::models::Organization::objects()
+		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
+		.ok_or_else(|| ServerFnError::server(404, "Organization not found"))?;
+	let namespace = TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	let deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.filter(Deployment::field_organization_id().eq(organization_id))

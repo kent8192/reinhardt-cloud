@@ -35,7 +35,7 @@ message LogFilter {
   // against the full git history of this file). No `reserved` declaration is
   // required here.
   optional string deployment_id = 6;
-  // Kubernetes namespace label that scopes application logs to one tenant.
+  // Kubernetes namespace that scopes tenant-owned application logs.
   optional string namespace = 7;
 }
 
