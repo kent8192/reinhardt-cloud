@@ -1,4 +1,7 @@
 //! Cluster server functions for the WASM dashboard.
+//!
+//! Organization-scoped operations resolve RBAC permissions before loading
+//! cluster records so read-only members cannot perform mutations.
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -19,8 +22,11 @@ pub struct ClusterTokenInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
-	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
+async fn current_org_id_for_action(
+	user: &crate::apps::auth::models::User,
+	action: crate::apps::organizations::permissions::Action,
+) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::permissions::require_permission(user.id, action)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
@@ -68,7 +74,11 @@ pub async fn list_clusters_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::ClusterRead,
+	)
+	.await?;
 	let clusters = Cluster::objects()
 		.filter(Cluster::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
@@ -92,7 +102,11 @@ pub async fn create_cluster_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::ClusterCreate,
+	)
+	.await?;
 	let name = name.trim().to_string();
 	let api_url = api_url.trim().to_string();
 	if name.is_empty() || name.len() > 63 {
@@ -160,7 +174,11 @@ pub async fn update_cluster_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::ClusterUpdate,
+	)
+	.await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
@@ -210,7 +228,11 @@ pub async fn delete_cluster_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::ClusterDelete,
+	)
+	.await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
@@ -245,7 +267,11 @@ pub async fn rotate_cluster_token_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::ClusterUpdate,
+	)
+	.await?;
 	let cluster_id: i64 = cluster_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
