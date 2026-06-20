@@ -762,8 +762,22 @@ mod tests {
 			.iter()
 			.find(|e| e.name == "REINHARDT_CLOUD_REDIS_URL")
 			.expect("Redis URL env must exist");
-		assert_eq!(var.value.as_deref(), Some("redis://web-redis:6379/0"));
+		assert_eq!(
+			var.value.as_deref(),
+			Some("redis://:$(REINHARDT_CLOUD_REDIS_PASSWORD)@web-redis:6379/0")
+		);
 		assert!(var.value_from.is_none());
+		let password_var = main_env
+			.iter()
+			.find(|e| e.name == "REINHARDT_CLOUD_REDIS_PASSWORD")
+			.expect("Redis password env must exist");
+		let key_ref = password_var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("Redis password must be Secret-backed");
+		assert_eq!(key_ref.name, "web-redis-credentials");
+		assert_eq!(key_ref.key, "password");
 	}
 
 	#[rstest]
