@@ -111,15 +111,6 @@ pub async fn clone_repository_for_introspection(
 	}
 }
 
-async fn command_stdout(
-	command: &mut Command,
-	label: &str,
-	timeout: Option<Duration>,
-) -> Result<String, String> {
-	let output = command_output_with_timeout(command, label, timeout).await?;
-	String::from_utf8(output.stdout).map_err(|e| format!("Invalid UTF-8 in {label} output: {e}"))
-}
-
 async fn command_output_with_timeout(
 	command: &mut Command,
 	label: &str,
