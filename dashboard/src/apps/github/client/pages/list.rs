@@ -161,6 +161,24 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 		.collect()
 }
 
+struct GitHubRepositoriesPageViewProps {
+	repositories_for_inventory: Resource<Vec<GitHubRepositoryInfo>, String>,
+	repositories_for_import: Resource<Vec<GitHubRepositoryInfo>, String>,
+	imported_project_previews_for_list: Resource<Vec<ProjectPreviewSummary>, String>,
+	onboarding: Resource<GitHubOnboardingInfo, String>,
+	clusters_for_import: Resource<Vec<ClusterInfo>, String>,
+	clusters_for_inventory: Resource<Vec<ClusterInfo>, String>,
+	import_view: Page,
+	import_error: Signal<Option<String>>,
+	import_submitting: Signal<bool>,
+	import_repository_id: Signal<String>,
+	import_cluster_id: Signal<String>,
+	import_project_name: Signal<String>,
+	selected_repository_id: Signal<String>,
+	selected_cluster_id: Signal<String>,
+	selected_project_name: Signal<String>,
+}
+
 /// Render the GitHub repository import page.
 #[reinhardt::pages::component("/github", "github:repositories")]
 pub fn github_repositories_page() -> Page {
@@ -226,7 +244,25 @@ pub fn github_repositories_page() -> Page {
 	let selected_repository_id = import_repository_id.clone();
 	let selected_cluster_id = import_cluster_id.clone();
 	let selected_project_name = import_project_name.clone();
-	let content = page!(|repositories_for_inventory: Resource<Vec<GitHubRepositoryInfo>, String>, repositories_for_import: Resource<Vec<GitHubRepositoryInfo>, String>, imported_project_previews_for_list: Resource<Vec<ProjectPreviewSummary>, String>, onboarding: Resource<GitHubOnboardingInfo, String>, clusters_for_import: Resource<Vec<ClusterInfo>, String>, clusters_for_inventory: Resource<Vec<ClusterInfo>, String>, import_view: Page, import_error: Signal<Option<String>>, import_submitting: Signal<bool>, import_repository_id: Signal<String>, import_cluster_id: Signal<String>, import_project_name: Signal<String>, selected_repository_id: Signal<String>, selected_cluster_id: Signal<String>, selected_project_name: Signal<String>| {
+	let props = GitHubRepositoriesPageViewProps {
+		repositories_for_inventory,
+		repositories_for_import,
+		imported_project_previews_for_list,
+		onboarding,
+		clusters_for_import,
+		clusters_for_inventory,
+		import_view,
+		import_error,
+		import_submitting: import_state.is_submitting,
+		import_repository_id,
+		import_cluster_id,
+		import_project_name,
+		selected_repository_id,
+		selected_cluster_id,
+		selected_project_name,
+	};
+
+	let content = page!(|props: GitHubRepositoriesPageViewProps| {
 		div {
 			class: "rc-shell",
 			div {
@@ -261,7 +297,7 @@ pub fn github_repositories_page() -> Page {
 							div {
 								class: "p-4",
 								{
-									match imported_project_previews_for_list.get() {
+									match props.imported_project_previews_for_list.get() {
 										ResourceState::Loading => page!(|| {
 											div {
 												class: "rc-empty",
@@ -330,7 +366,7 @@ pub fn github_repositories_page() -> Page {
 									tbody {
 										class: "divide-y divide-cloud-100 bg-white",
 										{
-											match repositories_for_inventory.get() {
+											match props.repositories_for_inventory.get() {
 											ResourceState::Loading => page!(|| {
 												tr {
 													td {
@@ -391,7 +427,7 @@ pub fn github_repositories_page() -> Page {
 														}
 													}
 												}
-											})(onboarding.clone()),
+											})(props.onboarding.clone()),
 											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>| { {
 												items.clone().into_iter().map(|repo| {
 													page!(|repo: GitHubRepositoryInfo| {
@@ -462,7 +498,7 @@ pub fn github_repositories_page() -> Page {
 									span {
 										class: "font-mono text-xs font-semibold text-ink-950",
 										{
-											let value = selected_repository_id.get();
+											let value = props.selected_repository_id.get();
 											if value.trim().is_empty() {
 												"not selected".to_string()
 											} else {
@@ -480,7 +516,7 @@ pub fn github_repositories_page() -> Page {
 									span {
 										class: "font-mono text-xs font-semibold text-ink-950",
 										{
-											let value = selected_cluster_id.get();
+											let value = props.selected_cluster_id.get();
 											if value.trim().is_empty() {
 												"not selected".to_string()
 											} else {
@@ -498,7 +534,7 @@ pub fn github_repositories_page() -> Page {
 									span {
 										class: "truncate text-xs font-semibold text-ink-950",
 										{
-											let value = selected_project_name.get();
+											let value = props.selected_project_name.get();
 											if value.trim().is_empty() {
 												"derived from repository".to_string()
 											} else { value }
@@ -507,14 +543,14 @@ pub fn github_repositories_page() -> Page {
 								}
 							}
 							{
-								self::alert(import_error.clone())
+								self::alert(props.import_error.clone())
 							}
 							{
-								match repositories_for_import.get() {
+								match props.repositories_for_import.get() {
 									ResourceState::Success(items) => {
 										let repositories_for_change = items.clone();
-										let project_name_signal = import_project_name.clone();
-										self::entity_select("Repository", "Select repository", self::repository_select_options(&items), import_repository_id.clone(), move |value| {
+										let project_name_signal = props.import_project_name.clone();
+										self::entity_select("Repository", "Select repository", self::repository_select_options(&items), props.import_repository_id.clone(), move |value| {
 											if let Some(repository) = repositories_for_change.iter().find(|repository| repository.id.to_string() == value) {
 												project_name_signal.set(repository.name.clone());
 											}
@@ -537,8 +573,8 @@ pub fn github_repositories_page() -> Page {
 								}
 							}
 							{
-								match clusters_for_import.get() {
-									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), import_cluster_id.clone(), |_value| {}, ),
+								match props.clusters_for_import.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), props.import_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-cloud-500",
@@ -556,9 +592,9 @@ pub fn github_repositories_page() -> Page {
 								}
 							}
 							{
-								import_view.clone()
+								props.import_view.clone()
 							}
-							if import_submitting.get() {
+							if props.import_submitting.get() {
 								p {
 									class: "mt-2 text-sm text-cloud-500",
 									"Importing..."
@@ -574,7 +610,7 @@ pub fn github_repositories_page() -> Page {
 							div {
 								class: "space-y-2 text-sm",
 								{
-									match clusters_for_inventory.get() {
+									match props.clusters_for_inventory.get() {
 										ResourceState::Loading => page!(|| {
 											p {
 												class: "text-cloud-500",
@@ -636,23 +672,7 @@ pub fn github_repositories_page() -> Page {
 				}
 			}
 		}
-	})(
-		repositories_for_inventory,
-		repositories_for_import,
-		imported_project_previews_for_list,
-		onboarding,
-		clusters_for_import,
-		clusters_for_inventory,
-		import_view,
-		import_error,
-		import_state.is_submitting,
-		import_repository_id,
-		import_cluster_id,
-		import_project_name,
-		selected_repository_id,
-		selected_cluster_id,
-		selected_project_name,
-	);
+	})(props);
 
 	dashboard_app_shell("github", content)
 }
