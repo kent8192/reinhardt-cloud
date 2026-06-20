@@ -85,7 +85,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [scale]
 min_replicas = 2
@@ -98,7 +98,8 @@ target_value = 70
 
 ```bash
 reinhardt-cloud deploy --dry-run   # Preview the generated Project CRD as YAML
-reinhardt-cloud deploy             # Deploy to the platform
+reinhardt-cloud login --token rct_example
+reinhardt-cloud deploy --cluster production  # Submit through the Dashboard
 ```
 
 ### 3. Check status
@@ -204,9 +205,9 @@ reinhardt-cloud [--server <URL>] <command>
 |---|---|
 | `init` | Generate `reinhardt-cloud.toml` from project analysis |
 | `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
-| `deploy` | Build the `Project` CRD and apply it |
+| `deploy` | Build the `Project` CRD and submit it through the Dashboard, or apply it directly with `--direct` |
 | `status` | Check deployment status |
-| `login` | Authenticate with the platform |
+| `login` | Verify and persist a Dashboard API token |
 | `credentials` | Manage Git and container-registry credentials |
 | `crd` | Generate CRD manifests for GitOps workflows |
 
@@ -263,7 +264,7 @@ spec:
 | `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
 | `services` | `ServicesSpec?` | Port + Ingress exposure |
-| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
 | `deletion_policy` | `DeletionPolicy` | `Retain` (default) or `Delete` |
@@ -442,7 +443,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [replicas]
 count = 3
