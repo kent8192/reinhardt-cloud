@@ -25,7 +25,8 @@ kubectl create namespace reinhardt-cloud-system
 kubectl -n reinhardt-cloud-system create secret generic reinhardt-cloud-agent-token \
   --from-literal=token=<control-plane-issued-token>
 
-# Apply a Deployment referencing the Secret and the control-plane URL.
+# Apply a Deployment referencing the Secret and an HTTPS control-plane URL.
+# The agent refuses plaintext control-plane URLs.
 # See docs/tools/agent.md for the full manifest.
 ```
 

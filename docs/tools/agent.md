@@ -46,11 +46,11 @@ All flags can also be set via the corresponding environment variable.
 
 | Flag | Env var | Default | Required | Description |
 |---|---|---|---|---|
-| `--control-plane-url` | `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | No | gRPC endpoint of the control plane |
+| `--control-plane-url` | `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | No | gRPC endpoint of the control plane; must use `https://` when `AUTH_TOKEN` is set |
 | `--cluster-name` | `CLUSTER_NAME` | _(none)_ | **Yes** | Logical name for this cluster; sent in `AgentConnected` and every heartbeat |
 | `--node-name` | `NODE_NAME` | `unknown` | No | Node where the agent pod is scheduled; included in startup log |
 | `--heartbeat-interval` | _(none)_ | `30` | No | Seconds between `AgentHeartbeat` messages |
-| `--auth-token` | `AUTH_TOKEN` | _(none)_ | **Yes** | JWT token attached as a `Bearer` `Authorization` header on every gRPC request |
+| `--auth-token` | `AUTH_TOKEN` | _(none)_ | **Yes** | JWT token attached as a `Bearer` `Authorization` header on every gRPC request; requires an HTTPS control-plane URL |
 
 ### Capabilities
 
@@ -113,7 +113,7 @@ The agent also uses `reinhardt.cloud.log.LogService.PushLogs` (client-streaming)
 
 - Cluster with outbound TCP to the control plane's gRPC port (default 50051 or whatever the operator configures).
 - `CLUSTER_NAME` that matches the name registered in the Dashboard.
-- Optional: TLS CA certificate if the control plane endpoint uses a custom CA (see TLS section in [Troubleshooting](#troubleshooting)).
+- A publicly trusted TLS certificate on the control plane endpoint when `AUTH_TOKEN` is configured.
 - A cluster token issued by the control plane (see Enrollment flow below).
 
 ### Enrollment flow
@@ -128,7 +128,9 @@ The agent also uses `reinhardt.cloud.log.LogService.PushLogs` (client-streaming)
      --from-literal=auth-token=<TOKEN_FROM_DASHBOARD>
    ```
 
-4. Deploy the agent pod referencing that secret. See the raw manifest below.
+4. Deploy the agent pod referencing that secret and an `https://` control-plane URL.
+   The agent rejects plaintext URLs so the bearer token is never sent over
+   cleartext gRPC.
 5. The agent dials the control plane; after a successful `AgentConnected` event, the Dashboard shows the cluster status as **Online**.
 
 **No Helm chart for the agent exists** (`charts/` contains only `reinhardt-cloud-operator`). Use the following raw manifest:
@@ -274,7 +276,11 @@ RBAC is missing for the `reinhardt-cloud-agent` ServiceAccount. Verify: `kubectl
 
 **TLS handshake failure**
 
-If `CONTROL_PLANE_URL` uses `https://`, the system trust store must include the control plane's CA. Mount a custom CA and set `SSL_CERT_FILE` in the agent container, or use a control plane endpoint with a publicly trusted certificate.
+If `CONTROL_PLANE_URL` uses `https://`, the control plane must present a certificate that chains to the WebPKI root store used by the agent's rustls client. Use a publicly trusted certificate on the control plane endpoint.
+
+**Plaintext URL rejected**
+
+Authenticated agent connections must use `https://`. Configure a TLS-terminating control-plane endpoint and update `CONTROL_PLANE_URL`.
 
 **Stream silently stalls (no heartbeats reach the Dashboard)**
 
