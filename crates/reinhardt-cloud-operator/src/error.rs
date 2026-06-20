@@ -31,19 +31,22 @@ pub(crate) enum Error {
 	#[error("failed to compute owner reference for {0}")]
 	OwnerReference(String),
 
-	/// A same-named Kubernetes resource already exists but is not owned by the Project.
+	/// A resource with the target name already exists but is not controlled by
+	/// the reconciling `Project`.
 	#[error(
-		"refusing to reconcile {kind} {namespace}/{name}: existing resource is not owned by Project UID {project_uid}"
+		"refusing to manage existing {kind} {namespace}/{name}: it is not owned by Project {project_namespace}/{project_name}"
 	)]
 	ResourceOwnershipConflict {
-		/// Kubernetes resource kind.
+		/// Kubernetes resource kind that would have been patched.
 		kind: &'static str,
 		/// Namespace containing the conflicting resource.
 		namespace: String,
 		/// Name of the conflicting resource.
 		name: String,
-		/// UID of the Project that must own the resource.
-		project_uid: String,
+		/// Namespace of the reconciling `Project`.
+		project_namespace: String,
+		/// Name of the reconciling `Project`.
+		project_name: String,
 	},
 
 	/// A port number is outside the valid range (1-65535).
@@ -75,6 +78,10 @@ pub(crate) enum Error {
 	#[allow(dead_code)]
 	#[error("git credentials secret '{0}' not found")]
 	CredentialsMissing(String),
+
+	/// Source builds may only mount the app-owned Git credentials Secret.
+	#[error("invalid source credentials secret '{actual}': expected '{expected}'")]
+	InvalidCredentialsSecret { actual: String, expected: String },
 
 	/// Source build failed.
 	/// Used by the build job reconciler when a Kaniko build fails.
@@ -152,9 +159,10 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
 		| Error::TenantMismatch { .. }
-		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidTenant(_)
-		| Error::InvalidBudget(_) => BackoffClass::Permanent,
+		| Error::InvalidBudget(_)
+		| Error::ResourceOwnershipConflict { .. }
+		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}
@@ -237,6 +245,24 @@ mod tests {
 	fn invalid_budget_is_permanent() {
 		// Arrange
 		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn resource_ownership_conflict_is_permanent() {
+		// Arrange
+		let err = Error::ResourceOwnershipConflict {
+			kind: "Service",
+			namespace: "default".to_string(),
+			name: "payments".to_string(),
+			project_namespace: "default".to_string(),
+			project_name: "payments".to_string(),
+		};
 
 		// Act
 		let class = backoff_class(&err);
