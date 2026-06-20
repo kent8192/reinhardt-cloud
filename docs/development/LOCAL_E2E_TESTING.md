@@ -273,7 +273,8 @@ In another terminal:
 ```bash
 cargo run -p reinhardt-cloud-agent -- \
   --cluster-name local-cluster \
-  --control-plane-url http://127.0.0.1:50051
+  --control-plane-url http://127.0.0.1:50051 \
+  --auth-token "$AGENT_AUTH_TOKEN"
 ```
 
 | Flag / env var | Default | Purpose |
@@ -282,7 +283,7 @@ cargo run -p reinhardt-cloud-agent -- \
 | `--cluster-name` / `CLUSTER_NAME` | (required) | Arbitrary label used in streamed events. |
 | `--node-name` / `NODE_NAME` | `unknown` | Reported as the node identifier. |
 | `--heartbeat-interval` | `30` | Seconds between heartbeats. |
-| `--auth-token` / `AUTH_TOKEN` | unset | Bearer JWT for `AgentServiceClient`. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
+| `--auth-token` / `AUTH_TOKEN` | (required) | JWT for `AgentServiceClient`; the agent sends it as a `Bearer` `Authorization` header. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
 
 Field sources: `crates/reinhardt-cloud-agent/src/main.rs`.
 

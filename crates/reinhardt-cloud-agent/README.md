@@ -31,6 +31,11 @@ kubectl -n reinhardt-cloud-system create secret generic reinhardt-cloud-agent-to
 
 See the [full guide](../../docs/tools/agent.md) for enrollment flow, RBAC, and troubleshooting.
 
+The agent requires `AUTH_TOKEN` and attaches it to the control-plane stream as
+`Authorization: Bearer <token>`. Legacy direct Deploy commands are rejected;
+workload rollout changes should be sent as Project manifests so the operator
+performs validation and reconciles the Kubernetes resources.
+
 ## License
 
 BSL-1.1 — see the repository root `LICENSE`.

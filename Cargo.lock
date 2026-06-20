@@ -5634,6 +5634,7 @@ dependencies = [
  "reinhardt-cloud-k8s",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
+ "rstest",
  "rustls",
  "serde",
  "serde_json",

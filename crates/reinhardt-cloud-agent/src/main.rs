@@ -3,18 +3,16 @@
 //! Per-cluster agent that connects to the control plane via bidirectional
 //! gRPC streaming. Handles deployments, health reporting, and log collection.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use chrono::Utc;
 use clap::Parser;
-use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
-use k8s_openapi::api::core::v1::{Container, ContainerPort, PodSpec, PodTemplateSpec};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
+use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{Api, Patch, PatchParams};
 use prost_types::Timestamp;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -50,7 +48,7 @@ struct Args {
 
 	/// JWT token for authentication.
 	#[arg(long, env = "AUTH_TOKEN")]
-	auth_token: Option<String>,
+	auth_token: String,
 }
 
 fn timestamp_now() -> Option<Timestamp> {
@@ -100,14 +98,12 @@ async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error
 		.connect()
 		.await?;
 
-	let auth_token = args.auth_token.clone();
+	let auth_header = build_auth_header(&args.auth_token)?;
 	#[allow(clippy::result_large_err)] // tonic interceptor signature requires Result<_, Status>
 	let mut client =
 		AgentServiceClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
-			if let Some(token) = &auth_token {
-				req.metadata_mut()
-					.insert("authorization", format!("Bearer {token}").parse().unwrap());
-			}
+			req.metadata_mut()
+				.insert("authorization", auth_header.clone());
 			Ok(req)
 		});
 
@@ -165,6 +161,16 @@ async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error
 	Ok(())
 }
 
+fn build_auth_header(token: &str) -> Result<MetadataValue<tonic::metadata::Ascii>, String> {
+	let token = token.trim();
+	if token.is_empty() {
+		return Err("AUTH_TOKEN must not be empty".to_string());
+	}
+
+	MetadataValue::try_from(format!("Bearer {token}"))
+		.map_err(|e| format!("AUTH_TOKEN cannot be encoded as gRPC metadata: {e}"))
+}
+
 async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::AgentEvent>) {
 	match &command.command {
 		Some(pb::agent_command::Command::Deploy(cmd)) => {
@@ -174,17 +180,14 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 				replicas = cmd.replicas,
 				"Received deploy command"
 			);
-			let (success, message) =
-				match execute_deploy(&cmd.project_name, &cmd.image, cmd.replicas).await {
-					Ok(()) => {
-						info!(app = %cmd.project_name, "Deployment applied successfully");
-						(true, "Deployment applied".to_string())
-					}
-					Err(e) => {
-						error!(app = %cmd.project_name, error = %e, "Deployment failed");
-						(false, format!("Deployment failed: {e}"))
-					}
-				};
+			warn!(
+				app = %cmd.project_name,
+				"Rejected legacy deploy command; apply Project resources through the operator-controlled path"
+			);
+			let success = false;
+			let message =
+				"Legacy Deploy commands are disabled; use ApplyProject for operator-validated deployments"
+					.to_string();
 			if let Err(e) = event_tx
 				.send(pb::AgentEvent {
 					event: Some(pb::agent_event::Event::DeployStatus(
@@ -360,70 +363,6 @@ async fn handle_command(command: &pb::AgentCommand, event_tx: &mpsc::Sender<pb::
 	}
 }
 
-/// Execute a Kubernetes Deployment via server-side apply.
-///
-/// Constructs a minimal `apps/v1 Deployment` with the given parameters and
-/// applies it to the `default` namespace. Uses server-side apply so the
-/// operation is idempotent — creating the resource if absent or updating it
-/// if it already exists.
-async fn execute_deploy(project_name: &str, image: &str, replicas: u32) -> Result<(), kube::Error> {
-	let client = kube::Client::try_default().await?;
-	let deployments: Api<Deployment> = Api::default_namespaced(client);
-
-	let labels = BTreeMap::from([
-		(
-			"app.kubernetes.io/name".to_string(),
-			project_name.to_string(),
-		),
-		(
-			"app.kubernetes.io/managed-by".to_string(),
-			"reinhardt-cloud".to_string(),
-		),
-	]);
-
-	let deployment = Deployment {
-		metadata: ObjectMeta {
-			name: Some(project_name.to_string()),
-			labels: Some(labels.clone()),
-			..Default::default()
-		},
-		spec: Some(DeploymentSpec {
-			replicas: Some(replicas as i32),
-			selector: LabelSelector {
-				match_labels: Some(labels.clone()),
-				..Default::default()
-			},
-			template: PodTemplateSpec {
-				metadata: Some(ObjectMeta {
-					labels: Some(labels),
-					..Default::default()
-				}),
-				spec: Some(PodSpec {
-					containers: vec![Container {
-						name: project_name.to_string(),
-						image: Some(image.to_string()),
-						ports: Some(vec![ContainerPort {
-							container_port: 8000,
-							..Default::default()
-						}]),
-						..Default::default()
-					}],
-					..Default::default()
-				}),
-			},
-			..Default::default()
-		}),
-		..Default::default()
-	};
-
-	let params = PatchParams::apply("reinhardt-cloud-agent");
-	deployments
-		.patch(project_name, &params, &Patch::Apply(&deployment))
-		.await?;
-
-	Ok(())
-}
-
 async fn execute_apply_project(yaml: &str) -> Result<(), String> {
 	let app =
 		reinhardt_cloud_k8s::resources::parse_project_yaml(yaml).map_err(|e| e.to_string())?;
@@ -596,4 +535,66 @@ async fn execute_restart(project_name: &str) -> Result<(), kube::Error> {
 		.await?;
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn build_auth_header_rejects_empty_token() {
+		// Arrange
+		let token = "   ";
+
+		// Act
+		let result = build_auth_header(token);
+
+		// Assert
+		assert_eq!(result.unwrap_err(), "AUTH_TOKEN must not be empty");
+	}
+
+	#[rstest]
+	fn build_auth_header_formats_bearer_token() {
+		// Arrange
+		let token = "agent.jwt.token";
+
+		// Act
+		let result = build_auth_header(token).expect("token should produce metadata");
+
+		// Assert
+		assert_eq!(result.to_str().unwrap(), "Bearer agent.jwt.token");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn handle_command_rejects_legacy_deploy_command() {
+		// Arrange
+		let command = pb::AgentCommand {
+			command: Some(pb::agent_command::Command::Deploy(pb::DeployCommand {
+				project_name: "web".to_string(),
+				image: "attacker.example/payload:latest".to_string(),
+				replicas: 2,
+			})),
+		};
+		let (event_tx, mut event_rx) = mpsc::channel::<pb::AgentEvent>(1);
+
+		// Act
+		handle_command(&command, &event_tx).await;
+		let event = event_rx
+			.recv()
+			.await
+			.expect("deploy rejection status should be sent");
+
+		// Assert
+		let Some(pb::agent_event::Event::DeployStatus(status)) = event.event else {
+			panic!("expected deploy status event");
+		};
+		assert_eq!(status.project_name, "web");
+		assert!(!status.success);
+		assert_eq!(
+			status.message,
+			"Legacy Deploy commands are disabled; use ApplyProject for operator-validated deployments"
+		);
+	}
 }

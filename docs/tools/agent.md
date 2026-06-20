@@ -6,7 +6,7 @@
 
 ## Overview
 
-`reinhardt-cloud-agent` is a per-cluster binary that dials out to the Reinhardt Cloud control plane and maintains a persistent bidirectional gRPC stream. Through this stream the control plane can push deploy, rollback, scale, and restart commands to the cluster; the agent executes them against the local kube-apiserver and streams results and heartbeats back. The agent also periodically reports health metrics (CPU, memory, pod count) and pushes log entries to the control plane's `LogService`.
+`reinhardt-cloud-agent` is a per-cluster binary that dials out to the Reinhardt Cloud control plane and maintains a persistent authenticated bidirectional gRPC stream. Through this stream the control plane can push operator-mediated Project apply commands, rollback, scale, and restart commands to the cluster; the agent executes them against the local kube-apiserver and streams results and heartbeats back. The agent also periodically reports health metrics (CPU, memory, pod count) and pushes log entries to the control plane's `LogService`.
 
 Platform operators install the agent when they manage a **multi-cluster fleet** with a central Dashboard, or when clusters sit behind a NAT or firewall that prevents the control plane from reaching the kube-apiserver directly. For a **single-cluster Helm-only** deployment — where the control plane runs in the same cluster or has direct kube-apiserver access — the agent is optional and need not be installed.
 
@@ -50,13 +50,14 @@ All flags can also be set via the corresponding environment variable.
 | `--cluster-name` | `CLUSTER_NAME` | _(none)_ | **Yes** | Logical name for this cluster; sent in `AgentConnected` and every heartbeat |
 | `--node-name` | `NODE_NAME` | `unknown` | No | Node where the agent pod is scheduled; included in startup log |
 | `--heartbeat-interval` | _(none)_ | `30` | No | Seconds between `AgentHeartbeat` messages |
-| `--auth-token` | `AUTH_TOKEN` | _(none)_ | No | Bearer token attached as `Authorization` header on every gRPC request |
+| `--auth-token` | `AUTH_TOKEN` | _(none)_ | **Yes** | JWT token attached as a `Bearer` `Authorization` header on every gRPC request |
 
 ### Capabilities
 
-**Deploy operations** (triggered by `AgentCommand` messages on the `AgentStream` stream):
+**Deploy operations** (triggered by `AgentCommand` messages on the authenticated `AgentStream` stream):
 
-- **Deploy** — server-side apply of an `apps/v1 Deployment` in the `default` namespace; labels `app.kubernetes.io/name` and `app.kubernetes.io/managed-by=reinhardt-cloud`; fixed `containerPort: 8000`; field manager `reinhardt-cloud-agent`.
+- **Deploy** — legacy direct Deployment commands are rejected. Use **ApplyProject** so workload changes flow through Project CRD validation and operator reconciliation.
+- **ApplyProject** — server-side apply of a Reinhardt Cloud Project manifest. The operator validates the Project and materializes the Deployment, namespace placement, resource policy, network policy, runtime class, and security contexts.
 - **Rollback** — strategic merge patch that replaces `spec.template` with the pod template from the ReplicaSet matching the requested `deployment.kubernetes.io/revision` annotation; mirrors `kubectl rollout undo --to-revision`.
 - **Scale** — strategic merge patch of `spec.replicas`; rejects values exceeding `i32::MAX`.
 - **Restart** — sets `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]` to the current RFC 3339 timestamp; same mechanism as `kubectl rollout restart`.
