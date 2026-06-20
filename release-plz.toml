@@ -2,8 +2,12 @@
 # Documentation: https://release-plz.ieni.dev/docs/config
 #
 # Crate structure:
-#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-core, reinhardt-cloud-k8s
-#   Binary crates (GitHub Releases):  reinhardt-cloud-dashboard, reinhardt-cloud-operator, reinhardt-cloud-cli
+#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-core,
+#     reinhardt-cloud-k8s, reinhardt-cloud-proto, reinhardt-cloud-grpc,
+#     reinhardt-cloud-telemetry
+#   Binary/application crates (GitHub Releases): reinhardt-cloud,
+#     reinhardt-cloud-dashboard, reinhardt-cloud-operator, reinhardt-cloud-cli,
+#     reinhardt-cloud-agent
 
 [workspace]
 # Changelog settings
@@ -17,13 +21,14 @@ pr_name = "chore: release"
 
 # Git release settings
 git_release_enable = false
-git_tag_enable = true
+git_tag_enable = false
 git_tag_name = "{{ package }}@v{{ version }}"
 git_release_type = "auto"
+release = false
 
 # Publish settings
 # semver_check disabled at workspace level: library crates are internal (publish = false)
-# and binary crates are not published to crates.io.
+# and binary/application crates are not published to crates.io.
 semver_check = false
 publish_timeout = "10m"
 dependencies_update = true
@@ -35,49 +40,109 @@ publish_no_verify = true
 
 [[package]]
 name = "reinhardt-cloud"
+release = true
 publish = false
 git_release_enable = true
+git_tag_enable = true
 version_group = "reinhardt-cloud"
 
 # ── Internal library crates ──────────────────────────────────────────────────
 # These crates are workspace-internal and not published to crates.io.
-# release-plz still manages their changelogs and tags for internal tracking.
+# release-plz manages their versions and changelog entries without creating
+# package-scoped GitHub Releases or tags.
 
 [[package]]
 name = "reinhardt-cloud-types"
+release = true
 publish = false
+git_release_enable = false
+git_tag_enable = false
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-core"
+release = true
 publish = false
+git_release_enable = false
+git_tag_enable = false
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-k8s"
+release = true
 publish = false
+git_release_enable = false
+git_tag_enable = false
 version_group = "reinhardt-cloud"
 
-# ── Binary crates (GitHub Releases) ─────────────────────────────────────────
-# These crates are distributed as GitHub Releases (not crates.io).
+[[package]]
+name = "reinhardt-cloud-proto"
+release = true
+publish = false
+git_release_enable = false
+git_tag_enable = false
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-grpc"
+release = true
+publish = false
+git_release_enable = false
+git_tag_enable = false
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-telemetry"
+release = true
+publish = false
+git_release_enable = false
+git_tag_enable = false
+version_group = "reinhardt-cloud"
+
+# ── Binary/application crates (GitHub Releases) ─────────────────────────────
+# These crates are distributed as GitHub Releases and container images
+# instead of crates.io packages.
 
 [[package]]
 name = "reinhardt-cloud-dashboard"
+release = true
 publish = false
 git_release_enable = true
+git_tag_enable = true
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-operator"
+release = true
 publish = false
 git_release_enable = true
+git_tag_enable = true
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-cli"
+release = true
 publish = false
 git_release_enable = true
+git_tag_enable = true
 version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-agent"
+release = true
+publish = false
+git_release_enable = true
+git_tag_enable = true
+version_group = "reinhardt-cloud"
+
+# ── Non-release workspace crates ────────────────────────────────────────────
+
+[[package]]
+name = "reinhardt-cloud-integration-tests"
+release = false
+publish = false
+git_release_enable = false
+git_tag_enable = false
 
 [changelog]
 protect_breaking_commits = true
