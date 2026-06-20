@@ -3,6 +3,9 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
+#[cfg(native)]
+use reinhardt::core::exception::Error as AppError;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubInstallationInfo {
 	pub id: i64,
@@ -45,6 +48,18 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
+}
+
+#[cfg(native)]
+fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
+	match err {
+		AppError::Authentication(message) => ServerFnError::server(401, message),
+		AppError::Authorization(message) => ServerFnError::server(403, message),
+		_ => {
+			tracing::error!("GitHub server function authorization failed: {err}");
+			ServerFnError::application("Internal server error")
+		}
+	}
 }
 
 #[cfg(native)]
@@ -334,9 +349,12 @@ pub async fn import_github_repository_for_current_org(
 	use crate::apps::github::services::pipeline::{
 		GitHubDeployPipelineInput, run_github_deploy_pipeline,
 	};
+	use crate::apps::organizations::permissions::{Action, require_permission};
 
 	ensure_github_account_linked(&user).await?;
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = require_permission(user.id, Action::DeploymentCreate)
+		.await
+		.map_err(server_fn_error_from_app_error)?;
 	let repository_id: i64 = repository_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid repository_id"))?;
