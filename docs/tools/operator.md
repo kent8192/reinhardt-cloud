@@ -189,7 +189,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
 | `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
-| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
 | `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |

@@ -85,7 +85,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [scale]
 min_replicas = 2
@@ -264,7 +264,7 @@ spec:
 | `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
 | `services` | `ServicesSpec?` | Port + Ingress exposure |
-| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
 | `deletion_policy` | `DeletionPolicy` | `Retain` (default) or `Delete` |
@@ -441,7 +441,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [replicas]
 count = 3
