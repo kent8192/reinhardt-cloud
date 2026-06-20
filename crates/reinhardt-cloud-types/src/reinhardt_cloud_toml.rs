@@ -126,7 +126,7 @@ pub struct ServiceTlsSection {
 	pub secret_name: Option<String>,
 	/// cert-manager Issuer name in the same namespace
 	pub issuer: Option<String>,
-	/// cert-manager ClusterIssuer name
+	/// Unsupported cert-manager ClusterIssuer name; use `issuer` for a namespace-scoped Issuer
 	pub cluster_issuer: Option<String>,
 }
 

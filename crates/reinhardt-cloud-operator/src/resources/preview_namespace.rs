@@ -28,6 +28,10 @@ use crate::resources::issuer::{
 const MANAGED_BY_VALUE: &str = "reinhardt-cloud-operator";
 /// Label recording the parent `Project` that owns a preview namespace.
 pub(crate) const PARENT_LABEL_KEY: &str = "reinhardt.dev/parent-app";
+/// Label recording the namespace of the parent `Project` that owns a preview namespace.
+pub(crate) const PARENT_NAMESPACE_LABEL_KEY: &str = "reinhardt.dev/parent-namespace";
+/// Label recording the Kubernetes UID of the parent `Project` that owns a preview namespace.
+pub(crate) const PARENT_UID_LABEL_KEY: &str = "reinhardt.dev/parent-uid";
 /// Canonical namespace name for the NGINX ingress controller, used by the
 /// allow policy so the cluster ingress path can reach preview Pods.
 const INGRESS_CONTROLLER_NAMESPACE: &str = "ingress-nginx";
@@ -50,9 +54,6 @@ const DEFAULT_LIMIT_MEMORY: &str = "512Mi";
 const DEFAULT_REQUEST_CPU: &str = "100m";
 /// Default container memory request applied by the `LimitRange`.
 const DEFAULT_REQUEST_MEMORY: &str = "128Mi";
-
-/// Label recording the namespace of the parent `Project` that owns a preview namespace.
-pub(crate) const PARENT_NAMESPACE_LABEL_KEY: &str = "reinhardt.dev/parent-namespace";
 
 /// Maximum length of a Kubernetes DNS-1123 label.
 const DNS_1123_LABEL_MAX_LENGTH: usize = 63;
@@ -146,12 +147,60 @@ pub(crate) fn preview_namespace_labels(
 	])
 }
 
+/// Standard labels applied to a preview namespace, including the parent
+/// identity required before destructive cleanup.
+pub(crate) fn preview_namespace_owner_labels(
+	parent_namespace: &str,
+	parent_name: &str,
+	parent_uid: &str,
+) -> BTreeMap<String, String> {
+	let mut labels = preview_namespace_labels(parent_namespace, parent_name);
+	labels.insert(PARENT_UID_LABEL_KEY.to_string(), parent_uid.to_string());
+	labels
+}
+
+/// Returns whether namespace labels prove ownership by the exact parent
+/// `Project` instance.
+pub(crate) fn labels_match_preview_owner(
+	labels: Option<&BTreeMap<String, String>>,
+	parent_namespace: &str,
+	parent_name: &str,
+	parent_uid: &str,
+) -> bool {
+	let Some(labels) = labels else {
+		return false;
+	};
+	labels
+		.get("app.kubernetes.io/managed-by")
+		.is_some_and(|value| value == MANAGED_BY_VALUE)
+		&& labels
+			.get("reinhardt.dev/preview-namespace")
+			.is_some_and(|value| value == "true")
+		&& labels
+			.get(PARENT_LABEL_KEY)
+			.is_some_and(|value| value == parent_name)
+		&& labels
+			.get(PARENT_NAMESPACE_LABEL_KEY)
+			.is_some_and(|value| value == parent_namespace)
+		&& labels
+			.get(PARENT_UID_LABEL_KEY)
+			.is_some_and(|value| value == parent_uid)
+}
+
 /// Builds the parent-qualified preview `Namespace`.
-pub(crate) fn build_namespace(parent_namespace: &str, parent_name: &str) -> Namespace {
+pub(crate) fn build_namespace(
+	parent_namespace: &str,
+	parent_name: &str,
+	parent_uid: &str,
+) -> Namespace {
 	Namespace {
 		metadata: ObjectMeta {
 			name: Some(preview_namespace_name(parent_namespace, parent_name)),
-			labels: Some(preview_namespace_labels(parent_namespace, parent_name)),
+			labels: Some(preview_namespace_owner_labels(
+				parent_namespace,
+				parent_name,
+				parent_uid,
+			)),
 			..Default::default()
 		},
 		..Default::default()
@@ -391,6 +440,48 @@ mod tests {
 				.map(String::as_str),
 			Some("true")
 		);
+	}
+
+	#[rstest]
+	fn owner_labels_record_parent_identity() {
+		// Arrange & Act
+		let labels = preview_namespace_owner_labels("tenant-a", "my-app", "uid-1");
+
+		// Assert
+		assert_eq!(
+			labels.get(PARENT_NAMESPACE_LABEL_KEY).map(String::as_str),
+			Some("tenant-a")
+		);
+		assert_eq!(
+			labels.get(PARENT_UID_LABEL_KEY).map(String::as_str),
+			Some("uid-1")
+		);
+	}
+
+	#[rstest]
+	fn labels_match_only_exact_preview_owner() {
+		// Arrange
+		let labels = preview_namespace_owner_labels("tenant-a", "my-app", "uid-1");
+
+		// Act & Assert
+		assert!(labels_match_preview_owner(
+			Some(&labels),
+			"tenant-a",
+			"my-app",
+			"uid-1"
+		));
+		assert!(!labels_match_preview_owner(
+			Some(&labels),
+			"tenant-b",
+			"my-app",
+			"uid-1"
+		));
+		assert!(!labels_match_preview_owner(
+			Some(&labels),
+			"tenant-a",
+			"my-app",
+			"uid-2"
+		));
 	}
 
 	#[rstest]
