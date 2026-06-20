@@ -1,8 +1,8 @@
 # Deployment Flow Architecture
 
 > **Reading guide.** Throughout this doc, every behaviour is marked either
-> **Current State** (what the code does today, on `main` at commit
-> `22d9380f`) or **Intended** (designed end-state, not yet implemented). The
+> **Current State** (what the code does today) or **Intended** (designed
+> end-state, not yet implemented). The
 > two often differ on the agent path — read the marker on each step before
 > mapping the diagram to your mental model.
 
@@ -35,10 +35,9 @@ This doc uses two markers consistently:
 
 The main divergence between legacy dashboard deploys and the declarative
 operator path now lives at the **command boundary**: the legacy `Deploy`
-command still applies a raw Kubernetes `Deployment`, while the GitHub
-repository import flow routes explicit `ApplyProject` and
-`ApplyGitCredentialsSecret` commands to the selected cluster agent. See
-**Agent Path** below.
+command still applies a raw Kubernetes `Deployment`, while standard CLI
+deploys and the GitHub repository import flow route explicit `ApplyProject`
+commands to the selected cluster agent. See **Agent Path** below.
 
 ## Deployment Entry Points
 
@@ -50,17 +49,19 @@ typed `ProjectSpec` from `reinhardt-cloud.toml`, CLI overrides, and
 optional introspect output, then renders a `Project` CRD via
 `build_project_crd` before branching on flags:
 
-- **`--dry-run`** (`deploy.rs:732-736`) — Serialises the CRD to YAML and
+- **`--dry-run`** — Serialises the CRD to YAML and
   prints it to stdout. No cluster contact, no API contact. **Status:
   Current State.**
-- **`--direct`** (`deploy.rs:747-752`) — Pipes the YAML to
+- **`--direct`** — Pipes the YAML to
   `kubectl apply -f -` against the operator's cluster. The operator's
   reconciler picks up the new `Project` resource via its watch and
   produces the owned Kubernetes resources. **Status: Current State.**
-- **default / API mode** — returns an explicit unsupported-operation error for
-  the removed dashboard deploy REST path. No stale HTTP request is sent.
-  Browser submissions are handled by the dashboard Pages app through server
-  functions. **Status: Unsupported.**
+- **default / Dashboard mode** — submits the generated `Project` manifest to
+  `/api/deployments/cli/` with bearer API-token authentication. The Dashboard
+  resolves the current organization, resolves `--cluster` as a Dashboard
+  cluster name, creates a `Deployment` audit record, and relays
+  `AgentCommand::ApplyProject` to the connected agent. **Status: Current
+  State.**
 
 The function signature `build_project_crd(name, namespace, spec,
 api_version) -> serde_yaml::Value` is the CLI's CRD rendering boundary.
@@ -69,22 +70,28 @@ before that boundary so typed TOML sections such as `health`, `services`,
 `services.tls`, `scale`, `env`, `database`, `cache`, `worker`, `storage`,
 and `mail` are not dropped during manifest construction.
 
-### Dashboard Server-Function Relay Path
+### Dashboard Deployment Relay Paths
 
-The dashboard server function `create_deployment_for_current_org` in
-`dashboard/src/apps/deployments/server_fn.rs` does the following:
+The CLI endpoint `POST /api/deployments/cli/` in
+`dashboard/src/apps/deployments/server_urls.rs` does the following:
 
-1. Validates that the target cluster exists and is owned by the
-   authenticated user.
-2. Persists a `Deployment` ORM record. The model
+1. Authenticates the bearer API token as `CurrentUser<User>`.
+2. Resolves the current organization and the submitted Dashboard cluster
+   name.
+3. Validates the submitted `Project` YAML, including `metadata.name`,
+   `metadata.namespace`, and `spec.image` against the request fields.
+4. Persists a `Deployment` ORM record. The model
    (`dashboard/src/apps/deployments/models/deployment.rs:9-40`) tracks:
-   `id`, `organization_id`, `project_name`, `cluster_id`, `status` (one of
-   `pending`/`running`/`failed`/`succeeded`), `image`, `created_at`,
-   `updated_at`. Initial `status` is `pending`.
-3. Accepts the optional `project_yaml` request field. At this stage,
-   the field is an API-boundary payload, not a persisted model column.
-4. Forwards a deploy command to the registered agent via the gRPC
+   `id`, `organization`, `project_name`, `cluster`, `status` (one of
+   `pending`/`running`/`failed`/`succeeded`), `image`, `project_yaml`,
+   `created_at`, `updated_at`. Initial `status` is `pending`.
+5. Forwards `AgentCommand::ApplyProject` to the registered agent via the gRPC
    bidirectional stream that the agent opened on startup.
+
+The browser server function `create_deployment_for_current_org` still creates
+or updates the Dashboard audit record for manual UI workflows. It reuses the
+same `Project` manifest validator when a manifest is supplied, while preserving
+the existing empty-manifest browser form behavior.
 
 **Status: Current State.** The dashboard does **not** apply Kubernetes
 resources directly. It does **not** import `kube` in its dashboard app
@@ -109,8 +116,11 @@ before drawing conclusions.**
 > is not a `Project` CRD and therefore does not trigger operator
 > reconciliation.
 >
-> **Current State: GitHub import path** — The dashboard starts from a linked
-> GitHub OAuth account. Its GitHub App installation URL sends users through
+> **Current State: `ApplyProject` paths** — Standard CLI deploys submit a
+> CLI-generated `Project` YAML to `/api/deployments/cli/`, and the dashboard
+> routes `ApplyProject` to the selected cluster agent. The GitHub import path
+> starts from a linked GitHub OAuth account. Its GitHub App installation URL
+> sends users through
 > GitHub App setup, and `/api/github/setup/` verifies the returned
 > `installation_id` by listing installations visible to the encrypted OAuth
 > user token before binding that installation to the current organization.
@@ -143,7 +153,7 @@ sequenceDiagram
     participant CLI as reinhardt-cloud CLI<br/>(deploy.rs)
     participant Stdout as stdout
     participant Kubectl as kubectl / kube-apiserver
-    participant Dashboard as Dashboard<br/>(deployment server_fn)
+    participant Dashboard as Dashboard<br/>(CLI endpoint)
     participant PG as PostgreSQL<br/>(Deployment ORM)
     participant Agent as reinhardt-cloud-agent<br/>(execute_deploy)
     participant Operator as reinhardt-cloud-operator<br/>(reconciler.rs)
@@ -151,15 +161,20 @@ sequenceDiagram
     Dev->>CLI: reinhardt-cloud deploy [flags]
     CLI->>CLI: build_project_crd(...)
 
-    alt --dry-run (deploy.rs:479-482)
+    alt --dry-run
         CLI->>Stdout: YAML to stdout (no cluster contact)
-    else --direct (deploy.rs:494-499)
+    else --direct
         CLI->>Kubectl: kubectl apply -f (Project CRD)
         Kubectl->>Operator: watch event
         Operator->>Kubectl: reconcile -> Deployment, Service, Ingress, ...
     else default / platform path
-        CLI-->>Dev: unsupported dashboard deploy REST operation (no HTTP request)
-        Note over CLI,Dashboard: Browser deploy submissions use dashboard server functions,<br/>not the removed CLI-to-dashboard REST deploy boundary
+        CLI->>Dashboard: POST /api/deployments/cli/ (bearer token + Project YAML)
+        Dashboard->>PG: create Deployment audit row
+        Dashboard->>Agent: AgentCommand::ApplyProject
+        Agent->>Kubectl: server-side apply Project CRD
+        Kubectl->>Operator: watch event
+        Operator->>Kubectl: reconcile -> Deployment, Service, Ingress, ...
+        Dashboard-->>CLI: 202 Accepted + deployment id
     end
 ```
 
@@ -167,7 +182,7 @@ sequenceDiagram
 
 The flowchart shows what the operator's reconciler produces *once* a
 `Project` CRD is in the cluster — i.e., on the `--direct` path
-today, and on the Intended dashboard path. Feature flags from
+and on the standard Dashboard path. Feature flags from
 `IntrospectOutput` (defined in
 `crates/reinhardt-cloud-types/src/introspect.rs:11-31`, with fields
 `app`, `databases`, `routes`, `middleware`, `settings`, `features`) gate
@@ -206,8 +221,8 @@ flowchart TD
 | Component | Owns | Does NOT own |
 |---|---|---|
 | CLI (`deploy.rs`) | `Project` CRD YAML construction (`build_project_crd`, lines 506-541) | Cluster state, deployment audit records |
-| Dashboard server functions | `Deployment` ORM record + relay status to UI | Kubernetes resources, CRD YAML construction |
-| Agent (`execute_deploy`) | Imperative cluster apply (**Current State: raw Deployment**; **Intended: `Project` CRD**) | CRD schema, ORM records |
+| Dashboard CLI endpoint and server functions | `Deployment` ORM record + agent command relay for submitted manifests | Kubernetes resources, CRD YAML construction |
+| Agent (`execute_deploy`, `ApplyProject`) | Legacy imperative `Deployment` apply for `Deploy`; server-side `Project` apply for `ApplyProject` | CRD schema, ORM records |
 | Operator (`reconciler.rs`) | All Kubernetes resources derived from `Project` (Deployment, Service, Ingress, ConfigMap, JWT Secret, database StatefulSet/Service/Secret, migration Job, Kaniko build Job, HPA, NetworkPolicy) | Deploy trigger, ORM records |
 | `Project` CRD | Desired application state — single source of truth for the operator | Deployment history, logs |
 
