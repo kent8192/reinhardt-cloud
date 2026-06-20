@@ -243,50 +243,54 @@ async fn sync_repositories_for_installation(
 	Ok(())
 }
 
+#[cfg(native)]
+async fn github_onboarding_for_current_org(
+	user: crate::apps::auth::models::User,
+) -> Result<GitHubOnboardingInfo, ServerFnError> {
+	use crate::apps::github::services::GitHubAppSettings;
+	use crate::apps::github::services::setup_state::{install_url_with_state, issue_setup_state};
+	use crate::apps::organizations::permissions::action::Action;
+	use crate::apps::organizations::permissions::guard::require_permission;
+
+	let github_account_linked = github_account_linked(&user).await?;
+	let install_url = if github_account_linked {
+		let organization_id = require_permission(user.id, Action::OrgUpdate)
+			.await
+			.map_err(|e| ServerFnError::server(403, e.to_string()))?;
+		let settings = GitHubAppSettings::from_env()
+			.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
+		let state = issue_setup_state(user.id, organization_id, &settings.webhook_secret);
+		settings
+			.install_url
+			.as_deref()
+			.map(|url| install_url_with_state(url, &state))
+			.transpose()
+			.map_err(|e| {
+				ServerFnError::application(format!("Invalid GitHub App install URL: {e}"))
+			})?
+	} else {
+		None
+	};
+
+	Ok(GitHubOnboardingInfo {
+		github_account_linked,
+		install_url,
+	})
+}
+
+#[cfg(wasm)]
+async fn github_onboarding_for_current_org(
+	_user: crate::apps::auth::models::User,
+) -> Result<GitHubOnboardingInfo, ServerFnError> {
+	unreachable!("server_fn body is replaced on wasm")
+}
+
 #[server_fn]
 pub async fn get_github_onboarding_for_current_org(
-	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] current_user: reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<GitHubOnboardingInfo, ServerFnError> {
-	#[cfg(native)]
-	{
-		use crate::apps::github::services::GitHubAppSettings;
-		use crate::apps::github::services::setup_state::{
-			install_url_with_state, issue_setup_state,
-		};
-		use crate::apps::organizations::permissions::action::Action;
-		use crate::apps::organizations::permissions::guard::require_permission;
-
-		let github_account_linked = github_account_linked(&user).await?;
-		let install_url = if github_account_linked {
-			let organization_id = require_permission(user.id, Action::OrgUpdate)
-				.await
-				.map_err(|e| ServerFnError::server(403, e.to_string()))?;
-			let settings = GitHubAppSettings::from_env().map_err(|e| {
-				ServerFnError::application(format!("GitHub App settings invalid: {e}"))
-			})?;
-			let state = issue_setup_state(user.id, organization_id, &settings.webhook_secret);
-			settings
-				.install_url
-				.as_deref()
-				.map(|url| install_url_with_state(url, &state))
-				.transpose()
-				.map_err(|e| {
-					ServerFnError::application(format!("Invalid GitHub App install URL: {e}"))
-				})?
-		} else {
-			None
-		};
-
-		Ok(GitHubOnboardingInfo {
-			github_account_linked,
-			install_url,
-		})
-	}
-	#[cfg(wasm)]
-	{
-		let _ = user;
-		unreachable!("server_fn body is replaced on wasm")
-	}
+	let reinhardt::CurrentUser(user) = current_user;
+	github_onboarding_for_current_org(user).await
 }
 
 #[server_fn]
