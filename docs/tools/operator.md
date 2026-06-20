@@ -195,7 +195,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
 | `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
-| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
 | `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |
@@ -220,10 +220,13 @@ Failed builds set `Degraded=True` and leave the previous runtime image target un
 
 For projects that provision PostgreSQL, the operator creates a migration Job
 for each deployment revision and waits for it before applying the new
-application `Deployment`. A running migration reports `MigrationReady=False`
-with reason `MigrationRunning`; a failed migration reports
-`MigrationReady=False`, `Degraded=True`, and leaves the current workload
-unchanged.
+application `Deployment`. The migration Job uses the same runtime class,
+service account, plugin mounts, resource defaults, and isolated workload
+security contexts as the application workload, and the reconciler applies
+isolation resources before creating the Job. A running migration reports
+`MigrationReady=False` with reason `MigrationRunning`; a failed migration
+reports `MigrationReady=False`, `Degraded=True`, and leaves the current
+workload unchanged.
 
 `TlsReady=True` means the generated Ingress contains the expected TLS host and
 secret reference, and the referenced Secret exists in the Project namespace.
