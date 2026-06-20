@@ -266,25 +266,6 @@ async fn authorize_app_log_subscription(
 			log_stream_rejected("Failed to load deployment for logs")
 		})?
 		.ok_or_else(|| log_stream_rejected("Deployment not found for log subscription"))?;
-	let organization = Organization::objects()
-		.filter(Organization::field_id().eq(organization_id))
-		.first()
-		.await
-		.map_err(|e| {
-			tracing::error!(
-				error = %e,
-				"Failed to load organization for app-log subscription"
-			);
-			log_stream_rejected("Failed to load deployment namespace for logs")
-		})?
-		.ok_or_else(|| {
-			log_stream_rejected("Deployment namespace not found for log subscription")
-		})?;
-	let namespace = reinhardt_cloud_types::crd::TenantRef {
-		organization: organization.slug,
-		team: None,
-	}
-	.namespace();
 	Ok(AuthorizedAppLogSubscription {
 		deployment_id,
 		project_name: deployment.project_name,

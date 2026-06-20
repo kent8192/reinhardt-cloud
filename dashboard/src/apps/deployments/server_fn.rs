@@ -251,8 +251,8 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let organization = crate::apps::organizations::models::Organization::objects()
-		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
@@ -269,17 +269,6 @@ pub async fn deployment_logs_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-	let organization = Organization::objects()
-		.filter(Organization::field_id().eq(organization_id))
-		.first()
-		.await
-		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
-		.ok_or_else(|| ServerFnError::server(404, "Organization not found"))?;
-	let namespace = reinhardt_cloud_types::crd::TenantRef {
-		organization: organization.slug,
-		team: None,
-	}
-	.namespace();
 	let mut client =
 		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
 	let response = client
