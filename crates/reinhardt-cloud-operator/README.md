@@ -2,6 +2,8 @@
 
 Kubernetes operator that reconciles `Project` custom resources into Deployments, Services, Ingresses, and feature-driven infrastructure (database, cache, worker, storage) for Reinhardt web applications.
 
+The primary app `Deployment` and `Service` are reconciled only when absent or already controlled by the same `Project`, so the operator does not adopt unrelated same-name Kubernetes resources.
+
 ## Quick links
 
 - Full usage guide → [`docs/tools/operator.md`](../../docs/tools/operator.md)
