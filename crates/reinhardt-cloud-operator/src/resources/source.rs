@@ -233,10 +233,10 @@ pub(crate) fn build_kaniko_job_for_branch(
 					} else {
 						Some(volumes)
 					},
-					// Forward spec.imagePullSecrets so clusters that mirror
+					// Forward validated spec.imagePullSecrets so clusters that mirror
 					// the Kaniko executor image into a private registry can
 					// authenticate when pulling it for the build Job.
-					image_pull_secrets: app.spec.image_pull_secrets.clone(),
+					image_pull_secrets: super::validated_image_pull_secrets(app)?,
 					..Default::default()
 				}),
 			},
@@ -610,7 +610,7 @@ mod tests {
 		// Arrange
 		let mut app = test_app_with_source("my-app");
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
-			name: "regcred".to_string(),
+			name: "my-app-regcred".to_string(),
 		}]);
 
 		// Act
@@ -622,7 +622,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 1);
-		assert_eq!(pull_secrets[0].name, "regcred");
+		assert_eq!(pull_secrets[0].name, "my-app-regcred");
 	}
 
 	#[rstest]
@@ -633,10 +633,10 @@ mod tests {
 		let mut app = test_app_with_source("my-app");
 		app.spec.image_pull_secrets = Some(vec![
 			LocalObjectReference {
-				name: "regcred-primary".to_string(),
+				name: "my-app-regcred-primary".to_string(),
 			},
 			LocalObjectReference {
-				name: "regcred-fallback".to_string(),
+				name: "my-app-regcred-fallback".to_string(),
 			},
 		]);
 
@@ -649,7 +649,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 2);
-		assert_eq!(pull_secrets[0].name, "regcred-primary");
-		assert_eq!(pull_secrets[1].name, "regcred-fallback");
+		assert_eq!(pull_secrets[0].name, "my-app-regcred-primary");
+		assert_eq!(pull_secrets[1].name, "my-app-regcred-fallback");
 	}
 }

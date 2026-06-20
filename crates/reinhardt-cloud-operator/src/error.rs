@@ -67,6 +67,16 @@ pub(crate) enum Error {
 		project_uid: String,
 	},
 
+	/// An image-pull secret is not owned by the application.
+	#[error(
+		"invalid imagePullSecret '{secret}' for app '{app}': secret names must start with one of {allowed_prefixes}"
+	)]
+	InvalidImagePullSecret {
+		app: String,
+		secret: String,
+		allowed_prefixes: String,
+	},
+
 	/// Database provisioning failed.
 	/// Used by the inference engine when database resource creation fails.
 	#[allow(dead_code)]
@@ -117,6 +127,10 @@ pub(crate) enum Error {
 	/// the 63-character limit).
 	#[error("invalid spec.tenant: {0}")]
 	InvalidTenant(String),
+
+	/// An explicit Ingress host is unsafe or conflicts with another Ingress.
+	#[error("invalid ingress host: {0}")]
+	InvalidIngressHost(String),
 
 	/// A preview budget field is malformed (e.g. non-numeric CPU/memory
 	/// quantity in `source.preview.budget`).
@@ -169,9 +183,11 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
 		| Error::ServiceAccountOwnership { .. }
+		| Error::InvalidImagePullSecret { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_)
+		| Error::InvalidIngressHost(_)
 		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
@@ -244,6 +260,18 @@ mod tests {
 	fn invalid_tenant_is_permanent() {
 		// Arrange
 		let err = Error::InvalidTenant("tenant.organization must not be empty".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_ingress_host_is_permanent() {
+		// Arrange
+		let err = Error::InvalidIngressHost("host already claimed".to_string());
 
 		// Act
 		let class = backoff_class(&err);
