@@ -37,6 +37,29 @@ pub(crate) fn built_image_reference(app: &Project, image_tag: &str) -> Result<St
 	Ok(format!("{base}:{image_tag}"))
 }
 
+/// Returns the only credentials Secret name that a source build may mount.
+///
+/// Source builds run attacker-controlled repository contents, so the
+/// operator must not mount arbitrary Secret names from `spec.source`.
+/// Binding the mountable Secret to the `Project` name prevents a tenant
+/// from using the operator as a confused deputy to read unrelated
+/// same-namespace credentials.
+pub(crate) fn expected_credentials_secret_name(app: &Project) -> String {
+	format!("{}-git-credentials", app.name_any())
+}
+
+fn validate_credentials_secret_name(app: &Project, secret_name: &str) -> Result<(), Error> {
+	let expected = expected_credentials_secret_name(app);
+	if secret_name == expected {
+		Ok(())
+	} else {
+		Err(Error::InvalidCredentialsSecret {
+			actual: secret_name.to_string(),
+			expected,
+		})
+	}
+}
+
 fn image_reference_without_tag(image: &str) -> &str {
 	let image_without_digest = image.split_once('@').map_or(image, |(base, _)| base);
 	let last_slash = image_without_digest.rfind('/');
@@ -129,6 +152,8 @@ pub(crate) fn build_kaniko_job_for_branch(
 	let mut volumes = Vec::new();
 
 	if let Some(ref secret_name) = source.credentials_secret {
+		validate_credentials_secret_name(app, secret_name)?;
+
 		// GIT_USERNAME for kaniko git authentication (x-access-token works for GitHub and GitLab)
 		env.push(EnvVar {
 			name: "GIT_USERNAME".to_string(),
@@ -237,7 +262,7 @@ mod tests {
 					"repository": "https://github.com/org/app",
 					"branch": "main",
 					"provider": "github",
-					"credentials_secret": "git-creds",
+					"credentials_secret": "my-app-git-credentials",
 					"build": {
 						"registry": "ghcr.io/org/app",
 						"dockerfile": "./Dockerfile.prod",
@@ -476,7 +501,7 @@ mod tests {
 			.secret_key_ref
 			.as_ref()
 			.unwrap();
-		assert_eq!(key_ref.name, "git-creds");
+		assert_eq!(key_ref.name, "my-app-git-credentials");
 		assert_eq!(key_ref.key, "git-token");
 		assert_eq!(key_ref.optional, Some(true));
 	}
@@ -510,8 +535,29 @@ mod tests {
 			.find(|v| v.name == "registry-auth")
 			.unwrap();
 		let secret = volume.secret.as_ref().unwrap();
-		assert_eq!(secret.secret_name.as_deref(), Some("git-creds"));
+		assert_eq!(
+			secret.secret_name.as_deref(),
+			Some("my-app-git-credentials")
+		);
 		assert_eq!(secret.optional, Some(true));
+	}
+
+	#[rstest]
+	fn test_rejects_unowned_credentials_secret() {
+		// Arrange
+		let mut app = test_app_with_source("my-app");
+		app.spec.source.as_mut().unwrap().credentials_secret =
+			Some("platform-git-credentials".to_string());
+
+		// Act
+		let result = build_kaniko_job(&app, "v1");
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(
+			err.to_string(),
+			"invalid source credentials secret 'platform-git-credentials': expected 'my-app-git-credentials'"
+		);
 	}
 
 	#[rstest]
