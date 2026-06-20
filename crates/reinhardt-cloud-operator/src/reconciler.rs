@@ -1986,9 +1986,7 @@ async fn reconcile_preview_status(
 		)))
 		.await
 		.map_err(Error::Kube)?;
-	let previews =
-		resources::preview_status::build_preview_status_list(&preview_list.items, "https");
-	let status_patch = serde_json::json!({ "status": { "previews": previews } });
+	let status_patch = build_preview_status_patch(&preview_list.items);
 	let parent_status_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
 	if let Err(error) = parent_status_api
 		.patch_status(
@@ -2002,6 +2000,11 @@ async fn reconcile_preview_status(
 	}
 
 	Ok(())
+}
+
+fn build_preview_status_patch(preview_projects: &[Project]) -> serde_json::Value {
+	let previews = resources::preview_status::build_preview_status_list(preview_projects, "https");
+	serde_json::json!({ "status": { "previews": previews } })
 }
 
 /// Builds a `Degraded`-condition status patch payload for the given
@@ -2661,7 +2664,7 @@ mod tests {
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::{
 		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
-		ProjectStatus,
+		ProjectStatus, ServicesSpec,
 	};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
@@ -2773,6 +2776,56 @@ mod tests {
 
 		// Assert
 		assert_eq!(action, SourceBuildGateAction::UpdatePreview { build });
+	}
+
+	#[rstest]
+	fn preview_status_patch_keeps_child_preview_list_populated() {
+		// Arrange
+		let preview = Project {
+			metadata: kube::api::ObjectMeta {
+				name: Some("ready-app-pr-42".to_string()),
+				labels: Some(
+					[
+						("reinhardt.dev/preview".to_string(), "true".to_string()),
+						(
+							"reinhardt.dev/parent-app".to_string(),
+							"ready-app".to_string(),
+						),
+						("reinhardt.dev/pr-number".to_string(), "42".to_string()),
+					]
+					.into_iter()
+					.collect(),
+				),
+				..Default::default()
+			},
+			spec: ProjectSpec {
+				services: Some(ServicesSpec {
+					port: Some(80),
+					target_port: Some(8080),
+					ingress_host: Some("ready-app-pr-42.preview.example.com".to_string()),
+					tls: None,
+				}),
+				..Default::default()
+			},
+			status: Some(ProjectStatus {
+				phase: Some(ProjectPhase::Running),
+				ready_replicas: Some(1),
+				..Default::default()
+			}),
+		};
+
+		// Act
+		let patch = build_preview_status_patch(&[preview]);
+
+		// Assert
+		assert_eq!(patch["status"]["previews"][0]["name"], "ready-app-pr-42");
+		assert_eq!(patch["status"]["previews"][0]["prNumber"], "42");
+		assert_eq!(
+			patch["status"]["previews"][0]["url"],
+			"https://ready-app-pr-42.preview.example.com"
+		);
+		assert_eq!(patch["status"]["previews"][0]["phase"], "running");
+		assert_eq!(patch["status"]["previews"][0]["readyReplicas"], 1);
 	}
 
 	fn find_condition(status: &ProjectStatus, condition_type: ConditionType) -> &ProjectCondition {

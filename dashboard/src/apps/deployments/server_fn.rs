@@ -12,6 +12,34 @@ pub struct DeploymentInfo {
 	pub image: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProjectSourceKind {
+	GitHub,
+	Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PreviewSummary {
+	pub name: String,
+	pub pr_number: String,
+	pub url: Option<String>,
+	pub phase: Option<String>,
+	pub ready_replicas: Option<i32>,
+	pub last_activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectPreviewSummary {
+	pub deployment_id: i64,
+	pub github_project_id: Option<i64>,
+	pub project_name: String,
+	pub display_name: String,
+	pub production_branch: Option<String>,
+	pub source_kind: ProjectSourceKind,
+	pub previews: Vec<PreviewSummary>,
+	pub preview_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentLogInfo {
 	pub timestamp: String,
@@ -38,6 +66,59 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 	}
 }
 
+#[cfg(native)]
+async fn preview_input_for_deployment(
+	deployment: crate::apps::deployments::models::Deployment,
+	organization_id: i64,
+) -> Result<crate::apps::deployments::services::preview_status::PreviewProjectInput, ServerFnError>
+{
+	use reinhardt::Model;
+
+	use crate::apps::deployments::services::preview_status::PreviewProjectInput;
+	use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+	let deployment_id = deployment.id.unwrap_or_default();
+	let github_project = GitHubProject::objects()
+		.filter(GitHubProject::field_deployment_id().eq(deployment_id))
+		.filter(GitHubProject::field_organization_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to load GitHub project metadata: {e}"))
+		})?;
+	if let Some(github_project) = github_project {
+		let repository_id = *github_project.repository_id();
+		let repository = GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to load GitHub repository metadata: {e}"
+				))
+			})?
+			.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: github_project.id,
+			project_name: github_project.project_name,
+			display_name: repository.full_name,
+			production_branch: Some(github_project.production_branch),
+			source_kind: ProjectSourceKind::GitHub,
+		})
+	} else {
+		let project_name = deployment.project_name;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: None,
+			project_name: project_name.clone(),
+			display_name: project_name,
+			production_branch: None,
+			source_kind: ProjectSourceKind::Manual,
+		})
+	}
+}
+
 #[server_fn]
 pub async fn list_deployments_for_current_org(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
@@ -54,6 +135,45 @@ pub async fn list_deployments_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
 	Ok(deployments.into_iter().map(deployment_info).collect())
+}
+
+#[server_fn]
+pub async fn list_deployment_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::services::preview_status::load_preview_summary;
+		use crate::apps::organizations::permissions::action::Action;
+		use crate::apps::organizations::permissions::guard::require_permission;
+
+		let organization_id = require_permission(user_id, Action::DeploymentRead)
+			.await
+			.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let deployments = Deployment::objects()
+			.filter(Deployment::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
+
+		let mut summaries = Vec::with_capacity(deployments.len());
+		for deployment in deployments {
+			let input = preview_input_for_deployment(deployment, organization_id).await?;
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user_id;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]

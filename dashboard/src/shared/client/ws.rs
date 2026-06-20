@@ -293,6 +293,7 @@ mod tests {
 	#[case::home("/", true)]
 	#[case::clusters("/clusters", true)]
 	#[case::deployments("/deployments", true)]
+	#[case::github("/github", false)]
 	#[case::login("/login", false)]
 	#[case::register("/register", false)]
 	#[case::unknown("/missing", false)]
