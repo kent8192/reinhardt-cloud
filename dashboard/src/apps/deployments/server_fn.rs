@@ -387,6 +387,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::models::Organization;
 	use crate::apps::organizations::permissions::action::Action;
 	use crate::apps::organizations::permissions::guard::require_permission;
 
@@ -396,8 +397,8 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let organization = crate::apps::organizations::models::Organization::objects()
-		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
