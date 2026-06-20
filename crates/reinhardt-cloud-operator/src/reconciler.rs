@@ -68,7 +68,7 @@ const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Platform-level preview environment configuration read from the environment.
 ///
 /// These values feed the cert-manager `Issuer` and the preview Ingress
-/// `ingressClassName` for every `{parent}-preview` namespace (#707).
+/// `ingressClassName` for every parent-qualified preview namespace (#707).
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
 	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
@@ -347,7 +347,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	let preview_namespace = resources::preview_namespace::preview_namespace_name(&name);
+	let preview_namespace = resources::preview_namespace::preview_namespace_name(namespace, &name);
 	let previews_enabled = app.spec.source.as_ref().is_some_and(|source| {
 		source
 			.preview
@@ -357,8 +357,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	if previews_enabled {
 		reconcile_preview_namespace(
 			&ctx.client,
-			&name,
 			namespace,
+			&name,
 			app.meta().uid.as_deref(),
 			app.spec
 				.source
@@ -828,7 +828,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	}
 
 	// Preview namespace (#707): when previews were enabled, the operator owns a
-	// dedicated `{name}-preview` namespace. Deleting it cascade-removes every
+	// parent-qualified preview namespace. Deleting it cascade-removes every
 	// preview child Project and its sub-resources. Best-effort: a missing
 	// namespace (previews never enabled) is not an error.
 	if app
@@ -837,14 +837,14 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 		.as_ref()
 		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
-		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
 		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
 		if let Some(parent_uid) = app.meta().uid.as_deref() {
 			if let Some(existing_ns) = ns_api.get_opt(&preview_ns).await.map_err(Error::Kube)? {
 				if resources::preview_namespace::labels_match_preview_owner(
 					existing_ns.metadata.labels.as_ref(),
-					&name,
 					namespace,
+					&name,
 					parent_uid,
 				) {
 					ns_api
@@ -1705,19 +1705,20 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
-/// Reconcile the `{parent}-preview` namespace and its resource guardrails.
+/// Reconcile the parent-qualified preview namespace and its resource guardrails.
 ///
 /// The preview namespace is intentionally separate from the parent namespace,
 /// so preview Projects do not use owner references to the parent `Project`.
 async fn reconcile_preview_namespace(
 	client: &Client,
-	parent_name: &str,
 	parent_namespace: &str,
+	parent_name: &str,
 	parent_uid: Option<&str>,
 	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
 	preview_config: &PreviewConfig,
 ) -> Result<(), Error> {
-	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
+	let ns_name =
+		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let namespaces: Api<Namespace> = Api::all(client.clone());
@@ -1732,15 +1733,16 @@ async fn reconcile_preview_namespace(
 			&ns_name,
 			&ssapply,
 			&Patch::Apply(&resources::preview_namespace::build_namespace(
-				parent_name,
 				parent_namespace,
+				parent_name,
 				parent_uid,
 			)),
 		)
 		.await
 		.map_err(Error::Kube)?;
 
-	let quota = resources::preview_namespace::build_resource_quota(parent_name, budget);
+	let quota =
+		resources::preview_namespace::build_resource_quota(parent_namespace, parent_name, budget);
 	let quota_name = quota
 		.metadata
 		.name
@@ -1751,7 +1753,8 @@ async fn reconcile_preview_namespace(
 		.await
 		.map_err(Error::Kube)?;
 
-	let limit_range = resources::preview_namespace::build_limit_range(parent_name);
+	let limit_range =
+		resources::preview_namespace::build_limit_range(parent_namespace, parent_name);
 	let limit_range_name = limit_range
 		.metadata
 		.name
@@ -1763,8 +1766,11 @@ async fn reconcile_preview_namespace(
 		.map_err(Error::Kube)?;
 
 	for policy in [
-		resources::preview_namespace::build_default_deny_policy(parent_name),
-		resources::preview_namespace::build_allow_ingress_and_dns_policy(parent_name),
+		resources::preview_namespace::build_default_deny_policy(parent_namespace, parent_name),
+		resources::preview_namespace::build_allow_ingress_and_dns_policy(
+			parent_namespace,
+			parent_name,
+		),
 	] {
 		let policy_name = policy
 			.metadata
@@ -1778,6 +1784,7 @@ async fn reconcile_preview_namespace(
 	}
 
 	let issuer = resources::preview_namespace::build_issuer(
+		parent_namespace,
 		parent_name,
 		&preview_config.acme_server,
 		&preview_config.acme_email,

@@ -402,7 +402,7 @@ Verify and persist a Dashboard API token for authenticated CLI commands.
 
 **Synopsis**
 
-```
+```bash
 reinhardt-cloud login [--token <TOKEN>]
 ```
 
@@ -420,11 +420,16 @@ Tokens are verified with `GET /api/auth/me/`. Successful login stores `credentia
 2. Verifies the token with the Dashboard.
 3. Stores the token and resolved username in `<platform config dir>/reinhardt-cloud/credentials.json`.
 
-> **Security note**: Existing credentials files are read using normal filesystem permissions.
+> **Security note**: On Unix platforms, `login` creates the `reinhardt-cloud`
+> credentials directory with owner-only permissions (`0700`) and writes
+> `credentials.json` atomically with owner-only permissions (`0600`).
+> Existing credentials files are read using normal filesystem permissions until
+> they are rewritten by `login`.
 > ```bash
 > chmod 600 "<platform config dir>/reinhardt-cloud/credentials"*
 > ```
-> Replace `<platform config dir>` with the platform-specific path (e.g. `~/.config` on Linux or `~/Library/Application Support` on macOS). This will be tightened to owner-only permissions (`0600`) in a future release.
+> Replace `<platform config dir>` with the platform-specific path (e.g. `~/.config`
+> on Linux or `~/Library/Application Support` on macOS).
 
 **Example**
 
@@ -570,7 +575,7 @@ Prints whether the Secret exists, whether a provider label is present, and a sum
 reinhardt-cloud credentials check my-app --namespace production
 ```
 
-**Security note**: The same credential file permission caveat described in the [`login`](#reinhardt-cloud-login) section applies here. After writing any credentials, run `chmod 600 ~/.config/reinhardt-cloud/credentials*` on shared hosts.
+**Security note**: The token file permission behavior described in the [`login`](#reinhardt-cloud-login) section applies to credentials saved by the CLI.
 
 > **For App Developers**: Use `credentials set` once during initial setup to give the operator access to your private repository. Use `credentials check` to confirm the Secret is present before filing a support request about failed pulls.
 
