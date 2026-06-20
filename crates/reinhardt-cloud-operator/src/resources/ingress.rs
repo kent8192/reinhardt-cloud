@@ -101,13 +101,6 @@ fn merge_tls_annotations(app: &Project, annotations: &mut BTreeMap<String, Strin
 	if let Some(issuer) = &tls.issuer {
 		annotations.insert("cert-manager.io/issuer".to_string(), issuer.clone());
 	}
-
-	if let Some(cluster_issuer) = &tls.cluster_issuer {
-		annotations.insert(
-			"cert-manager.io/cluster-issuer".to_string(),
-			cluster_issuer.clone(),
-		);
-	}
 }
 
 pub(crate) fn build_ingress(
@@ -409,7 +402,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_build_ingress_with_cluster_issuer_annotation() {
+	fn test_build_ingress_ignores_cluster_issuer_annotation() {
 		// Arrange
 		let mut app = make_test_app("web");
 		app.spec.services = Some(ServicesSpec {
@@ -431,11 +424,7 @@ mod tests {
 			.expect("ingress should be created");
 
 		// Assert
-		let annotations = ingress.metadata.annotations.expect("annotations");
-		assert_eq!(
-			annotations.get("cert-manager.io/cluster-issuer"),
-			Some(&"letsencrypt-prod".to_string())
-		);
+		assert_eq!(ingress.metadata.annotations, None);
 	}
 
 	#[rstest]
