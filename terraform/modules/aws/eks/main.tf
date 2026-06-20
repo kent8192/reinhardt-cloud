@@ -87,12 +87,34 @@ resource "aws_iam_role_policy_attachment" "nodes_ecr_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_launch_template" "nodes" {
+  name_prefix = "${var.name_prefix}-eks-nodes-"
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags          = merge(var.tags, { Name = "${var.name_prefix}-eks-node" })
+  }
+
+  tags = var.tags
+}
+
 resource "aws_eks_node_group" "primary" {
   cluster_name    = aws_eks_cluster.primary.name
   node_group_name = "${var.name_prefix}-nodes"
   node_role_arn   = aws_iam_role.nodes.arn
   subnet_ids      = var.subnet_ids
   instance_types  = [var.node_instance_type]
+
+  launch_template {
+    id      = aws_launch_template.nodes.id
+    version = aws_launch_template.nodes.latest_version
+  }
 
   scaling_config {
     desired_size = var.node_desired_count
