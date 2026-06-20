@@ -98,7 +98,8 @@ target_value = 70
 
 ```bash
 reinhardt-cloud deploy --dry-run   # Preview the generated Project CRD as YAML
-reinhardt-cloud deploy             # Deploy to the platform
+reinhardt-cloud login --token rct_example
+reinhardt-cloud deploy --cluster production  # Submit through the Dashboard
 ```
 
 ### 3. Check status
@@ -204,9 +205,9 @@ reinhardt-cloud [--server <URL>] <command>
 |---|---|
 | `init` | Generate `reinhardt-cloud.toml` from project analysis |
 | `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
-| `deploy` | Build the `Project` CRD and apply it |
+| `deploy` | Build the `Project` CRD and submit it through the Dashboard, or apply it directly with `--direct` |
 | `status` | Check deployment status |
-| `login` | Authenticate with the platform |
+| `login` | Verify and persist a Dashboard API token |
 | `credentials` | Manage Git and container-registry credentials |
 | `crd` | Generate CRD manifests for GitOps workflows |
 
