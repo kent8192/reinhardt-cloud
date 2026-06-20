@@ -151,6 +151,37 @@ fn deployment_select_options(items: &[DeploymentInfo]) -> Vec<EntitySelectOption
 		.collect()
 }
 
+struct DeploymentsListPageViewProps {
+	deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>,
+	deployments_for_logs: Resource<Vec<DeploymentInfo>, String>,
+	deployments_for_edit: Resource<Vec<DeploymentInfo>, String>,
+	deployments_for_status: Resource<Vec<DeploymentInfo>, String>,
+	deployments_for_delete: Resource<Vec<DeploymentInfo>, String>,
+	clusters_for_create: Resource<Vec<ClusterInfo>, String>,
+	create_view: Page,
+	create_error: Signal<Option<String>>,
+	create_submitting: Signal<bool>,
+	create_cluster_id: Signal<String>,
+	edit_view: Page,
+	edit_error: Signal<Option<String>>,
+	edit_dirty: Signal<bool>,
+	edit_submitting: Signal<bool>,
+	edit_deployment_id: Signal<String>,
+	edit_project_name: Signal<String>,
+	edit_image: Signal<String>,
+	edit_status: Signal<String>,
+	status_view: Page,
+	status_error: Signal<Option<String>>,
+	status_submitting: Signal<bool>,
+	status_deployment_id: Signal<String>,
+	delete_view: Page,
+	delete_error: Signal<Option<String>>,
+	delete_submitting: Signal<bool>,
+	delete_deployment_id: Signal<String>,
+	log_deployment_id: Signal<String>,
+	logs: Page,
+}
+
 /// Render the deployments page.
 #[reinhardt::pages::component("/deployments", "deployments:list")]
 pub fn deployments_list_page() -> Page {
@@ -334,7 +365,38 @@ pub fn deployments_list_page() -> Page {
 	let deployments_for_delete = deployments.clone();
 	let clusters_for_create = clusters.clone();
 
-	let content = page!(|deployments_for_inventory: Resource<Vec<DeploymentInfo>, String>, deployments_for_logs: Resource<Vec<DeploymentInfo>, String>, deployments_for_edit: Resource<Vec<DeploymentInfo>, String>, deployments_for_status: Resource<Vec<DeploymentInfo>, String>, deployments_for_delete: Resource<Vec<DeploymentInfo>, String>, clusters_for_create: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, create_cluster_id: Signal<String>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_deployment_id: Signal<String>, edit_project_name: Signal<String>, edit_image: Signal<String>, edit_status: Signal<String>, status_view: Page, status_error: Signal<Option<String>>, status_submitting: Signal<bool>, status_deployment_id: Signal<String>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_deployment_id: Signal<String>, log_deployment_id: Signal<String>, logs: Page| {
+	let props = DeploymentsListPageViewProps {
+		deployments_for_inventory,
+		deployments_for_logs,
+		deployments_for_edit,
+		deployments_for_status,
+		deployments_for_delete,
+		clusters_for_create,
+		create_view,
+		create_error,
+		create_submitting: create_state.is_submitting,
+		create_cluster_id,
+		edit_view,
+		edit_error,
+		edit_dirty: edit_state.is_dirty,
+		edit_submitting: edit_state.is_submitting,
+		edit_deployment_id,
+		edit_project_name,
+		edit_image,
+		edit_status,
+		status_view,
+		status_error,
+		status_submitting: status_state.is_submitting,
+		status_deployment_id,
+		delete_view,
+		delete_error,
+		delete_submitting: delete_state.is_submitting,
+		delete_deployment_id,
+		log_deployment_id,
+		logs,
+	};
+
+	let content = page!(|props: DeploymentsListPageViewProps| {
 		div {
 			class: "rc-shell",
 			div {
@@ -366,7 +428,7 @@ pub fn deployments_list_page() -> Page {
 								class: "rc-panel-head",
 								"Deployment Inventory"
 							} {
-								match deployments_for_inventory.get() {
+								match props.deployments_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
 											class: "rc-empty",
@@ -475,9 +537,9 @@ pub fn deployments_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Create Deployment"
 							}
-							{ self::alert(create_error.clone()) } {
-								match clusters_for_create.get() {
-									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), create_cluster_id.clone(), |_value| {}, ),
+							{ self::alert(props.create_error.clone()) } {
+								match props.clusters_for_create.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), props.create_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
@@ -492,8 +554,8 @@ pub fn deployments_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ create_view } {
-								if create_submitting.get() {
+							{ props.create_view.clone() } {
+								if props.create_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -509,8 +571,8 @@ pub fn deployments_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Live Logs"
 							} {
-								match deployments_for_logs.get() {
-									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), log_deployment_id.clone(), |value| {
+								match props.deployments_for_logs.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), props.log_deployment_id.clone(), |value| {
 										self::subscribe_app_logs(&value);
 									}, ),
 									ResourceState::Loading => page!(|| {
@@ -529,7 +591,7 @@ pub fn deployments_list_page() -> Page {
 							}
 							div {
 								class: "mt-3",
-								{ logs }
+								{ props.logs.clone() }
 							}
 						}
 					}
@@ -541,14 +603,14 @@ pub fn deployments_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Deployment Operations"
 							}
-							{ self::alert(edit_error.clone()) } {
-								match deployments_for_edit.get() {
+							{ self::alert(props.edit_error.clone()) } {
+								match props.deployments_for_edit.get() {
 									ResourceState::Success(items)=> {
 										let deployments_for_change = items.clone();
-										let project_name_signal = edit_project_name.clone();
-										let image_signal = edit_image.clone();
-										let status_signal = edit_status.clone();
-										self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), edit_deployment_id.clone(), move |value| {
+										let project_name_signal = props.edit_project_name.clone();
+										let image_signal = props.edit_image.clone();
+										let status_signal = props.edit_status.clone();
+										self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), props.edit_deployment_id.clone(), move |value| {
 											if let Some(deployment) = deployments_for_change.iter().find(|deployment| deployment.id.to_string() == value) {
 												project_name_signal.set(deployment.project_name.clone());
 												image_signal.set(deployment.image.clone());
@@ -569,8 +631,8 @@ pub fn deployments_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ edit_view } {
-								if edit_dirty.get() {
+							{ props.edit_view.clone() } {
+								if props.edit_dirty.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-amber-700",
@@ -580,7 +642,7 @@ pub fn deployments_list_page() -> Page {
 								} else { Page::Empty }
 							}
 							{
-								if edit_submitting.get() {
+								if props.edit_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -592,9 +654,9 @@ pub fn deployments_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{ self::alert(status_error.clone()) } {
-								match deployments_for_status.get() {
-									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), status_deployment_id.clone(), |_value| {}, ),
+							{ self::alert(props.status_error.clone()) } {
+								match props.deployments_for_status.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), props.status_deployment_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
@@ -609,8 +671,8 @@ pub fn deployments_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ status_view } {
-								if status_submitting.get() {
+							{ props.status_view.clone() } {
+								if props.status_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -622,9 +684,9 @@ pub fn deployments_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{ self::alert(delete_error.clone()) } {
-								match deployments_for_delete.get() {
-									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), delete_deployment_id.clone(), |_value| {}, ),
+							{ self::alert(props.delete_error.clone()) } {
+								match props.deployments_for_delete.get() {
+									ResourceState::Success(items) => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&items), props.delete_deployment_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
@@ -639,8 +701,8 @@ pub fn deployments_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ delete_view } {
-								if delete_submitting.get() {
+							{ props.delete_view.clone() } {
+								if props.delete_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -654,35 +716,6 @@ pub fn deployments_list_page() -> Page {
 				}
 			}
 		}
-	})(
-		deployments_for_inventory,
-		deployments_for_logs,
-		deployments_for_edit,
-		deployments_for_status,
-		deployments_for_delete,
-		clusters_for_create,
-		create_view,
-		create_error,
-		create_state.is_submitting,
-		create_cluster_id,
-		edit_view,
-		edit_error,
-		edit_state.is_dirty,
-		edit_state.is_submitting,
-		edit_deployment_id,
-		edit_project_name,
-		edit_image,
-		edit_status,
-		status_view,
-		status_error,
-		status_state.is_submitting,
-		status_deployment_id,
-		delete_view,
-		delete_error,
-		delete_state.is_submitting,
-		delete_deployment_id,
-		log_deployment_id,
-		logs,
-	);
+	})(props);
 	dashboard_app_shell("deployments", content)
 }
