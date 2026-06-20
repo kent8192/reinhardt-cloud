@@ -284,6 +284,7 @@ pub async fn deployment_logs_for_current_org(
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
 				source: Some(deployment.project_name),
+				deployment_id: Some(deployment_id.to_string()),
 				..Default::default()
 			}),
 			pagination: Some(PaginationRequest {
