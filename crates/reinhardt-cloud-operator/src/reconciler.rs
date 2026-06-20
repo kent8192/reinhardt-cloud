@@ -12,7 +12,7 @@ use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
-use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::api::networking::v1::{Ingress, IngressRule, NetworkPolicy};
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
@@ -64,6 +64,8 @@ const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 /// risk exists if the operator itself writes the annotation and immediately
 /// re-triggers reconciliation. The value is consumed read-only here.
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
+/// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
+const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
 
 /// Platform-level preview environment configuration read from the environment.
 ///
@@ -1318,12 +1320,19 @@ async fn reconcile_ingress_resource_with_host(
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
+	let normalized_host = host.map(str::trim).filter(|host| !host.is_empty());
+	if let Some(host) = normalized_host {
+		ensure_ingress_host_allowed(host)?;
+		ensure_ingress_host_available(client, app, namespace, host).await?;
+	}
+
 	let signals = app
 		.spec
 		.introspect
 		.as_ref()
 		.map(|i| &i.features.infrastructure_signals);
-	let Some(desired) = build_ingress(app, routes, port, host, signals, pages_config)? else {
+	let Some(desired) = build_ingress(app, routes, port, normalized_host, signals, pages_config)?
+	else {
 		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
 		return Ok(());
 	};
@@ -1334,6 +1343,84 @@ async fn reconcile_ingress_resource_with_host(
 		.map_err(Error::Kube)?;
 	info!("Reconciled Ingress {namespace}/{name}");
 	Ok(())
+}
+
+fn ensure_ingress_host_allowed(host: &str) -> Result<(), Error> {
+	let suffixes = allowed_ingress_host_suffixes_from_env();
+	if suffixes.is_empty() {
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' requires {INGRESS_HOST_SUFFIXES_ENV} to declare an allowed DNS suffix"
+		)));
+	}
+
+	if suffixes
+		.iter()
+		.any(|suffix| host_matches_allowed_suffix(host, suffix))
+	{
+		return Ok(());
+	}
+
+	Err(Error::InvalidIngressHost(format!(
+		"services.ingress_host '{host}' is outside the allowed DNS suffixes configured by {INGRESS_HOST_SUFFIXES_ENV}"
+	)))
+}
+
+fn allowed_ingress_host_suffixes_from_env() -> Vec<String> {
+	std::env::var(INGRESS_HOST_SUFFIXES_ENV)
+		.unwrap_or_default()
+		.split(',')
+		.map(str::trim)
+		.filter(|suffix| !suffix.is_empty())
+		.map(|suffix| suffix.trim_start_matches('.').to_ascii_lowercase())
+		.collect()
+}
+
+fn host_matches_allowed_suffix(host: &str, suffix: &str) -> bool {
+	let host = host.trim_end_matches('.').to_ascii_lowercase();
+	let suffix = suffix.trim_end_matches('.');
+	host == suffix || host.ends_with(&format!(".{suffix}"))
+}
+
+async fn ensure_ingress_host_available(
+	client: &Client,
+	app: &Project,
+	namespace: &str,
+	host: &str,
+) -> Result<(), Error> {
+	let ingresses: Api<Ingress> = Api::all(client.clone());
+	let existing = ingresses
+		.list(&ListParams::default())
+		.await
+		.map_err(Error::Kube)?;
+	if let Some((existing_namespace, existing_name)) = existing.items.iter().find_map(|ingress| {
+		ingress_claims_host(ingress, host)
+			.then(|| (ingress.namespace().unwrap_or_default(), ingress.name_any()))
+	}) && (existing_namespace != namespace || existing_name != app.name_any())
+	{
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' is already claimed by Ingress {existing_namespace}/{existing_name}"
+		)));
+	}
+
+	Ok(())
+}
+
+fn ingress_claims_host(ingress: &Ingress, host: &str) -> bool {
+	ingress
+		.spec
+		.as_ref()
+		.and_then(|spec| spec.rules.as_ref())
+		.is_some_and(|rules| {
+			rules
+				.iter()
+				.any(|rule| ingress_rule_matches_host(rule, host))
+		})
+}
+
+fn ingress_rule_matches_host(rule: &IngressRule, host: &str) -> bool {
+	rule.host
+		.as_deref()
+		.is_some_and(|existing| existing.eq_ignore_ascii_case(host))
 }
 
 async fn reconcile_hpa(
@@ -2649,6 +2736,24 @@ mod tests {
 		}
 	}
 
+	fn make_test_ingress(name: &str, namespace: &str, host: &str) -> Ingress {
+		Ingress {
+			metadata: kube::api::ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some(namespace.to_string()),
+				..Default::default()
+			},
+			spec: Some(k8s_openapi::api::networking::v1::IngressSpec {
+				rules: Some(vec![IngressRule {
+					host: Some(host.to_string()),
+					..Default::default()
+				}]),
+				..Default::default()
+			}),
+			..Default::default()
+		}
+	}
+
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
 		let mut build = BuildStatus {
 			phase: BuildPhase::Succeeded,
@@ -3690,6 +3795,54 @@ mod tests {
 		// Assert — introspect fallback used
 		assert!(result);
 		assert!(app.spec.cache.is_none());
+	}
+
+	#[rstest]
+	fn host_matches_allowed_suffix_accepts_subdomain() {
+		// Arrange
+		let host = "app.team.example.com";
+
+		// Act
+		let result = host_matches_allowed_suffix(host, "example.com");
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn host_matches_allowed_suffix_rejects_suffix_confusion() {
+		// Arrange
+		let host = "attackerexample.com";
+
+		// Act
+		let result = host_matches_allowed_suffix(host, "example.com");
+
+		// Assert
+		assert!(!result);
+	}
+
+	#[rstest]
+	fn ingress_claims_host_matches_case_insensitively() {
+		// Arrange
+		let ingress = make_test_ingress("app", "default", "Login.Platform.Example.com");
+
+		// Act
+		let result = ingress_claims_host(&ingress, "login.platform.example.com");
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn ingress_claims_host_rejects_different_host() {
+		// Arrange
+		let ingress = make_test_ingress("app", "default", "app.example.com");
+
+		// Act
+		let result = ingress_claims_host(&ingress, "login.platform.example.com");
+
+		// Assert
+		assert!(!result);
 	}
 
 	#[rstest]
