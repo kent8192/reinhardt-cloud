@@ -31,6 +31,21 @@ pub(crate) enum Error {
 	#[error("failed to compute owner reference for {0}")]
 	OwnerReference(String),
 
+	/// A same-named Kubernetes resource already exists but is not owned by the Project.
+	#[error(
+		"refusing to reconcile {kind} {namespace}/{name}: existing resource is not owned by Project UID {project_uid}"
+	)]
+	ResourceOwnershipConflict {
+		/// Kubernetes resource kind.
+		kind: &'static str,
+		/// Namespace containing the conflicting resource.
+		namespace: String,
+		/// Name of the conflicting resource.
+		name: String,
+		/// UID of the Project that must own the resource.
+		project_uid: String,
+	},
+
 	/// A port number is outside the valid range (1-65535).
 	#[error("invalid port {port} for field '{field}': must be between 1 and 65535")]
 	InvalidPort { field: &'static str, port: i32 },
@@ -137,6 +152,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
 		| Error::TenantMismatch { .. }
+		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_) => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),

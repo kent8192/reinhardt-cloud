@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,11 +14,13 @@ use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
-use kube::{Client, ResourceExt};
+use kube::{Client, Resource, ResourceExt};
+use serde::de::DeserializeOwned;
 use tracing::{Instrument, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
@@ -241,6 +244,44 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 	}
 	.instrument(span)
 	.await
+}
+
+/// Ensures a same-named child resource is either absent or already owned by the Project.
+async fn ensure_owned_or_absent<K>(
+	api: &Api<K>,
+	name: &str,
+	app: &Project,
+	namespace: &str,
+	kind: &'static str,
+) -> Result<(), Error>
+where
+	K: Clone + DeserializeOwned + Debug + Resource<DynamicType = ()>,
+{
+	if let Some(existing) = api.get_opt(name).await.map_err(Error::Kube)?
+		&& !is_owned_by_project(existing.meta(), app)
+	{
+		return Err(Error::ResourceOwnershipConflict {
+			kind,
+			namespace: namespace.to_string(),
+			name: name.to_string(),
+			project_uid: app.uid().unwrap_or_else(|| "<missing>".to_string()),
+		});
+	}
+
+	Ok(())
+}
+
+/// Returns whether Kubernetes metadata has a controller owner reference to the Project.
+fn is_owned_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	let Some(project_uid) = app.meta().uid.as_deref() else {
+		return false;
+	};
+
+	metadata.owner_references.as_ref().is_some_and(|refs| {
+		refs.iter().any(|owner| {
+			owner.uid == project_uid && owner.kind == "Project" && owner.controller.unwrap_or(false)
+		})
+	})
 }
 
 /// Apply the desired state for a `Project`.
@@ -502,6 +543,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Reconcile owned Deployment only after the target migration revision
 	// has completed, so a new workload image never serves before its schema
 	// change gate succeeds.
+	ensure_owned_or_absent(&deployments, &name, &app, namespace, "Deployment").await?;
 	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
 	deployments
 		.patch(
@@ -515,6 +557,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
+	ensure_owned_or_absent(&services, &name, &app, namespace, "Service").await?;
 	let desired_service = build_service(&app, pages_config.is_some())?;
 	services
 		.patch(
@@ -2647,6 +2690,69 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	#[rstest]
+	fn is_owned_by_project_accepts_controller_owner_reference() {
+		// Arrange
+		let app = make_test_app("owned-app");
+		let metadata = ObjectMeta {
+			owner_references: Some(vec![
+				k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference {
+					api_version: "paas.reinhardt-cloud.dev/v1".to_string(),
+					kind: "Project".to_string(),
+					name: "owned-app".to_string(),
+					uid: "test-uid-12345".to_string(),
+					controller: Some(true),
+					block_owner_deletion: Some(true),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let owned = is_owned_by_project(&metadata, &app);
+
+		// Assert
+		assert!(owned);
+	}
+
+	#[rstest]
+	fn is_owned_by_project_rejects_unmanaged_resource() {
+		// Arrange
+		let app = make_test_app("owned-app");
+		let metadata = ObjectMeta::default();
+
+		// Act
+		let owned = is_owned_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!owned);
+	}
+
+	#[rstest]
+	fn is_owned_by_project_rejects_non_controller_owner_reference() {
+		// Arrange
+		let app = make_test_app("owned-app");
+		let metadata = ObjectMeta {
+			owner_references: Some(vec![
+				k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference {
+					api_version: "paas.reinhardt-cloud.dev/v1".to_string(),
+					kind: "Project".to_string(),
+					name: "owned-app".to_string(),
+					uid: "test-uid-12345".to_string(),
+					controller: Some(false),
+					block_owner_deletion: Some(true),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let owned = is_owned_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!owned);
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
