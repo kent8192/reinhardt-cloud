@@ -745,9 +745,12 @@ spec:
                   tls:
                     description: TLS configuration for generated Ingress resources
                     nullable: true
+                    x-kubernetes-validations:
+                      - message: services.tls.cluster_issuer is not supported; use services.tls.issuer with a namespace-scoped Issuer
+                        rule: self == null || !has(self.cluster_issuer)
                     properties:
                       cluster_issuer:
-                        description: cert-manager ClusterIssuer name
+                        description: Unsupported cert-manager ClusterIssuer name; use issuer for a namespace-scoped Issuer
                         nullable: true
                         type: string
                       enabled:

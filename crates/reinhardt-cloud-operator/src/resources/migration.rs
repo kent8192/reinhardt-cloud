@@ -3,15 +3,19 @@
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
-use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec};
+use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec, ResourceRequirements};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::ResourceExt;
 use reinhardt_cloud_types::crd::Project;
 
 use super::labels::{Component, owner_reference, standard_labels};
+use super::plugins::build_plugin_volumes;
+use super::security::context::{build_container_security_context, build_pod_security_context};
+use super::security::runtime_class::resolve_runtime_class_name;
 use crate::error::Error;
 use crate::inference::env_vars::build_application_env_vars;
-use crate::inference::platform::Platform;
+use crate::inference::platform::PlatformConfig;
 
 /// Label carrying the short revision identifier used by migration Jobs.
 pub(crate) const MIGRATION_REVISION_LABEL: &str = "paas.reinhardt-cloud.dev/migration-revision";
@@ -68,7 +72,7 @@ pub(crate) fn migration_job_name(app: &Project, revision_key: &str) -> String {
 /// workload so migrations use the same database and settings contract.
 pub(crate) fn build_migration_job(
 	app: &Project,
-	platform: &Platform,
+	platform: &PlatformConfig,
 	revision_key: &str,
 ) -> Result<Job, Error> {
 	let namespace = super::require_namespace(app)?;
@@ -81,6 +85,31 @@ pub(crate) fn build_migration_job(
 		MIGRATION_REVISION_KEY_ANNOTATION.to_string(),
 		revision_key.to_string(),
 	)]);
+	let isolated = app.spec.isolation.is_some();
+	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
+	let resources = ResourceRequirements {
+		requests: Some(BTreeMap::from([
+			(
+				"cpu".to_string(),
+				Quantity(platform.defaults.resources.cpu_request.clone()),
+			),
+			(
+				"memory".to_string(),
+				Quantity(platform.defaults.resources.memory_request.clone()),
+			),
+		])),
+		limits: Some(BTreeMap::from([
+			(
+				"cpu".to_string(),
+				Quantity(platform.defaults.resources.cpu_limit.clone()),
+			),
+			(
+				"memory".to_string(),
+				Quantity(platform.defaults.resources.memory_limit.clone()),
+			),
+		])),
+		..Default::default()
+	};
 
 	Ok(Job {
 		metadata: ObjectMeta {
@@ -100,16 +129,31 @@ pub(crate) fn build_migration_job(
 				}),
 				spec: Some(PodSpec {
 					restart_policy: Some("Never".to_string()),
+					runtime_class_name: resolve_runtime_class_name(app, &platform.platform),
+					security_context: if isolated {
+						Some(build_pod_security_context())
+					} else {
+						None
+					},
 					containers: vec![Container {
 						name: "migrate".to_string(),
 						image: Some(app.spec.image.clone()),
 						command: Some(vec!["manage".to_string(), "migrate".to_string()]),
-						env: Some(build_application_env_vars(app, platform)),
+						env: Some(build_application_env_vars(app, &platform.platform)),
+						volume_mounts: Some(plugin_mounts),
+						resources: Some(resources),
+						security_context: if isolated {
+							Some(build_container_security_context())
+						} else {
+							None
+						},
 						..Default::default()
 					}],
+					volumes: Some(plugin_volumes),
 					// Forward spec.imagePullSecrets so the migration Job can
 					// pull the application image from a private registry.
 					image_pull_secrets: app.spec.image_pull_secrets.clone(),
+					service_account_name: super::service_account::resolved_sa_name(app),
 					..Default::default()
 				}),
 			},
@@ -122,9 +166,11 @@ pub(crate) fn build_migration_job(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::inference::platform::Platform;
+	use crate::inference::platform::PlatformConfig;
 	use kube::api::ObjectMeta;
-	use reinhardt_cloud_types::crd::ProjectSpec;
+	use reinhardt_cloud_types::crd::isolation::{IsolationLevel, IsolationSpec};
+	use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
+	use reinhardt_cloud_types::crd::{PluginSpec, PluginType, ProjectSpec};
 	use reinhardt_cloud_types::introspect::{AppMetadata, IntrospectOutput};
 	use rstest::rstest;
 
@@ -146,7 +192,8 @@ mod tests {
 
 	fn build_test_job(app: &Project) -> Job {
 		let revision_key = migration_revision_key(app);
-		build_migration_job(app, &Platform::Onpremise, &revision_key).expect("build should succeed")
+		build_migration_job(app, &PlatformConfig::onprem_defaults(), &revision_key)
+			.expect("build should succeed")
 	}
 
 	fn set_app_version(app: &mut Project, version: &str) {
@@ -351,6 +398,82 @@ mod tests {
 	}
 
 	// ── Image pull secrets tests ───────────────────────────────────────────
+
+	#[rstest]
+	fn test_build_migration_job_inherits_isolated_workload_hardening() {
+		// Arrange
+		let mut app = test_app("my-app", "my-app:v1");
+		app.spec.isolation = Some(IsolationSpec {
+			level: IsolationLevel::Sandbox,
+			network: None,
+			runtime_class_override: Some("gvisor".to_string()),
+		});
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: false,
+			name: Some("tenant-sa".to_string()),
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let job = build_test_job(&app);
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+		let container = &pod_spec.containers[0];
+
+		// Assert
+		assert_eq!(pod_spec.runtime_class_name.as_deref(), Some("gvisor"));
+		assert!(pod_spec.security_context.is_some());
+		assert!(container.security_context.is_some());
+		assert_eq!(pod_spec.service_account_name.as_deref(), Some("tenant-sa"));
+		let resources = container
+			.resources
+			.as_ref()
+			.expect("resources should be set");
+		assert_eq!(
+			resources
+				.requests
+				.as_ref()
+				.and_then(|requests| requests.get("cpu"))
+				.map(|quantity| quantity.0.as_str()),
+			Some("100m")
+		);
+		assert_eq!(
+			resources
+				.limits
+				.as_ref()
+				.and_then(|limits| limits.get("memory"))
+				.map(|quantity| quantity.0.as_str()),
+			Some("1Gi")
+		);
+	}
+
+	#[rstest]
+	fn test_build_migration_job_mounts_plugin_volumes() {
+		// Arrange
+		let mut app = test_app("my-app", "my-app:v1");
+		app.spec.plugins = Some(vec![PluginSpec {
+			name: "auth-filter".to_string(),
+			wasm_dir: "/plugins/auth".to_string(),
+			plugin_type: PluginType::HttpMiddleware,
+			memory_limit_mb: None,
+			timeout_ms: None,
+			capabilities: Vec::new(),
+		}]);
+
+		// Act
+		let job = build_test_job(&app);
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+		let container = &pod_spec.containers[0];
+
+		// Assert
+		let volumes = pod_spec.volumes.expect("plugin volumes should be set");
+		let mounts = container
+			.volume_mounts
+			.as_ref()
+			.expect("plugin volume mounts should be set");
+		assert_eq!(volumes.len(), 2);
+		assert_eq!(mounts.len(), 2);
+		assert_eq!(mounts[1].mount_path, "/plugins/auth");
+	}
 
 	#[rstest]
 	fn test_build_migration_job_image_pull_secrets_none_when_unset() {

@@ -1,6 +1,7 @@
 //! Configuration file handling for the reinhardt-cloud CLI.
 
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -100,63 +101,60 @@ pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Er
 /// Persist credentials to `path`, creating parent directories as needed.
 ///
 /// On Unix platforms, the credentials directory is restricted to `0700` and
-/// the credentials file is restricted to `0600` because it stores a bearer
-/// token.
+/// the credentials file is written atomically with `0600` permissions so bearer
+/// tokens are not exposed through the process umask.
 pub(crate) fn save_token(
 	creds: &Credentials,
 	path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent)?;
-		secure_credentials_dir(parent)?;
-	}
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	create_private_credentials_dir(parent)?;
+
 	let json = serde_json::to_string_pretty(creds)?;
-	write_credentials_file(path, json.as_bytes())?;
+	write_private_file(path, json.as_bytes())?;
 	Ok(())
 }
 
 #[cfg(unix)]
-fn secure_credentials_dir(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn create_private_credentials_dir(path: &Path) -> std::io::Result<()> {
 	use std::os::unix::fs::PermissionsExt;
 
+	std::fs::create_dir_all(path)?;
 	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_DIR_MODE))?;
 	Ok(())
 }
 
 #[cfg(not(unix))]
-fn secure_credentials_dir(_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-	Ok(())
+fn create_private_credentials_dir(path: &Path) -> std::io::Result<()> {
+	std::fs::create_dir_all(path)
 }
 
 #[cfg(unix)]
-fn write_credentials_file(path: &Path, contents: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-	use std::io::Write;
-	use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+	use std::os::unix::fs::PermissionsExt;
 
-	if let Ok(metadata) = path.symlink_metadata() {
-		if metadata.file_type().is_symlink() {
-			return Err("credentials file must not be a symbolic link".into());
-		}
-		if metadata.is_file() {
-			std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
-		}
-	}
-
-	let mut file = std::fs::OpenOptions::new()
-		.write(true)
-		.create(true)
-		.truncate(true)
-		.mode(CREDENTIALS_FILE_MODE)
-		.open(path)?;
-	file.write_all(contents)?;
-	file.sync_all()?;
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let mut temp = tempfile::Builder::new()
+		.prefix("credentials")
+		.tempfile_in(parent)?;
+	std::fs::set_permissions(
+		temp.path(),
+		std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE),
+	)?;
+	temp.write_all(contents)?;
+	temp.as_file().sync_all()?;
+	temp.persist(path).map_err(|err| err.error)?;
 	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
 	Ok(())
 }
 
 #[cfg(not(unix))]
-fn write_credentials_file(path: &Path, contents: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-	std::fs::write(path, contents)?;
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+	temp.write_all(contents)?;
+	temp.as_file().sync_all()?;
+	temp.persist(path).map_err(|err| err.error)?;
 	Ok(())
 }
 

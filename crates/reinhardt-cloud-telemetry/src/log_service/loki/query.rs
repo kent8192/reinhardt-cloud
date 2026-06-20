@@ -54,7 +54,7 @@ fn escape_logql_string_literal(value: &str) -> String {
 ///
 /// `source` maps to the `app` label (the project name written by Promtail);
 /// `min_level` narrows the `level` label; `search` becomes a regex line filter;
-/// `deployment_id` adds a `deployment_id` label matcher only when set.
+/// `deployment_id` and `namespace` add label matchers only when set.
 pub(crate) fn build_logql(filter: &LogFilter) -> String {
 	let mut selectors: Vec<String> = Vec::new();
 
@@ -67,6 +67,12 @@ pub(crate) fn build_logql(filter: &LogFilter) -> String {
 		selectors.push(format!(
 			r#"deployment_id="{}""#,
 			escape_logql_string_literal(deployment_id)
+		));
+	}
+	if let Some(namespace) = &filter.namespace {
+		selectors.push(format!(
+			r#"namespace="{}""#,
+			escape_logql_string_literal(namespace)
 		));
 	}
 	if let Some(min_level) = filter.min_level {
@@ -204,13 +210,11 @@ mod tests {
 	}
 
 	#[rstest]
-	fn all_fields_combined() {
+	fn namespace_adds_namespace_label() {
 		// Arrange
 		let filter = LogFilter {
 			source: Some("p".to_string()),
-			min_level: Some(LogLevel::Error),
-			search: Some("oom".to_string()),
-			deployment_id: Some("d1".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 			..Default::default()
 		};
 
@@ -218,7 +222,29 @@ mod tests {
 		let q = build_logql(&filter);
 
 		// Assert
-		assert_eq!(q, r#"{app="p",deployment_id="d1",level=~"error"}|~"oom""#);
+		assert_eq!(q, r#"{app="p",namespace="tenant-acme"}"#);
+	}
+
+	#[rstest]
+	fn all_fields_combined() {
+		// Arrange
+		let filter = LogFilter {
+			source: Some("p".to_string()),
+			min_level: Some(LogLevel::Error),
+			search: Some("oom".to_string()),
+			deployment_id: Some("d1".to_string()),
+			namespace: Some("tenant-acme".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let q = build_logql(&filter);
+
+		// Assert
+		assert_eq!(
+			q,
+			r#"{app="p",deployment_id="d1",namespace="tenant-acme",level=~"error"}|~"oom""#
+		);
 	}
 
 	#[rstest]
