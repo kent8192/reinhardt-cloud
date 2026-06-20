@@ -422,6 +422,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "tok".to_string(),
 			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
@@ -450,6 +451,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "tok".to_string(),
 			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
@@ -514,6 +516,7 @@ project_name = "myapp"
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_resolve_token_ignores_unscoped_file_credentials() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
@@ -536,6 +539,7 @@ project_name = "myapp"
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_resolve_token_ignores_mismatched_file_credentials() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
@@ -558,6 +562,7 @@ project_name = "myapp"
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_resolve_token_uses_matching_file_credentials() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
