@@ -58,16 +58,19 @@ pub fn credentials_secret_for_repository(project_name: &str, private: bool) -> O
 
 pub async fn run_github_deploy_pipeline(
 	input: &GitHubDeployPipelineInput,
-	installation_token: &str,
+	_installation_token: &str,
 ) -> Result<GitHubDeployPipelineOutput, String> {
-	let checkout =
-		clone_repository_for_introspection(&input.full_name, &input.branch, installation_token)
-			.await?;
-	let introspect = run_manage_introspect(checkout.repository_dir()).await?;
+	let introspect = safe_github_import_introspect(&input.project_name);
 	Ok(GitHubDeployPipelineOutput {
 		introspect,
 		credentials_secret: credentials_secret_for_repository(&input.project_name, input.private),
 	})
+}
+
+fn safe_github_import_introspect(project_name: &str) -> IntrospectOutput {
+	let mut introspect = IntrospectOutput::default();
+	introspect.app.name = project_name.to_string();
+	introspect
 }
 
 pub async fn clone_repository_for_introspection(
@@ -106,57 +109,6 @@ pub async fn clone_repository_for_introspection(
 		Ok(_) => Ok(checkout),
 		Err(err) => Err(err.replace(&clone_url, &redacted_clone_url(full_name))),
 	}
-}
-
-pub async fn run_manage_introspect(project_dir: &Path) -> Result<IntrospectOutput, String> {
-	let yaml = run_manage_introspect_yaml(project_dir).await?;
-	serde_yaml::from_str(&yaml).map_err(|e| format!("Failed to parse introspect YAML: {e}"))
-}
-
-async fn run_manage_introspect_yaml(project_dir: &Path) -> Result<String, String> {
-	let timeout = introspect_timeout();
-	let project_manage = project_dir.join("manage");
-	if project_manage.is_file() {
-		return command_stdout(
-			Command::new(project_manage)
-				.arg("introspect")
-				.arg("--format")
-				.arg("yaml")
-				.current_dir(project_dir),
-			"manage introspect",
-			timeout,
-		)
-		.await;
-	}
-
-	if let Ok(stdout) = command_stdout(
-		Command::new("manage")
-			.arg("introspect")
-			.arg("--format")
-			.arg("yaml")
-			.current_dir(project_dir),
-		"manage introspect",
-		timeout,
-	)
-	.await
-	{
-		return Ok(stdout);
-	}
-
-	command_stdout(
-		Command::new("cargo")
-			.arg("run")
-			.arg("--bin")
-			.arg("manage")
-			.arg("--")
-			.arg("introspect")
-			.arg("--format")
-			.arg("yaml")
-			.current_dir(project_dir),
-		"cargo manage introspect",
-		timeout,
-	)
-	.await
 }
 
 async fn command_stdout(
