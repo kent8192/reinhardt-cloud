@@ -71,6 +71,28 @@ fn trim_dns_label_prefix(value: &str, max_len: usize) -> &str {
 	value[..end].trim_end_matches('-')
 }
 
+fn sanitize_dns_label_component(value: &str) -> String {
+	let mut output = String::with_capacity(value.len());
+	let mut previous_dash = false;
+	for ch in value.chars() {
+		let mapped = if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+			ch
+		} else {
+			'-'
+		};
+		if mapped == '-' {
+			if !previous_dash {
+				output.push('-');
+			}
+			previous_dash = true;
+		} else {
+			output.push(mapped);
+			previous_dash = false;
+		}
+	}
+	output.trim_matches('-').to_string()
+}
+
 fn identity_hash(parent_namespace: &str, parent_name: &str) -> String {
 	let mut hash = 0xcbf29ce484222325_u64;
 	for byte in parent_namespace
@@ -89,8 +111,11 @@ fn identity_hash(parent_namespace: &str, parent_name: &str) -> String {
 /// The parent `Project` is namespaced, but Kubernetes `Namespace` is cluster-scoped.
 /// Including the parent namespace in the namespace identity prevents tenants with
 /// the same `Project` name from sharing preview guardrails or cleanup targets.
+/// The parent `Project` name is normalized because CRD object names may include
+/// dots, while `Namespace` names must be DNS-1123 labels.
 pub(crate) fn preview_namespace_name(parent_namespace: &str, parent_name: &str) -> String {
-	let identity = format!("{parent_namespace}-{parent_name}");
+	let safe_parent_name = sanitize_dns_label_component(parent_name);
+	let identity = format!("{parent_namespace}-{safe_parent_name}");
 	let hash = identity_hash(parent_namespace, parent_name);
 	let suffix_len = 1 + IDENTITY_HASH_LENGTH + 1 + PREVIEW_NAMESPACE_SUFFIX.len();
 	let prefix_len = DNS_1123_LABEL_MAX_LENGTH - suffix_len;
@@ -324,6 +349,20 @@ mod tests {
 		assert!(name.ends_with("-preview"));
 		assert!(name.len() <= DNS_1123_LABEL_MAX_LENGTH);
 		assert_ne!(name, colliding_name);
+	}
+
+	#[rstest]
+	fn namespace_name_sanitizes_project_name_for_dns_label() {
+		// Arrange & Act
+		let dotted_name = preview_namespace_name("tenant-a", "my.app-api");
+		let dashed_name = preview_namespace_name("tenant-a", "my-app-api");
+
+		// Assert
+		assert!(dotted_name.starts_with("tenant-a-my-app-api-"));
+		assert_eq!(dotted_name.find('.'), None);
+		assert!(dotted_name.ends_with("-preview"));
+		assert!(dotted_name.len() <= DNS_1123_LABEL_MAX_LENGTH);
+		assert_ne!(dotted_name, dashed_name);
 	}
 
 	#[rstest]
