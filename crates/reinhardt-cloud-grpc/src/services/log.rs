@@ -103,9 +103,28 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 				.transpose()?,
 			search: f.search.clone(),
 			deployment_id: f.deployment_id.clone(),
+			namespace: f.namespace.clone(),
 		}),
 		None => Ok(LogFilter::default()),
 	}
+}
+
+fn ensure_scoped_read_filter(filter: &LogFilter) -> Result<(), Status> {
+	if filter
+		.source
+		.as_deref()
+		.is_some_and(|source| !source.is_empty())
+		|| filter
+			.deployment_id
+			.as_deref()
+			.is_some_and(|deployment_id| !deployment_id.is_empty())
+	{
+		return Ok(());
+	}
+
+	Err(Status::permission_denied(
+		"log reads require source or deployment_id scope",
+	))
 }
 
 // --- gRPC Server ---
@@ -158,6 +177,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 		request: Request<pb::TailLogsRequest>,
 	) -> Result<Response<Self::TailLogsStream>, Status> {
 		let filter = proto_filter_to_domain(&request.into_inner().filter)?;
+		ensure_scoped_read_filter(&filter)?;
 
 		let stream = self
 			.service
@@ -179,6 +199,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 	) -> Result<Response<pb::ListLogsResponse>, Status> {
 		let req = request.into_inner();
 		let filter = proto_filter_to_domain(&req.filter)?;
+		ensure_scoped_read_filter(&filter)?;
 		let pagination = req
 			.pagination
 			.map(|p| PaginationParams::new(Some(p.page), Some(p.page_size)))
@@ -223,6 +244,40 @@ mod tests {
 	}
 
 	// --- All 4 log levels: domain -> proto -> domain roundtrip ---
+
+	#[rstest]
+	fn test_scoped_read_filter_rejects_empty_scope() {
+		// Arrange
+		let filter = LogFilter::default();
+
+		// Act
+		let result = ensure_scoped_read_filter(&filter);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::PermissionDenied);
+	}
+
+	#[rstest]
+	#[case(Some("app-a".to_string()), None)]
+	#[case(None, Some("deployment-a".to_string()))]
+	fn test_scoped_read_filter_accepts_source_or_deployment_id(
+		#[case] source: Option<String>,
+		#[case] deployment_id: Option<String>,
+	) {
+		// Arrange
+		let filter = LogFilter {
+			source,
+			deployment_id,
+			..Default::default()
+		};
+
+		// Act
+		let result = ensure_scoped_read_filter(&filter);
+
+		// Assert
+		assert!(result.is_ok());
+	}
 
 	#[rstest]
 	#[case(LogLevel::Debug, pb::LogLevel::Debug as i32)]
@@ -359,6 +414,7 @@ mod tests {
 			until: Some(to_proto_ts(until)),
 			search: Some("error".to_string()),
 			deployment_id: Some("deploy-abc".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 		});
 
 		// Act
@@ -371,6 +427,7 @@ mod tests {
 		assert_eq!(domain.until, Some(until));
 		assert_eq!(domain.search, Some("error".to_string()));
 		assert_eq!(domain.deployment_id, Some("deploy-abc".to_string()));
+		assert_eq!(domain.namespace, Some("tenant-acme".to_string()));
 	}
 
 	// --- Filter with None -> default ---
@@ -404,6 +461,7 @@ mod tests {
 			until: None,
 			search: None,
 			deployment_id: None,
+			namespace: None,
 		});
 
 		// Act
@@ -416,6 +474,7 @@ mod tests {
 		assert!(domain.until.is_none());
 		assert!(domain.search.is_none());
 		assert!(domain.deployment_id.is_none());
+		assert!(domain.namespace.is_none());
 	}
 
 	// --- Invalid metadata_json -> metadata=None ---
