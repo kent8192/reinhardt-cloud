@@ -278,13 +278,6 @@ async fn github_onboarding_for_current_org(
 	})
 }
 
-#[cfg(wasm)]
-async fn github_onboarding_for_current_org(
-	_user: crate::apps::auth::models::User,
-) -> Result<GitHubOnboardingInfo, ServerFnError> {
-	unreachable!("server_fn body is replaced on wasm")
-}
-
 #[server_fn]
 pub async fn get_github_onboarding_for_current_org(
 	#[inject] current_user: reinhardt::CurrentUser<crate::apps::auth::models::User>,
