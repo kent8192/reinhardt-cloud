@@ -48,6 +48,26 @@ pub(crate) struct Credentials {
 	pub token: String,
 	/// Username associated with the token.
 	pub username: String,
+	/// API base URL that issued the token.
+	#[serde(default)]
+	pub api_url: Option<String>,
+}
+
+impl Credentials {
+	/// Returns whether the credentials are scoped to the selected API URL.
+	pub(crate) fn is_scoped_to(&self, selected_api_url: &str) -> bool {
+		let Some(stored_api_url) = self.api_url.as_deref() else {
+			return false;
+		};
+
+		canonical_api_url(stored_api_url) == canonical_api_url(selected_api_url)
+	}
+}
+
+fn canonical_api_url(api_url: &str) -> Option<String> {
+	url::Url::parse(api_url)
+		.ok()
+		.map(|url| url.as_str().trim_end_matches('/').to_string())
 }
 
 /// Returns the directory used for storing reinhardt-cloud configuration files.
@@ -105,11 +125,15 @@ pub(crate) fn save_token(
 	Ok(())
 }
 
-/// Resolve the API token by priority: explicit flag > env var > saved file.
+/// Resolve the API token by priority: explicit flag > env var > scoped saved file.
 ///
-/// Returns the first non-empty source. Used by every command that needs to
-/// authenticate against the control plane.
-pub(crate) fn resolve_token(flag: Option<String>, credentials_file: &Path) -> Option<String> {
+/// Returns the first non-empty source. Saved credentials are used only when
+/// their persisted API URL matches the selected control-plane URL.
+pub(crate) fn resolve_token(
+	flag: Option<String>,
+	credentials_file: &Path,
+	selected_api_url: &str,
+) -> Option<String> {
 	if let Some(t) = flag
 		&& !t.is_empty()
 	{
@@ -123,7 +147,8 @@ pub(crate) fn resolve_token(flag: Option<String>, credentials_file: &Path) -> Op
 	load_token_from(credentials_file)
 		.ok()
 		.flatten()
-		.map(|c| c.token)
+		.filter(|credentials| credentials.is_scoped_to(selected_api_url))
+		.map(|credentials| credentials.token)
 }
 
 #[cfg(test)]
@@ -283,6 +308,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "test-jwt-token-abc123".to_string(),
 			username: "testuser".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act: save
@@ -296,6 +322,7 @@ project_name = "myapp"
 		// Assert
 		assert_eq!(loaded.token, "test-jwt-token-abc123");
 		assert_eq!(loaded.username, "testuser");
+		assert_eq!(loaded.api_url.as_deref(), Some("https://api.example.com"));
 	}
 
 	#[rstest]
@@ -318,6 +345,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "tok".to_string(),
 			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
@@ -340,6 +368,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "rct_xyz".to_string(),
 			username: "alice".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
@@ -349,6 +378,105 @@ project_name = "myapp"
 		// Assert
 		assert_eq!(loaded.token, "rct_xyz");
 		assert_eq!(loaded.username, "alice");
+		assert_eq!(loaded.api_url.as_deref(), Some("https://api.example.com"));
+	}
+
+	#[rstest]
+	fn test_credentials_without_api_url_are_not_scoped() {
+		// Arrange
+		let creds = Credentials {
+			token: "rct_legacy".to_string(),
+			username: "alice".to_string(),
+			api_url: None,
+		};
+
+		// Act
+		let scoped = creds.is_scoped_to("https://api.example.com");
+
+		// Assert
+		assert!(!scoped);
+	}
+
+	#[rstest]
+	fn test_credentials_scope_ignores_trailing_slash() {
+		// Arrange
+		let creds = Credentials {
+			token: "rct_scoped".to_string(),
+			username: "alice".to_string(),
+			api_url: Some("https://api.example.com/".to_string()),
+		};
+
+		// Act
+		let scoped = creds.is_scoped_to("https://api.example.com");
+
+		// Assert
+		assert!(scoped);
+	}
+
+	#[rstest]
+	fn test_resolve_token_ignores_unscoped_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: None,
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://api.example.com");
+
+		// Assert
+		assert_eq!(token, None);
+	}
+
+	#[rstest]
+	fn test_resolve_token_ignores_mismatched_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://other.example.com");
+
+		// Assert
+		assert_eq!(token, None);
+	}
+
+	#[rstest]
+	fn test_resolve_token_uses_matching_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://api.example.com/");
+
+		// Assert
+		assert_eq!(token.as_deref(), Some("from-file"));
 	}
 
 	#[rstest]
@@ -366,14 +494,19 @@ project_name = "myapp"
 			&Credentials {
 				token: "from-file".to_string(),
 				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
 			},
 			&path,
 		)
 		.unwrap();
 
 		// Act
-		let with_flag = resolve_token(Some("from-flag".to_string()), &path);
-		let from_env = resolve_token(None, &path);
+		let with_flag = resolve_token(
+			Some("from-flag".to_string()),
+			&path,
+			"https://other.example.com",
+		);
+		let from_env = resolve_token(None, &path, "https://other.example.com");
 
 		// Assert
 		assert_eq!(with_flag.as_deref(), Some("from-flag"));
