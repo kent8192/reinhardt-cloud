@@ -103,6 +103,7 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 				.transpose()?,
 			search: f.search.clone(),
 			deployment_id: f.deployment_id.clone(),
+			namespace: f.namespace.clone(),
 		}),
 		None => Ok(LogFilter::default()),
 	}
@@ -359,6 +360,7 @@ mod tests {
 			until: Some(to_proto_ts(until)),
 			search: Some("error".to_string()),
 			deployment_id: Some("deploy-abc".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 		});
 
 		// Act
@@ -371,6 +373,7 @@ mod tests {
 		assert_eq!(domain.until, Some(until));
 		assert_eq!(domain.search, Some("error".to_string()));
 		assert_eq!(domain.deployment_id, Some("deploy-abc".to_string()));
+		assert_eq!(domain.namespace, Some("tenant-acme".to_string()));
 	}
 
 	// --- Filter with None -> default ---
@@ -404,6 +407,7 @@ mod tests {
 			until: None,
 			search: None,
 			deployment_id: None,
+			namespace: None,
 		});
 
 		// Act
@@ -416,6 +420,7 @@ mod tests {
 		assert!(domain.until.is_none());
 		assert!(domain.search.is_none());
 		assert!(domain.deployment_id.is_none());
+		assert!(domain.namespace.is_none());
 	}
 
 	// --- Invalid metadata_json -> metadata=None ---
