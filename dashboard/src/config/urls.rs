@@ -162,6 +162,7 @@ async fn create_cookie_session_config()
 		same_site: "Lax".to_string(),
 		skip_paths: vec![
 			"/api/auth/".to_string(),
+			"/api/deployments/cli/".to_string(),
 			"/api/healthz/".to_string(),
 			"/api/openapi.json".to_string(),
 			"/api/docs".to_string(),
