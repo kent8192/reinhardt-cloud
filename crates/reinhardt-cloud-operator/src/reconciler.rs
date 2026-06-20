@@ -430,6 +430,20 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_app_service_account(&ctx.client, namespace, &workload_sa).await?;
 	}
 
+	// Security resources must exist before any tenant image runs, including
+	// database migration Jobs that gate the rollout.
+	if app.spec.isolation.is_some() {
+		reconcile_network_policies(&app, &ctx.client, namespace).await?;
+		reconcile_resource_limits(
+			&app,
+			&ctx.client,
+			namespace,
+			&ctx.platform.defaults.resources,
+		)
+		.await?;
+		reconcile_pss_labels(&ctx.client, namespace).await?;
+	}
+
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
 
 	// Database provisioning — explicit spec.database takes precedence,
@@ -470,8 +484,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	let migration_state = if should_provision_postgresql(&app) {
-		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform.platform)
-			.await?
+		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform).await?
 	} else {
 		MigrationGateState::NotRequired
 	};
@@ -659,19 +672,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		.unwrap_or(false);
 	if needs_i18n {
 		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
-	}
-
-	// Security: reconciliation for isolated workloads
-	if app.spec.isolation.is_some() {
-		reconcile_network_policies(&app, &ctx.client, namespace).await?;
-		reconcile_resource_limits(
-			&app,
-			&ctx.client,
-			namespace,
-			&ctx.platform.defaults.resources,
-		)
-		.await?;
-		reconcile_pss_labels(&ctx.client, namespace).await?;
 	}
 
 	// Derive readiness from the observed Deployment status
@@ -1132,7 +1132,7 @@ async fn reconcile_migration_job_resource(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
-	platform: &Platform,
+	platform: &PlatformConfig,
 ) -> Result<MigrationGateState, Error> {
 	let revision_key = migration_revision_key(app);
 	let job_name = migration_job_name(app, &revision_key);
