@@ -6,6 +6,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use reinhardt::{Argon2Hasher, Model, PasswordHasher};
+
 use reinhardt::di::{FactoryOutput, InjectionContext};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
@@ -21,8 +23,49 @@ use reinhardt_cloud_proto::log::log_service_server::LogServiceServer;
 use tonic::transport::Server;
 use tracing::info;
 
+use crate::apps::clusters::models::Cluster;
 use crate::apps::clusters::services::{JwtSecret, JwtSecretKey};
 use crate::config::settings::{LogBackend, get_log_backend, get_loki_endpoint};
+
+fn cluster_pk_from_agent_claim(claim: &str) -> Option<i64> {
+	let cluster_id = uuid::Uuid::parse_str(claim).ok()?;
+	let bytes = cluster_id.as_bytes();
+	if &bytes[..8] != b"RHCL-CID" {
+		return None;
+	}
+	Some(i64::from_be_bytes(bytes[8..].try_into().ok()?))
+}
+
+async fn verify_persisted_agent_token(
+	token: &str,
+	claims: &reinhardt_cloud_grpc::agent_claims::AgentClaims,
+) -> Result<(), tonic::Status> {
+	let cluster_pk = cluster_pk_from_agent_claim(&claims.cluster_id)
+		.ok_or_else(|| tonic::Status::unauthenticated("Invalid agent cluster_id"))?;
+	let cluster = Cluster::objects()
+		.filter(Cluster::field_id().eq(cluster_pk))
+		.first()
+		.await
+		.map_err(|e| tonic::Status::unauthenticated(format!("Failed to load agent cluster: {e}")))?
+		.ok_or_else(|| tonic::Status::unauthenticated("Agent cluster not found"))?;
+	if !cluster.is_active {
+		return Err(tonic::Status::unauthenticated("Agent cluster is inactive"));
+	}
+	let token_hash = cluster
+		.token_hash
+		.as_deref()
+		.ok_or_else(|| tonic::Status::unauthenticated("Agent token is not registered"))?;
+	let hasher = Argon2Hasher::new();
+	let verified = hasher
+		.verify(token, token_hash)
+		.map_err(|e| tonic::Status::unauthenticated(format!("Invalid agent token hash: {e}")))?;
+	if !verified {
+		return Err(tonic::Status::unauthenticated(
+			"Agent token has been revoked",
+		));
+	}
+	Ok(())
+}
 
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
@@ -101,7 +144,13 @@ pub async fn start_grpc_server(
 		.resolve::<FactoryOutput<JwtSecretKey, JwtSecret>>()
 		.await
 		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
-	let agent_interceptor = AgentJwtInterceptor::new(jwt_secret.0.as_bytes());
+	let agent_interceptor =
+		AgentJwtInterceptor::new(jwt_secret.0.as_bytes()).with_token_validator(|token, claims| {
+			tokio::task::block_in_place(|| {
+				tokio::runtime::Handle::current()
+					.block_on(verify_persisted_agent_token(token, claims))
+			})
+		});
 
 	let (mut health_reporter, health_service) = health::create_health_service();
 

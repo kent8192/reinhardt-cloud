@@ -1,5 +1,7 @@
 //! JWT authentication interceptors for gRPC requests.
 
+use std::sync::Arc;
+
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use reinhardt_cloud_core::auth::Claims;
 use tonic::{Request, Status};
@@ -16,6 +18,8 @@ const PUBLIC_PATHS: &[&str] = &[
 
 /// Paths that require agent authentication (not user authentication).
 const AGENT_PATH_PREFIXES: &[&str] = &["/reinhardt.paas.v1.ClusterAgentService/"];
+
+type AgentTokenValidator = Arc<dyn Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync>;
 
 /// JWT authentication interceptor for gRPC.
 ///
@@ -80,6 +84,7 @@ impl tonic::service::Interceptor for JwtInterceptor {
 #[derive(Clone)]
 pub struct AgentJwtInterceptor {
 	secret: Vec<u8>,
+	token_validator: Option<AgentTokenValidator>,
 }
 
 impl AgentJwtInterceptor {
@@ -87,13 +92,27 @@ impl AgentJwtInterceptor {
 	pub fn new(secret: &[u8]) -> Self {
 		Self {
 			secret: secret.to_vec(),
+			token_validator: None,
 		}
+	}
+
+	/// Attach a validator that enforces stateful token revocation.
+	pub fn with_token_validator(
+		mut self,
+		validator: impl Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync + 'static,
+	) -> Self {
+		self.token_validator = Some(Arc::new(validator));
+		self
 	}
 
 	/// Validate an agent token and return decoded claims.
 	pub fn validate_token(&self, token: &str) -> Result<AgentClaims, Status> {
-		verify_agent_token(token, &self.secret)
-			.map_err(|e| Status::unauthenticated(format!("Invalid agent token: {e}")))
+		let claims = verify_agent_token(token, &self.secret)
+			.map_err(|e| Status::unauthenticated(format!("Invalid agent token: {e}")))?;
+		if let Some(validator) = &self.token_validator {
+			validator(token, &claims)?;
+		}
+		Ok(claims)
 	}
 
 	/// Return true when the path belongs to the cluster-agent service.
@@ -345,6 +364,45 @@ mod tests {
 
 		// Assert
 		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_agent_interceptor_calls_stateful_token_validator() {
+		// Arrange
+		let interceptor =
+			AgentJwtInterceptor::new(TEST_SECRET).with_token_validator(|token, claims| {
+				assert!(!token.is_empty());
+				if claims.cluster_id == claims.sub {
+					Ok(())
+				} else {
+					Err(Status::unauthenticated("cluster mismatch"))
+				}
+			});
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+
+		// Act
+		let claims = interceptor.validate_token(&token).unwrap();
+
+		// Assert
+		assert_eq!(claims.cluster_id, cluster_id.to_string());
+	}
+
+	#[rstest]
+	fn test_agent_interceptor_rejects_validator_failure() {
+		// Arrange
+		let interceptor = AgentJwtInterceptor::new(TEST_SECRET)
+			.with_token_validator(|_, _| Err(Status::unauthenticated("revoked token")));
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+
+		// Act
+		let result = interceptor.validate_token(&token);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+		assert_eq!(err.message(), "revoked token");
 	}
 
 	#[rstest]
