@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+#[cfg(unix)]
+const CREDENTIALS_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const CREDENTIALS_FILE_MODE: u32 = 0o600;
+
 /// Errors from configuration loading.
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
@@ -93,15 +98,65 @@ pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Er
 }
 
 /// Persist credentials to `path`, creating parent directories as needed.
+///
+/// On Unix platforms, the credentials directory is restricted to `0700` and
+/// the credentials file is restricted to `0600` because it stores a bearer
+/// token.
 pub(crate) fn save_token(
 	creds: &Credentials,
 	path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent)?;
+		secure_credentials_dir(parent)?;
 	}
 	let json = serde_json::to_string_pretty(creds)?;
-	std::fs::write(path, json)?;
+	write_credentials_file(path, json.as_bytes())?;
+	Ok(())
+}
+
+#[cfg(unix)]
+fn secure_credentials_dir(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+	use std::os::unix::fs::PermissionsExt;
+
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_DIR_MODE))?;
+	Ok(())
+}
+
+#[cfg(not(unix))]
+fn secure_credentials_dir(_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+	Ok(())
+}
+
+#[cfg(unix)]
+fn write_credentials_file(path: &Path, contents: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+	use std::io::Write;
+	use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+	if let Ok(metadata) = path.symlink_metadata() {
+		if metadata.file_type().is_symlink() {
+			return Err("credentials file must not be a symbolic link".into());
+		}
+		if metadata.is_file() {
+			std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
+		}
+	}
+
+	let mut file = std::fs::OpenOptions::new()
+		.write(true)
+		.create(true)
+		.truncate(true)
+		.mode(CREDENTIALS_FILE_MODE)
+		.open(path)?;
+	file.write_all(contents)?;
+	file.sync_all()?;
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
+	Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_credentials_file(path: &Path, contents: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+	std::fs::write(path, contents)?;
 	Ok(())
 }
 
@@ -321,15 +376,62 @@ project_name = "myapp"
 		};
 
 		// Act
-		std::fs::create_dir_all(nested_dir).unwrap();
-		let json = serde_json::to_string_pretty(&creds).unwrap();
-		std::fs::write(&cred_path, &json).unwrap();
+		save_token(&creds, &cred_path).unwrap();
 
 		// Assert
 		assert!(cred_path.exists());
 		let loaded: Credentials =
 			serde_json::from_str(&std::fs::read_to_string(&cred_path).unwrap()).unwrap();
 		assert_eq!(loaded.token, "tok");
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn test_save_token_sets_restrictive_permissions() {
+		use std::os::unix::fs::PermissionsExt;
+
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let cred_path = dir.path().join("reinhardt-cloud").join("credentials.json");
+		let creds = Credentials {
+			token: "tok".to_string(),
+			username: "user".to_string(),
+		};
+
+		// Act
+		save_token(&creds, &cred_path).unwrap();
+
+		// Assert
+		let parent_mode = std::fs::metadata(cred_path.parent().unwrap())
+			.unwrap()
+			.permissions()
+			.mode() & 0o777;
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(parent_mode, CREDENTIALS_DIR_MODE);
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn test_save_token_repairs_existing_permissive_file() {
+		use std::os::unix::fs::PermissionsExt;
+
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let cred_path = dir.path().join("credentials.json");
+		std::fs::write(&cred_path, "{}").unwrap();
+		std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+		let creds = Credentials {
+			token: "tok".to_string(),
+			username: "user".to_string(),
+		};
+
+		// Act
+		save_token(&creds, &cred_path).unwrap();
+
+		// Assert
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
 	}
 
 	#[rstest]
