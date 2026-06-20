@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "In-cluster agent for Reinhardt Cloud workload operations"
 
 [[bin]]
 name = "reinhardt-cloud-agent"
