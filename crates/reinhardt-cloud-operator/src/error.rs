@@ -39,6 +39,16 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
+	#[error(
+		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
+	)]
+	ServiceAccountOwnership {
+		namespace: String,
+		name: String,
+		project_uid: String,
+	},
+
 	/// Database provisioning failed.
 	/// Used by the inference engine when database resource creation fails.
 	#[allow(dead_code)]
@@ -136,6 +146,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::ServiceAccountOwnership { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_) => BackoffClass::Permanent,
