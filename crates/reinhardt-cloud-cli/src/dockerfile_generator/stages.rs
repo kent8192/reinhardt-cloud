@@ -47,6 +47,8 @@ pub(crate) struct DockerfileSignals {
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
+const SETTINGS_RUNTIME_CONFIG_COMMENT: &str =
+	"settings/ detected; provide runtime configuration at deployment time";
 
 /// Determines the runtime packages needed based on the database signal.
 fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
@@ -268,6 +270,12 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		src: "/app/target/release/manage".to_string(),
 		dst: "/app/".to_string(),
 	});
+
+	if signals.has_settings_dir {
+		instructions.push(Instruction::Comment(
+			SETTINGS_RUNTIME_CONFIG_COMMENT.to_string(),
+		));
+	}
 
 	if signals.pages {
 		instructions.push(Instruction::Copy {
@@ -1043,6 +1051,13 @@ mod tests {
 		assert!(
 			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").is_none(),
 			"runtime stage must not activate bundled project settings"
+		);
+		assert!(
+			stage.instructions.iter().any(|inst| matches!(
+				inst,
+				Instruction::Comment(text) if text == SETTINGS_RUNTIME_CONFIG_COMMENT
+			)),
+			"runtime stage should record settings detection without bundling files"
 		);
 	}
 

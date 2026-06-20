@@ -33,6 +33,7 @@ RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
 COPY --from=builder /app/target/release/manage /app/
+# settings/ detected; provide runtime configuration at deployment time
 COPY --from=wasm /wasm-dist /app/static/wasm/
 COPY --from=builder /app/dashboard/index.html /app/static/wasm/index.html
 COPY --from=builder /app/dashboard/migrations /app/migrations
