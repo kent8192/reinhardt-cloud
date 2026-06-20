@@ -53,15 +53,137 @@ pub(crate) fn validate_port(field: &'static str, port: i32) -> Result<i32, crate
 	}
 }
 
+/// Returns image-pull secrets after enforcing app-owned secret names.
+///
+/// `spec.imagePullSecrets` is user-controlled. Restricting names to the
+/// application-owned prefix prevents a `Project` author from causing kubelet
+/// to use shared namespace registry credentials that the author cannot read.
+/// Preview environments may also use the parent app's prefix because preview
+/// names are derived as `{parent}-pr-{number}`.
+pub(crate) fn validated_image_pull_secrets(
+	app: &reinhardt_cloud_types::crd::Project,
+) -> Result<Option<Vec<k8s_openapi::api::core::v1::LocalObjectReference>>, crate::error::Error> {
+	let app_name = {
+		use kube::ResourceExt;
+		app.name_any()
+	};
+	let Some(secrets) = app.spec.image_pull_secrets.as_ref() else {
+		return Ok(None);
+	};
+	let allowed_prefixes = image_pull_secret_prefixes(&app_name);
+
+	for secret in secrets {
+		if !allowed_prefixes
+			.iter()
+			.any(|prefix| secret.name.starts_with(prefix))
+		{
+			return Err(crate::error::Error::InvalidImagePullSecret {
+				app: app_name,
+				secret: secret.name.clone(),
+				allowed_prefixes: allowed_prefixes.join(", "),
+			});
+		}
+	}
+
+	Ok(Some(secrets.clone()))
+}
+
+fn image_pull_secret_prefixes(app_name: &str) -> Vec<String> {
+	let app_prefix = format!("{app_name}-");
+	let Some((parent_name, _)) = app_name.split_once("-pr-") else {
+		return vec![app_prefix];
+	};
+
+	let parent_prefix = format!("{parent_name}-");
+	if parent_prefix == app_prefix {
+		vec![app_prefix]
+	} else {
+		vec![app_prefix, parent_prefix]
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use k8s_openapi::api::core::v1::LocalObjectReference;
+	use kube::api::ObjectMeta;
+	use reinhardt_cloud_types::crd::{Project, ProjectSpec};
 	use rstest::rstest;
+
+	fn test_app(name: &str) -> Project {
+		Project {
+			metadata: ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some("default".to_string()),
+				..Default::default()
+			},
+			spec: ProjectSpec {
+				image: "example/app:latest".to_string(),
+				..Default::default()
+			},
+			status: None,
+		}
+	}
 
 	#[rstest]
 	fn test_validate_port_accepts_boundary_values() {
 		// Arrange / Act / Assert
 		assert_eq!(validate_port("port", 1).unwrap(), 1);
 		assert_eq!(validate_port("port", 65535).unwrap(), 65535);
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_accepts_app_owned_names() {
+		// Arrange
+		let mut app = test_app("web");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let secrets = validated_image_pull_secrets(&app)
+			.expect("app-owned image pull secret should be accepted")
+			.expect("image pull secrets should be present");
+
+		// Assert
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_accepts_preview_parent_owned_names() {
+		// Arrange
+		let mut app = test_app("web-pr-42");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let secrets = validated_image_pull_secrets(&app)
+			.expect("parent-owned image pull secret should be accepted for previews")
+			.expect("image pull secrets should be present");
+
+		// Assert
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_rejects_shared_secret_names() {
+		// Arrange
+		let mut app = test_app("web");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "platform-regcred".to_string(),
+		}]);
+
+		// Act
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("shared image pull secret should be rejected");
+
+		// Assert
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
 	}
 }
