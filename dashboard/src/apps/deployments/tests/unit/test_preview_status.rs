@@ -20,7 +20,6 @@ mod tests {
 			display_name: "api".to_string(),
 			production_branch: None,
 			source_kind: ProjectSourceKind::Manual,
-			project_yaml: None,
 		};
 
 		// Act
@@ -34,7 +33,9 @@ mod tests {
 		assert!(summary.previews.is_empty());
 		assert_eq!(
 			summary.preview_error.as_deref(),
-			Some("Project manifest is not available")
+			Some(
+				"Preview status is unavailable until cluster agent telemetry reports Project status"
+			)
 		);
 	}
 }

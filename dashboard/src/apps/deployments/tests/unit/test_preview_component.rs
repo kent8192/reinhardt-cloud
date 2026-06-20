@@ -52,7 +52,7 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<ul class=\"mt-2 space-y-1 text-xs\" data-project-name=\"reinhardt-cloud\" data-preview-list=\"true\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul>"
+			"<ul class=\"mt-2 space-y-1 text-xs\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul>"
 		);
 	}
 
@@ -67,7 +67,7 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"mt-2 text-xs font-medium text-cloud-500\" data-project-name=\"api\" data-preview-list=\"true\">No active previews</div>"
+			"<div class=\"mt-2 text-xs font-medium text-cloud-500\">No active previews</div>"
 		);
 	}
 
@@ -83,7 +83,7 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"mt-2 text-xs font-medium text-amber-700\" data-project-name=\"api\" data-preview-list=\"true\">Project manifest is not available</div>"
+			"<div class=\"mt-2 text-xs font-medium text-amber-700\">Project manifest is not available</div>"
 		);
 	}
 

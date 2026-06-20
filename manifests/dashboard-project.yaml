@@ -33,11 +33,6 @@ spec:
   # release tag (e.g. "1.2.3").
   image: ghcr.io/kent8192/reinhardt-cloud-dashboard:__VERSION__
   replicas: 2
-  # Use the pre-created dashboard ServiceAccount from dashboard-rbac.yaml so
-  # the workload can read Project CRDs without broader operator permissions.
-  serviceAccount:
-    create: false
-    name: reinhardt-cloud-dashboard
   # Preserve cloud resources (e.g. managed database) on deletion so that
   # an accidental `kubectl delete` cannot wipe production state.
   deletion_policy: retain

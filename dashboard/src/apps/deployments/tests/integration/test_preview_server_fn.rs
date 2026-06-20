@@ -214,7 +214,7 @@ async fn deployment_preview_list_scopes_to_current_org_and_reports_row_errors(
 	assert_eq!(summaries[0].source_kind, ProjectSourceKind::Manual);
 	assert_eq!(
 		summaries[0].preview_error.as_deref(),
-		Some("Project manifest is not available")
+		Some("Preview status is unavailable until cluster agent telemetry reports Project status")
 	);
 }
 
@@ -254,6 +254,6 @@ async fn github_preview_list_uses_repository_full_name_and_branch(
 	assert_eq!(summaries[0].source_kind, ProjectSourceKind::GitHub);
 	assert_eq!(
 		summaries[0].preview_error.as_deref(),
-		Some("Project manifest is not available")
+		Some("Preview status is unavailable until cluster agent telemetry reports Project status")
 	);
 }

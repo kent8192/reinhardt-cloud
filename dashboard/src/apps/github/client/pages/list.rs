@@ -23,8 +23,6 @@ use crate::apps::github::server_fn::{
 };
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::routes::route_href;
-#[cfg(wasm)]
-use crate::shared::client::ws::track_preview_subscriptions;
 
 fn format_server_error(raw: &str) -> String {
 	let json_start = raw.find('{').unwrap_or(0);
@@ -131,18 +129,6 @@ pub(crate) fn render_imported_project_card(summary: &ProjectPreviewSummary) -> P
 		}
 	})(identity, previews)
 }
-
-#[cfg(wasm)]
-fn track_imported_project_previews(items: &[ProjectPreviewSummary]) {
-	let names = items
-		.iter()
-		.map(|item| item.project_name.clone())
-		.collect::<Vec<_>>();
-	track_preview_subscriptions(&names);
-}
-
-#[cfg(not(wasm))]
-fn track_imported_project_previews(_items: &[ProjectPreviewSummary]) {}
 
 fn repository_select_options(items: &[GitHubRepositoryInfo]) -> Vec<EntitySelectOption> {
 	items
@@ -293,10 +279,9 @@ pub fn github_repositories_page() -> Page {
 												class: "rc-empty",
 												"No imported projects yet"
 											}
-										})(),
-										ResourceState::Success(items) => {
-											self::track_imported_project_previews(&items);
-											page!(|items: Vec<ProjectPreviewSummary>| {
+											})(),
+											ResourceState::Success(items) => {
+												page!(|items: Vec<ProjectPreviewSummary>| {
 												div {
 													class: "grid gap-3 xl:grid-cols-2",
 													{ items.iter().map(self::render_imported_project_card).collect::<Vec<_>>() }

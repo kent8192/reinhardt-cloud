@@ -48,13 +48,6 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PreviewProjectRef {
-	pub namespace: String,
-	pub name: String,
-}
-
-#[cfg(native)]
 async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
 	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
@@ -71,55 +64,6 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 		status: deployment.status,
 		image: deployment.image,
 	}
-}
-
-#[cfg(native)]
-pub(crate) fn preview_summary_from_status(
-	status: reinhardt_cloud_types::crd::PreviewStatus,
-) -> PreviewSummary {
-	PreviewSummary {
-		name: status.name,
-		pr_number: status.pr_number,
-		url: status.url,
-		phase: status.phase.and_then(project_phase_serde_string),
-		ready_replicas: status.ready_replicas,
-		last_activity: status.last_activity,
-	}
-}
-
-#[cfg(native)]
-fn project_phase_serde_string(phase: reinhardt_cloud_types::crd::ProjectPhase) -> Option<String> {
-	serde_json::to_value(phase)
-		.ok()
-		.and_then(|value| value.as_str().map(str::to_string))
-}
-
-#[cfg(native)]
-pub(crate) fn preview_project_ref_from_yaml(
-	deployment_project_name: &str,
-	project_yaml: Option<&str>,
-	default_namespace: &str,
-) -> Result<PreviewProjectRef, String> {
-	let Some(project_yaml) = project_yaml.filter(|value| !value.trim().is_empty()) else {
-		return Err("Project manifest is not available".to_string());
-	};
-	let project = reinhardt_cloud_k8s::resources::parse_project_yaml(project_yaml)
-		.map_err(|e| e.to_string())?;
-	let name = project
-		.metadata
-		.name
-		.ok_or_else(|| "Project metadata.name is required".to_string())?;
-	if name != deployment_project_name {
-		return Err(format!(
-			"Project manifest points to '{name}', expected '{deployment_project_name}'"
-		));
-	}
-	let namespace = project
-		.metadata
-		.namespace
-		.filter(|value| !value.trim().is_empty())
-		.unwrap_or_else(|| default_namespace.to_string());
-	Ok(PreviewProjectRef { namespace, name })
 }
 
 #[cfg(native)]
@@ -161,7 +105,6 @@ async fn preview_input_for_deployment(
 			display_name: repository.full_name,
 			production_branch: Some(github_project.production_branch),
 			source_kind: ProjectSourceKind::GitHub,
-			project_yaml: deployment.project_yaml,
 		})
 	} else {
 		let project_name = deployment.project_name;
@@ -172,7 +115,6 @@ async fn preview_input_for_deployment(
 			display_name: project_name,
 			production_branch: None,
 			source_kind: ProjectSourceKind::Manual,
-			project_yaml: deployment.project_yaml,
 		})
 	}
 }

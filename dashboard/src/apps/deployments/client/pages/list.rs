@@ -30,7 +30,7 @@ use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
 use crate::shared::client::ws::subscribe_app_logs;
 #[cfg(wasm)]
-use crate::shared::client::ws::{track_preview_subscriptions, track_subscriptions};
+use crate::shared::client::ws::track_subscriptions;
 use crate::shared::ws_messages::DeploymentState;
 
 fn format_server_error(raw: &str) -> String {
@@ -89,18 +89,6 @@ fn track_visible_deployments(items: &[DeploymentInfo]) {
 
 #[cfg(not(wasm))]
 fn track_visible_deployments(_items: &[DeploymentInfo]) {}
-
-#[cfg(wasm)]
-fn track_visible_preview_projects(items: &[ProjectPreviewSummary]) {
-	let names = items
-		.iter()
-		.map(|item| item.project_name.clone())
-		.collect::<Vec<_>>();
-	track_preview_subscriptions(&names);
-}
-
-#[cfg(not(wasm))]
-fn track_visible_preview_projects(_items: &[ProjectPreviewSummary]) {}
 
 #[cfg(wasm)]
 async fn load_deployments() -> Result<Vec<DeploymentInfo>, String> {
@@ -269,10 +257,7 @@ fn render_deployment_inventory_table(
 	}
 
 	let (preview_banner, summaries) = match preview_state {
-		ResourceState::Success(summaries) => {
-			self::track_visible_preview_projects(&summaries);
-			(Page::Empty, summaries)
-		}
+		ResourceState::Success(summaries) => (Page::Empty, summaries),
 		ResourceState::Loading => (
 			page!(|| {
 				div {

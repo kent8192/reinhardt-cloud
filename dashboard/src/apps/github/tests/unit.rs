@@ -27,7 +27,7 @@ pub mod render_tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><ul class=\"mt-2 space-y-1 text-xs\" data-project-name=\"reinhardt-cloud\" data-preview-list=\"true\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul></article>"
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><ul class=\"mt-2 space-y-1 text-xs\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul></article>"
 		);
 	}
 
@@ -42,7 +42,7 @@ pub mod render_tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><div class=\"mt-2 text-xs font-medium text-cloud-500\" data-project-name=\"reinhardt-cloud\" data-preview-list=\"true\">No active previews</div></article>"
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><div class=\"mt-2 text-xs font-medium text-cloud-500\">No active previews</div></article>"
 		);
 	}
 

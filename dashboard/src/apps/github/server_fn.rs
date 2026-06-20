@@ -588,7 +588,7 @@ pub async fn list_github_project_previews_for_current_org(
 					ServerFnError::application(format!("Failed to load GitHub repository: {e}"))
 				})?
 				.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
-			let deployment = Deployment::objects()
+			Deployment::objects()
 				.filter(Deployment::field_id().eq(deployment_id))
 				.filter(Deployment::field_organization_id().eq(organization_id))
 				.first()
@@ -604,7 +604,6 @@ pub async fn list_github_project_previews_for_current_org(
 				display_name: repository.full_name,
 				production_branch: Some(project.production_branch),
 				source_kind: ProjectSourceKind::GitHub,
-				project_yaml: deployment.project_yaml,
 			};
 			summaries.push(load_preview_summary(input, "default").await);
 		}

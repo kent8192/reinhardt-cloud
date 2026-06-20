@@ -44,10 +44,6 @@ pub(crate) enum ParsedAction {
 	Subscribe { deployment_ids: Vec<String> },
 	/// Unsubscribe from deployments.
 	Unsubscribe { deployment_ids: Vec<String> },
-	/// Subscribe to preview status updates.
-	SubscribePreviews { project_names: Vec<String> },
-	/// Unsubscribe from preview status updates.
-	UnsubscribePreviews { project_names: Vec<String> },
 	/// Unauthenticated request attempt — send error response.
 	Rejected { response: WsMessage },
 	/// Subscribe to build log events via the gRPC bridge.
@@ -159,23 +155,6 @@ impl NotificationConsumer {
 			}
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
-			}
-			WsClientMessage::SubscribePreviews { project_names } => {
-				if user_id.is_none() {
-					return ParsedAction::Rejected {
-						response: WsMessage::SystemNotification(SystemNotificationPayload {
-							id: uuid::Uuid::now_v7().to_string(),
-							level: NotificationLevel::Critical,
-							title: "Authentication required".to_string(),
-							message: "You must be authenticated to subscribe".to_string(),
-							timestamp: String::new(),
-						}),
-					};
-				}
-				ParsedAction::SubscribePreviews { project_names }
-			}
-			WsClientMessage::UnsubscribePreviews { project_names } => {
-				ParsedAction::UnsubscribePreviews { project_names }
 			}
 			WsClientMessage::SubscribeBuildLogs { build_id } => {
 				if user_id.is_none() {
@@ -370,22 +349,6 @@ impl WebSocketConsumer for NotificationConsumer {
 			ParsedAction::Unsubscribe { deployment_ids } => {
 				for dep_id in &deployment_ids {
 					self.broadcaster.unsubscribe(&connection_id, dep_id).await;
-				}
-			}
-			ParsedAction::SubscribePreviews { project_names } => {
-				if let Some(uid) = user_id {
-					for project_name in &project_names {
-						self.broadcaster
-							.try_subscribe_preview(&connection_id, &uid, project_name)
-							.await;
-					}
-				}
-			}
-			ParsedAction::UnsubscribePreviews { project_names } => {
-				for project_name in &project_names {
-					self.broadcaster
-						.unsubscribe_preview(&connection_id, project_name)
-						.await;
 				}
 			}
 			ParsedAction::SubscribeBuildLogs { build_id } => {
@@ -835,67 +798,6 @@ mod tests {
 				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
 			}
 			_ => panic!("expected Subscribe action"),
-		}
-	}
-
-	#[rstest]
-	fn test_parse_subscribe_previews_without_auth_rejected() {
-		// Arrange
-		let msg = WsClientMessage::SubscribePreviews {
-			project_names: vec!["api".to_string()],
-		};
-
-		// Act
-		let action = NotificationConsumer::parse_client_message(None, msg);
-
-		// Assert
-		match action {
-			ParsedAction::Rejected { response } => match &response {
-				WsMessage::SystemNotification(payload) => {
-					assert_eq!(payload.level, NotificationLevel::Critical);
-					assert_eq!(payload.title, "Authentication required");
-				}
-				_ => panic!("expected SystemNotification rejection"),
-			},
-			_ => panic!("expected Rejected action"),
-		}
-	}
-
-	#[rstest]
-	fn test_parse_subscribe_previews_with_auth_returns_preview_action() {
-		// Arrange
-		let msg = WsClientMessage::SubscribePreviews {
-			project_names: vec!["api".to_string(), "web".to_string()],
-		};
-
-		// Act
-		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
-
-		// Assert
-		match action {
-			ParsedAction::SubscribePreviews { project_names } => {
-				assert_eq!(project_names, vec!["api", "web"]);
-			}
-			_ => panic!("expected SubscribePreviews action"),
-		}
-	}
-
-	#[rstest]
-	fn test_parse_unsubscribe_previews_returns_preview_action() {
-		// Arrange
-		let msg = WsClientMessage::UnsubscribePreviews {
-			project_names: vec!["api".to_string()],
-		};
-
-		// Act
-		let action = NotificationConsumer::parse_client_message(None, msg);
-
-		// Assert
-		match action {
-			ParsedAction::UnsubscribePreviews { project_names } => {
-				assert_eq!(project_names, vec!["api"]);
-			}
-			_ => panic!("expected UnsubscribePreviews action"),
 		}
 	}
 

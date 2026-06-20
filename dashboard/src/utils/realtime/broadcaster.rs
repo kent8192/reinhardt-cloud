@@ -12,9 +12,7 @@ use reinhardt::di::FactoryOutput;
 use reinhardt::{Message, RoomManager, WebSocketConnection};
 use tokio::sync::RwLock;
 
-use crate::shared::ws_messages::{
-	DeploymentStatusPayload, ProjectPreviewUpdatePayload, SystemNotificationPayload, WsMessage,
-};
+use crate::shared::ws_messages::{DeploymentStatusPayload, SystemNotificationPayload, WsMessage};
 
 /// Maximum number of deployment subscriptions allowed per user.
 pub const MAX_SUBSCRIPTIONS_PER_USER: usize = 100;
@@ -38,8 +36,6 @@ pub struct WsBroadcaster {
 	room_manager: RoomManager,
 	/// user_id -> set of deployment_ids the user is subscribed to
 	user_subscriptions: RwLock<HashMap<String, HashSet<String>>>,
-	/// user_id -> set of project names the user is subscribed to for previews
-	user_preview_subscriptions: RwLock<HashMap<String, HashSet<String>>>,
 	/// connection_id -> `Arc<WebSocketConnection>`
 	connections: RwLock<HashMap<String, Arc<WebSocketConnection>>>,
 	/// connection_id -> user_id
@@ -56,7 +52,6 @@ impl WsBroadcaster {
 		Self {
 			room_manager: RoomManager::new(),
 			user_subscriptions: RwLock::new(HashMap::new()),
-			user_preview_subscriptions: RwLock::new(HashMap::new()),
 			connections: RwLock::new(HashMap::new()),
 			connection_users: RwLock::new(HashMap::new()),
 			user_connections: RwLock::new(HashMap::new()),
@@ -146,10 +141,6 @@ impl WsBroadcaster {
 
 			if should_cleanup {
 				self.user_subscriptions.write().await.remove(uid.as_str());
-				self.user_preview_subscriptions
-					.write()
-					.await
-					.remove(uid.as_str());
 			}
 		}
 
@@ -210,52 +201,6 @@ impl WsBroadcaster {
 		true
 	}
 
-	/// Subscribe a user's connection to preview status updates.
-	pub async fn subscribe_preview(&self, connection_id: &str, user_id: &str, project_name: &str) {
-		let room_id = format!("preview:{project_name}");
-		let room = self.room_manager.get_or_create_room(room_id.clone()).await;
-
-		if let Some(connection) = self.connections.read().await.get(connection_id).cloned() {
-			let _ = room.join(connection_id.to_string(), connection).await;
-			self.connection_rooms
-				.write()
-				.await
-				.entry(connection_id.to_string())
-				.or_default()
-				.insert(room_id);
-		}
-
-		self.user_preview_subscriptions
-			.write()
-			.await
-			.entry(user_id.to_string())
-			.or_default()
-			.insert(project_name.to_string());
-	}
-
-	/// Subscribe to previews with per-user limit enforcement.
-	pub async fn try_subscribe_preview(
-		&self,
-		connection_id: &str,
-		user_id: &str,
-		project_name: &str,
-	) -> bool {
-		let subs = self.user_preview_subscriptions.read().await;
-		if let Some(user_subs) = subs.get(user_id) {
-			if user_subs.contains(project_name) {
-				return true;
-			}
-			if user_subs.len() >= MAX_SUBSCRIPTIONS_PER_USER {
-				return false;
-			}
-		}
-		drop(subs);
-
-		self.subscribe_preview(connection_id, user_id, project_name)
-			.await;
-		true
-	}
-
 	/// Unsubscribe a connection from a specific deployment.
 	pub async fn unsubscribe(&self, connection_id: &str, deployment_id: &str) {
 		let room_id = format!("deployment:{deployment_id}");
@@ -289,37 +234,6 @@ impl WsBroadcaster {
 		self.room_manager.cleanup_empty_rooms().await;
 	}
 
-	/// Unsubscribe a connection from preview status updates for one Project.
-	pub async fn unsubscribe_preview(&self, connection_id: &str, project_name: &str) {
-		let room_id = format!("preview:{project_name}");
-
-		if let Some(room) = self.room_manager.get_room(&room_id).await {
-			let _ = room.leave(connection_id).await;
-		}
-
-		if let Some(rooms) = self.connection_rooms.write().await.get_mut(connection_id) {
-			rooms.remove(&room_id);
-		}
-
-		let user_id = self
-			.connection_users
-			.read()
-			.await
-			.get(connection_id)
-			.cloned();
-		if let Some(uid) = user_id {
-			let mut subs = self.user_preview_subscriptions.write().await;
-			if let Some(user_subs) = subs.get_mut(&uid) {
-				user_subs.remove(project_name);
-				if user_subs.is_empty() {
-					subs.remove(&uid);
-				}
-			}
-		}
-
-		self.room_manager.cleanup_empty_rooms().await;
-	}
-
 	/// Check whether a user is subscribed to a deployment.
 	pub async fn is_subscribed(&self, user_id: &str, deployment_id: &str) -> bool {
 		self.user_subscriptions
@@ -327,16 +241,6 @@ impl WsBroadcaster {
 			.await
 			.get(user_id)
 			.map(|subs| subs.contains(deployment_id))
-			.unwrap_or(false)
-	}
-
-	/// Check whether a user is subscribed to preview updates for a Project.
-	pub async fn is_preview_subscribed(&self, user_id: &str, project_name: &str) -> bool {
-		self.user_preview_subscriptions
-			.read()
-			.await
-			.get(user_id)
-			.map(|subs| subs.contains(project_name))
 			.unwrap_or(false)
 	}
 
@@ -355,20 +259,6 @@ impl WsBroadcaster {
 		};
 
 		let room_id = format!("deployment:{}", payload.deployment_id);
-		if let Some(room) = self.room_manager.get_room(&room_id).await {
-			room.broadcast(Message::text(json)).await;
-		}
-	}
-
-	/// Broadcast a preview status update to subscribed connections.
-	pub async fn broadcast_preview_status(&self, payload: &ProjectPreviewUpdatePayload) {
-		let msg = WsMessage::PreviewStatusUpdate(payload.clone());
-		let json = match serde_json::to_string(&msg) {
-			Ok(j) => j,
-			Err(_) => return,
-		};
-
-		let room_id = format!("preview:{}", payload.project_name);
 		if let Some(room) = self.room_manager.get_room(&room_id).await {
 			room.broadcast(Message::text(json)).await;
 		}
@@ -423,10 +313,6 @@ impl WsBroadcaster {
 		// Remove user-level tracking
 		self.user_connections.write().await.remove(user_id);
 		self.user_subscriptions.write().await.remove(user_id);
-		self.user_preview_subscriptions
-			.write()
-			.await
-			.remove(user_id);
 
 		self.room_manager.cleanup_empty_rooms().await;
 	}
@@ -454,10 +340,7 @@ mod tests {
 	use rstest::rstest;
 	use tokio::sync::mpsc;
 
-	use crate::apps::deployments::server_fn::PreviewSummary;
-	use crate::shared::ws_messages::{
-		DeploymentState, NotificationLevel, ProjectPreviewUpdatePayload,
-	};
+	use crate::shared::ws_messages::{DeploymentState, NotificationLevel};
 
 	/// Helper: create a `WebSocketConnection` and return it alongside the receiver.
 	fn make_connection(
@@ -590,57 +473,6 @@ mod tests {
 		// Assert — user-2 did NOT receive anything (not subscribed to dep-a)
 		let msg2 = rx2.try_recv();
 		assert!(msg2.is_err(), "user-2 should NOT receive the message");
-	}
-
-	#[rstest]
-	#[tokio::test]
-	async fn test_broadcast_preview_status_reaches_project_subscribers_only() {
-		// Arrange
-		let broadcaster = WsBroadcaster::new();
-		let (conn1, mut rx1) = make_connection("conn-1");
-		let (conn2, mut rx2) = make_connection("conn-2");
-		broadcaster
-			.register_connection("conn-1", "user-1", conn1)
-			.await;
-		broadcaster
-			.register_connection("conn-2", "user-2", conn2)
-			.await;
-		broadcaster
-			.subscribe_preview("conn-1", "user-1", "reinhardt-cloud")
-			.await;
-
-		let payload = ProjectPreviewUpdatePayload {
-			project_name: "reinhardt-cloud".to_string(),
-			previews: vec![PreviewSummary {
-				name: "reinhardt-cloud-pr-42".to_string(),
-				pr_number: "42".to_string(),
-				url: Some("https://preview.example.com/pr-42".to_string()),
-				phase: Some("running".to_string()),
-				ready_replicas: Some(1),
-				last_activity: None,
-			}],
-			timestamp: "2026-06-19T00:00:00Z".to_string(),
-		};
-
-		// Act
-		broadcaster.broadcast_preview_status(&payload).await;
-
-		// Assert
-		let text = match rx1.try_recv().expect("subscriber should receive preview") {
-			Message::Text { data } => data,
-			other => panic!("expected Text message, got {other:?}"),
-		};
-		let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
-		assert_eq!(parsed["type"], "PreviewStatusUpdate");
-		assert_eq!(parsed["payload"]["project_name"], "reinhardt-cloud");
-		assert_eq!(
-			parsed["payload"]["previews"][0]["name"],
-			"reinhardt-cloud-pr-42"
-		);
-		assert!(
-			rx2.try_recv().is_err(),
-			"non-subscriber should not receive preview"
-		);
 	}
 
 	#[rstest]

@@ -35,36 +35,30 @@ pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
 /// Renders preview state for one parent Project.
 pub fn render_preview_list(summary: &ProjectPreviewSummary) -> Page {
 	if let Some(error) = summary.preview_error.as_ref() {
-		return page!(|project_name: String, error: String| {
+		return page!(|error: String| {
 			div {
 				class: "mt-2 text-xs font-medium text-amber-700",
-				data_project_name: project_name,
-				data_preview_list: "true",
 				{ error }
 			}
-		})(summary.project_name.clone(), error.clone());
+		})(error.clone());
 	}
 	if summary.previews.is_empty() {
-		return page!(|project_name: String| {
+		return page!(|| {
 			div {
 				class: "mt-2 text-xs font-medium text-cloud-500",
-				data_project_name: project_name,
-				data_preview_list: "true",
 				"No active previews"
 			}
-		})(summary.project_name.clone());
+		})();
 	}
-	page!(|project_name: String, previews: Vec<PreviewSummary>| {
+	page!(|previews: Vec<PreviewSummary>| {
 		ul {
 			class: "mt-2 space-y-1 text-xs",
-			data_project_name: project_name,
-			data_preview_list: "true",
 			{ previews
 			.iter()
 			.map(self::render_preview_item)
 			.collect::<Vec<_>>() }
 		}
-	})(summary.project_name.clone(), summary.previews.clone())
+	})(summary.previews.clone())
 }
 
 fn render_preview_item(preview: &PreviewSummary) -> Page {

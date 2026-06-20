@@ -11,7 +11,29 @@ use crate::apps::clusters::models::Cluster;
 pub use crate::apps::deployments::services::agent::{
 	cluster_uuid_from_pk, send_project_apply_to_cluster, validate_cluster_for_apply,
 };
-use crate::apps::deployments::services::preview_status::kube_client_for_namespace;
+
+/// Builds a Kubernetes client for the namespace that owns a Project apply target.
+pub(crate) async fn kube_client_for_namespace(
+	namespace: &str,
+) -> Result<reinhardt_cloud_k8s::KubeClient, String> {
+	Ok(
+		match reinhardt_cloud_k8s::KubeClient::in_cluster(namespace).await {
+			Ok(client) => client,
+			Err(in_cluster_error) => {
+				let in_cluster_error = in_cluster_error.to_string();
+				reinhardt_cloud_k8s::KubeClient::from_kubeconfig(namespace)
+					.await
+					.map_err(|kubeconfig_error| {
+						let kubeconfig_error = kubeconfig_error.to_string();
+						format!(
+							"Failed to build Kubernetes client from in-cluster config ({}) or kubeconfig ({})",
+							in_cluster_error, kubeconfig_error
+						)
+					})?
+			}
+		},
+	)
+}
 
 pub async fn send_git_credentials_secret_to_cluster(
 	registry: &Arc<reinhardt_cloud_grpc::registry::AgentRegistry>,
