@@ -18,7 +18,7 @@ reinhardt-cloud-k8s = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 rustls = { workspace = true }
-tonic = "0.13"
+tonic = { version = "0.13", features = ["tls-webpki-roots"] }
 prost = "0.13"
 prost-types = "0.13"
 tokio = { workspace = true }
@@ -33,3 +33,6 @@ serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rstest = { workspace = true }

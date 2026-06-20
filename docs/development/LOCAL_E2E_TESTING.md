@@ -284,6 +284,11 @@ cargo run -p reinhardt-cloud-agent -- \
 | `--heartbeat-interval` | `30` | Seconds between heartbeats. |
 | `--auth-token` / `AUTH_TOKEN` | unset | Bearer JWT for `AgentServiceClient`. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
 
+When `AUTH_TOKEN` is set, `--control-plane-url` must use `https://` so the
+bearer token is not sent over plaintext gRPC. The local `http://127.0.0.1:50051`
+example is only valid without `AUTH_TOKEN`; authenticated local testing needs a
+TLS-terminating endpoint.
+
 Field sources: `crates/reinhardt-cloud-agent/src/main.rs`.
 
 The Agent reads the host's `KUBECONFIG` (via `kube::Client::try_default()`) and

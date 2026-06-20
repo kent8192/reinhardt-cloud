@@ -13,11 +13,12 @@ use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
-use kube::{Client, ResourceExt};
+use kube::{Client, Resource, ResourceExt};
 use tracing::{Instrument, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
@@ -68,7 +69,7 @@ const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Platform-level preview environment configuration read from the environment.
 ///
 /// These values feed the cert-manager `Issuer` and the preview Ingress
-/// `ingressClassName` for every `{parent}-preview` namespace (#707).
+/// `ingressClassName` for every parent-qualified preview namespace (#707).
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
 	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
@@ -244,6 +245,66 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 }
 
 /// Apply the desired state for a `Project`.
+fn existing_resource_is_controlled_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn ownership_conflict_error(
+	kind: &'static str,
+	namespace: &str,
+	name: &str,
+	app: &Project,
+) -> Error {
+	Error::ResourceOwnershipConflict {
+		kind,
+		namespace: namespace.to_string(),
+		name: name.to_string(),
+		project_namespace: app.namespace().unwrap_or_default(),
+		project_name: app.name_any(),
+	}
+}
+
+async fn ensure_deployment_apply_target_is_owned(
+	deployments: &Api<Deployment>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match deployments.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Deployment", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
+async fn ensure_service_apply_target_is_owned(
+	services: &Api<Service>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match services.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Service", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
 async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -347,7 +408,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	let preview_namespace = resources::preview_namespace::preview_namespace_name(&name);
+	let preview_namespace = resources::preview_namespace::preview_namespace_name(namespace, &name);
 	let previews_enabled = app.spec.source.as_ref().is_some_and(|source| {
 		source
 			.preview
@@ -357,7 +418,9 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	if previews_enabled {
 		reconcile_preview_namespace(
 			&ctx.client,
+			namespace,
 			&name,
+			app.meta().uid.as_deref(),
 			app.spec
 				.source
 				.as_ref()
@@ -428,6 +491,20 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		reconcile_app_service_account(&ctx.client, namespace, &workload_sa).await?;
 	}
 
+	// Security resources must exist before any tenant image runs, including
+	// database migration Jobs that gate the rollout.
+	if app.spec.isolation.is_some() {
+		reconcile_network_policies(&app, &ctx.client, namespace).await?;
+		reconcile_resource_limits(
+			&app,
+			&ctx.client,
+			namespace,
+			&ctx.platform.defaults.resources,
+		)
+		.await?;
+		reconcile_pss_labels(&ctx.client, namespace).await?;
+	}
+
 	let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
 
 	// Database provisioning — explicit spec.database takes precedence,
@@ -468,8 +545,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	let migration_state = if should_provision_postgresql(&app) {
-		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform.platform)
-			.await?
+		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform).await?
 	} else {
 		MigrationGateState::NotRequired
 	};
@@ -502,6 +578,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Reconcile owned Deployment only after the target migration revision
 	// has completed, so a new workload image never serves before its schema
 	// change gate succeeds.
+	ensure_deployment_apply_target_is_owned(&deployments, &app, namespace, &name).await?;
 	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
 	deployments
 		.patch(
@@ -515,6 +592,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
+	ensure_service_apply_target_is_owned(&services, &app, namespace, &name).await?;
 	let desired_service = build_service(&app, pages_config.is_some())?;
 	services
 		.patch(
@@ -657,19 +735,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		.unwrap_or(false);
 	if needs_i18n {
 		reconcile_i18n_configmap(&app, &ctx.client, namespace).await?;
-	}
-
-	// Security: reconciliation for isolated workloads
-	if app.spec.isolation.is_some() {
-		reconcile_network_policies(&app, &ctx.client, namespace).await?;
-		reconcile_resource_limits(
-			&app,
-			&ctx.client,
-			namespace,
-			&ctx.platform.defaults.resources,
-		)
-		.await?;
-		reconcile_pss_labels(&ctx.client, namespace).await?;
 	}
 
 	// Derive readiness from the observed Deployment status
@@ -826,7 +891,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	}
 
 	// Preview namespace (#707): when previews were enabled, the operator owns a
-	// dedicated `{name}-preview` namespace. Deleting it cascade-removes every
+	// parent-qualified preview namespace. Deleting it cascade-removes every
 	// preview child Project and its sub-resources. Best-effort: a missing
 	// namespace (previews never enabled) is not an error.
 	if app
@@ -835,19 +900,33 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 		.as_ref()
 		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
-		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
 		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
-		if ns_api
-			.get_opt(&preview_ns)
-			.await
-			.map_err(Error::Kube)?
-			.is_some()
-		{
-			ns_api
-				.delete(&preview_ns, &DeleteParams::default())
-				.await
-				.map_err(Error::Kube)?;
-			info!("Deleted preview namespace {preview_ns} during cleanup of {name}");
+		if let Some(parent_uid) = app.meta().uid.as_deref() {
+			if let Some(existing_ns) = ns_api.get_opt(&preview_ns).await.map_err(Error::Kube)? {
+				if resources::preview_namespace::labels_match_preview_owner(
+					existing_ns.metadata.labels.as_ref(),
+					namespace,
+					&name,
+					parent_uid,
+				) {
+					ns_api
+						.delete(&preview_ns, &DeleteParams::default())
+						.await
+						.map_err(Error::Kube)?;
+					info!(
+						"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
+					);
+				} else {
+					warn!(
+						"Skipping preview namespace cleanup for {namespace}/{name}: {preview_ns} is not labeled as owned by this Project"
+					);
+				}
+			}
+		} else {
+			warn!(
+				"Skipping preview namespace cleanup for {namespace}/{name}: Project UID is missing"
+			);
 		}
 	}
 
@@ -1116,7 +1195,7 @@ async fn reconcile_migration_job_resource(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
-	platform: &Platform,
+	platform: &PlatformConfig,
 ) -> Result<MigrationGateState, Error> {
 	let revision_key = migration_revision_key(app);
 	let job_name = migration_job_name(app, &revision_key);
@@ -1689,30 +1768,44 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
-/// Reconcile the `{parent}-preview` namespace and its resource guardrails.
+/// Reconcile the parent-qualified preview namespace and its resource guardrails.
 ///
 /// The preview namespace is intentionally separate from the parent namespace,
 /// so preview Projects do not use owner references to the parent `Project`.
 async fn reconcile_preview_namespace(
 	client: &Client,
+	parent_namespace: &str,
 	parent_name: &str,
+	parent_uid: Option<&str>,
 	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
 	preview_config: &PreviewConfig,
 ) -> Result<(), Error> {
-	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
+	let ns_name =
+		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let namespaces: Api<Namespace> = Api::all(client.clone());
+	let Some(parent_uid) = parent_uid else {
+		warn!(
+			"Skipping preview namespace reconciliation for {parent_namespace}/{parent_name}: Project UID is missing"
+		);
+		return Ok(());
+	};
 	namespaces
 		.patch(
 			&ns_name,
 			&ssapply,
-			&Patch::Apply(&resources::preview_namespace::build_namespace(parent_name)),
+			&Patch::Apply(&resources::preview_namespace::build_namespace(
+				parent_namespace,
+				parent_name,
+				parent_uid,
+			)),
 		)
 		.await
 		.map_err(Error::Kube)?;
 
-	let quota = resources::preview_namespace::build_resource_quota(parent_name, budget);
+	let quota =
+		resources::preview_namespace::build_resource_quota(parent_namespace, parent_name, budget);
 	let quota_name = quota
 		.metadata
 		.name
@@ -1723,7 +1816,8 @@ async fn reconcile_preview_namespace(
 		.await
 		.map_err(Error::Kube)?;
 
-	let limit_range = resources::preview_namespace::build_limit_range(parent_name);
+	let limit_range =
+		resources::preview_namespace::build_limit_range(parent_namespace, parent_name);
 	let limit_range_name = limit_range
 		.metadata
 		.name
@@ -1735,8 +1829,11 @@ async fn reconcile_preview_namespace(
 		.map_err(Error::Kube)?;
 
 	for policy in [
-		resources::preview_namespace::build_default_deny_policy(parent_name),
-		resources::preview_namespace::build_allow_ingress_and_dns_policy(parent_name),
+		resources::preview_namespace::build_default_deny_policy(parent_namespace, parent_name),
+		resources::preview_namespace::build_allow_ingress_and_dns_policy(
+			parent_namespace,
+			parent_name,
+		),
 	] {
 		let policy_name = policy
 			.metadata
@@ -1750,6 +1847,7 @@ async fn reconcile_preview_namespace(
 	}
 
 	let issuer = resources::preview_namespace::build_issuer(
+		parent_namespace,
 		parent_name,
 		&preview_config.acme_server,
 		&preview_config.acme_email,
@@ -1951,9 +2049,7 @@ async fn reconcile_preview_status(
 		)))
 		.await
 		.map_err(Error::Kube)?;
-	let previews =
-		resources::preview_status::build_preview_status_list(&preview_list.items, "https");
-	let status_patch = serde_json::json!({ "status": { "previews": previews } });
+	let status_patch = build_preview_status_patch(&preview_list.items);
 	let parent_status_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
 	if let Err(error) = parent_status_api
 		.patch_status(
@@ -1967,6 +2063,11 @@ async fn reconcile_preview_status(
 	}
 
 	Ok(())
+}
+
+fn build_preview_status_patch(preview_projects: &[Project]) -> serde_json::Value {
+	let previews = resources::preview_status::build_preview_status_list(preview_projects, "https");
+	serde_json::json!({ "status": { "previews": previews } })
 }
 
 /// Builds a `Degraded`-condition status patch payload for the given
@@ -2626,7 +2727,7 @@ mod tests {
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::{
 		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
-		ProjectStatus,
+		ProjectStatus, ServicesSpec,
 	};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
@@ -2647,6 +2748,74 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_accepts_matching_controller_owner() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_unowned_resource() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta::default();
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_different_owner_uid() {
+		// Arrange
+		let app = make_test_app("payments");
+		let mut other_app = make_test_app("other");
+		other_app.metadata.uid = Some("other-uid".to_string());
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&other_app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn ownership_conflict_error_names_target_resource_and_project() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let error = ownership_conflict_error("Service", "default", "payments", &app);
+
+		// Assert
+		assert_eq!(
+			error.to_string(),
+			"refusing to manage existing Service default/payments: it is not owned by Project default/payments"
+		);
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
@@ -2738,6 +2907,56 @@ mod tests {
 
 		// Assert
 		assert_eq!(action, SourceBuildGateAction::UpdatePreview { build });
+	}
+
+	#[rstest]
+	fn preview_status_patch_keeps_child_preview_list_populated() {
+		// Arrange
+		let preview = Project {
+			metadata: kube::api::ObjectMeta {
+				name: Some("ready-app-pr-42".to_string()),
+				labels: Some(
+					[
+						("reinhardt.dev/preview".to_string(), "true".to_string()),
+						(
+							"reinhardt.dev/parent-app".to_string(),
+							"ready-app".to_string(),
+						),
+						("reinhardt.dev/pr-number".to_string(), "42".to_string()),
+					]
+					.into_iter()
+					.collect(),
+				),
+				..Default::default()
+			},
+			spec: ProjectSpec {
+				services: Some(ServicesSpec {
+					port: Some(80),
+					target_port: Some(8080),
+					ingress_host: Some("ready-app-pr-42.preview.example.com".to_string()),
+					tls: None,
+				}),
+				..Default::default()
+			},
+			status: Some(ProjectStatus {
+				phase: Some(ProjectPhase::Running),
+				ready_replicas: Some(1),
+				..Default::default()
+			}),
+		};
+
+		// Act
+		let patch = build_preview_status_patch(&[preview]);
+
+		// Assert
+		assert_eq!(patch["status"]["previews"][0]["name"], "ready-app-pr-42");
+		assert_eq!(patch["status"]["previews"][0]["prNumber"], "42");
+		assert_eq!(
+			patch["status"]["previews"][0]["url"],
+			"https://ready-app-pr-42.preview.example.com"
+		);
+		assert_eq!(patch["status"]["previews"][0]["phase"], "running");
+		assert_eq!(patch["status"]["previews"][0]["readyReplicas"], 1);
 	}
 
 	fn find_condition(status: &ProjectStatus, condition_type: ConditionType) -> &ProjectCondition {
