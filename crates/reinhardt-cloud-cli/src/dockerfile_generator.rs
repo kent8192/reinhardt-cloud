@@ -136,11 +136,8 @@ pub(crate) fn collect_signals(
 		.and_then(|s| s.build.as_ref())
 		.and_then(|b| b.base_image.clone());
 
-	// settings/ detection (#486 issue 2): if the project crate ships a
-	// `settings/` directory next to its `Cargo.toml`, the runtime image
-	// must bundle it and pin `REINHARDT_CLOUD_CONFIG_DIR` so the binary
-	// does not fall back to `CARGO_MANIFEST_DIR` (host build path) at
-	// runtime.
+	// Detect `settings/` for deployment metadata only. Runtime images must not
+	// copy this directory because settings TOMLs can contain secrets.
 	let has_settings_dir = project_dir.join("settings").is_dir();
 	let has_migrations_dir = project_dir.join("migrations").is_dir();
 
@@ -379,10 +376,9 @@ mod tests {
 		);
 	}
 
-	// G10b (Refs #486 issue 2): pages project shipping a `settings/`
-	// directory that lives at `dashboard/` inside the workspace. The
-	// runtime stage must COPY the settings TOMLs from
-	// `/app/dashboard/settings` and pin `REINHARDT_CLOUD_CONFIG_DIR`.
+	// G10b: pages project shipping a `settings/` directory that lives at
+	// `dashboard/` inside the workspace. The runtime stage must not bundle
+	// settings TOMLs because they can contain deployment secrets.
 	#[rstest]
 	fn snapshot_pages_with_settings() {
 		let signals = DockerfileSignals {
