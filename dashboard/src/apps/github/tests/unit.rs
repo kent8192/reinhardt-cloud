@@ -67,8 +67,9 @@ pub mod pipeline_tests {
 	use rstest::rstest;
 
 	use crate::apps::github::services::pipeline::{
-		credentials_secret_for_repository, github_credentials_secret_name, installation_clone_url,
-		parse_introspect_timeout_seconds, redacted_clone_url,
+		GitHubDeployPipelineInput, credentials_secret_for_repository,
+		github_credentials_secret_name, installation_clone_url, parse_introspect_timeout_seconds,
+		redacted_clone_url, run_github_deploy_pipeline,
 	};
 
 	#[rstest]
@@ -117,6 +118,35 @@ pub mod pipeline_tests {
 			Some("private-app-github-git-credentials")
 		);
 		assert!(credentials_secret_for_repository("public-app", false).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_github_deploy_pipeline_uses_safe_metadata_without_repository_execution() {
+		// Arrange
+		let input = GitHubDeployPipelineInput {
+			installation_id: 12_345,
+			full_name: "kent8192/untrusted-app".to_string(),
+			branch: "main".to_string(),
+			project_name: "safe-app".to_string(),
+			namespace: "default".to_string(),
+			registry: "registry.example.test/safe-app".to_string(),
+			private: true,
+		};
+
+		// Act
+		let output = run_github_deploy_pipeline(&input, "unused-token")
+			.await
+			.expect("safe import metadata should be generated");
+
+		// Assert
+		assert_eq!(output.introspect.app.name, "safe-app");
+		assert_eq!(
+			output.credentials_secret.as_deref(),
+			Some("safe-app-github-git-credentials")
+		);
+		assert!(output.introspect.databases.is_empty());
+		assert!(output.introspect.routes.is_empty());
 	}
 }
 

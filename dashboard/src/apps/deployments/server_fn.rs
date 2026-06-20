@@ -1,4 +1,7 @@
 //! Deployment server functions for the WASM dashboard.
+//!
+//! Organization-scoped operations resolve RBAC permissions before loading
+//! deployment records so read-only members cannot perform mutations.
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -48,8 +51,11 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
-	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
+async fn current_org_id_for_action(
+	user: &crate::apps::auth::models::User,
+	action: crate::apps::organizations::permissions::Action,
+) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::permissions::require_permission(user.id, action)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
@@ -127,7 +133,11 @@ pub async fn list_deployments_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentRead,
+	)
+	.await?;
 	let deployments = Deployment::objects()
 		.filter(Deployment::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
@@ -190,7 +200,11 @@ pub async fn create_deployment_for_current_org(
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::deployments::services::manifest::validate_project_manifest;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentCreate,
+	)
+	.await?;
 	let project_name = project_name.trim().to_string();
 	let image = image.trim().to_string();
 	let cluster_id: i64 = cluster_id
@@ -247,7 +261,11 @@ pub async fn update_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -294,7 +312,11 @@ pub async fn delete_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentDelete,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -322,7 +344,11 @@ pub async fn update_deployment_status_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -361,6 +387,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::models::Organization;
 	use crate::apps::organizations::permissions::action::Action;
 	use crate::apps::organizations::permissions::guard::require_permission;
 
@@ -370,8 +397,8 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let organization = crate::apps::organizations::models::Organization::objects()
-		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?

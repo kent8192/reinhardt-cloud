@@ -5,6 +5,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+#[cfg(unix)]
+const CREDENTIALS_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const CREDENTIALS_FILE_MODE: u32 = 0o600;
+
 /// Errors from configuration loading.
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
@@ -115,7 +120,7 @@ fn create_private_credentials_dir(path: &Path) -> std::io::Result<()> {
 	use std::os::unix::fs::PermissionsExt;
 
 	std::fs::create_dir_all(path)?;
-	std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_DIR_MODE))?;
 	Ok(())
 }
 
@@ -132,11 +137,14 @@ fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 	let mut temp = tempfile::Builder::new()
 		.prefix("credentials")
 		.tempfile_in(parent)?;
-	std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o600))?;
+	std::fs::set_permissions(
+		temp.path(),
+		std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE),
+	)?;
 	temp.write_all(contents)?;
 	temp.as_file().sync_all()?;
 	temp.persist(path).map_err(|err| err.error)?;
-	std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
 	Ok(())
 }
 
@@ -377,29 +385,51 @@ project_name = "myapp"
 
 	#[cfg(unix)]
 	#[rstest]
-	fn test_save_token_restricts_unix_permissions() {
+	fn test_save_token_sets_restrictive_permissions() {
 		use std::os::unix::fs::PermissionsExt;
 
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
-		let credentials_dir = dir.path().join("reinhardt-cloud");
-		let path = credentials_dir.join("credentials.json");
+		let cred_path = dir.path().join("reinhardt-cloud").join("credentials.json");
 		let creds = Credentials {
-			token: "rct_secret".to_string(),
-			username: "alice".to_string(),
+			token: "tok".to_string(),
+			username: "user".to_string(),
 		};
 
 		// Act
-		save_token(&creds, &path).unwrap();
+		save_token(&creds, &cred_path).unwrap();
 
 		// Assert
-		let dir_mode = std::fs::metadata(&credentials_dir)
+		let parent_mode = std::fs::metadata(cred_path.parent().unwrap())
 			.unwrap()
 			.permissions()
 			.mode() & 0o777;
-		let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-		assert_eq!(dir_mode, 0o700);
-		assert_eq!(file_mode, 0o600);
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(parent_mode, CREDENTIALS_DIR_MODE);
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn test_save_token_repairs_existing_permissive_file() {
+		use std::os::unix::fs::PermissionsExt;
+
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let cred_path = dir.path().join("credentials.json");
+		std::fs::write(&cred_path, "{}").unwrap();
+		std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+		let creds = Credentials {
+			token: "tok".to_string(),
+			username: "user".to_string(),
+		};
+
+		// Act
+		save_token(&creds, &cred_path).unwrap();
+
+		// Assert
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
 	}
 
 	#[rstest]
