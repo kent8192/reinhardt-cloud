@@ -15,7 +15,7 @@ use kube::api::{Api, Patch, PatchParams};
 use prost_types::Timestamp;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -95,10 +95,25 @@ async fn main() {
 	}
 }
 
+fn validate_control_plane_transport(
+	control_plane_url: &str,
+	auth_token: Option<&str>,
+) -> Result<(), &'static str> {
+	if auth_token.is_some() && !control_plane_url.starts_with("https://") {
+		return Err("CONTROL_PLANE_URL must use https:// when AUTH_TOKEN is configured");
+	}
+
+	Ok(())
+}
+
 async fn run_agent(args: &Args, agent_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
-	let channel = Channel::from_shared(args.control_plane_url.clone())?
-		.connect()
-		.await?;
+	validate_control_plane_transport(&args.control_plane_url, args.auth_token.as_deref())?;
+
+	let mut endpoint = Channel::from_shared(args.control_plane_url.clone())?;
+	if args.control_plane_url.starts_with("https://") {
+		endpoint = endpoint.tls_config(ClientTlsConfig::new().with_enabled_roots())?;
+	}
+	let channel = endpoint.connect().await?;
 
 	let auth_token = args.auth_token.clone();
 	#[allow(clippy::result_large_err)] // tonic interceptor signature requires Result<_, Status>
@@ -596,4 +611,49 @@ async fn execute_restart(project_name: &str) -> Result<(), kube::Error> {
 		.await?;
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn test_validate_control_plane_transport_allows_plaintext_without_token() {
+		// Arrange
+		let control_plane_url = "http://127.0.0.1:50051";
+
+		// Act
+		let result = validate_control_plane_transport(control_plane_url, None);
+
+		// Assert
+		assert_eq!(result, Ok(()));
+	}
+
+	#[rstest]
+	fn test_validate_control_plane_transport_allows_https_with_token() {
+		// Arrange
+		let control_plane_url = "https://control-plane.example.com:50051";
+
+		// Act
+		let result = validate_control_plane_transport(control_plane_url, Some("agent-token"));
+
+		// Assert
+		assert_eq!(result, Ok(()));
+	}
+
+	#[rstest]
+	fn test_validate_control_plane_transport_rejects_plaintext_with_token() {
+		// Arrange
+		let control_plane_url = "http://control-plane.example.com:50051";
+
+		// Act
+		let result = validate_control_plane_transport(control_plane_url, Some("agent-token"));
+
+		// Assert
+		assert_eq!(
+			result,
+			Err("CONTROL_PLANE_URL must use https:// when AUTH_TOKEN is configured")
+		);
+	}
 }
