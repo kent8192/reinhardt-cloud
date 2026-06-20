@@ -99,13 +99,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SELF_HOSTED_REQUESTED: ${{ steps.parse-checkbox.outputs.self-hosted-requested }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           USE_SELF_HOSTED=false
 
-          # release-plz PRs: auto-assign self-hosted runner (bypass actor check).
-          # Only push-access users can create release-plz-* branches.
+          # release-plz PRs from this repository: auto-assign self-hosted runner.
+          # Fork PRs can use release-plz-* branch names, so the source repository must
+          # match the base repository before selecting the self-hosted runner.
           # Budget circuit breaker is still respected.
-          if [[ "$HEAD_REF" == release-plz-* ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
+          if [[ "$HEAD_REF" == release-plz-* ]] && [[ "$HEAD_REPO_FULL_NAME" == "$REPOSITORY" ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
             USE_SELF_HOSTED=true
           elif [[ "$ACTOR" == "$REPO_OWNER" ]] && [[ "$SELF_HOSTED_ENABLED" == "true" ]]; then
             if [[ "$EVENT_NAME" == "pull_request" ]]; then
