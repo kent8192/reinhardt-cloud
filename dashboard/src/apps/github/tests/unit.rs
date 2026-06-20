@@ -1,6 +1,66 @@
 //! Unit tests for GitHub App integration.
 
 #[cfg(test)]
+pub mod render_tests {
+	use rstest::rstest;
+
+	use crate::apps::deployments::server_fn::{
+		PreviewSummary, ProjectPreviewSummary, ProjectSourceKind,
+	};
+	use crate::apps::github::client::pages::list::render_imported_project_card;
+
+	#[rstest]
+	fn render_imported_project_card_uses_repository_full_name() {
+		// Arrange
+		let summary = github_summary(vec![PreviewSummary {
+			name: "reinhardt-cloud-pr-42".to_string(),
+			pr_number: "42".to_string(),
+			url: Some("https://preview.example.com/pr-42".to_string()),
+			phase: Some("running".to_string()),
+			ready_replicas: Some(1),
+			last_activity: None,
+		}]);
+
+		// Act
+		let html = render_imported_project_card(&summary).render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><ul class=\"mt-2 space-y-1 text-xs\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul></article>"
+		);
+	}
+
+	#[rstest]
+	fn render_imported_project_card_uses_shared_empty_preview_state() {
+		// Arrange
+		let summary = github_summary(Vec::new());
+
+		// Act
+		let html = render_imported_project_card(&summary).render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><div class=\"mt-2 text-xs font-medium text-cloud-500\">No active previews</div></article>"
+		);
+	}
+
+	fn github_summary(previews: Vec<PreviewSummary>) -> ProjectPreviewSummary {
+		ProjectPreviewSummary {
+			deployment_id: 10,
+			github_project_id: Some(20),
+			project_name: "reinhardt-cloud".to_string(),
+			display_name: "kent8192/reinhardt-cloud".to_string(),
+			production_branch: Some("main".to_string()),
+			source_kind: ProjectSourceKind::GitHub,
+			previews,
+			preview_error: None,
+		}
+	}
+}
+
+#[cfg(test)]
 pub mod pipeline_tests {
 	use std::time::Duration;
 

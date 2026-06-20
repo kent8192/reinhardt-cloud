@@ -14,10 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  plan:
-    name: Plan (repository)
+  apply:
+    name: Apply (repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    environment: production
     defaults:
       run:
         working-directory: infra/repository
@@ -45,7 +46,6 @@ jobs:
 
       - name: Terraform Plan
         if: env.SKIP_MODULE != 'true'
-        id: plan
         env:
           # TF_VAR_ mappings for infra/repository variables
           TF_VAR_github_owner: ${{ secrets.TF_GITHUB_OWNER }}
@@ -56,59 +56,10 @@ jobs:
           TF_VAR_dockerhub_username: ${{ secrets.TF_DOCKERHUB_USERNAME }}
           TF_VAR_dockerhub_token: ${{ secrets.TF_DOCKERHUB_TOKEN }}
           TF_VAR_codecov_token: ${{ secrets.TF_CODECOV_TOKEN }}
-        run: |
-          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan-output.txt
-          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload plan artifact
-        if: env.SKIP_MODULE != 'true' && steps.plan.outputs.exitcode != '1'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: tfplan-repository
-          path: |
-            infra/repository/tfplan
-            infra/repository/.terraform
-            infra/repository/.terraform.lock.hcl
-          retention-days: 1
-
-  apply:
-    name: Apply (repository)
-    needs: plan
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: production
-    defaults:
-      run:
-        working-directory: infra/repository
-
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: "~> 1.10"
-
-      - name: Download plan artifact
-        id: download
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: tfplan-repository
-          path: infra/repository
-        continue-on-error: true
-
-      - name: Skip if no plan artifact
-        if: steps.download.outcome == 'failure'
-        run: |
-          echo "::notice::No plan artifact for repository — skipping apply"
-          echo "SKIP_APPLY=true" >> "$GITHUB_ENV"
-
-      - name: Terraform Init
-        if: env.SKIP_APPLY != 'true'
-        run: terraform init -input=false
+        run: terraform plan -no-color -input=false -out=tfplan
 
       - name: Terraform Apply
-        if: env.SKIP_APPLY != 'true'
+        if: env.SKIP_MODULE != 'true'
         env:
           # TF_VAR_ mappings for infra/repository variables
           TF_VAR_github_owner: ${{ secrets.TF_GITHUB_OWNER }}
@@ -119,5 +70,4 @@ jobs:
           TF_VAR_dockerhub_username: ${{ secrets.TF_DOCKERHUB_USERNAME }}
           TF_VAR_dockerhub_token: ${{ secrets.TF_DOCKERHUB_TOKEN }}
           TF_VAR_codecov_token: ${{ secrets.TF_CODECOV_TOKEN }}
-        run: |
-          terraform apply -no-color -input=false tfplan
+        run: terraform apply -no-color -input=false tfplan
