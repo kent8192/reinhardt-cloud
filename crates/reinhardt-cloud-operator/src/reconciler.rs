@@ -806,8 +806,9 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// gRPC Service (stateless — always clean up)
 	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
 
-	// Storage ServiceAccount (stateless — always clean up)
-	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+	// Storage ServiceAccount (stateless — always clean up when owned).
+	delete_service_account_if_owned(&ctx.client, namespace, &format!("{name}-storage"), &app)
+		.await?;
 
 	// Per-app workload ServiceAccount (stateless — always clean up when owned).
 	// Check ownership before deletion so an app named `foo` cannot remove a
@@ -2330,10 +2331,11 @@ fn service_account_project_uid(sa: &ServiceAccount) -> Option<&str> {
 }
 
 fn service_account_is_owned_by_uid(sa: &ServiceAccount, project_uid: &str) -> bool {
-	sa.metadata
-		.owner_references
-		.as_ref()
-		.is_some_and(|owners| owners.iter().any(|owner| owner.uid == project_uid))
+	sa.metadata.owner_references.as_ref().is_some_and(|owners| {
+		owners.iter().any(|owner| {
+			owner.uid == project_uid && owner.kind == "Project" && owner.controller == Some(true)
+		})
+	})
 }
 
 async fn delete_service_account_if_owned(
@@ -2354,7 +2356,7 @@ async fn delete_service_account_if_owned(
 			.await
 			.map_err(Error::Kube)?;
 	} else {
-		warn!("Skipping deletion of unowned workload ServiceAccount {namespace}/{name}");
+		warn!("Skipping deletion of unowned ServiceAccount {namespace}/{name}");
 	}
 	Ok(())
 }
@@ -2839,9 +2841,48 @@ mod tests {
 	}
 
 	#[rstest]
+	fn service_account_is_owned_by_uid_accepts_matching_project_controller_owner() {
+		// Arrange
+		let sa = service_account_with_owner(Some("project-uid"));
+
+		// Act / Assert
+		assert!(service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
 	fn service_account_is_owned_by_uid_rejects_unowned_account() {
 		// Arrange
 		let sa = service_account_with_owner(Some("other-uid"));
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_controller_project_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].controller = Some(false);
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_project_controller_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].kind = "ConfigMap".to_string();
 
 		// Act / Assert
 		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
