@@ -57,9 +57,8 @@ jobs:
           tool: cargo-make
 
       - name: Install wasm-pack
-        uses: taiki-e/install-action@de6bbd1333b8f331563d54a051e542c7dfef81c3 # v2
-        with:
-          tool: wasm-pack
+        shell: bash
+        run: cargo install wasm-pack --locked
 
       - name: Build dashboard for wasm32-unknown-unknown
         working-directory: dashboard
