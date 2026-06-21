@@ -52,7 +52,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0 pre-release. CLI commands are functional but under active development.
+> **Status:** v0.1.0-alpha.1 pre-release. CLI commands are functional but under active development.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -531,7 +531,7 @@ cargo run --bin reinhardt-cloud-operator
 
 ## API Stability
 
-**Current status:** v0.1.0 (Alpha)
+**Current status:** v0.1.0-alpha.1 (Alpha)
 
 | Component | Stability | Notes |
 |---|---|---|

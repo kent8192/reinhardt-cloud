@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 license = "BSL-1.1"
 repository = "https://github.com/kent8192/reinhardt-cloud"
@@ -92,13 +92,13 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 async-stream = "0.3"
 
 # Internal workspace crates
-reinhardt-cloud = { path = "crates/reinhardt-cloud", version = "0.1.0" }
-reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types", version = "0.1.0" }
-reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core", version = "0.1.0" }
-reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s", version = "0.1.0" }
-reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto", version = "0.1.0" }
-reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc", version = "0.1.0" }
-reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry", version = "0.1.0" }
+reinhardt-cloud = { path = "crates/reinhardt-cloud", version = "0.1.0-alpha.1" }
+reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types", version = "0.1.0-alpha.1" }
+reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core", version = "0.1.0-alpha.1" }
+reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s", version = "0.1.0-alpha.1" }
+reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto", version = "0.1.0-alpha.1" }
+reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc", version = "0.1.0-alpha.1" }
+reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry", version = "0.1.0-alpha.1" }
 
 # Cryptography / encoding
 rand = "0.9"
