@@ -6518,7 +6518,14 @@ version = "0.3.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9a8398715349daae0ef112f6ad09c4d3072f13da913de456c95c795da4d749f"
 dependencies = [
+ "bytes",
  "cfg_aliases",
+ "gloo-timers",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "regex",
  "reinhardt-auth",
  "reinhardt-conf",
  "reinhardt-core",
@@ -6531,6 +6538,10 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

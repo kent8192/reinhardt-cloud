@@ -511,7 +511,7 @@ cargo check --workspace --all-features
 cargo build --workspace --all-features
 
 # Test
-cargo make test                                 # all tests
+cargo make test                                 # all tests, including dashboard WASM browser E2E
 cargo nextest run --workspace --all-features    # with nextest
 
 # Code quality
