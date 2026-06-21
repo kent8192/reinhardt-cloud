@@ -283,10 +283,11 @@ pub(crate) fn build_deployment(
 					// and the static-server sidecar — they all share this
 					// PodSpec.
 					image_pull_secrets: super::validated_image_pull_secrets(app)?,
-					// Bind the workload to a per-app KSA when configured.
+					// Bind only to an operator-managed per-app KSA.
 					// The name resolution is centralized in
-					// `service_account::resolved_sa_name` so the SA builder
-					// and the PodSpec wiring can never disagree.
+					// `service_account::resolved_sa_name` so user-supplied
+					// names with `create == false` cannot select arbitrary
+					// same-namespace KSAs.
 					service_account_name: super::service_account::resolved_sa_name(app),
 					..Default::default()
 				}),
@@ -1134,7 +1135,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_pod_spec_service_account_name_explicit_when_create_false() {
+	fn test_pod_spec_service_account_name_unset_when_create_false_with_name() {
 		// Arrange — user pre-created the KSA themselves and supplied the name
 		use reinhardt_cloud_types::crd::service_account::ServiceAccountSpec;
 		let mut app = make_test_app("web", "web:latest", None);
@@ -1149,11 +1150,8 @@ mod tests {
 			build_deployment(&app, None, &Platform::Onpremise).expect("build should succeed");
 		let pod_spec = deploy.spec.unwrap().template.spec.unwrap();
 
-		// Assert — the supplied name is used; the operator does not create the SA
-		assert_eq!(
-			pod_spec.service_account_name.as_deref(),
-			Some("user-managed")
-		);
+		// Assert
+		assert_eq!(pod_spec.service_account_name, None);
 	}
 
 	#[rstest]
