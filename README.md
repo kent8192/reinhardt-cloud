@@ -85,7 +85,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [scale]
 min_replicas = 2
@@ -98,7 +98,8 @@ target_value = 70
 
 ```bash
 reinhardt-cloud deploy --dry-run   # Preview the generated Project CRD as YAML
-reinhardt-cloud deploy             # Deploy to the platform
+reinhardt-cloud login --token rct_example
+reinhardt-cloud deploy --cluster production  # Submit through the Dashboard
 ```
 
 ### 3. Check status
@@ -179,7 +180,7 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
 - **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
-- **Dashboard Authentication** — Local credentials plus GitHub OAuth, account-page linking, logout, and email-verification flow
+- **Dashboard Authentication** — Local credentials plus GitHub OAuth, verified-email association, logout, and email-verification flow
 - **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
 - **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
 - **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation
@@ -204,9 +205,9 @@ reinhardt-cloud [--server <URL>] <command>
 |---|---|
 | `init` | Generate `reinhardt-cloud.toml` from project analysis |
 | `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
-| `deploy` | Build the `Project` CRD and apply it |
+| `deploy` | Build the `Project` CRD and submit it through the Dashboard, or apply it directly with `--direct` |
 | `status` | Check deployment status |
-| `login` | Authenticate with the platform |
+| `login` | Verify and persist a Dashboard API token |
 | `credentials` | Manage Git and container-registry credentials |
 | `crd` | Generate CRD manifests for GitOps workflows |
 
@@ -262,8 +263,8 @@ spec:
 | `mail` | `MailSpec?` | SMTP configuration |
 | `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
-| `services` | `ServicesSpec?` | Port + Ingress exposure |
-| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services` | `ServicesSpec?` | Port + Ingress exposure. Generated Ingress hosts must match a DNS suffix configured by `REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES` and be unique across the cluster; the operator rejects `services.ingress_host` values outside those suffixes or already claimed by another Ingress. |
+| `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
 | `deletion_policy` | `DeletionPolicy` | `Retain` (default) or `Delete` |
@@ -273,7 +274,7 @@ spec:
 | `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
 | `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
 | `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
-| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix |
 | `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions
@@ -283,11 +284,13 @@ The operator reports the following conditions on the CRD status:
 `Ready`, `Progressing`, `Degraded`, `MigrationReady`, `DatabaseReady`, `CacheReady`, `WorkerReady`, `IngressReady`, `TlsReady`, `AutoscalerReady`
 
 For database-backed projects, the operator runs a revision-scoped migration
-Job before applying the new workload `Deployment`. `MigrationReady=False`
-with reason `MigrationRunning` means rollout is waiting on that Job;
-`MigrationReady=False` with reason `MigrationFailed` blocks the rollout and
-marks the project degraded until the spec changes or the failed revision is
-handled.
+Job before applying the new workload `Deployment`. Migration Jobs inherit the
+workload runtime class, service account, plugin mounts, resource defaults, and
+isolated workload security contexts, and isolation resources are reconciled
+before the Job is created. `MigrationReady=False` with reason
+`MigrationRunning` means rollout is waiting on that Job; `MigrationReady=False`
+with reason `MigrationFailed` blocks the rollout and marks the project degraded
+until the spec changes or the failed revision is handled.
 
 Autoscaling uses Kubernetes `autoscaling/v2` HPA for `cpu` and `memory`.
 `min_replicas` and `max_replicas` must be at least `1`. For `memory`,
@@ -333,8 +336,7 @@ succeeds.
 - Kubernetes 1.31+
 - Helm 3
 - **cert-manager** (required for preview environments) — the operator emits a
-  per-namespace `cert-manager.io/v1` `Issuer` for each `{parent}-preview`
-  namespace so preview hosts get automatic TLS. Configure the issuer with:
+  per-namespace `cert-manager.io/v1` `Issuer` for each parent-qualified preview namespace so preview hosts get automatic TLS. Configure the issuer with:
   - `REINHARDT_CLOUD_PREVIEW_INGRESS_CLASS` (default `nginx`)
   - `REINHARDT_CLOUD_PREVIEW_ACME_SERVER` (default Let's Encrypt production)
   - `REINHARDT_CLOUD_PREVIEW_ACME_EMAIL` (registration email; set in production)
@@ -440,7 +442,7 @@ ingress_host = "app.example.com"
 [services.tls]
 enabled = true
 secret_name = "app-example-com-tls"
-cluster_issuer = "letsencrypt-prod"
+issuer = "letsencrypt-ns"
 
 [replicas]
 count = 3
