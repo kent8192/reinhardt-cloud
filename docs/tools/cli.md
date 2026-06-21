@@ -52,7 +52,7 @@ The platform config dir is resolved by [`dirs::config_dir()`](https://docs.rs/di
 
 ### Credential auto-load
 
-After resolving the configured target URL, the CLI calls `load_token()` and, when credentials exist at `<platform config dir>/reinhardt-cloud/credentials.json`, stores the API token in the command target metadata. Authenticated commands such as standard `deploy` send it as a bearer token to the Dashboard control plane. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
+After resolving the configured target URL, the CLI calls `load_token()` and stores the API token in the command target metadata only when the credentials at `<platform config dir>/reinhardt-cloud/credentials.json` include an `api_url` matching the selected control-plane target. Legacy credentials without an `api_url`, or credentials scoped to a different target, are ignored so tokens are not sent to unrelated hosts. Authenticated commands such as standard `deploy` send the selected token as a bearer token to the Dashboard control plane. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
 
 ### Exit codes
 
