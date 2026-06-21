@@ -39,4 +39,4 @@ performs validation and reconciles the Kubernetes resources.
 
 ## License
 
-BSL-1.1 — see the repository root `LICENSE`.
+BUSL-1.1 — Business Source License 1.1.

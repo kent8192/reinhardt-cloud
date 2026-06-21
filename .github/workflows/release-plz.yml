@@ -82,7 +82,7 @@ jobs:
       github.event_name == 'push' && (
         (
           startsWith(github.event.head_commit.message, 'Merge pull request #') &&
-          contains(github.event.head_commit.message, '/release-plz-')
+          contains(github.event.head_commit.message, format(' from {0}/release-plz-', github.repository_owner))
         ) ||
         (
           startsWith(github.event.head_commit.message, 'chore: release ') &&

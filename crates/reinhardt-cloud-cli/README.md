@@ -32,4 +32,4 @@ See the [full guide](../../docs/tools/cli.md) for every flag, example, and troub
 
 ## License
 
-BSL-1.1 — see the repository root `LICENSE`.
+BUSL-1.1 — Business Source License 1.1.
