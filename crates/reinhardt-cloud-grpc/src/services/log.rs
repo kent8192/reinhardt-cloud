@@ -92,6 +92,7 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 	match filter {
 		Some(f) => Ok(LogFilter {
 			source: f.source.clone(),
+			namespace: f.namespace.clone(),
 			min_level: f.min_level.map(proto_level_to_domain),
 			since: f
 				.since
@@ -106,6 +107,24 @@ fn proto_filter_to_domain(filter: &Option<pb::LogFilter>) -> Result<LogFilter, S
 		}),
 		None => Ok(LogFilter::default()),
 	}
+}
+
+fn ensure_scoped_read_filter(filter: &LogFilter) -> Result<(), Status> {
+	if filter
+		.source
+		.as_deref()
+		.is_some_and(|source| !source.is_empty())
+		|| filter
+			.deployment_id
+			.as_deref()
+			.is_some_and(|deployment_id| !deployment_id.is_empty())
+	{
+		return Ok(());
+	}
+
+	Err(Status::permission_denied(
+		"log reads require source or deployment_id scope",
+	))
 }
 
 // --- gRPC Server ---
@@ -158,6 +177,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 		request: Request<pb::TailLogsRequest>,
 	) -> Result<Response<Self::TailLogsStream>, Status> {
 		let filter = proto_filter_to_domain(&request.into_inner().filter)?;
+		ensure_scoped_read_filter(&filter)?;
 
 		let stream = self
 			.service
@@ -179,6 +199,7 @@ impl pb::log_service_server::LogService for LogServiceGrpc {
 	) -> Result<Response<pb::ListLogsResponse>, Status> {
 		let req = request.into_inner();
 		let filter = proto_filter_to_domain(&req.filter)?;
+		ensure_scoped_read_filter(&filter)?;
 		let pagination = req
 			.pagination
 			.map(|p| PaginationParams::new(Some(p.page), Some(p.page_size)))
@@ -223,6 +244,40 @@ mod tests {
 	}
 
 	// --- All 4 log levels: domain -> proto -> domain roundtrip ---
+
+	#[rstest]
+	fn test_scoped_read_filter_rejects_empty_scope() {
+		// Arrange
+		let filter = LogFilter::default();
+
+		// Act
+		let result = ensure_scoped_read_filter(&filter);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::PermissionDenied);
+	}
+
+	#[rstest]
+	#[case(Some("app-a".to_string()), None)]
+	#[case(None, Some("deployment-a".to_string()))]
+	fn test_scoped_read_filter_accepts_source_or_deployment_id(
+		#[case] source: Option<String>,
+		#[case] deployment_id: Option<String>,
+	) {
+		// Arrange
+		let filter = LogFilter {
+			source,
+			deployment_id,
+			..Default::default()
+		};
+
+		// Act
+		let result = ensure_scoped_read_filter(&filter);
+
+		// Assert
+		assert!(result.is_ok());
+	}
 
 	#[rstest]
 	#[case(LogLevel::Debug, pb::LogLevel::Debug as i32)]
@@ -354,6 +409,7 @@ mod tests {
 		let until = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap();
 		let proto_filter = Some(pb::LogFilter {
 			source: Some("web".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 			min_level: Some(pb::LogLevel::Warn as i32),
 			since: Some(to_proto_ts(since)),
 			until: Some(to_proto_ts(until)),
@@ -366,6 +422,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(domain.source, Some("web".to_string()));
+		assert_eq!(domain.namespace, Some("tenant-acme".to_string()));
 		assert_eq!(domain.min_level, Some(LogLevel::Warn));
 		assert_eq!(domain.since, Some(since));
 		assert_eq!(domain.until, Some(until));
@@ -385,6 +442,7 @@ mod tests {
 
 		// Assert
 		assert!(domain.source.is_none());
+		assert!(domain.namespace.is_none());
 		assert!(domain.min_level.is_none());
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());
@@ -399,6 +457,7 @@ mod tests {
 		// Arrange
 		let proto_filter = Some(pb::LogFilter {
 			source: None,
+			namespace: None,
 			min_level: None,
 			since: None,
 			until: None,
@@ -411,6 +470,7 @@ mod tests {
 
 		// Assert
 		assert!(domain.source.is_none());
+		assert!(domain.namespace.is_none());
 		assert!(domain.min_level.is_none());
 		assert!(domain.since.is_none());
 		assert!(domain.until.is_none());

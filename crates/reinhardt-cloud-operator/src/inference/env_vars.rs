@@ -38,6 +38,7 @@ pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> 
 		auto_vars.push(build_jwt_secret_env_var(&project_name));
 	}
 	if needs_redis_env {
+		auto_vars.push(build_redis_password_env_var(&project_name));
 		auto_vars.push(build_redis_cache_env_var(&project_name));
 	}
 	if needs_db_env {
@@ -253,8 +254,25 @@ pub(crate) fn build_jwt_secret_env_var(project_name: &str) -> EnvVar {
 pub(crate) fn build_redis_cache_env_var(project_name: &str) -> EnvVar {
 	env_var(
 		"REINHARDT_CLOUD_REDIS_URL",
-		&format!("redis://{project_name}-redis:6379/0"),
+		&format!("redis://:$(REINHARDT_CLOUD_REDIS_PASSWORD)@{project_name}-redis:6379/0"),
 	)
+}
+
+/// Build the `REINHARDT_CLOUD_REDIS_PASSWORD` env var referencing the per-app
+/// `<app>-redis-credentials` Secret created when Redis cache is enabled.
+pub(crate) fn build_redis_password_env_var(project_name: &str) -> EnvVar {
+	EnvVar {
+		name: "REINHARDT_CLOUD_REDIS_PASSWORD".to_string(),
+		value: None,
+		value_from: Some(EnvVarSource {
+			secret_key_ref: Some(SecretKeySelector {
+				name: format!("{project_name}-redis-credentials"),
+				key: "password".to_string(),
+				optional: Some(false),
+			}),
+			..Default::default()
+		}),
+	}
 }
 
 /// Merge auto-generated and user-supplied environment variables.
@@ -775,8 +793,29 @@ mod tests {
 
 		// Assert
 		assert_eq!(var.name, "REINHARDT_CLOUD_REDIS_URL");
-		assert_eq!(var.value.as_deref(), Some("redis://dashboard-redis:6379/0"));
+		assert_eq!(
+			var.value.as_deref(),
+			Some("redis://:$(REINHARDT_CLOUD_REDIS_PASSWORD)@dashboard-redis:6379/0")
+		);
 		assert!(var.value_from.is_none());
+	}
+
+	#[rstest]
+	fn redis_password_env_var_references_per_app_secret() {
+		// Arrange & Act
+		let var = build_redis_password_env_var("dashboard");
+
+		// Assert
+		assert_eq!(var.name, "REINHARDT_CLOUD_REDIS_PASSWORD");
+		assert!(var.value.is_none());
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("Redis password must be Secret-backed");
+		assert_eq!(key_ref.name, "dashboard-redis-credentials");
+		assert_eq!(key_ref.key, "password");
+		assert_eq!(key_ref.optional, Some(false));
 	}
 
 	#[rstest]

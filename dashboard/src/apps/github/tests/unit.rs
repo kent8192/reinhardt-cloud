@@ -1,14 +1,75 @@
 //! Unit tests for GitHub App integration.
 
 #[cfg(test)]
+pub mod render_tests {
+	use rstest::rstest;
+
+	use crate::apps::deployments::server_fn::{
+		PreviewSummary, ProjectPreviewSummary, ProjectSourceKind,
+	};
+	use crate::apps::github::client::pages::list::render_imported_project_card;
+
+	#[rstest]
+	fn render_imported_project_card_uses_repository_full_name() {
+		// Arrange
+		let summary = github_summary(vec![PreviewSummary {
+			name: "reinhardt-cloud-pr-42".to_string(),
+			pr_number: "42".to_string(),
+			url: Some("https://preview.example.com/pr-42".to_string()),
+			phase: Some("running".to_string()),
+			ready_replicas: Some(1),
+			last_activity: None,
+		}]);
+
+		// Act
+		let html = render_imported_project_card(&summary).render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><ul class=\"mt-2 space-y-1 text-xs\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul></article>"
+		);
+	}
+
+	#[rstest]
+	fn render_imported_project_card_uses_shared_empty_preview_state() {
+		// Arrange
+		let summary = github_summary(Vec::new());
+
+		// Act
+		let html = render_imported_project_card(&summary).render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			"<article class=\"rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]\"><div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div><div class=\"mt-2 text-xs font-medium text-cloud-500\">No active previews</div></article>"
+		);
+	}
+
+	fn github_summary(previews: Vec<PreviewSummary>) -> ProjectPreviewSummary {
+		ProjectPreviewSummary {
+			deployment_id: 10,
+			github_project_id: Some(20),
+			project_name: "reinhardt-cloud".to_string(),
+			display_name: "kent8192/reinhardt-cloud".to_string(),
+			production_branch: Some("main".to_string()),
+			source_kind: ProjectSourceKind::GitHub,
+			previews,
+			preview_error: None,
+		}
+	}
+}
+
+#[cfg(test)]
 pub mod pipeline_tests {
 	use std::time::Duration;
 
 	use rstest::rstest;
 
 	use crate::apps::github::services::pipeline::{
-		credentials_secret_for_repository, github_credentials_secret_name, installation_clone_url,
-		parse_introspect_timeout_seconds, redacted_clone_url,
+		GitHubDeployPipelineInput, credentials_secret_for_repository,
+		github_credentials_secret_name, installation_clone_url, parse_introspect_timeout_seconds,
+		redacted_clone_url, run_github_deploy_pipeline,
 	};
 
 	#[rstest]
@@ -57,6 +118,35 @@ pub mod pipeline_tests {
 			Some("private-app-github-git-credentials")
 		);
 		assert!(credentials_secret_for_repository("public-app", false).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_github_deploy_pipeline_uses_safe_metadata_without_repository_execution() {
+		// Arrange
+		let input = GitHubDeployPipelineInput {
+			installation_id: 12_345,
+			full_name: "kent8192/untrusted-app".to_string(),
+			branch: "main".to_string(),
+			project_name: "safe-app".to_string(),
+			namespace: "default".to_string(),
+			registry: "registry.example.test/safe-app".to_string(),
+			private: true,
+		};
+
+		// Act
+		let output = run_github_deploy_pipeline(&input, "unused-token")
+			.await
+			.expect("safe import metadata should be generated");
+
+		// Assert
+		assert_eq!(output.introspect.app.name, "safe-app");
+		assert_eq!(
+			output.credentials_secret.as_deref(),
+			Some("safe-app-github-git-credentials")
+		);
+		assert!(output.introspect.databases.is_empty());
+		assert!(output.introspect.routes.is_empty());
 	}
 }
 
@@ -1329,5 +1419,73 @@ pub mod server_fn_tests {
 		assert_eq!(info.project_name, "reinhardt-cloud");
 		assert_eq!(info.production_branch, "main");
 		assert_eq!(info.status, "imported");
+	}
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod setup_state_tests {
+	use rstest::rstest;
+	use uuid::Uuid;
+
+	use crate::apps::github::services::setup_state::{
+		GitHubSetupStateError, install_url_with_state, issue_setup_state, verify_setup_state,
+	};
+
+	#[rstest]
+	fn test_github_setup_state_round_trips_for_same_user_and_org() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let organization_id = 42;
+		let secret = "webhook-secret";
+
+		// Act
+		let state = issue_setup_state(user_id, organization_id, secret);
+		let result = verify_setup_state(&state, user_id, organization_id, secret);
+
+		// Assert
+		assert_eq!(result, Ok(()));
+	}
+
+	#[rstest]
+	fn test_github_setup_state_rejects_different_organization() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let state = issue_setup_state(user_id, 42, "webhook-secret");
+
+		// Act
+		let result = verify_setup_state(&state, user_id, 43, "webhook-secret");
+
+		// Assert
+		assert_eq!(result, Err(GitHubSetupStateError::ContextMismatch));
+	}
+
+	#[rstest]
+	fn test_github_setup_state_rejects_tampered_signature() {
+		// Arrange
+		let user_id = Uuid::new_v4();
+		let mut state = issue_setup_state(user_id, 42, "webhook-secret");
+		state.push('a');
+
+		// Act
+		let result = verify_setup_state(&state, user_id, 42, "webhook-secret");
+
+		// Assert
+		assert_eq!(result, Err(GitHubSetupStateError::InvalidSignature));
+	}
+
+	#[rstest]
+	fn test_github_install_url_with_state_appends_query_parameter() {
+		// Arrange
+		let install_url = "https://github.com/apps/reinhardt-cloud/installations/new?target_id=1";
+		let state = "setup-state";
+
+		// Act
+		let url = install_url_with_state(install_url, state).expect("install URL should parse");
+
+		// Assert
+		assert_eq!(
+			url,
+			"https://github.com/apps/reinhardt-cloud/installations/new?target_id=1&state=setup-state"
+		);
 	}
 }

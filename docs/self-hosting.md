@@ -48,9 +48,12 @@ place:
 
    The operator resolves `secretRef:<secret>/<key>` values declared in
    `spec.env` only when `<secret>` is the app-scoped
-   `<project-name>-secrets` object. Dashboard JWT, core secret, database
-   credentials, and Redis URL env vars are generated from the typed `auth`,
-   `database`, and `cache` sections.
+   `<project-name>-secrets` object, which is
+   `reinhardt-cloud-dashboard-secrets` for the dashboard. Dashboard JWT,
+   core secret, database credentials, and Redis credentials/URL env vars are
+   generated from the typed `auth`, `database`, and `cache` sections. The
+   operator-managed Redis instance requires the generated Redis password for
+   session-store access.
 
 ## Operator bootstrap
 
@@ -130,6 +133,10 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
 
    ```bash
    VERSION=1.0.0
+   if [[ ! "${VERSION}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+     echo "Invalid dashboard image tag"
+     exit 1
+   fi
    sed "s|__VERSION__|${VERSION}|g" manifests/dashboard-project.yaml \
      | kubectl apply -f -
    ```
@@ -155,6 +162,8 @@ modes:
 - **Manual dispatch.** The same workflow can be run manually from the
   Actions tab. Provide the desired image tag in the `version` input (for
   example `1.2.3`) to pin a specific revision without cutting a release.
+  The tag must match `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`, matching the
+  safe Docker tag character set accepted by the deployment workflow.
 
 The operator then performs a rolling update on the owned `Deployment` —
 the dashboard is effectively redeploying itself through its own reconciler.

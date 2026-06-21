@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 
-use crate::client::ReinhardtCloudClient;
+use crate::client::{CliDeployRequest, ReinhardtCloudClient};
 use crate::crd_version::{COMPILE_TIME_DEFAULT, resolve_api_version};
 use crate::feature_detector::{InfraSignals as DetectedInfraSignals, detect_project};
 use crate::settings_reader::{DatabaseConfig, read_database_config};
@@ -76,9 +76,9 @@ pub(crate) struct DeployArgs {
 	/// Override the apiVersion field in the generated `Project` manifest
 	/// (e.g. `paas.reinhardt-cloud.dev/v1`). Only meaningful in `--direct`
 	/// mode (where the manifest is applied to the cluster) or with `--dry-run`
-	/// (where the manifest is printed for review). Default API mode is
-	/// unsupported after the dashboard moved deploy submissions to server
-	/// functions. When unset and `--direct` is used, the CLI queries the
+	/// (where the manifest is printed for review). Standard Dashboard deploys
+	/// submit the generated manifest to the control plane. When unset and
+	/// `--direct` is used, the CLI queries the
 	/// cluster's CRD and selects the served storage version automatically.
 	/// The value MUST be a fully-qualified `group/version` — short forms like
 	/// `v1` are rejected so we never produce manifests with a missing API group.
@@ -248,20 +248,6 @@ fn resolve_manage_bin_path(manage_bin: &Path) -> PathBuf {
 	}
 }
 
-fn project_manage_bin(project_dir: &Path) -> Option<PathBuf> {
-	let candidate = project_dir.join("manage");
-	if !candidate.is_file() {
-		return None;
-	}
-	Some(candidate.canonicalize().unwrap_or(candidate))
-}
-
-fn path_manage_introspect_command(project_dir: &Path) -> Option<Command> {
-	project_manage_bin(project_dir)
-		.as_ref()
-		.map(|manage_bin| manage_introspect_command(manage_bin, project_dir))
-}
-
 fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
 	let mut command = Command::new("cargo");
 	command
@@ -377,17 +363,6 @@ fn run_manage_introspect(project_dir: &Path, manage_bin: Option<&Path>) -> Resul
 			"manage introspect",
 			timeout,
 		)?;
-		return if output.status.success() {
-			String::from_utf8(output.stdout)
-				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
-		} else {
-			let stderr = String::from_utf8_lossy(&output.stderr);
-			Err(format!("manage introspect failed: {stderr}"))
-		};
-	}
-
-	if let Some(command) = path_manage_introspect_command(project_dir) {
-		let output = command_output_with_optional_timeout(command, "manage introspect", timeout)?;
 		return if output.status.success() {
 			String::from_utf8(output.stdout)
 				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
@@ -622,9 +597,6 @@ async fn execute_inner(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	eprintln!("Target: {}", client.base_url());
 	let project_dir = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
-	if !args.dry_run && !args.direct && !args.introspect_only {
-		return Err(unsupported_dashboard_deploy_error());
-	}
 
 	// Step 1: Try to run manage introspect
 	let introspect = match run_manage_introspect(&project_dir, args.manage_bin.as_deref()) {
@@ -735,12 +707,15 @@ async fn execute_inner(
 		return Ok(());
 	}
 
+	let standard_cluster = if args.direct {
+		None
+	} else {
+		Some(standard_deploy_cluster_name(args)?)
+	};
 	let yaml = serde_yaml::to_string(&crd)?;
 
 	println!("Deploying {project_name} with image {image} ({replicas} replicas)...");
-	if let Some(ref cluster) = args.cluster
-		&& !args.direct
-	{
+	if let Some(cluster) = standard_cluster {
 		println!("Target cluster: {cluster}");
 	}
 
@@ -751,17 +726,34 @@ async fn execute_inner(
 			args.namespace
 		);
 	} else {
-		let _ = yaml;
-		return Err(unsupported_dashboard_deploy_error());
+		let cluster =
+			standard_cluster.expect("standard deploy cluster was validated before banner");
+		let response = client
+			.submit_deploy(&CliDeployRequest {
+				project_name,
+				cluster: cluster.to_string(),
+				namespace: args.namespace.clone(),
+				image,
+				project_yaml: yaml,
+			})
+			.await?;
+		println!(
+			"Submitted deployment {} for project {} to cluster {} with image {} (status: {})",
+			response.deployment_id,
+			response.project_name,
+			response.cluster,
+			response.image,
+			response.status
+		);
 	}
 
 	Ok(())
 }
 
-fn unsupported_dashboard_deploy_error() -> Box<dyn std::error::Error> {
-	"default deploy via dashboard REST is no longer supported; use --direct or --dry-run. \
-	The dashboard Pages UI submits deployments through server functions."
-		.into()
+fn standard_deploy_cluster_name(args: &DeployArgs) -> Result<&str, &'static str> {
+	args.cluster
+		.as_deref()
+		.ok_or("--cluster is required for dashboard deploys")
 }
 
 /// Decide which apiVersion to embed in the generated `Project` CRD.
@@ -1046,37 +1038,23 @@ features:
 	}
 
 	#[rstest]
-	fn test_path_manage_introspect_command_prefers_project_manage_binary() {
+	fn test_manage_introspect_command_does_not_discover_project_manage_binary() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
 		let manage_bin = dir.path().join("manage");
 		std::fs::write(&manage_bin, "").unwrap();
-		let expected_manage_bin = manage_bin.canonicalize().unwrap();
 
 		// Act
-		let command = path_manage_introspect_command(dir.path())
-			.expect("project manage binary should be detected");
+		let command = manage_introspect_command(Path::new("manage"), dir.path());
 
 		// Assert
 		assert_eq!(command.get_current_dir(), Some(dir.path()));
-		assert_eq!(command.get_program(), expected_manage_bin.as_os_str());
+		assert_eq!(command.get_program(), "manage");
 		let args: Vec<String> = command
 			.get_args()
 			.map(|arg| arg.to_string_lossy().into_owned())
 			.collect();
 		assert_eq!(args, vec!["introspect", "--format", "yaml"]);
-	}
-
-	#[rstest]
-	fn test_path_manage_introspect_command_absent_without_project_manage_binary() {
-		// Arrange
-		let dir = tempfile::tempdir().unwrap();
-
-		// Act
-		let command = path_manage_introspect_command(dir.path());
-
-		// Assert
-		assert!(command.is_none());
 	}
 
 	#[rstest]
@@ -1138,36 +1116,53 @@ features:
 	}
 
 	#[rstest]
-	#[tokio::test]
-	async fn test_default_deploy_returns_unsupported_before_project_inspection() {
+	fn test_standard_deploy_cluster_name_requires_cluster() {
 		// Arrange
-		let dir = tempfile::tempdir().unwrap();
 		let args = DeployArgs {
 			name: None,
 			image: None,
 			replicas: None,
-			dir: Some(dir.path().to_path_buf()),
+			dir: None,
 			dry_run: false,
 			direct: false,
 			introspect_only: false,
 			manage_bin: None,
-			require_introspect: true,
+			require_introspect: false,
 			namespace: "default".to_string(),
 			cluster: None,
 			api_version: None,
 		};
-		let client = ReinhardtCloudClient::new("http://localhost:8000").unwrap();
 
 		// Act
-		let error = execute_inner(&args, &client)
-			.await
-			.expect_err("default dashboard REST deploy should be unsupported");
+		let actual = standard_deploy_cluster_name(&args);
 
 		// Assert
-		assert_eq!(
-			error.to_string(),
-			"default deploy via dashboard REST is no longer supported; use --direct or --dry-run. The dashboard Pages UI submits deployments through server functions."
-		);
+		assert_eq!(actual, Err("--cluster is required for dashboard deploys"));
+	}
+
+	#[rstest]
+	fn test_standard_deploy_cluster_name_returns_cluster() {
+		// Arrange
+		let args = DeployArgs {
+			name: None,
+			image: None,
+			replicas: None,
+			dir: None,
+			dry_run: false,
+			direct: false,
+			introspect_only: false,
+			manage_bin: None,
+			require_introspect: false,
+			namespace: "default".to_string(),
+			cluster: Some("prod".to_string()),
+			api_version: None,
+		};
+
+		// Act
+		let actual = standard_deploy_cluster_name(&args);
+
+		// Assert
+		assert_eq!(actual, Ok("prod"));
 	}
 
 	#[rstest]

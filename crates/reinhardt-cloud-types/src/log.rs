@@ -32,6 +32,8 @@ pub struct LogEntry {
 pub struct LogFilter {
 	/// Filter by source (app name, pod name, etc.).
 	pub source: Option<String>,
+	/// Filter by Kubernetes namespace.
+	pub namespace: Option<String>,
 	/// Minimum severity level to include.
 	pub min_level: Option<LogLevel>,
 	/// Only include logs after this timestamp.
@@ -101,6 +103,7 @@ mod tests {
 		// Arrange
 		let filter = LogFilter {
 			source: Some("web-app".to_string()),
+			namespace: Some("tenant-acme".to_string()),
 			min_level: Some(LogLevel::Warn),
 			since: Some(Utc::now()),
 			until: None,
@@ -114,6 +117,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(deserialized.source, Some("web-app".to_string()));
+		assert_eq!(deserialized.namespace, Some("tenant-acme".to_string()));
 		assert_eq!(deserialized.min_level, Some(LogLevel::Warn));
 		assert!(deserialized.until.is_none());
 	}
@@ -125,6 +129,7 @@ mod tests {
 
 		// Assert
 		assert!(filter.source.is_none());
+		assert!(filter.namespace.is_none());
 		assert!(filter.min_level.is_none());
 		assert!(filter.since.is_none());
 		assert!(filter.until.is_none());
@@ -212,6 +217,7 @@ mod tests {
 		let past = now - chrono::Duration::hours(1);
 		let filter = LogFilter {
 			source: None,
+			namespace: None,
 			min_level: None,
 			since: Some(now),
 			until: Some(past),
@@ -252,6 +258,7 @@ mod tests {
 		// Arrange
 		let filter = LogFilter {
 			source: source.map(String::from),
+			namespace: None,
 			min_level,
 			since: None,
 			until: None,
