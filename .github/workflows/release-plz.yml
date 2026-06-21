@@ -33,14 +33,19 @@ jobs:
         if: env.RELEASE_PLZ_APP_CONFIGURED == 'true'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: generate-token
+        continue-on-error: true
         with:
           app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
       - name: Warn about fallback GitHub token
-        if: env.RELEASE_PLZ_APP_CONFIGURED != 'true'
+        if: env.RELEASE_PLZ_APP_CONFIGURED != 'true' || steps.generate-token.outcome == 'failure'
         run: |
-          echo "::warning title=Release-plz GitHub App credentials missing::RELEASE_PLZ_APP_ID and RELEASE_PLZ_APP_PRIVATE_KEY are not both configured. Falling back to GITHUB_TOKEN for the Release PR update; release PR checks may require a manual workflow run until the App secrets are configured."
+          if [ "$RELEASE_PLZ_APP_CONFIGURED" = "true" ]; then
+            echo "::warning title=Release-plz GitHub App token generation failed::RELEASE_PLZ_APP_ID and RELEASE_PLZ_APP_PRIVATE_KEY are configured, but actions/create-github-app-token could not create an installation token. Falling back to GITHUB_TOKEN for the Release PR update; fix the App credentials before publishing releases."
+          else
+            echo "::warning title=Release-plz GitHub App credentials missing::RELEASE_PLZ_APP_ID and RELEASE_PLZ_APP_PRIVATE_KEY are not both configured. Falling back to GITHUB_TOKEN for the Release PR update; release PR checks may require a manual workflow run until the App secrets are configured."
+          fi
 
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
