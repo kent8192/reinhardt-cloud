@@ -64,7 +64,7 @@ GitOps tool such as ArgoCD or Flux.
 
 - **Chart**: `charts/reinhardt-cloud-operator`
 - **Values**: canonical defaults in `charts/reinhardt-cloud-operator/values.yaml`. Per-environment overlays: `values-aws.yaml`, `values-gcp.yaml`, `values-onprem.yaml`.
-- **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0-rc.1`. The chart version and app version are kept in sync; both advance together on each release.
+- **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0-alpha.1`. The chart version and app version are kept in sync; both advance together on each release.
 
 Common top-level value keys (summarized from `values.yaml`):
 
@@ -538,7 +538,7 @@ list and default values.
 |---|---|---|---|
 | 0.1.x | 0.1.x | `paas.reinhardt-cloud.dev/v1alpha2` | Initial release series. All 0.x.x releases may contain breaking changes; read the [release notes](https://github.com/kent8192/reinhardt-cloud/releases) before upgrading. |
 
-The chart version and appVersion are both `0.1.0-rc.1`. There is no published chart repository yet, so
+The chart version and appVersion are both `0.1.0-alpha.1`. There is no published chart repository yet, so
 upgrades are performed by pulling the latest source and re-running `helm upgrade` (see below).
 
 #### Upgrade steps

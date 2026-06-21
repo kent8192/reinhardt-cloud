@@ -5624,7 +5624,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "reinhardt-cloud-core",
  "reinhardt-cloud-grpc",
@@ -5636,7 +5636,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-agent"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "chrono",
  "clap",
@@ -5661,7 +5661,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-cli"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "colored",
@@ -5690,7 +5690,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-core"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5713,7 +5713,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-dashboard"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5769,7 +5769,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-grpc"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5798,7 +5798,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-integration-tests"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5825,7 +5825,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-k8s"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "k8s-openapi",
  "kube",
@@ -5842,7 +5842,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-operator"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -5878,7 +5878,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-proto"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "prost 0.13.5",
  "prost-types 0.13.5",
@@ -5889,7 +5889,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-telemetry"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5919,7 +5919,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-types"
-version = "0.1.0-rc.1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "chrono",
  "k8s-openapi",
