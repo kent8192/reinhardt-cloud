@@ -55,7 +55,7 @@ pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> 
 		));
 	}
 
-	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env, &project_name);
 	let otel_vars = build_otel_env_vars(&project_name);
 	for var in otel_vars {
 		if !merged_env.iter().any(|env| env.name == var.name) {
@@ -282,20 +282,21 @@ pub(crate) fn build_redis_password_env_var(project_name: &str) -> EnvVar {
 /// is kept and the auto-generated value is discarded.
 ///
 /// User values that match the `secretRef:<secret-name>/<key>` form are
-/// rewritten to a Kubernetes `valueFrom.secretKeyRef`, so the rendered
-/// `EnvVar` references a `Secret` rather than carrying the literal string
-/// (which would otherwise leak the prefix into the running container).
-/// Values that do not match the syntax are forwarded as literals.
+/// rewritten to a Kubernetes `valueFrom.secretKeyRef` only when the
+/// referenced `Secret` is the app-scoped `<project-name>-secrets` object.
+/// Values that do not match the syntax or authorized secret name are
+/// forwarded as literals.
 pub(crate) fn merge_env_vars(
 	auto_vars: &[EnvVar],
 	user_vars: &BTreeMap<String, String>,
+	project_name: &str,
 ) -> Vec<EnvVar> {
 	let mut result: Vec<EnvVar> = Vec::new();
 	let mut seen = HashSet::new();
 
 	// User vars first (highest priority)
 	for (k, v) in user_vars {
-		result.push(user_env_var(k, v));
+		result.push(user_env_var(k, v, project_name));
 		seen.insert(k.clone());
 	}
 
@@ -327,10 +328,26 @@ fn parse_secret_ref(value: &str) -> Option<(&str, &str)> {
 	Some((secret_name, key))
 }
 
+fn authorized_user_secret_name(project_name: &str) -> String {
+	format!("{project_name}-secrets")
+}
+
 /// Build an `EnvVar` from a user-supplied `(name, value)` pair, honoring
-/// the `secretRef:<secret-name>/<key>` syntax for `Secret` references.
-fn user_env_var(name: &str, value: &str) -> EnvVar {
+/// the `secretRef:<secret-name>/<key>` syntax for authorized app-scoped
+/// `Secret` references.
+fn user_env_var(name: &str, value: &str, project_name: &str) -> EnvVar {
 	if let Some((secret_name, key)) = parse_secret_ref(value) {
+		let authorized_secret_name = authorized_user_secret_name(project_name);
+		if secret_name != authorized_secret_name {
+			tracing::warn!(
+				env_name = %name,
+				secret_name = %secret_name,
+				authorized_secret_name = %authorized_secret_name,
+				"User-supplied env var {name} references an unauthorized Secret; treating the value as a literal string. Use the app-scoped Secret named `{authorized_secret_name}`.",
+			);
+			return env_var(name, value);
+		}
+
 		return EnvVar {
 			name: name.to_string(),
 			value: None,
@@ -573,7 +590,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("DATABASE_URL".to_string(), "custom-url".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		let db_var = merged.iter().find(|v| v.name == "DATABASE_URL").unwrap();
@@ -591,7 +608,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("USER_KEY".to_string(), "user_val".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -609,7 +626,7 @@ mod tests {
 		]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 3);
@@ -624,7 +641,7 @@ mod tests {
 		let user_vars = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -640,7 +657,7 @@ mod tests {
 		let user_vars = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -659,7 +676,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert — user override takes precedence over the auto-injected
 		// `REINHARDT_ENV`, and no other system env var leaks through.
@@ -687,7 +704,7 @@ mod tests {
 		let user_vars: BTreeMap<String, String> = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert!(merged.is_empty());
@@ -700,7 +717,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("X".to_string(), "y".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 1);
@@ -803,7 +820,7 @@ mod tests {
 
 	#[rstest]
 	fn merge_env_vars_resolves_secret_ref_to_value_from() {
-		// Arrange — `manifests/dashboard-app.yaml` uses this exact form.
+		// Arrange — `manifests/dashboard-project.yaml` uses this exact form.
 		let auto_vars: Vec<EnvVar> = vec![];
 		let user_vars = BTreeMap::from([(
 			"REINHARDT_CLOUD_JWT_SECRET".to_string(),
@@ -811,7 +828,7 @@ mod tests {
 		)]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "reinhardt-cloud-dashboard");
 
 		// Assert — literal value must be cleared and a SecretKeyRef emitted.
 		let var = merged
@@ -834,6 +851,30 @@ mod tests {
 	}
 
 	#[rstest]
+	fn merge_env_vars_preserves_unauthorized_secret_ref_as_literal() {
+		// Arrange
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars = BTreeMap::from([(
+			"STOLEN_DB_PASSWORD".to_string(),
+			"secretRef:victim-db-credentials/password".to_string(),
+		)]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars, "attacker");
+
+		// Assert
+		let var = merged
+			.iter()
+			.find(|v| v.name == "STOLEN_DB_PASSWORD")
+			.expect("env var must be present");
+		assert_eq!(
+			var.value.as_deref(),
+			Some("secretRef:victim-db-credentials/password")
+		);
+		assert!(var.value_from.is_none());
+	}
+
+	#[rstest]
 	#[case::missing_slash("secretRef:onlyname")]
 	#[case::empty_secret_name("secretRef:/key")]
 	#[case::empty_key("secretRef:name/")]
@@ -844,7 +885,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("MY_VAR".to_string(), value.to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert — malformed prefix is preserved as a literal so we don't
 		// silently drop the user's value; a tracing warn surfaces the issue.
@@ -864,7 +905,7 @@ mod tests {
 		)]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		let var = merged.iter().find(|v| v.name == "NOTE").unwrap();
