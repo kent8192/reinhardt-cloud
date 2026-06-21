@@ -1,4 +1,7 @@
 //! Deployment server functions for the WASM dashboard.
+//!
+//! Organization-scoped operations resolve RBAC permissions before loading
+//! deployment records so read-only members cannot perform mutations.
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -12,6 +15,34 @@ pub struct DeploymentInfo {
 	pub image: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProjectSourceKind {
+	GitHub,
+	Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PreviewSummary {
+	pub name: String,
+	pub pr_number: String,
+	pub url: Option<String>,
+	pub phase: Option<String>,
+	pub ready_replicas: Option<i32>,
+	pub last_activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectPreviewSummary {
+	pub deployment_id: i64,
+	pub github_project_id: Option<i64>,
+	pub project_name: String,
+	pub display_name: String,
+	pub production_branch: Option<String>,
+	pub source_kind: ProjectSourceKind,
+	pub previews: Vec<PreviewSummary>,
+	pub preview_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentLogInfo {
 	pub timestamp: String,
@@ -20,8 +51,11 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
-	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
+async fn current_org_id_for_action(
+	user: &crate::apps::auth::models::User,
+	action: crate::apps::organizations::permissions::Action,
+) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::permissions::require_permission(user.id, action)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
@@ -39,26 +73,56 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 }
 
 #[cfg(native)]
-fn validate_manifest(manifest: &str) -> Result<(), ServerFnError> {
-	use reinhardt_cloud_types::crd::Project;
+async fn preview_input_for_deployment(
+	deployment: crate::apps::deployments::models::Deployment,
+	organization_id: i64,
+) -> Result<crate::apps::deployments::services::preview_status::PreviewProjectInput, ServerFnError>
+{
+	use reinhardt::Model;
 
-	if manifest.trim().is_empty() {
-		return Ok(());
+	use crate::apps::deployments::services::preview_status::PreviewProjectInput;
+	use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+	let deployment_id = deployment.id.unwrap_or_default();
+	let github_project = GitHubProject::objects()
+		.filter(GitHubProject::field_deployment_id().eq(deployment_id))
+		.filter(GitHubProject::field_organization_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to load GitHub project metadata: {e}"))
+		})?;
+	if let Some(github_project) = github_project {
+		let repository_id = *github_project.repository_id();
+		let repository = GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to load GitHub repository metadata: {e}"
+				))
+			})?
+			.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: github_project.id,
+			project_name: github_project.project_name,
+			display_name: repository.full_name,
+			production_branch: Some(github_project.production_branch),
+			source_kind: ProjectSourceKind::GitHub,
+		})
+	} else {
+		let project_name = deployment.project_name;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: None,
+			project_name: project_name.clone(),
+			display_name: project_name,
+			production_branch: None,
+			source_kind: ProjectSourceKind::Manual,
+		})
 	}
-	let app: Project = serde_yaml::from_str(manifest)
-		.map_err(|e| ServerFnError::server(400, format!("Invalid Project YAML: {e}")))?;
-	if let Err(errors) = app.spec.validate() {
-		let messages = errors
-			.into_iter()
-			.map(|e| e.message)
-			.collect::<Vec<_>>()
-			.join("; ");
-		return Err(ServerFnError::server(
-			400,
-			format!("Invalid Project spec: {messages}"),
-		));
-	}
-	Ok(())
 }
 
 #[server_fn]
@@ -69,7 +133,11 @@ pub async fn list_deployments_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentRead,
+	)
+	.await?;
 	let deployments = Deployment::objects()
 		.filter(Deployment::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
@@ -77,6 +145,45 @@ pub async fn list_deployments_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
 	Ok(deployments.into_iter().map(deployment_info).collect())
+}
+
+#[server_fn]
+pub async fn list_deployment_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::services::preview_status::load_preview_summary;
+		use crate::apps::organizations::permissions::action::Action;
+		use crate::apps::organizations::permissions::guard::require_permission;
+
+		let organization_id = require_permission(user_id, Action::DeploymentRead)
+			.await
+			.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let deployments = Deployment::objects()
+			.filter(Deployment::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
+
+		let mut summaries = Vec::with_capacity(deployments.len());
+		for deployment in deployments {
+			let input = preview_input_for_deployment(deployment, organization_id).await?;
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user_id;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]
@@ -91,8 +198,13 @@ pub async fn create_deployment_for_current_org(
 
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::deployments::services::manifest::validate_project_manifest;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentCreate,
+	)
+	.await?;
 	let project_name = project_name.trim().to_string();
 	let image = image.trim().to_string();
 	let cluster_id: i64 = cluster_id
@@ -116,7 +228,7 @@ pub async fn create_deployment_for_current_org(
 	if !cluster_exists {
 		return Err(ServerFnError::server(404, "Cluster not found"));
 	}
-	validate_manifest(&project_yaml)?;
+	validate_project_manifest(&project_yaml).map_err(|e| ServerFnError::server(400, e))?;
 	let manifest = if project_yaml.trim().is_empty() {
 		None
 	} else {
@@ -149,7 +261,11 @@ pub async fn update_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -196,7 +312,11 @@ pub async fn delete_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentDelete,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -224,7 +344,11 @@ pub async fn update_deployment_status_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -260,8 +384,10 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
 	use reinhardt_cloud_proto::log as log_pb;
+	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::models::Organization;
 	use crate::apps::organizations::permissions::action::Action;
 	use crate::apps::organizations::permissions::guard::require_permission;
 
@@ -271,6 +397,17 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
+		.ok_or_else(|| ServerFnError::server(404, "Organization not found"))?;
+	let namespace = TenantRef {
+		organization: organization.slug,
+		team: None,
+	}
+	.namespace();
 	let deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.filter(Deployment::field_organization_id().eq(organization_id))
@@ -284,6 +421,8 @@ pub async fn deployment_logs_for_current_org(
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
 				source: Some(deployment.project_name),
+				deployment_id: Some(deployment_id.to_string()),
+				namespace: Some(namespace),
 				..Default::default()
 			}),
 			pagination: Some(PaginationRequest {

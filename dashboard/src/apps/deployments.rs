@@ -15,6 +15,10 @@ pub mod models;
 pub mod serializers;
 pub mod server_fn;
 #[cfg(native)]
+pub mod server_urls;
+#[cfg(native)]
+pub mod services;
+#[cfg(native)]
 pub mod tests;
 pub mod urls;
 

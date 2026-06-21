@@ -1,6 +1,9 @@
 name: Coverage
 
 on:
+  push:
+    branches:
+      - main
   workflow_call:
     inputs:
       runner:
@@ -19,6 +22,10 @@ on:
       DOCKERHUB_TOKEN:
         required: false
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

@@ -3,6 +3,11 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
+#[cfg(native)]
+use reinhardt::core::exception::Error as AppError;
+
+use crate::apps::deployments::server_fn::ProjectPreviewSummary;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubInstallationInfo {
 	pub id: i64,
@@ -45,6 +50,18 @@ async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, S
 	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
+}
+
+#[cfg(native)]
+fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
+	match err {
+		AppError::Authentication(message) => ServerFnError::server(401, message),
+		AppError::Authorization(message) => ServerFnError::server(403, message),
+		_ => {
+			tracing::error!("GitHub server function authorization failed: {err}");
+			ServerFnError::application("Internal server error")
+		}
+	}
 }
 
 #[cfg(native)]
@@ -243,24 +260,47 @@ async fn sync_repositories_for_installation(
 	Ok(())
 }
 
+#[cfg(native)]
+async fn github_onboarding_for_current_org(
+	user: crate::apps::auth::models::User,
+) -> Result<GitHubOnboardingInfo, ServerFnError> {
+	use crate::apps::github::services::GitHubAppSettings;
+	use crate::apps::github::services::setup_state::{install_url_with_state, issue_setup_state};
+	use crate::apps::organizations::permissions::action::Action;
+	use crate::apps::organizations::permissions::guard::require_permission;
+
+	let github_account_linked = github_account_linked(&user).await?;
+	let install_url = if github_account_linked {
+		let organization_id = require_permission(user.id, Action::OrgUpdate)
+			.await
+			.map_err(|e| ServerFnError::server(403, e.to_string()))?;
+		let settings = GitHubAppSettings::from_env()
+			.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
+		let state = issue_setup_state(user.id, organization_id, &settings.webhook_secret);
+		settings
+			.install_url
+			.as_deref()
+			.map(|url| install_url_with_state(url, &state))
+			.transpose()
+			.map_err(|e| {
+				ServerFnError::application(format!("Invalid GitHub App install URL: {e}"))
+			})?
+	} else {
+		None
+	};
+
+	Ok(GitHubOnboardingInfo {
+		github_account_linked,
+		install_url,
+	})
+}
+
 #[server_fn]
 pub async fn get_github_onboarding_for_current_org(
-	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] current_user: reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<GitHubOnboardingInfo, ServerFnError> {
-	#[cfg(native)]
-	{
-		use crate::apps::github::services::GitHubAppSettings;
-
-		Ok(GitHubOnboardingInfo {
-			github_account_linked: github_account_linked(&user).await?,
-			install_url: GitHubAppSettings::install_url_from_env(),
-		})
-	}
-	#[cfg(wasm)]
-	{
-		let _ = user;
-		unreachable!("server_fn body is replaced on wasm")
-	}
+	let reinhardt::CurrentUser(user) = current_user;
+	github_onboarding_for_current_org(user).await
 }
 
 #[server_fn]
@@ -311,9 +351,12 @@ pub async fn import_github_repository_for_current_org(
 	use crate::apps::github::services::pipeline::{
 		GitHubDeployPipelineInput, run_github_deploy_pipeline,
 	};
+	use crate::apps::organizations::permissions::{Action, require_permission};
 
 	ensure_github_account_linked(&user).await?;
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = require_permission(user.id, Action::DeploymentCreate)
+		.await
+		.map_err(server_fn_error_from_app_error)?;
 	let repository_id: i64 = repository_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid repository_id"))?;
@@ -362,7 +405,10 @@ pub async fn import_github_repository_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
 	let client = ReqwestGitHubAppClient::new(settings);
 	let installation_token = client
-		.create_installation_access_token(installation.installation_id)
+		.create_repository_installation_access_token(
+			installation.installation_id,
+			repository.github_repository_id,
+		)
 		.await
 		.map_err(|e| {
 			ServerFnError::application(format!(
@@ -501,6 +547,76 @@ pub async fn list_github_repositories_for_current_org(
 		.into_iter()
 		.map(github_repository_info)
 		.collect())
+}
+
+#[server_fn]
+pub async fn list_github_project_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::server_fn::ProjectSourceKind;
+		use crate::apps::deployments::services::preview_status::{
+			PreviewProjectInput, load_preview_summary,
+		};
+		use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+		let organization_id =
+			crate::apps::organizations::helpers::current_organization_id_for_user(user_id)
+				.await
+				.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let projects = GitHubProject::objects()
+			.filter(GitHubProject::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!("Failed to list GitHub projects: {e}"))
+			})?;
+
+		let mut summaries = Vec::with_capacity(projects.len());
+		for project in projects {
+			let repository_id = *project.repository_id();
+			let deployment_id = *project.deployment_id();
+			let repository = GitHubRepository::objects()
+				.filter(GitHubRepository::field_id().eq(repository_id))
+				.first()
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to load GitHub repository: {e}"))
+				})?
+				.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+			Deployment::objects()
+				.filter(Deployment::field_id().eq(deployment_id))
+				.filter(Deployment::field_organization_id().eq(organization_id))
+				.first()
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("Failed to load GitHub deployment: {e}"))
+				})?
+				.ok_or_else(|| ServerFnError::application("GitHub deployment row is missing"))?;
+			let input = PreviewProjectInput {
+				deployment_id,
+				github_project_id: project.id,
+				project_name: project.project_name,
+				display_name: repository.full_name,
+				production_branch: Some(project.production_branch),
+				source_kind: ProjectSourceKind::GitHub,
+			};
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user_id;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]
