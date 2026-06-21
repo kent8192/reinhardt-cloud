@@ -29,7 +29,9 @@ use crate::error::{BackoffClass, Error, backoff_class};
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::{build_core_secret_key_secret, build_jwt_secret};
+use crate::inference::secrets::{
+	build_core_secret_key_secret, build_jwt_secret, build_redis_credentials_secret,
+};
 use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::migration::{
@@ -667,6 +669,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
@@ -723,6 +726,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
@@ -1511,6 +1515,38 @@ async fn reconcile_hpa(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled HPA {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis credentials `Secret` for a `Project`.
+///
+/// Only creates the secret if it does not already exist, preserving existing
+/// Redis passwords across reconciliation cycles.
+async fn reconcile_redis_credentials_secret(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let secret_name = format!("{name}-redis-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	if secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+		return Ok(());
+	}
+
+	let secret = build_redis_credentials_secret(&name, namespace);
+	secret_api
+		.create(&PostParams::default(), &secret)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created Redis credentials Secret {namespace}/{secret_name}");
 	Ok(())
 }
 
