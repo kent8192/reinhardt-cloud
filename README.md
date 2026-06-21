@@ -13,7 +13,7 @@
 [![CI](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml)
 [![codecov](https://codecov.io/gh/kent8192/reinhardt-cloud/graph/badge.svg)](https://codecov.io/gh/kent8192/reinhardt-cloud)
-[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](https://spdx.org/licenses/BUSL-1.1.html)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent8192/reinhardt-cloud)
 
 </div>
@@ -586,4 +586,4 @@ Developed by Tachyon Inc.
 
 ## License
 
-This project is licensed under the [Business Source License 1.1](LICENSE).
+This project is licensed under the [Business Source License 1.1](https://spdx.org/licenses/BUSL-1.1.html).
