@@ -48,8 +48,10 @@ place:
 
    The operator resolves the `secretRef:<secret>/<key>` values declared in
    `spec.env` against this `Secret` at reconciliation time. Dashboard JWT,
-   core secret, database credentials, and Redis URL env vars are generated
-   from the typed `auth`, `database`, and `cache` sections.
+   core secret, database credentials, and Redis credentials/URL env vars are
+   generated from the typed `auth`, `database`, and `cache` sections. The
+   operator-managed Redis instance requires the generated Redis password for
+   session-store access.
 
 ## Operator bootstrap
 
