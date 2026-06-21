@@ -113,11 +113,13 @@ rules:
   # - update/patch: keep labels in sync (and Pod Security Standards labels
   #   written by the per-app `reconcile_pss_labels` path)
   # - delete: remove the dedicated `{parent}-preview` namespace when a parent
-  #   Project with previews enabled is deleted (#707). Unlike tenant namespaces
-  #   (shared across CRs), preview namespaces are exclusive to one parent, so
-  #   the operator owns their full lifecycle. The operator code only ever
-  #   deletes preview namespaces; tenant namespaces are left for a future
-  #   tenant-scoped cleanup controller.
+  #   Project with previews enabled is deleted (#707), after the operator
+  #   verifies managed-by, preview, parent name, parent namespace, and parent
+  #   UID labels. Unlike tenant namespaces (shared across CRs), preview
+  #   namespaces are exclusive to one parent, so the operator owns their full
+  #   lifecycle. The operator code only ever deletes verified preview
+  #   namespaces; tenant namespaces are left for a future tenant-scoped
+  #   cleanup controller.
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -26,7 +26,8 @@ use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
 use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
 use crate::apps::github::services::{GitHubAppSettings, GitHubAppSettingsKey};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::action::Action;
+use crate::apps::organizations::permissions::guard::require_permission;
 use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
 use crate::utils::vcs::events::WebhookAction;
 use crate::utils::vcs::signature::verify_github_signature;
@@ -40,6 +41,7 @@ struct GitHubWebhookResponse {
 #[derive(Debug, Deserialize)]
 pub struct GitHubSetupQuery {
 	installation_id: i64,
+	state: String,
 }
 
 /// Complete GitHub App setup after GitHub redirects to the configured setup URL.
@@ -78,7 +80,14 @@ pub async fn github_setup(
 				"GitHub App installation is not accessible to this user".to_string(),
 			)
 		})?;
-	let organization_id = current_organization_id_for_user(user.id).await?;
+	let organization_id = require_permission(user.id, Action::OrgUpdate).await?;
+	crate::apps::github::services::setup_state::verify_setup_state(
+		&query.state,
+		user.id,
+		organization_id,
+		&settings.webhook_secret,
+	)
+	.map_err(|e| AppError::Authorization(e.to_string()))?;
 	upsert_verified_installation(organization_id, installation).await?;
 
 	Ok(Response::temporary_redirect("/github"))
