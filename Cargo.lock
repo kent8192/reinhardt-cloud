@@ -6489,7 +6489,14 @@ name = "reinhardt-test"
 version = "0.2.0"
 source = "git+https://github.com/kent8192/reinhardt-web?branch=develop%2F0.3.0#13f9d36513796c88d4fbedad99f6e63c73505f1c"
 dependencies = [
+ "bytes",
  "cfg_aliases",
+ "gloo-timers",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "regex",
  "reinhardt-auth",
  "reinhardt-conf",
  "reinhardt-core",
@@ -6502,6 +6509,10 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

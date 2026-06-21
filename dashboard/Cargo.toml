@@ -21,10 +21,13 @@ path = "src/bin/manage.rs"
 # `ResolvedUrls::from_global()` in dashboard pages and layouts.
 default = ["client-router"]
 client-router = ["reinhardt/client-router"]
+msw = ["reinhardt/msw"]
 # Opts the `tests/wasm/` browser tests into the build. Off by default so
 # `cargo nextest run` (host-target) does not try to compile WASM-only
-# tests. Driven by `cargo make wasm-spa-test`. Refs #574.
-wasm-spa-test = []
+# tests. Driven by `cargo make wasm-spa-test`. The feature enables MSW so
+# browser tests can mock dashboard server functions without a live server.
+# Refs #574.
+wasm-spa-test = ["msw"]
 
 [dependencies]
 reinhardt = { workspace = true }

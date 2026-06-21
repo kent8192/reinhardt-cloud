@@ -39,6 +39,27 @@ kubectl version --client
 cargo --version
 ```
 
+## Fast Dashboard frontend E2E
+
+The default test command includes the Dashboard's headless Chrome WASM browser
+tests:
+
+```bash
+cargo make test
+```
+
+Those tests launch the real Dashboard WASM client in the browser and use
+Reinhardt's `MockServiceWorker` to intercept server-function fetches. For a
+Dashboard-only run, use:
+
+```bash
+cd dashboard
+cargo make test
+```
+
+The `test` tasks declare both the native suite and the WASM browser suite as
+`cargo-make` dependencies, so a successful `cargo make test` run includes both.
+
 ## Automated Dashboard self-deploy harness
 
 For the Dashboard dogfood path, prefer the first-class harness before walking
