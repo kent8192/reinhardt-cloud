@@ -261,7 +261,7 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 3. `reinhardt-cloud.toml` (`ReinhardtCloudToml`)
 4. Built-in default: `replicas = 1`
 
-For introspection, `deploy` uses `--manage-bin` when provided, then a `manage` binary in the project directory, then `manage` on `PATH`, and finally `cargo run --bin manage -- introspect --format yaml` for development checkouts. Pass `--require-introspect` when a fallback manifest would hide a broken management command.
+For introspection, `deploy` uses `--manage-bin` when provided, then `manage` on `PATH`, and finally `cargo run --bin manage -- introspect --format yaml` for development checkouts. It does not automatically execute a project-local `./manage`; pass `--manage-bin ./manage` when a local management binary is trusted and intentionally selected. Pass `--require-introspect` when a fallback manifest would hide a broken management command.
 
 When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ProjectSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, `infrastructure`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
 
