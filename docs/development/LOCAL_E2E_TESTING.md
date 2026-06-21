@@ -54,7 +54,7 @@ Dashboard-only run, use:
 
 ```bash
 cd dashboard
-cargo make test
+cargo make wasm-spa-test
 ```
 
 The `test` tasks declare both the native suite and the WASM browser suite as
