@@ -263,7 +263,7 @@ spec:
 | `mail` | `MailSpec?` | SMTP configuration |
 | `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
-| `services` | `ServicesSpec?` | Port + Ingress exposure |
+| `services` | `ServicesSpec?` | Port + Ingress exposure. Generated Ingress hosts must match a DNS suffix configured by `REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES` and be unique across the cluster; the operator rejects `services.ingress_host` values outside those suffixes or already claimed by another Ingress. |
 | `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
@@ -274,7 +274,7 @@ spec:
 | `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
 | `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
 | `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
-| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix |
 | `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions

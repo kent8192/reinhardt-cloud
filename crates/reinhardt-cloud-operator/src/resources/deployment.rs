@@ -277,12 +277,12 @@ pub(crate) fn build_deployment(
 					init_containers: init_containers_opt,
 					containers,
 					volumes: Some(volumes),
-					// Forward spec.imagePullSecrets verbatim so the kubelet can
+					// Forward validated spec.imagePullSecrets so the kubelet can
 					// authenticate to private registries when pulling the main
 					// application container, the collectstatic init-container,
 					// and the static-server sidecar — they all share this
 					// PodSpec.
-					image_pull_secrets: app.spec.image_pull_secrets.clone(),
+					image_pull_secrets: super::validated_image_pull_secrets(app)?,
 					// Bind the workload to a per-app KSA when configured.
 					// The name resolution is centralized in
 					// `service_account::resolved_sa_name` so the SA builder
@@ -1199,7 +1199,7 @@ mod tests {
 		// Arrange
 		let mut app = make_test_app("web", "web:v1", None);
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
-			name: "regcred".to_string(),
+			name: "web-regcred".to_string(),
 		}]);
 
 		// Act
@@ -1212,7 +1212,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 1);
-		assert_eq!(pull_secrets[0].name, "regcred");
+		assert_eq!(pull_secrets[0].name, "web-regcred");
 	}
 
 	#[rstest]
@@ -1223,10 +1223,10 @@ mod tests {
 		let mut app = make_test_app("web", "web:v1", None);
 		app.spec.image_pull_secrets = Some(vec![
 			LocalObjectReference {
-				name: "regcred-primary".to_string(),
+				name: "web-regcred-primary".to_string(),
 			},
 			LocalObjectReference {
-				name: "regcred-fallback".to_string(),
+				name: "web-regcred-fallback".to_string(),
 			},
 		]);
 
@@ -1240,8 +1240,8 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 2);
-		assert_eq!(pull_secrets[0].name, "regcred-primary");
-		assert_eq!(pull_secrets[1].name, "regcred-fallback");
+		assert_eq!(pull_secrets[0].name, "web-regcred-primary");
+		assert_eq!(pull_secrets[1].name, "web-regcred-fallback");
 	}
 
 	#[rstest]
@@ -1254,7 +1254,7 @@ mod tests {
 		// setting covers them all.
 		let mut app = make_test_app_with_database();
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
-			name: "regcred".to_string(),
+			name: "web-regcred".to_string(),
 		}]);
 		let pages = make_default_pages_config();
 
@@ -1268,7 +1268,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 1);
-		assert_eq!(pull_secrets[0].name, "regcred");
+		assert_eq!(pull_secrets[0].name, "web-regcred");
 		// Sanity check: the PodSpec really does host the additional containers.
 		let init_containers = pod_spec.init_containers.as_ref().unwrap();
 		assert!(!init_containers.iter().any(|c| c.name == "migrate"));
