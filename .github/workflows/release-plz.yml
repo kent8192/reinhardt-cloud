@@ -9,6 +9,16 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      publish_existing_release:
+        description: 'Publish already-merged release metadata from main.'
+        required: true
+        type: boolean
+        default: false
+      expected_version:
+        description: 'Expected release version to publish, for example 0.1.0-alpha.1.'
+        required: true
+        type: string
 
 jobs:
   # Native two-step release workflow:
@@ -75,19 +85,28 @@ jobs:
     # still runs on every main push so routine feature merges keep the next
     # Release PR up to date without entering the publish path.
     #
+    # Manual dispatch is a recovery path for already-merged release metadata
+    # after release credentials or workflow checks have been fixed on main.
+    #
     # Accepted Release PR merge shapes:
     # - merge commit from a release-plz-* branch
     # - squash commit titled "chore: release (#N)"
     if: |
-      github.event_name == 'push' && (
-        (
-          startsWith(github.event.head_commit.message, 'Merge pull request #') &&
-          contains(github.event.head_commit.message, format(' from {0}/release-plz-', github.repository_owner))
-        ) ||
-        (
-          startsWith(github.event.head_commit.message, 'chore: release ') &&
-          contains(github.event.head_commit.message, '(#')
+      (
+        github.event_name == 'push' && (
+          (
+            startsWith(github.event.head_commit.message, 'Merge pull request #') &&
+            contains(github.event.head_commit.message, format(' from {0}/release-plz-', github.repository_owner))
+          ) ||
+          (
+            startsWith(github.event.head_commit.message, 'chore: release ') &&
+            contains(github.event.head_commit.message, '(#')
+          )
         )
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.publish_existing_release == true
       )
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -110,6 +129,21 @@ jobs:
             missing=1
           fi
           exit "$missing"
+
+      - name: Validate manual release dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          if [ "$REF_NAME" != "main" ]; then
+            echo "::error::Manual release publish must run from the main branch, not '$REF_NAME'."
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "::error::Expected version '$EXPECTED_VERSION' is not a SemVer version."
+            exit 1
+          fi
 
       - name: Generate GitHub token
         if: env.RELEASE_PLZ_APP_CONFIGURED == 'true'
@@ -138,8 +172,33 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
+      - name: Verify manual release version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          mapfile -t versions < <(
+            cargo metadata --locked --no-deps --format-version=1 \
+              | jq -r '
+                .packages[]
+                | select(.name | startswith("reinhardt-cloud"))
+                | select(.publish != [])
+                | .version
+              ' \
+              | sort -u
+          )
+
+          if [ "${#versions[@]}" -ne 1 ]; then
+            printf '::error::Expected one publishable workspace version, found: %s\n' "${versions[*]}"
+            exit 1
+          fi
+          if [ "${versions[0]}" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Expected version '$EXPECTED_VERSION' does not match workspace version '${versions[0]}'."
+            exit 1
+          fi
+
       - name: Verify release branch name
-        if: "startsWith(github.event.head_commit.message, 'Merge pull request #')"
+        if: "github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Merge pull request #')"
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
@@ -163,7 +222,7 @@ jobs:
           esac
 
       - name: Verify release PR label
-        if: "startsWith(github.event.head_commit.message, 'Merge pull request #') || (startsWith(github.event.head_commit.message, 'chore: release ') && contains(github.event.head_commit.message, '(#'))"
+        if: "github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'Merge pull request #') || (startsWith(github.event.head_commit.message, 'chore: release ') && contains(github.event.head_commit.message, '(#')))"
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
