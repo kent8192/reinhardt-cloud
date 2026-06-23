@@ -333,7 +333,7 @@ mod tests {
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
 			"reinhardt-cloud"
 		);
-		assert_eq!(labels.len(), 4);
+		assert_eq!(labels.len(), 5);
 	}
 
 	#[rstest]
