@@ -29,7 +29,9 @@ use crate::error::{BackoffClass, Error, backoff_class};
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::{build_core_secret_key_secret, build_jwt_secret};
+use crate::inference::secrets::{
+	build_core_secret_key_secret, build_jwt_secret, build_redis_credentials_secret,
+};
 use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::migration::{
@@ -667,6 +669,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
@@ -723,6 +726,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
@@ -808,17 +812,14 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// gRPC Service (stateless — always clean up)
 	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
 
-	// Storage ServiceAccount (stateless — always clean up)
-	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+	// Storage ServiceAccount (stateless — always clean up when owned).
+	delete_service_account_if_owned(&ctx.client, namespace, &format!("{name}-storage"), &app)
+		.await?;
 
-	// Per-app workload ServiceAccount (stateless — always clean up).
-	// Owner references would also handle this on parent deletion, but the
-	// explicit deletion mirrors the storage SA pattern and covers the case
-	// where the user previously set `spec.service_account.name` to a
-	// non-default value: the operator only ever creates the `{name}-app`
-	// variant, and a user-supplied custom name was created by the user
-	// themselves (we never owned it, so we do not delete it here).
-	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-app")).await?;
+	// Per-app workload ServiceAccount (stateless — always clean up when owned).
+	// Check ownership before deletion so an app named `foo` cannot remove a
+	// pre-existing same-namespace `foo-app` KSA that belongs to another owner.
+	delete_service_account_if_owned(&ctx.client, namespace, &format!("{name}-app"), &app).await?;
 
 	// i18n ConfigMap (stateless — always clean up)
 	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
@@ -1527,6 +1528,38 @@ async fn reconcile_hpa(
 	Ok(())
 }
 
+/// Reconciles the Redis credentials `Secret` for a `Project`.
+///
+/// Only creates the secret if it does not already exist, preserving existing
+/// Redis passwords across reconciliation cycles.
+async fn reconcile_redis_credentials_secret(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let secret_name = format!("{name}-redis-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	if secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+		.is_some()
+	{
+		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+		return Ok(());
+	}
+
+	let secret = build_redis_credentials_secret(&name, namespace);
+	secret_api
+		.create(&PostParams::default(), &secret)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created Redis credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
 /// Reconciles the Redis cache `Deployment` via server-side apply.
 async fn reconcile_cache_deployment(
 	app: &Project,
@@ -1614,8 +1647,19 @@ async fn reconcile_storage_sa(
 		.as_ref()
 		.cloned()
 		.unwrap_or_else(|| format!("{}-storage", app.name_any()));
+	let project_uid = service_account_project_uid(sa)
+		.expect("managed SA always has owner reference set by its builder");
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	if let Some(existing) = sa_api.get_opt(&name).await.map_err(Error::Kube)?
+		&& !service_account_is_owned_by_uid(&existing, project_uid)
+	{
+		return Err(Error::ServiceAccountOwnership {
+			namespace: namespace.to_string(),
+			name,
+			project_uid: project_uid.to_string(),
+		});
+	}
 	sa_api
 		.patch(&name, &ssapply, &Patch::Apply(sa))
 		.await
@@ -1640,8 +1684,19 @@ async fn reconcile_app_service_account(
 		.as_ref()
 		.cloned()
 		.expect("workload SA always has a name set by build_service_account");
+	let project_uid = service_account_project_uid(sa)
+		.expect("managed SA always has owner reference set by its builder");
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	if let Some(existing) = sa_api.get_opt(&name).await.map_err(Error::Kube)?
+		&& !service_account_is_owned_by_uid(&existing, project_uid)
+	{
+		return Err(Error::ServiceAccountOwnership {
+			namespace: namespace.to_string(),
+			name,
+			project_uid: project_uid.to_string(),
+		});
+	}
 	sa_api
 		.patch(&name, &ssapply, &Patch::Apply(sa))
 		.await
@@ -2399,6 +2454,46 @@ async fn autoscaler_condition(
 	)))
 }
 
+fn service_account_project_uid(sa: &ServiceAccount) -> Option<&str> {
+	sa.metadata
+		.owner_references
+		.as_ref()?
+		.iter()
+		.find(|owner| owner.controller.unwrap_or(false))
+		.map(|owner| owner.uid.as_str())
+}
+
+fn service_account_is_owned_by_uid(sa: &ServiceAccount, project_uid: &str) -> bool {
+	sa.metadata.owner_references.as_ref().is_some_and(|owners| {
+		owners.iter().any(|owner| {
+			owner.uid == project_uid && owner.kind == "Project" && owner.controller == Some(true)
+		})
+	})
+}
+
+async fn delete_service_account_if_owned(
+	client: &Client,
+	namespace: &str,
+	name: &str,
+	app: &Project,
+) -> Result<(), Error> {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return Ok(());
+	};
+	let api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	let Some(sa) = api.get_opt(name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	if service_account_is_owned_by_uid(&sa, project_uid) {
+		api.delete(name, &Default::default())
+			.await
+			.map_err(Error::Kube)?;
+	} else {
+		warn!("Skipping deletion of unowned ServiceAccount {namespace}/{name}");
+	}
+	Ok(())
+}
+
 /// Deletes a namespaced Kubernetes resource if it exists.
 ///
 /// Silently succeeds if the resource is already absent.
@@ -2845,6 +2940,85 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn service_account_with_owner(uid: Option<&str>) -> ServiceAccount {
+		ServiceAccount {
+			metadata: kube::api::ObjectMeta {
+				name: Some("app-sa".to_string()),
+				owner_references: uid.map(|uid| {
+					vec![
+						k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference {
+							api_version: "paas.reinhardt-cloud.dev/v1alpha2".to_string(),
+							kind: "Project".to_string(),
+							name: "app".to_string(),
+							uid: uid.to_string(),
+							controller: Some(true),
+							block_owner_deletion: Some(true),
+						},
+					]
+				}),
+				..Default::default()
+			},
+			..Default::default()
+		}
+	}
+
+	#[rstest]
+	fn service_account_project_uid_returns_controller_owner_uid() {
+		// Arrange
+		let sa = service_account_with_owner(Some("project-uid"));
+
+		// Act / Assert
+		assert_eq!(service_account_project_uid(&sa), Some("project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_accepts_matching_project_controller_owner() {
+		// Arrange
+		let sa = service_account_with_owner(Some("project-uid"));
+
+		// Act / Assert
+		assert!(service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_unowned_account() {
+		// Arrange
+		let sa = service_account_with_owner(Some("other-uid"));
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_controller_project_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].controller = Some(false);
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_project_controller_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].kind = "ConfigMap".to_string();
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
 	}
 
 	fn make_test_ingress(name: &str, namespace: &str, host: &str) -> Ingress {

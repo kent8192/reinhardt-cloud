@@ -13,7 +13,7 @@
 [![CI](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml)
 [![codecov](https://codecov.io/gh/kent8192/reinhardt-cloud/graph/badge.svg)](https://codecov.io/gh/kent8192/reinhardt-cloud)
-[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](https://spdx.org/licenses/BUSL-1.1.html)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent8192/reinhardt-cloud)
 
 </div>
@@ -52,7 +52,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0 pre-release. CLI commands are functional but under active development.
+> **Status:** v0.1.0-alpha.1 pre-release. CLI commands are functional but under active development.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -180,7 +180,7 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
 - **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
-- **Dashboard Authentication** — Local credentials plus GitHub OAuth, account-page linking, logout, and email-verification flow
+- **Dashboard Authentication** — Local credentials plus GitHub OAuth, verified-email association, logout, and email-verification flow
 - **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
 - **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
 - **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation
@@ -511,7 +511,7 @@ cargo check --workspace --all-features
 cargo build --workspace --all-features
 
 # Test
-cargo make test                                 # all tests
+cargo make test                                 # all tests, including dashboard WASM browser E2E
 cargo nextest run --workspace --all-features    # with nextest
 
 # Code quality
@@ -531,7 +531,7 @@ cargo run --bin reinhardt-cloud-operator
 
 ## API Stability
 
-**Current status:** v0.1.0 (Alpha)
+**Current status:** v0.1.0-alpha.1 (Alpha)
 
 | Component | Stability | Notes |
 |---|---|---|
@@ -586,4 +586,4 @@ Developed by Tachyon Inc.
 
 ## License
 
-This project is licensed under the [Business Source License 1.1](LICENSE).
+This project is licensed under the [Business Source License 1.1](https://spdx.org/licenses/BUSL-1.1.html).

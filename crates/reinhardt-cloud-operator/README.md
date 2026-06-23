@@ -25,4 +25,4 @@ helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
 
 ## License
 
-BSL-1.1 — see the repository root `LICENSE`.
+BUSL-1.1 — Business Source License 1.1.

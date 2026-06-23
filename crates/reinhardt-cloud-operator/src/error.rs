@@ -57,6 +57,16 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
+	#[error(
+		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
+	)]
+	ServiceAccountOwnership {
+		namespace: String,
+		name: String,
+		project_uid: String,
+	},
+
 	/// An image-pull secret is not owned by the application.
 	#[error(
 		"invalid imagePullSecret '{secret}' for app '{app}': secret names must start with one of {allowed_prefixes}"
@@ -172,6 +182,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::ServiceAccountOwnership { .. }
 		| Error::InvalidImagePullSecret { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)

@@ -409,7 +409,7 @@ mod tests {
 			runtime_class_override: Some("gvisor".to_string()),
 		});
 		app.spec.service_account = Some(ServiceAccountSpec {
-			create: false,
+			create: true,
 			name: Some("tenant-sa".to_string()),
 			annotations: BTreeMap::new(),
 		});
@@ -444,6 +444,24 @@ mod tests {
 				.map(|quantity| quantity.0.as_str()),
 			Some("1Gi")
 		);
+	}
+
+	#[rstest]
+	fn test_build_migration_job_service_account_name_unset_when_create_false() {
+		// Arrange
+		let mut app = test_app("my-app", "my-app:v1");
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: false,
+			name: Some("tenant-sa".to_string()),
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let job = build_test_job(&app);
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.service_account_name, None);
 	}
 
 	#[rstest]
