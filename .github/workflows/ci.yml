@@ -214,6 +214,15 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
+  publish-check:
+    name: Publish Check
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/publish-check.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
   bruno-tests:
     name: Bruno API Tests
     needs: [fmt, clippy, determine-runner, check-branch-status]
@@ -254,6 +263,7 @@ jobs:
       - terraform-check
       - cross-platform-check
       - public-api-diff
+      - publish-check
     steps:
       - name: Verify all required checks passed
         env:
@@ -270,6 +280,7 @@ jobs:
           TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
           CROSS_PLATFORM_RESULT: ${{ needs.cross-platform-check.result }}
           PUBLIC_API_DIFF_RESULT: ${{ needs.public-api-diff.result }}
+          PUBLISH_CHECK_RESULT: ${{ needs.publish-check.result }}
         run: |
           # If PR has merge conflicts, all jobs are expected to be skipped
           if [[ "$HAS_CONFLICTS" == "true" ]]; then
@@ -289,6 +300,7 @@ jobs:
             "bruno-tests:$BRUNO_TESTS_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
+            "publish-check:$PUBLISH_CHECK_RESULT"
           )
           for entry in "${always_required[@]}"; do
             name="${entry%%:*}"

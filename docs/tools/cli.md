@@ -52,7 +52,7 @@ The platform config dir is resolved by [`dirs::config_dir()`](https://docs.rs/di
 
 ### Credential auto-load
 
-After resolving the configured target URL, the CLI calls `load_token()` and, when credentials exist at `<platform config dir>/reinhardt-cloud/credentials.json`, stores the API token in the command target metadata. Authenticated commands such as standard `deploy` send it as a bearer token to the Dashboard control plane. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
+After resolving the configured target URL, the CLI calls `load_token()` and stores the API token in the command target metadata only when the credentials at `<platform config dir>/reinhardt-cloud/credentials.json` include an `api_url` matching the selected control-plane target. Legacy credentials without an `api_url`, or credentials scoped to a different target, are ignored so tokens are not sent to unrelated hosts. Authenticated commands such as standard `deploy` send the selected token as a bearer token to the Dashboard control plane. If the credentials file is present but unreadable or malformed, a warning is printed to stderr and the CLI continues unauthenticated.
 
 ### Exit codes
 
@@ -261,7 +261,7 @@ reinhardt-cloud deploy [--name <NAME>] [--image <IMAGE>] [--replicas <N>]
 3. `reinhardt-cloud.toml` (`ReinhardtCloudToml`)
 4. Built-in default: `replicas = 1`
 
-For introspection, `deploy` uses `--manage-bin` when provided, then a `manage` binary in the project directory, then `manage` on `PATH`, and finally `cargo run --bin manage -- introspect --format yaml` for development checkouts. Pass `--require-introspect` when a fallback manifest would hide a broken management command.
+For introspection, `deploy` uses `--manage-bin` when provided, then `manage` on `PATH`, and finally `cargo run --bin manage -- introspect --format yaml` for development checkouts. It does not automatically execute a project-local `./manage`; pass `--manage-bin ./manage` when a local management binary is trusted and intentionally selected. Pass `--require-introspect` when a fallback manifest would hide a broken management command.
 
 When `reinhardt-cloud.toml` is present, `deploy` converts its typed sections into the generated `ProjectSpec` before applying CLI overrides. That includes `database`, `auth`, `health`, `services`, `replicas`, `scale`, `cache`, `worker`, `storage`, `mail`, `source`, `infrastructure`, and `env`. `--name`, `--image`, and `--replicas` still override the corresponding TOML-derived values.
 
