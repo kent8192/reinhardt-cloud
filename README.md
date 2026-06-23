@@ -274,7 +274,7 @@ spec:
 | `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
 | `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
 | `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
-| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix, except operator-created previews may use verified parent-app pull secrets |
 | `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions

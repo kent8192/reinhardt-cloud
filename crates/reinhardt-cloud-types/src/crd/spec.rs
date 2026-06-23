@@ -305,9 +305,10 @@ pub struct ProjectSpec {
 	/// container-registry credentials (type `kubernetes.io/dockerconfigjson`).
 	///
 	/// Operator-generated workload `PodSpec` values only accept app-owned
-	/// secret names that start with the app's `{metadata.name}-` prefix,
-	/// which prevents a `Project` author from borrowing shared namespace
-	/// registry credentials.
+	/// secret names that start with the app's `{metadata.name}-` prefix.
+	/// Operator-created previews may also use verified parent-app prefixes,
+	/// which lets previews inherit registry access without allowing arbitrary
+	/// `Project` names to borrow shared namespace registry credentials.
 	#[serde(
 		rename = "imagePullSecrets",
 		default,
