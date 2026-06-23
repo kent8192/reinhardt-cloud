@@ -1425,6 +1425,12 @@ async fn reconcile_ingress_resource_with_host(
 }
 
 fn ensure_ingress_host_allowed(host: &str) -> Result<(), Error> {
+	if is_wildcard_ingress_host(host) {
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' must not use Kubernetes wildcard host syntax"
+		)));
+	}
+
 	let suffixes = allowed_ingress_host_suffixes_from_env();
 	if suffixes.is_empty() {
 		return Err(Error::InvalidIngressHost(format!(
@@ -1452,6 +1458,10 @@ fn allowed_ingress_host_suffixes_from_env() -> Vec<String> {
 		.filter(|suffix| !suffix.is_empty())
 		.map(|suffix| suffix.trim_start_matches('.').to_ascii_lowercase())
 		.collect()
+}
+
+fn is_wildcard_ingress_host(host: &str) -> bool {
+	host.trim().trim_end_matches('.').starts_with("*.")
 }
 
 fn host_matches_allowed_suffix(host: &str, suffix: &str) -> bool {
@@ -4026,6 +4036,36 @@ mod tests {
 
 		// Assert
 		assert!(result);
+	}
+
+	#[rstest]
+	fn is_wildcard_ingress_host_detects_kubernetes_wildcard_syntax() {
+		// Arrange
+		let host = "*.example.com";
+
+		// Act
+		let result = is_wildcard_ingress_host(host);
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn ensure_ingress_host_allowed_rejects_wildcard_host() {
+		// Arrange
+		let host = "*.example.com";
+
+		// Act
+		let result = ensure_ingress_host_allowed(host);
+
+		// Assert
+		match result {
+			Err(Error::InvalidIngressHost(message)) => assert_eq!(
+				message,
+				"services.ingress_host '*.example.com' must not use Kubernetes wildcard host syntax"
+			),
+			other => panic!("expected wildcard ingress host rejection, got {other:?}"),
+		}
 	}
 
 	#[rstest]
