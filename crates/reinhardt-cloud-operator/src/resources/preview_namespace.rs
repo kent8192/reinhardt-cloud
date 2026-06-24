@@ -124,6 +124,45 @@ pub(crate) fn preview_namespace_name(parent_namespace: &str, parent_name: &str) 
 	format!("{prefix}-{hash}-{PREVIEW_NAMESPACE_SUFFIX}")
 }
 
+pub(crate) fn legacy_preview_namespace_matches(preview_namespace: &str, parent_name: &str) -> bool {
+	let safe_parent_name = sanitize_dns_label_component(parent_name);
+	if safe_parent_name.is_empty() {
+		return false;
+	}
+	let Some((identity_prefix, _hash)) = legacy_preview_namespace_parts(preview_namespace) else {
+		return false;
+	};
+
+	let parent_suffix = format!("-{safe_parent_name}");
+	if let Some(parent_namespace) = identity_prefix.strip_suffix(&parent_suffix)
+		&& !parent_namespace.is_empty()
+	{
+		return preview_namespace_name(parent_namespace, parent_name) == preview_namespace;
+	}
+
+	// Truncated legacy names cannot reveal the full parent namespace; new
+	// previews carry the explicit label, so only legacy-shaped max-length
+	// namespace prefixes use this compatibility path.
+	let suffix_len = 1 + IDENTITY_HASH_LENGTH + 1 + PREVIEW_NAMESPACE_SUFFIX.len();
+	let prefix_len = DNS_1123_LABEL_MAX_LENGTH - suffix_len;
+	identity_prefix.len() == prefix_len
+}
+
+fn legacy_preview_namespace_parts(preview_namespace: &str) -> Option<(&str, &str)> {
+	let namespace_without_suffix =
+		preview_namespace.strip_suffix(&format!("-{PREVIEW_NAMESPACE_SUFFIX}"))?;
+	let (identity_prefix, hash) = namespace_without_suffix.rsplit_once('-')?;
+	if hash.len() != IDENTITY_HASH_LENGTH
+		|| !hash
+			.chars()
+			.all(|character| matches!(character, '0'..='9' | 'a'..='f'))
+	{
+		return None;
+	}
+
+	Some((identity_prefix, hash))
+}
+
 /// Standard labels applied to every resource in the preview namespace so
 /// cleanup tooling can select them with a single label selector.
 pub(crate) fn preview_namespace_labels(
@@ -412,6 +451,55 @@ mod tests {
 		assert!(dotted_name.ends_with("-preview"));
 		assert!(dotted_name.len() <= DNS_1123_LABEL_MAX_LENGTH);
 		assert_ne!(dotted_name, dashed_name);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_recovers_parent_namespace() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app");
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(matches);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_accepts_truncated_identity_prefix() {
+		// Arrange
+		let namespace = preview_namespace_name(
+			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix",
+			"my-app",
+		);
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(matches);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_rejects_hash_mismatch() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app");
+		let suffix = format!("-{PREVIEW_NAMESPACE_SUFFIX}");
+		let namespace_without_suffix = namespace.strip_suffix(&suffix).expect("preview suffix");
+		let (identity_prefix, hash) = namespace_without_suffix
+			.rsplit_once('-')
+			.expect("hash segment");
+		let replacement = if hash.starts_with('0') { "1" } else { "0" };
+		let namespace = format!(
+			"{identity_prefix}-{replacement}{}-{PREVIEW_NAMESPACE_SUFFIX}",
+			&hash[1..]
+		);
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(!matches);
 	}
 
 	#[rstest]

@@ -111,7 +111,6 @@ fn verified_preview_parent_name(
 ) -> Option<String> {
 	let labels = app.metadata.labels.as_ref()?;
 	let parent_name = labels.get(crate::resources::preview::PARENT_APP_LABEL_KEY)?;
-	let parent_namespace = labels.get(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY)?;
 	let pr_number = labels.get(crate::resources::preview::PR_NUMBER_LABEL_KEY)?;
 
 	if labels
@@ -131,16 +130,31 @@ fn verified_preview_parent_name(
 	}
 
 	let expected_name = crate::resources::preview::preview_project_name(parent_name, pr_number);
-	let expected_namespace =
-		crate::resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
-
-	if app_name == expected_name
-		&& app.metadata.namespace.as_deref() == Some(expected_namespace.as_str())
-	{
+	if app_name == expected_name && verified_preview_namespace(app, labels, parent_name) {
 		Some(parent_name.clone())
 	} else {
 		None
 	}
+}
+
+fn verified_preview_namespace(
+	app: &reinhardt_cloud_types::crd::Project,
+	labels: &std::collections::BTreeMap<String, String>,
+	parent_name: &str,
+) -> bool {
+	let Some(namespace) = app.metadata.namespace.as_deref() else {
+		return false;
+	};
+	let Some(parent_namespace) = labels.get(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY)
+	else {
+		return crate::resources::preview_namespace::legacy_preview_namespace_matches(
+			namespace,
+			parent_name,
+		);
+	};
+	let expected_namespace =
+		crate::resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
+	namespace == expected_namespace
 }
 
 #[cfg(test)]
@@ -213,6 +227,80 @@ mod tests {
 		// Assert
 		assert_eq!(secrets.len(), 1);
 		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_accepts_legacy_preview_parent_owned_names() {
+		// Arrange
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some(crate::resources::preview_namespace::preview_namespace_name(
+			"default", "web",
+		));
+		let mut labels = crate::resources::preview::preview_labels("default", "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let secrets = validated_image_pull_secrets(&app)
+			.expect("legacy preview image pull secret should be accepted")
+			.expect("image pull secrets should be present");
+
+		// Assert
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_accepts_legacy_preview_truncated_namespace() {
+		// Arrange
+		let parent_namespace =
+			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix";
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some(crate::resources::preview_namespace::preview_namespace_name(
+			parent_namespace,
+			"web",
+		));
+		let mut labels = crate::resources::preview::preview_labels(parent_namespace, "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let secrets = validated_image_pull_secrets(&app)
+			.expect("legacy preview with a truncated namespace should be accepted")
+			.expect("image pull secrets should be present");
+
+		// Assert
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_rejects_legacy_preview_wrong_namespace() {
+		// Arrange
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some("default".to_string());
+		let mut labels = crate::resources::preview::preview_labels("default", "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("legacy preview in a non-canonical namespace should be rejected");
+
+		// Assert
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
 	}
 
 	#[rstest]
