@@ -308,7 +308,9 @@ pub struct ProjectSpec {
 	/// secret names that start with the app's `{metadata.name}-` prefix.
 	/// Operator-created previews may also use verified parent-app prefixes,
 	/// which lets previews inherit registry access without allowing arbitrary
-	/// `Project` names to borrow shared namespace registry credentials.
+	/// `Project` names to borrow shared namespace registry credentials. Legacy
+	/// previews without the parent namespace label are accepted only when their
+	/// canonical preview namespace still proves the parent namespace.
 	#[serde(
 		rename = "imagePullSecrets",
 		default,

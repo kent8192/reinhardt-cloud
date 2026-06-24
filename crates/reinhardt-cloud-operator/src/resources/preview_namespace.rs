@@ -124,6 +124,35 @@ pub(crate) fn preview_namespace_name(parent_namespace: &str, parent_name: &str) 
 	format!("{prefix}-{hash}-{PREVIEW_NAMESPACE_SUFFIX}")
 }
 
+pub(crate) fn parent_namespace_from_legacy_preview_namespace(
+	preview_namespace: &str,
+	parent_name: &str,
+) -> Option<String> {
+	let safe_parent_name = sanitize_dns_label_component(parent_name);
+	let namespace_without_suffix =
+		preview_namespace.strip_suffix(&format!("-{PREVIEW_NAMESPACE_SUFFIX}"))?;
+	let (identity_prefix, hash) = namespace_without_suffix.rsplit_once('-')?;
+	if hash.len() != IDENTITY_HASH_LENGTH
+		|| !hash
+			.chars()
+			.all(|character| matches!(character, '0'..='9' | 'a'..='f'))
+	{
+		return None;
+	}
+
+	let parent_suffix = format!("-{safe_parent_name}");
+	let parent_namespace = identity_prefix.strip_suffix(&parent_suffix)?;
+	if parent_namespace.is_empty() {
+		return None;
+	}
+
+	if preview_namespace_name(parent_namespace, parent_name) == preview_namespace {
+		Some(parent_namespace.to_string())
+	} else {
+		None
+	}
+}
+
 /// Standard labels applied to every resource in the preview namespace so
 /// cleanup tooling can select them with a single label selector.
 pub(crate) fn preview_namespace_labels(
@@ -412,6 +441,30 @@ mod tests {
 		assert!(dotted_name.ends_with("-preview"));
 		assert!(dotted_name.len() <= DNS_1123_LABEL_MAX_LENGTH);
 		assert_ne!(dotted_name, dashed_name);
+	}
+
+	#[rstest]
+	fn parent_namespace_from_legacy_preview_namespace_recovers_parent_namespace() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app");
+
+		// Act
+		let parent_namespace = parent_namespace_from_legacy_preview_namespace(&namespace, "my-app");
+
+		// Assert
+		assert_eq!(parent_namespace.as_deref(), Some("tenant-a"));
+	}
+
+	#[rstest]
+	fn parent_namespace_from_legacy_preview_namespace_rejects_hash_mismatch() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app").replace("-preview", "-wrong");
+
+		// Act
+		let parent_namespace = parent_namespace_from_legacy_preview_namespace(&namespace, "my-app");
+
+		// Assert
+		assert_eq!(parent_namespace, None);
 	}
 
 	#[rstest]
