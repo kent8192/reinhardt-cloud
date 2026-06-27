@@ -73,6 +73,26 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 }
 
 #[cfg(native)]
+fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
+	move |mut request: tonic::Request<()>| {
+		let value = format!("Bearer {token}").parse().map_err(|e| {
+			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
+		})?;
+		request.metadata_mut().insert("authorization", value);
+		Ok(request)
+	}
+}
+
+#[cfg(native)]
+fn dashboard_grpc_user_token(
+	user: &crate::apps::auth::models::User,
+	jwt_secret: &str,
+) -> Result<String, ServerFnError> {
+	reinhardt_cloud_core::auth::create_token(user.id, &user.username, jwt_secret.as_bytes(), 1)
+		.map_err(|e| ServerFnError::application(format!("Failed to mint gRPC auth token: {e}")))
+}
+
+#[cfg(native)]
 async fn preview_input_for_deployment(
 	deployment: crate::apps::deployments::models::Deployment,
 	organization_id: i64,
@@ -380,6 +400,10 @@ pub async fn deployment_logs_for_current_org(
 		crate::config::GrpcChannelSingletonKey,
 		crate::config::GrpcChannelSingleton,
 	>,
+	#[inject] jwt_secret: reinhardt::di::Depends<
+		crate::apps::clusters::services::JwtSecretKey,
+		crate::apps::clusters::services::JwtSecret,
+	>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
@@ -415,8 +439,11 @@ pub async fn deployment_logs_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-	let mut client =
-		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
+	let grpc_token = dashboard_grpc_user_token(&user, &jwt_secret.0)?;
+	let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
+		grpc_channel.channel.clone(),
+		dashboard_grpc_auth_interceptor(grpc_token),
+	);
 	let response = client
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
