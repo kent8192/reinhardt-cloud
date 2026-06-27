@@ -86,7 +86,7 @@ pub(crate) fn build_migration_job(
 		revision_key.to_string(),
 	)]);
 	let isolated = app.spec.isolation.is_some();
-	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
+	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app)?;
 	let resources = ResourceRequirements {
 		requests: Some(BTreeMap::from([
 			(
@@ -149,10 +149,10 @@ pub(crate) fn build_migration_job(
 						},
 						..Default::default()
 					}],
+					// Forward validated spec.imagePullSecrets so the migration Job can
 					volumes: Some(plugin_volumes),
-					// Forward spec.imagePullSecrets so the migration Job can
 					// pull the application image from a private registry.
-					image_pull_secrets: app.spec.image_pull_secrets.clone(),
+					image_pull_secrets: super::validated_image_pull_secrets(app)?,
 					service_account_name: super::service_account::resolved_sa_name(app),
 					..Default::default()
 				}),
@@ -409,7 +409,7 @@ mod tests {
 			runtime_class_override: Some("gvisor".to_string()),
 		});
 		app.spec.service_account = Some(ServiceAccountSpec {
-			create: false,
+			create: true,
 			name: Some("tenant-sa".to_string()),
 			annotations: BTreeMap::new(),
 		});
@@ -447,12 +447,30 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_migration_job_service_account_name_unset_when_create_false() {
+		// Arrange
+		let mut app = test_app("my-app", "my-app:v1");
+		app.spec.service_account = Some(ServiceAccountSpec {
+			create: false,
+			name: Some("tenant-sa".to_string()),
+			annotations: BTreeMap::new(),
+		});
+
+		// Act
+		let job = build_test_job(&app);
+		let pod_spec = job.spec.unwrap().template.spec.unwrap();
+
+		// Assert
+		assert_eq!(pod_spec.service_account_name, None);
+	}
+
+	#[rstest]
 	fn test_build_migration_job_mounts_plugin_volumes() {
 		// Arrange
 		let mut app = test_app("my-app", "my-app:v1");
 		app.spec.plugins = Some(vec![PluginSpec {
 			name: "auth-filter".to_string(),
-			wasm_dir: "/plugins/auth".to_string(),
+			wasm_dir: "/var/lib/dentdelion/auth".to_string(),
 			plugin_type: PluginType::HttpMiddleware,
 			memory_limit_mb: None,
 			timeout_ms: None,
@@ -472,7 +490,7 @@ mod tests {
 			.expect("plugin volume mounts should be set");
 		assert_eq!(volumes.len(), 2);
 		assert_eq!(mounts.len(), 2);
-		assert_eq!(mounts[1].mount_path, "/plugins/auth");
+		assert_eq!(mounts[1].mount_path, "/var/lib/dentdelion/auth");
 	}
 
 	#[rstest]
@@ -495,7 +513,7 @@ mod tests {
 		// Arrange
 		let mut app = test_app("my-app", "my-app:v1");
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
-			name: "regcred".to_string(),
+			name: "my-app-regcred".to_string(),
 		}]);
 
 		// Act
@@ -507,7 +525,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 1);
-		assert_eq!(pull_secrets[0].name, "regcred");
+		assert_eq!(pull_secrets[0].name, "my-app-regcred");
 	}
 
 	#[rstest]
@@ -518,10 +536,10 @@ mod tests {
 		let mut app = test_app("my-app", "my-app:v1");
 		app.spec.image_pull_secrets = Some(vec![
 			LocalObjectReference {
-				name: "regcred-primary".to_string(),
+				name: "my-app-regcred-primary".to_string(),
 			},
 			LocalObjectReference {
-				name: "regcred-fallback".to_string(),
+				name: "my-app-regcred-fallback".to_string(),
 			},
 		]);
 
@@ -534,7 +552,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 2);
-		assert_eq!(pull_secrets[0].name, "regcred-primary");
-		assert_eq!(pull_secrets[1].name, "regcred-fallback");
+		assert_eq!(pull_secrets[0].name, "my-app-regcred-primary");
+		assert_eq!(pull_secrets[1].name, "my-app-regcred-fallback");
 	}
 }
