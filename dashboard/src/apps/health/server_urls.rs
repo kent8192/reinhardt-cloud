@@ -2,32 +2,34 @@
 //!
 //! Performs two lightweight probes:
 //!
-//! 1. A database probe via `User::objects().count()` — exercises the
-//!    globally configured `DatabaseConnection` with a cheap `SELECT COUNT(*)`
-//!    that proves the connection is open and the schema is reachable.
+//! 1. A database probe via a constant-time `SELECT 1` ping — exercises
+//!    the globally configured `DatabaseConnection` without scanning any
+//!    application table.
 //! 2. A gRPC probe via the standard `grpc.health.v1.Health/Check` RPC,
 //!    using the shared `GrpcChannelSingleton` so the probe does not
 //!    establish a new TCP connection on every call.
 //!
-//! Each probe is wrapped in a short timeout so a hung dependency cannot
-//! wedge the liveness check and prevent Kubernetes from restarting the
-//! pod. Any probe failure downgrades the overall status to `error` and
-//! the endpoint responds with HTTP 503.
+//! Probe results are cached briefly so repeated unauthenticated checks
+//! cannot amplify backend load. Each cache refresh is wrapped in a short
+//! timeout so a hung dependency cannot wedge the liveness check and
+//! prevent Kubernetes from restarting the pod. Any probe failure downgrades
+//! the overall status to `error` and the endpoint responds with HTTP 503.
 
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
-use reinhardt::db::orm::Model;
+use reinhardt::db::orm::{QueryValue, get_connection};
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{Response, StatusCode, get};
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tracing::warn;
 
-use crate::apps::auth::models::User;
 use crate::apps::health::serializers::{HealthzResponse, STATUS_ERROR, STATUS_OK};
 use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 
@@ -37,13 +39,37 @@ use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 /// Two seconds is generous enough to absorb routine scheduling jitter
 /// but tight enough that a hung dependency still fails probes quickly.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Maximum age for a cached probe result.
+const PROBE_CACHE_TTL: Duration = Duration::from_secs(1);
 
-/// Probe the database by running a cheap `COUNT(*)` against an existing
-/// table via the ORM.
+#[derive(Clone, Copy)]
+struct CachedHealth {
+	checked_at: Instant,
+	db_ok: bool,
+	grpc_ok: bool,
+}
+
+static HEALTH_CACHE: OnceLock<Mutex<Option<CachedHealth>>> = OnceLock::new();
+
+fn health_cache() -> &'static Mutex<Option<CachedHealth>> {
+	HEALTH_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(crate) async fn clear_health_cache_for_test() {
+	*health_cache().lock().await = None;
+}
+
+/// Probe the database by running a constant-time `SELECT 1` ping.
 ///
 /// Returns `true` on success, `false` on any failure (including timeout).
 async fn probe_database() -> bool {
-	match timeout(PROBE_TIMEOUT, User::objects().count()).await {
+	let ping = async {
+		let conn = get_connection().await?;
+		conn.query_one("SELECT 1", Vec::<QueryValue>::new()).await
+	};
+
+	match timeout(PROBE_TIMEOUT, ping).await {
 		Ok(Ok(_)) => true,
 		Ok(Err(err)) => {
 			warn!("healthz: database probe failed: {err}");
@@ -88,6 +114,25 @@ fn status_str(ok: bool) -> String {
 	}
 }
 
+async fn cached_probe_results(grpc_channel: &GrpcChannelSingleton) -> CachedHealth {
+	let mut cache = health_cache().lock().await;
+	if let Some(cached) = *cache
+		&& cached.checked_at.elapsed() < PROBE_CACHE_TTL
+	{
+		return cached;
+	}
+
+	let db_ok = probe_database().await;
+	let grpc_ok = probe_grpc(grpc_channel).await;
+	let cached = CachedHealth {
+		checked_at: Instant::now(),
+		db_ok,
+		grpc_ok,
+	};
+	*cache = Some(cached);
+	cached
+}
+
 /// GET `/api/healthz/` — Kubernetes-friendly liveness and readiness probe.
 ///
 /// Returns HTTP 200 with `{"status":"ok","db":"ok","grpc":"ok"}` when
@@ -102,8 +147,9 @@ fn status_str(ok: bool) -> String {
 pub async fn healthz(
 	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
-	let db_ok = probe_database().await;
-	let grpc_ok = probe_grpc(&grpc_channel).await;
+	let probes = cached_probe_results(&grpc_channel).await;
+	let db_ok = probes.db_ok;
+	let grpc_ok = probes.grpc_ok;
 
 	let all_ok = db_ok && grpc_ok;
 	let http_status = if all_ok {

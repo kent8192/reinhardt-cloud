@@ -33,6 +33,7 @@ use crate::apps::organizations::roles::{
 use crate::config::ProjectSettings;
 
 const MAX_ORG_SLUG_LEN: usize = 63;
+type ProvisionResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Register an inactive user and send the verification email.
 ///
@@ -119,7 +120,9 @@ pub async fn register_inactive_user(
 /// - On unique-violation (rare race between two simultaneous registrations),
 ///   retry once with a 6-char uuid suffix appended to the slug
 pub async fn provision_personal_organization(created: &User) -> Result<(), AppError> {
-	provision_personal_organization_inner(created, true).await
+	provision_personal_organization_inner(created, true)
+		.await
+		.map(|_| ())
 }
 
 /// Create a Personal `Organization` and Owner membership for an existing
@@ -172,7 +175,7 @@ async fn provision_personal_organization_tx(
 	tx: &mut TransactionScope,
 	user_id: uuid::Uuid,
 	username: String,
-) -> anyhow::Result<()> {
+) -> ProvisionResult<()> {
 	lock_personal_org_provisioning(tx, user_id).await?;
 	if find_personal_organization_id(tx, user_id).await?.is_some() {
 		return Ok(());
@@ -191,15 +194,18 @@ async fn provision_personal_organization_tx(
 		let retry = retry_slug(&slug);
 		insert_personal_organization(tx, user_id, &username, &retry, now)
 			.await?
-			.ok_or_else(|| anyhow::anyhow!("retry Personal Organization slug also conflicted"))?
+			.ok_or_else(|| {
+				std::io::Error::other("retry Personal Organization slug also conflicted")
+			})?
 	};
 
 	if !insert_owner_membership(tx, user_id, org_id, now).await?
 		&& find_personal_organization_id(tx, user_id).await?.is_none()
 	{
-		return Err(anyhow::anyhow!(
-			"Owner membership already existed for a non-Personal Organization"
-		));
+		return Err(std::io::Error::other(
+			"Owner membership already existed for a non-Personal Organization",
+		)
+		.into());
 	}
 
 	Ok(())
@@ -208,7 +214,7 @@ async fn provision_personal_organization_tx(
 async fn lock_personal_org_provisioning(
 	tx: &mut TransactionScope,
 	user_id: uuid::Uuid,
-) -> anyhow::Result<()> {
+) -> ProvisionResult<()> {
 	tx.execute(
 		"SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
 		vec![QueryValue::String(user_id.to_string())],
@@ -220,7 +226,7 @@ async fn lock_personal_org_provisioning(
 async fn find_personal_organization_id(
 	tx: &mut TransactionScope,
 	user_id: uuid::Uuid,
-) -> anyhow::Result<Option<i64>> {
+) -> ProvisionResult<Option<i64>> {
 	let row = tx
 		.query_optional(
 			"SELECT o.id \
@@ -246,7 +252,7 @@ async fn insert_personal_organization(
 	username: &str,
 	slug: &str,
 	now: chrono::DateTime<Utc>,
-) -> anyhow::Result<Option<i64>> {
+) -> ProvisionResult<Option<i64>> {
 	let row = tx
 		.query_optional(
 			"INSERT INTO organizations (slug, name, created_by, created_at, updated_at) \
@@ -264,9 +270,10 @@ async fn insert_personal_organization(
 		.await?;
 	row.map(|row| {
 		row.get("id")
-			.ok_or_else(|| anyhow::anyhow!("created Personal Organization did not return id"))
+			.ok_or_else(|| std::io::Error::other("created Personal Organization did not return id"))
 	})
 	.transpose()
+	.map_err(Into::into)
 }
 
 async fn insert_owner_membership(
@@ -274,7 +281,7 @@ async fn insert_owner_membership(
 	user_id: uuid::Uuid,
 	org_id: i64,
 	now: chrono::DateTime<Utc>,
-) -> anyhow::Result<bool> {
+) -> ProvisionResult<bool> {
 	let rows = tx
 		.execute(
 			"INSERT INTO organization_memberships (organization_id, user_id, role, created_at) \
