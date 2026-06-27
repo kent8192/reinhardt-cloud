@@ -67,9 +67,9 @@ Operator-level workload identity is supported via the Helm chart's
 and
 [charts/reinhardt-cloud-operator/values-aws.yaml](../charts/reinhardt-cloud-operator/values-aws.yaml)).
 Per-app workload identity is now driven by `spec.serviceAccount` on the
-`Project` CRD. The operator can either create a managed KSA (when
-`create: true`) or wire an existing user-managed KSA into the workload
-PodSpec (when `create: false, name: <existing>`).
+`Project` CRD. The operator creates and wires a managed KSA when
+`create: true`. When `create: false`, it leaves `serviceAccountName` unset so app manifests
+cannot bind workloads to arbitrary same-namespace KSAs.
 
 **GKE Workload Identity flavor:**
 
@@ -111,7 +111,7 @@ KSA name as follows:
 |---------:|---------------|--------------------------|-------------------------------------|
 | `true`   | unset         | creates `{app-name}-app` | `{app-name}-app`                    |
 | `true`   | `Some("foo")` | creates `foo`            | `foo`                               |
-| `false`  | `Some("foo")` | none (user pre-creates)  | `foo`                               |
+| `false`  | `Some("foo")` | none                     | unset (Pod uses namespace `default`)|
 | `false`  | unset         | none                     | unset (Pod uses namespace `default`)|
 
 The `-app` suffix on the auto-generated name is deliberate: it keeps the
@@ -212,11 +212,11 @@ per-app workload KSA configured by `spec.serviceAccount`. The two are
   backend access (the ObjectStore CRD / `spec.storage` flow). Created
   whenever `spec.storage.backend` resolves to a backend that needs an
   IAM identity (`s3`, `gcs`).
-- **`{app-name}-app`** (or any `spec.serviceAccount.name` you supply) —
+- **`{app-name}-app`** (or an operator-created `spec.serviceAccount.name`) —
   the workload's own KSA. Optional; configured via `spec.serviceAccount`
   as documented in [Workload Identity](#workload-identity) above. Wired
-  into the PodSpec's `serviceAccountName` so the application Pods inherit
-  cloud-API access via Workload Identity / IRSA.
+  into the PodSpec's `serviceAccountName` only when `create: true` so the
+  application Pods inherit cloud-API access via Workload Identity / IRSA.
 
 When `spec.storage.backend` is set to `s3` (with a role ARN) or `gcs`
 (with a GCP ServiceAccount email), the operator creates a ServiceAccount
@@ -371,9 +371,9 @@ kubectl -n tenant-acme get pod \
 
 `spec.serviceAccount` configures the application workload's own KSA so
 the Pods can call cloud APIs via Workload Identity (GKE) or IRSA (EKS)
-without long-lived static credentials. The operator either creates a
-managed KSA (`create: true`) or wires an existing user-managed KSA into
-the PodSpec (`create: false, name: <existing>`).
+without long-lived static credentials. The operator creates and wires a
+managed KSA when `create: true`; `create: false` leaves the PodSpec
+service account unset.
 
 The flow has three steps. The first is cloud-side IAM setup, the second
 is the `Project` declaration, and the third is verification.
@@ -441,8 +441,9 @@ spec:
       eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orders-api
 ```
 
-If you prefer to manage the KSA yourself (for example, because Terraform
-already owns it), set `create: false` and supply `name`:
+If you prefer not to let the operator manage workload identity, set
+`create: false`. Any supplied `name` is ignored for PodSpec wiring so the
+`Project` manifest cannot select a privileged KSA owned outside the app:
 
 ```yaml
 spec:
@@ -451,8 +452,8 @@ spec:
     name: orders-api-team-managed
 ```
 
-In that mode the operator does not touch the KSA — it only writes
-`serviceAccountName: orders-api-team-managed` into the PodSpec.
+In that mode the operator does not touch the KSA and leaves
+`serviceAccountName` unset.
 
 #### 3. Verify
 
@@ -493,7 +494,7 @@ flowchart LR
 | `spec.storage.bucket` | `Option<String>` | Available | Bucket / volume name |
 | `spec.imagePullSecrets` | `Option<Vec<LocalObjectReference>>` | Available | Mirrors `corev1.PodSpec.imagePullSecrets`; copied into every PodSpec the operator materializes |
 | `spec.serviceAccount.create` | `bool` | Available | When `true`, operator creates the per-app KSA |
-| `spec.serviceAccount.name` | `Option<String>` | Available | Optional KSA name. Defaults to `{app-name}-app` when `create: true` and unset |
+| `spec.serviceAccount.name` | `Option<String>` | Available | Optional operator-managed KSA name used only with `create: true`. Defaults to `{app-name}-app` when unset |
 | `spec.serviceAccount.annotations` | `BTreeMap<String, String>` | Available | Annotations applied to the KSA (typically Workload Identity / IRSA bindings) |
 
 ## Troubleshooting

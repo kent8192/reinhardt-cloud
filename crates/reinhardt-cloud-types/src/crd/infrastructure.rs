@@ -10,6 +10,49 @@ use serde::{Deserialize, Serialize};
 
 use crate::validation::ValidationError;
 
+const TERRAFORM_IDENTIFIER_CHARS: &str = "ASCII letters, digits, underscores, and hyphens";
+const PROVIDER_VALUE_CHARS: &str = "ASCII letters, digits, dots, underscores, and hyphens";
+const DNS_HOST_CHARS: &str = "ASCII letters, digits, dots, and hyphens";
+
+/// Returns whether a string is safe for Terraform quoted strings and labels.
+pub fn is_safe_terraform_name(value: &str) -> bool {
+	!value.trim().is_empty()
+		&& value
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+/// Returns whether a string is safe for Terraform variable references.
+pub fn is_safe_terraform_identifier(value: &str) -> bool {
+	let mut bytes = value.bytes();
+	let Some(first) = bytes.next() else {
+		return false;
+	};
+
+	(first.is_ascii_alphabetic() || first == b'_')
+		&& bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn is_safe_provider_value(value: &str) -> bool {
+	!value.trim().is_empty()
+		&& value
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn is_safe_dns_host(value: &str) -> bool {
+	!value.trim().is_empty()
+		&& value
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+}
+
+fn is_safe_hcl_string(value: &str) -> bool {
+	!value
+		.bytes()
+		.any(|byte| byte.is_ascii_control() || matches!(byte, b'"' | b'\\' | b'{' | b'}' | b'$'))
+}
+
 /// Postgres tier / size declaration for a per-app managed database.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 pub struct PostgresSpec {
@@ -32,6 +75,22 @@ impl PostgresSpec {
 	/// Validates the Postgres spec.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
+
+		if let Some(tier) = self.tier.as_deref()
+			&& !is_safe_provider_value(tier)
+		{
+			errors.push(ValidationError::new(format!(
+				"infrastructure.postgres.tier must contain only {PROVIDER_VALUE_CHARS}"
+			)));
+		}
+
+		if let Some(version) = self.version.as_deref()
+			&& !is_safe_provider_value(version)
+		{
+			errors.push(ValidationError::new(format!(
+				"infrastructure.postgres.version must contain only {PROVIDER_VALUE_CHARS}"
+			)));
+		}
 
 		if let Some(days) = self.backup_retention_days
 			&& days == 0
@@ -67,10 +126,10 @@ impl BucketSpec {
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		if self.name.trim().is_empty() {
-			errors.push(ValidationError::new(
-				"infrastructure.buckets[].name must be non-empty",
-			));
+		if !is_safe_terraform_name(&self.name) {
+			errors.push(ValidationError::new(format!(
+				"infrastructure.buckets[].name must contain only {TERRAFORM_IDENTIFIER_CHARS}"
+			)));
 		}
 
 		if errors.is_empty() {
@@ -97,10 +156,10 @@ impl DnsRecordSpec {
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		if self.host.trim().is_empty() {
-			errors.push(ValidationError::new(
-				"infrastructure.dns[].host must be non-empty",
-			));
+		if !is_safe_dns_host(&self.host) {
+			errors.push(ValidationError::new(format!(
+				"infrastructure.dns[].host must contain only {DNS_HOST_CHARS}"
+			)));
 		}
 
 		let valid_types = ["A", "CNAME", "TXT"];
@@ -136,9 +195,17 @@ impl SecretSpec {
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		if self.name.trim().is_empty() {
+		if !is_safe_terraform_name(&self.name) {
+			errors.push(ValidationError::new(format!(
+				"infrastructure.secrets[].name must contain only {TERRAFORM_IDENTIFIER_CHARS}"
+			)));
+		}
+
+		if let Some(description) = self.description.as_deref()
+			&& !is_safe_hcl_string(description)
+		{
 			errors.push(ValidationError::new(
-				"infrastructure.secrets[].name must be non-empty",
+				"infrastructure.secrets[].description must not contain HCL metacharacters or control characters",
 			));
 		}
 
@@ -298,7 +365,7 @@ mod tests {
 		let errors = spec.validate().unwrap_err();
 
 		// Assert
-		assert!(errors[0].message.contains("name must be non-empty"));
+		assert!(errors[0].message.contains("name must contain only"));
 	}
 
 	#[rstest]
@@ -346,7 +413,37 @@ mod tests {
 		let errors = spec.validate().unwrap_err();
 
 		// Assert
-		assert!(errors[0].message.contains("name must be non-empty"));
+		assert!(errors[0].message.contains("name must contain only"));
+	}
+
+	#[rstest]
+	fn infrastructure_spec_rejects_hcl_metacharacters() {
+		// Arrange
+		let spec = InfrastructureSpec {
+			postgres: Some(PostgresSpec {
+				tier: Some(r#"db-f1-micro""#.to_string()),
+				version: Some("16".to_string()),
+				backup_retention_days: Some(7),
+			}),
+			buckets: Some(vec![BucketSpec {
+				name: "assets} resource".to_string(),
+				public: false,
+			}]),
+			dns: Some(vec![DnsRecordSpec {
+				host: "api.example.com\nresource".to_string(),
+				record_type: "A".to_string(),
+			}]),
+			secrets: Some(vec![SecretSpec {
+				name: "api-key".to_string(),
+				description: Some(r#"safe" } resource"#.to_string()),
+			}]),
+		};
+
+		// Act
+		let errors = spec.validate().unwrap_err();
+
+		// Assert
+		assert_eq!(errors.len(), 4);
 	}
 
 	#[rstest]

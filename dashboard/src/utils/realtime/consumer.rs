@@ -1050,6 +1050,7 @@ mod tests {
 		// Assert
 		assert_eq!(subscription.deployment_id, deployment.id.unwrap());
 		assert_eq!(subscription.project_name, "allowed-project");
+		assert_eq!(subscription.namespace, "tenant-logs-allowed");
 	}
 
 	#[rstest]

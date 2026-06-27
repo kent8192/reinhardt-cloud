@@ -66,6 +66,26 @@ pub(crate) fn build_core_secret_key_secret(project_name: &str, namespace: &str) 
 	}
 }
 
+/// Build a Kubernetes Secret containing Redis credentials.
+pub(crate) fn build_redis_credentials_secret(project_name: &str, namespace: &str) -> Secret {
+	let password = generate_random_password(32);
+
+	Secret {
+		metadata: ObjectMeta {
+			name: Some(format!("{project_name}-redis-credentials")),
+			namespace: Some(namespace.to_string()),
+			labels: Some(standard_secret_labels(project_name)),
+			..Default::default()
+		},
+		data: Some(BTreeMap::from([(
+			"password".to_string(),
+			ByteString(password.into_bytes()),
+		)])),
+		type_: Some("Opaque".to_string()),
+		..Default::default()
+	}
+}
+
 /// Build a Kubernetes Secret containing database credentials.
 pub(crate) fn build_db_credentials_secret(
 	project_name: &str,
@@ -211,6 +231,23 @@ mod tests {
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
 			"reinhardt-cloud-operator"
 		);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_contains_password() {
+		// Arrange & Act
+		let secret = build_redis_credentials_secret("myapp", "default");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("myapp-redis-credentials")
+		);
+		assert_eq!(secret.metadata.namespace.as_deref(), Some("default"));
+		let data = secret.data.as_ref().unwrap();
+		let password = String::from_utf8(data["password"].0.clone()).unwrap();
+		assert_eq!(password.len(), 32);
+		assert_eq!(secret.type_.as_deref(), Some("Opaque"));
 	}
 
 	#[rstest]
