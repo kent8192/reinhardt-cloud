@@ -56,6 +56,14 @@ jobs:
         with:
           tool: cargo-make
 
+      - name: Install wasm-pack
+        shell: bash
+        run: cargo install wasm-pack --locked
+
       - name: Build dashboard for wasm32-unknown-unknown
         working-directory: dashboard
         run: cargo make wasm-compile-dev
+
+      - name: Run dashboard WASM browser tests
+        working-directory: dashboard
+        run: cargo make wasm-spa-test
