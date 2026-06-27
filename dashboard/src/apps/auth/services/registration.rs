@@ -1,10 +1,9 @@
-//! Personal Organization provisioning during user registration.
+//! Personal Organization provisioning after email verification.
 //!
-//! Shared by auth server functions. This workflow provisions an
-//! `Organization` + Owner `OrganizationMembership` for every
-//! freshly-registered user so that organization-scoped resources
-//! (Cluster, Deployment, ...) can resolve via
-//! `current_organization_id_for_user`.
+//! Shared by auth server functions and verification handlers. This workflow
+//! provisions an `Organization` + Owner `OrganizationMembership` only after
+//! the user proves control of their email address so organization slugs cannot
+//! be reserved by unverified registrations.
 //!
 //! Refs #415, #435.
 //!
@@ -32,8 +31,11 @@ use crate::apps::organizations::roles::{
 };
 use crate::config::ProjectSettings;
 
-/// Register an inactive user, provision the personal organization, and send
-/// the verification email.
+/// Register an inactive user and send the verification email.
+///
+/// Personal organization provisioning is intentionally deferred until email
+/// verification succeeds so unauthenticated registrations cannot reserve
+/// globally unique organization slugs.
 pub async fn register_inactive_user(
 	username: &str,
 	email: &str,
@@ -73,8 +75,6 @@ pub async fn register_inactive_user(
 		}
 	};
 
-	provision_personal_organization(&created).await?;
-
 	let token = generate_token(
 		TokenPurpose::EmailVerification,
 		&created.id,
@@ -107,8 +107,8 @@ pub async fn register_inactive_user(
 }
 
 /// Create a Personal `Organization` and Owner `OrganizationMembership` for
-/// a freshly-registered user. Rolls the user creation back on failure so
-/// that the account never exists without an owning organization.
+/// a verified user. Rolls the user creation back on failure when called from
+/// legacy registration-recovery paths that request rollback semantics.
 ///
 /// Slug derivation:
 /// - DNS-1123 sanitize the username
