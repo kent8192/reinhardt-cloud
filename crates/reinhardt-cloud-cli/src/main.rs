@@ -96,9 +96,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// malformed or unreadable credentials file is also treated as non-fatal
 	// (warning only) so first-run and CI scenarios are not blocked.
 	match config::load_token() {
-		Ok(Some(creds)) => {
+		Ok(Some(creds)) if creds.is_scoped_to(client.base_url()) => {
 			client = client.with_token(creds.token);
 		}
+		Ok(Some(_)) => {}
 		Ok(None) => {}
 		Err(err) => {
 			eprintln!(
