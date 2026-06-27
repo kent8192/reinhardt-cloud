@@ -6,7 +6,6 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, Mac};
-use rand::{TryRngCore, rngs::OsRng};
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
@@ -41,16 +40,6 @@ type HmacSha256 = Hmac<sha2::Sha256>;
 
 const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state_sig";
 const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
-const OAUTH_STATE_ENTROPY_BYTES: usize = 32;
-
-fn generate_oauth_state() -> Result<String, AppError> {
-	let mut entropy = [0_u8; OAUTH_STATE_ENTROPY_BYTES];
-	OsRng.try_fill_bytes(&mut entropy).map_err(|err| {
-		error!("Failed to generate OAuth state entropy: {err}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-	Ok(URL_SAFE_NO_PAD.encode(entropy))
-}
 
 fn oauth_state_cookie_signature(provider_id: &str, state: &str, secret_key: &str) -> String {
 	let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
@@ -185,9 +174,8 @@ pub async fn oauth_start(
 ) -> ViewResult<Response> {
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let settings = get_settings();
-	let state = generate_oauth_state()?;
 	let auth = backend
-		.begin_auth(&provider_id, Some(state.clone()), None)
+		.begin_auth(&provider_id, None, None)
 		.await
 		.map_err(map_oauth_error)?;
 	Ok(
@@ -195,7 +183,7 @@ pub async fn oauth_start(
 			"Set-Cookie",
 			&oauth_state_cookie_header(
 				&provider_id,
-				&state,
+				&auth.state,
 				&settings.core.secret_key,
 				settings.core.debug,
 			),
