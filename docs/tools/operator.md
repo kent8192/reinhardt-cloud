@@ -314,6 +314,9 @@ From `charts/reinhardt-cloud-operator/templates/clusterrole.yaml`:
 The operator uses a **ClusterRole** (cluster-scoped) bound to its ServiceAccount. The role is templated
 and expands or contracts based on `platform` and `features.*` values at install time. No wildcard (`*`)
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
+Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
+`false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
+pre-create tenant and preview namespaces when those workflows are used.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -327,7 +330,7 @@ permissions are present; all rules follow the least-privilege principle (project
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 **Feature-conditional rules**:
 
@@ -891,7 +894,10 @@ kubectl rollout status deployment/reinhardt-cloud-operator \
 #### RBAC footprint
 
 The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
-values. The base rules (always present, regardless of platform or features) are:
+values. Namespace lifecycle verbs are additionally controlled by
+`rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
+`patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
+workflow. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -903,7 +909,7 @@ values. The base rules (always present, regardless of platform or features) are:
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 Additional rules rendered when specific features or platforms are active:
 

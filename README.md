@@ -383,6 +383,11 @@ features:
   worker: false
 ```
 
+Namespace lifecycle RBAC is disabled by default to keep the operator service account least-privilege.
+When tenant or preview namespaces are managed by a separate platform workflow, leave
+`rbac.namespaces.manageLifecycle=false` and pre-create those namespaces. Set it to `true` only when
+the operator is intentionally trusted to create, update, and delete its managed namespaces.
+
 ### Isolation defaults
 
 The operator ships with sensible security defaults:
