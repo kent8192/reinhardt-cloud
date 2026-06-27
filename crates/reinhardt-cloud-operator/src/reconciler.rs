@@ -2160,7 +2160,10 @@ async fn reconcile_preview_from_build(
 	let preview_spec =
 		preview::build_preview_spec(app, pr_number, &build.image_tag, build.branch.as_deref())?;
 	let parent_name = app.name_any();
-	let preview_labels = preview::preview_labels(&parent_name, pr_number);
+	let parent_namespace = app
+		.namespace()
+		.ok_or_else(|| Error::MissingNamespace(parent_name.clone()))?;
+	let preview_labels = preview::preview_labels(&parent_namespace, &parent_name, pr_number);
 	let preview_app = Project {
 		metadata: kube::api::ObjectMeta {
 			name: Some(preview_name.to_string()),

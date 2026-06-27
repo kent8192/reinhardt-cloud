@@ -320,6 +320,9 @@ From `charts/reinhardt-cloud-operator/templates/clusterrole.yaml`:
 The operator uses a **ClusterRole** (cluster-scoped) bound to its ServiceAccount. The role is templated
 and expands or contracts based on `platform` and `features.*` values at install time. No wildcard (`*`)
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
+Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
+`false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
+pre-create tenant and preview namespaces when those workflows are used.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -333,7 +336,7 @@ permissions are present; all rules follow the least-privilege principle (project
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 **Feature-conditional rules**:
 
@@ -612,8 +615,10 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 The operator emits custom Prometheus metrics on `/metrics` (served by the operator's HTTP server,
 enabled via `metrics.enabled`). A shipped `ServiceMonitor` template exposes them to the Prometheus
 Operator when `metrics.serviceMonitor.enabled` is set (requires the Prometheus Operator CRDs).
-The HTTP server always serves `/healthz` for kubelet probes; `metrics.enabled` controls only the
-`/metrics` endpoint contents (it returns 404 when disabled).
+The HTTP server always serves `/healthz` for manual diagnostics; `metrics.enabled` controls only the
+`/metrics` endpoint contents (it returns 404 when disabled). The Helm chart uses an exec probe
+(`reinhardt-cloud-operator --healthcheck`) so kubelet health checks do not depend on the externally
+reachable metrics listener.
 
 **Metrics catalog:**
 
@@ -779,18 +784,20 @@ operator pod restarts never block on log-ingest.
 
 **Application logs in Loki**
 
-With `logging.scrapeApps=true` (default), Promtail additionally collects managed application pods
-in namespaces matching `logging.appNamespaces` (default `tenant-.*`) and ships them to Loki with
-labels `{namespace, app, pod, container, level}`, where `app` is the project name
-(`app.kubernetes.io/name`). This is what makes a deployed `Project`'s own logs browsable from the
-dashboard. Loki multi-tenancy (per-namespace access isolation) is not enforced; the dashboard reads
-across these namespaces as a platform-admin tool.
+The bundled Promtail collector is restricted to the Helm release namespace and only tails operator
+pods. It does not collect managed application pods from tenant namespaces because doing so from the
+same DaemonSet would require broader pod discovery and host log access than the operator log path
+needs. Deploy tenant-scoped collectors separately when application log forwarding is required, and
+label those log streams with `{namespace, app, deployment_id, pod, container, level}`, where `app`
+is the project name (`app.kubernetes.io/name`) and `deployment_id` is the Dashboard deployment
+primary key.
 
 The dashboard maps its log filters to LogQL as:
 
 | Dashboard filter | LogQL |
 |---|---|
 | Project (source) | `{app="<project>"}` |
+| Deployment ID | `{deployment_id="<deployment-id>"}` |
 | Min level | `level=~"<warn\|error>"` |
 | Search | `\|~ "<regex>"` |
 | Time range | `query_range` `start`/`end` |
@@ -897,7 +904,10 @@ kubectl rollout status deployment/reinhardt-cloud-operator \
 #### RBAC footprint
 
 The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
-values. The base rules (always present, regardless of platform or features) are:
+values. Namespace lifecycle verbs are additionally controlled by
+`rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
+`patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
+workflow. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -909,7 +919,7 @@ values. The base rules (always present, regardless of platform or features) are:
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 Additional rules rendered when specific features or platforms are active:
 
