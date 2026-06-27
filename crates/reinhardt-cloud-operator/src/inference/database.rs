@@ -167,7 +167,8 @@ fn build_onprem_postgres(
 	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(project_name);
-	let selector_labels = db_selector_labels(project_name);
+	let stateful_set_selector_labels = legacy_stateful_set_selector_labels(project_name);
+	let service_selector_labels = db_selector_labels(project_name);
 
 	// StatefulSet running postgres
 	let stateful_set = StatefulSet {
@@ -181,7 +182,7 @@ fn build_onprem_postgres(
 			replicas: Some(1),
 			service_name: Some(format!("{project_name}-db")),
 			selector: LabelSelector {
-				match_labels: Some(selector_labels.clone()),
+				match_labels: Some(stateful_set_selector_labels),
 				..Default::default()
 			},
 			template: PodTemplateSpec {
@@ -267,7 +268,7 @@ fn build_onprem_postgres(
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
 			cluster_ip: Some("None".to_string()),
-			selector: Some(selector_labels),
+			selector: Some(service_selector_labels),
 			ports: Some(vec![ServicePort {
 				port: 5432,
 				target_port: Some(IntOrString::Int(5432)),
@@ -529,6 +530,13 @@ fn db_selector_labels(project_name: &str) -> BTreeMap<String, String> {
 			"database".to_string(),
 		),
 	])
+}
+
+fn legacy_stateful_set_selector_labels(project_name: &str) -> BTreeMap<String, String> {
+	BTreeMap::from([(
+		"app.kubernetes.io/name".to_string(),
+		project_name.to_string(),
+	)])
 }
 
 #[cfg(test)]
@@ -963,7 +971,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn onprem_statefulset_and_service_select_database_component() {
+	fn onprem_statefulset_keeps_legacy_selector_and_service_selects_database_component() {
 		// Arrange
 		let db_spec = DatabaseSpec {
 			engine: DatabaseEngine::Postgresql,
@@ -987,12 +995,7 @@ mod tests {
 			selector.get("app.kubernetes.io/name").map(String::as_str),
 			Some("myapp")
 		);
-		assert_eq!(
-			selector
-				.get("app.kubernetes.io/component")
-				.map(String::as_str),
-			Some("database")
-		);
+		assert_eq!(selector.len(), 1);
 
 		let pod_labels = stateful_set_spec
 			.template
