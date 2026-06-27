@@ -2,8 +2,8 @@
 # Documentation: https://release-plz.ieni.dev/docs/config
 #
 # Crate structure:
-#   Library crates (publish = false): reinhardt-cloud-types, reinhardt-cloud-core, reinhardt-cloud-k8s
-#   Binary crates (GitHub Releases):  reinhardt-cloud-dashboard, reinhardt-cloud-operator, reinhardt-cloud-cli
+#   Published crates: library crates plus CLI/operator/agent binaries.
+#   Dashboard: versioned and released through GitHub/Docker assets, but not published to crates.io.
 
 [workspace]
 # Changelog settings
@@ -22,44 +22,64 @@ git_tag_name = "{{ package }}@v{{ version }}"
 git_release_type = "auto"
 
 # Publish settings
-# semver_check disabled at workspace level: library crates are internal (publish = false)
-# and binary crates are not published to crates.io.
-semver_check = false
+# Keep this aligned with the reinhardt-web release flow: release-plz creates
+# Release PRs on normal pushes, then publishes crates only after the Release PR
+# merge leaves local versions ahead of crates.io.
+semver_check = true
 publish_timeout = "10m"
 dependencies_update = true
 release_always = true
 publish_no_verify = true
 
-# ── Application crate ─────────────────────────────────────────────────────
-# Reinhardt startproject application. Distributed via Docker image / GitHub Releases.
+# Main crate. Only selected application/binary crates get GitHub Releases.
 
 [[package]]
 name = "reinhardt-cloud"
-publish = false
 git_release_enable = true
 version_group = "reinhardt-cloud"
 
-# ── Internal library crates ──────────────────────────────────────────────────
-# These crates are workspace-internal and not published to crates.io.
-# release-plz still manages their changelogs and tags for internal tracking.
+# Publishable crates.
 
 [[package]]
-name = "reinhardt-cloud-types"
-publish = false
+name = "reinhardt-cloud-agent"
+git_release_enable = true
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-cli"
+git_release_enable = true
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-core"
-publish = false
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-grpc"
 version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-k8s"
-publish = false
 version_group = "reinhardt-cloud"
 
-# ── Binary crates (GitHub Releases) ─────────────────────────────────────────
-# These crates are distributed as GitHub Releases (not crates.io).
+[[package]]
+name = "reinhardt-cloud-operator"
+git_release_enable = true
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-proto"
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-telemetry"
+version_group = "reinhardt-cloud"
+
+[[package]]
+name = "reinhardt-cloud-types"
+version_group = "reinhardt-cloud"
+
+# Dashboard remains an application release artifact, not a crates.io crate.
 
 [[package]]
 name = "reinhardt-cloud-dashboard"
@@ -67,17 +87,11 @@ publish = false
 git_release_enable = true
 version_group = "reinhardt-cloud"
 
+# Non-published test package.
 [[package]]
-name = "reinhardt-cloud-operator"
+name = "reinhardt-cloud-integration-tests"
+release = false
 publish = false
-git_release_enable = true
-version_group = "reinhardt-cloud"
-
-[[package]]
-name = "reinhardt-cloud-cli"
-publish = false
-git_release_enable = true
-version_group = "reinhardt-cloud"
 
 [changelog]
 protect_breaking_commits = true

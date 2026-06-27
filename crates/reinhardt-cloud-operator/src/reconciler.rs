@@ -12,7 +12,8 @@ use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
 	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
 };
-use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::api::networking::v1::{Ingress, IngressRule, NetworkPolicy};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
@@ -28,7 +29,9 @@ use crate::error::{BackoffClass, Error, backoff_class};
 use crate::inference::database::{DatabaseResource, infer_database_resources};
 use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
-use crate::inference::secrets::{build_core_secret_key_secret, build_jwt_secret};
+use crate::inference::secrets::{
+	build_core_secret_key_secret, build_jwt_secret, build_redis_credentials_secret,
+};
 use crate::metrics::Metrics;
 use crate::resources::credentials;
 use crate::resources::migration::{
@@ -57,6 +60,14 @@ use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
+fn managed_git_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-git-credentials")
+}
+
+fn managed_github_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-github-git-credentials")
+}
+
 /// Annotation key on a `Project` that carries an incoming W3C `traceparent`
 /// for distributed-trace propagation into the reconcile span.
 ///
@@ -64,11 +75,13 @@ const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 /// risk exists if the operator itself writes the annotation and immediately
 /// re-triggers reconciliation. The value is consumed read-only here.
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
+/// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
+const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
 
 /// Platform-level preview environment configuration read from the environment.
 ///
 /// These values feed the cert-manager `Issuer` and the preview Ingress
-/// `ingressClassName` for every `{parent}-preview` namespace (#707).
+/// `ingressClassName` for every parent-qualified preview namespace (#707).
 #[derive(Debug, Clone)]
 pub(crate) struct PreviewConfig {
 	/// Ingress class used by preview Ingresses and the ACME HTTP-01 solver.
@@ -243,7 +256,143 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 	.await
 }
 
+fn resource_is_controlled_by_project(secret: &Secret, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	secret
+		.metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn git_credentials_cleanup_names(app: &Project, project_name: &str) -> Vec<String> {
+	let fallback_name = managed_git_credentials_secret_name(project_name);
+	let github_name = managed_github_credentials_secret_name(project_name);
+	let mut names = vec![fallback_name, github_name];
+	if let Some(source) = app.spec.source.as_ref()
+		&& let Some(secret_name) = source.credentials_secret.as_ref()
+		&& (secret_name == &names[0] || secret_name == &names[1])
+		&& !names.contains(secret_name)
+	{
+		names.push(secret_name.clone());
+	}
+	names
+}
+
+fn git_credentials_secret_is_managed(
+	secret: &Secret,
+	app: &Project,
+	project_name: &str,
+	secret_name: &str,
+) -> bool {
+	if resource_is_controlled_by_project(secret, app) {
+		return true;
+	}
+
+	let project_scoped = secret_name == managed_git_credentials_secret_name(project_name)
+		|| secret_name == managed_github_credentials_secret_name(project_name);
+	if !project_scoped {
+		return false;
+	}
+
+	secret.metadata.labels.as_ref().is_some_and(|labels| {
+		labels
+			.get("reinhardt.dev/credential-type")
+			.map(String::as_str)
+			== Some("git")
+			&& labels.get("reinhardt.dev/provider").map(String::as_str) == Some("github")
+	})
+}
+
+async fn delete_git_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	project_name: &str,
+	secret_name: &str,
+) -> Result<(), Error> {
+	let Some(existing) = secret_api.get_opt(secret_name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	if git_credentials_secret_is_managed(&existing, app, project_name, secret_name) {
+		let _ = secret_api
+			.delete(secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Git credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{project_name}"
+	);
+	Ok(())
+}
+
 /// Apply the desired state for a `Project`.
+fn existing_resource_is_controlled_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn ownership_conflict_error(
+	kind: &'static str,
+	namespace: &str,
+	name: &str,
+	app: &Project,
+) -> Error {
+	Error::ResourceOwnershipConflict {
+		kind,
+		namespace: namespace.to_string(),
+		name: name.to_string(),
+		project_namespace: app.namespace().unwrap_or_default(),
+		project_name: app.name_any(),
+	}
+}
+
+async fn ensure_deployment_apply_target_is_owned(
+	deployments: &Api<Deployment>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match deployments.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Deployment", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
+async fn ensure_service_apply_target_is_owned(
+	services: &Api<Service>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	match services.get(name).await {
+		Ok(existing) if existing_resource_is_controlled_by_project(&existing.metadata, app) => {
+			Ok(())
+		}
+		Ok(_) => Err(ownership_conflict_error("Service", namespace, name, app)),
+		Err(kube::Error::Api(api_err)) if api_err.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
 async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -347,7 +496,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
-	let preview_namespace = resources::preview_namespace::preview_namespace_name(&name);
+	let preview_namespace = resources::preview_namespace::preview_namespace_name(namespace, &name);
 	let previews_enabled = app.spec.source.as_ref().is_some_and(|source| {
 		source
 			.preview
@@ -357,8 +506,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	if previews_enabled {
 		reconcile_preview_namespace(
 			&ctx.client,
-			&name,
 			namespace,
+			&name,
 			app.meta().uid.as_deref(),
 			app.spec
 				.source
@@ -453,7 +602,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		// set of platform-appropriate resources (on-prem StatefulSet/PVC,
 		// AWS ACK DBInstance, or GCP Config Connector SQL resources) and
 		// apply them via server-side apply.
-		let resources = infer_database_resources(&app, &ctx.platform);
+		let resources = infer_database_resources(&app, &ctx.platform)?;
 		for resource in resources {
 			match resource {
 				DatabaseResource::StatefulSet(ss) => {
@@ -517,6 +666,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Reconcile owned Deployment only after the target migration revision
 	// has completed, so a new workload image never serves before its schema
 	// change gate succeeds.
+	ensure_deployment_apply_target_is_owned(&deployments, &app, namespace, &name).await?;
 	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
 	deployments
 		.patch(
@@ -530,6 +680,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Reconcile owned Service via server-side apply
 	let services: Api<Service> = Api::namespaced(ctx.client.clone(), namespace);
+	ensure_service_apply_target_is_owned(&services, &app, namespace, &name).await?;
 	let desired_service = build_service(&app, pages_config.is_some())?;
 	services
 		.patch(
@@ -602,6 +753,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
@@ -658,6 +810,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
+		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
@@ -743,17 +896,14 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// gRPC Service (stateless — always clean up)
 	delete_if_exists::<Service>(&ctx.client, namespace, &format!("{name}-grpc")).await?;
 
-	// Storage ServiceAccount (stateless — always clean up)
-	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-storage")).await?;
+	// Storage ServiceAccount (stateless — always clean up when owned).
+	delete_service_account_if_owned(&ctx.client, namespace, &format!("{name}-storage"), &app)
+		.await?;
 
-	// Per-app workload ServiceAccount (stateless — always clean up).
-	// Owner references would also handle this on parent deletion, but the
-	// explicit deletion mirrors the storage SA pattern and covers the case
-	// where the user previously set `spec.service_account.name` to a
-	// non-default value: the operator only ever creates the `{name}-app`
-	// variant, and a user-supplied custom name was created by the user
-	// themselves (we never owned it, so we do not delete it here).
-	delete_if_exists::<ServiceAccount>(&ctx.client, namespace, &format!("{name}-app")).await?;
+	// Per-app workload ServiceAccount (stateless — always clean up when owned).
+	// Check ownership before deletion so an app named `foo` cannot remove a
+	// pre-existing same-namespace `foo-app` KSA that belongs to another owner.
+	delete_service_account_if_owned(&ctx.client, namespace, &format!("{name}-app"), &app).await?;
 
 	// i18n ConfigMap (stateless — always clean up)
 	delete_if_exists::<ConfigMap>(&ctx.client, namespace, &format!("{name}-locales")).await?;
@@ -785,6 +935,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
 				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-redis-credentials, \
 				 {name}-postgresql"
 			);
 		}
@@ -802,6 +953,8 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
 				.await;
 
+			delete_redis_credentials_secret_if_managed(&secret_api, &app, namespace, &name).await?;
+
 			// Delete SMTP credentials Secret
 			let _ = secret_api
 				.delete(
@@ -810,13 +963,15 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				)
 				.await;
 
-			// Delete git credentials Secret (use spec reference if available)
-			if let Some(ref source) = app.spec.source
-				&& let Some(ref creds_name) = source.credentials_secret
-			{
-				let _ = secret_api
-					.delete(creds_name, &DeleteParams::default())
-					.await;
+			for secret_name in git_credentials_cleanup_names(&app, &name) {
+				delete_git_credentials_secret_if_managed(
+					&secret_api,
+					&app,
+					namespace,
+					&name,
+					&secret_name,
+				)
+				.await?;
 			}
 
 			// Delete introspect-managed database resources
@@ -828,7 +983,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	}
 
 	// Preview namespace (#707): when previews were enabled, the operator owns a
-	// dedicated `{name}-preview` namespace. Deleting it cascade-removes every
+	// parent-qualified preview namespace. Deleting it cascade-removes every
 	// preview child Project and its sub-resources. Best-effort: a missing
 	// namespace (previews never enabled) is not an error.
 	if app
@@ -837,14 +992,14 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 		.as_ref()
 		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
-		let preview_ns = resources::preview_namespace::preview_namespace_name(&name);
+		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
 		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
 		if let Some(parent_uid) = app.meta().uid.as_deref() {
 			if let Some(existing_ns) = ns_api.get_opt(&preview_ns).await.map_err(Error::Kube)? {
 				if resources::preview_namespace::labels_match_preview_owner(
 					existing_ns.metadata.labels.as_ref(),
-					&name,
 					namespace,
+					&name,
 					parent_uid,
 				) {
 					ns_api
@@ -1334,12 +1489,19 @@ async fn reconcile_ingress_resource_with_host(
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
+	let normalized_host = host.map(str::trim).filter(|host| !host.is_empty());
+	if let Some(host) = normalized_host {
+		ensure_ingress_host_allowed(host)?;
+		ensure_ingress_host_available(client, app, namespace, host).await?;
+	}
+
 	let signals = app
 		.spec
 		.introspect
 		.as_ref()
 		.map(|i| &i.features.infrastructure_signals);
-	let Some(desired) = build_ingress(app, routes, port, host, signals, pages_config)? else {
+	let Some(desired) = build_ingress(app, routes, port, normalized_host, signals, pages_config)?
+	else {
 		info!("No Ingress paths for {namespace}/{name}, skipping Ingress creation");
 		return Ok(());
 	};
@@ -1350,6 +1512,94 @@ async fn reconcile_ingress_resource_with_host(
 		.map_err(Error::Kube)?;
 	info!("Reconciled Ingress {namespace}/{name}");
 	Ok(())
+}
+
+fn ensure_ingress_host_allowed(host: &str) -> Result<(), Error> {
+	if is_wildcard_ingress_host(host) {
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' must not use Kubernetes wildcard host syntax"
+		)));
+	}
+
+	let suffixes = allowed_ingress_host_suffixes_from_env();
+	if suffixes.is_empty() {
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' requires {INGRESS_HOST_SUFFIXES_ENV} to declare an allowed DNS suffix"
+		)));
+	}
+
+	if suffixes
+		.iter()
+		.any(|suffix| host_matches_allowed_suffix(host, suffix))
+	{
+		return Ok(());
+	}
+
+	Err(Error::InvalidIngressHost(format!(
+		"services.ingress_host '{host}' is outside the allowed DNS suffixes configured by {INGRESS_HOST_SUFFIXES_ENV}"
+	)))
+}
+
+fn allowed_ingress_host_suffixes_from_env() -> Vec<String> {
+	std::env::var(INGRESS_HOST_SUFFIXES_ENV)
+		.unwrap_or_default()
+		.split(',')
+		.map(str::trim)
+		.filter(|suffix| !suffix.is_empty())
+		.map(|suffix| suffix.trim_start_matches('.').to_ascii_lowercase())
+		.collect()
+}
+
+fn is_wildcard_ingress_host(host: &str) -> bool {
+	host.trim().trim_end_matches('.').starts_with("*.")
+}
+
+fn host_matches_allowed_suffix(host: &str, suffix: &str) -> bool {
+	let host = host.trim_end_matches('.').to_ascii_lowercase();
+	let suffix = suffix.trim_end_matches('.');
+	host == suffix || host.ends_with(&format!(".{suffix}"))
+}
+
+async fn ensure_ingress_host_available(
+	client: &Client,
+	app: &Project,
+	namespace: &str,
+	host: &str,
+) -> Result<(), Error> {
+	let ingresses: Api<Ingress> = Api::all(client.clone());
+	let existing = ingresses
+		.list(&ListParams::default())
+		.await
+		.map_err(Error::Kube)?;
+	if let Some((existing_namespace, existing_name)) = existing.items.iter().find_map(|ingress| {
+		ingress_claims_host(ingress, host)
+			.then(|| (ingress.namespace().unwrap_or_default(), ingress.name_any()))
+	}) && (existing_namespace != namespace || existing_name != app.name_any())
+	{
+		return Err(Error::InvalidIngressHost(format!(
+			"services.ingress_host '{host}' is already claimed by Ingress {existing_namespace}/{existing_name}"
+		)));
+	}
+
+	Ok(())
+}
+
+fn ingress_claims_host(ingress: &Ingress, host: &str) -> bool {
+	ingress
+		.spec
+		.as_ref()
+		.and_then(|spec| spec.rules.as_ref())
+		.is_some_and(|rules| {
+			rules
+				.iter()
+				.any(|rule| ingress_rule_matches_host(rule, host))
+		})
+}
+
+fn ingress_rule_matches_host(rule: &IngressRule, host: &str) -> bool {
+	rule.host
+		.as_deref()
+		.is_some_and(|existing| existing.eq_ignore_ascii_case(host))
 }
 
 async fn reconcile_hpa(
@@ -1364,6 +1614,92 @@ async fn reconcile_hpa(
 		.await
 		.map_err(Error::Kube)?;
 	info!("Reconciled HPA {namespace}/{name}");
+	Ok(())
+}
+
+/// Reconciles the Redis credentials `Secret` for a `Project`.
+///
+/// Only creates the secret if it does not already exist, preserving existing
+/// Redis passwords across reconciliation cycles.
+async fn reconcile_redis_credentials_secret(
+	app: &Project,
+	client: &Client,
+	namespace: &str,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	let secret_name = format!("{name}-redis-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+
+	if let Some(existing) = secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+	{
+		if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+			return Ok(());
+		}
+
+		return Err(ownership_conflict_error(
+			"Secret",
+			namespace,
+			&secret_name,
+			app,
+		));
+	}
+
+	let secret = build_managed_redis_credentials_secret(app, namespace);
+	secret_api
+		.create(&PostParams::default(), &secret)
+		.await
+		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+	info!("Created Redis credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
+	build_redis_credentials_secret(&app.name_any(), namespace)
+}
+
+fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	if existing_resource_is_controlled_by_project(metadata, app) {
+		return true;
+	}
+
+	let app_name = app.name_any();
+	metadata.labels.as_ref().is_some_and(|labels| {
+		labels.get("app.kubernetes.io/name").map(String::as_str) == Some(app_name.as_str())
+			&& labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str)
+				== Some("reinhardt-cloud-operator")
+	})
+}
+
+async fn delete_redis_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{name}-redis-credentials");
+	let Some(existing) = secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+	else {
+		return Ok(());
+	};
+	if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+		let _ = secret_api
+			.delete(&secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Redis credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{name}"
+	);
 	Ok(())
 }
 
@@ -1454,8 +1790,19 @@ async fn reconcile_storage_sa(
 		.as_ref()
 		.cloned()
 		.unwrap_or_else(|| format!("{}-storage", app.name_any()));
+	let project_uid = service_account_project_uid(sa)
+		.expect("managed SA always has owner reference set by its builder");
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	if let Some(existing) = sa_api.get_opt(&name).await.map_err(Error::Kube)?
+		&& !service_account_is_owned_by_uid(&existing, project_uid)
+	{
+		return Err(Error::ServiceAccountOwnership {
+			namespace: namespace.to_string(),
+			name,
+			project_uid: project_uid.to_string(),
+		});
+	}
 	sa_api
 		.patch(&name, &ssapply, &Patch::Apply(sa))
 		.await
@@ -1480,8 +1827,19 @@ async fn reconcile_app_service_account(
 		.as_ref()
 		.cloned()
 		.expect("workload SA always has a name set by build_service_account");
+	let project_uid = service_account_project_uid(sa)
+		.expect("managed SA always has owner reference set by its builder");
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 	let sa_api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	if let Some(existing) = sa_api.get_opt(&name).await.map_err(Error::Kube)?
+		&& !service_account_is_owned_by_uid(&existing, project_uid)
+	{
+		return Err(Error::ServiceAccountOwnership {
+			namespace: namespace.to_string(),
+			name,
+			project_uid: project_uid.to_string(),
+		});
+	}
 	sa_api
 		.patch(&name, &ssapply, &Patch::Apply(sa))
 		.await
@@ -1705,19 +2063,20 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
-/// Reconcile the `{parent}-preview` namespace and its resource guardrails.
+/// Reconcile the parent-qualified preview namespace and its resource guardrails.
 ///
 /// The preview namespace is intentionally separate from the parent namespace,
 /// so preview Projects do not use owner references to the parent `Project`.
 async fn reconcile_preview_namespace(
 	client: &Client,
-	parent_name: &str,
 	parent_namespace: &str,
+	parent_name: &str,
 	parent_uid: Option<&str>,
 	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
 	preview_config: &PreviewConfig,
 ) -> Result<(), Error> {
-	let ns_name = resources::preview_namespace::preview_namespace_name(parent_name);
+	let ns_name =
+		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
 
 	let namespaces: Api<Namespace> = Api::all(client.clone());
@@ -1732,15 +2091,16 @@ async fn reconcile_preview_namespace(
 			&ns_name,
 			&ssapply,
 			&Patch::Apply(&resources::preview_namespace::build_namespace(
-				parent_name,
 				parent_namespace,
+				parent_name,
 				parent_uid,
 			)),
 		)
 		.await
 		.map_err(Error::Kube)?;
 
-	let quota = resources::preview_namespace::build_resource_quota(parent_name, budget);
+	let quota =
+		resources::preview_namespace::build_resource_quota(parent_namespace, parent_name, budget);
 	let quota_name = quota
 		.metadata
 		.name
@@ -1751,7 +2111,8 @@ async fn reconcile_preview_namespace(
 		.await
 		.map_err(Error::Kube)?;
 
-	let limit_range = resources::preview_namespace::build_limit_range(parent_name);
+	let limit_range =
+		resources::preview_namespace::build_limit_range(parent_namespace, parent_name);
 	let limit_range_name = limit_range
 		.metadata
 		.name
@@ -1763,8 +2124,11 @@ async fn reconcile_preview_namespace(
 		.map_err(Error::Kube)?;
 
 	for policy in [
-		resources::preview_namespace::build_default_deny_policy(parent_name),
-		resources::preview_namespace::build_allow_ingress_and_dns_policy(parent_name),
+		resources::preview_namespace::build_default_deny_policy(parent_namespace, parent_name),
+		resources::preview_namespace::build_allow_ingress_and_dns_policy(
+			parent_namespace,
+			parent_name,
+		),
 	] {
 		let policy_name = policy
 			.metadata
@@ -1778,6 +2142,7 @@ async fn reconcile_preview_namespace(
 	}
 
 	let issuer = resources::preview_namespace::build_issuer(
+		parent_namespace,
 		parent_name,
 		&preview_config.acme_server,
 		&preview_config.acme_email,
@@ -1938,7 +2303,10 @@ async fn reconcile_preview_from_build(
 	let preview_spec =
 		preview::build_preview_spec(app, pr_number, &build.image_tag, build.branch.as_deref())?;
 	let parent_name = app.name_any();
-	let preview_labels = preview::preview_labels(&parent_name, pr_number);
+	let parent_namespace = app
+		.namespace()
+		.ok_or_else(|| Error::MissingNamespace(parent_name.clone()))?;
+	let preview_labels = preview::preview_labels(&parent_namespace, &parent_name, pr_number);
 	let preview_app = Project {
 		metadata: kube::api::ObjectMeta {
 			name: Some(preview_name.to_string()),
@@ -1979,9 +2347,7 @@ async fn reconcile_preview_status(
 		)))
 		.await
 		.map_err(Error::Kube)?;
-	let previews =
-		resources::preview_status::build_preview_status_list(&preview_list.items, "https");
-	let status_patch = serde_json::json!({ "status": { "previews": previews } });
+	let status_patch = build_preview_status_patch(&preview_list.items);
 	let parent_status_api: Api<Project> = Api::namespaced(client.clone(), parent_namespace);
 	if let Err(error) = parent_status_api
 		.patch_status(
@@ -1995,6 +2361,11 @@ async fn reconcile_preview_status(
 	}
 
 	Ok(())
+}
+
+fn build_preview_status_patch(preview_projects: &[Project]) -> serde_json::Value {
+	let previews = resources::preview_status::build_preview_status_list(preview_projects, "https");
+	serde_json::json!({ "status": { "previews": previews } })
 }
 
 /// Builds a `Degraded`-condition status patch payload for the given
@@ -2227,6 +2598,46 @@ async fn autoscaler_condition(
 		reason,
 		&message,
 	)))
+}
+
+fn service_account_project_uid(sa: &ServiceAccount) -> Option<&str> {
+	sa.metadata
+		.owner_references
+		.as_ref()?
+		.iter()
+		.find(|owner| owner.controller.unwrap_or(false))
+		.map(|owner| owner.uid.as_str())
+}
+
+fn service_account_is_owned_by_uid(sa: &ServiceAccount, project_uid: &str) -> bool {
+	sa.metadata.owner_references.as_ref().is_some_and(|owners| {
+		owners.iter().any(|owner| {
+			owner.uid == project_uid && owner.kind == "Project" && owner.controller == Some(true)
+		})
+	})
+}
+
+async fn delete_service_account_if_owned(
+	client: &Client,
+	namespace: &str,
+	name: &str,
+	app: &Project,
+) -> Result<(), Error> {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return Ok(());
+	};
+	let api: Api<ServiceAccount> = Api::namespaced(client.clone(), namespace);
+	let Some(sa) = api.get_opt(name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	if service_account_is_owned_by_uid(&sa, project_uid) {
+		api.delete(name, &Default::default())
+			.await
+			.map_err(Error::Kube)?;
+	} else {
+		warn!("Skipping deletion of unowned ServiceAccount {namespace}/{name}");
+	}
+	Ok(())
 }
 
 /// Deletes a namespaced Kubernetes resource if it exists.
@@ -2654,7 +3065,7 @@ mod tests {
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use reinhardt_cloud_types::crd::{
 		BuildPhase, BuildStatus, BuildTargetKind, ProjectCondition, ProjectPhase, ProjectSpec,
-		ProjectStatus,
+		ProjectStatus, ServicesSpec,
 	};
 	use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 	use rstest::rstest;
@@ -2675,6 +3086,245 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn service_account_with_owner(uid: Option<&str>) -> ServiceAccount {
+		ServiceAccount {
+			metadata: kube::api::ObjectMeta {
+				name: Some("app-sa".to_string()),
+				owner_references: uid.map(|uid| {
+					vec![
+						k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference {
+							api_version: "paas.reinhardt-cloud.dev/v1alpha2".to_string(),
+							kind: "Project".to_string(),
+							name: "app".to_string(),
+							uid: uid.to_string(),
+							controller: Some(true),
+							block_owner_deletion: Some(true),
+						},
+					]
+				}),
+				..Default::default()
+			},
+			..Default::default()
+		}
+	}
+
+	#[rstest]
+	fn service_account_project_uid_returns_controller_owner_uid() {
+		// Arrange
+		let sa = service_account_with_owner(Some("project-uid"));
+
+		// Act / Assert
+		assert_eq!(service_account_project_uid(&sa), Some("project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_accepts_matching_project_controller_owner() {
+		// Arrange
+		let sa = service_account_with_owner(Some("project-uid"));
+
+		// Act / Assert
+		assert!(service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_unowned_account() {
+		// Arrange
+		let sa = service_account_with_owner(Some("other-uid"));
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_controller_project_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].controller = Some(false);
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	#[rstest]
+	fn service_account_is_owned_by_uid_rejects_non_project_controller_owner() {
+		// Arrange
+		let mut sa = service_account_with_owner(Some("project-uid"));
+		let owners = sa
+			.metadata
+			.owner_references
+			.as_mut()
+			.expect("test SA has owner reference");
+		owners[0].kind = "ConfigMap".to_string();
+
+		// Act / Assert
+		assert!(!service_account_is_owned_by_uid(&sa, "project-uid"));
+	}
+
+	fn make_test_ingress(name: &str, namespace: &str, host: &str) -> Ingress {
+		Ingress {
+			metadata: kube::api::ObjectMeta {
+				name: Some(name.to_string()),
+				namespace: Some(namespace.to_string()),
+				..Default::default()
+			},
+			spec: Some(k8s_openapi::api::networking::v1::IngressSpec {
+				rules: Some(vec![IngressRule {
+					host: Some(host.to_string()),
+					..Default::default()
+				}]),
+				..Default::default()
+			}),
+			..Default::default()
+		}
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_accepts_matching_controller_owner() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_unowned_resource() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = kube::api::ObjectMeta::default();
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn existing_resource_is_controlled_by_project_rejects_different_owner_uid() {
+		// Arrange
+		let app = make_test_app("payments");
+		let mut other_app = make_test_app("other");
+		other_app.metadata.uid = Some("other-uid".to_string());
+		let metadata = kube::api::ObjectMeta {
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&other_app)
+					.expect("test app has a valid owner reference"),
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let is_owned = existing_resource_is_controlled_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_owned);
+	}
+
+	#[rstest]
+	fn ownership_conflict_error_names_target_resource_and_project() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let error = ownership_conflict_error("Service", "default", "payments", &app);
+
+		// Assert
+		assert_eq!(
+			error.to_string(),
+			"refusing to manage existing Service default/payments: it is not owned by Project default/payments"
+		);
+	}
+
+	#[rstest]
+	fn build_managed_redis_credentials_secret_uses_retained_secret_shape() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let secret = build_managed_redis_credentials_secret(&app, "default");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("payments-redis-credentials")
+		);
+		assert!(
+			secret.metadata.owner_references.is_none(),
+			"Redis credentials must not be garbage-collected under Retain policy"
+		);
+		let labels = secret.metadata.labels.expect("standard labels");
+		assert_eq!(
+			labels.get("app.kubernetes.io/name").map(String::as_str),
+			Some("payments")
+		);
+		assert_eq!(
+			labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str),
+			Some("reinhardt-cloud-operator")
+		);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_accepts_legacy_standard_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "payments".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_rejects_other_app_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "other".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_managed);
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
@@ -2766,6 +3416,56 @@ mod tests {
 
 		// Assert
 		assert_eq!(action, SourceBuildGateAction::UpdatePreview { build });
+	}
+
+	#[rstest]
+	fn preview_status_patch_keeps_child_preview_list_populated() {
+		// Arrange
+		let preview = Project {
+			metadata: kube::api::ObjectMeta {
+				name: Some("ready-app-pr-42".to_string()),
+				labels: Some(
+					[
+						("reinhardt.dev/preview".to_string(), "true".to_string()),
+						(
+							"reinhardt.dev/parent-app".to_string(),
+							"ready-app".to_string(),
+						),
+						("reinhardt.dev/pr-number".to_string(), "42".to_string()),
+					]
+					.into_iter()
+					.collect(),
+				),
+				..Default::default()
+			},
+			spec: ProjectSpec {
+				services: Some(ServicesSpec {
+					port: Some(80),
+					target_port: Some(8080),
+					ingress_host: Some("ready-app-pr-42.preview.example.com".to_string()),
+					tls: None,
+				}),
+				..Default::default()
+			},
+			status: Some(ProjectStatus {
+				phase: Some(ProjectPhase::Running),
+				ready_replicas: Some(1),
+				..Default::default()
+			}),
+		};
+
+		// Act
+		let patch = build_preview_status_patch(&[preview]);
+
+		// Assert
+		assert_eq!(patch["status"]["previews"][0]["name"], "ready-app-pr-42");
+		assert_eq!(patch["status"]["previews"][0]["prNumber"], "42");
+		assert_eq!(
+			patch["status"]["previews"][0]["url"],
+			"https://ready-app-pr-42.preview.example.com"
+		);
+		assert_eq!(patch["status"]["previews"][0]["phase"], "running");
+		assert_eq!(patch["status"]["previews"][0]["readyReplicas"], 1);
 	}
 
 	fn find_condition(status: &ProjectStatus, condition_type: ConditionType) -> &ProjectCondition {
@@ -3401,7 +4101,8 @@ mod tests {
 		// function. A non-empty result proves the wiring is reachable;
 		// the previous code path (introspect-only) would have ignored
 		// the explicit spec entirely.
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(
@@ -3521,6 +4222,133 @@ mod tests {
 
 		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
 		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	#[rstest]
+	fn managed_git_credentials_secret_name_uses_project_scoped_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_git_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-git-credentials");
+	}
+
+	#[rstest]
+	fn managed_github_credentials_secret_name_uses_dashboard_import_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_github_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-github-git-credentials");
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_include_github_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("private-app-github-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(names.contains(&"private-app-git-credentials".to_string()));
+		assert!(names.contains(&"private-app-github-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_exclude_shared_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("shared-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(!names.contains(&"shared-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_secret_accepts_dashboard_applied_secret_labels() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"private-app-github-git-credentials",
+		);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn git_credentials_secret_rejects_shared_secret_even_with_git_labels() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
+
+		// Assert
+		assert!(!is_managed);
 	}
 
 	// ── conflict resolution tests ───────────────────────────────────
@@ -3718,6 +4546,84 @@ mod tests {
 		// Assert — introspect fallback used
 		assert!(result);
 		assert!(app.spec.cache.is_none());
+	}
+
+	#[rstest]
+	fn host_matches_allowed_suffix_accepts_subdomain() {
+		// Arrange
+		let host = "app.team.example.com";
+
+		// Act
+		let result = host_matches_allowed_suffix(host, "example.com");
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn is_wildcard_ingress_host_detects_kubernetes_wildcard_syntax() {
+		// Arrange
+		let host = "*.example.com";
+
+		// Act
+		let result = is_wildcard_ingress_host(host);
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn ensure_ingress_host_allowed_rejects_wildcard_host() {
+		// Arrange
+		let host = "*.example.com";
+
+		// Act
+		let result = ensure_ingress_host_allowed(host);
+
+		// Assert
+		match result {
+			Err(Error::InvalidIngressHost(message)) => assert_eq!(
+				message,
+				"services.ingress_host '*.example.com' must not use Kubernetes wildcard host syntax"
+			),
+			other => panic!("expected wildcard ingress host rejection, got {other:?}"),
+		}
+	}
+
+	#[rstest]
+	fn host_matches_allowed_suffix_rejects_suffix_confusion() {
+		// Arrange
+		let host = "attackerexample.com";
+
+		// Act
+		let result = host_matches_allowed_suffix(host, "example.com");
+
+		// Assert
+		assert!(!result);
+	}
+
+	#[rstest]
+	fn ingress_claims_host_matches_case_insensitively() {
+		// Arrange
+		let ingress = make_test_ingress("app", "default", "Login.Platform.Example.com");
+
+		// Act
+		let result = ingress_claims_host(&ingress, "login.platform.example.com");
+
+		// Assert
+		assert!(result);
+	}
+
+	#[rstest]
+	fn ingress_claims_host_rejects_different_host() {
+		// Arrange
+		let ingress = make_test_ingress("app", "default", "app.example.com");
+
+		// Act
+		let result = ingress_claims_host(&ingress, "login.platform.example.com");
+
+		// Assert
+		assert!(!result);
 	}
 
 	#[rstest]
