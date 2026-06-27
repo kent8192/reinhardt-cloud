@@ -697,6 +697,8 @@ impl WebSocketConsumer for NotificationConsumer {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::env;
+
 	use crate::shared::ws_messages::WsClientMessage;
 	use chrono::Utc;
 	use reinhardt::prelude::DatabaseConnection;
@@ -711,6 +713,40 @@ mod tests {
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::MembershipRole;
+
+	struct EnvGuard {
+		saved: Vec<(&'static str, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(values: Vec<(&'static str, &'static str)>) -> Self {
+			let saved = values
+				.iter()
+				.map(|(key, _)| (*key, env::var(key).ok()))
+				.collect();
+			for (key, value) in values {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					env::set_var(key, value);
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, value) in self.saved.drain(..) {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					match value {
+						Some(value) => env::set_var(key, value),
+						None => env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
 
 	#[fixture]
 	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
@@ -939,8 +975,17 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_validate_websocket_origin_allows_configured_origin() {
 		// Arrange
+		let _env = EnvGuard::set(vec![
+			("REINHARDT_CORE__SECRET_KEY", "test-core-secret-key"),
+			(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-jwt-secret-key-with-at-least-32-bytes",
+			),
+			("REINHARDT_DATABASE_PASSWORD", "test-db-password"),
+		]);
 		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 		let conn = Arc::new(reinhardt::WebSocketConnection::new(
 			"conn-1".to_string(),
