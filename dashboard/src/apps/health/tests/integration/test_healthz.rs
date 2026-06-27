@@ -74,6 +74,7 @@ mod tests {
 		),
 	) {
 		// Arrange
+		crate::apps::health::server_urls::clear_health_cache_for_test().await;
 		let (_container, _conn, client, _urls) = db_with_app.await;
 
 		// Act
@@ -116,10 +117,11 @@ mod tests {
 	) {
 		use reinhardt_cloud_grpc::test_utils::TestGrpcServer;
 
-		// Arrange — bring up live Postgres (via fixture) and an
-		// in-process gRPC health server, then build a router using a
-		// custom DI scope that points the channel singleton at the
-		// test server's bound port.
+		// Arrange
+		crate::apps::health::server_urls::clear_health_cache_for_test().await;
+		// Bring up live Postgres (via fixture) and an in-process gRPC health
+		// server, then build a router using a custom DI scope that points the
+		// channel singleton at the test server's bound port.
 		let (_container, _conn, _client, _urls) = db_with_app.await;
 		let grpc_server = TestGrpcServer::start().await;
 		let endpoint = grpc_server.endpoint();
@@ -179,13 +181,14 @@ mod tests {
 	///
 	/// Uses a custom DI context that does NOT initialise the global
 	/// database connection (no `postgres_with_migrations_from_dir`
-	/// fixture), so `User::objects().count()` fails with a connection
-	/// error and the probe reports `"db": "error"`.
+	/// fixture), so the database ping fails with a connection error and the
+	/// probe reports `"db": "error"`.
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_healthz_returns_503_when_db_down() {
 		// Arrange -- build a client without starting postgres.
+		crate::apps::health::server_urls::clear_health_cache_for_test().await;
 		let scope = Arc::new(SingletonScope::new());
 		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
 			AllowedOrigins(vec!["http://testserver".into()]),

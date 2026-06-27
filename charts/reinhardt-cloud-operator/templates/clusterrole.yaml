@@ -1,3 +1,5 @@
+{{- $rbac := .Values.rbac | default dict -}}
+{{- $namespaceRbac := $rbac.namespaces | default dict -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -106,23 +108,18 @@ rules:
   - apiGroups: [""]
     resources: ["limitranges", "resourcequotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Namespace management for tenant isolation (#416) and preview environments
-  # (#707).
-  # - get/list/watch: detect existing namespaces and label state
-  # - create: provision the per-tenant or per-parent preview namespace
-  # - update/patch: keep labels in sync (and Pod Security Standards labels
-  #   written by the per-app `reconcile_pss_labels` path)
-  # - delete: remove the dedicated `{parent}-preview` namespace when a parent
-  #   Project with previews enabled is deleted (#707), after the operator
-  #   verifies managed-by, preview, parent name, parent namespace, and parent
-  #   UID labels. Unlike tenant namespaces (shared across CRs), preview
-  #   namespaces are exclusive to one parent, so the operator owns their full
-  #   lifecycle. The operator code only ever deletes verified preview
-  #   namespaces; tenant namespaces are left for a future tenant-scoped
-  #   cleanup controller.
+  # Namespace label patching for Pod Security Standards and pre-created tenant
+  # or preview namespaces. Namespace create/update lifecycle verbs are disabled
+  # by default because Kubernetes RBAC cannot constrain namespace creation by
+  # name prefix. Delete remains available so finalizers can remove verified
+  # operator-owned preview namespaces.
   - apiGroups: [""]
     resources: ["namespaces"]
+    {{- if $namespaceRbac.manageLifecycle }}
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    {{- else }}
+    verbs: ["get", "patch", "delete"]
+    {{- end }}
   # Preview environments (#707): cert-manager `Issuer` resources emitted into
   # each `{parent}-preview` namespace. cert-manager CRDs are a platform
   # prerequisite (see README); delete is not needed because Issuers are

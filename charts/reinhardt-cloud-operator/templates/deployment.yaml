@@ -70,17 +70,19 @@ spec:
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            exec:
+              command:
+                - /usr/local/bin/reinhardt-cloud-operator
+                - --healthcheck
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            exec:
+              command:
+                - /usr/local/bin/reinhardt-cloud-operator
+                - --healthcheck
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}

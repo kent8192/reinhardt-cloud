@@ -16,7 +16,7 @@ pub fn url_patterns() -> UnifiedRouter {
 			let s = s.endpoint(server_urls::cli_deploy);
 			s
 		})
-		.client(|c| c.page("list", "/deployments", deployments_list_page))
+		.client(|c| c.component(deployments_list_page))
 }
 
 #[cfg(all(test, native))]
@@ -37,5 +37,19 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, Some("/api/deployments/cli/".to_string()));
+	}
+
+	#[rstest]
+	fn deployments_page_route_is_registered_from_component_metadata() {
+		// Arrange
+		let router = UnifiedRouter::new()
+			.mount_unified("/", super::url_patterns())
+			.into_client();
+
+		// Act
+		let route = router.reverse("deployments:list", &[]);
+
+		// Assert
+		assert_eq!(route, Ok("/deployments".to_string()));
 	}
 }

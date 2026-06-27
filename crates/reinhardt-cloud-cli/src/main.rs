@@ -96,9 +96,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// malformed or unreadable credentials file is also treated as non-fatal
 	// (warning only) so first-run and CI scenarios are not blocked.
 	match config::load_token() {
-		Ok(Some(creds)) => {
+		Ok(Some(creds)) if creds.is_scoped_to(client.base_url()) => {
 			client = client.with_token(creds.token);
 		}
+		Ok(Some(_)) => {}
 		Ok(None) => {}
 		Err(err) => {
 			eprintln!(
@@ -273,6 +274,26 @@ mod tests {
 
 	#[rstest]
 	fn test_parse_credentials_set_command() {
+		// Arrange
+		let args = vec![
+			"reinhardt-cloud",
+			"credentials",
+			"set",
+			"github",
+			"--git-token-file",
+			"/tmp/gh-token",
+		];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_reject_credentials_set_command_with_secret_argument() {
+		// Arrange
 		let args = vec![
 			"reinhardt-cloud",
 			"credentials",
@@ -281,13 +302,31 @@ mod tests {
 			"--git-token",
 			"ghp_xxx",
 		];
+
+		// Act
 		let cli = Cli::try_parse_from(args);
-		assert!(cli.is_ok());
+
+		// Assert
+		assert!(cli.is_err());
 	}
 
 	#[rstest]
 	fn test_parse_credentials_check_command() {
 		let args = vec!["reinhardt-cloud", "credentials", "check", "my-app"];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_parse_credentials_check_command_with_secret_name() {
+		let args = vec![
+			"reinhardt-cloud",
+			"credentials",
+			"check",
+			"my-app",
+			"--secret-name",
+			"github-git-credentials",
+		];
 		let cli = Cli::try_parse_from(args);
 		assert!(cli.is_ok());
 	}
