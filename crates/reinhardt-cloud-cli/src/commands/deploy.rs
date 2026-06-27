@@ -248,20 +248,6 @@ fn resolve_manage_bin_path(manage_bin: &Path) -> PathBuf {
 	}
 }
 
-fn project_manage_bin(project_dir: &Path) -> Option<PathBuf> {
-	let candidate = project_dir.join("manage");
-	if !candidate.is_file() {
-		return None;
-	}
-	Some(candidate.canonicalize().unwrap_or(candidate))
-}
-
-fn path_manage_introspect_command(project_dir: &Path) -> Option<Command> {
-	project_manage_bin(project_dir)
-		.as_ref()
-		.map(|manage_bin| manage_introspect_command(manage_bin, project_dir))
-}
-
 fn cargo_manage_introspect_command(project_dir: &Path) -> Command {
 	let mut command = Command::new("cargo");
 	command
@@ -377,17 +363,6 @@ fn run_manage_introspect(project_dir: &Path, manage_bin: Option<&Path>) -> Resul
 			"manage introspect",
 			timeout,
 		)?;
-		return if output.status.success() {
-			String::from_utf8(output.stdout)
-				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
-		} else {
-			let stderr = String::from_utf8_lossy(&output.stderr);
-			Err(format!("manage introspect failed: {stderr}"))
-		};
-	}
-
-	if let Some(command) = path_manage_introspect_command(project_dir) {
-		let output = command_output_with_optional_timeout(command, "manage introspect", timeout)?;
 		return if output.status.success() {
 			String::from_utf8(output.stdout)
 				.map_err(|e| format!("Invalid UTF-8 in manage output: {e}"))
@@ -1063,37 +1038,23 @@ features:
 	}
 
 	#[rstest]
-	fn test_path_manage_introspect_command_prefers_project_manage_binary() {
+	fn test_manage_introspect_command_does_not_discover_project_manage_binary() {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
 		let manage_bin = dir.path().join("manage");
 		std::fs::write(&manage_bin, "").unwrap();
-		let expected_manage_bin = manage_bin.canonicalize().unwrap();
 
 		// Act
-		let command = path_manage_introspect_command(dir.path())
-			.expect("project manage binary should be detected");
+		let command = manage_introspect_command(Path::new("manage"), dir.path());
 
 		// Assert
 		assert_eq!(command.get_current_dir(), Some(dir.path()));
-		assert_eq!(command.get_program(), expected_manage_bin.as_os_str());
+		assert_eq!(command.get_program(), "manage");
 		let args: Vec<String> = command
 			.get_args()
 			.map(|arg| arg.to_string_lossy().into_owned())
 			.collect();
 		assert_eq!(args, vec!["introspect", "--format", "yaml"]);
-	}
-
-	#[rstest]
-	fn test_path_manage_introspect_command_absent_without_project_manage_binary() {
-		// Arrange
-		let dir = tempfile::tempdir().unwrap();
-
-		// Act
-		let command = path_manage_introspect_command(dir.path());
-
-		// Assert
-		assert!(command.is_none());
 	}
 
 	#[rstest]
