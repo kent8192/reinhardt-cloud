@@ -236,9 +236,13 @@ async fn authorize_deployment_subscriptions(
 		.map_err(|_| log_stream_rejected("Not authorized to subscribe to deployment updates"))?;
 	let mut authorized = Vec::with_capacity(deployment_ids.len());
 	for deployment_id in deployment_ids {
-		let deployment_id_i64: i64 = deployment_id
-			.parse()
-			.map_err(|_| log_stream_rejected("Invalid deployment id for subscription"))?;
+		let Ok(deployment_id_i64) = deployment_id.parse::<i64>() else {
+			tracing::debug!(
+				deployment_id,
+				"Skipping invalid WebSocket deployment subscription id"
+			);
+			continue;
+		};
 		let deployment = Deployment::objects()
 			.filter(Deployment::field_id().eq(deployment_id_i64))
 			.filter(Deployment::field_organization_id().eq(organization_id))
@@ -250,8 +254,14 @@ async fn authorize_deployment_subscriptions(
 					"Failed to load deployment for WebSocket subscription"
 				);
 				log_stream_rejected("Failed to authorize deployment subscription")
-			})?
-			.ok_or_else(|| log_stream_rejected("Deployment not found for subscription"))?;
+			})?;
+		let Some(deployment) = deployment else {
+			tracing::debug!(
+				deployment_id = deployment_id_i64,
+				"Skipping stale or unauthorized WebSocket deployment subscription id"
+			);
+			continue;
+		};
 		if let Some(id) = deployment.id {
 			authorized.push(id.to_string());
 		}
@@ -943,7 +953,7 @@ mod tests {
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
-	async fn authorize_deployment_subscriptions_rejects_cross_org_deployment_guess(
+	async fn authorize_deployment_subscriptions_skips_cross_org_deployment_guess(
 		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
 	) {
 		// Arrange
@@ -954,23 +964,23 @@ mod tests {
 		let other_org = create_org(&conn, &other_user, "sub-other").await;
 		add_membership(&conn, &user, &own_org).await;
 		add_membership(&conn, &other_user, &other_org).await;
+		let own_deployment = create_deployment(&conn, &own_org, "own-sub-project").await;
 		let other_deployment = create_deployment(&conn, &other_org, "other-sub-project").await;
 
 		// Act
-		let result = authorize_deployment_subscriptions(
+		let subscriptions = authorize_deployment_subscriptions(
 			&user.id.to_string(),
-			&[other_deployment.id.unwrap().to_string()],
+			&[
+				own_deployment.id.unwrap().to_string(),
+				other_deployment.id.unwrap().to_string(),
+				"not-a-deployment-id".to_string(),
+			],
 		)
-		.await;
+		.await
+		.expect("stale subscription ids should not abort the batch");
 
 		// Assert
-		match result {
-			Err(WsMessage::LogStreamAck(payload)) => {
-				assert_eq!(payload.acknowledged, false);
-				assert_eq!(payload.message, "Deployment not found for subscription");
-			}
-			_ => panic!("expected rejected LogStreamAck"),
-		}
+		assert_eq!(subscriptions, vec![own_deployment.id.unwrap().to_string()]);
 	}
 
 	#[rstest]
