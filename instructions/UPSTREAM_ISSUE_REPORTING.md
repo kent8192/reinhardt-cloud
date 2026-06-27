@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the policy for reporting issues discovered in upstream dependencies during Reinhardt Cloud development. Reinhardt Cloud is a PaaS built on top of [reinhardt-web](https://github.com/kent8192/reinhardt-web), and issues found in reinhardt-web during Reinhardt Cloud work MUST be reported immediately to the upstream repository.
+This file defines the policy for reporting issues discovered in upstream dependencies during Reinhardt Cloud development. Reinhardt Cloud is a PaaS built on top of [reinhardt-web](https://github.com/kent8192/reinhardt-web), and issues found in reinhardt-web during Reinhardt Cloud work MUST be prepared for upstream reporting immediately. Creating GitHub issues or cross-reference comments still requires explicit user instruction under the repository interaction policy.
 
 ---
 
@@ -24,7 +24,7 @@ This policy applies to the following upstream repositories:
 
 ### UR-1 (MUST): Immediate Reporting
 
-When a bug, missing feature, documentation gap, or unexpected behavior in reinhardt-web is discovered during Reinhardt Cloud development, an issue MUST be created in the reinhardt-web repository **immediately** upon discovery.
+When a bug, missing feature, documentation gap, or unexpected behavior in reinhardt-web is discovered during Reinhardt Cloud development, an upstream issue report MUST be prepared **immediately** upon discovery. If explicit user instruction already authorizes issue creation, create the upstream issue and tracking issue immediately. Otherwise, present the prepared upstream issue title, body, labels, and tracking-issue body for user approval before running any GitHub write commands.
 
 **Rationale:** Delaying upstream issue reporting increases the risk of:
 - Forgetting the issue details
@@ -38,9 +38,10 @@ flowchart TD
     A[Discover issue during Reinhardt Cloud development] --> B{Is the issue in Reinhardt Cloud code?}
     B -->|Yes| C[Create issue in reinhardt-cloud repo]
     B -->|No| D{Is the issue in reinhardt-web?}
-    D -->|Yes| E[Create issue in reinhardt-web repo immediately]
+    D -->|Yes| E{Issue creation explicitly authorized?}
     D -->|No| F[Investigate further]
-    E --> E2["Create tracking issue in reinhardt-cloud repo<br/>with upstream-tracking label"]
+    E -->|No| E1["Prepare upstream and tracking issue drafts<br/>then request authorization"]
+    E -->|Yes| E2["Create issue in reinhardt-web repo<br/>and tracking issue in reinhardt-cloud"]
     E2 --> E3["Cross-reference both issues"]
     E3 --> G{Does Reinhardt Cloud need a workaround?}
     G -->|Yes| H["Add workaround in Reinhardt Cloud with<br/>comment referencing both issues"]
@@ -48,12 +49,12 @@ flowchart TD
     H --> I
 ```
 
-### UR-2 (MUST): Use GitHub CLI with Repository Flag
+### UR-2 (MUST): Use GitHub CLI with Repository Flag After Authorization
 
-Issues in upstream repositories MUST be created using `gh issue create` with the `-R` flag:
+Authorized issues in upstream repositories MUST be created using `gh issue create` with the `-R` flag:
 
 ```bash
-# Create issue in reinhardt-web
+# Create issue in reinhardt-web after explicit user instruction
 gh issue create -R kent8192/reinhardt-web \
   --title "Bug: description of the issue" \
   --body "$(cat <<'EOF'
@@ -98,7 +99,7 @@ Upstream issues MUST:
 
 ### UR-4 (MUST): Cross-Referencing with Tracking Issues
 
-When an upstream issue is created, a corresponding **tracking issue** MUST also be created in the Reinhardt Cloud repository. Both issues MUST reference each other.
+When an upstream issue is authorized and created, a corresponding **tracking issue** MUST also be created in the Reinhardt Cloud repository. Both issues MUST reference each other when the user authorization covers the required issue/comment writes. If authorization is missing or narrower than the full cross-reference workflow, prepare the missing issue/comment text and request approval before writing it to GitHub.
 
 **Rationale:** Creating a tracking issue in Reinhardt Cloud ensures that:
 - Upstream dependencies are visible in the Reinhardt Cloud issue tracker
@@ -107,9 +108,9 @@ When an upstream issue is created, a corresponding **tracking issue** MUST also 
 
 **Procedure:**
 
-1. **Create the upstream issue** in reinhardt-web (UR-1, UR-2)
-2. **Create a tracking issue** in the Reinhardt Cloud repository referencing the upstream issue
-3. **Update the upstream issue** to reference the Reinhardt Cloud tracking issue
+1. **Create the upstream issue** in reinhardt-web after explicit authorization (UR-1, UR-2)
+2. **Create a tracking issue** in the Reinhardt Cloud repository referencing the upstream issue when authorized
+3. **Update the upstream issue** to reference the Reinhardt Cloud tracking issue when authorized
 4. **In the Reinhardt Cloud codebase**: Add a comment referencing both issues where a workaround is applied
 
 The following diagram shows the cross-referencing workflow:
@@ -211,12 +212,13 @@ Do **NOT** report to the upstream repository when:
 
 When an upstream issue blocks Reinhardt Cloud development:
 
-1. Create the upstream issue first (UR-1)
-2. Create the Reinhardt Cloud tracking issue with `upstream-tracking` label (UR-4)
-3. Cross-reference both issues (UR-4)
-4. Implement a minimal workaround in Reinhardt Cloud
-5. Mark the workaround with a comment referencing both issues (UR-4)
-6. Track the upstream issue for resolution; close the Reinhardt Cloud tracking issue when resolved
+1. Prepare the upstream issue report immediately (UR-1)
+2. Get explicit authorization for the upstream issue and tracking issue writes
+3. Create the upstream issue and Reinhardt Cloud tracking issue with `upstream-tracking` label (UR-4)
+4. Cross-reference both issues when authorized (UR-4)
+5. Implement a minimal workaround in Reinhardt Cloud
+6. Mark the workaround with a comment referencing both issues (UR-4)
+7. Track the upstream issue for resolution; close the Reinhardt Cloud tracking issue when resolved
 
 **Workaround rules:**
 - Keep workarounds minimal and isolated
@@ -226,8 +228,9 @@ When an upstream issue blocks Reinhardt Cloud development:
 ### WP-2 (MUST): No Silent Workarounds
 
 **NEVER** implement workarounds for upstream issues without:
-1. Creating an upstream issue first
-2. Adding a reference comment in the workaround code
+1. Getting explicit authorization for the upstream issue and tracking workflow
+2. Creating the upstream issue and tracking issue when authorized
+3. Adding a reference comment in the workaround code
 
 ### WP-3 (MUST): Include Ideal Implementation in Workaround Comments
 
@@ -269,24 +272,24 @@ Every workaround comment MUST include the **ideal implementation** — the code 
 ## Quick Reference
 
 ### ✅ MUST DO
-- Create issues in reinhardt-web immediately upon discovering upstream bugs (UR-1)
-- Use `gh issue create -R kent8192/reinhardt-web` for upstream issue creation (UR-2)
+- Prepare reinhardt-web issue reports immediately upon discovering upstream bugs (UR-1)
+- Use `gh issue create -R kent8192/reinhardt-web` for authorized upstream issue creation (UR-2)
 - Write all upstream issues in English (UR-3)
 - Follow upstream repository's issue templates when available (UR-3)
-- Create a tracking issue in Reinhardt Cloud for every upstream issue with `upstream-tracking` label (UR-4)
-- Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally (UR-4)
+- Create a tracking issue in Reinhardt Cloud for every authorized upstream issue with `upstream-tracking` label (UR-4)
+- Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally when authorized (UR-4)
 - Add workaround comments referencing both upstream and Reinhardt Cloud tracking issues (UR-4)
 - Include ideal implementation in all workaround comments (WP-3)
-- Create upstream issue before implementing any workaround (WP-2)
+- Get explicit authorization for the upstream issue and tracking workflow before implementing any workaround (WP-2)
 
 ### ❌ NEVER DO
 - Delay reporting upstream issues discovered during Reinhardt Cloud development
-- Implement workarounds without creating upstream issues first (WP-2)
+- Implement workarounds before the upstream issue and tracking workflow is explicitly authorized (WP-2)
 - Introduce workaround code without an ideal implementation comment (WP-3)
-- Create upstream issues without corresponding Reinhardt Cloud tracking issues (UR-4)
+- Create upstream issues without corresponding authorized Reinhardt Cloud tracking issues (UR-4)
 - Include absolute local paths in upstream issues (UR-3)
 - Report Reinhardt Cloud-specific issues to the reinhardt-web repository (IC-2)
-- Forget to cross-reference between Reinhardt Cloud and upstream issues (UR-4)
+- Forget authorized cross-references between Reinhardt Cloud and upstream issues (UR-4)
 
 ---
 

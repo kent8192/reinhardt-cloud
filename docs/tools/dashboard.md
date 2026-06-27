@@ -15,7 +15,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 - **Database engine**: PostgreSQL (inferred from `FieldType::TimestampTz`, `FieldType::Uuid` in migration source, and `engine = "postgresql"` in `dashboard/settings/base.toml`)
 - **Frontend framework**: reinhardt-pages + reinhardt-admin features of the `reinhardt` crate — not Yew, Leptos, or Dioxus
 - **WASM build**: The library crate declares `crate-type = ["cdylib", "rlib"]` for dual native/WASM compilation. The `dashboard/index.html` file is the WASM shell HTML; `build.rs` uses `cfg_aliases` to set `cfg(wasm)` / `cfg(native)` compile-time flags. WASM bundle build tooling is not declared in `Cargo.toml` — see §7.8 of the source audit (outstanding verification: WASM bundler invocation, e.g. `trunk build`, is not documented in Makefile.toml and must be verified from the broader build pipeline before documenting the exact command)
-- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on port 50051 by default (`crates/reinhardt-cloud-grpc/src/config.rs`)
+- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on `0.0.0.0:50051` by default (`crates/reinhardt-cloud-grpc/src/config.rs`)
 - **Settings loader**: environment-variable-driven TOML files in `dashboard/settings/` (selected via `REINHARDT_SETTINGS_MODULE`)
 
 ### Dashboard vs CLI vs Operator
@@ -35,7 +35,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 | DB engine (production) | PostgreSQL | `dashboard/settings/base.toml` `engine = "postgresql"` |
 | Frontend framework | reinhardt pages + admin | `dashboard/Cargo.toml` WASM deps `reinhardt = { features = ["pages", "admin"] }` |
 | WASM build tooling | Outstanding verification (see §7.8) | `dashboard/index.html` exists; bundler not confirmed |
-| gRPC server | tonic 0.13, default port 50051 | `crates/reinhardt-cloud-grpc/src/config.rs` line 25 |
+| gRPC server | tonic 0.13, default bind address `0.0.0.0:50051` | `crates/reinhardt-cloud-grpc/src/config.rs` |
 | Migration format | Rust source files | `dashboard/migrations/` (no `.sql` files) |
 
 ---
@@ -101,11 +101,11 @@ Rollback capability via the Dashboard UI is not confirmed in source. To roll bac
 
 ### Logs viewer
 
-Application logs are read through the Dashboard's gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
+Application logs are read through the Dashboard's JWT-protected gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
-Managed application pods are written to Loki by the Helm chart's Promtail app scrape job when `logging.scrapeApps=true`. The Dashboard resolves the selected `deployment_id` through the current user's organization, enforces `LogsRead`, then maps the deployment's project name to the Loki `app` label and the organization slug to the deterministic tenant namespace. Historical log requests use `deployment_logs_for_current_org`; live tailing uses the authenticated `/ws/notifications` WebSocket and sends `SubscribeAppLogs { deployment_id }`. Both paths include the tenant namespace in their gRPC log filter so project-name collisions in other organizations do not match the same Loki query.
+Managed application pods must be written to Loki by tenant-scoped collectors that label streams with the project `app`, deployment `deployment_id`, and tenant `namespace`; the Helm chart's bundled Promtail collector is restricted to operator pods in the release namespace. The Dashboard resolves the selected `deployment_id` through the current user's organization, enforces `LogsRead`, then maps the deployment's project name to the Loki `app` label, the deployment primary key to the Loki `deployment_id` label, and the organization slug to the deterministic tenant namespace. Historical log requests use `deployment_logs_for_current_org`; live tailing uses the authenticated `/ws/notifications` WebSocket and sends `SubscribeAppLogs { deployment_id }`. Both paths include the tenant namespace in their gRPC log filter so project-name collisions in other organizations do not match the same Loki query.
 
-Filters available in the generic log service depend on `crates/reinhardt-cloud-proto/proto/log.proto` and `reinhardt_cloud_types::log::LogFilter`: `source` (project/app label), `min_level`, `since`, `until`, `search`, `deployment_id`, and `namespace`. The Dashboard managed-app log viewer sets `source` and the tenant `namespace`; `deployment_id` is used for authorization and lookup before the Loki query is built.
+Direct gRPC log reads must include a non-empty `source` or `deployment_id` filter so backend queries cannot default to a cross-application log selector. Filters available in the generic log service depend on `crates/reinhardt-cloud-proto/proto/log.proto` and `reinhardt_cloud_types::log::LogFilter`: `source` (project/app label), `min_level`, `since`, `until`, `search`, `deployment_id`, and `namespace`. The Dashboard managed-app log viewer sets `source`, `deployment_id`, and the tenant `namespace` after authorization so shared log backends constrain results to the selected deployment instead of relying on a user-controlled project name alone.
 
 > **Security note**: Logs may contain personally identifiable information if applications log request bodies, headers, or user input. The Dashboard streams log content without server-side masking or redaction. App Developers should ensure their applications do not log sensitive data at `INFO` level or above.
 
@@ -151,7 +151,8 @@ The image also:
 
 1. Sets `REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings` at process startup
 2. Bundles Dashboard settings under `/app/settings`
-3. Exposes port 8000 for the HTTP API
+3. Sets `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` and defaults `REINHARDT_ENV=production` so direct container launches use the hardened production profile unless operators explicitly override the profile
+4. Exposes port 8000 for the HTTP API
 
 ### Database requirements
 
@@ -212,7 +213,7 @@ This is set unconditionally by `dashboard/src/bin/manage.rs` before delegating t
 | `static_files.url` | URL prefix for static files (default `/static/`) |
 | `static_files.root` | Filesystem path to static files |
 
-Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or by supplying a `production.toml` file alongside `base.toml` in the settings directory. The reinhardt-web loader merges files in lexicographic order of their names.
+The Dashboard runtime image defaults `REINHARDT_ENV=production`, which loads `production.toml` from `/app/settings` and keeps direct container deployments on the hardened profile. Override `REINHARDT_ENV` only when intentionally running a non-production profile, and prefer environment variables or mounted replacement settings files for deployment-specific values.
 
 ### GitHub OAuth
 

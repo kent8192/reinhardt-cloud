@@ -16,10 +16,12 @@
 //! upstream as of reinhardt-web `main`, so we use
 //! `InMemoryStateStore`. Implication: the dashboard is single-instance
 //! for OAuth flow purposes — a user who starts the flow on one pod and
-//! is routed to another for the callback will see `InvalidState`. State
-//! is held for ~10 minutes, so the only steady-state symptom is the
-//! occasional retry; the flow itself remains secure (state + PKCE are
-//! still per-request and CSRF-bound).
+//! is routed to another for the callback will see `InvalidState`. The
+//! server route binds each generated state to a short-lived `HttpOnly`
+//! browser cookie before redirecting to the provider and requires the
+//! callback browser to present the same value before consuming the shared
+//! state store entry. That route-level cookie binding prevents OAuth
+//! login CSRF/session swapping while this backend remains process-local.
 //!
 //! Tracked for follow-up: this should move to a Redis-backed StateStore
 //! once upstream `reinhardt-auth` exposes one. (Unrelated to the now-merged

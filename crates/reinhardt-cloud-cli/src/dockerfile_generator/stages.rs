@@ -29,13 +29,8 @@ pub(crate) struct DockerfileSignals {
 	/// does not enable the reinhardt-web `grpc` feature.
 	pub(crate) protoc_needed: bool,
 	/// When true, the project has a `settings/` directory next to its
-	/// `Cargo.toml`. The runtime stage will COPY it into `/app/settings`
-	/// and set `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` so the binary
-	/// loads its configuration from a deterministic, container-local
-	/// location rather than falling back to `CARGO_MANIFEST_DIR` (which
-	/// does not exist inside the runtime image).
-	///
-	/// See kent8192/reinhardt-cloud#486 (issue 2).
+	/// `Cargo.toml`. Runtime images intentionally do not copy this directory
+	/// because project settings TOMLs can contain deployment secrets.
 	pub(crate) has_settings_dir: bool,
 	/// When true, the project has a `migrations/` directory next to its
 	/// `Cargo.toml`. The runtime stage will COPY it into `/app/migrations`
@@ -46,14 +41,14 @@ pub(crate) struct DockerfileSignals {
 	/// (typically the workspace root). When `Some("dashboard")`, the
 	/// builder stage's `COPY . .` puts the project sources at
 	/// `/app/dashboard/...`, so the runtime stage must reference
-	/// `/app/dashboard/settings` rather than `/app/settings`. `None` for
+	/// `/app/dashboard/migrations` rather than `/app/migrations`. `None` for
 	/// single-crate projects where the project dir IS the build context.
-	///
-	/// See kent8192/reinhardt-cloud#486 (issue 2).
 	pub(crate) project_relative_path: Option<String>,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
+const SETTINGS_RUNTIME_CONFIG_COMMENT: &str =
+	"settings/ detected; provide runtime configuration at deployment time";
 
 /// Determines the runtime packages needed based on the database signal.
 fn runtime_packages(signals: &DockerfileSignals) -> Vec<&str> {
@@ -276,6 +271,12 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		dst: "/app/".to_string(),
 	});
 
+	if signals.has_settings_dir {
+		instructions.push(Instruction::Comment(
+			SETTINGS_RUNTIME_CONFIG_COMMENT.to_string(),
+		));
+	}
+
 	if signals.pages {
 		instructions.push(Instruction::Copy {
 			from: Some("wasm".to_string()),
@@ -284,8 +285,8 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		});
 		// SPA fallback: ship `index.html` alongside the WASM artifacts so
 		// `RunServerCommand`'s `--with-pages` mode can serve it for unknown
-		// routes. Source path mirrors the settings/ COPY logic below
-		// (workspace-member layouts vs. project-root layouts).
+		// routes. Source path follows the same workspace-member vs.
+		// project-root layout used by runtime asset copies.
 		// See kent8192/reinhardt-cloud#511.
 		let index_src = match signals.project_relative_path.as_deref() {
 			Some(rel) => format!("/app/{rel}/index.html"),
@@ -298,21 +299,6 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		});
 	}
 
-	// Bundle the project's `settings/` TOMLs into the runtime image so the
-	// binary can load its configuration without bind-mounts. The source
-	// path depends on whether the project lives at the build-context root
-	// or as a workspace member. See kent8192/reinhardt-cloud#486 (issue 2).
-	if signals.has_settings_dir {
-		let settings_src = match signals.project_relative_path.as_deref() {
-			Some(rel) => format!("/app/{rel}/settings"),
-			None => "/app/settings".to_string(),
-		};
-		instructions.push(Instruction::Copy {
-			from: Some("builder".to_string()),
-			src: settings_src,
-			dst: "/app/settings".to_string(),
-		});
-	}
 	if signals.has_migrations_dir {
 		let migrations_src = match signals.project_relative_path.as_deref() {
 			Some(rel) => format!("/app/{rel}/migrations"),
@@ -341,19 +327,10 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	let mut env_pairs = vec![
 		("RUST_LOG".to_string(), "info".to_string()),
 		("PATH".to_string(), "/app:$PATH".to_string()),
+		("REINHARDT_ENV".to_string(), "production".to_string()),
 	];
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
-	}
-	// Pin the config dir so the binary loads its TOMLs from a known
-	// location instead of falling back to `CARGO_MANIFEST_DIR` (which
-	// resolves to the host build path and is meaningless in the runtime
-	// image). See kent8192/reinhardt-cloud#486 (issue 2).
-	if signals.has_settings_dir {
-		env_pairs.push((
-			"REINHARDT_CLOUD_CONFIG_DIR".to_string(),
-			"/app/settings".to_string(),
-		));
 	}
 	instructions.push(Instruction::Env(env_pairs));
 
@@ -812,6 +789,18 @@ mod tests {
 		);
 	}
 
+	#[rstest]
+	fn runtime_stage_defaults_to_production_settings(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert_eq!(
+			stage_env_value(&stage, "REINHARDT_ENV").as_deref(),
+			Some("production")
+		);
+	}
+
 	// S19 (Refs #372): redis cache installs redis-tools in runtime
 	#[rstest]
 	fn runtime_stage_installs_redis_tools_when_cache_redis(mut minimal_signals: DockerfileSignals) {
@@ -1044,72 +1033,50 @@ mod tests {
 		);
 	}
 
-	// SD1 (Refs #486 issue 2): runtime stage bundles project settings when
-	// the project ships a `settings/` directory next to its `Cargo.toml`.
-	// For workspace members, the source path includes the project's
-	// relative path so `COPY` resolves to the correct location inside
-	// the builder stage's filesystem.
+	// SD1: runtime images must never bundle project settings, even when a
+	// `settings/` directory exists, because those TOMLs can contain deployment
+	// secrets. Configuration must be provided by the deployment environment.
 	#[rstest]
-	fn runtime_stage_bundles_settings_for_workspace_member(mut minimal_signals: DockerfileSignals) {
-		// Arrange — workspace member at `dashboard/` with a settings dir
+	#[case::workspace_member(Some("dashboard"))]
+	#[case::root_project(None)]
+	fn runtime_stage_omits_settings_when_dir_present(
+		mut minimal_signals: DockerfileSignals,
+		#[case] project_relative_path: Option<&str>,
+	) {
+		// Arrange
 		minimal_signals.has_settings_dir = true;
-		minimal_signals.project_relative_path = Some("dashboard".to_string());
-
-		// Act
-		let stage = build_runtime_stage(&minimal_signals);
-
-		// Assert: COPY must reference the workspace-relative path AND set
-		// REINHARDT_CLOUD_CONFIG_DIR so the binary doesn't fall back to
-		// CARGO_MANIFEST_DIR at runtime.
-		let copies_settings = stage.instructions.iter().any(|inst| {
-			matches!(
-				inst,
-				Instruction::Copy { from: Some(f), src, dst }
-					if f == "builder" && src == "/app/dashboard/settings" && dst == "/app/settings"
-			)
-		});
-		assert!(
-			copies_settings,
-			"runtime stage must COPY /app/dashboard/settings -> /app/settings"
-		);
-		assert_eq!(
-			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").as_deref(),
-			Some("/app/settings"),
-			"runtime stage must pin REINHARDT_CLOUD_CONFIG_DIR; \
-			 see kent8192/reinhardt-cloud#486"
-		);
-	}
-
-	// SD2 (Refs #486 issue 2): single-crate project (no workspace) places
-	// `settings/` at the build context root, so the COPY src is just
-	// `/app/settings`.
-	#[rstest]
-	fn runtime_stage_bundles_settings_for_root_project(mut minimal_signals: DockerfileSignals) {
-		// Arrange — single-crate project: project_relative_path is None
-		minimal_signals.has_settings_dir = true;
-		minimal_signals.project_relative_path = None;
+		minimal_signals.project_relative_path = project_relative_path.map(str::to_string);
 
 		// Act
 		let stage = build_runtime_stage(&minimal_signals);
 
 		// Assert
-		let copies_settings = stage.instructions.iter().any(|inst| {
+		let has_settings_copy = stage.instructions.iter().any(|inst| {
 			matches!(
 				inst,
-				Instruction::Copy { from: Some(f), src, dst }
-					if f == "builder" && src == "/app/settings" && dst == "/app/settings"
+				Instruction::Copy { dst, .. } if dst == "/app/settings"
 			)
 		});
 		assert!(
-			copies_settings,
-			"single-crate project: COPY src must be /app/settings (no prefix)"
+			!has_settings_copy,
+			"runtime stage must not COPY secret-bearing project settings"
+		);
+		assert!(
+			stage_env_value(&stage, "REINHARDT_CLOUD_CONFIG_DIR").is_none(),
+			"runtime stage must not activate bundled project settings"
+		);
+		assert!(
+			stage.instructions.iter().any(|inst| matches!(
+				inst,
+				Instruction::Comment(text) if text == SETTINGS_RUNTIME_CONFIG_COMMENT
+			)),
+			"runtime stage should record settings detection without bundling files"
 		);
 	}
 
-	// SD3 (Refs #486 issue 2): when has_settings_dir is false (project
-	// has no settings/ directory), runtime stage must NOT emit the COPY
-	// or the env var. This preserves backwards compatibility for
-	// projects that load settings from elsewhere.
+	// SD2: when has_settings_dir is false (project has no settings/ directory),
+	// runtime stage must also omit the COPY and env var. This preserves
+	// backwards compatibility for projects that load settings from elsewhere.
 	#[rstest]
 	fn runtime_stage_omits_settings_when_dir_absent(minimal_signals: DockerfileSignals) {
 		// Act
