@@ -17,6 +17,11 @@ use reinhardt_cloud_telemetry::{InMemoryLogService, LogService};
 /// value — or unset — selects the default human-readable format.
 const LOG_FORMAT_ENV: &str = "REINHARDT_LOG_FORMAT";
 
+/// Argument used by Kubernetes exec probes to verify that the operator
+/// binary can start without depending on the externally reachable HTTP
+/// metrics listener.
+const HEALTHCHECK_ARG: &str = "--healthcheck";
+
 /// Log output format selected at startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LogFormat {
@@ -39,8 +44,26 @@ where
 	}
 }
 
+/// Return whether command-line arguments request the cheap exec-probe
+/// healthcheck mode. Extra arguments are rejected so accidental operator
+/// invocations do not silently exit.
+fn is_healthcheck_invocation<I>(args: I) -> bool
+where
+	I: IntoIterator,
+	I::Item: AsRef<str>,
+{
+	let mut args = args.into_iter();
+	matches!(
+		args.next().as_ref().map(AsRef::as_ref),
+		Some(HEALTHCHECK_ARG)
+	) && args.next().is_none()
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+	if is_healthcheck_invocation(std::env::args().skip(1)) {
+		return Ok(());
+	}
 	// Explicitly install rustls CryptoProvider (defense-in-depth, see #314)
 	rustls::crypto::ring::default_provider()
 		.install_default()
@@ -150,6 +173,22 @@ mod tests {
 				None
 			}
 		}
+	}
+
+	#[rstest]
+	#[case(&[HEALTHCHECK_ARG], true)]
+	#[case(&["--healthcheck", "extra"], false)]
+	#[case(&["healthcheck"], false)]
+	#[case(&[] as &[&str], false)]
+	fn identify_healthcheck_invocation(#[case] args: &[&str], #[case] expected: bool) {
+		// Arrange
+		let args = args.iter().copied();
+
+		// Act
+		let actual = is_healthcheck_invocation(args);
+
+		// Assert
+		assert_eq!(actual, expected);
 	}
 
 	#[rstest]
