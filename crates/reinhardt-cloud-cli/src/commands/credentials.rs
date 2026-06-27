@@ -2,7 +2,7 @@
 
 use clap::{Args, Subcommand};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use k8s_openapi::api::core::v1::Secret;
 use kube::Client;
@@ -28,13 +28,13 @@ pub(crate) struct SetArgs {
 	/// Git provider (github, gitlab)
 	pub provider: String,
 	#[arg(long)]
-	pub git_token: Option<String>,
+	pub git_token_file: Option<PathBuf>,
 	#[arg(long)]
 	pub registry_auth: Option<PathBuf>,
 	#[arg(long)]
-	pub webhook_secret: Option<String>,
+	pub webhook_secret_file: Option<PathBuf>,
 	#[arg(long)]
-	pub api_token: Option<String>,
+	pub api_token_file: Option<PathBuf>,
 	#[arg(long)]
 	pub secret_name: Option<String>,
 	#[arg(long, default_value = "default")]
@@ -68,23 +68,26 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 	let mut string_data = BTreeMap::new();
 
-	if let Some(ref token) = args.git_token {
-		string_data.insert("git-token".to_string(), token.clone());
+	if let Some(ref path) = args.git_token_file {
+		let token = read_secret_file(path, "git-token")?;
+		string_data.insert("git-token".to_string(), token);
 	}
 	if let Some(ref path) = args.registry_auth {
 		let content = std::fs::read_to_string(path)
 			.map_err(|e| format!("Failed to read registry-auth file {}: {e}", path.display()))?;
 		string_data.insert("registry-auth".to_string(), content);
 	}
-	if let Some(ref secret) = args.webhook_secret {
-		string_data.insert("webhook-secret".to_string(), secret.clone());
+	if let Some(ref path) = args.webhook_secret_file {
+		let secret = read_secret_file(path, "webhook-secret")?;
+		string_data.insert("webhook-secret".to_string(), secret);
 	}
-	if let Some(ref token) = args.api_token {
-		string_data.insert("api-token".to_string(), token.clone());
+	if let Some(ref path) = args.api_token_file {
+		let token = read_secret_file(path, "api-token")?;
+		string_data.insert("api-token".to_string(), token);
 	}
 
 	if string_data.is_empty() {
-		return Err("At least one credential flag must be provided".into());
+		return Err("At least one credential file flag must be provided".into());
 	}
 
 	let mut labels = BTreeMap::new();
@@ -117,6 +120,12 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 		args.namespace
 	);
 	Ok(())
+}
+
+fn read_secret_file(path: &Path, secret_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+	let content = std::fs::read_to_string(path)
+		.map_err(|e| format!("Failed to read {secret_name} file {}: {e}", path.display()))?;
+	Ok(content.trim_end_matches(['\r', '\n']).to_string())
 }
 
 /// Checks credential status for an app by looking up {project_name}-git-credentials.

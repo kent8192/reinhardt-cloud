@@ -273,6 +273,26 @@ mod tests {
 
 	#[rstest]
 	fn test_parse_credentials_set_command() {
+		// Arrange
+		let args = vec![
+			"reinhardt-cloud",
+			"credentials",
+			"set",
+			"github",
+			"--git-token-file",
+			"/tmp/gh-token",
+		];
+
+		// Act
+		let cli = Cli::try_parse_from(args);
+
+		// Assert
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
+	fn test_reject_credentials_set_command_with_secret_argument() {
+		// Arrange
 		let args = vec![
 			"reinhardt-cloud",
 			"credentials",
@@ -281,8 +301,12 @@ mod tests {
 			"--git-token",
 			"ghp_xxx",
 		];
+
+		// Act
 		let cli = Cli::try_parse_from(args);
-		assert!(cli.is_ok());
+
+		// Assert
+		assert!(cli.is_err());
 	}
 
 	#[rstest]
