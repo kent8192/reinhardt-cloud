@@ -57,6 +57,10 @@ use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
+fn managed_git_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-git-credentials")
+}
+
 /// Annotation key on a `Project` that carries an incoming W3C `traceparent`
 /// for distributed-trace propagation into the reconcile span.
 ///
@@ -810,14 +814,16 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				)
 				.await;
 
-			// Delete git credentials Secret (use spec reference if available)
-			if let Some(ref source) = app.spec.source
-				&& let Some(ref creds_name) = source.credentials_secret
-			{
-				let _ = secret_api
-					.delete(creds_name, &DeleteParams::default())
-					.await;
-			}
+			// Delete only the deterministic operator-managed Git credentials
+			// Secret. The source credentials reference is user-controlled and may
+			// point at a shared or externally managed Secret that the operator must
+			// not delete as a finalizer side effect.
+			let _ = secret_api
+				.delete(
+					&managed_git_credentials_secret_name(&name),
+					&DeleteParams::default(),
+				)
+				.await;
 
 			// Delete introspect-managed database resources
 			delete_if_exists::<StatefulSet>(&ctx.client, namespace, &format!("{name}-postgresql"))
@@ -3521,6 +3527,18 @@ mod tests {
 
 		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
 		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	#[rstest]
+	fn managed_git_credentials_secret_name_uses_project_scoped_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_git_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-git-credentials");
 	}
 
 	// ── conflict resolution tests ───────────────────────────────────
