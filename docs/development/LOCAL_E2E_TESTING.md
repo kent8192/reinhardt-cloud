@@ -39,6 +39,27 @@ kubectl version --client
 cargo --version
 ```
 
+## Fast Dashboard frontend E2E
+
+The default test command includes the Dashboard's headless Chrome WASM browser
+tests:
+
+```bash
+cargo make test
+```
+
+Those tests launch the real Dashboard WASM client in the browser and use
+Reinhardt's `MockServiceWorker` to intercept server-function fetches. For a
+Dashboard-only run, use:
+
+```bash
+cd dashboard
+cargo make wasm-spa-test
+```
+
+The `test` tasks declare both the native suite and the WASM browser suite as
+`cargo-make` dependencies, so a successful `cargo make test` run includes both.
+
 ## Automated Dashboard self-deploy harness
 
 For the Dashboard dogfood path, prefer the first-class harness before walking
@@ -91,8 +112,9 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
 | `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context, otherwise `reinhardt-dashboard-e2e` when kind is created | Explicit `kind` cluster target for creation and `kind load docker-image`. |
 | `DASHBOARD_SELF_DEPLOY_E2E_USERNAME` | `e2e-user` | Username seeded inside the deployed Dashboard Pod for authenticated flow checks. |
-| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | `e2e-password-123456` | Password assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | random per run | Password assigned to the seeded Dashboard user. Empty values and the former public fixture password are rejected. |
 | `DASHBOARD_SELF_DEPLOY_E2E_EMAIL` | `e2e@example.test` | Email assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_ALLOW_SEED_USER` | set internally | Explicit marker required by `seed-self-deploy-user`; the harness sets it only for the seed command. |
 | `DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT` | `18080` | Local port used for Dashboard health, login, and authenticated page checks. |
 | `DASHBOARD_SELF_DEPLOY_ORIGIN` | `http://127.0.0.1:8000` | Origin/Referer used for server function POSTs. The default matches the CI `OriginGuardMiddleware` allow-list. |
 
@@ -273,16 +295,21 @@ In another terminal:
 ```bash
 cargo run -p reinhardt-cloud-agent -- \
   --cluster-name local-cluster \
-  --control-plane-url http://127.0.0.1:50051
+  --control-plane-url https://127.0.0.1:50051 \
+  --auth-token "$AGENT_AUTH_TOKEN"
 ```
 
 | Flag / env var | Default | Purpose |
 |---|---|---|
-| `--control-plane-url` / `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | Dashboard gRPC endpoint. |
+| `--control-plane-url` / `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | Dashboard gRPC endpoint. Must be an HTTPS endpoint for authenticated agent runs. |
 | `--cluster-name` / `CLUSTER_NAME` | (required) | Arbitrary label used in streamed events. |
 | `--node-name` / `NODE_NAME` | `unknown` | Reported as the node identifier. |
 | `--heartbeat-interval` | `30` | Seconds between heartbeats. |
-| `--auth-token` / `AUTH_TOKEN` | unset | Bearer JWT for `AgentServiceClient`. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
+| `--auth-token` / `AUTH_TOKEN` | (required) | JWT for `AgentServiceClient`; the agent sends it as a `Bearer` `Authorization` header. See `crates/reinhardt-cloud-grpc/src/interceptor.rs` for the claims shape. |
+
+`--control-plane-url` must use `https://` so the bearer token is not sent over
+plaintext gRPC. Authenticated local testing needs a TLS-terminating endpoint in
+front of the local gRPC server.
 
 Field sources: `crates/reinhardt-cloud-agent/src/main.rs`.
 

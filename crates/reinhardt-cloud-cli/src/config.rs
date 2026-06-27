@@ -1,8 +1,14 @@
 //! Configuration file handling for the reinhardt-cloud CLI.
 
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+#[cfg(unix)]
+const CREDENTIALS_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const CREDENTIALS_FILE_MODE: u32 = 0o600;
 
 /// Errors from configuration loading.
 #[derive(Debug, Error)]
@@ -48,6 +54,26 @@ pub(crate) struct Credentials {
 	pub token: String,
 	/// Username associated with the token.
 	pub username: String,
+	/// API base URL that issued the token.
+	#[serde(default)]
+	pub api_url: Option<String>,
+}
+
+impl Credentials {
+	/// Returns whether the credentials are scoped to the selected API URL.
+	pub(crate) fn is_scoped_to(&self, selected_api_url: &str) -> bool {
+		let Some(stored_api_url) = self.api_url.as_deref() else {
+			return false;
+		};
+
+		canonical_api_url(stored_api_url) == canonical_api_url(selected_api_url)
+	}
+}
+
+fn canonical_api_url(api_url: &str) -> Option<String> {
+	url::Url::parse(api_url)
+		.ok()
+		.map(|url| url.as_str().trim_end_matches('/').to_string())
 }
 
 /// Returns the directory used for storing reinhardt-cloud configuration files.
@@ -93,23 +119,74 @@ pub(crate) fn load_token() -> Result<Option<Credentials>, Box<dyn std::error::Er
 }
 
 /// Persist credentials to `path`, creating parent directories as needed.
+///
+/// On Unix platforms, the credentials directory is restricted to `0700` and
+/// the credentials file is written atomically with `0600` permissions so bearer
+/// tokens are not exposed through the process umask.
 pub(crate) fn save_token(
 	creds: &Credentials,
 	path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent)?;
-	}
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	create_private_credentials_dir(parent)?;
+
 	let json = serde_json::to_string_pretty(creds)?;
-	std::fs::write(path, json)?;
+	write_private_file(path, json.as_bytes())?;
 	Ok(())
 }
 
-/// Resolve the API token by priority: explicit flag > env var > saved file.
+#[cfg(unix)]
+fn create_private_credentials_dir(path: &Path) -> std::io::Result<()> {
+	use std::os::unix::fs::PermissionsExt;
+
+	std::fs::create_dir_all(path)?;
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_DIR_MODE))?;
+	Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_private_credentials_dir(path: &Path) -> std::io::Result<()> {
+	std::fs::create_dir_all(path)
+}
+
+#[cfg(unix)]
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+	use std::os::unix::fs::PermissionsExt;
+
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let mut temp = tempfile::Builder::new()
+		.prefix("credentials")
+		.tempfile_in(parent)?;
+	std::fs::set_permissions(
+		temp.path(),
+		std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE),
+	)?;
+	temp.write_all(contents)?;
+	temp.as_file().sync_all()?;
+	temp.persist(path).map_err(|err| err.error)?;
+	std::fs::set_permissions(path, std::fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))?;
+	Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+	temp.write_all(contents)?;
+	temp.as_file().sync_all()?;
+	temp.persist(path).map_err(|err| err.error)?;
+	Ok(())
+}
+
+/// Resolve the API token by priority: explicit flag > env var > scoped saved file.
 ///
-/// Returns the first non-empty source. Used by every command that needs to
-/// authenticate against the control plane.
-pub(crate) fn resolve_token(flag: Option<String>, credentials_file: &Path) -> Option<String> {
+/// Returns the first non-empty source. Saved credentials are used only when
+/// their persisted API URL matches the selected control-plane URL.
+pub(crate) fn resolve_token(
+	flag: Option<String>,
+	credentials_file: &Path,
+	selected_api_url: &str,
+) -> Option<String> {
 	if let Some(t) = flag
 		&& !t.is_empty()
 	{
@@ -123,7 +200,8 @@ pub(crate) fn resolve_token(flag: Option<String>, credentials_file: &Path) -> Op
 	load_token_from(credentials_file)
 		.ok()
 		.flatten()
-		.map(|c| c.token)
+		.filter(|credentials| credentials.is_scoped_to(selected_api_url))
+		.map(|credentials| credentials.token)
 }
 
 #[cfg(test)]
@@ -283,6 +361,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "test-jwt-token-abc123".to_string(),
 			username: "testuser".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act: save
@@ -296,6 +375,7 @@ project_name = "myapp"
 		// Assert
 		assert_eq!(loaded.token, "test-jwt-token-abc123");
 		assert_eq!(loaded.username, "testuser");
+		assert_eq!(loaded.api_url.as_deref(), Some("https://api.example.com"));
 	}
 
 	#[rstest]
@@ -318,18 +398,68 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "tok".to_string(),
 			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
-		std::fs::create_dir_all(nested_dir).unwrap();
-		let json = serde_json::to_string_pretty(&creds).unwrap();
-		std::fs::write(&cred_path, &json).unwrap();
+		save_token(&creds, &cred_path).unwrap();
 
 		// Assert
 		assert!(cred_path.exists());
 		let loaded: Credentials =
 			serde_json::from_str(&std::fs::read_to_string(&cred_path).unwrap()).unwrap();
 		assert_eq!(loaded.token, "tok");
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn test_save_token_sets_restrictive_permissions() {
+		use std::os::unix::fs::PermissionsExt;
+
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let cred_path = dir.path().join("reinhardt-cloud").join("credentials.json");
+		let creds = Credentials {
+			token: "tok".to_string(),
+			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
+		};
+
+		// Act
+		save_token(&creds, &cred_path).unwrap();
+
+		// Assert
+		let parent_mode = std::fs::metadata(cred_path.parent().unwrap())
+			.unwrap()
+			.permissions()
+			.mode() & 0o777;
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(parent_mode, CREDENTIALS_DIR_MODE);
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn test_save_token_repairs_existing_permissive_file() {
+		use std::os::unix::fs::PermissionsExt;
+
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let cred_path = dir.path().join("credentials.json");
+		std::fs::write(&cred_path, "{}").unwrap();
+		std::fs::set_permissions(&cred_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+		let creds = Credentials {
+			token: "tok".to_string(),
+			username: "user".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
+		};
+
+		// Act
+		save_token(&creds, &cred_path).unwrap();
+
+		// Assert
+		let file_mode = std::fs::metadata(&cred_path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(file_mode, CREDENTIALS_FILE_MODE);
 	}
 
 	#[rstest]
@@ -340,6 +470,7 @@ project_name = "myapp"
 		let creds = Credentials {
 			token: "rct_xyz".to_string(),
 			username: "alice".to_string(),
+			api_url: Some("https://api.example.com".to_string()),
 		};
 
 		// Act
@@ -349,6 +480,108 @@ project_name = "myapp"
 		// Assert
 		assert_eq!(loaded.token, "rct_xyz");
 		assert_eq!(loaded.username, "alice");
+		assert_eq!(loaded.api_url.as_deref(), Some("https://api.example.com"));
+	}
+
+	#[rstest]
+	fn test_credentials_without_api_url_are_not_scoped() {
+		// Arrange
+		let creds = Credentials {
+			token: "rct_legacy".to_string(),
+			username: "alice".to_string(),
+			api_url: None,
+		};
+
+		// Act
+		let scoped = creds.is_scoped_to("https://api.example.com");
+
+		// Assert
+		assert!(!scoped);
+	}
+
+	#[rstest]
+	fn test_credentials_scope_ignores_trailing_slash() {
+		// Arrange
+		let creds = Credentials {
+			token: "rct_scoped".to_string(),
+			username: "alice".to_string(),
+			api_url: Some("https://api.example.com/".to_string()),
+		};
+
+		// Act
+		let scoped = creds.is_scoped_to("https://api.example.com");
+
+		// Assert
+		assert!(scoped);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn test_resolve_token_ignores_unscoped_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: None,
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://api.example.com");
+
+		// Assert
+		assert_eq!(token, None);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn test_resolve_token_ignores_mismatched_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://other.example.com");
+
+		// Assert
+		assert_eq!(token, None);
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn test_resolve_token_uses_matching_file_credentials() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("credentials.json");
+		save_token(
+			&Credentials {
+				token: "from-file".to_string(),
+				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
+			},
+			&path,
+		)
+		.unwrap();
+
+		// Act
+		let token = resolve_token(None, &path, "https://api.example.com/");
+
+		// Assert
+		assert_eq!(token.as_deref(), Some("from-file"));
 	}
 
 	#[rstest]
@@ -366,14 +599,19 @@ project_name = "myapp"
 			&Credentials {
 				token: "from-file".to_string(),
 				username: "alice".to_string(),
+				api_url: Some("https://api.example.com".to_string()),
 			},
 			&path,
 		)
 		.unwrap();
 
 		// Act
-		let with_flag = resolve_token(Some("from-flag".to_string()), &path);
-		let from_env = resolve_token(None, &path);
+		let with_flag = resolve_token(
+			Some("from-flag".to_string()),
+			&path,
+			"https://other.example.com",
+		);
+		let from_env = resolve_token(None, &path, "https://other.example.com");
 
 		// Assert
 		assert_eq!(with_flag.as_deref(), Some("from-flag"));

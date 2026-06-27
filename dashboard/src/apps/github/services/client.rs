@@ -104,14 +104,39 @@ impl ReqwestGitHubAppClient {
 		&self,
 		installation_id: i64,
 	) -> Result<GitHubInstallationAccessToken, GitHubAppClientError> {
+		self.create_installation_access_token_with_repositories(installation_id, None)
+			.await
+	}
+
+	pub(crate) async fn create_repository_installation_access_token(
+		&self,
+		installation_id: i64,
+		repository_id: i64,
+	) -> Result<GitHubInstallationAccessToken, GitHubAppClientError> {
+		self.create_installation_access_token_with_repositories(
+			installation_id,
+			Some(&[repository_id]),
+		)
+		.await
+	}
+
+	async fn create_installation_access_token_with_repositories(
+		&self,
+		installation_id: i64,
+		repository_ids: Option<&[i64]>,
+	) -> Result<GitHubInstallationAccessToken, GitHubAppClientError> {
 		let jwt = generate_app_jwt(&self.settings)?;
 		let url = installation_access_tokens_url(&self.settings.api_base_url, installation_id)?;
-
-		let response = self
+		let mut request = self
 			.http_client
 			.post(url)
 			.bearer_auth(jwt)
-			.github_json_headers()
+			.github_json_headers();
+		if let Some(repository_ids) = repository_ids {
+			request = request.json(&GitHubInstallationAccessTokenRequest { repository_ids });
+		}
+
+		let response = request
 			.send()
 			.await
 			.map_err(|err| GitHubAppClientError::Http(err.to_string()))?;
@@ -307,6 +332,11 @@ fn api_url(api_base_url: &str, path_segments: &[&str]) -> Result<Url, GitHubAppC
 		segments.extend(path_segments);
 	}
 	Ok(url)
+}
+
+#[derive(Serialize)]
+struct GitHubInstallationAccessTokenRequest<'a> {
+	repository_ids: &'a [i64],
 }
 
 #[derive(Debug, Deserialize)]
