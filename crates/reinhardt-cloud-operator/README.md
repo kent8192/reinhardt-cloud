@@ -2,6 +2,8 @@
 
 Kubernetes operator that reconciles `Project` custom resources into Deployments, Services, Ingresses, and feature-driven infrastructure (database, cache, worker, storage) for Reinhardt web applications.
 
+The primary app `Deployment` and `Service` are reconciled only when absent or already controlled by the same `Project`, so the operator does not adopt unrelated same-name Kubernetes resources.
+
 ## Quick links
 
 - Full usage guide → [`docs/tools/operator.md`](../../docs/tools/operator.md)
@@ -23,4 +25,4 @@ helm install reinhardt-cloud-operator charts/reinhardt-cloud-operator \
 
 ## License
 
-BSL-1.1 — see the repository root `LICENSE`.
+BUSL-1.1 — Business Source License 1.1.
