@@ -71,7 +71,7 @@ cargo make migrate          # Apply migrations
 ### Testing
 
 ```bash
-cargo make test             # Run all tests (uses cargo-nextest)
+cargo make test             # Run all tests (native nextest + WASM browser E2E)
 cargo make test-unit        # Run unit tests only
 cargo make test-integration # Run integration tests only
 cargo make test-watch       # Run tests with auto-reload (requires bacon)

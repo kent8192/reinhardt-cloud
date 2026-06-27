@@ -26,6 +26,22 @@ use reinhardt_cloud_types::crd::{DatabaseEngine, DatabaseSpec, Project};
 
 use super::platform::{Platform, PlatformConfig};
 use super::secrets::{build_db_credentials_secret, generate_random_password};
+use crate::error::Error;
+
+const AWS_DATABASE_INSTANCE_CLASSES: &[&str] = &[
+	"db.t3.micro",
+	"db.t3.small",
+	"db.t3.medium",
+	"db.t3.large",
+	"db.r5.large",
+];
+
+const GCP_DATABASE_INSTANCE_CLASSES: &[&str] = &[
+	"db-f1-micro",
+	"db-g1-small",
+	"db-custom-1-3840",
+	"db-custom-2-8192",
+];
 
 /// Map a `DatabaseEngine` variant to the lowercase engine name used by AWS RDS.
 ///
@@ -128,25 +144,55 @@ pub(crate) enum DatabaseResource {
 pub(crate) fn infer_database_resources(
 	app: &Project,
 	platform: &PlatformConfig,
-) -> Vec<DatabaseResource> {
+) -> Result<Vec<DatabaseResource>, Error> {
 	let db = match &app.spec.database {
 		Some(db) => db,
-		None => return vec![],
+		None => return Ok(vec![]),
 	};
+	validate_database_for_platform(db, platform)?;
 
 	let namespace = match app.namespace() {
 		Some(ns) => ns,
-		None => return vec![], // namespace required for database resources
+		None => return Ok(vec![]), // namespace required for database resources
 	};
 	let project_name = app.name_any();
 	let storage_gb = db
 		.storage_gb
 		.unwrap_or(platform.defaults.database.storage_gb);
 
-	match platform.platform {
+	let resources = match platform.platform {
 		Platform::Onpremise => build_onprem_postgres(&project_name, &namespace, db, storage_gb),
 		Platform::Aws => build_aws_rds(&project_name, &namespace, db, platform),
 		Platform::Gcp => build_gcp_cloud_sql(&project_name, &namespace, db, storage_gb, platform),
+	};
+	Ok(resources)
+}
+
+fn validate_database_for_platform(
+	db: &DatabaseSpec,
+	platform: &PlatformConfig,
+) -> Result<(), Error> {
+	db.validate().map_err(Error::DatabaseProvisioning)?;
+	let Some(instance_class) = db.instance_class.as_deref() else {
+		return Ok(());
+	};
+	let allowed = match platform.platform {
+		Platform::Aws => AWS_DATABASE_INSTANCE_CLASSES,
+		Platform::Gcp => GCP_DATABASE_INSTANCE_CLASSES,
+		Platform::Onpremise => {
+			return Err(Error::DatabaseProvisioning(
+				"database.instance_class is not supported for onpremise databases".to_string(),
+			));
+		}
+	};
+	if allowed.contains(&instance_class) {
+		Ok(())
+	} else {
+		Err(Error::DatabaseProvisioning(format!(
+			"database.instance_class '{instance_class}' is not allowed for {:?}; allowed values: {}",
+			platform.platform,
+			allowed.join(", ")
+		)))
 	}
 }
 
@@ -167,6 +213,8 @@ fn build_onprem_postgres(
 	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(project_name);
+	let stateful_set_selector_labels = legacy_stateful_set_selector_labels(project_name);
+	let service_selector_labels = db_selector_labels(project_name);
 
 	// StatefulSet running postgres
 	let stateful_set = StatefulSet {
@@ -180,18 +228,12 @@ fn build_onprem_postgres(
 			replicas: Some(1),
 			service_name: Some(format!("{project_name}-db")),
 			selector: LabelSelector {
-				match_labels: Some(BTreeMap::from([(
-					"app.kubernetes.io/name".to_string(),
-					project_name.to_string(),
-				)])),
+				match_labels: Some(stateful_set_selector_labels),
 				..Default::default()
 			},
 			template: PodTemplateSpec {
 				metadata: Some(ObjectMeta {
-					labels: Some(BTreeMap::from([(
-						"app.kubernetes.io/name".to_string(),
-						project_name.to_string(),
-					)])),
+					labels: Some(labels.clone()),
 					..Default::default()
 				}),
 				spec: Some(PodSpec {
@@ -272,10 +314,7 @@ fn build_onprem_postgres(
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
 			cluster_ip: Some("None".to_string()),
-			selector: Some(BTreeMap::from([(
-				"app.kubernetes.io/name".to_string(),
-				project_name.to_string(),
-			)])),
+			selector: Some(service_selector_labels),
 			ports: Some(vec![ServicePort {
 				port: 5432,
 				target_port: Some(IntOrString::Int(5432)),
@@ -526,6 +565,26 @@ fn standard_db_labels(project_name: &str) -> BTreeMap<String, String> {
 	])
 }
 
+fn db_selector_labels(project_name: &str) -> BTreeMap<String, String> {
+	BTreeMap::from([
+		(
+			"app.kubernetes.io/name".to_string(),
+			project_name.to_string(),
+		),
+		(
+			"app.kubernetes.io/component".to_string(),
+			"database".to_string(),
+		),
+	])
+}
+
+fn legacy_stateful_set_selector_labels(project_name: &str) -> BTreeMap<String, String> {
+	BTreeMap::from([(
+		"app.kubernetes.io/name".to_string(),
+		project_name.to_string(),
+	)])
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -572,10 +631,49 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert!(resources.is_empty());
+	}
+
+	#[rstest]
+	fn invalid_database_spec_returns_error() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: Some("db.r7i.48xlarge".to_string()),
+			storage_gb: Some(2_000_000_000),
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let result = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(matches!(result, Err(Error::DatabaseProvisioning(_))));
+	}
+
+	#[rstest]
+	fn database_instance_class_must_match_target_platform() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: Some("db-custom-2-8192".to_string()),
+			storage_gb: Some(20),
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
+
+		// Act
+		let result = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(matches!(result, Err(Error::DatabaseProvisioning(_))));
 	}
 
 	#[rstest]
@@ -591,7 +689,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(resources.len(), 5);
@@ -615,7 +714,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::StatefulSet(ss) = &resources[0] {
@@ -647,7 +747,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
@@ -684,7 +785,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
@@ -713,7 +815,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Pvc(pvc) = &resources[1] {
@@ -746,7 +849,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Pvc(pvc) = &resources[1] {
@@ -779,7 +883,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(resources.len(), 2);
@@ -800,7 +905,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -827,7 +933,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(resources.len(), 4);
@@ -850,7 +957,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -900,7 +1008,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Pvc(pvc) = &resources[1] {
@@ -933,7 +1042,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Service(svc) = &resources[2] {
@@ -941,15 +1051,79 @@ mod tests {
 			let spec = svc.spec.as_ref().unwrap();
 			let port = &spec.ports.as_ref().unwrap()[0];
 			assert_eq!(port.port, 5432);
-			// Selector must match the StatefulSet pod label (project_name, not project_name-db)
 			let selector = spec.selector.as_ref().unwrap();
 			assert_eq!(
 				selector.get("app.kubernetes.io/name").map(String::as_str),
 				Some("myapp")
 			);
+			assert_eq!(
+				selector
+					.get("app.kubernetes.io/component")
+					.map(String::as_str),
+				Some("database")
+			);
 		} else {
 			panic!("Expected Service as third resource");
 		}
+	}
+
+	#[rstest]
+	fn onprem_statefulset_keeps_legacy_selector_and_service_selects_database_component() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
+
+		// Assert
+		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
+			panic!("Expected StatefulSet as first resource");
+		};
+		let stateful_set_spec = ss.spec.as_ref().unwrap();
+		let selector = stateful_set_spec.selector.match_labels.as_ref().unwrap();
+		assert_eq!(
+			selector.get("app.kubernetes.io/name").map(String::as_str),
+			Some("myapp")
+		);
+		assert_eq!(selector.len(), 1);
+
+		let pod_labels = stateful_set_spec
+			.template
+			.metadata
+			.as_ref()
+			.unwrap()
+			.labels
+			.as_ref()
+			.unwrap();
+		assert_eq!(
+			pod_labels
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("database")
+		);
+
+		let DatabaseResource::Service(svc) = &resources[2] else {
+			panic!("Expected Service as third resource");
+		};
+		assert_eq!(
+			svc.spec
+				.as_ref()
+				.unwrap()
+				.selector
+				.as_ref()
+				.unwrap()
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("database")
+		);
 	}
 
 	#[rstest]
@@ -965,7 +1139,8 @@ mod tests {
 		let platform = PlatformConfig::onprem_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::StatefulSet(ss) = &resources[0] {
@@ -1034,7 +1209,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1061,7 +1237,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1086,7 +1263,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1111,7 +1289,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert — values should come from platform.defaults.database
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1143,7 +1322,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1171,7 +1351,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1199,7 +1380,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1222,7 +1404,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1247,7 +1430,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {
@@ -1270,7 +1454,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[1] {
@@ -1296,7 +1481,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[2] {
@@ -1325,7 +1511,8 @@ mod tests {
 		let platform = PlatformConfig::aws_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert!(resources.is_empty());
@@ -1344,7 +1531,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert!(resources.is_empty());
@@ -1404,7 +1592,8 @@ mod tests {
 		let platform = PlatformConfig::gcp_defaults();
 
 		// Act
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		if let DatabaseResource::Dynamic(obj) = &resources[0] {

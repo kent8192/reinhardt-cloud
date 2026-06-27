@@ -1,4 +1,7 @@
 //! Deployment server functions for the WASM dashboard.
+//!
+//! Organization-scoped operations resolve RBAC permissions before loading
+//! deployment records so read-only members cannot perform mutations.
 
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -12,6 +15,34 @@ pub struct DeploymentInfo {
 	pub image: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProjectSourceKind {
+	GitHub,
+	Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PreviewSummary {
+	pub name: String,
+	pub pr_number: String,
+	pub url: Option<String>,
+	pub phase: Option<String>,
+	pub ready_replicas: Option<i32>,
+	pub last_activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectPreviewSummary {
+	pub deployment_id: i64,
+	pub github_project_id: Option<i64>,
+	pub project_name: String,
+	pub display_name: String,
+	pub production_branch: Option<String>,
+	pub source_kind: ProjectSourceKind,
+	pub previews: Vec<PreviewSummary>,
+	pub preview_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentLogInfo {
 	pub timestamp: String,
@@ -20,8 +51,11 @@ pub struct DeploymentLogInfo {
 }
 
 #[cfg(native)]
-async fn current_org_id(user: &crate::apps::auth::models::User) -> Result<i64, ServerFnError> {
-	crate::apps::organizations::helpers::current_organization_id_for_user(user.id)
+async fn current_org_id_for_action(
+	user: &crate::apps::auth::models::User,
+	action: crate::apps::organizations::permissions::Action,
+) -> Result<i64, ServerFnError> {
+	crate::apps::organizations::permissions::require_permission(user.id, action)
 		.await
 		.map_err(|e| ServerFnError::application(e.to_string()))
 }
@@ -38,6 +72,79 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 	}
 }
 
+#[cfg(native)]
+fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
+	move |mut request: tonic::Request<()>| {
+		let value = format!("Bearer {token}").parse().map_err(|e| {
+			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
+		})?;
+		request.metadata_mut().insert("authorization", value);
+		Ok(request)
+	}
+}
+
+#[cfg(native)]
+fn dashboard_grpc_user_token(
+	user: &crate::apps::auth::models::User,
+	jwt_secret: &str,
+) -> Result<String, ServerFnError> {
+	reinhardt_cloud_core::auth::create_token(user.id, &user.username, jwt_secret.as_bytes(), 1)
+		.map_err(|e| ServerFnError::application(format!("Failed to mint gRPC auth token: {e}")))
+}
+
+#[cfg(native)]
+async fn preview_input_for_deployment(
+	deployment: crate::apps::deployments::models::Deployment,
+	organization_id: i64,
+) -> Result<crate::apps::deployments::services::preview_status::PreviewProjectInput, ServerFnError>
+{
+	use reinhardt::Model;
+
+	use crate::apps::deployments::services::preview_status::PreviewProjectInput;
+	use crate::apps::github::models::{GitHubProject, GitHubRepository};
+
+	let deployment_id = deployment.id.unwrap_or_default();
+	let github_project = GitHubProject::objects()
+		.filter(GitHubProject::field_deployment_id().eq(deployment_id))
+		.filter(GitHubProject::field_organization_id().eq(organization_id))
+		.first()
+		.await
+		.map_err(|e| {
+			ServerFnError::application(format!("Failed to load GitHub project metadata: {e}"))
+		})?;
+	if let Some(github_project) = github_project {
+		let repository_id = *github_project.repository_id();
+		let repository = GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.first()
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to load GitHub repository metadata: {e}"
+				))
+			})?
+			.ok_or_else(|| ServerFnError::application("GitHub repository row is missing"))?;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: github_project.id,
+			project_name: github_project.project_name,
+			display_name: repository.full_name,
+			production_branch: Some(github_project.production_branch),
+			source_kind: ProjectSourceKind::GitHub,
+		})
+	} else {
+		let project_name = deployment.project_name;
+		Ok(PreviewProjectInput {
+			deployment_id,
+			github_project_id: None,
+			project_name: project_name.clone(),
+			display_name: project_name,
+			production_branch: None,
+			source_kind: ProjectSourceKind::Manual,
+		})
+	}
+}
+
 #[server_fn]
 pub async fn list_deployments_for_current_org(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
@@ -46,7 +153,11 @@ pub async fn list_deployments_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentRead,
+	)
+	.await?;
 	let deployments = Deployment::objects()
 		.filter(Deployment::field_organization_id().eq(organization_id))
 		.order_by(&["id"])
@@ -54,6 +165,45 @@ pub async fn list_deployments_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
 	Ok(deployments.into_iter().map(deployment_info).collect())
+}
+
+#[server_fn]
+pub async fn list_deployment_previews_for_current_org(
+	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+) -> Result<Vec<ProjectPreviewSummary>, ServerFnError> {
+	let user_id = user.id;
+
+	#[cfg(native)]
+	{
+		use reinhardt::Model;
+
+		use crate::apps::deployments::models::Deployment;
+		use crate::apps::deployments::services::preview_status::load_preview_summary;
+		use crate::apps::organizations::permissions::action::Action;
+		use crate::apps::organizations::permissions::guard::require_permission;
+
+		let organization_id = require_permission(user_id, Action::DeploymentRead)
+			.await
+			.map_err(|e| ServerFnError::application(e.to_string()))?;
+		let deployments = Deployment::objects()
+			.filter(Deployment::field_organization_id().eq(organization_id))
+			.order_by(&["id"])
+			.all()
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to list deployments: {e}")))?;
+
+		let mut summaries = Vec::with_capacity(deployments.len());
+		for deployment in deployments {
+			let input = preview_input_for_deployment(deployment, organization_id).await?;
+			summaries.push(load_preview_summary(input, "default").await);
+		}
+		Ok(summaries)
+	}
+	#[cfg(wasm)]
+	{
+		let _ = user_id;
+		unreachable!("server_fn body is replaced on wasm")
+	}
 }
 
 #[server_fn]
@@ -70,7 +220,11 @@ pub async fn create_deployment_for_current_org(
 	use crate::apps::deployments::models::Deployment;
 	use crate::apps::deployments::services::manifest::validate_project_manifest;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentCreate,
+	)
+	.await?;
 	let project_name = project_name.trim().to_string();
 	let image = image.trim().to_string();
 	let cluster_id: i64 = cluster_id
@@ -127,7 +281,11 @@ pub async fn update_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -174,7 +332,11 @@ pub async fn delete_deployment_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentDelete,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -202,7 +364,11 @@ pub async fn update_deployment_status_for_current_org(
 
 	use crate::apps::deployments::models::Deployment;
 
-	let organization_id = current_org_id(&user).await?;
+	let organization_id = current_org_id_for_action(
+		&user,
+		crate::apps::organizations::permissions::Action::DeploymentUpdate,
+	)
+	.await?;
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
@@ -234,6 +400,10 @@ pub async fn deployment_logs_for_current_org(
 		crate::config::GrpcChannelSingletonKey,
 		crate::config::GrpcChannelSingleton,
 	>,
+	#[inject] jwt_secret: reinhardt::di::Depends<
+		crate::apps::clusters::services::JwtSecretKey,
+		crate::apps::clusters::services::JwtSecret,
+	>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;
@@ -241,6 +411,7 @@ pub async fn deployment_logs_for_current_org(
 	use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::organizations::models::Organization;
 	use crate::apps::organizations::permissions::action::Action;
 	use crate::apps::organizations::permissions::guard::require_permission;
 
@@ -250,8 +421,8 @@ pub async fn deployment_logs_for_current_org(
 	let deployment_id: i64 = deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let organization = crate::apps::organizations::models::Organization::objects()
-		.filter(crate::apps::organizations::models::Organization::field_id().eq(organization_id))
+	let organization = Organization::objects()
+		.filter(Organization::field_id().eq(organization_id))
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load organization: {e}")))?
@@ -268,12 +439,16 @@ pub async fn deployment_logs_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-	let mut client =
-		log_pb::log_service_client::LogServiceClient::new(grpc_channel.channel.clone());
+	let grpc_token = dashboard_grpc_user_token(&user, &jwt_secret.0)?;
+	let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
+		grpc_channel.channel.clone(),
+		dashboard_grpc_auth_interceptor(grpc_token),
+	);
 	let response = client
 		.list_logs(log_pb::ListLogsRequest {
 			filter: Some(log_pb::LogFilter {
 				source: Some(deployment.project_name),
+				deployment_id: Some(deployment_id.to_string()),
 				namespace: Some(namespace),
 				..Default::default()
 			}),

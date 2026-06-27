@@ -2,9 +2,9 @@
 //!
 //! Performs two lightweight probes:
 //!
-//! 1. A database probe via a cheap `auth_users` count query — exercises
-//!    the globally configured `DatabaseConnection` and verifies that the
-//!    application auth schema is migrated.
+//! 1. A database probe via a constant-time `SELECT 1` ping — exercises
+//!    the globally configured `DatabaseConnection` without scanning any
+//!    application table.
 //! 2. A gRPC probe via the standard `grpc.health.v1.Health/Check` RPC,
 //!    using the shared `GrpcChannelSingleton` so the probe does not
 //!    establish a new TCP connection on every call.
@@ -66,8 +66,7 @@ pub(crate) async fn clear_health_cache_for_test() {
 async fn probe_database() -> bool {
 	let ping = async {
 		let conn = get_connection().await?;
-		conn.query_one("SELECT COUNT(*) FROM auth_users", Vec::<QueryValue>::new())
-			.await
+		conn.query_one("SELECT 1", Vec::<QueryValue>::new()).await
 	};
 
 	match timeout(PROBE_TIMEOUT, ping).await {
