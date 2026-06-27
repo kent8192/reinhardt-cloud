@@ -20,6 +20,7 @@ mod tests {
 		assert_eq!(links_from_ambient_user, false);
 		assert!(source.contains("link_or_create_user(&storage, &provider_id, &claims, None)"));
 	}
+
 	#[rstest]
 	fn oauth_start_sets_browser_bound_state_cookie() {
 		// Arrange
@@ -27,12 +28,16 @@ mod tests {
 
 		// Act
 		let starts_backend_flow = source.contains(".begin_auth(&provider_id, None, None)");
-		let sets_state_cookie = source.contains("oauth_state_cookie_header(&auth.state, is_debug)");
+		let sets_signed_state_cookie = source.contains("oauth_state_cookie_header(")
+			&& source.contains("&provider_id,\n\t\t\t\t&auth.state,")
+			&& source.contains("&settings.core.secret_key,");
 
 		// Assert
 		assert_eq!(starts_backend_flow, true);
-		assert_eq!(sets_state_cookie, true);
-		assert!(source.contains("const OAUTH_STATE_COOKIE_NAME: &str = \"oauth_state\";"));
+		assert_eq!(sets_signed_state_cookie, true);
+		assert!(source.contains(
+			"pub(in crate::apps::auth) const OAUTH_STATE_COOKIE_NAME: &str = \"oauth_state_sig\";"
+		));
 	}
 
 	#[rstest]
@@ -40,16 +45,16 @@ mod tests {
 		// Arrange
 		let source = include_str!("../../server_urls.rs");
 		let cookie_check = source
-			.find("let expected_state = request_cookie(&http_request, OAUTH_STATE_COOKIE_NAME)")
-			.expect("OAuth callback should read a browser-bound state cookie");
+			.find("validate_oauth_state_cookie(\n\t\t&http_request,")
+			.expect("OAuth callback should validate a browser-bound state cookie");
 		let callback = source
 			.find(".handle_callback(&provider_id, &query.code, &query.state)")
 			.expect("OAuth callback should still validate provider state through backend");
 
 		// Act
 		let checks_before_backend_callback = cookie_check < callback;
-		let rejects_mismatch = source.contains("expected_state != query.state");
-		let clears_state_cookie = source.contains("clear_oauth_state_cookie_header(is_debug)");
+		let rejects_mismatch = source.contains("OAuth state mismatch");
+		let clears_state_cookie = source.contains("expired_oauth_state_cookie_header(");
 
 		// Assert
 		assert_eq!(checks_before_backend_callback, true);
