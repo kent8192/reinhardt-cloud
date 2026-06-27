@@ -38,6 +38,12 @@ const META_USER_ID: &str = "user_id";
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
 const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 
+/// Generic client-facing failure for unavailable build-log streams.
+const BUILD_LOG_STREAM_UNAVAILABLE: &str = "Build log stream is currently unavailable";
+
+/// Generic client-facing failure for unavailable application-log streams.
+const APP_LOG_STREAM_UNAVAILABLE: &str = "Application log stream is currently unavailable";
+
 /// Parsed result from a client message before async execution.
 ///
 /// Separates the synchronous parsing/validation phase from the async
@@ -159,7 +165,7 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
-			WsClientMessage::SubscribeBuildLogs { build_id } => {
+			WsClientMessage::SubscribeBuildLogs { build_id: _ } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -171,7 +177,11 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeBuildLogs { build_id }
+				ParsedAction::Rejected {
+					response: log_stream_rejected(
+						"Build log streaming is unavailable until build ownership can be verified",
+					),
+				}
 			}
 			WsClientMessage::SubscribeAppLogs { deployment_id } => {
 				if user_id.is_none() {
@@ -225,6 +235,14 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 		acknowledged: false,
 		message: message.into(),
 	})
+}
+
+fn build_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(BUILD_LOG_STREAM_UNAVAILABLE)
+}
+
+fn app_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(APP_LOG_STREAM_UNAVAILABLE)
 }
 
 async fn authorize_app_log_subscription(
@@ -433,12 +451,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									"Failed to connect to gRPC BuildService for log streaming",
 								);
 								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
+								let err_msg = build_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								// Clear handle on exit.
 								*handle_ref.lock().await = None;
@@ -468,10 +481,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								"gRPC StreamBuildLogs call failed",
 							);
 							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
+							let err_msg = build_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							// Clear handle on exit.
 							*handle_ref.lock().await = None;
@@ -586,12 +596,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									error = %e,
 									"Failed to connect to gRPC LogService for app log streaming",
 								);
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to log service for {project}: {e}"
-									),
-								});
+								let err_msg = app_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								*handle_ref.lock().await = None;
 								return;
@@ -617,10 +622,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("App log stream failed for {project}: {e}"),
-							});
+							let err_msg = app_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							*handle_ref.lock().await = None;
 							return;
@@ -1024,6 +1026,36 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_build_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = build_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, BUILD_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
+	}
+
+	#[rstest]
+	fn test_app_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = app_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, APP_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
+	}
+
+	#[rstest]
 	#[tokio::test]
 	async fn test_on_disconnect_cleans_up_broadcaster() {
 		// Arrange
@@ -1056,7 +1088,7 @@ mod tests {
 	// --- Tests for new log streaming ParsedAction variants ---
 
 	#[rstest]
-	fn test_parse_subscribe_build_logs_with_auth() {
+	fn test_parse_subscribe_build_logs_with_auth_rejected_until_ownership_verified() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeBuildLogs {
 			build_id: "build-42".to_string(),
@@ -1067,10 +1099,17 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeBuildLogs { build_id } => {
-				assert_eq!(build_id, "build-42");
-			}
-			_ => panic!("expected SubscribeBuildLogs action"),
+			ParsedAction::Rejected { response } => match &response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Build log streaming is unavailable until build ownership can be verified"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 

@@ -274,7 +274,7 @@ spec:
 | `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
 | `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
 | `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
-| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix, except operator-created previews may use verified parent-app pull secrets; legacy previews without the parent namespace label are accepted only when their namespace matches the canonical legacy preview contract |
 | `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions
@@ -381,6 +381,11 @@ features:
   storage: false
   worker: false
 ```
+
+Namespace lifecycle RBAC is disabled by default to keep the operator service account least-privilege.
+When tenant or preview namespaces are managed by a separate platform workflow, leave
+`rbac.namespaces.manageLifecycle=false` and pre-create those namespaces. Set it to `true` only when
+the operator is intentionally trusted to create, update, and delete its managed namespaces.
 
 ### Isolation defaults
 

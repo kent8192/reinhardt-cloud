@@ -10,15 +10,38 @@ use std::path::{Path, PathBuf};
 use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 
 /// Walk from `start_dir` upward looking for a file with the given name.
-/// Returns the closest match, or `None` if no parent directory contains it.
-/// Used so workspace-level files (`Cargo.lock`, `rust-toolchain.toml`) can
-/// be located when `init` is invoked from a member crate directory.
-fn locate_ancestor_file(start_dir: &Path, file_name: &str) -> Option<PathBuf> {
-	let mut current = start_dir.canonicalize().ok()?;
+///
+/// The search is bounded to the detected Cargo workspace root. This keeps
+/// workspace-level files (`Cargo.lock`, `rust-toolchain.toml`) discoverable
+/// from member crate directories without trusting arbitrary files placed in
+/// shared ancestor directories above the workspace. Standalone projects only
+/// trust files in their own project directory.
+fn locate_workspace_file(start_dir: &Path, file_name: &str) -> Option<PathBuf> {
+	let start = start_dir.canonicalize().ok()?;
+	let boundary = locate_workspace_boundary(&start).unwrap_or_else(|| start.clone());
+	let mut current = start;
 	loop {
 		let candidate = current.join(file_name);
-		if candidate.exists() {
+		if candidate.is_file() {
 			return Some(candidate);
+		}
+		if current == boundary {
+			return None;
+		}
+		current = current.parent()?.to_path_buf();
+	}
+}
+
+fn locate_workspace_boundary(start_dir: &Path) -> Option<PathBuf> {
+	let mut current = start_dir.to_path_buf();
+	loop {
+		let manifest = current.join("Cargo.toml");
+		if manifest.is_file()
+			&& let Ok(content) = std::fs::read_to_string(&manifest)
+			&& let Ok(parsed) = toml::from_str::<toml::Value>(&content)
+			&& parsed.get("workspace").is_some()
+		{
+			return Some(current);
 		}
 		current = current.parent()?.to_path_buf();
 	}
@@ -85,7 +108,7 @@ pub(crate) fn collect_signals(
 	// the workspace root in workspace projects, not in the member crate,
 	// so walk up if not found locally.
 	let cargo_lock_content: Option<String> =
-		if let Some(lock_path) = locate_ancestor_file(project_dir, "Cargo.lock") {
+		if let Some(lock_path) = locate_workspace_file(project_dir, "Cargo.lock") {
 			Some(
 				std::fs::read_to_string(&lock_path)
 					.map_err(|e| format!("failed to read {}: {e}", lock_path.display()))?,
@@ -110,12 +133,13 @@ pub(crate) fn collect_signals(
 				.and_then(|b| b.build_args.get("WASM_BINDGEN_VERSION").cloned())
 		});
 
-		if version.is_none() {
+		let Some(version) = version else {
 			return Err("pages feature detected but wasm-bindgen version not found \
 				 in Cargo.lock or reinhardt-cloud.toml"
 				.to_string());
-		}
-		version
+		};
+		validate_docker_token(&version, "wasm-bindgen version")?;
+		Some(version)
 	} else {
 		None
 	};
@@ -172,7 +196,7 @@ pub(crate) fn collect_signals(
 /// the relationship cannot be determined. Helper extracted from
 /// `collect_signals` for testability.
 fn compute_project_relative_path(project_dir: &Path) -> Option<String> {
-	let lock_path = locate_ancestor_file(project_dir, "Cargo.lock")?;
+	let lock_path = locate_workspace_file(project_dir, "Cargo.lock")?;
 	let workspace_root = lock_path.parent()?;
 	let project_canonical = project_dir.canonicalize().ok()?;
 	let workspace_canonical = workspace_root.canonicalize().ok()?;
@@ -185,6 +209,19 @@ fn compute_project_relative_path(project_dir: &Path) -> Option<String> {
 		.to_string_lossy()
 		.into_owned();
 	if rel.is_empty() { None } else { Some(rel) }
+}
+
+fn validate_docker_token(value: &str, label: &str) -> Result<(), String> {
+	if value.is_empty()
+		|| !value
+			.chars()
+			.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+	{
+		return Err(format!(
+			"invalid {label}: expected a Dockerfile-safe token containing only ASCII letters, digits, '.', '-', '_', or '+'"
+		));
+	}
+	Ok(())
 }
 
 /// Generate a Dockerfile from signals.
@@ -559,6 +596,48 @@ mod tests {
 
 		// Assert
 		assert_eq!(result, SkipReason::None);
+	}
+
+	#[rstest]
+	fn workspace_file_lookup_stops_at_workspace_root() {
+		// Arrange
+		let outer_dir = tempfile::tempdir().unwrap();
+		std::fs::write(outer_dir.path().join("Cargo.lock"), "malicious lock").unwrap();
+		let workspace_dir = outer_dir.path().join("workspace");
+		let member_dir = workspace_dir.join("dashboard");
+		std::fs::create_dir_all(&member_dir).unwrap();
+		std::fs::write(
+			workspace_dir.join("Cargo.toml"),
+			"[workspace]\nmembers = [\"dashboard\"]\n",
+		)
+		.unwrap();
+
+		// Act
+		let result = locate_workspace_file(&member_dir, "Cargo.lock");
+
+		// Assert
+		assert_eq!(result, None);
+	}
+
+	#[rstest]
+	fn workspace_file_lookup_finds_workspace_root_file() {
+		// Arrange
+		let workspace_dir = tempfile::tempdir().unwrap();
+		let member_dir = workspace_dir.path().join("dashboard");
+		std::fs::create_dir(&member_dir).unwrap();
+		std::fs::write(
+			workspace_dir.path().join("Cargo.toml"),
+			"[workspace]\nmembers = [\"dashboard\"]\n",
+		)
+		.unwrap();
+		let lock_path = workspace_dir.path().join("Cargo.lock");
+		std::fs::write(&lock_path, "workspace lock").unwrap();
+
+		// Act
+		let result = locate_workspace_file(&member_dir, "Cargo.lock");
+
+		// Assert
+		assert_eq!(result, Some(lock_path));
 	}
 
 	/// Integration test (Refs #477): a Cargo.lock that pulls in `prost-build`
