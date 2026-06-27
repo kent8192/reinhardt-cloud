@@ -175,20 +175,18 @@ pub async fn verify_email(
 		})?
 		.ok_or_else(|| AppError::Validation("Invalid verification link".to_string()))?;
 
-	let verified_user = if !user.is_active() {
+	if !user.is_active() {
 		let mut updated = user;
+		ensure_personal_organization(&updated).await?;
 		updated.is_active = true;
-		let updated = User::objects().update(&updated).await.map_err(|e| {
+		User::objects().update(&updated).await.map_err(|e| {
 			error!("Failed to activate user {user_id}: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?;
 		info!("User {user_id} email verified and activated");
-		updated
 	} else {
-		user
+		ensure_personal_organization(&user).await?;
 	};
-
-	ensure_personal_organization(&verified_user).await?;
 
 	let body = serde_json::json!({
 		"success": true,

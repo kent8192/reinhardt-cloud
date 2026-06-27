@@ -13,6 +13,7 @@ use reinhardt::db::orm::Model;
 use tracing::error;
 
 use crate::apps::auth::models::User;
+use crate::apps::auth::services::registration::ensure_personal_organization;
 
 /// Verify user credentials against the database.
 ///
@@ -42,6 +43,8 @@ pub async fn verify_credentials(username: &str, password: &str) -> Result<User, 
 			"Email verification required".to_string(),
 		));
 	}
+
+	ensure_personal_organization(&user).await?;
 
 	Ok(user)
 }
