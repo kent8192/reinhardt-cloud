@@ -851,6 +851,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
 				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-redis-credentials, \
 				 {name}-postgresql"
 			);
 		}
@@ -866,6 +867,14 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			// Delete DB credentials Secret
 			let _ = secret_api
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
+				.await;
+
+			// Delete Redis credentials Secret
+			let _ = secret_api
+				.delete(
+					&format!("{name}-redis-credentials"),
+					&DeleteParams::default(),
+				)
 				.await;
 
 			// Delete SMTP credentials Secret
@@ -1541,23 +1550,37 @@ async fn reconcile_redis_credentials_secret(
 	let secret_name = format!("{name}-redis-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
 
-	if secret_api
+	if let Some(existing) = secret_api
 		.get_opt(&secret_name)
 		.await
 		.map_err(Error::Kube)?
-		.is_some()
 	{
-		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
-		return Ok(());
+		if existing_resource_is_controlled_by_project(&existing.metadata, app) {
+			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+			return Ok(());
+		}
+
+		return Err(ownership_conflict_error(
+			"Secret",
+			namespace,
+			&secret_name,
+			app,
+		));
 	}
 
-	let secret = build_redis_credentials_secret(&name, namespace);
+	let secret = build_owned_redis_credentials_secret(app, namespace)?;
 	secret_api
 		.create(&PostParams::default(), &secret)
 		.await
 		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
 	Ok(())
+}
+
+fn build_owned_redis_credentials_secret(app: &Project, namespace: &str) -> Result<Secret, Error> {
+	let mut secret = build_redis_credentials_secret(&app.name_any(), namespace);
+	secret.metadata.owner_references = Some(vec![resources::labels::owner_reference(app)?]);
+	Ok(secret)
 }
 
 /// Reconciles the Redis cache `Deployment` via server-side apply.
@@ -3105,6 +3128,32 @@ mod tests {
 			error.to_string(),
 			"refusing to manage existing Service default/payments: it is not owned by Project default/payments"
 		);
+	}
+
+	#[rstest]
+	fn build_owned_redis_credentials_secret_sets_project_owner_reference() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let secret = build_owned_redis_credentials_secret(&app, "default")
+			.expect("test app has a valid owner reference");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("payments-redis-credentials")
+		);
+		let owner_refs = secret
+			.metadata
+			.owner_references
+			.as_ref()
+			.expect("Redis credentials Secret should have owner references");
+		assert_eq!(owner_refs.len(), 1);
+		assert_eq!(owner_refs[0].kind, "Project");
+		assert_eq!(owner_refs[0].name, "payments");
+		assert_eq!(owner_refs[0].uid, "test-uid-12345");
+		assert_eq!(owner_refs[0].controller, Some(true));
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
