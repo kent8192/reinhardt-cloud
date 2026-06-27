@@ -2,7 +2,7 @@
 //!
 //! `NotificationConsumer` implements the `WebSocketConsumer` trait from
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
-//! `WsBroadcaster` event distribution system and the gRPC build log stream.
+//! `WsBroadcaster` event distribution system and the gRPC log stream.
 
 use std::sync::Arc;
 
