@@ -508,7 +508,7 @@ Manage Git and registry credential Secrets in the cluster.
 
 **Synopsis**
 
-```
+```bash
 reinhardt-cloud credentials <SUBCOMMAND>
 ```
 
@@ -518,21 +518,23 @@ reinhardt-cloud credentials <SUBCOMMAND>
 
 Create or update a credential Secret via server-side apply.
 
-```
+```bash
 reinhardt-cloud credentials set <PROVIDER> [OPTIONS]
 ```
+
+Credential values are read from files rather than command-line arguments so that tokens are not exposed through process listings, shell history, or CI logs.
 
 | Argument / Flag | Type | Required | Default | Description |
 |-----------------|------|----------|---------|-------------|
 | `PROVIDER` (positional) | `string` | Yes | — | Git provider identifier (e.g. `github`, `gitlab`). Not validated against an enum; any string is accepted. The value is used as the `reinhardt.dev/provider` label and as the default Secret name prefix (`<provider>-git-credentials`). |
-| `--git-token` | `string` | No* | — | Personal access token or OAuth token for Git operations |
-| `--registry-auth` | `path` | No* | — | Path to a Docker config JSON file containing registry auth |
-| `--webhook-secret` | `string` | No* | — | HMAC secret for validating webhook payloads |
-| `--api-token` | `string` | No* | — | Provider API token (e.g. for creating deploy keys) |
+| `--git-token-file` | `path` | No* | — | Non-empty file containing a personal access token or OAuth token for Git operations |
+| `--registry-auth` | `path` | No* | — | Non-empty Docker config JSON file containing registry auth |
+| `--webhook-secret-file` | `path` | No* | — | Non-empty file containing the HMAC secret for validating webhook payloads |
+| `--api-token-file` | `path` | No* | — | Non-empty file containing the provider API token (e.g. for creating deploy keys) |
 | `--secret-name` | `string` | No | `<provider>-git-credentials` | Override the Kubernetes Secret name |
 | `--namespace` | `string` | No | `"default"` | Kubernetes namespace for the Secret |
 
-\* At least one of `--git-token`, `--registry-auth`, `--webhook-secret`, or `--api-token` must be provided.
+\* At least one of `--git-token-file`, `--registry-auth`, `--webhook-secret-file`, or `--api-token-file` must be provided.
 
 The Secret is created with label `reinhardt.dev/credential-type=git` and `reinhardt.dev/provider=<PROVIDER>`. All credential values are stored as `stringData` keys: `git-token`, `registry-auth`, `webhook-secret`, `api-token`.
 
@@ -540,17 +542,17 @@ The Secret is created with label `reinhardt.dev/credential-type=git` and `reinha
 
 ```bash
 # Store a GitHub personal access token
-reinhardt-cloud credentials set github --git-token ghp_xxxx --namespace my-namespace
+reinhardt-cloud credentials set github --git-token-file /path/to/github-token --namespace my-namespace
 
 # Store both a git token and a registry auth file
 reinhardt-cloud credentials set gitlab \
-  --git-token glpat-xxxx \
+  --git-token-file /path/to/gitlab-token \
   --registry-auth ~/.docker/config.json \
   --namespace production
 
 # Override the Secret name
 reinhardt-cloud credentials set github \
-  --git-token ghp_xxxx \
+  --git-token-file /path/to/github-token \
   --secret-name my-app-github-creds
 ```
 
@@ -558,13 +560,14 @@ reinhardt-cloud credentials set github \
 
 Check whether a credential Secret exists for an application.
 
-```
+```bash
 reinhardt-cloud credentials check <APP_NAME> [OPTIONS]
 ```
 
 | Argument / Flag | Type | Required | Default | Description |
 |-----------------|------|----------|---------|-------------|
 | `APP_NAME` (positional) | `string` | Yes | — | Project name. Looks for the Secret named `<APP_NAME>-git-credentials`. |
+| `--secret-name` | `string` | No | `<APP_NAME>-git-credentials` | Override the Secret name to check. Use this when `credentials set` used its provider default, such as `github-git-credentials`. |
 | `--namespace` | `string` | No | `"default"` | Kubernetes namespace to look in |
 
 Prints whether the Secret exists, whether a provider label is present, and a summary of which credential key groups are populated (e.g. `configured (data + stringData)`). Credential values are never printed.
@@ -573,6 +576,11 @@ Prints whether the Secret exists, whether a provider label is present, and a sum
 
 ```bash
 reinhardt-cloud credentials check my-app --namespace production
+
+# Check a provider-default Secret created by credentials set without --secret-name
+reinhardt-cloud credentials check my-app \
+  --secret-name github-git-credentials \
+  --namespace production
 ```
 
 **Security note**: The token file permission behavior described in the [`login`](#reinhardt-cloud-login) section applies to credentials saved by the CLI.
@@ -583,9 +591,9 @@ reinhardt-cloud credentials check my-app --namespace production
 
 **Troubleshooting**
 
-- **`At least one credential flag must be provided`** — Run `credentials set` with at least one of `--git-token`, `--registry-auth`, `--webhook-secret`, or `--api-token`.
+- **`At least one credential file flag must be provided`** — Run `credentials set` with at least one of `--git-token-file`, `--registry-auth`, `--webhook-secret-file`, or `--api-token-file`.
 - **`Failed to read registry-auth file ...`** — The path given to `--registry-auth` does not exist or is not readable. Check the path and permissions.
-- **`No credentials secret found in namespace '...'`** — The expected Secret `<app-name>-git-credentials` does not exist. Run `credentials set` first.
+- **`No credentials secret found in namespace '...'`** — The expected Secret `<app-name>-git-credentials` or the explicit `--secret-name` value does not exist. Run `credentials set` first, or pass `--secret-name` matching the Secret created by `credentials set`.
 
 ---
 
@@ -823,7 +831,7 @@ This table lists all flags accepted by each command.
 | `status` | `--name`, `--namespace`, `--cluster` |
 | `login` | `--token` |
 | `terraform generate` | `--app`, `--provider`, `--output`, `--app-crd` |
-| `credentials set` | `--git-token`, `--registry-auth`, `--webhook-secret`, `--api-token`, `--secret-name`, `--namespace` |
+| `credentials set` | `--git-token-file`, `--registry-auth`, `--webhook-secret-file`, `--api-token-file`, `--secret-name`, `--namespace` |
 | `credentials check` | `--namespace` |
 | `crd generate` | `--output` |
 
