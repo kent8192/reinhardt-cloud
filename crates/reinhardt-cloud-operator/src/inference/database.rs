@@ -133,6 +133,9 @@ pub(crate) fn infer_database_resources(
 		Some(db) => db,
 		None => return vec![],
 	};
+	if db.validate().is_err() {
+		return vec![];
+	}
 
 	let namespace = match app.namespace() {
 		Some(ns) => ns,
@@ -570,6 +573,25 @@ mod tests {
 		// Arrange
 		let app = make_app_without_db("myapp");
 		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		assert!(resources.is_empty());
+	}
+
+	#[rstest]
+	fn invalid_database_spec_returns_empty() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: Some("db.r7i.48xlarge".to_string()),
+			storage_gb: Some(2_000_000_000),
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::aws_defaults();
 
 		// Act
 		let resources = infer_database_resources(&app, &platform);
