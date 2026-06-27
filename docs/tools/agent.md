@@ -200,6 +200,12 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
+    resources: ["projects"]
+    verbs: ["get", "patch", "create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -216,9 +222,11 @@ subjects:
     namespace: reinhardt-cloud-system
 ```
 
-Set the `metadata.namespace` values to the single namespace managed by that agent deployment. Do not use a `ClusterRoleBinding` unless the agent implementation is changed to intentionally manage resources across namespaces.
+Set the `metadata.namespace` values to the namespace where the agent Pod runs. The legacy deploy, rollback, scale, and restart commands use the agent Pod's in-cluster namespace through `Api::default_namespaced`, so a Role in any other namespace will not authorize those commands.
 
-> The agent must **not** be granted `cluster-admin` or any `create`/`update` permissions on Project CRDs — those are the operator's domain.
+`ApplyProject` and `ApplyGitCredentialsSecret` commands target the namespace carried by the command payload. If the Dashboard sends those commands to a namespace different from the agent Pod namespace, create the same namespaced `Role` and a `RoleBinding` in that target namespace, with the binding subject still pointing at the agent ServiceAccount namespace. Do not use a `ClusterRoleBinding` unless the agent implementation is changed to intentionally manage resources across namespaces.
+
+> The agent must **not** be granted `cluster-admin`. Project CRD writes should stay limited to namespaced `get`, `patch`, and `create` for agent-routed apply commands.
 
 ### Multi-cluster enrollment
 
@@ -285,7 +293,7 @@ The agent and control plane share proto definitions from `reinhardt-cloud-proto`
 
 ## Security
 
-**Least privilege**: the agent's namespaced `Role` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets` in the managed namespace. It must never be granted `cluster-admin`, a cross-namespace `ClusterRoleBinding`, pod or pod-log read permissions, or write access to Project CRDs.
+**Least privilege**: the agent's namespaced `Role` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`, plus agent-routed `Project` and Git credential `Secret` apply commands in explicitly bound namespaces. It must never be granted `cluster-admin`, a cross-namespace `ClusterRoleBinding`, pod read permissions, or pod-log read permissions.
 
 **Secret rotation**: to rotate the `AUTH_TOKEN` without downtime:
 1. Issue a new token in the Dashboard for the cluster (old token remains valid until revoked).
