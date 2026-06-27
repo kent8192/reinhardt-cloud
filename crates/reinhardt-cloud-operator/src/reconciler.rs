@@ -935,6 +935,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
 				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-redis-credentials, \
 				 {name}-postgresql"
 			);
 		}
@@ -951,6 +952,8 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			let _ = secret_api
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
 				.await;
+
+			delete_redis_credentials_secret_if_managed(&secret_api, &app, namespace, &name).await?;
 
 			// Delete SMTP credentials Secret
 			let _ = secret_api
@@ -1627,22 +1630,76 @@ async fn reconcile_redis_credentials_secret(
 	let secret_name = format!("{name}-redis-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
 
-	if secret_api
+	if let Some(existing) = secret_api
 		.get_opt(&secret_name)
 		.await
 		.map_err(Error::Kube)?
-		.is_some()
 	{
-		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
-		return Ok(());
+		if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+			return Ok(());
+		}
+
+		return Err(ownership_conflict_error(
+			"Secret",
+			namespace,
+			&secret_name,
+			app,
+		));
 	}
 
-	let secret = build_redis_credentials_secret(&name, namespace);
+	let secret = build_managed_redis_credentials_secret(app, namespace);
 	secret_api
 		.create(&PostParams::default(), &secret)
 		.await
 		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
+	build_redis_credentials_secret(&app.name_any(), namespace)
+}
+
+fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	if existing_resource_is_controlled_by_project(metadata, app) {
+		return true;
+	}
+
+	let app_name = app.name_any();
+	metadata.labels.as_ref().is_some_and(|labels| {
+		labels.get("app.kubernetes.io/name").map(String::as_str) == Some(app_name.as_str())
+			&& labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str)
+				== Some("reinhardt-cloud-operator")
+	})
+}
+
+async fn delete_redis_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{name}-redis-credentials");
+	let Some(existing) = secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+	else {
+		return Ok(());
+	};
+	if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+		let _ = secret_api
+			.delete(&secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Redis credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{name}"
+	);
 	Ok(())
 }
 
@@ -3194,6 +3251,80 @@ mod tests {
 			error.to_string(),
 			"refusing to manage existing Service default/payments: it is not owned by Project default/payments"
 		);
+	}
+
+	#[rstest]
+	fn build_managed_redis_credentials_secret_uses_retained_secret_shape() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let secret = build_managed_redis_credentials_secret(&app, "default");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("payments-redis-credentials")
+		);
+		assert!(
+			secret.metadata.owner_references.is_none(),
+			"Redis credentials must not be garbage-collected under Retain policy"
+		);
+		let labels = secret.metadata.labels.expect("standard labels");
+		assert_eq!(
+			labels.get("app.kubernetes.io/name").map(String::as_str),
+			Some("payments")
+		);
+		assert_eq!(
+			labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str),
+			Some("reinhardt-cloud-operator")
+		);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_accepts_legacy_standard_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "payments".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_rejects_other_app_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "other".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_managed);
 	}
 
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
