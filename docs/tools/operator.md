@@ -1008,9 +1008,11 @@ The operator does not consume long-lived static credentials. Cloud API access is
 node's workload identity (IRSA on AWS, Workload Identity on GCP) via `serviceAccount.annotations`.
 No bearer tokens or cloud-provider secrets are mounted into the pod by the chart.
 
-Application-level secrets (JWT keys, database credentials) are created by the reconciler as
-Kubernetes `Secret` objects within the application's namespace and are never written to disk on the
-operator node.
+Application-level secrets (JWT keys, database credentials, and Redis credentials) are created by
+the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
+written to disk on the operator node. Operator-generated Redis credential Secrets are owned by the
+corresponding `Project`; `deletion_policy: Delete` removes them explicitly, while
+`deletion_policy: Retain` keeps them for manual cleanup with the retained cache/database resources.
 
 ---
 
