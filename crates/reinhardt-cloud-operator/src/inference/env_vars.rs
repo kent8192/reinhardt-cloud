@@ -352,6 +352,37 @@ mod tests {
 	use reinhardt_cloud_types::crd::ProjectSpec;
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};
 	use rstest::rstest;
+	use serial_test::serial;
+
+	struct EnvVarGuard {
+		name: &'static str,
+		previous: Option<String>,
+	}
+
+	impl EnvVarGuard {
+		fn set(name: &'static str, value: &str) -> Self {
+			let previous = std::env::var(name).ok();
+			// SAFETY: tests using this helper run under a matching `#[serial]`
+			// group and the guard restores the previous value on drop.
+			unsafe {
+				std::env::set_var(name, value);
+			}
+			Self { name, previous }
+		}
+	}
+
+	impl Drop for EnvVarGuard {
+		fn drop(&mut self) {
+			// SAFETY: tests using this helper run under a matching `#[serial]`
+			// group and no manual cleanup path can skip this restoration.
+			unsafe {
+				match &self.previous {
+					Some(value) => std::env::set_var(self.name, value),
+					None => std::env::remove_var(self.name),
+				}
+			}
+		}
+	}
 
 	fn make_app_with_db(name: &str) -> Project {
 		Project {
@@ -541,8 +572,15 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(otel_env)]
 	fn build_otel_env_vars_omits_operator_otlp_endpoint() {
-		// Arrange & Act
+		// Arrange
+		let _operator_endpoint = EnvVarGuard::set(
+			"OTEL_EXPORTER_OTLP_ENDPOINT",
+			"http://operator-collector:4317",
+		);
+
+		// Act
 		let vars = build_otel_env_vars("dashboard");
 
 		// Assert — the tenant workload receives safe telemetry defaults, but

@@ -830,13 +830,13 @@ Writing the annotation back is deferred to avoid patch-loop reconcile storms.
 
 When running with `REINHARDT_LOG_FORMAT=json`, the operator preserves trace context on the active OTel span during reconciliation, but the current JSON log formatter setup does not guarantee that `trace_id` and `span_id` are emitted as top-level log fields. If end-to-end log/trace correlation is required, verify formatter support before relying on filtering logs by `trace_id` in Loki/Grafana.
 
-##### Managed Pod trace propagation
+##### Managed Pod telemetry defaults
 
 The operator injects the following env vars into each managed Pod's container spec:
-- `TRACEPARENT` — W3C trace context header from the active reconcile span.
 - `OTEL_PROPAGATORS=tracecontext` — instructs OTel SDKs to read `TRACEPARENT`.
 - `OTEL_SERVICE_NAME` — the app name.
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's env when set.
+
+The operator does not forward its own `OTEL_EXPORTER_OTLP_ENDPOINT` or per-reconcile `TRACEPARENT` into tenant workloads. Tenant applications that need OTLP export must set a tenant-safe endpoint explicitly through `spec.env`.
 
 #### Scaling
 
