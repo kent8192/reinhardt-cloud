@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "Telemetry and log streaming integrations for Reinhardt Cloud"
 
 [dependencies]
 serde = { workspace = true }

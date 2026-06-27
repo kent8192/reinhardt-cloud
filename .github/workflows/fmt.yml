@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Rust with rustfmt
         uses: ./.github/actions/setup-rust
@@ -33,18 +35,13 @@ jobs:
           tool: cargo-make
 
       - name: Install Reinhardt formatting tools
-        # The dashboard depends on reinhardt-web via `branch = "develop/0.3.0"`
-        # (see Cargo.toml). The page!/form! DSL formatter MUST be built from the
-        # same reinhardt-web source so its formatting rules match the macro
-        # syntax the code targets. A stale crates.io pin (previously
-        # "=0.1.0-rc.15") produced spurious fmt diffs after the v0.2.0-rc.2 bump.
-        # `reinhardt-formatter` is a separate binary in v0.2.0-rc.2; installing
-        # only `reinhardt-admin-cli` leaves `reinhardt-admin fmt-all` unable to
-        # invoke the formatter in CI.
-        # Keep this branch in sync with the reinhardt-web pin in Cargo.toml.
+        # Keep formatter package versions in sync with the reinhardt-web version
+        # pinned in Cargo.toml so the page!/form! DSL formatter matches the macro
+        # syntax the dashboard targets. Use immutable crates.io version pins here;
+        # mutable Git branches are not safe for CI install-time code execution.
         run: |
-          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.3.0 reinhardt-admin-cli --locked
-          cargo install --git https://github.com/kent8192/reinhardt-web --branch develop/0.3.0 reinhardt-formatter --locked
+          cargo install reinhardt-admin-cli --version "=0.3.0-rc.2" --locked
+          cargo install reinhardt-formatter --version "=0.3.0-rc.2" --locked
 
       - name: Check code formatting
         run: cargo make fmt-check

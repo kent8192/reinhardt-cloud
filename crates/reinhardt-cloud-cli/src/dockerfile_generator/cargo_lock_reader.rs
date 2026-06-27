@@ -25,11 +25,26 @@ pub(super) fn extract_wasm_bindgen_version(content: &str) -> Result<Option<Strin
 		if name == "wasm-bindgen"
 			&& let Some(version) = pkg.get("version").and_then(|v| v.as_str())
 		{
+			validate_package_version(version)?;
 			return Ok(Some(version.to_owned()));
 		}
 	}
 
 	Ok(None)
+}
+
+fn validate_package_version(version: &str) -> Result<(), String> {
+	if version.is_empty()
+		|| !version
+			.chars()
+			.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+	{
+		return Err(
+			"invalid wasm-bindgen version in Cargo.lock: expected a Dockerfile-safe token"
+				.to_owned(),
+		);
+	}
+	Ok(())
 }
 
 /// Returns `true` when `prost`, `prost-build`, `tonic`, or `tonic-build`
@@ -195,6 +210,23 @@ version = "0.3.0-alpha.1"
 
 		// Assert
 		assert_eq!(result, Ok(Some("0.3.0-alpha.1".to_owned())));
+	}
+
+	#[rstest]
+	fn rejects_wasm_bindgen_version_with_shell_metacharacters() {
+		// Arrange
+		let content = r#"
+[[package]]
+name = "wasm-bindgen"
+version = "0.2.100; echo injected"
+"#;
+
+		// Act
+		let result = extract_wasm_bindgen_version(content);
+
+		// Assert
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("Dockerfile-safe token"));
 	}
 
 	// P1: prost-build present (build-dep transitively requires protoc)

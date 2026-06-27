@@ -1,5 +1,7 @@
 //! JWT authentication interceptors for gRPC requests.
 
+use std::sync::Arc;
+
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use reinhardt_cloud_core::auth::Claims;
 use tonic::{Request, Status};
@@ -17,6 +19,8 @@ const PUBLIC_PATHS: &[&str] = &[
 /// Paths that require agent authentication (not user authentication).
 const AGENT_PATH_PREFIXES: &[&str] = &["/reinhardt.paas.v1.ClusterAgentService/"];
 const LOG_SERVICE_PUSH_LOGS_PATH: &str = "/reinhardt.cloud.log.LogService/PushLogs";
+
+type AgentTokenValidator = Arc<dyn Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync>;
 
 /// JWT authentication interceptor for gRPC.
 ///
@@ -81,6 +85,7 @@ impl tonic::service::Interceptor for JwtInterceptor {
 #[derive(Clone)]
 pub struct AgentJwtInterceptor {
 	secret: Vec<u8>,
+	token_validator: Option<AgentTokenValidator>,
 }
 
 impl AgentJwtInterceptor {
@@ -88,13 +93,27 @@ impl AgentJwtInterceptor {
 	pub fn new(secret: &[u8]) -> Self {
 		Self {
 			secret: secret.to_vec(),
+			token_validator: None,
 		}
+	}
+
+	/// Attach a validator that enforces stateful token revocation.
+	pub fn with_token_validator(
+		mut self,
+		validator: impl Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync + 'static,
+	) -> Self {
+		self.token_validator = Some(Arc::new(validator));
+		self
 	}
 
 	/// Validate an agent token and return decoded claims.
 	pub fn validate_token(&self, token: &str) -> Result<AgentClaims, Status> {
-		verify_agent_token(token, &self.secret)
-			.map_err(|e| Status::unauthenticated(format!("Invalid agent token: {e}")))
+		let claims = verify_agent_token(token, &self.secret)
+			.map_err(|e| Status::unauthenticated(format!("Invalid agent token: {e}")))?;
+		if let Some(validator) = &self.token_validator {
+			validator(token, &claims)?;
+		}
+		Ok(claims)
 	}
 
 	/// Return true when the path belongs to the cluster-agent service.
@@ -158,6 +177,15 @@ impl LogServiceJwtInterceptor {
 			user: JwtInterceptor::new(secret),
 			agent: AgentJwtInterceptor::new(secret),
 		}
+	}
+
+	/// Attach the stateful token validator used for agent log ingestion.
+	pub fn with_agent_token_validator(
+		mut self,
+		validator: impl Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync + 'static,
+	) -> Self {
+		self.agent = self.agent.with_token_validator(validator);
+		self
 	}
 
 	fn is_push_logs_path(request: &Request<()>) -> bool {
@@ -245,6 +273,47 @@ mod tests {
 
 		// Assert
 		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_interceptor_requires_auth_for_log_service_path() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.paas.v1.LogService",
+			"ListLogs",
+		));
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_interceptor_accepts_user_token_for_log_service_path() {
+		// Arrange
+		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::now_v7();
+		let token = auth::create_token(user_id, "log-reader", TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.paas.v1.LogService",
+			"ListLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req).unwrap();
+
+		// Assert
+		let claims = result.extensions().get::<Claims>().unwrap();
+		assert_eq!(claims.sub, user_id.to_string());
+		assert_eq!(claims.username, "log-reader");
 	}
 
 	#[rstest]
@@ -389,6 +458,45 @@ mod tests {
 
 		// Assert
 		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn test_agent_interceptor_calls_stateful_token_validator() {
+		// Arrange
+		let interceptor =
+			AgentJwtInterceptor::new(TEST_SECRET).with_token_validator(|token, claims| {
+				assert!(!token.is_empty());
+				if claims.cluster_id == claims.sub {
+					Ok(())
+				} else {
+					Err(Status::unauthenticated("cluster mismatch"))
+				}
+			});
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+
+		// Act
+		let claims = interceptor.validate_token(&token).unwrap();
+
+		// Assert
+		assert_eq!(claims.cluster_id, cluster_id.to_string());
+	}
+
+	#[rstest]
+	fn test_agent_interceptor_rejects_validator_failure() {
+		// Arrange
+		let interceptor = AgentJwtInterceptor::new(TEST_SECRET)
+			.with_token_validator(|_, _| Err(Status::unauthenticated("revoked token")));
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+
+		// Act
+		let result = interceptor.validate_token(&token);
+
+		// Assert
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+		assert_eq!(err.message(), "revoked token");
 	}
 
 	#[rstest]

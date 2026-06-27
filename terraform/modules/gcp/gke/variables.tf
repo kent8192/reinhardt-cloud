@@ -56,6 +56,12 @@ variable "disk_size_gb" {
   default     = 50
 }
 
+variable "enable_dataplane_v2" {
+  description = "Enable GKE Dataplane V2 for NetworkPolicy enforcement. Enabling this on an existing cluster can force replacement; use only during planned cluster creation or migration."
+  type        = bool
+  default     = false
+}
+
 variable "labels" {
   description = "Labels applied to all GKE resources."
   type        = map(string)
