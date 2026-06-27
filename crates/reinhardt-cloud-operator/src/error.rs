@@ -31,6 +31,24 @@ pub(crate) enum Error {
 	#[error("failed to compute owner reference for {0}")]
 	OwnerReference(String),
 
+	/// A resource with the target name already exists but is not controlled by
+	/// the reconciling `Project`.
+	#[error(
+		"refusing to manage existing {kind} {namespace}/{name}: it is not owned by Project {project_namespace}/{project_name}"
+	)]
+	ResourceOwnershipConflict {
+		/// Kubernetes resource kind that would have been patched.
+		kind: &'static str,
+		/// Namespace containing the conflicting resource.
+		namespace: String,
+		/// Name of the conflicting resource.
+		name: String,
+		/// Namespace of the reconciling `Project`.
+		project_namespace: String,
+		/// Name of the reconciling `Project`.
+		project_name: String,
+	},
+
 	/// A port number is outside the valid range (1-65535).
 	#[error("invalid port {port} for field '{field}': must be between 1 and 65535")]
 	InvalidPort { field: &'static str, port: i32 },
@@ -38,6 +56,26 @@ pub(crate) enum Error {
 	/// A Kubernetes probe period is outside the valid range.
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
+
+	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
+	#[error(
+		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
+	)]
+	ServiceAccountOwnership {
+		namespace: String,
+		name: String,
+		project_uid: String,
+	},
+
+	/// An image-pull secret is not owned by the application.
+	#[error(
+		"invalid imagePullSecret '{secret}' for app '{app}': secret names must start with one of {allowed_prefixes}"
+	)]
+	InvalidImagePullSecret {
+		app: String,
+		secret: String,
+		allowed_prefixes: String,
+	},
 
 	/// Database provisioning failed.
 	/// Used by the inference engine when database resource creation fails.
@@ -60,6 +98,10 @@ pub(crate) enum Error {
 	#[allow(dead_code)]
 	#[error("git credentials secret '{0}' not found")]
 	CredentialsMissing(String),
+
+	/// Source builds may only mount the app-owned Git credentials Secret.
+	#[error("invalid source credentials secret '{actual}': expected '{expected}'")]
+	InvalidCredentialsSecret { actual: String, expected: String },
 
 	/// Source build failed.
 	/// Used by the build job reconciler when a Kaniko build fails.
@@ -85,6 +127,10 @@ pub(crate) enum Error {
 	/// the 63-character limit).
 	#[error("invalid spec.tenant: {0}")]
 	InvalidTenant(String),
+
+	/// An explicit Ingress host is unsafe or conflicts with another Ingress.
+	#[error("invalid ingress host: {0}")]
+	InvalidIngressHost(String),
 
 	/// A preview budget field is malformed (e.g. non-numeric CPU/memory
 	/// quantity in `source.preview.budget`).
@@ -136,9 +182,14 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::ServiceAccountOwnership { .. }
+		| Error::InvalidImagePullSecret { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
-		| Error::InvalidBudget(_) => BackoffClass::Permanent,
+		| Error::InvalidBudget(_)
+		| Error::InvalidIngressHost(_)
+		| Error::ResourceOwnershipConflict { .. }
+		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}
@@ -218,9 +269,39 @@ mod tests {
 	}
 
 	#[rstest]
+	fn invalid_ingress_host_is_permanent() {
+		// Arrange
+		let err = Error::InvalidIngressHost("host already claimed".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
 	fn invalid_budget_is_permanent() {
 		// Arrange
 		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn resource_ownership_conflict_is_permanent() {
+		// Arrange
+		let err = Error::ResourceOwnershipConflict {
+			kind: "Service",
+			namespace: "default".to_string(),
+			name: "payments".to_string(),
+			project_namespace: "default".to_string(),
+			project_name: "payments".to_string(),
+		};
 
 		// Act
 		let class = backoff_class(&err);

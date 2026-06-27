@@ -61,7 +61,8 @@ spec:
     target_port: 8000
   # Environment variables. The CRD models env as a flat key/value map;
   # secret values are referenced by name and resolved by the operator
-  # from the Secret pre-provisioned in this namespace (see prerequisites).
+  # only from the app-scoped <project-name>-secrets Secret pre-provisioned
+  # in this namespace (see prerequisites).
   env:
     REINHARDT_EMAIL__HOST: secretRef:reinhardt-cloud-dashboard-secrets/email-host
     GRPC_ENDPOINT: http://reinhardt-cloud-operator.reinhardt-cloud-system.svc.cluster.local:50051

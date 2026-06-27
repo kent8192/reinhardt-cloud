@@ -13,7 +13,7 @@
 [![CI](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml/badge.svg)](https://github.com/kent8192/reinhardt-cloud/actions/workflows/security-audit.yml)
 [![codecov](https://codecov.io/gh/kent8192/reinhardt-cloud/graph/badge.svg)](https://codecov.io/gh/kent8192/reinhardt-cloud)
-[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](https://spdx.org/licenses/BUSL-1.1.html)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent8192/reinhardt-cloud)
 
 </div>
@@ -52,7 +52,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0 pre-release. CLI commands are functional but under active development.
+> **Status:** v0.1.0-alpha.1 pre-release. CLI commands are functional but under active development.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -180,7 +180,7 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
 - **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
-- **Dashboard Authentication** — Local credentials plus GitHub OAuth, account-page linking, logout, and email-verification flow
+- **Dashboard Authentication** — Local credentials plus GitHub OAuth, verified-email association, logout, and email-verification flow
 - **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
 - **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
 - **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation
@@ -263,7 +263,7 @@ spec:
 | `mail` | `MailSpec?` | SMTP configuration |
 | `scale` | `ScaleSpec?` | HPA autoscaling for CPU and Memory; RPS is reserved for custom metrics |
 | `health` | `HealthSpec?` | Liveness / readiness probes |
-| `services` | `ServicesSpec?` | Port + Ingress exposure |
+| `services` | `ServicesSpec?` | Port + Ingress exposure. Generated Ingress hosts must match a DNS suffix configured by `REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES` and be unique across the cluster; the operator rejects `services.ingress_host` values outside those suffixes, wildcard hosts, or hosts already claimed by another Ingress. |
 | `services.tls` | `ServiceTlsSpec?` | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `pages` | `PagesSpec?` | WASM+SSR static asset config |
 | `isolation` | `IsolationSpec?` | Runtime class, network policy, seccomp |
@@ -274,7 +274,7 @@ spec:
 | `source` | `SourceSpec?` | Git repository, build settings, and PR-based preview environments |
 | `tenant` | `TenantRef?` | Owning Organization (and optional Team) for multi-tenant namespacing |
 | `plugins` | `Vec<PluginSpec>?` | Crossplane-style Composition Functions for extending the reconciler |
-| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets |
+| `image_pull_secrets` | `Vec<LocalObjectReference>?` | Private container-registry pull secrets; names must start with the app-owned `{metadata.name}-` prefix, except operator-created previews may use verified parent-app pull secrets; legacy previews without the parent namespace label are accepted only when their namespace matches the canonical legacy preview contract |
 | `service_account` | `ServiceAccountSpec?` | Per-app `ServiceAccount` for IRSA / Workload Identity Federation |
 
 ### Status conditions
@@ -336,8 +336,7 @@ succeeds.
 - Kubernetes 1.31+
 - Helm 3
 - **cert-manager** (required for preview environments) — the operator emits a
-  per-namespace `cert-manager.io/v1` `Issuer` for each `{parent}-preview`
-  namespace so preview hosts get automatic TLS. Configure the issuer with:
+  per-namespace `cert-manager.io/v1` `Issuer` for each parent-qualified preview namespace so preview hosts get automatic TLS. Configure the issuer with:
   - `REINHARDT_CLOUD_PREVIEW_INGRESS_CLASS` (default `nginx`)
   - `REINHARDT_CLOUD_PREVIEW_ACME_SERVER` (default Let's Encrypt production)
   - `REINHARDT_CLOUD_PREVIEW_ACME_EMAIL` (registration email; set in production)
@@ -512,7 +511,7 @@ cargo check --workspace --all-features
 cargo build --workspace --all-features
 
 # Test
-cargo make test                                 # all tests
+cargo make test                                 # all tests, including dashboard WASM browser E2E
 cargo nextest run --workspace --all-features    # with nextest
 
 # Code quality
@@ -532,7 +531,7 @@ cargo run --bin reinhardt-cloud-operator
 
 ## API Stability
 
-**Current status:** v0.1.0 (Alpha)
+**Current status:** v0.1.0-alpha.1 (Alpha)
 
 | Component | Stability | Notes |
 |---|---|---|
@@ -587,4 +586,4 @@ Developed by Tachyon Inc.
 
 ## License
 
-This project is licensed under the [Business Source License 1.1](LICENSE).
+This project is licensed under the [Business Source License 1.1](https://spdx.org/licenses/BUSL-1.1.html).
