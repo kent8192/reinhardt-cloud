@@ -136,6 +136,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::DatabaseProvisioning(_)
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_) => BackoffClass::Permanent,
@@ -221,6 +222,18 @@ mod tests {
 	fn invalid_budget_is_permanent() {
 		// Arrange
 		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn database_provisioning_is_permanent() {
+		// Arrange
+		let err = Error::DatabaseProvisioning("invalid database spec".to_string());
 
 		// Act
 		let class = backoff_class(&err);

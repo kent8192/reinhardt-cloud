@@ -27,6 +27,7 @@ pub struct DatabaseSpec {
 	/// Explicit values must be one of `ALLOWED_DATABASE_INSTANCE_CLASSES`.
 	pub instance_class: Option<String>,
 	/// Storage size in GB. Must be between 1 and `MAX_DATABASE_STORAGE_GB`.
+	#[schemars(range(min = 1, max = 100))]
 	pub storage_gb: Option<i32>,
 	/// Engine version (e.g., "16" for PostgreSQL).
 	pub version: Option<String>,
