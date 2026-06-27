@@ -25,7 +25,7 @@ Key principles from the specification:
 - **NEVER** push commits without explicit user instruction
 - Always wait for user confirmation before committing changes
 - Prepare changes and inform the user, but let them decide when to commit
-- **EXCEPTION (Reinhardt family)**: When operating inside `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc`, the **Autonomous Operation Policy** in `CLAUDE.md` / `AGENTS.md` (see the "Autonomous Operation Policy (Reinhardt Family)" subsection of `### Git Workflow`) authorizes commit and push on any non-protected branch without further confirmation. Protected branches (`main`, `master`, `develop/*`, `release/*`) and history-rewriting pushes (force-push, rebase-push) still require explicit user instruction.
+- **EXCEPTION (Reinhardt family)**: When operating inside `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc`, the **Autonomous Operation Policy** in `CLAUDE.md` / `AGENTS.md` (see the "Autonomous Operation Policy (Reinhardt Family)" subsection of `### Git Workflow`) authorizes only local commits on ordinary non-protected work branches after the agent has made and verified changes. Any push, any PR or Issue operation, protected branches (`main`, `master`, `develop/*`, `release/*`), release automation branches (`release-plz-*`, `develop-release-plz-*`), privileged CI-triggering branches, and history-rewriting pushes (force-push, rebase-push) still require explicit user instruction.
 
 The following diagram summarizes the commit authorization decision flow:
 
@@ -130,7 +130,7 @@ If unsure whether an artifact qualifies, default to excluding it and ask the use
 
 **Overview:**
 
-This project uses [release-plz](https://release-plz.ieni.dev/) for automated release management. Version bumps, CHANGELOG updates, GitHub Releases, and Git tags are handled automatically based on conventional commits and `release-plz.toml`.
+This project uses [release-plz](https://release-plz.ieni.dev/) for automated release management. Version bumps, CHANGELOG updates, crates.io publishing, GitHub Releases, and Git tags are handled automatically based on conventional commits and `release-plz.toml`.
 
 **How It Works:**
 
@@ -141,7 +141,7 @@ This project uses [release-plz](https://release-plz.ieni.dev/) for automated rel
    - Updated CHANGELOG.md files
    - Summary of changes
 4. Review and merge the Release PR
-5. release-plz creates GitHub Releases and Git tags for configured packages
+5. release-plz publishes configured crates to crates.io, creates GitHub Releases, and creates Git tags
 
 **Commit-to-Version Mapping:**
 
@@ -170,11 +170,13 @@ sequenceDiagram
     participant Dev as Developer
     participant Git as Git/GitHub
     participant RP as release-plz
+    participant Crates as crates.io
 
     Dev->>Git: Push conventional commits to main
     RP->>Git: Analyze commits since last release
     RP->>Git: Create Release PR (version bumps + CHANGELOG)
     Dev->>Git: Review and merge Release PR
+    RP->>Crates: Publish configured crates
     RP->>Git: Create GitHub Releases
     RP->>Git: Create git tags (package@vX.Y.Z)
 ```

@@ -73,7 +73,7 @@ pub async fn register_inactive_user(
 		}
 	};
 
-	provision_personal_organization(&created).await?;
+	let organization = provision_personal_organization_inner(&created, true).await?;
 
 	let token = generate_token(
 		TokenPurpose::EmailVerification,
@@ -94,9 +94,7 @@ pub async fn register_inactive_user(
 			"Failed to send verification email to {}: {e}",
 			created.email
 		);
-		if let Err(del_err) = User::objects().delete(created.id).await {
-			error!("Failed to roll back user after email failure: {del_err}");
-		}
+		rollback_registration_after_email_failure(&created, &organization).await;
 		return Err(AppError::Internal(
 			"Registration failed - please try again later".to_string(),
 		));
@@ -116,7 +114,9 @@ pub async fn register_inactive_user(
 /// - On unique-violation (rare race between two simultaneous registrations),
 ///   retry once with a 6-char uuid suffix appended to the slug
 pub async fn provision_personal_organization(created: &User) -> Result<(), AppError> {
-	provision_personal_organization_inner(created, true).await
+	provision_personal_organization_inner(created, true)
+		.await
+		.map(|_| ())
 }
 
 /// Create a Personal `Organization` and Owner membership for an existing
@@ -134,13 +134,15 @@ pub async fn ensure_personal_organization(user: &User) -> Result<(), AppError> {
 		return Ok(());
 	}
 
-	provision_personal_organization_inner(user, false).await
+	provision_personal_organization_inner(user, false)
+		.await
+		.map(|_| ())
 }
 
 async fn provision_personal_organization_inner(
 	created: &User,
 	rollback_on_failure: bool,
-) -> Result<(), AppError> {
+) -> Result<Organization, AppError> {
 	let now = Utc::now();
 	let mut slug = sanitize_username_to_slug(&created.username);
 	if is_reserved_slug(&slug) || validate_slug(&slug).is_err() {
@@ -228,7 +230,20 @@ async fn provision_personal_organization_inner(
 		return Err(AppError::Internal("Internal server error".to_string()));
 	}
 
-	Ok(())
+	Ok(org)
+}
+
+/// Best-effort delete of registration artifacts created before verification
+/// email delivery failed.
+async fn rollback_registration_after_email_failure(created: &User, organization: &Organization) {
+	if let Some(org_id) = organization.id {
+		if let Err(del_err) = Organization::objects().delete(org_id).await {
+			error!("Failed to roll back Organization after email failure: {del_err}");
+		}
+	}
+	if let Err(del_err) = User::objects().delete(created.id).await {
+		error!("Failed to roll back user after email failure: {del_err}");
+	}
 }
 
 /// Best-effort delete of a user, used during Personal Org rollback.

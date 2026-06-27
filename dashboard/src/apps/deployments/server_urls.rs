@@ -16,7 +16,7 @@ use crate::apps::deployments::serializers::{CliDeploymentRequest, CliDeploymentR
 use crate::apps::deployments::services::{
 	SubmitProjectDeploymentError, SubmitProjectDeploymentInput, submit_project_deployment,
 };
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::{Action, require_permission};
 use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
 
 #[derive(Debug, Serialize)]
@@ -50,7 +50,7 @@ pub async fn cli_deploy(
 		);
 	}
 
-	let organization_id = current_organization_id_for_user(user.id).await?;
+	let organization_id = require_permission(user.id, Action::DeploymentCreate).await?;
 	let Some(cluster) = Cluster::objects()
 		.filter(Cluster::field_name().eq(request.cluster.clone()))
 		.filter(Cluster::field_organization_id().eq(organization_id))

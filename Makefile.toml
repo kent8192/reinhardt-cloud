@@ -117,7 +117,11 @@ args = [
 # ============================================================================
 
 [tasks.test]
-description = "Run all tests with nextest"
+description = "Run all tests, including dashboard WASM browser E2E"
+dependencies = ["test-native", "dashboard-wasm-spa-test"]
+
+[tasks.test-native]
+description = "Run native tests with nextest"
 command = "cargo"
 args = [
 	"nextest",
@@ -127,6 +131,12 @@ args = [
 	"--all-features",
 	"--no-fail-fast",
 ]
+
+[tasks.dashboard-wasm-spa-test]
+description = "Run dashboard WASM browser E2E tests"
+cwd = "dashboard"
+command = "cargo"
+args = ["make", "wasm-spa-test"]
 
 [tasks.test-unit]
 description = "Run unit tests only"
