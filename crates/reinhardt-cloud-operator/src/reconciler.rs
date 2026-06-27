@@ -61,6 +61,10 @@ fn managed_git_credentials_secret_name(project_name: &str) -> String {
 	format!("{project_name}-git-credentials")
 }
 
+fn managed_github_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-github-git-credentials")
+}
+
 /// Annotation key on a `Project` that carries an incoming W3C `traceparent`
 /// for distributed-trace propagation into the reconcile span.
 ///
@@ -245,6 +249,82 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 	}
 	.instrument(span)
 	.await
+}
+
+fn resource_is_controlled_by_project(secret: &Secret, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	secret
+		.metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn git_credentials_cleanup_names(app: &Project, project_name: &str) -> Vec<String> {
+	let fallback_name = managed_git_credentials_secret_name(project_name);
+	let github_name = managed_github_credentials_secret_name(project_name);
+	let mut names = vec![fallback_name, github_name];
+	if let Some(source) = app.spec.source.as_ref()
+		&& let Some(secret_name) = source.credentials_secret.as_ref()
+		&& (secret_name == &names[0] || secret_name == &names[1])
+		&& !names.contains(secret_name)
+	{
+		names.push(secret_name.clone());
+	}
+	names
+}
+
+fn git_credentials_secret_is_managed(
+	secret: &Secret,
+	app: &Project,
+	project_name: &str,
+	secret_name: &str,
+) -> bool {
+	if resource_is_controlled_by_project(secret, app) {
+		return true;
+	}
+
+	let project_scoped = secret_name == managed_git_credentials_secret_name(project_name)
+		|| secret_name == managed_github_credentials_secret_name(project_name);
+	if !project_scoped {
+		return false;
+	}
+
+	secret.metadata.labels.as_ref().is_some_and(|labels| {
+		labels
+			.get("reinhardt.dev/credential-type")
+			.map(String::as_str)
+			== Some("git")
+			&& labels.get("reinhardt.dev/provider").map(String::as_str) == Some("github")
+	})
+}
+
+async fn delete_git_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	project_name: &str,
+	secret_name: &str,
+) -> Result<(), Error> {
+	let Some(existing) = secret_api.get_opt(secret_name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	if git_credentials_secret_is_managed(&existing, app, project_name, secret_name) {
+		let _ = secret_api
+			.delete(secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Git credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{project_name}"
+	);
+	Ok(())
 }
 
 /// Apply the desired state for a `Project`.
@@ -814,16 +894,16 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				)
 				.await;
 
-			// Delete only the deterministic operator-managed Git credentials
-			// Secret. The source credentials reference is user-controlled and may
-			// point at a shared or externally managed Secret that the operator must
-			// not delete as a finalizer side effect.
-			let _ = secret_api
-				.delete(
-					&managed_git_credentials_secret_name(&name),
-					&DeleteParams::default(),
+			for secret_name in git_credentials_cleanup_names(&app, &name) {
+				delete_git_credentials_secret_if_managed(
+					&secret_api,
+					&app,
+					namespace,
+					&name,
+					&secret_name,
 				)
-				.await;
+				.await?;
+			}
 
 			// Delete introspect-managed database resources
 			delete_if_exists::<StatefulSet>(&ctx.client, namespace, &format!("{name}-postgresql"))
@@ -3539,6 +3619,121 @@ mod tests {
 
 		// Assert
 		assert_eq!(secret_name, "delete-all-app-git-credentials");
+	}
+
+	#[rstest]
+	fn managed_github_credentials_secret_name_uses_dashboard_import_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_github_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-github-git-credentials");
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_include_github_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("private-app-github-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(names.contains(&"private-app-git-credentials".to_string()));
+		assert!(names.contains(&"private-app-github-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_exclude_shared_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("shared-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(!names.contains(&"shared-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_secret_accepts_dashboard_applied_secret_labels() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"private-app-github-git-credentials",
+		);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn git_credentials_secret_rejects_shared_secret_even_with_git_labels() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
+
+		// Assert
+		assert!(!is_managed);
 	}
 
 	// ── conflict resolution tests ───────────────────────────────────
