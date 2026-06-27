@@ -85,16 +85,6 @@ spec:
                     description: |-
                       Instance class (platform-specific, e.g., "db.t3.micro").
                       Defaults to platform profile value if unset.
-                    enum:
-                    - db.t3.micro
-                    - db.t3.small
-                    - db.t3.medium
-                    - db.t3.large
-                    - db.r5.large
-                    - db-f1-micro
-                    - db-g1-small
-                    - db-custom-1-3840
-                    - db-custom-2-8192
                     nullable: true
                     type: string
                   storage_gb:
