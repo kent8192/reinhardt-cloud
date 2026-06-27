@@ -24,9 +24,9 @@ This file defines the pull request (PR) policy for the Reinhardt Cloud project. 
 - **MUST** prefer GitHub MCP tools (`create_pull_request`) for creating pull requests when available
 - **Fallback**: Use GitHub CLI (`gh pr create`) when GitHub MCP is not available
 - **NEVER** use web browser UI for PR creation when MCP or CLI is available
-- **Autonomy (Reinhardt family)**: Creating a **Draft** PR is authorized without further user confirmation in `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc` (see Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md`); the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed. Marking a PR as Ready for Review is **REQUIRED** (MUST) immediately once the implementation is complete; CI completion is **not** a prerequisite. See § PC-4a.
+- **Autonomy (Reinhardt family)**: The Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` does not authorize creating PRs or converting Draft PRs to Ready for Review without explicit user instruction. When PR creation is explicitly authorized, the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed for work in progress.
 
-The following diagram summarizes the PR creation flow. Ready-for-Review conversion is governed separately by § PC-4a (MUST immediately upon implementation completion — CI completion is NOT a prerequisite):
+The following diagram summarizes the PR creation flow. Ready-for-Review conversion is governed separately by § PC-4a and requires explicit user instruction:
 
 ```mermaid
 flowchart TD
@@ -37,8 +37,8 @@ flowchart TD
     D --> E
     E --> F[Add appropriate labels]
     F --> G[PR created as Draft]
-    G --> H["Implementation complete?<br/>see § PC-4a"]
-    H -->|Yes - MUST| I[Mark Ready immediately<br/>gh pr ready]
+    G --> H["Explicit Ready instruction?<br/>see § PC-4a"]
+    H -->|Yes| I[Mark Ready<br/>gh pr ready]
     H -->|No| G
 ```
 
@@ -93,35 +93,35 @@ chore/ci-update-kubernetes-version
 ### PC-4 (SHOULD): Draft PRs for Work in Progress
 
 - Use draft PRs for incomplete work
-- **MUST** convert to Ready for Review **immediately once the implementation is complete** — CI completion is **not** a prerequisite (the Reinhardt-family Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` overrides any "wait for all tests to pass" criterion for the Draft→Ready transition)
+- **MUST NOT** convert to Ready for Review without explicit user instruction
 - Draft PRs allow early feedback without formal review requests
 
 **Example:**
 ```bash
 gh pr create --draft --title "feat(crd): add Project CRD (WIP)"
 
-# MUST convert to Ready immediately once implementation is complete (CI completion NOT required):
+# Convert to Ready only after explicit user instruction:
 gh pr ready <number>
 ```
 
-### PC-4a (MUST): Mandatory Draft → Ready Conversion on Implementation Completion
+### PC-4a (MUST): Draft → Ready Conversion Requires Explicit Instruction
 
-Converting a Draft PR to Ready for Review is **mandatory once the implementation is complete**. "Implementation complete" means no `todo!()` / `// TODO:` markers introduced by this PR remain in the diff. **CI completion is NOT a prerequisite** — the Reinhardt-family Autonomous Operation Policy explicitly waives "wait for CI green / tests to pass". The agent MUST convert immediately upon implementation completion, and MUST NOT leave the PR in Draft state once the implementation is complete.
+Converting a Draft PR to Ready for Review requires explicit user instruction. Implementation completion alone does not authorize conversion, because Ready-for-Review can trigger review workflows and privileged CI behavior.
 
 **Rules:**
-- The agent **MUST** convert a Draft PR to Ready for Review immediately once the implementation is complete
-- The agent **MUST** convert immediately upon explicit user instruction (regardless of CI state)
-- The agent **MUST NOT** leave a PR in Draft state after the implementation is complete
+- The agent **MUST NOT** convert a Draft PR to Ready for Review without explicit user instruction
+- The agent **MUST** convert when explicitly instructed, unless the requested action conflicts with protected-branch, release, or safety policies
 - Use `gh pr ready <number>` (or the equivalent GitHub MCP call) for conversion
 
-**Readiness Criterion (single check):**
+**Readiness Criteria (verify before recommending conversion):**
 - [ ] Implementation is complete (no remaining `todo!()` or `// TODO:` introduced by this PR)
-
-> Other quality requirements (fmt-clippy clean, PR description following the template, documentation updated) are already enforced by the commit/push policies and the PR creation policy — they are NOT additional preconditions for the Draft → Ready transition.
+- [ ] PR description follows `.github/PULL_REQUEST_TEMPLATE.md`
+- [ ] Relevant fmt/clippy/test checks have passed, or any limitations are documented
+- [ ] Documentation is updated when required
 
 **Example:**
 ```bash
-# Mandatory conversion once implementation is complete
+# Convert only after explicit user instruction
 gh pr ready 123
 
 # Verify PR status after conversion
@@ -133,9 +133,9 @@ gh pr view 123 --json isDraft
 | Action | Explicit Instruction | Plan Mode Approval | Implementation Complete |
 |--------|---------------------|-------------------|--------------------------|
 | Commit | ✅ Authorized | ✅ Authorized | n/a |
-| Push | ✅ Authorized | ✅ Authorized | n/a |
-| GitHub Comments | ✅ Authorized | ✅ Authorized | n/a |
-| Draft PR → Ready | ✅ **REQUIRED** | ✅ **REQUIRED** | ✅ **REQUIRED (MUST convert immediately)** |
+| Push | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
+| GitHub Comments | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
+| Draft PR → Ready | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
 
 The following diagram illustrates the Draft PR lifecycle:
 
@@ -144,8 +144,8 @@ stateDiagram-v2
     [*] --> Draft: gh pr create --draft
     Draft --> Draft: Implementation continues
     Draft --> Draft: CI checks run
-    Draft --> ReadyForReview: Implementation complete OR user instructs (MANDATORY)
-    note right of ReadyForReview: Agent MUST convert immediately\nonce implementation is complete
+    Draft --> ReadyForReview: Explicit user instruction
+    note right of ReadyForReview: Agent MUST NOT convert without explicit instruction
     ReadyForReview --> Review: Reviewers notified (incl. Copilot)
     Review --> Merged: Approved and merged
     Review --> Draft: Converted back to draft
@@ -491,13 +491,13 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Follow Conventional Commits format for titles
 - Include Summary, Type of Change, Motivation and Context, How Was This Tested, Checklist sections
 - Include Labels to Apply section with appropriate type and scope labels
-- Run all checks before **merging** (NOT before Draft → Ready conversion — § PC-4a mandates immediate Ready conversion)
+- Run all checks before **merging** and verify readiness criteria before recommending Draft → Ready conversion (see § PC-4a)
 - Address all review comments
 - Handle Copilot review comments according to RP-6 when authorized
 - Resolve all Copilot review conversations before considering PR complete
 - Ensure all CI checks pass before merge
 - Use three-dot diff (`main...branch`) for PR verification to exclude merge history noise
-- **MUST** convert Draft PRs to Ready for Review **immediately** once the implementation is complete (CI completion is NOT required), OR upon explicit user instruction (see § PC-4a)
+- **MUST NOT** convert Draft PRs to Ready for Review without explicit user instruction (see § PC-4a)
 
 ### ❌ NEVER DO
 - Write PR titles or descriptions in non-English languages
@@ -510,8 +510,8 @@ docs(operator): update deployment guide for Kubernetes 1.29
 - Force push after review has started (unless explicitly requested)
 - Use rebase or force-push to resolve PR conflicts (use worktree merge instead)
 - Use two-dot diff (`main..branch`) for PR verification (includes merge history noise)
-- Convert Draft PRs to Ready for Review while the implementation is incomplete (`todo!()` or `// TODO:` introduced by the PR still present), without explicit user override
-- Leave a PR in Draft state after the implementation is complete (MUST convert to Ready for Review immediately; CI completion is NOT a prerequisite)
+- Convert Draft PRs to Ready for Review without explicit user instruction
+- Recommend converting a PR to Ready for Review while the implementation is incomplete (`todo!()` or `// TODO:` introduced by the PR still present), without explicit user override
 
 ---
 
