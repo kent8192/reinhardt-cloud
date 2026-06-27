@@ -16,10 +16,13 @@
 //! function in a DI service would add a layer without removing any
 //! global-state coupling.
 
+use std::sync::OnceLock;
+
 use chrono::Utc;
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::db::orm::Model;
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
@@ -30,6 +33,12 @@ use crate::apps::organizations::roles::{
 	MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
 };
 use crate::config::ProjectSettings;
+
+static PERSONAL_ORG_PROVISIONING_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn personal_org_provisioning_lock() -> &'static Mutex<()> {
+	PERSONAL_ORG_PROVISIONING_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// Register an inactive user and send the verification email.
 ///
@@ -122,6 +131,7 @@ pub async fn provision_personal_organization(created: &User) -> Result<(), AppEr
 /// Create a Personal `Organization` and Owner membership for an existing
 /// active user without rolling the user back on failure.
 pub async fn ensure_personal_organization(user: &User) -> Result<(), AppError> {
+	let _guard = personal_org_provisioning_lock().lock().await;
 	let existing = OrganizationMembership::objects()
 		.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
 		.first()
