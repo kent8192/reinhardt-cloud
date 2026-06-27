@@ -39,6 +39,9 @@ resource "google_container_cluster" "primary" {
     services_secondary_range_name = var.services_range_name
   }
 
+  # Dataplane V2 provides Cilium-backed Kubernetes NetworkPolicy enforcement.
+  datapath_provider = "ADVANCED_DATAPATH"
+
   private_cluster_config {
     enable_private_nodes    = true
     enable_private_endpoint = false
