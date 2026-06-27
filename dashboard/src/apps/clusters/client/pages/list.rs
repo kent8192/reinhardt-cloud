@@ -83,6 +83,33 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 		.collect()
 }
 
+struct ClustersListPageViewProps {
+	clusters_for_inventory: Resource<Vec<ClusterInfo>, String>,
+	clusters_for_edit: Resource<Vec<ClusterInfo>, String>,
+	clusters_for_rotate: Resource<Vec<ClusterInfo>, String>,
+	clusters_for_delete: Resource<Vec<ClusterInfo>, String>,
+	create_view: Page,
+	create_error: Signal<Option<String>>,
+	create_submitting: Signal<bool>,
+	edit_view: Page,
+	edit_error: Signal<Option<String>>,
+	edit_dirty: Signal<bool>,
+	edit_submitting: Signal<bool>,
+	edit_cluster_id: Signal<String>,
+	edit_name: Signal<String>,
+	edit_api_url: Signal<String>,
+	edit_is_active: Signal<bool>,
+	delete_view: Page,
+	delete_error: Signal<Option<String>>,
+	delete_submitting: Signal<bool>,
+	delete_cluster_id: Signal<String>,
+	rotate_view: Page,
+	rotate_error: Signal<Option<String>>,
+	rotate_submitting: Signal<bool>,
+	rotate_cluster_id: Signal<String>,
+	health: Page,
+}
+
 /// Render the clusters page.
 #[reinhardt::pages::component("/clusters", "clusters:list")]
 pub fn clusters_list_page() -> Page {
@@ -227,7 +254,34 @@ pub fn clusters_list_page() -> Page {
 	let clusters_for_rotate = clusters.clone();
 	let clusters_for_delete = clusters.clone();
 
-	let content = page!(|clusters_for_inventory: Resource<Vec<ClusterInfo>, String>, clusters_for_edit: Resource<Vec<ClusterInfo>, String>, clusters_for_rotate: Resource<Vec<ClusterInfo>, String>, clusters_for_delete: Resource<Vec<ClusterInfo>, String>, create_view: Page, create_error: Signal<Option<String>>, create_submitting: Signal<bool>, edit_view: Page, edit_error: Signal<Option<String>>, edit_dirty: Signal<bool>, edit_submitting: Signal<bool>, edit_cluster_id: Signal<String>, edit_name: Signal<String>, edit_api_url: Signal<String>, edit_is_active: Signal<bool>, delete_view: Page, delete_error: Signal<Option<String>>, delete_submitting: Signal<bool>, delete_cluster_id: Signal<String>, rotate_view: Page, rotate_error: Signal<Option<String>>, rotate_submitting: Signal<bool>, rotate_cluster_id: Signal<String>, health: Page| {
+	let props = ClustersListPageViewProps {
+		clusters_for_inventory,
+		clusters_for_edit,
+		clusters_for_rotate,
+		clusters_for_delete,
+		create_view,
+		create_error,
+		create_submitting: create_state.is_submitting,
+		edit_view,
+		edit_error,
+		edit_dirty: edit_state.is_dirty,
+		edit_submitting: edit_state.is_submitting,
+		edit_cluster_id,
+		edit_name,
+		edit_api_url,
+		edit_is_active,
+		delete_view,
+		delete_error,
+		delete_submitting: delete_state.is_submitting,
+		delete_cluster_id,
+		rotate_view,
+		rotate_error,
+		rotate_submitting: rotate_state.is_submitting,
+		rotate_cluster_id,
+		health,
+	};
+
+	let content = page!(|props: ClustersListPageViewProps| {
 		div {
 			class: "rc-shell",
 			div {
@@ -259,7 +313,7 @@ pub fn clusters_list_page() -> Page {
 								class: "rc-panel-head",
 								"Cluster Inventory"
 							} {
-								match clusters_for_inventory.get() {
+								match props.clusters_for_inventory.get() {
 									ResourceState::Loading => page!(|| {
 										div {
 											class: "rc-empty",
@@ -361,9 +415,9 @@ pub fn clusters_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Register Cluster"
 							}
-							{ self::alert(create_error.clone()) }
-							{ create_view } {
-								if create_submitting.get() {
+							{ self::alert(props.create_error.clone()) }
+							{ props.create_view.clone() } {
+								if props.create_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -379,7 +433,7 @@ pub fn clusters_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Agent Health"
 							}
-							{ health }
+							{ props.health.clone() }
 						}
 					}
 					aside {
@@ -390,14 +444,14 @@ pub fn clusters_list_page() -> Page {
 								class: "mb-3 text-sm font-semibold text-ink-950",
 								"Cluster Operations"
 							}
-							{ self::alert(edit_error.clone()) } {
-								match clusters_for_edit.get() {
+							{ self::alert(props.edit_error.clone()) } {
+								match props.clusters_for_edit.get() {
 									ResourceState::Success(items)=> {
 										let clusters_for_change = items.clone();
-										let name_signal = edit_name.clone();
-										let api_url_signal = edit_api_url.clone();
-										let is_active_signal = edit_is_active.clone();
-										self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), edit_cluster_id.clone(), move |value| {
+										let name_signal = props.edit_name.clone();
+										let api_url_signal = props.edit_api_url.clone();
+										let is_active_signal = props.edit_is_active.clone();
+										self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), props.edit_cluster_id.clone(), move |value| {
 											if let Some(cluster) = clusters_for_change.iter().find(|cluster| cluster.id.to_string() == value) {
 												name_signal.set(cluster.name.clone());
 												api_url_signal.set(cluster.api_url.clone());
@@ -418,8 +472,8 @@ pub fn clusters_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ edit_view } {
-								if edit_dirty.get() {
+							{ props.edit_view.clone() } {
+								if props.edit_dirty.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-amber-700",
@@ -429,7 +483,7 @@ pub fn clusters_list_page() -> Page {
 								} else { Page::Empty }
 							}
 							{
-								if edit_submitting.get() {
+								if props.edit_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -441,9 +495,9 @@ pub fn clusters_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{ self::alert(rotate_error.clone()) } {
-								match clusters_for_rotate.get() {
-									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), rotate_cluster_id.clone(), |_value| {}, ),
+							{ self::alert(props.rotate_error.clone()) } {
+								match props.clusters_for_rotate.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), props.rotate_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
@@ -458,8 +512,8 @@ pub fn clusters_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ rotate_view } {
-								if rotate_submitting.get() {
+							{ props.rotate_view.clone() } {
+								if props.rotate_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -471,9 +525,9 @@ pub fn clusters_list_page() -> Page {
 							div {
 								class: "my-4 border-t border-cloud-200"
 							}
-							{ self::alert(delete_error.clone()) } {
-								match clusters_for_delete.get() {
-									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), delete_cluster_id.clone(), |_value| {}, ),
+							{ self::alert(props.delete_error.clone()) } {
+								match props.clusters_for_delete.get() {
+									ResourceState::Success(items) => self::entity_select("Cluster", "Select cluster", self::cluster_select_options(&items), props.delete_cluster_id.clone(), |_value| {}, ),
 									ResourceState::Loading => page!(|| {
 										p {
 											class: "mb-3 text-xs text-ink-600",
@@ -488,8 +542,8 @@ pub fn clusters_list_page() -> Page {
 									})(message),
 								}
 							}
-							{ delete_view } {
-								if delete_submitting.get() {
+							{ props.delete_view.clone() } {
+								if props.delete_submitting.get() {
 									page!(|| {
 										p {
 											class: "mt-2 text-xs text-ink-600",
@@ -503,31 +557,6 @@ pub fn clusters_list_page() -> Page {
 				}
 			}
 		}
-	})(
-		clusters_for_inventory,
-		clusters_for_edit,
-		clusters_for_rotate,
-		clusters_for_delete,
-		create_view,
-		create_error,
-		create_state.is_submitting,
-		edit_view,
-		edit_error,
-		edit_state.is_dirty,
-		edit_state.is_submitting,
-		edit_cluster_id,
-		edit_name,
-		edit_api_url,
-		edit_is_active,
-		delete_view,
-		delete_error,
-		delete_state.is_submitting,
-		delete_cluster_id,
-		rotate_view,
-		rotate_error,
-		rotate_state.is_submitting,
-		rotate_cluster_id,
-		health,
-	);
+	})(props);
 	dashboard_app_shell("clusters", content)
 }

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-	Container, ContainerPort, PodSpec, PodTemplateSpec, ResourceRequirements, Service, ServicePort,
-	ServiceSpec,
+	Container, ContainerPort, EnvVar, EnvVarSource, PodSpec, PodTemplateSpec, ResourceRequirements,
+	SecretKeySelector, Service, ServicePort, ServiceSpec,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
@@ -17,7 +17,7 @@ use crate::error::Error;
 
 /// Builds a `Deployment` running Redis for the given `Project`.
 ///
-/// Uses `redis:7-alpine` with a single replica and conservative resource limits.
+/// Uses `redis:7-alpine` with a single replica, Redis AUTH, and conservative resource limits.
 pub(crate) fn build_cache_deployment(app: &Project) -> Result<Deployment, Error> {
 	let labels = standard_labels(app, Component::Cache);
 	let namespace = super::require_namespace(app)?;
@@ -54,6 +54,12 @@ pub(crate) fn build_cache_deployment(app: &Project) -> Result<Deployment, Error>
 					containers: vec![Container {
 						name: "redis".to_string(),
 						image: Some("redis:7-alpine".to_string()),
+						args: Some(vec![
+							"redis-server".to_string(),
+							"--requirepass".to_string(),
+							"$(REINHARDT_CLOUD_REDIS_PASSWORD)".to_string(),
+						]),
+						env: Some(vec![build_redis_password_env_var(&project_name)]),
 						ports: Some(vec![ContainerPort {
 							container_port: 6379,
 							name: Some("redis".to_string()),
@@ -79,6 +85,21 @@ pub(crate) fn build_cache_deployment(app: &Project) -> Result<Deployment, Error>
 		}),
 		..Default::default()
 	})
+}
+
+fn build_redis_password_env_var(project_name: &str) -> EnvVar {
+	EnvVar {
+		name: "REINHARDT_CLOUD_REDIS_PASSWORD".to_string(),
+		value: None,
+		value_from: Some(EnvVarSource {
+			secret_key_ref: Some(SecretKeySelector {
+				name: format!("{project_name}-redis-credentials"),
+				key: "password".to_string(),
+				optional: Some(false),
+			}),
+			..Default::default()
+		}),
+	}
 }
 
 /// Builds a `Service` exposing Redis for the given `Project`.
@@ -175,6 +196,36 @@ mod tests {
 		assert_eq!(ports.len(), 1);
 		assert_eq!(ports[0].container_port, 6379);
 		assert_eq!(ports[0].name.as_deref(), Some("redis"));
+	}
+
+	#[rstest]
+	fn test_build_cache_deployment_requires_redis_password() {
+		// Arrange
+		let app = test_app("myapp");
+
+		// Act
+		let deploy = build_cache_deployment(&app).expect("build should succeed");
+		let containers = &deploy.spec.unwrap().template.spec.unwrap().containers;
+		let container = &containers[0];
+		let args = container.args.as_ref().unwrap();
+		let env = container.env.as_ref().unwrap();
+
+		// Assert
+		assert_eq!(
+			args,
+			&vec![
+				"redis-server".to_string(),
+				"--requirepass".to_string(),
+				"$(REINHARDT_CLOUD_REDIS_PASSWORD)".to_string(),
+			]
+		);
+		let password_ref = env[0]
+			.value_from
+			.as_ref()
+			.and_then(|value_from| value_from.secret_key_ref.as_ref())
+			.expect("Redis password must come from a Secret");
+		assert_eq!(password_ref.name, "myapp-redis-credentials");
+		assert_eq!(password_ref.key, "password");
 	}
 
 	#[rstest]
