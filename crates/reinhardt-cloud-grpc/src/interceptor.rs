@@ -18,6 +18,7 @@ const PUBLIC_PATHS: &[&str] = &[
 
 /// Paths that require agent authentication (not user authentication).
 const AGENT_PATH_PREFIXES: &[&str] = &["/reinhardt.paas.v1.ClusterAgentService/"];
+const LOG_SERVICE_PUSH_LOGS_PATH: &str = "/reinhardt.cloud.log.LogService/PushLogs";
 
 type AgentTokenValidator = Arc<dyn Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync>;
 
@@ -117,6 +118,9 @@ impl AgentJwtInterceptor {
 
 	/// Return true when the path belongs to the cluster-agent service.
 	fn is_agent_path(full_path: &str) -> bool {
+		if full_path == LOG_SERVICE_PUSH_LOGS_PATH {
+			return true;
+		}
 		AGENT_PATH_PREFIXES
 			.iter()
 			.any(|prefix| full_path.starts_with(prefix))
@@ -152,6 +156,55 @@ impl tonic::service::Interceptor for AgentJwtInterceptor {
 		request.extensions_mut().insert(claims);
 
 		Ok(request)
+	}
+}
+
+/// Method-aware JWT interceptor for the log service.
+///
+/// Log reads are dashboard-user actions, while `PushLogs` is an agent
+/// ingestion path. Keeping the split in one interceptor avoids registering
+/// the same tonic service twice with conflicting authentication policies.
+#[derive(Clone)]
+pub struct LogServiceJwtInterceptor {
+	user: JwtInterceptor,
+	agent: AgentJwtInterceptor,
+}
+
+impl LogServiceJwtInterceptor {
+	/// Create a new log-service interceptor with shared JWT secret material.
+	pub fn new(secret: &[u8]) -> Self {
+		Self {
+			user: JwtInterceptor::new(secret),
+			agent: AgentJwtInterceptor::new(secret),
+		}
+	}
+
+	/// Attach the stateful token validator used for agent log ingestion.
+	pub fn with_agent_token_validator(
+		mut self,
+		validator: impl Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync + 'static,
+	) -> Self {
+		self.agent = self.agent.with_token_validator(validator);
+		self
+	}
+
+	fn is_push_logs_path(request: &Request<()>) -> bool {
+		request
+			.extensions()
+			.get::<tonic::GrpcMethod>()
+			.map(|path| format!("/{}/{}", path.service(), path.method()))
+			.as_deref()
+			== Some(LOG_SERVICE_PUSH_LOGS_PATH)
+	}
+}
+
+impl tonic::service::Interceptor for LogServiceJwtInterceptor {
+	fn call(&mut self, request: Request<()>) -> Result<Request<()>, Status> {
+		if Self::is_push_logs_path(&request) {
+			self.agent.call(request)
+		} else {
+			self.user.call(request)
+		}
 	}
 }
 
@@ -499,5 +552,91 @@ mod tests {
 
 		// Assert
 		assert!(result.is_ok());
+	}
+
+	#[rstest]
+	fn test_log_service_interceptor_accepts_agent_token_for_push_logs() {
+		// Arrange
+		let mut interceptor = LogServiceJwtInterceptor::new(TEST_SECRET);
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.cloud.log.LogService",
+			"PushLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req).unwrap();
+
+		// Assert
+		let claims = result.extensions().get::<AgentClaims>().unwrap();
+		assert_eq!(claims.cluster_id, cluster_id.to_string());
+	}
+
+	#[rstest]
+	fn test_log_service_interceptor_rejects_user_token_for_push_logs() {
+		// Arrange
+		let mut interceptor = LogServiceJwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::now_v7();
+		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.cloud.log.LogService",
+			"PushLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
+	}
+
+	#[rstest]
+	fn test_log_service_interceptor_accepts_user_token_for_list_logs() {
+		// Arrange
+		let mut interceptor = LogServiceJwtInterceptor::new(TEST_SECRET);
+		let user_id = Uuid::now_v7();
+		let token = auth::create_token(user_id, "alice", TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.cloud.log.LogService",
+			"ListLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req).unwrap();
+
+		// Assert
+		let claims = result.extensions().get::<Claims>().unwrap();
+		assert_eq!(claims.sub, user_id.to_string());
+	}
+
+	#[rstest]
+	fn test_log_service_interceptor_rejects_agent_token_for_list_logs() {
+		// Arrange
+		let mut interceptor = LogServiceJwtInterceptor::new(TEST_SECRET);
+		let cluster_id = Uuid::now_v7();
+		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
+		let mut req = Request::new(());
+		req.extensions_mut().insert(tonic::GrpcMethod::new(
+			"reinhardt.cloud.log.LogService",
+			"ListLogs",
+		));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
+
+		// Act
+		let result = interceptor.call(req);
+
+		// Assert
+		assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
 	}
 }
