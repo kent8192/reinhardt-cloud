@@ -38,6 +38,7 @@ pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> 
 		auto_vars.push(build_jwt_secret_env_var(&project_name));
 	}
 	if needs_redis_env {
+		auto_vars.push(build_redis_password_env_var(&project_name));
 		auto_vars.push(build_redis_cache_env_var(&project_name));
 	}
 	if needs_db_env {
@@ -54,7 +55,7 @@ pub(crate) fn build_application_env_vars(app: &Project, platform: &Platform) -> 
 		));
 	}
 
-	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env);
+	let mut merged_env = merge_env_vars(&auto_vars, &app.spec.env, &project_name);
 	let otel_vars = build_otel_env_vars(&project_name);
 	for var in otel_vars {
 		if !merged_env.iter().any(|env| env.name == var.name) {
@@ -168,28 +169,23 @@ pub(crate) fn build_database_env_vars_from_secret(
 /// Variables injected:
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `project_name`.
-/// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
-///   environment variable of the same name when present.
+///
+/// The operator deliberately does not forward its own
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` into tenant workloads. Tenant-controlled
+/// application images can read their Pod environment, so copying the
+/// operator-side collector endpoint would disclose control-plane telemetry
+/// configuration. Tenants that need OTLP export must provide a tenant-safe
+/// endpoint explicitly through `spec.env`.
 ///
 /// The operator's per-reconcile `TRACEPARENT` is deliberately not injected:
 /// it is reconcile-scoped, so embedding it in a long-lived workload template
 /// would change the Pod spec on every reconciliation and trigger repeated
 /// rollouts. Application spans therefore start as independent roots.
 pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
-	let mut vars = vec![
+	vec![
 		env_var("OTEL_PROPAGATORS", "tracecontext"),
 		env_var("OTEL_SERVICE_NAME", project_name),
-	];
-
-	// Inject the operator's OTLP endpoint so the Pod sends spans to the same
-	// collector without requiring user-level configuration.
-	if let Ok(endpoint) = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-		&& !endpoint.is_empty()
-	{
-		vars.push(env_var("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint));
-	}
-
-	vars
+	]
 }
 
 /// Build system environment variables that are always injected.
@@ -253,8 +249,25 @@ pub(crate) fn build_jwt_secret_env_var(project_name: &str) -> EnvVar {
 pub(crate) fn build_redis_cache_env_var(project_name: &str) -> EnvVar {
 	env_var(
 		"REINHARDT_CLOUD_REDIS_URL",
-		&format!("redis://{project_name}-redis:6379/0"),
+		&format!("redis://:$(REINHARDT_CLOUD_REDIS_PASSWORD)@{project_name}-redis:6379/0"),
 	)
+}
+
+/// Build the `REINHARDT_CLOUD_REDIS_PASSWORD` env var referencing the per-app
+/// `<app>-redis-credentials` Secret created when Redis cache is enabled.
+pub(crate) fn build_redis_password_env_var(project_name: &str) -> EnvVar {
+	EnvVar {
+		name: "REINHARDT_CLOUD_REDIS_PASSWORD".to_string(),
+		value: None,
+		value_from: Some(EnvVarSource {
+			secret_key_ref: Some(SecretKeySelector {
+				name: format!("{project_name}-redis-credentials"),
+				key: "password".to_string(),
+				optional: Some(false),
+			}),
+			..Default::default()
+		}),
+	}
 }
 
 /// Merge auto-generated and user-supplied environment variables.
@@ -264,20 +277,21 @@ pub(crate) fn build_redis_cache_env_var(project_name: &str) -> EnvVar {
 /// is kept and the auto-generated value is discarded.
 ///
 /// User values that match the `secretRef:<secret-name>/<key>` form are
-/// rewritten to a Kubernetes `valueFrom.secretKeyRef`, so the rendered
-/// `EnvVar` references a `Secret` rather than carrying the literal string
-/// (which would otherwise leak the prefix into the running container).
-/// Values that do not match the syntax are forwarded as literals.
+/// rewritten to a Kubernetes `valueFrom.secretKeyRef` only when the
+/// referenced `Secret` is the app-scoped `<project-name>-secrets` object.
+/// Values that do not match the syntax or authorized secret name are
+/// forwarded as literals.
 pub(crate) fn merge_env_vars(
 	auto_vars: &[EnvVar],
 	user_vars: &BTreeMap<String, String>,
+	project_name: &str,
 ) -> Vec<EnvVar> {
 	let mut result: Vec<EnvVar> = Vec::new();
 	let mut seen = HashSet::new();
 
 	// User vars first (highest priority)
 	for (k, v) in user_vars {
-		result.push(user_env_var(k, v));
+		result.push(user_env_var(k, v, project_name));
 		seen.insert(k.clone());
 	}
 
@@ -309,10 +323,26 @@ fn parse_secret_ref(value: &str) -> Option<(&str, &str)> {
 	Some((secret_name, key))
 }
 
+fn authorized_user_secret_name(project_name: &str) -> String {
+	format!("{project_name}-secrets")
+}
+
 /// Build an `EnvVar` from a user-supplied `(name, value)` pair, honoring
-/// the `secretRef:<secret-name>/<key>` syntax for `Secret` references.
-fn user_env_var(name: &str, value: &str) -> EnvVar {
+/// the `secretRef:<secret-name>/<key>` syntax for authorized app-scoped
+/// `Secret` references.
+fn user_env_var(name: &str, value: &str, project_name: &str) -> EnvVar {
 	if let Some((secret_name, key)) = parse_secret_ref(value) {
+		let authorized_secret_name = authorized_user_secret_name(project_name);
+		if secret_name != authorized_secret_name {
+			tracing::warn!(
+				env_name = %name,
+				secret_name = %secret_name,
+				authorized_secret_name = %authorized_secret_name,
+				"User-supplied env var {name} references an unauthorized Secret; treating the value as a literal string. Use the app-scoped Secret named `{authorized_secret_name}`.",
+			);
+			return env_var(name, value);
+		}
+
 		return EnvVar {
 			name: name.to_string(),
 			value: None,
@@ -546,6 +576,45 @@ mod tests {
 	}
 
 	#[rstest]
+	fn build_otel_env_vars_omits_operator_otlp_endpoint() {
+		// Arrange & Act
+		let vars = build_otel_env_vars("dashboard");
+
+		// Assert — the tenant workload receives safe telemetry defaults, but
+		// not the operator process OTLP endpoint. Tenants can still provide a
+		// tenant-safe `OTEL_EXPORTER_OTLP_ENDPOINT` explicitly through spec.env.
+		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
+		assert_eq!(names, vec!["OTEL_PROPAGATORS", "OTEL_SERVICE_NAME"]);
+		assert!(
+			!vars.iter().any(|v| v.name == "OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"operator OTLP endpoint must not be auto-injected into tenant Pods"
+		);
+	}
+
+	#[rstest]
+	fn build_application_env_vars_preserves_user_otlp_endpoint_override() {
+		// Arrange
+		let mut app = make_app_with_db("dashboard");
+		app.spec.env.insert(
+			"OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
+			"https://otel.tenant.example/v1/traces".to_string(),
+		);
+
+		// Act
+		let vars = build_application_env_vars(&app, &Platform::Onpremise);
+
+		// Assert
+		let endpoint = vars
+			.iter()
+			.find(|v| v.name == "OTEL_EXPORTER_OTLP_ENDPOINT")
+			.expect("tenant-supplied OTLP endpoint must be preserved");
+		assert_eq!(
+			endpoint.value.as_deref(),
+			Some("https://otel.tenant.example/v1/traces")
+		);
+	}
+
+	#[rstest]
 	fn merge_env_vars_user_overrides_auto_vars() {
 		// Arrange
 		let auto_vars = vec![
@@ -555,7 +624,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("DATABASE_URL".to_string(), "custom-url".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		let db_var = merged.iter().find(|v| v.name == "DATABASE_URL").unwrap();
@@ -573,7 +642,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("USER_KEY".to_string(), "user_val".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -591,7 +660,7 @@ mod tests {
 		]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 3);
@@ -606,7 +675,7 @@ mod tests {
 		let user_vars = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -622,7 +691,7 @@ mod tests {
 		let user_vars = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 2);
@@ -641,7 +710,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("REINHARDT_ENV".to_string(), "staging".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert — user override takes precedence over the auto-injected
 		// `REINHARDT_ENV`, and no other system env var leaks through.
@@ -669,7 +738,7 @@ mod tests {
 		let user_vars: BTreeMap<String, String> = BTreeMap::new();
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert!(merged.is_empty());
@@ -682,7 +751,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("X".to_string(), "y".to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		assert_eq!(merged.len(), 1);
@@ -758,13 +827,34 @@ mod tests {
 
 		// Assert
 		assert_eq!(var.name, "REINHARDT_CLOUD_REDIS_URL");
-		assert_eq!(var.value.as_deref(), Some("redis://dashboard-redis:6379/0"));
+		assert_eq!(
+			var.value.as_deref(),
+			Some("redis://:$(REINHARDT_CLOUD_REDIS_PASSWORD)@dashboard-redis:6379/0")
+		);
 		assert!(var.value_from.is_none());
 	}
 
 	#[rstest]
+	fn redis_password_env_var_references_per_app_secret() {
+		// Arrange & Act
+		let var = build_redis_password_env_var("dashboard");
+
+		// Assert
+		assert_eq!(var.name, "REINHARDT_CLOUD_REDIS_PASSWORD");
+		assert!(var.value.is_none());
+		let key_ref = var
+			.value_from
+			.as_ref()
+			.and_then(|vf| vf.secret_key_ref.as_ref())
+			.expect("Redis password must be Secret-backed");
+		assert_eq!(key_ref.name, "dashboard-redis-credentials");
+		assert_eq!(key_ref.key, "password");
+		assert_eq!(key_ref.optional, Some(false));
+	}
+
+	#[rstest]
 	fn merge_env_vars_resolves_secret_ref_to_value_from() {
-		// Arrange — `manifests/dashboard-app.yaml` uses this exact form.
+		// Arrange — `manifests/dashboard-project.yaml` uses this exact form.
 		let auto_vars: Vec<EnvVar> = vec![];
 		let user_vars = BTreeMap::from([(
 			"REINHARDT_CLOUD_JWT_SECRET".to_string(),
@@ -772,7 +862,7 @@ mod tests {
 		)]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "reinhardt-cloud-dashboard");
 
 		// Assert — literal value must be cleared and a SecretKeyRef emitted.
 		let var = merged
@@ -795,6 +885,30 @@ mod tests {
 	}
 
 	#[rstest]
+	fn merge_env_vars_preserves_unauthorized_secret_ref_as_literal() {
+		// Arrange
+		let auto_vars: Vec<EnvVar> = vec![];
+		let user_vars = BTreeMap::from([(
+			"STOLEN_DB_PASSWORD".to_string(),
+			"secretRef:victim-db-credentials/password".to_string(),
+		)]);
+
+		// Act
+		let merged = merge_env_vars(&auto_vars, &user_vars, "attacker");
+
+		// Assert
+		let var = merged
+			.iter()
+			.find(|v| v.name == "STOLEN_DB_PASSWORD")
+			.expect("env var must be present");
+		assert_eq!(
+			var.value.as_deref(),
+			Some("secretRef:victim-db-credentials/password")
+		);
+		assert!(var.value_from.is_none());
+	}
+
+	#[rstest]
 	#[case::missing_slash("secretRef:onlyname")]
 	#[case::empty_secret_name("secretRef:/key")]
 	#[case::empty_key("secretRef:name/")]
@@ -805,7 +919,7 @@ mod tests {
 		let user_vars = BTreeMap::from([("MY_VAR".to_string(), value.to_string())]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert — malformed prefix is preserved as a literal so we don't
 		// silently drop the user's value; a tracing warn surfaces the issue.
@@ -825,7 +939,7 @@ mod tests {
 		)]);
 
 		// Act
-		let merged = merge_env_vars(&auto_vars, &user_vars);
+		let merged = merge_env_vars(&auto_vars, &user_vars, "app");
 
 		// Assert
 		let var = merged.iter().find(|v| v.name == "NOTE").unwrap();

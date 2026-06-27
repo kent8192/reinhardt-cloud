@@ -304,9 +304,10 @@ pub struct ProjectSpec {
 	/// References to Kubernetes Secrets in the same namespace that hold
 	/// container-registry credentials (type `kubernetes.io/dockerconfigjson`).
 	///
-	/// Mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape so the
-	/// operator can copy the references straight into the materialized
-	/// PodSpec without re-serializing the user's intent.
+	/// Operator-generated workload `PodSpec` values only accept app-owned
+	/// secret names that start with the app's `{metadata.name}-` prefix,
+	/// which prevents a `Project` author from borrowing shared namespace
+	/// registry credentials.
 	#[serde(
 		rename = "imagePullSecrets",
 		default,
