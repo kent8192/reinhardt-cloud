@@ -25,13 +25,14 @@ pub(crate) async fn execute(
 	args: &LoginArgs,
 	client: &ReinhardtCloudClient,
 ) -> Result<UserInfo, ClientError> {
-	let token = resolve_login_token(args);
+	let token = resolve_login_token(args, client);
 	let authed = client.clone().with_token(token);
 	let info = authed.me().await?;
 
 	let creds = crate::config::Credentials {
 		token: authed.token().unwrap_or_default().to_string(),
 		username: info.username.clone(),
+		api_url: Some(client.base_url().to_string()),
 	};
 	// Persist credentials. A write failure is non-fatal (e.g. a one-off
 	// `--token` invocation) — log rather than abort a successful login.
@@ -47,12 +48,14 @@ pub(crate) async fn execute(
 
 /// Resolve the API token from the flag, env var, or saved file, falling
 /// back to an interactive prompt when none of those yield a token.
-fn resolve_login_token(args: &LoginArgs) -> String {
+fn resolve_login_token(args: &LoginArgs, client: &ReinhardtCloudClient) -> String {
 	// Shared resolution (flag > env > file) used by every authenticated
 	// command; login additionally falls back to an interactive prompt.
-	if let Some(t) =
-		crate::config::resolve_token(args.token.clone(), &crate::config::credentials_path())
-		&& !t.is_empty()
+	if let Some(t) = crate::config::resolve_token(
+		args.token.clone(),
+		&crate::config::credentials_path(),
+		client.base_url(),
+	) && !t.is_empty()
 	{
 		return t;
 	}

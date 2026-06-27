@@ -22,9 +22,9 @@ pub fn url_patterns() -> UnifiedRouter {
 			s
 		})
 		.client(|c| {
-			c.page("account_page", "/account", account_page)
-				.page("login_page", "/login", login_page)
-				.page("register_page", "/register", register_page)
+			c.component(account_page)
+				.component(login_page)
+				.component(register_page)
 		})
 }
 
@@ -76,9 +76,25 @@ mod tests {
 			.into_client();
 
 		// Act
-		let account = router.reverse("account_page", &[]);
+		let account = router.reverse("auth:account_page", &[]);
 
 		// Assert
 		assert_eq!(account, Ok("/account".to_string()));
+	}
+
+	#[rstest]
+	fn login_and_register_page_routes_are_registered_from_component_metadata() {
+		// Arrange
+		let router = UnifiedRouter::new()
+			.mount_unified("/", super::url_patterns())
+			.into_client();
+
+		// Act
+		let login = router.reverse("auth:login_page", &[]);
+		let register = router.reverse("auth:register_page", &[]);
+
+		// Assert
+		assert_eq!(login, Ok("/login".to_string()));
+		assert_eq!(register, Ok("/register".to_string()));
 	}
 }
