@@ -71,6 +71,10 @@ pub(crate) enum Error {
 	#[error("dentdelion plugin config render failed: {0}")]
 	PluginConfigRender(String),
 
+	/// A dentdelion plugin specification is invalid.
+	#[error("invalid plugin spec: {0}")]
+	InvalidPluginSpec(String),
+
 	/// `metadata.namespace` does not match the namespace computed from
 	/// `spec.tenant`. Set `metadata.namespace` to the value in `expected`,
 	/// or update `spec.tenant` so the computed namespace matches the
@@ -136,6 +140,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidPluginSpec(_)
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_) => BackoffClass::Permanent,
@@ -221,6 +226,18 @@ mod tests {
 	fn invalid_budget_is_permanent() {
 		// Arrange
 		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_plugin_spec_is_permanent() {
+		// Arrange
+		let err = Error::InvalidPluginSpec("plugins[0]: invalid wasm_dir".to_string());
 
 		// Act
 		let class = backoff_class(&err);

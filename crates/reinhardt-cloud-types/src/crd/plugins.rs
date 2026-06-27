@@ -5,8 +5,6 @@
 //! `dentdelion.toml` `ConfigMap` and mounts the WASM artifacts into
 //! the application container via volume + volume mount pairs.
 
-use std::path::{Component, Path};
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -108,16 +106,13 @@ impl PluginSpec {
 		if trimmed_dir.is_empty() {
 			errors.push(ValidationError::new("plugins[].wasm_dir must be non-empty"));
 		} else {
-			let wasm_path = Path::new(trimmed_dir);
-			let is_absolute = wasm_path.is_absolute();
+			let is_absolute = trimmed_dir.starts_with('/');
 			if !is_absolute {
 				errors.push(ValidationError::new(
 					"plugins[].wasm_dir must be an absolute path (start with '/')",
 				));
 			}
-			let has_parent_dir = wasm_path
-				.components()
-				.any(|c| matches!(c, Component::ParentDir));
+			let has_parent_dir = trimmed_dir.split('/').any(|component| component == "..");
 			if has_parent_dir {
 				errors.push(ValidationError::new(
 					"plugins[].wasm_dir must not contain '..' path components",
@@ -125,8 +120,8 @@ impl PluginSpec {
 			}
 			if is_absolute
 				&& !has_parent_dir
-				&& (!wasm_path.starts_with(PLUGIN_WASM_DIR_PREFIX)
-					|| wasm_path == Path::new(PLUGIN_WASM_DIR_PREFIX))
+				&& (!trimmed_dir.starts_with(&format!("{PLUGIN_WASM_DIR_PREFIX}/"))
+					|| trimmed_dir.trim_end_matches('/') == PLUGIN_WASM_DIR_PREFIX)
 			{
 				errors.push(ValidationError::new(format!(
 					"plugins[].wasm_dir must be under {PLUGIN_WASM_DIR_PREFIX}/"
@@ -295,11 +290,15 @@ mod tests {
 	}
 
 	#[rstest]
-	fn plugin_spec_validate_rejects_unsafe_wasm_dir_prefix() {
+	#[case::outside_prefix("/app")]
+	#[case::prefix_sibling("/var/lib/dentdelionary/p")]
+	#[case::prefix_root("/var/lib/dentdelion")]
+	#[case::prefix_root_trailing_slash("/var/lib/dentdelion/")]
+	fn plugin_spec_validate_rejects_unsafe_wasm_dir_prefix(#[case] wasm_dir: &str) {
 		// Arrange
 		let spec = PluginSpec {
 			name: "p".to_string(),
-			wasm_dir: "/app".to_string(),
+			wasm_dir: wasm_dir.to_string(),
 			plugin_type: PluginType::HttpMiddleware,
 			memory_limit_mb: None,
 			timeout_ms: None,
