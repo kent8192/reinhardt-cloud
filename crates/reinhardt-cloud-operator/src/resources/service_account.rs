@@ -7,15 +7,11 @@
 //! from a Secret Manager, calling cloud KMS).
 //!
 //! Naming:
-//! - When `spec.service_account.name` is set, that exact name is used.
-//! - When `spec.service_account.name` is `None` and `create == true`, the
-//!   operator-managed KSA is named `{app-name}-app`. The `-app` suffix
-//!   keeps the workload KSA distinct from the existing `{app-name}-storage`
-//!   KSA and from a user-managed KSA that happens to share the bare app
-//!   name.
-//! - When `create == false` and `name` is set, the user has pre-created
-//!   their own KSA under that name; this builder returns `None` and only
-//!   the PodSpec wiring uses the supplied name.
+//! - When `create == true`, the workload KSA is named from
+//!   `spec.service_account.name` or `{app-name}-app` when omitted.
+//! - When `create == false`, the operator does not bind the workload to a
+//!   user-supplied KSA name. The field is intentionally ignored because an
+//!   app manifest must not be able to select an arbitrary same-namespace KSA.
 
 use std::collections::BTreeMap;
 
@@ -31,34 +27,30 @@ use crate::error::Error;
 ///
 /// Returns:
 /// - `None` when `spec.service_account` is unset.
-/// - `Some(name)` when the spec explicitly sets a name (used for both
-///   operator-managed and pre-existing KSAs).
+/// - `Some(name)` when `create == true` and the spec explicitly sets a name.
 /// - `Some("{app}-app")` when `create == true` and no name was supplied.
-/// - `None` when `create == false` and no name was supplied — the user
-///   intends to rely on a KSA managed elsewhere but did not tell us its
-///   name, so we leave the PodSpec's `serviceAccountName` unset (the pod
-///   then falls back to the namespace `default` SA).
+/// - `None` when `create == false`, even if a name was supplied, so an app
+///   manifest cannot bind workloads to arbitrary same-namespace KSAs.
 pub(crate) fn resolved_sa_name(app: &Project) -> Option<String> {
 	let spec = app.spec.service_account.as_ref()?;
+
+	if !spec.create {
+		return None;
+	}
 
 	if let Some(name) = spec.name.as_ref() {
 		return Some(name.clone());
 	}
 
-	if spec.create {
-		Some(format!("{}-app", app.name_any()))
-	} else {
-		None
-	}
+	Some(format!("{}-app", app.name_any()))
 }
 
 /// Builds a per-app workload `ServiceAccount` resource.
 ///
 /// Returns `Ok(None)` when:
 /// - `spec.service_account` is unset, or
-/// - `spec.service_account.create == false` (the user is pre-creating the
-///   KSA themselves; the operator only wires `serviceAccountName` into
-///   the PodSpec).
+/// - `spec.service_account.create == false` (the operator does not create
+///   or bind a workload KSA).
 ///
 /// When `create == true`, returns the SA with:
 /// - `metadata.name` per [`resolved_sa_name`]
@@ -361,7 +353,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_resolved_sa_name_explicit_name_create_false() {
+	fn test_resolved_sa_name_ignores_explicit_name_create_false() {
 		// Arrange — user pre-created a KSA, told us its name
 		let mut app = make_test_app("myapp");
 		app.spec.service_account = Some(ServiceAccountSpec {
@@ -371,7 +363,7 @@ mod tests {
 		});
 
 		// Act / Assert
-		assert_eq!(resolved_sa_name(&app), Some("user-sa".to_string()));
+		assert_eq!(resolved_sa_name(&app), None);
 	}
 
 	#[rstest]

@@ -54,4 +54,5 @@ isolation:
   networkPolicy:
     enabled: true
     provider: cilium
-    blockMetadataService: true
+    # GKE Workload Identity requires pod egress to the metadata server.
+    blockMetadataService: false

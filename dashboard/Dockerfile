@@ -48,6 +48,7 @@ RUN chown -R appuser:appuser /app
 USER appuser
 ENV RUST_LOG=info \
     PATH=/app:$PATH \
-    REINHARDT_CLOUD_CONFIG_DIR=/app/settings
+    REINHARDT_CLOUD_CONFIG_DIR=/app/settings \
+    REINHARDT_ENV=production
 EXPOSE 8000
 ENTRYPOINT ["tini", "--", "/app/reinhardt-cloud-dashboard"]
