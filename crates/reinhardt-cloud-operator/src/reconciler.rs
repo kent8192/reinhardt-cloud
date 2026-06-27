@@ -602,7 +602,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		// set of platform-appropriate resources (on-prem StatefulSet/PVC,
 		// AWS ACK DBInstance, or GCP Config Connector SQL resources) and
 		// apply them via server-side apply.
-		let resources = infer_database_resources(&app, &ctx.platform);
+		let resources = infer_database_resources(&app, &ctx.platform)?;
 		for resource in resources {
 			match resource {
 				DatabaseResource::StatefulSet(ss) => {
@@ -4101,7 +4101,8 @@ mod tests {
 		// function. A non-empty result proves the wiring is reachable;
 		// the previous code path (introspect-only) would have ignored
 		// the explicit spec entirely.
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(
