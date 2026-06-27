@@ -395,7 +395,6 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 						..Default::default()
 					},
 				]),
-				..Default::default()
 			}]),
 		}),
 	}

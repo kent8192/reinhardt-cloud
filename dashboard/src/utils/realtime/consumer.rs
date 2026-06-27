@@ -75,14 +75,28 @@ fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
 }
 
-fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
-	move |mut request: tonic::Request<()>| {
-		let value = format!("Bearer {token}").parse().map_err(|e| {
-			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
-		})?;
-		request.metadata_mut().insert("authorization", value);
+#[derive(Clone)]
+struct DashboardGrpcAuthInterceptor {
+	value: tonic::metadata::MetadataValue<tonic::metadata::Ascii>,
+}
+
+impl tonic::service::Interceptor for DashboardGrpcAuthInterceptor {
+	fn call(
+		&mut self,
+		mut request: tonic::Request<()>,
+	) -> Result<tonic::Request<()>, tonic::Status> {
+		request
+			.metadata_mut()
+			.insert("authorization", self.value.clone());
 		Ok(request)
 	}
+}
+
+fn dashboard_grpc_auth_interceptor(
+	token: String,
+) -> Result<DashboardGrpcAuthInterceptor, tonic::metadata::errors::InvalidMetadataValue> {
+	let value = format!("Bearer {token}").parse()?;
+	Ok(DashboardGrpcAuthInterceptor { value })
 }
 
 async fn connect_grpc_channel(
@@ -587,9 +601,23 @@ impl WebSocketConsumer for NotificationConsumer {
 							return;
 						}
 					};
+					let interceptor = match dashboard_grpc_auth_interceptor(grpc_token) {
+						Ok(interceptor) => interceptor,
+						Err(e) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %e,
+								"Failed to encode dashboard gRPC auth metadata for app log streaming",
+							);
+							let err_msg = app_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
 					let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
 						channel,
-						dashboard_grpc_auth_interceptor(grpc_token),
+						interceptor,
 					);
 
 					let request = log_pb::TailLogsRequest {
