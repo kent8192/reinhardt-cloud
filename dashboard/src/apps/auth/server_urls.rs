@@ -9,6 +9,7 @@ use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
+use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::{BaseUser, CurrentUser, Path, Query, Response, StatusCode, get};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -30,6 +31,9 @@ pub struct OAuthCallbackQuery {
 	code: String,
 	state: String,
 }
+
+const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state";
+const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
 
 fn oauth_backend(
 	backend: &OAuthBackendBox,
@@ -57,6 +61,41 @@ fn map_session_error(err: impl std::fmt::Display) -> AppError {
 	AppError::Internal("Internal server error".to_string())
 }
 
+fn cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
+	cookie_header.split(';').find_map(|pair| {
+		let pair = pair.trim();
+		let (name, value) = pair.split_once('=')?;
+		if name.trim() == cookie_name {
+			Some(value.trim().to_string())
+		} else {
+			None
+		}
+	})
+}
+
+fn request_cookie(request: &ServerFnRequest, cookie_name: &str) -> Option<String> {
+	request
+		.inner()
+		.headers
+		.get("Cookie")
+		.and_then(|value| value.to_str().ok())
+		.and_then(|header| cookie_value(header, cookie_name))
+}
+
+fn oauth_state_cookie_header(state: &str, debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}={state}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth{secure_flag}; Max-Age={OAUTH_STATE_COOKIE_MAX_AGE_SECONDS}"
+	)
+}
+
+fn clear_oauth_state_cookie_header(debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth{secure_flag}; Max-Age=0"
+	)
+}
+
 /// Start an OAuth authorization flow for a configured provider.
 ///
 /// `GET /api/auth/oauth/{provider_id}/start/`
@@ -70,7 +109,13 @@ pub async fn oauth_start(
 		.begin_auth(&provider_id, None, None)
 		.await
 		.map_err(map_oauth_error)?;
-	Ok(Response::temporary_redirect(auth.authorization_url))
+	let is_debug = get_settings().core.debug;
+	Ok(
+		Response::temporary_redirect(auth.authorization_url).append_header(
+			"Set-Cookie",
+			&oauth_state_cookie_header(&auth.state, is_debug),
+		),
+	)
 }
 
 /// Complete an OAuth authorization flow and establish a dashboard session.
@@ -87,7 +132,16 @@ pub async fn oauth_callback(
 	Query(query): Query<OAuthCallbackQuery>,
 	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
+	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
+	let expected_state = request_cookie(&http_request, OAUTH_STATE_COOKIE_NAME)
+		.ok_or_else(|| AppError::Validation("Missing OAuth state cookie".to_string()))?;
+	if expected_state != query.state {
+		return Err(AppError::Validation(
+			"Invalid OAuth state cookie".to_string(),
+		));
+	}
+
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let result = backend
 		.handle_callback(&provider_id, &query.code, &query.state)
@@ -114,6 +168,7 @@ pub async fn oauth_callback(
 		.map_err(map_session_error)?;
 	let is_debug = get_settings().core.debug;
 	Ok(Response::temporary_redirect("/")
+		.append_header("Set-Cookie", &clear_oauth_state_cookie_header(is_debug))
 		.append_header("Set-Cookie", &session_cookie_header(&session_id, is_debug)))
 }
 

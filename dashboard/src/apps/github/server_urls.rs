@@ -443,7 +443,9 @@ fn required_header(request: &ServerFnRequest, name: &str) -> Result<String, AppE
 fn should_refresh_git_credentials_for_webhook(action: &WebhookAction) -> bool {
 	matches!(
 		action,
-		WebhookAction::BuildTrigger { .. } | WebhookAction::TagRelease { .. }
+		WebhookAction::BuildTrigger { .. }
+			| WebhookAction::PreviewCreate { .. }
+			| WebhookAction::TagRelease { .. }
 	)
 }
 
@@ -463,4 +465,51 @@ fn json_response<T: Serialize>(status: StatusCode, body: T) -> ViewResult<Respon
 	Ok(Response::new(status)
 		.with_header("Content-Type", "application/json")
 		.with_body(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+	use rstest::rstest;
+
+	use super::should_refresh_git_credentials_for_webhook;
+	use crate::utils::vcs::events::WebhookAction;
+
+	#[rstest]
+	#[case::build_trigger(WebhookAction::BuildTrigger {
+		branch: "main".to_string(),
+		commit_sha: "abc123".to_string(),
+	})]
+	#[case::preview_create(WebhookAction::PreviewCreate {
+		pr_number: 42,
+		branch: "feature/private-preview".to_string(),
+		commit_sha: "def456".to_string(),
+	})]
+	#[case::tag_release(WebhookAction::TagRelease {
+		tag: "v1.2.3".to_string(),
+		commit_sha: "fedcba".to_string(),
+	})]
+	fn test_webhook_credential_refresh_includes_source_build_actions(
+		#[case] action: WebhookAction,
+	) {
+		// Arrange
+
+		// Act
+		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
+
+		// Assert
+		assert_eq!(should_refresh, true);
+	}
+
+	#[rstest]
+	#[case::preview_delete(WebhookAction::PreviewDelete { pr_number: 42 })]
+	#[case::ignored(WebhookAction::Ignored)]
+	fn test_webhook_credential_refresh_excludes_non_build_actions(#[case] action: WebhookAction) {
+		// Arrange
+
+		// Act
+		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
+
+		// Assert
+		assert_eq!(should_refresh, false);
+	}
 }

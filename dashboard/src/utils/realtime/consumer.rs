@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use reinhardt::{ConsumerContext, Message, Model, WebSocketConsumer, WebSocketResult};
+use reinhardt::{
+	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -15,11 +17,13 @@ use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
+use crate::apps::auth::models::User;
 use crate::apps::auth::services::session::validate_session;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
+use crate::config::settings::get_settings;
 use crate::shared::ws_messages::{
 	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
 	SystemNotificationPayload, WsClientMessage, WsMessage,
@@ -34,6 +38,12 @@ const META_USER_ID: &str = "user_id";
 
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
 const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
+
+/// Generic client-facing failure for unavailable build-log streams.
+const BUILD_LOG_STREAM_UNAVAILABLE: &str = "Build log stream is currently unavailable";
+
+/// Generic client-facing failure for unavailable application-log streams.
+const APP_LOG_STREAM_UNAVAILABLE: &str = "Application log stream is currently unavailable";
 
 /// Parsed result from a client message before async execution.
 ///
@@ -61,6 +71,48 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
+}
+
+fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
+	move |mut request: tonic::Request<()>| {
+		let value = format!("Bearer {token}").parse().map_err(|e| {
+			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
+		})?;
+		request.metadata_mut().insert("authorization", value);
+		Ok(request)
+	}
+}
+
+async fn connect_grpc_channel(
+	endpoint: &str,
+) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+	tonic::transport::Endpoint::from_shared(endpoint.to_string())?
+		.connect()
+		.await
+}
+
+async fn dashboard_grpc_user_token(user_id: &str) -> Result<String, WsMessage> {
+	let user_id =
+		Uuid::parse_str(user_id).map_err(|_| log_stream_rejected("Authentication required"))?;
+	let user = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(error = %e, "Failed to load user for gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		})?
+		.ok_or_else(|| log_stream_rejected("Authentication required"))?;
+	let secret = crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		tracing::error!("JWT secret is not configured for dashboard gRPC log client");
+		log_stream_rejected("Log streaming is not configured")
+	})?;
+	reinhardt_cloud_core::auth::create_token(user.id, &user.username, secret.as_bytes(), 1).map_err(
+		|e| {
+			tracing::error!(error = %e, "Failed to mint dashboard gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		},
+	)
 }
 
 /// Convert a proto `LogLevel` enum value to its lowercase string form.
@@ -156,7 +208,7 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
-			WsClientMessage::SubscribeBuildLogs { build_id } => {
+			WsClientMessage::SubscribeBuildLogs { build_id: _ } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -168,7 +220,11 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeBuildLogs { build_id }
+				ParsedAction::Rejected {
+					response: log_stream_rejected(
+						"Build log streaming is unavailable until build ownership can be verified",
+					),
+				}
 			}
 			WsClientMessage::SubscribeAppLogs { deployment_id } => {
 				if user_id.is_none() {
@@ -224,6 +280,14 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 	})
 }
 
+fn build_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(BUILD_LOG_STREAM_UNAVAILABLE)
+}
+
+fn app_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(APP_LOG_STREAM_UNAVAILABLE)
+}
+
 async fn authorize_app_log_subscription(
 	user_id: &str,
 	deployment_id: &str,
@@ -273,6 +337,50 @@ async fn authorize_app_log_subscription(
 	})
 }
 
+/// Normalize an origin string for exact origin allow-list comparison.
+fn normalize_origin(origin: &str) -> String {
+	origin.trim().trim_end_matches('/').to_lowercase()
+}
+
+/// Return the dashboard WebSocket origin allow-list derived from CORS settings.
+fn websocket_allowed_origins() -> Vec<String> {
+	let settings = get_settings();
+	let mut origins = Vec::new();
+	for origin in &settings.cors.allow_origins {
+		if origin != "*" {
+			origins.push(normalize_origin(origin));
+		}
+	}
+
+	if settings.core.debug {
+		let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+		origins.push(normalize_origin(&format!("http://localhost:{port}")));
+		origins.push(normalize_origin(&format!("http://127.0.0.1:{port}")));
+	}
+
+	origins.sort();
+	origins.dedup();
+	origins
+}
+
+/// Validate the WebSocket handshake `Origin` header before using cookies.
+fn validate_websocket_origin(context: &ConsumerContext) -> WebSocketResult<()> {
+	let origin = context
+		.get_header("origin")
+		.map(|value| normalize_origin(value))
+		.filter(|value| !value.is_empty())
+		.ok_or_else(|| WebSocketError::Connection("Missing WebSocket Origin header".to_string()))?;
+
+	let allowed_origins = websocket_allowed_origins();
+	if allowed_origins.iter().any(|allowed| allowed == &origin) {
+		Ok(())
+	} else {
+		Err(WebSocketError::Connection(
+			"WebSocket Origin is not allowed".to_string(),
+		))
+	}
+}
+
 /// Extract a named cookie value from a `Cookie` header string.
 fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 	cookie_header.split(';').find_map(|pair| {
@@ -293,7 +401,9 @@ impl WebSocketConsumer for NotificationConsumer {
 			.metadata
 			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());
 
-		// Authenticate from session cookie in handshake headers
+		validate_websocket_origin(context)?;
+
+		// Authenticate from session cookie in handshake headers after origin validation.
 		if let Some(cookie_header) = context.cookie_header()
 			&& let Some(session_id) = extract_cookie_value(cookie_header, "sessionid")
 			&& let Some((user_id, _username)) = validate_session(&session_id).await
@@ -352,6 +462,22 @@ impl WebSocketConsumer for NotificationConsumer {
 				}
 			}
 			ParsedAction::SubscribeBuildLogs { build_id } => {
+				let Some(uid) = user_id.as_deref() else {
+					let _ = context
+						.connection
+						.send_json(&log_stream_rejected(
+							"Authentication required for build logs",
+						))
+						.await;
+					return Ok(());
+				};
+				let grpc_token = match dashboard_grpc_user_token(uid).await {
+					Ok(token) => token,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -373,29 +499,26 @@ impl WebSocketConsumer for NotificationConsumer {
 				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
-					let mut client =
-						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Failed to connect to gRPC BuildService for log streaming",
-								);
-								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								// Clear handle on exit.
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
+					let channel = match connect_grpc_channel(&endpoint).await {
+						Ok(channel) => channel,
+						Err(e) => {
+							tracing::warn!(
+								build_id = %bid,
+								error = %e,
+								"Failed to connect to gRPC BuildService for log streaming",
+							);
+							// Notify client that the stream could not be established.
+							let err_msg = build_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							// Clear handle on exit.
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let mut client = pb::build_service_client::BuildServiceClient::with_interceptor(
+						channel,
+						dashboard_grpc_auth_interceptor(grpc_token),
+					);
 
 					// Send positive acknowledgement only after a successful
 					// gRPC connection — avoids a contradictory ack/nack pair.
@@ -419,10 +542,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								"gRPC StreamBuildLogs call failed",
 							);
 							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
+							let err_msg = build_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							// Clear handle on exit.
 							*handle_ref.lock().await = None;
@@ -507,6 +627,13 @@ impl WebSocketConsumer for NotificationConsumer {
 						return Ok(());
 					}
 				};
+				let grpc_token = match dashboard_grpc_user_token(uid).await {
+					Ok(token) => token,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -527,27 +654,24 @@ impl WebSocketConsumer for NotificationConsumer {
 				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
-					let mut client =
-						match log_pb::log_service_client::LogServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									project_name = %project,
-									error = %e,
-									"Failed to connect to gRPC LogService for app log streaming",
-								);
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to log service for {project}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
+					let channel = match connect_grpc_channel(&endpoint).await {
+						Ok(channel) => channel,
+						Err(e) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %e,
+								"Failed to connect to gRPC LogService for app log streaming",
+							);
+							let err_msg = app_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
+						channel,
+						dashboard_grpc_auth_interceptor(grpc_token),
+					);
 
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
@@ -568,10 +692,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("App log stream failed for {project}: {e}"),
-							});
+							let err_msg = app_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							*handle_ref.lock().await = None;
 							return;
@@ -646,6 +767,8 @@ impl WebSocketConsumer for NotificationConsumer {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::env;
+
 	use crate::shared::ws_messages::WsClientMessage;
 	use chrono::Utc;
 	use reinhardt::prelude::DatabaseConnection;
@@ -660,6 +783,40 @@ mod tests {
 	use crate::apps::clusters::models::Cluster;
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::MembershipRole;
+
+	struct EnvGuard {
+		saved: Vec<(&'static str, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(values: Vec<(&'static str, &'static str)>) -> Self {
+			let saved = values
+				.iter()
+				.map(|(key, _)| (*key, env::var(key).ok()))
+				.collect();
+			for (key, value) in values {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					env::set_var(key, value);
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, value) in self.saved.drain(..) {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					match value {
+						Some(value) => env::set_var(key, value),
+						None => env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
 
 	#[fixture]
 	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
@@ -859,6 +1016,62 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_normalize_origin_trims_trailing_slash_and_case() {
+		// Arrange
+		let origin = " HTTPS://Example.COM/ ";
+
+		// Act
+		let normalized = normalize_origin(origin);
+
+		// Assert
+		assert_eq!(normalized, "https://example.com");
+	}
+
+	#[rstest]
+	fn test_validate_websocket_origin_rejects_missing_origin() {
+		// Arrange
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn);
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(matches!(result, Err(WebSocketError::Connection(_))));
+	}
+
+	#[rstest]
+	#[serial(env)]
+	fn test_validate_websocket_origin_allows_configured_origin() {
+		// Arrange
+		let _env = EnvGuard::set(vec![
+			("REINHARDT_CORE__SECRET_KEY", "test-core-secret-key"),
+			(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-jwt-secret-key-with-at-least-32-bytes",
+			),
+			("REINHARDT_DATABASE_PASSWORD", "test-db-password"),
+		]);
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn)
+			.with_header("origin".to_string(), "http://localhost:8000".to_string());
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
 	fn test_extract_cookie_value_single() {
 		assert_eq!(
 			extract_cookie_value("sessionid=abc123", "sessionid"),
@@ -880,6 +1093,36 @@ mod tests {
 			extract_cookie_value("csrftoken=xyz; other=val", "sessionid"),
 			None
 		);
+	}
+
+	#[rstest]
+	fn test_build_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = build_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, BUILD_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
+	}
+
+	#[rstest]
+	fn test_app_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = app_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, APP_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
 	}
 
 	#[rstest]
@@ -915,7 +1158,7 @@ mod tests {
 	// --- Tests for new log streaming ParsedAction variants ---
 
 	#[rstest]
-	fn test_parse_subscribe_build_logs_with_auth() {
+	fn test_parse_subscribe_build_logs_with_auth_rejected_until_ownership_verified() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeBuildLogs {
 			build_id: "build-42".to_string(),
@@ -926,10 +1169,17 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeBuildLogs { build_id } => {
-				assert_eq!(build_id, "build-42");
-			}
-			_ => panic!("expected SubscribeBuildLogs action"),
+			ParsedAction::Rejected { response } => match &response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Build log streaming is unavailable until build ownership can be verified"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 
