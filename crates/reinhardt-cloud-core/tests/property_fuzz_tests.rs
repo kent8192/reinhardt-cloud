@@ -51,6 +51,7 @@ proptest! {
 		};
 		let filter = LogFilter {
 			source: filter_source,
+			namespace: None,
 			min_level: filter_level_idx.map(|i| match i {
 				0 => LogLevel::Debug,
 				1 => LogLevel::Info,
@@ -61,7 +62,6 @@ proptest! {
 			until: None,
 			search: filter_search,
 			deployment_id: None,
-			namespace: None,
 		};
 
 		// Act

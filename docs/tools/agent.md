@@ -6,7 +6,7 @@
 
 ## Overview
 
-`reinhardt-cloud-agent` is a per-cluster binary that dials out to the Reinhardt Cloud control plane and maintains a persistent bidirectional gRPC stream. Through this stream the control plane can push deploy, rollback, scale, and restart commands to the cluster; the agent executes them against the local kube-apiserver and streams results and heartbeats back. The agent also periodically reports health metrics (CPU, memory, pod count) and pushes log entries to the control plane's `LogService`.
+`reinhardt-cloud-agent` is a per-cluster binary that dials out to the Reinhardt Cloud control plane and maintains a persistent authenticated bidirectional gRPC stream. Through this stream the control plane can push operator-mediated Project apply commands, rollback, scale, and restart commands to the cluster; the agent executes them against the local kube-apiserver and streams results and heartbeats back. The agent also periodically reports health metrics (CPU, memory, pod count) and pushes log entries to the control plane's `LogService`.
 
 Platform operators install the agent when they manage a **multi-cluster fleet** with a central Dashboard, or when clusters sit behind a NAT or firewall that prevents the control plane from reaching the kube-apiserver directly. For a **single-cluster Helm-only** deployment — where the control plane runs in the same cluster or has direct kube-apiserver access — the agent is optional and need not be installed.
 
@@ -46,17 +46,18 @@ All flags can also be set via the corresponding environment variable.
 
 | Flag | Env var | Default | Required | Description |
 |---|---|---|---|---|
-| `--control-plane-url` | `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | No | gRPC endpoint of the control plane |
+| `--control-plane-url` | `CONTROL_PLANE_URL` | `http://127.0.0.1:50051` | No | gRPC endpoint of the control plane; must use `https://` when `AUTH_TOKEN` is set |
 | `--cluster-name` | `CLUSTER_NAME` | _(none)_ | **Yes** | Logical name for this cluster; sent in `AgentConnected` and every heartbeat |
 | `--node-name` | `NODE_NAME` | `unknown` | No | Node where the agent pod is scheduled; included in startup log |
 | `--heartbeat-interval` | _(none)_ | `30` | No | Seconds between `AgentHeartbeat` messages |
-| `--auth-token` | `AUTH_TOKEN` | _(none)_ | No | Bearer token attached as `Authorization` header on every gRPC request |
+| `--auth-token` | `AUTH_TOKEN` | _(none)_ | **Yes** | JWT token attached as a `Bearer` `Authorization` header on every gRPC request; requires an HTTPS control-plane URL |
 
 ### Capabilities
 
-**Deploy operations** (triggered by `AgentCommand` messages on the `AgentStream` stream):
+**Deploy operations** (triggered by `AgentCommand` messages on the authenticated `AgentStream` stream):
 
-- **Deploy** — server-side apply of an `apps/v1 Deployment` in the `default` namespace; labels `app.kubernetes.io/name` and `app.kubernetes.io/managed-by=reinhardt-cloud`; fixed `containerPort: 8000`; field manager `reinhardt-cloud-agent`.
+- **Deploy** — legacy direct Deployment commands are rejected. Use **ApplyProject** so workload changes flow through Project CRD validation and operator reconciliation.
+- **ApplyProject** — server-side apply of a Reinhardt Cloud Project manifest. The operator validates the Project and materializes the Deployment, namespace placement, resource policy, network policy, runtime class, and security contexts.
 - **Rollback** — strategic merge patch that replaces `spec.template` with the pod template from the ReplicaSet matching the requested `deployment.kubernetes.io/revision` annotation; mirrors `kubectl rollout undo --to-revision`.
 - **Scale** — strategic merge patch of `spec.replicas`; rejects values exceeding `i32::MAX`.
 - **Restart** — sets `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]` to the current RFC 3339 timestamp; same mechanism as `kubectl rollout restart`.
@@ -112,7 +113,7 @@ The agent also uses `reinhardt.cloud.log.LogService.PushLogs` (client-streaming)
 
 - Cluster with outbound TCP to the control plane's gRPC port (default 50051 or whatever the operator configures).
 - `CLUSTER_NAME` that matches the name registered in the Dashboard.
-- Optional: TLS CA certificate if the control plane endpoint uses a custom CA (see TLS section in [Troubleshooting](#troubleshooting)).
+- A publicly trusted TLS certificate on the control plane endpoint when `AUTH_TOKEN` is configured.
 - A cluster token issued by the control plane (see Enrollment flow below).
 
 ### Enrollment flow
@@ -127,7 +128,9 @@ The agent also uses `reinhardt.cloud.log.LogService.PushLogs` (client-streaming)
      --from-literal=auth-token=<TOKEN_FROM_DASHBOARD>
    ```
 
-4. Deploy the agent pod referencing that secret. See the raw manifest below.
+4. Deploy the agent pod referencing that secret and an `https://` control-plane URL.
+   The agent rejects plaintext URLs so the bearer token is never sent over
+   cleartext gRPC.
 5. The agent dials the control plane; after a successful `AgentConnected` event, the Dashboard shows the cluster status as **Online**.
 
 **No Helm chart for the agent exists** (`charts/` contains only `reinhardt-cloud-operator`). Use the following raw manifest:
@@ -279,7 +282,11 @@ RBAC is missing for the `reinhardt-cloud-agent` ServiceAccount. Verify: `kubectl
 
 **TLS handshake failure**
 
-If `CONTROL_PLANE_URL` uses `https://`, the system trust store must include the control plane's CA. Mount a custom CA and set `SSL_CERT_FILE` in the agent container, or use a control plane endpoint with a publicly trusted certificate.
+If `CONTROL_PLANE_URL` uses `https://`, the control plane must present a certificate that chains to the WebPKI root store used by the agent's rustls client. Use a publicly trusted certificate on the control plane endpoint.
+
+**Plaintext URL rejected**
+
+Authenticated agent connections must use `https://`. Configure a TLS-terminating control-plane endpoint and update `CONTROL_PLANE_URL`.
 
 **Stream silently stalls (no heartbeats reach the Dashboard)**
 

@@ -64,7 +64,11 @@ args = ["run", "--bin", "manage", "shell"]
 # ============================================================================
 
 [tasks.test]
-description = "Run all tests"
+description = "Run all dashboard tests, including WASM browser E2E"
+dependencies = ["test-native", "wasm-spa-test"]
+
+[tasks.test-native]
+description = "Run native dashboard tests"
 command = "cargo"
 args = ["nextest", "run", "--all-features"]
 
@@ -184,6 +188,14 @@ script = '''
 cargo install wasm-bindgen-cli --version "0.2.118" --locked 2>/dev/null || true
 '''
 
+[tasks.wasm-install-test-tools]
+description = "Install WASM browser test tools"
+script = '''
+if ! command -v wasm-pack >/dev/null 2>&1; then
+	cargo install wasm-pack --locked
+fi
+'''
+
 [tasks.wasm-compile-dev]
 description = "Compile WASM library (debug)"
 command = "cargo"
@@ -271,7 +283,7 @@ args = [
 	"--features",
 	"wasm-spa-test",
 ]
-dependencies = ["wasm-install-tools"]
+dependencies = ["wasm-install-tools", "wasm-install-test-tools"]
 
 # Note: local infrastructure tasks (`infra-up` / `infra-down` /
 # `infra-reset`) live in the workspace-root `Makefile.toml` and delegate to
