@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use reinhardt::{ConsumerContext, Message, Model, WebSocketConsumer, WebSocketResult};
+use reinhardt::{
+	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -20,6 +22,7 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
+use crate::config::settings::get_settings;
 use crate::shared::ws_messages::{
 	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
 	SystemNotificationPayload, WsClientMessage, WsMessage,
@@ -34,6 +37,12 @@ const META_USER_ID: &str = "user_id";
 
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
 const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
+
+/// Generic client-facing failure for unavailable build-log streams.
+const BUILD_LOG_STREAM_UNAVAILABLE: &str = "Build log stream is currently unavailable";
+
+/// Generic client-facing failure for unavailable application-log streams.
+const APP_LOG_STREAM_UNAVAILABLE: &str = "Application log stream is currently unavailable";
 
 /// Parsed result from a client message before async execution.
 ///
@@ -224,6 +233,14 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 	})
 }
 
+fn build_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(BUILD_LOG_STREAM_UNAVAILABLE)
+}
+
+fn app_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(APP_LOG_STREAM_UNAVAILABLE)
+}
+
 async fn authorize_app_log_subscription(
 	user_id: &str,
 	deployment_id: &str,
@@ -273,6 +290,50 @@ async fn authorize_app_log_subscription(
 	})
 }
 
+/// Normalize an origin string for exact origin allow-list comparison.
+fn normalize_origin(origin: &str) -> String {
+	origin.trim().trim_end_matches('/').to_lowercase()
+}
+
+/// Return the dashboard WebSocket origin allow-list derived from CORS settings.
+fn websocket_allowed_origins() -> Vec<String> {
+	let settings = get_settings();
+	let mut origins = Vec::new();
+	for origin in &settings.cors.allow_origins {
+		if origin != "*" {
+			origins.push(normalize_origin(origin));
+		}
+	}
+
+	if settings.core.debug {
+		let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+		origins.push(normalize_origin(&format!("http://localhost:{port}")));
+		origins.push(normalize_origin(&format!("http://127.0.0.1:{port}")));
+	}
+
+	origins.sort();
+	origins.dedup();
+	origins
+}
+
+/// Validate the WebSocket handshake `Origin` header before using cookies.
+fn validate_websocket_origin(context: &ConsumerContext) -> WebSocketResult<()> {
+	let origin = context
+		.get_header("origin")
+		.map(|value| normalize_origin(value))
+		.filter(|value| !value.is_empty())
+		.ok_or_else(|| WebSocketError::Connection("Missing WebSocket Origin header".to_string()))?;
+
+	let allowed_origins = websocket_allowed_origins();
+	if allowed_origins.iter().any(|allowed| allowed == &origin) {
+		Ok(())
+	} else {
+		Err(WebSocketError::Connection(
+			"WebSocket Origin is not allowed".to_string(),
+		))
+	}
+}
+
 /// Extract a named cookie value from a `Cookie` header string.
 fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 	cookie_header.split(';').find_map(|pair| {
@@ -293,7 +354,9 @@ impl WebSocketConsumer for NotificationConsumer {
 			.metadata
 			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());
 
-		// Authenticate from session cookie in handshake headers
+		validate_websocket_origin(context)?;
+
+		// Authenticate from session cookie in handshake headers after origin validation.
 		if let Some(cookie_header) = context.cookie_header()
 			&& let Some(session_id) = extract_cookie_value(cookie_header, "sessionid")
 			&& let Some((user_id, _username)) = validate_session(&session_id).await
@@ -384,12 +447,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									"Failed to connect to gRPC BuildService for log streaming",
 								);
 								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
+								let err_msg = build_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								// Clear handle on exit.
 								*handle_ref.lock().await = None;
@@ -419,10 +477,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								"gRPC StreamBuildLogs call failed",
 							);
 							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
+							let err_msg = build_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							// Clear handle on exit.
 							*handle_ref.lock().await = None;
@@ -537,12 +592,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									error = %e,
 									"Failed to connect to gRPC LogService for app log streaming",
 								);
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to log service for {project}: {e}"
-									),
-								});
+								let err_msg = app_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								*handle_ref.lock().await = None;
 								return;
@@ -568,10 +618,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("App log stream failed for {project}: {e}"),
-							});
+							let err_msg = app_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							*handle_ref.lock().await = None;
 							return;
@@ -859,6 +906,53 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_normalize_origin_trims_trailing_slash_and_case() {
+		// Arrange
+		let origin = " HTTPS://Example.COM/ ";
+
+		// Act
+		let normalized = normalize_origin(origin);
+
+		// Assert
+		assert_eq!(normalized, "https://example.com");
+	}
+
+	#[rstest]
+	fn test_validate_websocket_origin_rejects_missing_origin() {
+		// Arrange
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn);
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(matches!(result, Err(WebSocketError::Connection(_))));
+	}
+
+	#[rstest]
+	fn test_validate_websocket_origin_allows_configured_origin() {
+		// Arrange
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn)
+			.with_header("origin".to_string(), "http://localhost:8000".to_string());
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
 	fn test_extract_cookie_value_single() {
 		assert_eq!(
 			extract_cookie_value("sessionid=abc123", "sessionid"),
@@ -880,6 +974,36 @@ mod tests {
 			extract_cookie_value("csrftoken=xyz; other=val", "sessionid"),
 			None
 		);
+	}
+
+	#[rstest]
+	fn test_build_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = build_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, BUILD_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
+	}
+
+	#[rstest]
+	fn test_app_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = app_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, APP_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
 	}
 
 	#[rstest]
