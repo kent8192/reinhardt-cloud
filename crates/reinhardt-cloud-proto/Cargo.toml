@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "Protocol Buffer and gRPC type definitions for Reinhardt Cloud"
 
 [dependencies]
 tonic = "0.13"
