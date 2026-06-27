@@ -34,6 +34,15 @@ features:
   # Enable background worker (Deployment) inference and reconciliation.
   worker: false
 
+rbac:
+  namespaces:
+    # Grants cluster-wide Namespace create/update/delete verbs required for
+    # operator-managed tenant and preview namespace lifecycle. Keep disabled
+    # unless the operator service account is intentionally trusted to create
+    # namespaces; otherwise pre-create tenant and preview namespaces and allow
+    # the operator to patch labels only.
+    manageLifecycle: false
+
 serviceAccount:
   create: true
   annotations: {}
