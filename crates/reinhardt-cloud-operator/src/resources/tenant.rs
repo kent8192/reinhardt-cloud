@@ -54,6 +54,13 @@ const ALLOW_INGRESS_CONTROLLER_POLICY_NAME: &str = "tenant-allow-ingress-control
 /// into the tenant namespace.
 const INGRESS_CONTROLLER_NAMESPACE_LABEL: &str = "ingress-nginx";
 
+/// Namespace and pod labels used by the standard Kubernetes DNS
+/// deployment. The DNS egress rule must select this destination
+/// explicitly so tenant workloads cannot exfiltrate to arbitrary
+/// port-53 endpoints.
+const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
+const KUBE_DNS_APP_LABEL: &str = "kube-dns";
+
 /// Operator-default `ResourceQuota` values. Override per CR is tracked
 /// in #416's follow-up work; for now the same defaults apply to every
 /// tenant.
@@ -182,6 +189,23 @@ pub(crate) fn build_allow_same_namespace_policy(tenant: &TenantRef) -> NetworkPo
 		pod_selector: Some(LabelSelector::default()),
 		..Default::default()
 	};
+	let kube_dns_peer = NetworkPolicyPeer {
+		namespace_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"kubernetes.io/metadata.name".to_string(),
+				KUBE_DNS_NAMESPACE_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		pod_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"k8s-app".to_string(),
+				KUBE_DNS_APP_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		..Default::default()
+	};
 
 	NetworkPolicy {
 		metadata: ObjectMeta {
@@ -203,10 +227,11 @@ pub(crate) fn build_allow_same_namespace_policy(tenant: &TenantRef) -> NetworkPo
 					to: Some(vec![same_namespace_peer]),
 					..Default::default()
 				},
-				// DNS — required for service discovery. Permitted to
-				// any destination because kube-dns selectors vary
-				// across distros (kube-system / openshift-dns / etc.).
+				// DNS — required for service discovery and restricted
+				// to the cluster kube-dns pods so the tenant default-deny
+				// posture still blocks arbitrary port-53 egress.
 				NetworkPolicyEgressRule {
+					to: Some(vec![kube_dns_peer]),
 					ports: Some(vec![
 						NetworkPolicyPort {
 							port: Some(IntOrString::Int(53)),
@@ -402,6 +427,54 @@ mod tests {
 				.unwrap_or(false)
 		});
 		assert!(has_dns, "expected DNS egress rule, got {egress:?}");
+	}
+
+	#[rstest]
+	fn allow_same_namespace_policy_restricts_dns_egress_to_kube_dns() {
+		// Arrange
+		let tenant = tenant_org();
+
+		// Act
+		let policy = build_allow_same_namespace_policy(&tenant);
+
+		// Assert
+		let egress = policy.spec.expect("spec").egress.expect("egress");
+		let dns_rule = egress
+			.iter()
+			.find(|rule| {
+				rule.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule");
+		let to = dns_rule.to.as_ref().expect("DNS destination peers");
+		assert_eq!(to.len(), 1);
+		let peer = &to[0];
+		let namespace_labels = peer
+			.namespace_selector
+			.as_ref()
+			.expect("namespace_selector")
+			.match_labels
+			.as_ref()
+			.expect("namespace match_labels");
+		assert_eq!(
+			namespace_labels
+				.get("kubernetes.io/metadata.name")
+				.map(String::as_str),
+			Some(KUBE_DNS_NAMESPACE_LABEL),
+		);
+		let pod_labels = peer
+			.pod_selector
+			.as_ref()
+			.expect("pod_selector")
+			.match_labels
+			.as_ref()
+			.expect("pod match_labels");
+		assert_eq!(
+			pod_labels.get("k8s-app").map(String::as_str),
+			Some(KUBE_DNS_APP_LABEL),
+		);
 	}
 
 	#[rstest]
