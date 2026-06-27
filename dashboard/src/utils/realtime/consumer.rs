@@ -583,7 +583,7 @@ impl WebSocketConsumer for NotificationConsumer {
 						Err(error) => {
 							tracing::warn!(
 								project_name = %project,
-								error = %error,
+								error = %format_args!("{error}"),
 								"Failed to encode dashboard gRPC auth metadata for app log streaming",
 							);
 							let err_msg = app_log_stream_unavailable();
