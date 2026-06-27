@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "In-cluster agent for Reinhardt Cloud workload operations"
 
 [[bin]]
 name = "reinhardt-cloud-agent"
@@ -18,7 +18,7 @@ reinhardt-cloud-k8s = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
 rustls = { workspace = true }
-tonic = "0.13"
+tonic = { version = "0.13", features = ["tls-webpki-roots"] }
 prost = "0.13"
 prost-types = "0.13"
 tokio = { workspace = true }
@@ -30,6 +30,9 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [lints]
 workspace = true

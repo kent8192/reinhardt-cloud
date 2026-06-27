@@ -83,7 +83,7 @@ impl Default for LogBuffer {
 /// Check if a log entry matches the given filter.
 pub fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
 	if let Some(source) = &filter.source
-		&& !entry.source.contains(source.as_str())
+		&& entry.source.as_str() != source.as_str()
 	{
 		return false;
 	}
@@ -217,6 +217,31 @@ mod tests {
 		// Assert
 		assert_eq!(result.len(), 1);
 		assert_eq!(result[0].source, "worker");
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_filter_by_source_requires_exact_match() {
+		// Arrange
+		let buffer = LogBuffer::new(100);
+		buffer
+			.push(vec![
+				make_entry("billing", LogLevel::Info, "tenant log"),
+				make_entry("billing-api", LogLevel::Info, "other tenant log"),
+			])
+			.await;
+
+		// Act
+		let filter = LogFilter {
+			source: Some("billing".to_string()),
+			..Default::default()
+		};
+		let result = buffer.query(&filter).await;
+
+		// Assert
+		assert_eq!(result.len(), 1);
+		assert_eq!(result[0].source, "billing");
+		assert_eq!(result[0].message, "tenant log");
 	}
 
 	#[rstest]

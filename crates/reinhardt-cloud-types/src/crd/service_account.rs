@@ -15,11 +15,11 @@ use crate::validation::ValidationError;
 /// Per-app ServiceAccount configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct ServiceAccountSpec {
-	/// Whether the operator should create a KSA. If false, the user must pre-create one.
+	/// Whether the operator should create and wire a workload KSA.
 	#[serde(default)]
 	pub create: bool,
 
-	/// Name of the KSA. Defaults to the Project name when not set.
+	/// Optional name of the operator-managed KSA. Used only when `create` is true.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 

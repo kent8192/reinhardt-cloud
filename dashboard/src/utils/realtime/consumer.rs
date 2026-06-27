@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use reinhardt::{ConsumerContext, Message, Model, WebSocketConsumer, WebSocketResult};
+use reinhardt::{
+	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -20,6 +22,7 @@ use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
+use crate::config::settings::get_settings;
 use crate::shared::ws_messages::{
 	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
 	SystemNotificationPayload, WsClientMessage, WsMessage,
@@ -162,7 +165,7 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
-			WsClientMessage::SubscribeBuildLogs { build_id } => {
+			WsClientMessage::SubscribeBuildLogs { build_id: _ } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -174,7 +177,11 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeBuildLogs { build_id }
+				ParsedAction::Rejected {
+					response: log_stream_rejected(
+						"Build log streaming is unavailable until build ownership can be verified",
+					),
+				}
 			}
 			WsClientMessage::SubscribeAppLogs { deployment_id } => {
 				if user_id.is_none() {
@@ -287,6 +294,50 @@ async fn authorize_app_log_subscription(
 	})
 }
 
+/// Normalize an origin string for exact origin allow-list comparison.
+fn normalize_origin(origin: &str) -> String {
+	origin.trim().trim_end_matches('/').to_lowercase()
+}
+
+/// Return the dashboard WebSocket origin allow-list derived from CORS settings.
+fn websocket_allowed_origins() -> Vec<String> {
+	let settings = get_settings();
+	let mut origins = Vec::new();
+	for origin in &settings.cors.allow_origins {
+		if origin != "*" {
+			origins.push(normalize_origin(origin));
+		}
+	}
+
+	if settings.core.debug {
+		let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+		origins.push(normalize_origin(&format!("http://localhost:{port}")));
+		origins.push(normalize_origin(&format!("http://127.0.0.1:{port}")));
+	}
+
+	origins.sort();
+	origins.dedup();
+	origins
+}
+
+/// Validate the WebSocket handshake `Origin` header before using cookies.
+fn validate_websocket_origin(context: &ConsumerContext) -> WebSocketResult<()> {
+	let origin = context
+		.get_header("origin")
+		.map(|value| normalize_origin(value))
+		.filter(|value| !value.is_empty())
+		.ok_or_else(|| WebSocketError::Connection("Missing WebSocket Origin header".to_string()))?;
+
+	let allowed_origins = websocket_allowed_origins();
+	if allowed_origins.iter().any(|allowed| allowed == &origin) {
+		Ok(())
+	} else {
+		Err(WebSocketError::Connection(
+			"WebSocket Origin is not allowed".to_string(),
+		))
+	}
+}
+
 /// Extract a named cookie value from a `Cookie` header string.
 fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 	cookie_header.split(';').find_map(|pair| {
@@ -307,7 +358,9 @@ impl WebSocketConsumer for NotificationConsumer {
 			.metadata
 			.insert(META_CONNECTION_ID.to_string(), connection_id.clone());
 
-		// Authenticate from session cookie in handshake headers
+		validate_websocket_origin(context)?;
+
+		// Authenticate from session cookie in handshake headers after origin validation.
 		if let Some(cookie_header) = context.cookie_header()
 			&& let Some(session_id) = extract_cookie_value(cookie_header, "sessionid")
 			&& let Some((user_id, _username)) = validate_session(&session_id).await
@@ -857,6 +910,53 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_normalize_origin_trims_trailing_slash_and_case() {
+		// Arrange
+		let origin = " HTTPS://Example.COM/ ";
+
+		// Act
+		let normalized = normalize_origin(origin);
+
+		// Assert
+		assert_eq!(normalized, "https://example.com");
+	}
+
+	#[rstest]
+	fn test_validate_websocket_origin_rejects_missing_origin() {
+		// Arrange
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn);
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(matches!(result, Err(WebSocketError::Connection(_))));
+	}
+
+	#[rstest]
+	fn test_validate_websocket_origin_allows_configured_origin() {
+		// Arrange
+		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+		let conn = Arc::new(reinhardt::WebSocketConnection::new(
+			"conn-1".to_string(),
+			tx,
+		));
+		let context = ConsumerContext::new(conn)
+			.with_header("origin".to_string(), "http://localhost:8000".to_string());
+
+		// Act
+		let result = validate_websocket_origin(&context);
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
 	fn test_extract_cookie_value_single() {
 		assert_eq!(
 			extract_cookie_value("sessionid=abc123", "sessionid"),
@@ -943,7 +1043,7 @@ mod tests {
 	// --- Tests for new log streaming ParsedAction variants ---
 
 	#[rstest]
-	fn test_parse_subscribe_build_logs_with_auth() {
+	fn test_parse_subscribe_build_logs_with_auth_rejected_until_ownership_verified() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeBuildLogs {
 			build_id: "build-42".to_string(),
@@ -954,10 +1054,17 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeBuildLogs { build_id } => {
-				assert_eq!(build_id, "build-42");
-			}
-			_ => panic!("expected SubscribeBuildLogs action"),
+			ParsedAction::Rejected { response } => match &response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Build log streaming is unavailable until build ownership can be verified"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 
@@ -1050,6 +1157,7 @@ mod tests {
 		// Assert
 		assert_eq!(subscription.deployment_id, deployment.id.unwrap());
 		assert_eq!(subscription.project_name, "allowed-project");
+		assert_eq!(subscription.namespace, "tenant-logs-allowed");
 	}
 
 	#[rstest]
