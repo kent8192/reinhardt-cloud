@@ -123,8 +123,14 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn read_secret_file(path: &Path, secret_name: &str) -> Result<String, Box<dyn std::error::Error>> {
-	let content = std::fs::read_to_string(path)
-		.map_err(|e| format!("Failed to read {secret_name} file {}: {e}", path.display()))?;
+	let content = std::fs::read_to_string(path).map_err(|e| {
+		format!(
+			"Failed to read {} file {}: {}",
+			secret_name,
+			path.display(),
+			e
+		)
+	})?;
 	Ok(content.trim_end_matches(['\r', '\n']).to_string())
 }
 
