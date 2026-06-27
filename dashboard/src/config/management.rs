@@ -15,6 +15,8 @@ use crate::config::settings::get_settings;
 
 const DEFAULT_E2E_USERNAME: &str = "e2e-user";
 const DEFAULT_E2E_EMAIL: &str = "e2e@example.test";
+const LEGACY_PUBLIC_E2E_PASSWORD: &str = "e2e-password-123456";
+const SEED_AUTHORIZATION_ENV: &str = "DASHBOARD_SELF_DEPLOY_ALLOW_SEED_USER";
 
 /// Seed the deployed dashboard with an authenticated self-deploy test user.
 pub struct SeedSelfDeployUserCommand;
@@ -34,8 +36,7 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 	}
 
 	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
-		require_ci_environment()?;
-		initialize_orm_database().await?;
+		require_seed_authorization()?;
 
 		let username = command_value(
 			ctx,
@@ -44,7 +45,10 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 			DEFAULT_E2E_USERNAME,
 		);
 		let password = required_command_value(ctx, 1, "DASHBOARD_SELF_DEPLOY_E2E_PASSWORD")?;
+		validate_seed_password(&password)?;
 		let email = command_value(ctx, 2, "DASHBOARD_SELF_DEPLOY_E2E_EMAIL", DEFAULT_E2E_EMAIL);
+
+		initialize_orm_database().await?;
 
 		let user = upsert_active_user(&username, &password, &email).await?;
 		ensure_membership(&user).await?;
@@ -79,14 +83,52 @@ fn required_command_value(
 		})
 }
 
-fn require_ci_environment() -> CommandResult<()> {
-	let env = std::env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
-	if env == "ci" {
+fn validate_seed_password(password: &str) -> CommandResult<()> {
+	if password.trim().is_empty() || password == LEGACY_PUBLIC_E2E_PASSWORD {
+		return Err(CommandError::ExecutionError(
+			"DASHBOARD_SELF_DEPLOY_E2E_PASSWORD must be a non-empty, non-default secret"
+				.to_string(),
+		));
+	}
+	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	#[case("random-e2e-secret")]
+	#[case(" password-with-surrounding-space ")]
+	fn validate_seed_password_accepts_non_empty_non_default_secret(#[case] password: &str) {
+		// Act
+		let result = validate_seed_password(password);
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
+	#[case("")]
+	#[case("   ")]
+	#[case(LEGACY_PUBLIC_E2E_PASSWORD)]
+	fn validate_seed_password_rejects_empty_or_public_fixture_secret(#[case] password: &str) {
+		// Act
+		let result = validate_seed_password(password);
+
+		// Assert
+		assert!(matches!(result, Err(CommandError::ExecutionError(_))));
+	}
+}
+
+fn require_seed_authorization() -> CommandResult<()> {
+	if std::env::var(SEED_AUTHORIZATION_ENV).as_deref() == Ok("1") {
 		return Ok(());
 	}
 
 	Err(CommandError::ExecutionError(format!(
-		"seed-self-deploy-user is only available when REINHARDT_ENV=ci, current value is {env}"
+		"seed-self-deploy-user requires {SEED_AUTHORIZATION_ENV}=1"
 	)))
 }
 
