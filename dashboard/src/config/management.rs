@@ -14,10 +14,11 @@ use crate::apps::organizations::models::OrganizationMembership;
 use crate::config::settings::get_settings;
 
 const DEFAULT_E2E_USERNAME: &str = "e2e-user";
-const DEFAULT_E2E_PASSWORD: &str = "e2e-password-123456";
 const DEFAULT_E2E_EMAIL: &str = "e2e@example.test";
+const LEGACY_PUBLIC_E2E_PASSWORD: &str = "e2e-password-123456";
+const SEED_AUTHORIZATION_ENV: &str = "DASHBOARD_SELF_DEPLOY_ALLOW_SEED_USER";
 
-/// Seed the deployed dashboard with a deterministic authenticated user.
+/// Seed the deployed dashboard with an authenticated self-deploy test user.
 pub struct SeedSelfDeployUserCommand;
 
 #[async_trait]
@@ -35,7 +36,7 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 	}
 
 	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
-		initialize_orm_database().await?;
+		require_seed_authorization()?;
 
 		let username = command_value(
 			ctx,
@@ -43,13 +44,11 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 			"DASHBOARD_SELF_DEPLOY_E2E_USERNAME",
 			DEFAULT_E2E_USERNAME,
 		);
-		let password = command_value(
-			ctx,
-			1,
-			"DASHBOARD_SELF_DEPLOY_E2E_PASSWORD",
-			DEFAULT_E2E_PASSWORD,
-		);
+		let password = required_command_value(ctx, 1, "DASHBOARD_SELF_DEPLOY_E2E_PASSWORD")?;
+		validate_seed_password(&password)?;
 		let email = command_value(ctx, 2, "DASHBOARD_SELF_DEPLOY_E2E_EMAIL", DEFAULT_E2E_EMAIL);
+
+		initialize_orm_database().await?;
 
 		let user = upsert_active_user(&username, &password, &email).await?;
 		ensure_membership(&user).await?;
@@ -67,6 +66,70 @@ fn command_value(ctx: &CommandContext, index: usize, env_key: &str, default: &st
 		.cloned()
 		.or_else(|| std::env::var(env_key).ok())
 		.unwrap_or_else(|| default.to_string())
+}
+
+fn required_command_value(
+	ctx: &CommandContext,
+	index: usize,
+	env_key: &str,
+) -> CommandResult<String> {
+	ctx.arg(index)
+		.cloned()
+		.or_else(|| std::env::var(env_key).ok())
+		.ok_or_else(|| {
+			CommandError::ExecutionError(format!(
+				"{env_key} or positional argument {index} is required"
+			))
+		})
+}
+
+fn validate_seed_password(password: &str) -> CommandResult<()> {
+	if password.trim().is_empty() || password == LEGACY_PUBLIC_E2E_PASSWORD {
+		return Err(CommandError::ExecutionError(
+			"DASHBOARD_SELF_DEPLOY_E2E_PASSWORD must be a non-empty, non-default secret"
+				.to_string(),
+		));
+	}
+	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	#[case("random-e2e-secret")]
+	#[case(" password-with-surrounding-space ")]
+	fn validate_seed_password_accepts_non_empty_non_default_secret(#[case] password: &str) {
+		// Act
+		let result = validate_seed_password(password);
+
+		// Assert
+		assert!(result.is_ok());
+	}
+
+	#[rstest]
+	#[case("")]
+	#[case("   ")]
+	#[case(LEGACY_PUBLIC_E2E_PASSWORD)]
+	fn validate_seed_password_rejects_empty_or_public_fixture_secret(#[case] password: &str) {
+		// Act
+		let result = validate_seed_password(password);
+
+		// Assert
+		assert!(matches!(result, Err(CommandError::ExecutionError(_))));
+	}
+}
+
+fn require_seed_authorization() -> CommandResult<()> {
+	if std::env::var(SEED_AUTHORIZATION_ENV).as_deref() == Ok("1") {
+		return Ok(());
+	}
+
+	Err(CommandError::ExecutionError(format!(
+		"seed-self-deploy-user requires {SEED_AUTHORIZATION_ENV}=1"
+	)))
 }
 
 async fn initialize_orm_database() -> CommandResult<()> {

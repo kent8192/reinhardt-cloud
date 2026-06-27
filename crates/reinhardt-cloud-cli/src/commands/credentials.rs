@@ -2,7 +2,7 @@
 
 use clap::{Args, Subcommand};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use k8s_openapi::api::core::v1::Secret;
 use kube::Client;
@@ -28,13 +28,13 @@ pub(crate) struct SetArgs {
 	/// Git provider (github, gitlab)
 	pub provider: String,
 	#[arg(long)]
-	pub git_token: Option<String>,
+	pub git_token_file: Option<PathBuf>,
 	#[arg(long)]
 	pub registry_auth: Option<PathBuf>,
 	#[arg(long)]
-	pub webhook_secret: Option<String>,
+	pub webhook_secret_file: Option<PathBuf>,
 	#[arg(long)]
-	pub api_token: Option<String>,
+	pub api_token_file: Option<PathBuf>,
 	#[arg(long)]
 	pub secret_name: Option<String>,
 	#[arg(long, default_value = "default")]
@@ -44,6 +44,8 @@ pub(crate) struct SetArgs {
 #[derive(Debug, Args)]
 pub(crate) struct CheckArgs {
 	pub project_name: String,
+	#[arg(long)]
+	pub secret_name: Option<String>,
 	#[arg(long, default_value = "default")]
 	pub namespace: String,
 }
@@ -68,23 +70,25 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 	let mut string_data = BTreeMap::new();
 
-	if let Some(ref token) = args.git_token {
-		string_data.insert("git-token".to_string(), token.clone());
+	if let Some(ref path) = args.git_token_file {
+		let token = read_secret_file(path, "git-token")?;
+		string_data.insert("git-token".to_string(), token);
 	}
 	if let Some(ref path) = args.registry_auth {
-		let content = std::fs::read_to_string(path)
-			.map_err(|e| format!("Failed to read registry-auth file {}: {e}", path.display()))?;
+		let content = read_secret_file(path, "registry-auth")?;
 		string_data.insert("registry-auth".to_string(), content);
 	}
-	if let Some(ref secret) = args.webhook_secret {
-		string_data.insert("webhook-secret".to_string(), secret.clone());
+	if let Some(ref path) = args.webhook_secret_file {
+		let secret = read_secret_file(path, "webhook-secret")?;
+		string_data.insert("webhook-secret".to_string(), secret);
 	}
-	if let Some(ref token) = args.api_token {
-		string_data.insert("api-token".to_string(), token.clone());
+	if let Some(ref path) = args.api_token_file {
+		let token = read_secret_file(path, "api-token")?;
+		string_data.insert("api-token".to_string(), token);
 	}
 
 	if string_data.is_empty() {
-		return Err("At least one credential flag must be provided".into());
+		return Err("At least one credential file flag must be provided".into());
 	}
 
 	let mut labels = BTreeMap::new();
@@ -119,12 +123,31 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 	Ok(())
 }
 
-/// Checks credential status for an app by looking up {project_name}-git-credentials.
+fn read_secret_file(path: &Path, secret_key: &str) -> Result<String, Box<dyn std::error::Error>> {
+	let content = std::fs::read_to_string(path).map_err(|e| {
+		format!(
+			"Failed to read {} file {}: {}",
+			secret_key,
+			path.display(),
+			e
+		)
+	})?;
+	let trimmed = content.trim_end_matches(['\r', '\n']).to_string();
+	if trimmed.trim().is_empty() {
+		return Err(format!("{} file {} is empty", secret_key, path.display()).into());
+	}
+	Ok(trimmed)
+}
+
+/// Checks credential status for an app by looking up its credentials Secret.
 async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let client = Client::try_default().await?;
 	let secrets: Api<Secret> = Api::namespaced(client, &args.namespace);
 
-	let secret_name = format!("{}-git-credentials", args.project_name);
+	let secret_name = args
+		.secret_name
+		.clone()
+		.unwrap_or_else(|| format!("{}-git-credentials", args.project_name));
 
 	match secrets.get_opt(&secret_name).await? {
 		Some(secret) => {
@@ -159,4 +182,38 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn read_secret_file_rejects_blank_file() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let path = dir.path().join("blank-token");
+		std::fs::write(&path, "\r\n\n").expect("blank token file should be written");
+
+		// Act
+		let result = read_secret_file(&path, "git-token");
+
+		// Assert
+		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn read_secret_file_preserves_non_newline_whitespace() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let path = dir.path().join("token");
+		std::fs::write(&path, " token value \n").expect("token file should be written");
+
+		// Act
+		let value = read_secret_file(&path, "git-token").expect("token should be read");
+
+		// Assert
+		assert_eq!(value, " token value ");
+	}
 }
