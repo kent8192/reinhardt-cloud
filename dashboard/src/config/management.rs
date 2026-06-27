@@ -14,10 +14,9 @@ use crate::apps::organizations::models::OrganizationMembership;
 use crate::config::settings::get_settings;
 
 const DEFAULT_E2E_USERNAME: &str = "e2e-user";
-const DEFAULT_E2E_PASSWORD: &str = "e2e-password-123456";
 const DEFAULT_E2E_EMAIL: &str = "e2e@example.test";
 
-/// Seed the deployed dashboard with a deterministic authenticated user.
+/// Seed the deployed dashboard with an authenticated self-deploy test user.
 pub struct SeedSelfDeployUserCommand;
 
 #[async_trait]
@@ -35,6 +34,7 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 	}
 
 	async fn execute(&self, ctx: &CommandContext) -> CommandResult<()> {
+		require_ci_environment()?;
 		initialize_orm_database().await?;
 
 		let username = command_value(
@@ -43,12 +43,7 @@ impl BaseCommand for SeedSelfDeployUserCommand {
 			"DASHBOARD_SELF_DEPLOY_E2E_USERNAME",
 			DEFAULT_E2E_USERNAME,
 		);
-		let password = command_value(
-			ctx,
-			1,
-			"DASHBOARD_SELF_DEPLOY_E2E_PASSWORD",
-			DEFAULT_E2E_PASSWORD,
-		);
+		let password = required_command_value(ctx, 1, "DASHBOARD_SELF_DEPLOY_E2E_PASSWORD")?;
 		let email = command_value(ctx, 2, "DASHBOARD_SELF_DEPLOY_E2E_EMAIL", DEFAULT_E2E_EMAIL);
 
 		let user = upsert_active_user(&username, &password, &email).await?;
@@ -67,6 +62,32 @@ fn command_value(ctx: &CommandContext, index: usize, env_key: &str, default: &st
 		.cloned()
 		.or_else(|| std::env::var(env_key).ok())
 		.unwrap_or_else(|| default.to_string())
+}
+
+fn required_command_value(
+	ctx: &CommandContext,
+	index: usize,
+	env_key: &str,
+) -> CommandResult<String> {
+	ctx.arg(index)
+		.cloned()
+		.or_else(|| std::env::var(env_key).ok())
+		.ok_or_else(|| {
+			CommandError::ExecutionError(format!(
+				"{env_key} or positional argument {index} is required"
+			))
+		})
+}
+
+fn require_ci_environment() -> CommandResult<()> {
+	let env = std::env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
+	if env == "ci" {
+		return Ok(());
+	}
+
+	Err(CommandError::ExecutionError(format!(
+		"seed-self-deploy-user is only available when REINHARDT_ENV=ci, current value is {env}"
+	)))
 }
 
 async fn initialize_orm_database() -> CommandResult<()> {

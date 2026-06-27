@@ -112,7 +112,7 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
 | `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context, otherwise `reinhardt-dashboard-e2e` when kind is created | Explicit `kind` cluster target for creation and `kind load docker-image`. |
 | `DASHBOARD_SELF_DEPLOY_E2E_USERNAME` | `e2e-user` | Username seeded inside the deployed Dashboard Pod for authenticated flow checks. |
-| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | `e2e-password-123456` | Password assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | random per run | Password assigned to the seeded Dashboard user. |
 | `DASHBOARD_SELF_DEPLOY_E2E_EMAIL` | `e2e@example.test` | Email assigned to the seeded Dashboard user. |
 | `DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT` | `18080` | Local port used for Dashboard health, login, and authenticated page checks. |
 | `DASHBOARD_SELF_DEPLOY_ORIGIN` | `http://127.0.0.1:8000` | Origin/Referer used for server function POSTs. The default matches the CI `OriginGuardMiddleware` allow-list. |

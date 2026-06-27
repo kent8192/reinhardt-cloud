@@ -40,7 +40,7 @@ KIND_CLUSTER="${DASHBOARD_SELF_DEPLOY_KIND_CLUSTER:-}"
 DEFAULT_KIND_CLUSTER="reinhardt-dashboard-e2e"
 CLUSTER_MODE="${DASHBOARD_SELF_DEPLOY_CLUSTER_MODE:-auto}"
 E2E_USERNAME="${DASHBOARD_SELF_DEPLOY_E2E_USERNAME:-e2e-user}"
-E2E_PASSWORD="${DASHBOARD_SELF_DEPLOY_E2E_PASSWORD:-e2e-password-123456}"
+E2E_PASSWORD="${DASHBOARD_SELF_DEPLOY_E2E_PASSWORD:-}"
 E2E_EMAIL="${DASHBOARD_SELF_DEPLOY_E2E_EMAIL:-e2e@example.test}"
 PORT_FORWARD_PORT="${DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT:-18080}"
 E2E_ORIGIN="${DASHBOARD_SELF_DEPLOY_ORIGIN:-http://127.0.0.1:8000}"
@@ -64,9 +64,20 @@ die() {
 	exit 1
 }
 
+generate_e2e_password() {
+	python3 - <<-'PY'
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+}
+
 command_exists() {
 	command -v "$1" >/dev/null 2>&1
 }
+
+if [[ -z "${E2E_PASSWORD}" ]]; then
+	E2E_PASSWORD="$(generate_e2e_password)"
+fi
 
 set_kubectl_context() {
 	local context=$1
@@ -657,6 +668,7 @@ seed_authenticated_user() {
 		DASHBOARD_SELF_DEPLOY_E2E_USERNAME="${E2E_USERNAME}" \
 		DASHBOARD_SELF_DEPLOY_E2E_PASSWORD="${E2E_PASSWORD}" \
 		DASHBOARD_SELF_DEPLOY_E2E_EMAIL="${E2E_EMAIL}" \
+		REINHARDT_ENV="${MANAGE_ENV}" \
 		/app/manage seed-self-deploy-user
 }
 
