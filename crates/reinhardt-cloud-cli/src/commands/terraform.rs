@@ -8,7 +8,10 @@ use reinhardt_cloud_core::infrastructure_derivation::{
 };
 use reinhardt_cloud_types::crd::{
 	ProjectSpec,
-	infrastructure::{BucketSpec, DnsRecordSpec, InfrastructureSpec, PostgresSpec, SecretSpec},
+	infrastructure::{
+		BucketSpec, DnsRecordSpec, InfrastructureSpec, PostgresSpec, SecretSpec,
+		is_safe_terraform_identifier,
+	},
 };
 
 /// Supported cloud providers for HCL generation.
@@ -73,6 +76,9 @@ pub(crate) async fn execute(args: &TerraformArgs) -> Result<(), Box<dyn std::err
 }
 
 async fn generate(args: &GenerateArgs) -> Result<(), Box<dyn std::error::Error>> {
+	validate_app_name(&args.app)
+		.map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+
 	let infra: InfrastructureSpec = match &args.infra_json {
 		Some(json) => {
 			let infra: InfrastructureSpec = serde_json::from_str(json)?;
@@ -148,6 +154,17 @@ fn infrastructure_from_crd_yaml(
 	}
 
 	Ok(None)
+}
+
+fn validate_app_name(app: &str) -> Result<(), String> {
+	if is_safe_terraform_identifier(app) {
+		Ok(())
+	} else {
+		Err(
+			"app must be a Terraform identifier: start with an ASCII letter or underscore and contain only ASCII letters, digits, and underscores"
+				.to_string(),
+		)
+	}
 }
 
 fn validate_infrastructure(infra: &InfrastructureSpec) -> Result<(), String> {
@@ -735,7 +752,7 @@ spec:
 
 		// Assert
 		assert!(
-			error.contains("infrastructure.buckets[].name must be non-empty"),
+			error.contains("infrastructure.buckets[].name must contain only"),
 			"unexpected error: {error}"
 		);
 	}
@@ -762,8 +779,69 @@ spec:
 		assert!(
 			error
 				.to_string()
-				.contains("infrastructure.buckets[].name must be non-empty"),
+				.contains("infrastructure.buckets[].name must contain only"),
 			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn rejects_hcl_injection_in_infra_json_before_rendering_hcl() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let args = GenerateArgs {
+			app: "orders".to_string(),
+			provider: Provider::Gcp,
+			output: Some(dir.path().to_path_buf()),
+			infra_json: Some(
+				r#"{"secrets":[{"name":"api-key","description":"safe\" } resource \"terraform_data\" \"pwn\" {}"}]}"#
+					.to_string(),
+			),
+			app_crd: None,
+		};
+
+		// Act
+		let error = generate(&args)
+			.await
+			.expect_err("HCL metacharacters should fail validation");
+
+		// Assert
+		assert!(
+			error.to_string().contains("HCL metacharacters"),
+			"unexpected error: {error}"
+		);
+		assert!(
+			!dir.path().join("main.tf").exists(),
+			"invalid input must not render Terraform"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn rejects_invalid_app_name_before_rendering_hcl() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let args = GenerateArgs {
+			app: "orders-pwn".to_string(),
+			provider: Provider::Aws,
+			output: Some(dir.path().to_path_buf()),
+			infra_json: Some(r#"{"postgres":{}}"#.to_string()),
+			app_crd: None,
+		};
+
+		// Act
+		let error = generate(&args)
+			.await
+			.expect_err("invalid app name should fail validation");
+
+		// Assert
+		assert!(
+			error.to_string().contains("Terraform identifier"),
+			"unexpected error: {error}"
+		);
+		assert!(
+			!dir.path().join("main.tf").exists(),
+			"invalid input must not render Terraform"
 		);
 	}
 

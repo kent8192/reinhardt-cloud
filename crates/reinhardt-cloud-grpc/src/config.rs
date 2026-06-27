@@ -1,10 +1,13 @@
 //! gRPC server configuration.
 
+use std::net::Ipv6Addr;
 use std::time::Duration;
 
 /// Configuration for the Reinhardt Cloud gRPC server.
 #[derive(Debug, Clone)]
 pub struct GrpcServerConfig {
+	/// Address the gRPC server binds to.
+	pub bind_host: String,
 	/// Port the gRPC server listens on.
 	pub port: u16,
 	/// Maximum message size in bytes (default: 4MB).
@@ -22,6 +25,7 @@ pub struct GrpcServerConfig {
 impl Default for GrpcServerConfig {
 	fn default() -> Self {
 		Self {
+			bind_host: "0.0.0.0".to_string(),
 			port: 50051,
 			max_message_size: 4 * 1024 * 1024, // 4MB
 			timeout: Duration::from_secs(30),
@@ -35,7 +39,11 @@ impl Default for GrpcServerConfig {
 impl GrpcServerConfig {
 	/// Returns the socket address string for binding.
 	pub fn bind_address(&self) -> String {
-		format!("0.0.0.0:{}", self.port)
+		if self.bind_host.parse::<Ipv6Addr>().is_ok() {
+			format!("[{}]:{}", self.bind_host, self.port)
+		} else {
+			format!("{}:{}", self.bind_host, self.port)
+		}
 	}
 }
 
@@ -50,6 +58,7 @@ mod tests {
 		let config = GrpcServerConfig::default();
 
 		// Assert
+		assert_eq!(config.bind_host, "0.0.0.0");
 		assert_eq!(config.port, 50051);
 		assert_eq!(config.max_message_size, 4 * 1024 * 1024);
 		assert_eq!(config.timeout, Duration::from_secs(30));
@@ -62,6 +71,7 @@ mod tests {
 	fn test_bind_address() {
 		// Arrange
 		let config = GrpcServerConfig {
+			bind_host: "127.0.0.1".to_string(),
 			port: 9090,
 			..Default::default()
 		};
@@ -70,6 +80,22 @@ mod tests {
 		let addr = config.bind_address();
 
 		// Assert
-		assert_eq!(addr, "0.0.0.0:9090");
+		assert_eq!(addr, "127.0.0.1:9090");
+	}
+
+	#[rstest]
+	fn test_bind_address_brackets_ipv6_hosts() {
+		// Arrange
+		let config = GrpcServerConfig {
+			bind_host: "::".to_string(),
+			port: 9090,
+			..Default::default()
+		};
+
+		// Act
+		let addr = config.bind_address();
+
+		// Assert
+		assert_eq!(addr, "[::]:9090");
 	}
 }

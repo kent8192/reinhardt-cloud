@@ -1,6 +1,6 @@
 //! SPA router configuration for the Reinhardt Cloud WASM client.
 //!
-//! Routes are declared in [`init_router`], which builds a
+//! Routes are composed in [`init_router`], which builds a
 //! [`reinhardt::urls::prelude::ClientRouter`] through
 //! [`reinhardt::urls::prelude::UnifiedRouter`] and installs it globally
 //! as a side effect. The terminating
@@ -16,8 +16,8 @@
 //!
 //! # Route names
 //!
-//! Every SPA route is registered from route-backed component metadata
-//! via `ClientRouter::component`, so the path and name live with the
+//! Every SPA route is registered from route-backed component metadata in
+//! each app's `url_patterns()` function, so the path and name live with the
 //! page component declaration. Names follow the `<app>:<name>` namespace
 //! convention used by server-side view macros. SPA names use a `_page`
 //! suffix where a server-side route already owns the unsuffixed name
@@ -29,11 +29,7 @@
 
 use reinhardt::urls::prelude::{ClientRouter, UnifiedRouter};
 
-use crate::apps::auth::client::pages::{account_page, login_page, register_page};
-use crate::apps::clusters::client::pages::clusters_list_page;
-use crate::apps::dashboard::client::layout::dashboard_shell;
-use crate::apps::deployments::client::pages::deployments_list_page;
-use crate::apps::github::client::pages::github_repositories_page;
+use crate::apps::{auth, clusters, dashboard, deployments, github};
 use crate::shared::client::pages::not_found::not_found_page;
 
 /// Build the SPA router and register the client URL reverser globally.
@@ -44,15 +40,11 @@ use crate::shared::client::pages::not_found::not_found_page;
 /// WASM client.
 pub fn init_router() -> ClientRouter {
 	UnifiedRouter::new()
-		.client(|c| {
-			c.component(dashboard_shell)
-				.component(account_page)
-				.component(login_page)
-				.component(register_page)
-				.component(clusters_list_page)
-				.component(deployments_list_page)
-				.component(github_repositories_page)
-				.not_found(not_found_page)
-		})
+		.client(|c| c.not_found(not_found_page))
+		.mount_unified("/", dashboard::urls::url_patterns())
+		.mount_unified("/auth/", auth::urls::url_patterns())
+		.mount_unified("/clusters/", clusters::urls::url_patterns())
+		.mount_unified("/deployments/", deployments::urls::url_patterns())
+		.mount_unified("/github/", github::urls::url_patterns())
 		.register_globally()
 }

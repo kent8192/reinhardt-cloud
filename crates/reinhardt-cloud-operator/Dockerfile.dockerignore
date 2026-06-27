@@ -54,6 +54,16 @@ dashboard/**/build
 # Helm/Terraform/infra (not required by the operator binary)
 charts
 infra
+terraform
+**/.terraform
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform.tfstate.lock.info
+**/*.tfvars
+!**/*.example.tfvars
+!**/*.examples.tfvars
+**/backend.tfvars
 
 # Misc
 *.log

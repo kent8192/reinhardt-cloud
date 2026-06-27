@@ -13,28 +13,34 @@ on:
 jobs:
   # Native two-step release workflow:
   # 1. Push to main -> release-plz creates Release PR (branch: release-plz-*)
-  # 2. Merge Release PR -> release-plz detects commit from release-plz-* branch and creates GitHub Release
+  # 2. Merge Release PR -> release-plz detects changed local versions, publishes crates, and creates releases
   #
   # IMPORTANT: pr_branch_prefix must remain "release-plz-" in release-plz.toml
   # to ensure this two-step detection works correctly.
-  #
-  # Note: reinhardt-cloud is not published to crates.io, so CARGO_REGISTRY_TOKEN is not needed.
 
   release-plz-pr:
     name: Release PR
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_PLZ_APP_CONFIGURED: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - name: Generate GitHub token
+        if: env.RELEASE_PLZ_APP_CONFIGURED == 'true'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: generate-token
         with:
           app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+
+      - name: Warn about fallback GitHub token
+        if: env.RELEASE_PLZ_APP_CONFIGURED != 'true'
+        run: |
+          echo "::warning title=Release-plz GitHub App credentials missing::RELEASE_PLZ_APP_ID and RELEASE_PLZ_APP_PRIVATE_KEY are not both configured. Falling back to GITHUB_TOKEN for the Release PR update; release PR checks may require a manual workflow run until the App secrets are configured."
 
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -60,18 +66,52 @@ jobs:
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token || github.token }}
 
   release-plz-release:
     name: Release
-    if: github.event_name == 'push'
+    # Publish only after a verified Release PR merge. The release-plz-pr job
+    # still runs on every main push so routine feature merges keep the next
+    # Release PR up to date without entering the publish path.
+    #
+    # Accepted Release PR merge shapes:
+    # - merge commit from a release-plz-* branch
+    # - squash commit titled "chore: release (#N)"
+    if: |
+      github.event_name == 'push' && (
+        (
+          startsWith(github.event.head_commit.message, 'Merge pull request #') &&
+          contains(github.event.head_commit.message, format(' from {0}/release-plz-', github.repository_owner))
+        ) ||
+        (
+          startsWith(github.event.head_commit.message, 'chore: release ') &&
+          contains(github.event.head_commit.message, '(#')
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_PLZ_APP_CONFIGURED: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
+      CARGO_REGISTRY_TOKEN_CONFIGURED: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     concurrency:
       group: release-plz-release-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      - name: Validate release credentials
+        run: |
+          missing=0
+          if [ "$RELEASE_PLZ_APP_CONFIGURED" != "true" ]; then
+            echo "::error title=Release-plz GitHub App credentials missing::RELEASE_PLZ_APP_ID and RELEASE_PLZ_APP_PRIVATE_KEY must be configured before publishing releases so release-created and tag-push workflows can run."
+            missing=1
+          fi
+          if [ "$CARGO_REGISTRY_TOKEN_CONFIGURED" != "true" ]; then
+            echo "::error title=Cargo registry token missing::CARGO_REGISTRY_TOKEN must be configured before publishing crates."
+            missing=1
+          fi
+          exit "$missing"
+
       - name: Generate GitHub token
+        if: env.RELEASE_PLZ_APP_CONFIGURED == 'true'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: generate-token
         with:
@@ -97,11 +137,74 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
+      - name: Verify release branch name
+        if: "startsWith(github.event.head_commit.message, 'Merge pull request #')"
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # Extract branch name from merge commit message.
+          # Format: "Merge pull request #N from owner/BRANCH_NAME"
+          BRANCH=$(echo "$COMMIT_MSG" | grep -oP 'from [^/]+/\K.+$' || true)
+          if [ -z "$BRANCH" ]; then
+            echo "::error::Could not extract branch name from commit message"
+            exit 1
+          fi
+          echo "Extracted branch name: $BRANCH"
+          case "$BRANCH" in
+            release-plz-*)
+              echo "Branch '$BRANCH' matches release branch pattern"
+              ;;
+            *)
+              echo "::error::Branch '$BRANCH' does not start with 'release-plz-'"
+              echo "::error::This push does not originate from a release-plz branch. Refusing to publish."
+              exit 1
+              ;;
+          esac
+
+      - name: Verify release PR label
+        if: "startsWith(github.event.head_commit.message, 'Merge pull request #') || (startsWith(github.event.head_commit.message, 'chore: release ') && contains(github.event.head_commit.message, '(#'))"
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          # Extract PR number from merge-commit or squash-merge commit message.
+          # Formats:
+          # - "Merge pull request #N from owner/BRANCH_NAME"
+          # - "chore: release (#N)"
+          PR_NUMBER=$(echo "$COMMIT_MSG" | grep -oP '^Merge pull request #\K\d+' || true)
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(printf '%s\n' "$COMMIT_MSG" | head -n1 | sed -nE 's/^chore: release \(#([0-9]+)\).*$/\1/p')
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::Could not extract PR number from commit message"
+            exit 1
+          fi
+          echo "Verifying PR #$PR_NUMBER has the 'release' label..."
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if ! echo "$LABELS" | grep -qx 'release'; then
+            echo "::error::PR #$PR_NUMBER does not have the 'release' label. Labels found: $LABELS"
+            echo "::error::Only PRs with the 'release' label are allowed to publish. Refusing to publish."
+            exit 1
+          fi
+          echo "PR #$PR_NUMBER has the 'release' label; proceeding with publish"
+
+          MERGE_COMMIT_SHA=$(gh pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid // ""' 2>/dev/null || echo "")
+          if [ -z "$MERGE_COMMIT_SHA" ]; then
+            echo "::error::Could not determine merge commit SHA for PR #$PR_NUMBER"
+            exit 1
+          fi
+          if [ "$MERGE_COMMIT_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Pushed SHA $GITHUB_SHA does not match release PR #$PR_NUMBER merge commit $MERGE_COMMIT_SHA"
+            echo "::error::Refusing to publish from an unverified release commit."
+            exit 1
+          fi
+          echo "Pushed SHA matches PR #$PR_NUMBER merge commit; proceeding with publish"
+
       # Workaround for gix slotmap overflow (GitoxideLabs/gitoxide#1788)
       - name: Clear cargo registry git index cache
         run: rm -rf ~/.cargo/registry/index/github.com-*
 
-      - name: Create GitHub Release (attempt 1/3)
+      - name: Publish to crates.io and create releases (attempt 1/3)
         id: release-attempt-1
         continue-on-error: true
         uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
@@ -109,6 +212,7 @@ jobs:
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Wait before retry (attempt 1)
         if: steps.release-attempt-1.outcome == 'failure'
@@ -120,7 +224,7 @@ jobs:
         if: steps.release-attempt-1.outcome == 'failure'
         run: rm -rf ~/.cargo/registry/index/github.com-*
 
-      - name: Create GitHub Release (attempt 2/3)
+      - name: Publish to crates.io and create releases (attempt 2/3)
         id: release-attempt-2
         if: steps.release-attempt-1.outcome == 'failure'
         continue-on-error: true
@@ -129,6 +233,7 @@ jobs:
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Wait before retry (attempt 2)
         if: steps.release-attempt-1.outcome == 'failure' && steps.release-attempt-2.outcome == 'failure'
@@ -140,10 +245,11 @@ jobs:
         if: steps.release-attempt-1.outcome == 'failure' && steps.release-attempt-2.outcome == 'failure'
         run: rm -rf ~/.cargo/registry/index/github.com-*
 
-      - name: Create GitHub Release (attempt 3/3)
+      - name: Publish to crates.io and create releases (attempt 3/3)
         if: steps.release-attempt-1.outcome == 'failure' && steps.release-attempt-2.outcome == 'failure'
         uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
