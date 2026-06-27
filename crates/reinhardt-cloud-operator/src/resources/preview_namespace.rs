@@ -140,12 +140,7 @@ pub(crate) fn legacy_preview_namespace_matches(preview_namespace: &str, parent_n
 		return preview_namespace_name(parent_namespace, parent_name) == preview_namespace;
 	}
 
-	// Truncated legacy names cannot reveal the full parent namespace; new
-	// previews carry the explicit label, so only legacy-shaped max-length
-	// namespace prefixes use this compatibility path.
-	let suffix_len = 1 + IDENTITY_HASH_LENGTH + 1 + PREVIEW_NAMESPACE_SUFFIX.len();
-	let prefix_len = DNS_1123_LABEL_MAX_LENGTH - suffix_len;
-	identity_prefix.len() == prefix_len
+	false
 }
 
 fn legacy_preview_namespace_parts(preview_namespace: &str) -> Option<(&str, &str)> {
@@ -466,7 +461,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn legacy_preview_namespace_matches_accepts_truncated_identity_prefix() {
+	fn legacy_preview_namespace_matches_rejects_truncated_identity_prefix() {
 		// Arrange
 		let namespace = preview_namespace_name(
 			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix",
@@ -477,7 +472,7 @@ mod tests {
 		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
 
 		// Assert
-		assert!(matches);
+		assert!(!matches);
 	}
 
 	#[rstest]

@@ -254,7 +254,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_validated_image_pull_secrets_accepts_legacy_preview_truncated_namespace() {
+	fn test_validated_image_pull_secrets_rejects_legacy_preview_truncated_namespace() {
 		// Arrange
 		let parent_namespace =
 			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix";
@@ -271,13 +271,14 @@ mod tests {
 		}]);
 
 		// Act
-		let secrets = validated_image_pull_secrets(&app)
-			.expect("legacy preview with a truncated namespace should be accepted")
-			.expect("image pull secrets should be present");
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("legacy preview with a truncated namespace should be rejected");
 
 		// Assert
-		assert_eq!(secrets.len(), 1);
-		assert_eq!(secrets[0].name, "web-regcred");
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
 	}
 
 	#[rstest]
