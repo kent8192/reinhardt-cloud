@@ -317,6 +317,20 @@ mod tests {
 	}
 
 	#[rstest]
+	fn test_parse_credentials_check_command_with_secret_name() {
+		let args = vec![
+			"reinhardt-cloud",
+			"credentials",
+			"check",
+			"my-app",
+			"--secret-name",
+			"github-git-credentials",
+		];
+		let cli = Cli::try_parse_from(args);
+		assert!(cli.is_ok());
+	}
+
+	#[rstest]
 	fn test_parse_crd_generate_command() {
 		let args = vec!["reinhardt-cloud", "crd", "generate"];
 		let cli = Cli::try_parse_from(args);

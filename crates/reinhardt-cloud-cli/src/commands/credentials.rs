@@ -44,6 +44,8 @@ pub(crate) struct SetArgs {
 #[derive(Debug, Args)]
 pub(crate) struct CheckArgs {
 	pub project_name: String,
+	#[arg(long)]
+	pub secret_name: Option<String>,
 	#[arg(long, default_value = "default")]
 	pub namespace: String,
 }
@@ -73,8 +75,7 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 		string_data.insert("git-token".to_string(), token);
 	}
 	if let Some(ref path) = args.registry_auth {
-		let content = std::fs::read_to_string(path)
-			.map_err(|e| format!("Failed to read registry-auth file {}: {e}", path.display()))?;
+		let content = read_secret_file(path, "registry-auth")?;
 		string_data.insert("registry-auth".to_string(), content);
 	}
 	if let Some(ref path) = args.webhook_secret_file {
@@ -122,24 +123,31 @@ async fn execute_set(args: &SetArgs) -> Result<(), Box<dyn std::error::Error>> {
 	Ok(())
 }
 
-fn read_secret_file(path: &Path, secret_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn read_secret_file(path: &Path, secret_key: &str) -> Result<String, Box<dyn std::error::Error>> {
 	let content = std::fs::read_to_string(path).map_err(|e| {
 		format!(
 			"Failed to read {} file {}: {}",
-			secret_name,
+			secret_key,
 			path.display(),
 			e
 		)
 	})?;
-	Ok(content.trim_end_matches(['\r', '\n']).to_string())
+	let trimmed = content.trim_end_matches(['\r', '\n']).to_string();
+	if trimmed.trim().is_empty() {
+		return Err(format!("{} file {} is empty", secret_key, path.display()).into());
+	}
+	Ok(trimmed)
 }
 
-/// Checks credential status for an app by looking up {project_name}-git-credentials.
+/// Checks credential status for an app by looking up its credentials Secret.
 async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>> {
 	let client = Client::try_default().await?;
 	let secrets: Api<Secret> = Api::namespaced(client, &args.namespace);
 
-	let secret_name = format!("{}-git-credentials", args.project_name);
+	let secret_name = args
+		.secret_name
+		.clone()
+		.unwrap_or_else(|| format!("{}-git-credentials", args.project_name));
 
 	match secrets.get_opt(&secret_name).await? {
 		Some(secret) => {
@@ -174,4 +182,38 @@ async fn execute_check(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn read_secret_file_rejects_blank_file() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let path = dir.path().join("blank-token");
+		std::fs::write(&path, "\r\n\n").expect("blank token file should be written");
+
+		// Act
+		let result = read_secret_file(&path, "git-token");
+
+		// Assert
+		assert!(result.is_err());
+	}
+
+	#[rstest]
+	fn read_secret_file_preserves_non_newline_whitespace() {
+		// Arrange
+		let dir = tempfile::tempdir().expect("temp directory should be created");
+		let path = dir.path().join("token");
+		std::fs::write(&path, " token value \n").expect("token file should be written");
+
+		// Act
+		let value = read_secret_file(&path, "git-token").expect("token should be read");
+
+		// Assert
+		assert_eq!(value, " token value ");
+	}
 }
