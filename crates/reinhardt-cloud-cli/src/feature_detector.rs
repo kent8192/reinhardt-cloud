@@ -91,6 +91,7 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 		.and_then(|n| n.as_str())
 		.ok_or("Missing [package].name in Cargo.toml")?
 		.to_owned();
+	validate_package_name(&name)?;
 
 	let version = parsed
 		.get("package")
@@ -112,6 +113,20 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 		features,
 		signals,
 	})
+}
+
+fn validate_package_name(name: &str) -> Result<(), String> {
+	if name.is_empty()
+		|| !name
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+	{
+		return Err(format!(
+			"Invalid [package].name `{name}` in Cargo.toml: package names may only contain ASCII letters, digits, hyphens, and underscores"
+		));
+	}
+
+	Ok(())
 }
 
 /// Search for reinhardt-web dependency features across every dependency
@@ -378,6 +393,48 @@ reinhardt = { package = "reinhardt-web", version = "0.1", features = ["standard"
 		assert_eq!(metadata.version, "0.2.0");
 		assert!(metadata.features.contains(&"standard".to_owned()));
 		assert!(metadata.features.contains(&"auth-jwt".to_owned()));
+	}
+
+	#[rstest]
+	fn test_detect_project_rejects_shell_metacharacters_in_package_name() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name = "evil; touch /tmp/injected #"
+version = "0.2.0"
+
+[dependencies]
+reinhardt-web = { version = "0.1", features = ["standard"] }
+"#,
+		)
+		.unwrap();
+
+		// Act
+		let result = detect_project(dir.path());
+
+		// Assert
+		let error = result.expect_err("unsafe package names must be rejected");
+		assert_eq!(
+			error,
+			"Invalid [package].name `evil; touch /tmp/injected #` in Cargo.toml: package names may only contain ASCII letters, digits, hyphens, and underscores"
+		);
+	}
+
+	#[rstest]
+	#[case("safe-name")]
+	#[case("safe_name")]
+	#[case("safe123")]
+	fn test_package_name_validation_accepts_cargo_safe_names(#[case] name: &str) {
+		// Arrange
+
+		// Act
+		let result = validate_package_name(name);
+
+		// Assert
+		assert_eq!(result, Ok(()));
 	}
 
 	#[rstest]

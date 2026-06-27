@@ -35,7 +35,7 @@ Issues MUST be created using:
 gh issue create --title "Bug: Reconciler panics on missing Deployment" --body "Description..."
 ```
 
-**Autonomy (Reinhardt family):** Creating an Issue is authorized without further user confirmation in `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc` (see Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md`); the Issue body MUST still follow the appropriate template under `.github/ISSUE_TEMPLATE/` and carry at least one type label. Closing or deleting Issues remains subject to explicit user authorization.
+**Autonomy (Reinhardt family):** The Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` does not authorize creating, closing, or deleting Issues without explicit user instruction. When issue creation is explicitly authorized, the Issue body MUST still follow the appropriate template under `.github/ISSUE_TEMPLATE/` and carry at least one type label.
 
 ### IC-2 (MUST): Search Before Creating
 

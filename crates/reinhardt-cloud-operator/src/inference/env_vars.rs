@@ -169,28 +169,23 @@ pub(crate) fn build_database_env_vars_from_secret(
 /// Variables injected:
 /// * `OTEL_PROPAGATORS` — fixed to `tracecontext`.
 /// * `OTEL_SERVICE_NAME` — set to `project_name`.
-/// * `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's own
-///   environment variable of the same name when present.
+///
+/// The operator deliberately does not forward its own
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` into tenant workloads. Tenant-controlled
+/// application images can read their Pod environment, so copying the
+/// operator-side collector endpoint would disclose control-plane telemetry
+/// configuration. Tenants that need OTLP export must provide a tenant-safe
+/// endpoint explicitly through `spec.env`.
 ///
 /// The operator's per-reconcile `TRACEPARENT` is deliberately not injected:
 /// it is reconcile-scoped, so embedding it in a long-lived workload template
 /// would change the Pod spec on every reconciliation and trigger repeated
 /// rollouts. Application spans therefore start as independent roots.
 pub(crate) fn build_otel_env_vars(project_name: &str) -> Vec<EnvVar> {
-	let mut vars = vec![
+	vec![
 		env_var("OTEL_PROPAGATORS", "tracecontext"),
 		env_var("OTEL_SERVICE_NAME", project_name),
-	];
-
-	// Inject the operator's OTLP endpoint so the Pod sends spans to the same
-	// collector without requiring user-level configuration.
-	if let Ok(endpoint) = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-		&& !endpoint.is_empty()
-	{
-		vars.push(env_var("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint));
-	}
-
-	vars
+	]
 }
 
 /// Build system environment variables that are always injected.
@@ -577,6 +572,45 @@ mod tests {
 		assert!(
 			!vars.iter().any(|v| v.name == "REINHARDT_CLOUD_CONFIG_DIR"),
 			"REINHARDT_CLOUD_CONFIG_DIR must not be auto-injected after #589",
+		);
+	}
+
+	#[rstest]
+	fn build_otel_env_vars_omits_operator_otlp_endpoint() {
+		// Arrange & Act
+		let vars = build_otel_env_vars("dashboard");
+
+		// Assert — the tenant workload receives safe telemetry defaults, but
+		// not the operator process OTLP endpoint. Tenants can still provide a
+		// tenant-safe `OTEL_EXPORTER_OTLP_ENDPOINT` explicitly through spec.env.
+		let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
+		assert_eq!(names, vec!["OTEL_PROPAGATORS", "OTEL_SERVICE_NAME"]);
+		assert!(
+			!vars.iter().any(|v| v.name == "OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"operator OTLP endpoint must not be auto-injected into tenant Pods"
+		);
+	}
+
+	#[rstest]
+	fn build_application_env_vars_preserves_user_otlp_endpoint_override() {
+		// Arrange
+		let mut app = make_app_with_db("dashboard");
+		app.spec.env.insert(
+			"OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
+			"https://otel.tenant.example/v1/traces".to_string(),
+		);
+
+		// Act
+		let vars = build_application_env_vars(&app, &Platform::Onpremise);
+
+		// Assert
+		let endpoint = vars
+			.iter()
+			.find(|v| v.name == "OTEL_EXPORTER_OTLP_ENDPOINT")
+			.expect("tenant-supplied OTLP endpoint must be preserved");
+		assert_eq!(
+			endpoint.value.as_deref(),
+			Some("https://otel.tenant.example/v1/traces")
 		);
 	}
 
