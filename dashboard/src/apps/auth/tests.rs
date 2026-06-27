@@ -9,6 +9,7 @@ pub mod unit {
 	pub mod test_oauth_linking_validation;
 	pub mod test_oauth_providers_view;
 	pub mod test_oauth_settings;
+	pub mod test_oauth_state_cookie;
 	pub mod test_serializer_validation;
 	pub mod test_session_service;
 	pub mod test_social_account_model;

@@ -31,7 +31,7 @@ use crate::config::{ProjectSettings, ProjectSettingsKey};
 
 type HmacSha256 = Hmac<sha2::Sha256>;
 
-const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state_sig";
+pub(in crate::apps::auth) const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state_sig";
 const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
 
 /// OAuth callback query parameters returned by the provider.
@@ -67,7 +67,10 @@ fn map_session_error(err: impl std::fmt::Display) -> AppError {
 	AppError::Internal("Internal server error".to_string())
 }
 
-fn cookie_value_from_header(cookie_header: &str, cookie_name: &str) -> Option<String> {
+pub(in crate::apps::auth) fn cookie_value_from_header(
+	cookie_header: &str,
+	cookie_name: &str,
+) -> Option<String> {
 	cookie_header.split(';').find_map(|pair| {
 		let pair = pair.trim();
 		let (name, value) = pair.split_once('=')?;
@@ -79,7 +82,11 @@ fn cookie_value_from_header(cookie_header: &str, cookie_name: &str) -> Option<St
 	})
 }
 
-fn oauth_state_cookie_signature(provider_id: &str, state: &str, secret_key: &str) -> String {
+pub(in crate::apps::auth) fn oauth_state_cookie_signature(
+	provider_id: &str,
+	state: &str,
+	secret_key: &str,
+) -> String {
 	let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
 		.expect("HMAC accepts secret keys of any size");
 	mac.update(b"reinhardt-cloud-oauth-state-v1");
@@ -89,7 +96,7 @@ fn oauth_state_cookie_signature(provider_id: &str, state: &str, secret_key: &str
 	URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
 }
 
-fn oauth_state_cookie_header(
+pub(in crate::apps::auth) fn oauth_state_cookie_header(
 	provider_id: &str,
 	state: &str,
 	secret_key: &str,
@@ -102,7 +109,10 @@ fn oauth_state_cookie_header(
 	)
 }
 
-fn expired_oauth_state_cookie_header(provider_id: &str, debug: bool) -> String {
+pub(in crate::apps::auth) fn expired_oauth_state_cookie_header(
+	provider_id: &str,
+	debug: bool,
+) -> String {
 	let secure_flag = if debug { "" } else { "; Secure" };
 	format!(
 		"{OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/{provider_id}/callback/{secure_flag}; Max-Age=0"
@@ -314,72 +324,4 @@ pub async fn api_me(
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")
 		.with_body(json::to_vec(&body)?))
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use rstest::rstest;
-
-	#[rstest]
-	fn test_cookie_value_from_header_selects_named_cookie() {
-		// Arrange
-		let header = "sessionid=session-1; oauth_state_sig=signature-1; theme=dark";
-
-		// Act
-		let value = cookie_value_from_header(header, OAUTH_STATE_COOKIE_NAME);
-
-		// Assert
-		assert_eq!(value.as_deref(), Some("signature-1"));
-	}
-
-	#[rstest]
-	fn test_oauth_state_cookie_signature_is_bound_to_provider_and_state() {
-		// Arrange
-		let secret = "test-secret";
-		let signature = oauth_state_cookie_signature("github", "state-a", secret);
-
-		// Act
-		let other_provider = oauth_state_cookie_signature("gitlab", "state-a", secret);
-		let other_state = oauth_state_cookie_signature("github", "state-b", secret);
-
-		// Assert
-		assert_ne!(signature, other_provider);
-		assert_ne!(signature, other_state);
-	}
-
-	#[rstest]
-	fn test_oauth_state_cookie_header_is_browser_bound_and_short_lived() {
-		// Arrange
-		let provider_id = "github";
-		let state = "state-1";
-		let secret = "test-secret";
-
-		// Act
-		let header = oauth_state_cookie_header(provider_id, state, secret, false);
-
-		// Assert
-		assert_eq!(
-			header,
-			format!(
-				"oauth_state_sig={}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Secure; Max-Age=600",
-				oauth_state_cookie_signature(provider_id, state, secret)
-			)
-		);
-	}
-
-	#[rstest]
-	fn test_expired_oauth_state_cookie_header_clears_matching_path() {
-		// Arrange
-		let debug = true;
-
-		// Act
-		let header = expired_oauth_state_cookie_header("github", debug);
-
-		// Assert
-		assert_eq!(
-			header,
-			"oauth_state_sig=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Max-Age=0"
-		);
-	}
 }
