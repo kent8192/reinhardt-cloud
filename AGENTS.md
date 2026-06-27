@@ -337,11 +337,11 @@ This project uses [release-plz](https://release-plz.ieni.dev/) for automated rel
 - Cross-crate shared changes MUST be preceding PRs, merged before per-crate fix PRs (WU-3)
 
 **Upstream Issue Reporting:**
-- When a reinhardt-web issue is discovered during Reinhardt Cloud development, **immediately** create an issue in `kent8192/reinhardt-web` (UR-1)
-- Use `gh issue create -R kent8192/reinhardt-web` for upstream issue creation (UR-2)
-- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every upstream issue (UR-4)
-- Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally (UR-4)
-- **NEVER** implement workarounds without creating an upstream issue first (WP-2)
+- When a reinhardt-web issue is discovered during Reinhardt Cloud development, **immediately** prepare an upstream issue report, but create GitHub issues only after explicit user instruction (UR-1)
+- Use `gh issue create -R kent8192/reinhardt-web` for authorized upstream issue creation (UR-2)
+- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every authorized upstream issue (UR-4)
+- Cross-reference between Reinhardt Cloud tracking issue and upstream issue bidirectionally only when the authorized issue workflow covers those writes (UR-4)
+- **NEVER** implement workarounds until the upstream issue and tracking workflow is explicitly authorized (WP-2)
 
 See instructions/ISSUE_HANDLING.md for comprehensive issue handling principles including:
 - Handling approach (HA-1 ~ HA-4)
@@ -612,10 +612,10 @@ Before submitting code:
 - Define ALL Kubernetes resources as proper CRD types (see @instructions/KUBERNETES_PATTERNS.md CD-1)
 - Implement reconcilers as pure functions returning `Action` (see @instructions/KUBERNETES_PATTERNS.md RP-1)
 - ALWAYS use finalizers for cleanup of external resources in operators
-- Create issues in reinhardt-web immediately upon discovering upstream bugs (`gh issue create -R kent8192/reinhardt-web`)
-- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every upstream issue (UR-4)
-- Cross-reference between Reinhardt Cloud tracking issue and reinhardt-web issue bidirectionally (UR-4)
-- Create upstream issue before implementing any workaround for reinhardt-web bugs
+- Prepare reinhardt-web issue reports immediately upon discovering upstream bugs; create them with `gh issue create -R kent8192/reinhardt-web` only after explicit user instruction
+- Create a tracking issue in Reinhardt Cloud with `upstream-tracking` label for every authorized upstream issue (UR-4)
+- Cross-reference between Reinhardt Cloud tracking issue and reinhardt-web issue bidirectionally only when that write is authorized (UR-4)
+- Get explicit authorization for the upstream issue and tracking workflow before implementing any workaround for reinhardt-web bugs
 - Include the ideal implementation as a comment when introducing workaround code (WP-3)
 
 ### ❌ NEVER DO
@@ -682,9 +682,9 @@ Before submitting code:
 - Use raw `serde_json::Value` for CRD spec/status (use structured types)
 - Panic in reconciler functions (return `Err` for transient failures)
 - Delay reporting reinhardt-web issues discovered during Reinhardt Cloud development
-- Implement workarounds for reinhardt-web issues without creating an upstream issue first
+- Implement workarounds for reinhardt-web issues before the upstream issue and tracking workflow is explicitly authorized
 - Introduce workaround code without an ideal implementation comment (WP-3)
-- Create upstream issues without corresponding Reinhardt Cloud tracking issues (UR-4)
+- Create upstream issues without corresponding authorized Reinhardt Cloud tracking issues (UR-4)
 - Report Reinhardt Cloud-specific issues to the reinhardt-web repository
 
 ### 📚 Detailed Standards

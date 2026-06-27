@@ -110,7 +110,8 @@ Converting a Draft PR to Ready for Review requires explicit user instruction. Im
 
 **Rules:**
 - The agent **MUST NOT** convert a Draft PR to Ready for Review without explicit user instruction
-- The agent **MUST** convert when explicitly instructed, unless the requested action conflicts with protected-branch, release, or safety policies
+- The agent **MUST** convert when explicitly instructed only if the PC-4a readiness criteria are met, unless the user explicitly overrides the unmet criteria
+- The agent **MUST NOT** convert when the requested action conflicts with protected-branch, release, or safety policies
 - Use `gh pr ready <number>` (or the equivalent GitHub MCP call) for conversion
 
 **Readiness Criteria (verify before recommending conversion):**
@@ -133,9 +134,9 @@ gh pr view 123 --json isDraft
 | Action | Explicit Instruction | Plan Mode Approval | Implementation Complete |
 |--------|---------------------|-------------------|--------------------------|
 | Commit | ✅ Authorized | ✅ Authorized | n/a |
-| Push | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
+| Push | ✅ Authorized | ❌ Not authorized | ❌ Not authorized |
 | GitHub Comments | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
-| Draft PR → Ready | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
+| Draft PR → Ready | ✅ Authorized if PC-4a passes or the instruction explicitly overrides unmet criteria | ❌ Not authorized | ❌ Not authorized |
 
 The following diagram illustrates the Draft PR lifecycle:
 
@@ -277,7 +278,7 @@ Include additional sections when relevant:
 
 ### RP-1 (MUST): Pre-Merge Checklist
 
-Before **merging** (NOT before Draft → Ready conversion — see § PC-4a, which mandates immediate Ready conversion upon implementation completion), ensure:
+Before **merging**, ensure the following. Draft → Ready conversion is governed separately by § PC-4a and requires explicit user instruction plus satisfied readiness criteria unless the user explicitly overrides them.
 
 - [ ] All CI checks pass
 - [ ] All tests pass locally
