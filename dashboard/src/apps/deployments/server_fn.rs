@@ -6,6 +6,9 @@
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
+#[cfg(native)]
+use crate::utils::grpc::dashboard_grpc_auth_interceptor;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeploymentInfo {
 	pub id: i64,
@@ -70,33 +73,6 @@ fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> 
 		status: deployment.status,
 		image: deployment.image,
 	}
-}
-
-#[cfg(native)]
-#[derive(Clone)]
-struct DashboardGrpcAuthInterceptor {
-	value: tonic::metadata::MetadataValue<tonic::metadata::Ascii>,
-}
-
-#[cfg(native)]
-impl tonic::service::Interceptor for DashboardGrpcAuthInterceptor {
-	fn call(
-		&mut self,
-		mut request: tonic::Request<()>,
-	) -> Result<tonic::Request<()>, tonic::Status> {
-		request
-			.metadata_mut()
-			.insert("authorization", self.value.clone());
-		Ok(request)
-	}
-}
-
-#[cfg(native)]
-fn dashboard_grpc_auth_interceptor(
-	token: String,
-) -> Result<DashboardGrpcAuthInterceptor, tonic::metadata::errors::InvalidMetadataValue> {
-	let value = format!("Bearer {token}").parse()?;
-	Ok(DashboardGrpcAuthInterceptor { value })
 }
 
 #[cfg(native)]
@@ -456,7 +432,7 @@ pub async fn deployment_logs_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
 	let grpc_token = dashboard_grpc_user_token(&user, &jwt_secret.0)?;
-	let interceptor = dashboard_grpc_auth_interceptor(grpc_token).map_err(|e| {
+	let interceptor = dashboard_grpc_auth_interceptor(&grpc_token).map_err(|e| {
 		ServerFnError::application(format!("Invalid dashboard gRPC auth metadata: {e}"))
 	})?;
 	let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(

@@ -27,6 +27,7 @@ use crate::shared::ws_messages::{
 	AppLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
 	WsClientMessage, WsMessage,
 };
+use crate::utils::grpc::dashboard_grpc_auth_interceptor;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
@@ -73,30 +74,6 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
-}
-
-#[derive(Clone)]
-struct DashboardGrpcAuthInterceptor {
-	value: tonic::metadata::MetadataValue<tonic::metadata::Ascii>,
-}
-
-impl tonic::service::Interceptor for DashboardGrpcAuthInterceptor {
-	fn call(
-		&mut self,
-		mut request: tonic::Request<()>,
-	) -> Result<tonic::Request<()>, tonic::Status> {
-		request
-			.metadata_mut()
-			.insert("authorization", self.value.clone());
-		Ok(request)
-	}
-}
-
-fn dashboard_grpc_auth_interceptor(
-	token: String,
-) -> Result<DashboardGrpcAuthInterceptor, tonic::metadata::errors::InvalidMetadataValue> {
-	let value = format!("Bearer {token}").parse()?;
-	Ok(DashboardGrpcAuthInterceptor { value })
 }
 
 async fn connect_grpc_channel(
@@ -601,12 +578,13 @@ impl WebSocketConsumer for NotificationConsumer {
 							return;
 						}
 					};
-					let interceptor = match dashboard_grpc_auth_interceptor(grpc_token) {
+					let interceptor = match dashboard_grpc_auth_interceptor(&grpc_token) {
 						Ok(interceptor) => interceptor,
-						Err(e) => {
+						Err(error) => {
+							let error_message = error.to_string();
 							tracing::warn!(
 								project_name = %project,
-								error = %e,
+								error = %error_message,
 								"Failed to encode dashboard gRPC auth metadata for app log streaming",
 							);
 							let err_msg = app_log_stream_unavailable();
