@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::validation::ValidationError;
 
+/// Safe in-container root for writable dentdelion WASM plugin mounts.
+pub const PLUGIN_WASM_DIR_PREFIX: &str = "/var/lib/dentdelion";
+
 /// Sanitizes a plugin name into the suffix used by the Kubernetes
 /// `Volume.name` (excluding any operator-side prefix).
 ///
@@ -90,10 +93,10 @@ impl PluginSpec {
 	/// Validates the plugin specification.
 	///
 	/// Checks that `name` and `wasm_dir` are non-empty, that `wasm_dir`
-	/// is an absolute path with no `..` components (path-traversal
-	/// guard, since `wasm_dir` flows directly into a Kubernetes
-	/// `VolumeMount.mount_path`), and that any optional numeric limits
-	/// are strictly positive when provided.
+	/// is an absolute path under [`PLUGIN_WASM_DIR_PREFIX`] with no `..`
+	/// components (path-traversal guard, since `wasm_dir` flows directly
+	/// into a Kubernetes `VolumeMount.mount_path`), and that any optional
+	/// numeric limits are strictly positive when provided.
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
@@ -105,18 +108,29 @@ impl PluginSpec {
 		if trimmed_dir.is_empty() {
 			errors.push(ValidationError::new("plugins[].wasm_dir must be non-empty"));
 		} else {
-			if !trimmed_dir.starts_with('/') {
+			let wasm_path = Path::new(trimmed_dir);
+			let is_absolute = wasm_path.is_absolute();
+			if !is_absolute {
 				errors.push(ValidationError::new(
 					"plugins[].wasm_dir must be an absolute path (start with '/')",
 				));
 			}
-			if Path::new(trimmed_dir)
+			let has_parent_dir = wasm_path
 				.components()
-				.any(|c| matches!(c, Component::ParentDir))
-			{
+				.any(|c| matches!(c, Component::ParentDir));
+			if has_parent_dir {
 				errors.push(ValidationError::new(
 					"plugins[].wasm_dir must not contain '..' path components",
 				));
+			}
+			if is_absolute
+				&& !has_parent_dir
+				&& (!wasm_path.starts_with(PLUGIN_WASM_DIR_PREFIX)
+					|| wasm_path == Path::new(PLUGIN_WASM_DIR_PREFIX))
+			{
+				errors.push(ValidationError::new(format!(
+					"plugins[].wasm_dir must be under {PLUGIN_WASM_DIR_PREFIX}/"
+				)));
 			}
 		}
 
@@ -175,7 +189,8 @@ mod tests {
 	#[rstest]
 	fn plugin_spec_capabilities_defaults_empty() {
 		// Arrange
-		let json = r#"{"name":"p","wasm_dir":"/p","plugin_type":"GrpcInterceptor"}"#;
+		let json =
+			r#"{"name":"p","wasm_dir":"/var/lib/dentdelion/p","plugin_type":"GrpcInterceptor"}"#;
 
 		// Act
 		let parsed: PluginSpec = serde_json::from_str(json).expect("deserialize should succeed");
@@ -192,7 +207,7 @@ mod tests {
 		// Arrange
 		let spec = PluginSpec {
 			name: "p".to_string(),
-			wasm_dir: "/p".to_string(),
+			wasm_dir: "/var/lib/dentdelion/p".to_string(),
 			plugin_type: PluginType::EventHandler,
 			memory_limit_mb: None,
 			timeout_ms: None,
@@ -276,6 +291,31 @@ mod tests {
 		assert_eq!(
 			errors[0].message,
 			"plugins[].wasm_dir must not contain '..' path components"
+		);
+	}
+
+	#[rstest]
+	fn plugin_spec_validate_rejects_unsafe_wasm_dir_prefix() {
+		// Arrange
+		let spec = PluginSpec {
+			name: "p".to_string(),
+			wasm_dir: "/app".to_string(),
+			plugin_type: PluginType::HttpMiddleware,
+			memory_limit_mb: None,
+			timeout_ms: None,
+			capabilities: Vec::new(),
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("unsafe wasm_dir prefix should be rejected");
+
+		// Assert
+		assert_eq!(errors.len(), 1);
+		assert_eq!(
+			errors[0].message,
+			"plugins[].wasm_dir must be under /var/lib/dentdelion/"
 		);
 	}
 
