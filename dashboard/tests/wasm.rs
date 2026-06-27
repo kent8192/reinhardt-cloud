@@ -23,3 +23,6 @@ mod test_spa_navigation_smoke;
 
 #[path = "wasm/test_spa_route_paths.rs"]
 mod test_spa_route_paths;
+
+#[path = "wasm/test_frontend_msw_e2e.rs"]
+mod test_frontend_msw_e2e;
