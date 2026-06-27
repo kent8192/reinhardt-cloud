@@ -6,12 +6,13 @@
 
 use std::sync::Arc;
 
-use reinhardt::{ConsumerContext, Message, Model, WebSocketConsumer, WebSocketResult};
+use reinhardt::{
+	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
@@ -21,8 +22,8 @@ use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
 use crate::shared::ws_messages::{
-	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
-	SystemNotificationPayload, WsClientMessage, WsMessage,
+	AppLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
+	WsClientMessage, WsMessage,
 };
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
@@ -224,6 +225,44 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 	})
 }
 
+async fn authorize_deployment_subscriptions(
+	user_id: &str,
+	deployment_ids: &[String],
+) -> Result<Vec<String>, WsMessage> {
+	let user_id = Uuid::parse_str(user_id)
+		.map_err(|_| log_stream_rejected("Authentication required for deployment updates"))?;
+	let organization_id = require_permission(user_id, Action::DeploymentRead)
+		.await
+		.map_err(|_| log_stream_rejected("Not authorized to subscribe to deployment updates"))?;
+	let mut authorized = Vec::with_capacity(deployment_ids.len());
+	for deployment_id in deployment_ids {
+		let deployment_id_i64: i64 = deployment_id
+			.parse()
+			.map_err(|_| log_stream_rejected("Invalid deployment id for subscription"))?;
+		let deployment = Deployment::objects()
+			.filter(Deployment::field_id().eq(deployment_id_i64))
+			.filter(Deployment::field_organization_id().eq(organization_id))
+			.first()
+			.await
+			.map_err(|e| {
+				tracing::error!(
+					error = %e,
+					"Failed to load deployment for WebSocket subscription"
+				);
+				log_stream_rejected("Failed to authorize deployment subscription")
+			})?
+			.ok_or_else(|| log_stream_rejected("Deployment not found for subscription"))?;
+		if let Some(id) = deployment.id {
+			authorized.push(id.to_string());
+		}
+	}
+	Ok(authorized)
+}
+
+fn build_log_rejected() -> WsMessage {
+	log_stream_rejected("Build log streaming requires an authorized deployment-scoped identifier")
+}
+
 async fn authorize_app_log_subscription(
 	user_id: &str,
 	deployment_id: &str,
@@ -304,6 +343,10 @@ impl WebSocketConsumer for NotificationConsumer {
 			self.broadcaster
 				.register_connection(&connection_id, &user_id, Arc::clone(&context.connection))
 				.await;
+		} else {
+			return Err(WebSocketError::Connection(
+				"Authentication required for notifications websocket".to_string(),
+			));
 		}
 
 		Ok(())
@@ -338,10 +381,18 @@ impl WebSocketConsumer for NotificationConsumer {
 				let _ = context.connection.send_json(&response).await;
 			}
 			ParsedAction::Subscribe { deployment_ids } => {
-				if let Some(uid) = user_id {
-					for dep_id in &deployment_ids {
+				if let Some(uid) = user_id.as_deref() {
+					let authorized_ids =
+						match authorize_deployment_subscriptions(uid, &deployment_ids).await {
+							Ok(ids) => ids,
+							Err(response) => {
+								let _ = context.connection.send_json(&response).await;
+								return Ok(());
+							}
+						};
+					for dep_id in &authorized_ids {
 						self.broadcaster
-							.try_subscribe(&connection_id, &uid, dep_id)
+							.try_subscribe(&connection_id, uid, dep_id)
 							.await;
 					}
 				}
@@ -352,145 +403,11 @@ impl WebSocketConsumer for NotificationConsumer {
 				}
 			}
 			ParsedAction::SubscribeBuildLogs { build_id } => {
-				// Cancel any previous log stream before starting a new one.
-				self.cancel_log_stream().await;
-
-				// Spawn a background task that connects to the gRPC
-				// BuildService and forwards log entries as WebSocket messages.
-				// The positive acknowledgement is sent only after the gRPC
-				// connection is established, so the client is not misled when
-				// the connection subsequently fails.
-				let conn = Arc::clone(&context.connection);
-				let bid = build_id.clone();
-				let endpoint = grpc_endpoint();
-
-				let handle_ref = Arc::clone(&self.log_stream_handle);
-
-				// Acquire the lock before spawning so that the task cannot
-				// clear the handle before we store it (fixes the race where a
-				// very fast task completion sets handle_ref to None before
-				// the outer code sets it to Some(handle)).
-				let mut handle_guard = self.log_stream_handle.lock().await;
-
-				let handle = tokio::spawn(async move {
-					let mut client =
-						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Failed to connect to gRPC BuildService for log streaming",
-								);
-								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								// Clear handle on exit.
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
-
-					// Send positive acknowledgement only after a successful
-					// gRPC connection — avoids a contradictory ack/nack pair.
-					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-						acknowledged: true,
-						message: format!("Subscribed to build logs for {bid}"),
-					});
-					let _ = conn.send_json(&ack).await;
-
-					let request = pb::StreamBuildLogsRequest {
-						build_id: bid.clone(),
-						follow: true,
-					};
-
-					let response = match client.stream_build_logs(request).await {
-						Ok(r) => r,
-						Err(e) => {
-							tracing::warn!(
-								build_id = %bid,
-								error = %e,
-								"gRPC StreamBuildLogs call failed",
-							);
-							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
-							let _ = conn.send_json(&err_msg).await;
-							// Clear handle on exit.
-							*handle_ref.lock().await = None;
-							return;
-						}
-					};
-
-					let mut stream = response.into_inner();
-
-					loop {
-						match stream.message().await {
-							Ok(Some(log)) => {
-								let ts = log
-									.timestamp
-									.map(|t| {
-										// Validate nanos is within the valid range
-										// (0..=999_999_999). Out-of-range values
-										// (including negatives from prost_types)
-										// are clamped to 0.
-										let nanos = if (0..=999_999_999).contains(&t.nanos) {
-											t.nanos as u32
-										} else {
-											0
-										};
-										chrono::DateTime::<chrono::Utc>::from_timestamp(
-											t.seconds, nanos,
-										)
-										.map(|dt| dt.to_rfc3339())
-										.unwrap_or_default()
-									})
-									.unwrap_or_default();
-
-								let ws_msg = WsMessage::BuildLog(BuildLogPayload {
-									build_id: bid.clone(),
-									event_type: "log".to_string(),
-									message: log.message,
-									timestamp: ts,
-								});
-
-								if conn.send_json(&ws_msg).await.is_err() {
-									// Connection closed — stop streaming.
-									break;
-								}
-							}
-							Ok(None) => {
-								// Stream ended normally.
-								break;
-							}
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Error receiving build log from gRPC stream",
-								);
-								break;
-							}
-						}
-					}
-
-					// Clear the stale handle when the stream exits normally.
-					*handle_ref.lock().await = None;
-				});
-
-				// Store the handle while still holding the lock so that a
-				// fast-finishing task cannot set the handle to None before
-				// we write Some(handle).
-				*handle_guard = Some(handle);
-				drop(handle_guard);
+				tracing::warn!(
+					build_id = %build_id,
+					"Rejected build log WebSocket subscription without deployment authorization"
+				);
+				let _ = context.connection.send_json(&build_log_rejected()).await;
 			}
 			ParsedAction::SubscribeAppLogs { deployment_id } => {
 				let Some(uid) = user_id.as_deref() else {
@@ -995,6 +912,82 @@ mod tests {
 				_ => panic!("expected SystemNotification rejection"),
 			},
 			_ => panic!("expected Rejected action"),
+		}
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_deployment_subscriptions_allows_current_org_deployments(
+		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "sub-allowed").await;
+		let org = create_org(&conn, &user, "sub-allowed").await;
+		add_membership(&conn, &user, &org).await;
+		let deployment = create_deployment(&conn, &org, "sub-project").await;
+
+		// Act
+		let subscriptions = authorize_deployment_subscriptions(
+			&user.id.to_string(),
+			&[deployment.id.unwrap().to_string()],
+		)
+		.await
+		.expect("authorized subscriptions");
+
+		// Assert
+		assert_eq!(subscriptions, vec![deployment.id.unwrap().to_string()]);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_deployment_subscriptions_rejects_cross_org_deployment_guess(
+		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "sub-user").await;
+		let other_user = create_user(&conn, "sub-other").await;
+		let own_org = create_org(&conn, &user, "sub-user").await;
+		let other_org = create_org(&conn, &other_user, "sub-other").await;
+		add_membership(&conn, &user, &own_org).await;
+		add_membership(&conn, &other_user, &other_org).await;
+		let other_deployment = create_deployment(&conn, &other_org, "other-sub-project").await;
+
+		// Act
+		let result = authorize_deployment_subscriptions(
+			&user.id.to_string(),
+			&[other_deployment.id.unwrap().to_string()],
+		)
+		.await;
+
+		// Assert
+		match result {
+			Err(WsMessage::LogStreamAck(payload)) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, "Deployment not found for subscription");
+			}
+			_ => panic!("expected rejected LogStreamAck"),
+		}
+	}
+
+	#[rstest]
+	fn build_log_rejection_explains_deployment_scoped_requirement() {
+		// Act
+		let response = build_log_rejected();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(
+					payload.message,
+					"Build log streaming requires an authorized deployment-scoped identifier"
+				);
+			}
+			_ => panic!("expected rejected LogStreamAck"),
 		}
 	}
 
