@@ -91,10 +91,10 @@ pub(crate) fn build_worker_deployment(
 							},
 							..Default::default()
 						}],
-						// Forward spec.imagePullSecrets so the worker
+						// Forward validated spec.imagePullSecrets so the worker
 						// Deployment can pull the application image from a
 						// private registry — same as the main Deployment.
-						image_pull_secrets: app.spec.image_pull_secrets.clone(),
+						image_pull_secrets: super::validated_image_pull_secrets(app)?,
 						..Default::default()
 					})
 				},
@@ -313,7 +313,7 @@ mod tests {
 		// Arrange
 		let mut app = test_app("myapp", "myapp:v1");
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
-			name: "regcred".to_string(),
+			name: "myapp-regcred".to_string(),
 		}]);
 
 		// Act
@@ -326,7 +326,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 1);
-		assert_eq!(pull_secrets[0].name, "regcred");
+		assert_eq!(pull_secrets[0].name, "myapp-regcred");
 	}
 
 	#[rstest]
@@ -337,10 +337,10 @@ mod tests {
 		let mut app = test_app("myapp", "myapp:v1");
 		app.spec.image_pull_secrets = Some(vec![
 			LocalObjectReference {
-				name: "regcred-primary".to_string(),
+				name: "myapp-regcred-primary".to_string(),
 			},
 			LocalObjectReference {
-				name: "regcred-fallback".to_string(),
+				name: "myapp-regcred-fallback".to_string(),
 			},
 		]);
 
@@ -354,7 +354,7 @@ mod tests {
 			.image_pull_secrets
 			.expect("image_pull_secrets should be set");
 		assert_eq!(pull_secrets.len(), 2);
-		assert_eq!(pull_secrets[0].name, "regcred-primary");
-		assert_eq!(pull_secrets[1].name, "regcred-fallback");
+		assert_eq!(pull_secrets[0].name, "myapp-regcred-primary");
+		assert_eq!(pull_secrets[1].name, "myapp-regcred-fallback");
 	}
 }

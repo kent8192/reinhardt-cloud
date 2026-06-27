@@ -69,6 +69,13 @@ fn make_entry(source: &str, level: LogLevel, msg: &str) -> LogEntry {
 	}
 }
 
+fn source_filter(source: &str) -> pb::LogFilter {
+	pb::LogFilter {
+		source: Some(source.to_string()),
+		..Default::default()
+	}
+}
+
 #[rstest]
 #[tokio::test]
 async fn test_list_logs_through_grpc() {
@@ -87,7 +94,7 @@ async fn test_list_logs_through_grpc() {
 	// Act -- list logs via gRPC with pagination
 	let response = client
 		.list_logs(pb::ListLogsRequest {
-			filter: None,
+			filter: Some(source_filter("test-app")),
 			pagination: Some(PaginationRequest {
 				page: 1,
 				page_size: 10,
@@ -161,7 +168,7 @@ async fn test_log_metadata_preserved_through_grpc() {
 	// Act -- list logs via gRPC
 	let response = client
 		.list_logs(pb::ListLogsRequest {
-			filter: None,
+			filter: Some(source_filter("api-gateway")),
 			pagination: Some(PaginationRequest {
 				page: 1,
 				page_size: 10,
