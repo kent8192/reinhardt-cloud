@@ -177,15 +177,22 @@ spec:
 
 ### RBAC
 
-No packaged RBAC manifest exists for the agent. The agent uses in-cluster credentials (`kube::Client::try_default()`) to apply `apps/v1 Deployments` and read `apps/v1 ReplicaSets` in the `default` namespace.
+No packaged RBAC manifest exists for the agent. The agent uses in-cluster credentials (`kube::Client::try_default()`) to apply `apps/v1 Deployments` and read `apps/v1 ReplicaSets` in the namespace where it runs, which defaults to `default` when Kubernetes does not provide an in-cluster namespace.
 
-Recommended `ClusterRole` (least-privilege based on `main.rs` usage):
+Recommended `Role` and `RoleBinding` (least-privilege based on `main.rs` usage):
 
 ```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+apiVersion: v1
+kind: ServiceAccount
 metadata:
   name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -193,32 +200,23 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: reinhardt-cloud-agent
 subjects:
   - kind: ServiceAccount
     name: reinhardt-cloud-agent
     namespace: reinhardt-cloud-system
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: reinhardt-cloud-agent
-  namespace: reinhardt-cloud-system
 ```
+
+Set the `metadata.namespace` values to the single namespace managed by that agent deployment. Do not use a `ClusterRoleBinding` unless the agent implementation is changed to intentionally manage resources across namespaces.
 
 > The agent must **not** be granted `cluster-admin` or any `create`/`update` permissions on Project CRDs — those are the operator's domain.
 
@@ -287,7 +285,7 @@ The agent and control plane share proto definitions from `reinhardt-cloud-proto`
 
 ## Security
 
-**Least privilege**: the agent's `ClusterRole` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`. It must never be granted `cluster-admin` or write access to Project CRDs.
+**Least privilege**: the agent's namespaced `Role` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets` in the managed namespace. It must never be granted `cluster-admin`, a cross-namespace `ClusterRoleBinding`, pod or pod-log read permissions, or write access to Project CRDs.
 
 **Secret rotation**: to rotate the `AUTH_TOKEN` without downtime:
 1. Issue a new token in the Dashboard for the cluster (old token remains valid until revoked).
