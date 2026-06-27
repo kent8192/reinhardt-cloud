@@ -40,6 +40,8 @@ const QUOTA_NAME: &str = "preview-default-quota";
 const LIMIT_RANGE_NAME: &str = "preview-default-limits";
 const DEFAULT_DENY_NAME: &str = "preview-default-deny";
 const ALLOW_INGRESS_NAME: &str = "preview-allow-ingress-and-dns";
+const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
+const KUBE_DNS_APP_LABEL: &str = "kube-dns";
 /// Name of the cert-manager `Issuer` emitted into each preview namespace.
 /// Referenced by the preview Ingress TLS annotation, so it is `pub(crate)`.
 pub(crate) const ISSUER_NAME: &str = "preview-issuer";
@@ -338,6 +340,24 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 	parent_namespace: &str,
 	parent_name: &str,
 ) -> NetworkPolicy {
+	let kube_dns_peer = NetworkPolicyPeer {
+		namespace_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"kubernetes.io/metadata.name".to_string(),
+				KUBE_DNS_NAMESPACE_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		pod_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"k8s-app".to_string(),
+				KUBE_DNS_APP_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		..Default::default()
+	};
+
 	NetworkPolicy {
 		metadata: ObjectMeta {
 			name: Some(ALLOW_INGRESS_NAME.to_string()),
@@ -362,6 +382,7 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 				..Default::default()
 			}]),
 			egress: Some(vec![NetworkPolicyEgressRule {
+				to: Some(vec![kube_dns_peer]),
 				ports: Some(vec![
 					NetworkPolicyPort {
 						port: Some(IntOrString::Int(53)),
@@ -632,13 +653,30 @@ mod tests {
 		);
 		// Assert — DNS egress on port 53 (UDP + TCP).
 		let egress = spec.egress.expect("egress");
-		let has_dns = egress.iter().any(|rule| {
-			rule.ports
-				.as_ref()
-				.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
-				.unwrap_or(false)
-		});
-		assert!(has_dns, "expected DNS egress rule, got {egress:?}");
+		let dns_rule = egress
+			.iter()
+			.find(|rule| {
+				rule.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule");
+		let to = dns_rule.to.as_ref().expect("DNS destination peer");
+		assert_eq!(to.len(), 1);
+		let dns_namespace_labels = to[0]
+			.namespace_selector
+			.as_ref()
+			.expect("DNS namespace selector")
+			.match_labels
+			.as_ref()
+			.expect("DNS namespace labels");
+		assert_eq!(
+			dns_namespace_labels
+				.get("kubernetes.io/metadata.name")
+				.map(String::as_str),
+			Some(KUBE_DNS_NAMESPACE_LABEL)
+		);
 	}
 
 	#[rstest]
