@@ -6,6 +6,7 @@ pub mod unit {
 	pub mod test_email_verification;
 	pub mod test_jwt;
 	pub mod test_oauth_backend;
+	pub mod test_oauth_callback_security;
 	pub mod test_oauth_linking_validation;
 	pub mod test_oauth_providers_view;
 	pub mod test_oauth_settings;

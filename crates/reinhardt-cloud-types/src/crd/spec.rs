@@ -140,7 +140,7 @@ pub struct ServiceTlsSpec {
 	pub secret_name: Option<String>,
 	/// cert-manager Issuer name in the same namespace
 	pub issuer: Option<String>,
-	/// cert-manager ClusterIssuer name
+	/// Unsupported cert-manager ClusterIssuer name; use `issuer` for a namespace-scoped Issuer
 	pub cluster_issuer: Option<String>,
 }
 
@@ -172,9 +172,9 @@ impl ServiceTlsSpec {
 			));
 		}
 
-		if self.issuer.is_some() && self.cluster_issuer.is_some() {
+		if self.cluster_issuer.is_some() {
 			errors.push(ValidationError::new(
-				"services.tls.issuer and services.tls.cluster_issuer are mutually exclusive",
+				"services.tls.cluster_issuer is not supported; use services.tls.issuer with a namespace-scoped Issuer",
 			));
 		}
 
@@ -304,9 +304,13 @@ pub struct ProjectSpec {
 	/// References to Kubernetes Secrets in the same namespace that hold
 	/// container-registry credentials (type `kubernetes.io/dockerconfigjson`).
 	///
-	/// Mirrors the upstream `corev1.PodSpec.imagePullSecrets` shape so the
-	/// operator can copy the references straight into the materialized
-	/// PodSpec without re-serializing the user's intent.
+	/// Operator-generated workload `PodSpec` values only accept app-owned
+	/// secret names that start with the app's `{metadata.name}-` prefix.
+	/// Operator-created previews may also use verified parent-app prefixes,
+	/// which lets previews inherit registry access without allowing arbitrary
+	/// `Project` names to borrow shared namespace registry credentials. Legacy
+	/// previews without the parent namespace label are accepted only when their
+	/// namespace matches the canonical legacy preview contract.
 	#[serde(
 		rename = "imagePullSecrets",
 		default,
@@ -840,7 +844,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn services_tls_validation_rejects_both_issuer_fields() {
+	fn services_tls_validation_rejects_cluster_issuer() {
 		// Arrange
 		let spec = ProjectSpec {
 			image: "img:v1".to_string(),
@@ -851,7 +855,7 @@ mod tests {
 				tls: Some(ServiceTlsSpec {
 					enabled: true,
 					secret_name: Some("app-tls".to_string()),
-					issuer: Some("letsencrypt-ns".to_string()),
+					issuer: None,
 					cluster_issuer: Some("letsencrypt-prod".to_string()),
 				}),
 			}),
@@ -859,15 +863,13 @@ mod tests {
 		};
 
 		// Act
-		let errors = spec
-			.validate()
-			.expect_err("mutually exclusive issuers should fail");
+		let errors = spec.validate().expect_err("cluster issuers should fail");
 
 		// Assert
 		assert_eq!(errors.len(), 1);
 		assert_eq!(
 			errors[0].message,
-			"services.tls.issuer and services.tls.cluster_issuer are mutually exclusive"
+			"services.tls.cluster_issuer is not supported; use services.tls.issuer with a namespace-scoped Issuer"
 		);
 	}
 

@@ -1,6 +1,6 @@
 # reinhardt-cloud-cli
 
-End-user command-line interface for the Reinhardt Cloud PaaS. Builds `Project` Kubernetes resources from your project's `Cargo.toml` features and applies them directly to Kubernetes when `--direct` is used.
+End-user command-line interface for the Reinhardt Cloud PaaS. Builds `Project` Kubernetes resources from your project's `Cargo.toml` features, submits standard deploys through the Dashboard, and applies directly to Kubernetes when `--direct` is used.
 
 ## Quick links
 
@@ -22,7 +22,8 @@ Or download a pre-built binary from the [releases page](https://github.com/kent8
 cd my-project
 reinhardt-cloud init
 reinhardt-cloud deploy --dry-run
-reinhardt-cloud deploy --direct
+reinhardt-cloud login --token rct_example
+reinhardt-cloud deploy --cluster production
 ```
 
 Supported subcommands: `init`, `sync`, `deploy`, `status`, `login`, `credentials`, `crd`.
@@ -31,4 +32,4 @@ See the [full guide](../../docs/tools/cli.md) for every flag, example, and troub
 
 ## License
 
-BSL-1.1 — see the repository root `LICENSE`.
+BUSL-1.1 — Business Source License 1.1.

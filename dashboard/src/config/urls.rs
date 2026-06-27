@@ -25,6 +25,8 @@
 //!
 //! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt, which is async and independent of `UnifiedRouter`.
+//! The notification consumer performs its own handshake `Origin`
+//! validation before accepting cookie-authenticated connections.
 //! See `init_websocket_routes()` below.
 
 #[cfg(native)]
@@ -162,6 +164,7 @@ async fn create_cookie_session_config()
 		same_site: "Lax".to_string(),
 		skip_paths: vec![
 			"/api/auth/".to_string(),
+			"/api/deployments/cli/".to_string(),
 			"/api/healthz/".to_string(),
 			"/api/openapi.json".to_string(),
 			"/api/docs".to_string(),
@@ -347,6 +350,7 @@ async fn make_router(
 					.server_fn(cluster_server_fn::delete_cluster_for_current_org::marker)
 					.server_fn(cluster_server_fn::rotate_cluster_token_for_current_org::marker)
 					.server_fn(deployment_server_fn::list_deployments_for_current_org::marker)
+					.server_fn(deployment_server_fn::list_deployment_previews_for_current_org::marker)
 					.server_fn(deployment_server_fn::create_deployment_for_current_org::marker)
 					.server_fn(deployment_server_fn::update_deployment_for_current_org::marker)
 					.server_fn(deployment_server_fn::delete_deployment_for_current_org::marker)
@@ -356,6 +360,7 @@ async fn make_router(
 					.server_fn(github_server_fn::list_github_installations_for_current_org::marker)
 					.server_fn(github_server_fn::list_github_repositories_for_current_org::marker)
 					.server_fn(github_server_fn::list_github_repositories_for_installation::marker)
+					.server_fn(github_server_fn::list_github_project_previews_for_current_org::marker)
 					.server_fn(github_server_fn::import_github_repository_for_current_org::marker)
 			})
 			.with_di_context(infra.di_ctx)

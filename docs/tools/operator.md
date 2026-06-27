@@ -36,6 +36,12 @@ Dashboard's API layer) to the kube-apiserver. The operator's controller loop wat
 and reconciles the desired state into concrete Kubernetes resources. Status fields and conditions are
 written back to the `Project` object so the CLI and Dashboard can surface current state to users.
 
+For the primary app `Deployment` and `Service`, reconciliation is intentionally non-adopting:
+if an object with the target name already exists, it must already have a controller owner reference
+for the same `Project` UID before the operator applies changes. This prevents a `Project` author
+from using the operator's elevated permissions to overwrite or garbage-collect an unrelated workload
+or service in the namespace.
+
 ### Supported environments
 
 - **Kubernetes**: no `kubeVersion` constraint in `Chart.yaml`; tested against mainstream releases.
@@ -58,7 +64,7 @@ GitOps tool such as ArgoCD or Flux.
 
 - **Chart**: `charts/reinhardt-cloud-operator`
 - **Values**: canonical defaults in `charts/reinhardt-cloud-operator/values.yaml`. Per-environment overlays: `values-aws.yaml`, `values-gcp.yaml`, `values-onprem.yaml`.
-- **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0`. The chart version and app version are kept in sync; both advance together on each release.
+- **Versioning**: `Chart.yaml` sets both `version` (chart version) and `appVersion` (operator binary version) to `0.1.0-alpha.1`. The chart version and app version are kept in sync; both advance together on each release.
 
 Common top-level value keys (summarized from `values.yaml`):
 
@@ -189,7 +195,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `scale.metric=cpu` | no | HPA CPU utilization target using `target_value` as a percent |
 | `scale.metric=memory` | no | HPA memory average target using `target_value` as MiB |
 | `services` | no | Ingress host and extra port configuration |
-| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`, `cluster_issuer` |
+| `services.tls` | no | Ingress TLS settings: `enabled`, `secret_name`, `issuer`; `cluster_issuer` is rejected for tenant safety |
 | `source` | no | Git repository and build configuration for source-driven builds (Kaniko) |
 | `storage` | no | Cloud object storage bucket and storage class |
 | `tenant` | no | Multi-tenant ownership marker (organization slug, optional team). Drives namespace/quota/policy provisioning — see [Multi-tenancy](#multi-tenancy-spectenant) |
@@ -214,10 +220,13 @@ Failed builds set `Degraded=True` and leave the previous runtime image target un
 
 For projects that provision PostgreSQL, the operator creates a migration Job
 for each deployment revision and waits for it before applying the new
-application `Deployment`. A running migration reports `MigrationReady=False`
-with reason `MigrationRunning`; a failed migration reports
-`MigrationReady=False`, `Degraded=True`, and leaves the current workload
-unchanged.
+application `Deployment`. The migration Job uses the same runtime class,
+service account, plugin mounts, resource defaults, and isolated workload
+security contexts as the application workload, and the reconciler applies
+isolation resources before creating the Job. A running migration reports
+`MigrationReady=False` with reason `MigrationRunning`; a failed migration
+reports `MigrationReady=False`, `Degraded=True`, and leaves the current
+workload unchanged.
 
 `TlsReady=True` means the generated Ingress contains the expected TLS host and
 secret reference, and the referenced Secret exists in the Project namespace.
@@ -311,6 +320,9 @@ From `charts/reinhardt-cloud-operator/templates/clusterrole.yaml`:
 The operator uses a **ClusterRole** (cluster-scoped) bound to its ServiceAccount. The role is templated
 and expands or contracts based on `platform` and `features.*` values at install time. No wildcard (`*`)
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
+Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
+`false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
+pre-create tenant and preview namespaces when those workflows are used.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -324,7 +336,7 @@ permissions are present; all rules follow the least-privilege principle (project
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 **Feature-conditional rules**:
 
@@ -529,7 +541,7 @@ list and default values.
 |---|---|---|---|
 | 0.1.x | 0.1.x | `paas.reinhardt-cloud.dev/v1alpha2` | Initial release series. All 0.x.x releases may contain breaking changes; read the [release notes](https://github.com/kent8192/reinhardt-cloud/releases) before upgrading. |
 
-The chart version and appVersion are both `0.1.0`. There is no published chart repository yet, so
+The chart version and appVersion are both `0.1.0-alpha.1`. There is no published chart repository yet, so
 upgrades are performed by pulling the latest source and re-running `helm upgrade` (see below).
 
 #### Upgrade steps
@@ -603,8 +615,10 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 The operator emits custom Prometheus metrics on `/metrics` (served by the operator's HTTP server,
 enabled via `metrics.enabled`). A shipped `ServiceMonitor` template exposes them to the Prometheus
 Operator when `metrics.serviceMonitor.enabled` is set (requires the Prometheus Operator CRDs).
-The HTTP server always serves `/healthz` for kubelet probes; `metrics.enabled` controls only the
-`/metrics` endpoint contents (it returns 404 when disabled).
+The HTTP server always serves `/healthz` for manual diagnostics; `metrics.enabled` controls only the
+`/metrics` endpoint contents (it returns 404 when disabled). The Helm chart uses an exec probe
+(`reinhardt-cloud-operator --healthcheck`) so kubelet health checks do not depend on the externally
+reachable metrics listener.
 
 **Metrics catalog:**
 
@@ -770,18 +784,20 @@ operator pod restarts never block on log-ingest.
 
 **Application logs in Loki**
 
-With `logging.scrapeApps=true` (default), Promtail additionally collects managed application pods
-in namespaces matching `logging.appNamespaces` (default `tenant-.*`) and ships them to Loki with
-labels `{namespace, app, pod, container, level}`, where `app` is the project name
-(`app.kubernetes.io/name`). This is what makes a deployed `Project`'s own logs browsable from the
-dashboard. Loki multi-tenancy (per-namespace access isolation) is not enforced; the dashboard reads
-across these namespaces as a platform-admin tool.
+The bundled Promtail collector is restricted to the Helm release namespace and only tails operator
+pods. It does not collect managed application pods from tenant namespaces because doing so from the
+same DaemonSet would require broader pod discovery and host log access than the operator log path
+needs. Deploy tenant-scoped collectors separately when application log forwarding is required, and
+label those log streams with `{namespace, app, deployment_id, pod, container, level}`, where `app`
+is the project name (`app.kubernetes.io/name`) and `deployment_id` is the Dashboard deployment
+primary key.
 
 The dashboard maps its log filters to LogQL as:
 
 | Dashboard filter | LogQL |
 |---|---|
 | Project (source) | `{app="<project>"}` |
+| Deployment ID | `{deployment_id="<deployment-id>"}` |
 | Min level | `level=~"<warn\|error>"` |
 | Search | `\|~ "<regex>"` |
 | Time range | `query_range` `start`/`end` |
@@ -888,7 +904,10 @@ kubectl rollout status deployment/reinhardt-cloud-operator \
 #### RBAC footprint
 
 The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
-values. The base rules (always present, regardless of platform or features) are:
+values. Namespace lifecycle verbs are additionally controlled by
+`rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
+`patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
+workflow. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -900,7 +919,7 @@ values. The base rules (always present, regardless of platform or features) are:
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 Additional rules rendered when specific features or platforms are active:
 

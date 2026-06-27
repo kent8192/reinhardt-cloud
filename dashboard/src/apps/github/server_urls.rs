@@ -26,7 +26,8 @@ use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
 use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
 use crate::apps::github::services::{GitHubAppSettings, GitHubAppSettingsKey};
-use crate::apps::organizations::helpers::current_organization_id_for_user;
+use crate::apps::organizations::permissions::action::Action;
+use crate::apps::organizations::permissions::guard::require_permission;
 use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
 use crate::utils::vcs::events::WebhookAction;
 use crate::utils::vcs::signature::verify_github_signature;
@@ -40,6 +41,7 @@ struct GitHubWebhookResponse {
 #[derive(Debug, Deserialize)]
 pub struct GitHubSetupQuery {
 	installation_id: i64,
+	state: String,
 }
 
 /// Complete GitHub App setup after GitHub redirects to the configured setup URL.
@@ -78,7 +80,14 @@ pub async fn github_setup(
 				"GitHub App installation is not accessible to this user".to_string(),
 			)
 		})?;
-	let organization_id = current_organization_id_for_user(user.id).await?;
+	let organization_id = require_permission(user.id, Action::OrgUpdate).await?;
+	crate::apps::github::services::setup_state::verify_setup_state(
+		&query.state,
+		user.id,
+		organization_id,
+		&settings.webhook_secret,
+	)
+	.map_err(|e| AppError::Authorization(e.to_string()))?;
 	upsert_verified_installation(organization_id, installation).await?;
 
 	Ok(Response::temporary_redirect("/github"))
@@ -215,15 +224,16 @@ pub async fn github_webhook(
 			AppError::Internal("Failed to load deployment cluster".to_string())
 		})?
 		.ok_or_else(|| AppError::NotFound("Deployment cluster not found".to_string()))?;
-	if let Err(e) = refresh_git_credentials_secret_for_webhook(
-		&repository,
-		&project,
-		&cluster,
-		manifest,
-		&settings,
-		&agent_registry,
-	)
-	.await
+	if should_refresh_git_credentials_for_webhook(&dispatch.action)
+		&& let Err(e) = refresh_git_credentials_secret_for_webhook(
+			&repository,
+			&project,
+			&cluster,
+			manifest,
+			&settings,
+			&agent_registry,
+		)
+		.await
 	{
 		error!("Failed to refresh GitHub credentials for deployment {deployment_id}: {e}");
 		deployment.status = "error".to_string();
@@ -400,7 +410,10 @@ async fn refresh_git_credentials_secret_for_webhook(
 		.ok_or_else(|| "GitHub installation not found".to_string())?;
 	let client = ReqwestGitHubAppClient::new(settings.clone());
 	let installation_token = client
-		.create_installation_access_token(installation.installation_id)
+		.create_repository_installation_access_token(
+			installation.installation_id,
+			repository.github_repository_id,
+		)
 		.await
 		.map_err(|e| format!("Failed to mint GitHub installation access token: {e}"))?;
 	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(manifest)
@@ -427,6 +440,15 @@ fn required_header(request: &ServerFnRequest, name: &str) -> Result<String, AppE
 		.ok_or_else(|| AppError::Validation(format!("Missing required header: {name}")))
 }
 
+fn should_refresh_git_credentials_for_webhook(action: &WebhookAction) -> bool {
+	matches!(
+		action,
+		WebhookAction::BuildTrigger { .. }
+			| WebhookAction::PreviewCreate { .. }
+			| WebhookAction::TagRelease { .. }
+	)
+}
+
 fn webhook_action_name(action: &WebhookAction) -> &'static str {
 	match action {
 		WebhookAction::BuildTrigger { .. } => "build_trigger",
@@ -443,4 +465,51 @@ fn json_response<T: Serialize>(status: StatusCode, body: T) -> ViewResult<Respon
 	Ok(Response::new(status)
 		.with_header("Content-Type", "application/json")
 		.with_body(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+	use rstest::rstest;
+
+	use super::should_refresh_git_credentials_for_webhook;
+	use crate::utils::vcs::events::WebhookAction;
+
+	#[rstest]
+	#[case::build_trigger(WebhookAction::BuildTrigger {
+		branch: "main".to_string(),
+		commit_sha: "abc123".to_string(),
+	})]
+	#[case::preview_create(WebhookAction::PreviewCreate {
+		pr_number: 42,
+		branch: "feature/private-preview".to_string(),
+		commit_sha: "def456".to_string(),
+	})]
+	#[case::tag_release(WebhookAction::TagRelease {
+		tag: "v1.2.3".to_string(),
+		commit_sha: "fedcba".to_string(),
+	})]
+	fn test_webhook_credential_refresh_includes_source_build_actions(
+		#[case] action: WebhookAction,
+	) {
+		// Arrange
+
+		// Act
+		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
+
+		// Assert
+		assert_eq!(should_refresh, true);
+	}
+
+	#[rstest]
+	#[case::preview_delete(WebhookAction::PreviewDelete { pr_number: 42 })]
+	#[case::ignored(WebhookAction::Ignored)]
+	fn test_webhook_credential_refresh_excludes_non_build_actions(#[case] action: WebhookAction) {
+		// Arrange
+
+		// Act
+		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
+
+		// Assert
+		assert_eq!(should_refresh, false);
+	}
 }
