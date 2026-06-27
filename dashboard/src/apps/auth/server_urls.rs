@@ -177,12 +177,12 @@ pub async fn verify_email(
 
 	if !user.is_active() {
 		let mut updated = user;
-		ensure_personal_organization(&updated).await?;
 		updated.is_active = true;
-		User::objects().update(&updated).await.map_err(|e| {
+		let updated = User::objects().update(&updated).await.map_err(|e| {
 			error!("Failed to activate user {user_id}: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?;
+		ensure_personal_organization(&updated).await?;
 		info!("User {user_id} email verified and activated");
 	} else {
 		ensure_personal_organization(&user).await?;
