@@ -167,6 +167,7 @@ fn build_onprem_postgres(
 	let db_password = generate_random_password(24);
 	let pg_version = db.version.as_deref().unwrap_or("16");
 	let labels = standard_db_labels(project_name);
+	let selector_labels = db_selector_labels(project_name);
 
 	// StatefulSet running postgres
 	let stateful_set = StatefulSet {
@@ -180,18 +181,12 @@ fn build_onprem_postgres(
 			replicas: Some(1),
 			service_name: Some(format!("{project_name}-db")),
 			selector: LabelSelector {
-				match_labels: Some(BTreeMap::from([(
-					"app.kubernetes.io/name".to_string(),
-					project_name.to_string(),
-				)])),
+				match_labels: Some(selector_labels.clone()),
 				..Default::default()
 			},
 			template: PodTemplateSpec {
 				metadata: Some(ObjectMeta {
-					labels: Some(BTreeMap::from([(
-						"app.kubernetes.io/name".to_string(),
-						project_name.to_string(),
-					)])),
+					labels: Some(labels.clone()),
 					..Default::default()
 				}),
 				spec: Some(PodSpec {
@@ -272,10 +267,7 @@ fn build_onprem_postgres(
 		spec: Some(ServiceSpec {
 			type_: Some("ClusterIP".to_string()),
 			cluster_ip: Some("None".to_string()),
-			selector: Some(BTreeMap::from([(
-				"app.kubernetes.io/name".to_string(),
-				project_name.to_string(),
-			)])),
+			selector: Some(selector_labels),
 			ports: Some(vec![ServicePort {
 				port: 5432,
 				target_port: Some(IntOrString::Int(5432)),
@@ -518,6 +510,19 @@ fn standard_db_labels(project_name: &str) -> BTreeMap<String, String> {
 		(
 			"app.kubernetes.io/managed-by".to_string(),
 			"reinhardt-cloud-operator".to_string(),
+		),
+		(
+			"app.kubernetes.io/component".to_string(),
+			"database".to_string(),
+		),
+	])
+}
+
+fn db_selector_labels(project_name: &str) -> BTreeMap<String, String> {
+	BTreeMap::from([
+		(
+			"app.kubernetes.io/name".to_string(),
+			project_name.to_string(),
 		),
 		(
 			"app.kubernetes.io/component".to_string(),
@@ -941,15 +946,83 @@ mod tests {
 			let spec = svc.spec.as_ref().unwrap();
 			let port = &spec.ports.as_ref().unwrap()[0];
 			assert_eq!(port.port, 5432);
-			// Selector must match the StatefulSet pod label (project_name, not project_name-db)
 			let selector = spec.selector.as_ref().unwrap();
 			assert_eq!(
 				selector.get("app.kubernetes.io/name").map(String::as_str),
 				Some("myapp")
 			);
+			assert_eq!(
+				selector
+					.get("app.kubernetes.io/component")
+					.map(String::as_str),
+				Some("database")
+			);
 		} else {
 			panic!("Expected Service as third resource");
 		}
+	}
+
+	#[rstest]
+	fn onprem_statefulset_and_service_select_database_component() {
+		// Arrange
+		let db_spec = DatabaseSpec {
+			engine: DatabaseEngine::Postgresql,
+			instance_class: None,
+			storage_gb: None,
+			version: None,
+		};
+		let app = make_app_with_db("myapp", db_spec);
+		let platform = PlatformConfig::onprem_defaults();
+
+		// Act
+		let resources = infer_database_resources(&app, &platform);
+
+		// Assert
+		let DatabaseResource::StatefulSet(ss) = &resources[0] else {
+			panic!("Expected StatefulSet as first resource");
+		};
+		let stateful_set_spec = ss.spec.as_ref().unwrap();
+		let selector = stateful_set_spec.selector.match_labels.as_ref().unwrap();
+		assert_eq!(
+			selector.get("app.kubernetes.io/name").map(String::as_str),
+			Some("myapp")
+		);
+		assert_eq!(
+			selector
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("database")
+		);
+
+		let pod_labels = stateful_set_spec
+			.template
+			.metadata
+			.as_ref()
+			.unwrap()
+			.labels
+			.as_ref()
+			.unwrap();
+		assert_eq!(
+			pod_labels
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("database")
+		);
+
+		let DatabaseResource::Service(svc) = &resources[2] else {
+			panic!("Expected Service as third resource");
+		};
+		assert_eq!(
+			svc.spec
+				.as_ref()
+				.unwrap()
+				.selector
+				.as_ref()
+				.unwrap()
+				.get("app.kubernetes.io/component")
+				.map(String::as_str),
+			Some("database")
+		);
 	}
 
 	#[rstest]
