@@ -115,10 +115,11 @@ fn status_str(ok: bool) -> String {
 }
 
 async fn cached_probe_results(grpc_channel: &GrpcChannelSingleton) -> CachedHealth {
-	let mut cache = health_cache().lock().await;
-	if let Some(cached) = *cache
-		&& cached.checked_at.elapsed() < PROBE_CACHE_TTL
-	{
+	let cached = {
+		let cache = health_cache().lock().await;
+		cache.filter(|cached| cached.checked_at.elapsed() < PROBE_CACHE_TTL)
+	};
+	if let Some(cached) = cached {
 		return cached;
 	}
 
@@ -129,6 +130,7 @@ async fn cached_probe_results(grpc_channel: &GrpcChannelSingleton) -> CachedHeal
 		db_ok,
 		grpc_ok,
 	};
+	let mut cache = health_cache().lock().await;
 	*cache = Some(cached);
 	cached
 }
