@@ -151,7 +151,8 @@ The image also:
 
 1. Sets `REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings` at process startup
 2. Bundles Dashboard settings under `/app/settings`
-3. Exposes port 8000 for the HTTP API
+3. Sets `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` and defaults `REINHARDT_ENV=production` so direct container launches use the hardened production profile unless operators explicitly override the profile
+4. Exposes port 8000 for the HTTP API
 
 ### Database requirements
 
@@ -212,7 +213,7 @@ This is set unconditionally by `dashboard/src/bin/manage.rs` before delegating t
 | `static_files.url` | URL prefix for static files (default `/static/`) |
 | `static_files.root` | Filesystem path to static files |
 
-Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or by supplying a `production.toml` file alongside `base.toml` in the settings directory. The reinhardt-web loader merges files in lexicographic order of their names.
+The Dashboard runtime image defaults `REINHARDT_ENV=production`, which loads `production.toml` from `/app/settings` and keeps direct container deployments on the hardened profile. Override `REINHARDT_ENV` only when intentionally running a non-production profile, and prefer environment variables or mounted replacement settings files for deployment-specific values.
 
 ### GitHub OAuth
 
