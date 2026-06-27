@@ -71,6 +71,11 @@ pub(crate) enum Error {
 	#[error("dentdelion plugin config render failed: {0}")]
 	PluginConfigRender(String),
 
+	/// Plugin configuration failed validation before Kubernetes resources
+	/// were materialized.
+	#[error("invalid plugin spec: {0}")]
+	InvalidPluginSpec(String),
+
 	/// `metadata.namespace` does not match the namespace computed from
 	/// `spec.tenant`. Set `metadata.namespace` to the value in `expected`,
 	/// or update `spec.tenant` so the computed namespace matches the
@@ -138,7 +143,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidProbePeriod { .. }
 		| Error::TenantMismatch { .. }
 		| Error::InvalidTenant(_)
-		| Error::InvalidBudget(_) => BackoffClass::Permanent,
+		| Error::InvalidBudget(_)
+		| Error::InvalidPluginSpec(_) => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		_ => BackoffClass::Transient,
 	}

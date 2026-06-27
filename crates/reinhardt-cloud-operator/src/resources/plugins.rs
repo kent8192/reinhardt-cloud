@@ -114,6 +114,26 @@ pub(crate) fn render_plugin_config(plugins: &[PluginSpec]) -> Result<String, Err
 	toml::to_string(&doc).map_err(|e| Error::PluginConfigRender(e.to_string()))
 }
 
+fn validate_plugin_specs(plugins: &[PluginSpec]) -> Result<(), Error> {
+	let messages: Vec<String> = plugins
+		.iter()
+		.enumerate()
+		.flat_map(|(idx, plugin)| {
+			plugin
+				.validate()
+				.err()
+				.unwrap_or_default()
+				.into_iter()
+				.map(move |error| format!("plugins[{idx}]: {}", error.message))
+		})
+		.collect();
+	if messages.is_empty() {
+		Ok(())
+	} else {
+		Err(Error::InvalidPluginSpec(messages.join("; ")))
+	}
+}
+
 /// Builds a `ConfigMap` carrying the rendered `dentdelion.toml` document.
 ///
 /// Returns `Ok(None)` when the spec declares no plugins; callers should
@@ -125,6 +145,7 @@ pub(crate) fn build_plugin_configmap(app: &Project) -> Result<Option<ConfigMap>,
 	if plugins.is_empty() {
 		return Ok(None);
 	}
+	validate_plugin_specs(plugins)?;
 
 	let labels = standard_labels(app, Component::Plugins);
 	let namespace = super::require_namespace(app)?;
@@ -150,13 +171,16 @@ pub(crate) fn build_plugin_configmap(app: &Project) -> Result<Option<ConfigMap>,
 /// to consume the declared plugins.
 ///
 /// The returned vectors are empty when the spec declares no plugins.
-pub(crate) fn build_plugin_volumes(app: &Project) -> (Vec<Volume>, Vec<VolumeMount>) {
+pub(crate) fn build_plugin_volumes(
+	app: &Project,
+) -> Result<(Vec<Volume>, Vec<VolumeMount>), Error> {
 	let Some(plugins) = app.spec.plugins.as_ref() else {
-		return (Vec::new(), Vec::new());
+		return Ok((Vec::new(), Vec::new()));
 	};
 	if plugins.is_empty() {
-		return (Vec::new(), Vec::new());
+		return Ok((Vec::new(), Vec::new()));
 	}
+	validate_plugin_specs(plugins)?;
 
 	// One Volume + VolumeMount for the ConfigMap-backed dentdelion.toml,
 	// plus one Volume + VolumeMount per plugin for the WASM artifact
@@ -194,7 +218,7 @@ pub(crate) fn build_plugin_volumes(app: &Project) -> (Vec<Volume>, Vec<VolumeMou
 		});
 	}
 
-	(volumes, mounts)
+	Ok((volumes, mounts))
 }
 
 #[cfg(test)]
@@ -241,7 +265,7 @@ mod tests {
 		let app = app_with_plugins(None);
 
 		// Act
-		let (volumes, mounts) = build_plugin_volumes(&app);
+		let (volumes, mounts) = build_plugin_volumes(&app).expect("plugin volumes should build");
 
 		// Assert
 		assert!(volumes.is_empty());
@@ -286,7 +310,7 @@ mod tests {
 		let plugins = vec![
 			PluginSpec {
 				name: "a".to_string(),
-				wasm_dir: "/p/a".to_string(),
+				wasm_dir: "/var/lib/dentdelion/a".to_string(),
 				plugin_type: PluginType::HttpMiddleware,
 				memory_limit_mb: None,
 				timeout_ms: None,
@@ -294,7 +318,7 @@ mod tests {
 			},
 			PluginSpec {
 				name: "b".to_string(),
-				wasm_dir: "/p/b".to_string(),
+				wasm_dir: "/var/lib/dentdelion/b".to_string(),
 				plugin_type: PluginType::GrpcInterceptor,
 				memory_limit_mb: None,
 				timeout_ms: None,
@@ -304,7 +328,7 @@ mod tests {
 		let app = app_with_plugins(Some(plugins));
 
 		// Act
-		let (volumes, mounts) = build_plugin_volumes(&app);
+		let (volumes, mounts) = build_plugin_volumes(&app).expect("plugin volumes should build");
 
 		// Assert
 		// 1 config ConfigMap volume + 2 plugin empty-dir volumes
@@ -312,8 +336,27 @@ mod tests {
 		assert_eq!(mounts.len(), 3);
 		assert_eq!(volumes[0].name, "dentdelion-config");
 		assert_eq!(mounts[0].mount_path, DENTDELION_CONFIG_MOUNT_DIR);
-		assert_eq!(mounts[1].mount_path, "/p/a");
-		assert_eq!(mounts[2].mount_path, "/p/b");
+		assert_eq!(mounts[1].mount_path, "/var/lib/dentdelion/a");
+		assert_eq!(mounts[2].mount_path, "/var/lib/dentdelion/b");
+	}
+
+	#[rstest]
+	fn test_build_plugin_volumes_rejects_invalid_wasm_dir() {
+		// Arrange
+		let app = app_with_plugins(Some(vec![PluginSpec {
+			name: "bad".to_string(),
+			wasm_dir: "/etc/passwd".to_string(),
+			plugin_type: PluginType::HttpMiddleware,
+			memory_limit_mb: None,
+			timeout_ms: None,
+			capabilities: Vec::new(),
+		}]));
+
+		// Act
+		let err = build_plugin_volumes(&app).expect_err("invalid plugin path should fail");
+
+		// Assert
+		assert!(matches!(err, Error::InvalidPluginSpec(_)));
 	}
 
 	#[rstest]
@@ -321,7 +364,7 @@ mod tests {
 		// Arrange
 		let plugin = PluginSpec {
 			name: "full".to_string(),
-			wasm_dir: "/p/full".to_string(),
+			wasm_dir: "/var/lib/dentdelion/full".to_string(),
 			plugin_type: PluginType::EventHandler,
 			memory_limit_mb: None,
 			timeout_ms: None,
