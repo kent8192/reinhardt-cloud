@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: >-
@@ -207,6 +207,9 @@ jobs:
     name: Public API Diff
     needs: [determine-runner, check-branch-status]
     if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/public-api-diff.yml
     with:
       runner: ${{ needs.determine-runner.outputs.runner }}
