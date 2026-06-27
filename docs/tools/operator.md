@@ -773,12 +773,12 @@ operator pod restarts never block on log-ingest.
 
 **Application logs in Loki**
 
-With `logging.scrapeApps=true` (default), Promtail additionally collects managed application pods
-in namespaces matching `logging.appNamespaces` (default `tenant-.*`) and ships them to Loki with
-labels `{namespace, app, pod, container, level}`, where `app` is the project name
-(`app.kubernetes.io/name`). This is what makes a deployed `Project`'s own logs browsable from the
-dashboard. Loki multi-tenancy (per-namespace access isolation) is not enforced; the dashboard reads
-across these namespaces as a platform-admin tool.
+The bundled Promtail collector is restricted to the Helm release namespace and only tails operator
+pods. It does not collect managed application pods from tenant namespaces because doing so from the
+same DaemonSet would require broader pod discovery and host log access than the operator log path
+needs. Deploy tenant-scoped collectors separately when application log forwarding is required, and
+label those log streams with `{namespace, app, pod, container, level}`, where `app` is the project
+name (`app.kubernetes.io/name`).
 
 The dashboard maps its log filters to LogQL as:
 
