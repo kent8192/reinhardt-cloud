@@ -156,7 +156,7 @@ impl NotificationConsumer {
 			WsClientMessage::Unsubscribe { deployment_ids } => {
 				ParsedAction::Unsubscribe { deployment_ids }
 			}
-			WsClientMessage::SubscribeBuildLogs { build_id } => {
+			WsClientMessage::SubscribeBuildLogs { build_id: _ } => {
 				if user_id.is_none() {
 					return ParsedAction::Rejected {
 						response: WsMessage::SystemNotification(SystemNotificationPayload {
@@ -168,7 +168,11 @@ impl NotificationConsumer {
 						}),
 					};
 				}
-				ParsedAction::SubscribeBuildLogs { build_id }
+				ParsedAction::Rejected {
+					response: log_stream_rejected(
+						"Build log streaming is unavailable until build ownership can be verified",
+					),
+				}
 			}
 			WsClientMessage::SubscribeAppLogs { deployment_id } => {
 				if user_id.is_none() {
@@ -915,7 +919,7 @@ mod tests {
 	// --- Tests for new log streaming ParsedAction variants ---
 
 	#[rstest]
-	fn test_parse_subscribe_build_logs_with_auth() {
+	fn test_parse_subscribe_build_logs_with_auth_rejected_until_ownership_verified() {
 		// Arrange
 		let msg = WsClientMessage::SubscribeBuildLogs {
 			build_id: "build-42".to_string(),
@@ -926,10 +930,17 @@ mod tests {
 
 		// Assert
 		match action {
-			ParsedAction::SubscribeBuildLogs { build_id } => {
-				assert_eq!(build_id, "build-42");
-			}
-			_ => panic!("expected SubscribeBuildLogs action"),
+			ParsedAction::Rejected { response } => match &response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Build log streaming is unavailable until build ownership can be verified"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 
