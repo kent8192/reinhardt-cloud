@@ -10,7 +10,7 @@ use reinhardt::di::{FactoryOutput, InjectionContext};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
-use reinhardt_cloud_grpc::interceptor::AgentJwtInterceptor;
+use reinhardt_cloud_grpc::interceptor::{AgentJwtInterceptor, JwtInterceptor};
 use reinhardt_cloud_grpc::registry::AgentRegistry;
 use reinhardt_cloud_grpc::services::build::BuildServiceGrpc;
 use reinhardt_cloud_grpc::services::cluster_agent::{AgentServiceGrpc, RegistryBackedAgentService};
@@ -101,6 +101,7 @@ pub async fn start_grpc_server(
 		.resolve::<FactoryOutput<JwtSecretKey, JwtSecret>>()
 		.await
 		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
+	let user_interceptor = JwtInterceptor::new(jwt_secret.0.as_bytes());
 	let agent_interceptor = AgentJwtInterceptor::new(jwt_secret.0.as_bytes());
 
 	let (mut health_reporter, health_service) = health::create_health_service();
@@ -161,8 +162,16 @@ pub async fn start_grpc_server(
 		.timeout(config.timeout)
 		.add_service(health_service)
 		.add_service(reflection_service)
-		.add_service(BuildServiceServer::new(build_grpc))
-		.add_service(LogServiceServer::new(log_grpc))
+		// JwtInterceptor requires user JWTs for dashboard-owned APIs,
+		// preventing unauthenticated control-plane build access.
+		.add_service(BuildServiceServer::with_interceptor(
+			build_grpc,
+			user_interceptor.clone(),
+		))
+		.add_service(LogServiceServer::with_interceptor(
+			log_grpc,
+			user_interceptor,
+		))
 		// AgentJwtInterceptor verifies the agent JWT and injects
 		// `AgentClaims` into request extensions so downstream service
 		// methods can route by the authenticated `cluster_id`.
