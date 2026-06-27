@@ -3,6 +3,10 @@
 //! Browser navigation and email-link callbacks use regular server routes.
 //! Interactive form submission remains implemented through `server_fn`.
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use hmac::{Hmac, Mac};
+use rand::{TryRngCore, rngs::OsRng};
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
@@ -12,6 +16,7 @@ use reinhardt::http::ViewResult;
 use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::{BaseUser, CurrentUser, Path, Query, Response, StatusCode, get};
 use serde::Deserialize;
+use subtle::ConstantTimeEq;
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
@@ -30,6 +35,91 @@ use crate::config::{ProjectSettings, ProjectSettingsKey};
 pub struct OAuthCallbackQuery {
 	code: String,
 	state: String,
+}
+
+type HmacSha256 = Hmac<sha2::Sha256>;
+
+const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state_sig";
+const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
+const OAUTH_STATE_ENTROPY_BYTES: usize = 32;
+
+fn generate_oauth_state() -> Result<String, AppError> {
+	let mut entropy = [0_u8; OAUTH_STATE_ENTROPY_BYTES];
+	OsRng.try_fill_bytes(&mut entropy).map_err(|err| {
+		error!("Failed to generate OAuth state entropy: {err}");
+		AppError::Internal("Internal server error".to_string())
+	})?;
+	Ok(URL_SAFE_NO_PAD.encode(entropy))
+}
+
+fn oauth_state_cookie_signature(provider_id: &str, state: &str, secret_key: &str) -> String {
+	let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
+		.expect("HMAC accepts secret keys of any size");
+	mac.update(b"reinhardt-cloud-oauth-state-v1");
+	mac.update(provider_id.as_bytes());
+	mac.update(b"\0");
+	mac.update(state.as_bytes());
+	URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+}
+
+fn oauth_state_cookie_header(
+	provider_id: &str,
+	state: &str,
+	secret_key: &str,
+	debug: bool,
+) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	let signature = oauth_state_cookie_signature(provider_id, state, secret_key);
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}={signature}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/{provider_id}/callback/{secure_flag}; Max-Age={OAUTH_STATE_COOKIE_MAX_AGE_SECONDS}"
+	)
+}
+
+fn clear_oauth_state_cookie_header(provider_id: &str, debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/{provider_id}/callback/{secure_flag}; Max-Age=0"
+	)
+}
+
+fn cookie_value_from_header(cookie_header: &str, cookie_name: &str) -> Option<String> {
+	cookie_header.split(';').find_map(|pair| {
+		let pair = pair.trim();
+		let (name, value) = pair.split_once('=')?;
+		if name.trim() == cookie_name {
+			Some(value.trim().to_string())
+		} else {
+			None
+		}
+	})
+}
+
+fn validate_oauth_state_cookie(
+	request: &ServerFnRequest,
+	provider_id: &str,
+	state: &str,
+	secret_key: &str,
+) -> Result<(), AppError> {
+	let Some(cookie_signature) = request
+		.inner()
+		.headers
+		.get("Cookie")
+		.and_then(|value| value.to_str().ok())
+		.and_then(|header| cookie_value_from_header(header, OAUTH_STATE_COOKIE_NAME))
+	else {
+		return Err(AppError::Validation("OAuth flow failed".to_string()));
+	};
+	let expected_signature = oauth_state_cookie_signature(provider_id, state, secret_key);
+	if cookie_signature
+		.as_bytes()
+		.ct_eq(expected_signature.as_bytes())
+		.unwrap_u8()
+		== 1
+	{
+		Ok(())
+	} else {
+		Err(AppError::Validation("OAuth flow failed".to_string()))
+	}
 }
 
 fn oauth_backend(
@@ -94,11 +184,23 @@ pub async fn oauth_start(
 	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
 ) -> ViewResult<Response> {
 	let backend = oauth_backend(&backend, &provider_id)?;
+	let settings = get_settings();
+	let state = generate_oauth_state()?;
 	let auth = backend
-		.begin_auth(&provider_id, None, None)
+		.begin_auth(&provider_id, Some(state.clone()), None)
 		.await
 		.map_err(map_oauth_error)?;
-	Ok(Response::temporary_redirect(auth.authorization_url))
+	Ok(
+		Response::temporary_redirect(auth.authorization_url).append_header(
+			"Set-Cookie",
+			&oauth_state_cookie_header(
+				&provider_id,
+				&state,
+				&settings.core.secret_key,
+				settings.core.debug,
+			),
+		),
+	)
 }
 
 /// Complete an OAuth authorization flow and establish a dashboard session.
@@ -112,6 +214,13 @@ pub async fn oauth_callback(
 	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
 ) -> ViewResult<Response> {
+	let settings = get_settings();
+	validate_oauth_state_cookie(
+		&http_request,
+		&provider_id,
+		&query.state,
+		&settings.core.secret_key,
+	)?;
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let result = backend
 		.handle_callback(&provider_id, &query.code, &query.state)
@@ -137,9 +246,15 @@ pub async fn oauth_callback(
 		.create_session(&user)
 		.await
 		.map_err(map_session_error)?;
-	let is_debug = get_settings().core.debug;
 	Ok(Response::temporary_redirect("/")
-		.append_header("Set-Cookie", &session_cookie_header(&session_id, is_debug)))
+		.append_header(
+			"Set-Cookie",
+			&clear_oauth_state_cookie_header(&provider_id, settings.core.debug),
+		)
+		.append_header(
+			"Set-Cookie",
+			&session_cookie_header(&session_id, settings.core.debug),
+		))
 }
 
 /// Verify email address via URL token.
@@ -210,4 +325,55 @@ pub async fn api_me(
 	Ok(Response::new(StatusCode::OK)
 		.with_header("Content-Type", "application/json")
 		.with_body(json::to_vec(&body)?))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rstest::rstest;
+
+	#[rstest]
+	fn test_oauth_state_cookie_signature_is_bound_to_provider_and_state() {
+		// Arrange
+		let secret = "test-secret";
+		let signature = oauth_state_cookie_signature("github", "state-a", secret);
+
+		// Act
+		let other_provider = oauth_state_cookie_signature("gitlab", "state-a", secret);
+		let other_state = oauth_state_cookie_signature("github", "state-b", secret);
+
+		// Assert
+		assert_ne!(signature, other_provider);
+		assert_ne!(signature, other_state);
+	}
+
+	#[rstest]
+	fn test_oauth_state_cookie_header_limits_cookie_to_callback_path() {
+		// Arrange
+		let provider_id = "github";
+
+		// Act
+		let cookie = oauth_state_cookie_header(provider_id, "state-a", "test-secret", false);
+
+		// Assert
+		assert_eq!(
+			cookie,
+			format!(
+				"oauth_state_sig={}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Secure; Max-Age=600",
+				oauth_state_cookie_signature(provider_id, "state-a", "test-secret")
+			)
+		);
+	}
+
+	#[rstest]
+	fn test_cookie_value_from_header_extracts_named_cookie() {
+		// Arrange
+		let header = "sessionid=abc; oauth_state_sig=expected; theme=dark";
+
+		// Act
+		let value = cookie_value_from_header(header, OAUTH_STATE_COOKIE_NAME);
+
+		// Assert
+		assert_eq!(value.as_deref(), Some("expected"));
+	}
 }
