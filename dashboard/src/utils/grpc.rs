@@ -20,6 +20,28 @@ impl tonic::service::Interceptor for DashboardGrpcAuthInterceptor {
 pub(crate) fn dashboard_grpc_auth_interceptor(
 	token: &str,
 ) -> Result<DashboardGrpcAuthInterceptor, tonic::metadata::errors::InvalidMetadataValue> {
-	let value = format!("Bearer {token}").parse()?;
+	let mut value: tonic::metadata::MetadataValue<tonic::metadata::Ascii> =
+		format!("Bearer {token}").parse()?;
+	value.set_sensitive(true);
 	Ok(DashboardGrpcAuthInterceptor { value })
+}
+
+#[cfg(test)]
+mod tests {
+	use super::dashboard_grpc_auth_interceptor;
+
+	#[test]
+	fn dashboard_grpc_auth_interceptor_marks_authorization_sensitive() {
+		let interceptor = dashboard_grpc_auth_interceptor("secret-token")
+			.expect("authorization metadata should parse");
+
+		assert!(interceptor.value.is_sensitive());
+		assert_eq!(
+			interceptor
+				.value
+				.to_str()
+				.expect("metadata should be ascii"),
+			"Bearer secret-token"
+		);
+	}
 }
