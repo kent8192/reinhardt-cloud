@@ -612,8 +612,10 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 The operator emits custom Prometheus metrics on `/metrics` (served by the operator's HTTP server,
 enabled via `metrics.enabled`). A shipped `ServiceMonitor` template exposes them to the Prometheus
 Operator when `metrics.serviceMonitor.enabled` is set (requires the Prometheus Operator CRDs).
-The HTTP server always serves `/healthz` for kubelet probes; `metrics.enabled` controls only the
-`/metrics` endpoint contents (it returns 404 when disabled).
+The HTTP server always serves `/healthz` for manual diagnostics; `metrics.enabled` controls only the
+`/metrics` endpoint contents (it returns 404 when disabled). The Helm chart uses an exec probe
+(`reinhardt-cloud-operator --healthcheck`) so kubelet health checks do not depend on the externally
+reachable metrics listener.
 
 **Metrics catalog:**
 
@@ -779,18 +781,20 @@ operator pod restarts never block on log-ingest.
 
 **Application logs in Loki**
 
-With `logging.scrapeApps=true` (default), Promtail additionally collects managed application pods
-in namespaces matching `logging.appNamespaces` (default `tenant-.*`) and ships them to Loki with
-labels `{namespace, app, pod, container, level}`, where `app` is the project name
-(`app.kubernetes.io/name`). This is what makes a deployed `Project`'s own logs browsable from the
-dashboard. Loki multi-tenancy (per-namespace access isolation) is not enforced; the dashboard reads
-across these namespaces as a platform-admin tool.
+The bundled Promtail collector is restricted to the Helm release namespace and only tails operator
+pods. It does not collect managed application pods from tenant namespaces because doing so from the
+same DaemonSet would require broader pod discovery and host log access than the operator log path
+needs. Deploy tenant-scoped collectors separately when application log forwarding is required, and
+label those log streams with `{namespace, app, deployment_id, pod, container, level}`, where `app`
+is the project name (`app.kubernetes.io/name`) and `deployment_id` is the Dashboard deployment
+primary key.
 
 The dashboard maps its log filters to LogQL as:
 
 | Dashboard filter | LogQL |
 |---|---|
 | Project (source) | `{app="<project>"}` |
+| Deployment ID | `{deployment_id="<deployment-id>"}` |
 | Min level | `level=~"<warn\|error>"` |
 | Search | `\|~ "<regex>"` |
 | Time range | `query_range` `start`/`end` |
