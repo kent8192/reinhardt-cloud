@@ -1,6 +1,7 @@
 //! Spec types for the `Project` custom resource.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use k8s_openapi::api::core::v1::LocalObjectReference;
 use kube::CustomResource;
@@ -463,10 +464,25 @@ impl ProjectSpec {
 					)));
 				}
 				let dir = plugin.wasm_dir.trim().to_string();
-				if !dir.is_empty() && !seen_dirs.insert(dir.clone()) {
+				if dir.is_empty() {
+					continue;
+				}
+				if !seen_dirs.insert(dir.clone()) {
 					errors.push(ValidationError::new(format!(
 						"spec.plugins contains entries with duplicate wasm_dir '{dir}'"
 					)));
+				}
+			}
+			let dirs: Vec<&str> = seen_dirs.iter().map(String::as_str).collect();
+			for (index, dir) in dirs.iter().enumerate() {
+				let dir_path = Path::new(dir);
+				for other in dirs.iter().skip(index + 1) {
+					let other_path = Path::new(other);
+					if dir_path.starts_with(other_path) || other_path.starts_with(dir_path) {
+						errors.push(ValidationError::new(format!(
+							"spec.plugins contains overlapping wasm_dir mount paths '{dir}' and '{other}'"
+						)));
+					}
 				}
 			}
 		}
@@ -1519,7 +1535,7 @@ mod tests {
 			image: "app:v1".to_string(),
 			plugins: Some(vec![PluginSpec {
 				name: String::new(),
-				wasm_dir: "/p".to_string(),
+				wasm_dir: "/var/lib/dentdelion/p".to_string(),
 				plugin_type: PluginType::HttpMiddleware,
 				memory_limit_mb: None,
 				timeout_ms: None,
@@ -1611,6 +1627,46 @@ mod tests {
 		assert!(errors.iter().any(|e| {
 			e.message
 				.contains("duplicate wasm_dir '/var/lib/dentdelion/shared'")
+		}));
+	}
+
+	#[rstest]
+	fn test_spec_validate_rejects_overlapping_plugin_wasm_dir() {
+		// Arrange
+		use crate::crd::plugins::{PluginSpec, PluginType};
+		let spec = ProjectSpec {
+			image: "app:v1".to_string(),
+			plugins: Some(vec![
+				PluginSpec {
+					name: "alpha".to_string(),
+					wasm_dir: "/var/lib/dentdelion/plugins".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+				PluginSpec {
+					name: "beta".to_string(),
+					wasm_dir: "/var/lib/dentdelion/plugins/beta".to_string(),
+					plugin_type: PluginType::HttpMiddleware,
+					memory_limit_mb: None,
+					timeout_ms: None,
+					capabilities: Vec::new(),
+				},
+			]),
+			..Default::default()
+		};
+
+		// Act
+		let errors = spec
+			.validate()
+			.expect_err("overlapping wasm_dir values should be rejected");
+
+		// Assert
+		assert!(errors.iter().any(|e| {
+			e.message.contains(
+				"overlapping wasm_dir mount paths '/var/lib/dentdelion/plugins' and '/var/lib/dentdelion/plugins/beta'",
+			)
 		}));
 	}
 
