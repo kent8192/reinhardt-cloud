@@ -25,6 +25,8 @@
 //!
 //! WebSocket route registration uses `WebSocketRouter` from
 //! reinhardt, which is async and independent of `UnifiedRouter`.
+//! The notification consumer performs its own handshake `Origin`
+//! validation before accepting cookie-authenticated connections.
 //! See `init_websocket_routes()` below.
 
 #[cfg(native)]
