@@ -2,7 +2,7 @@
 //!
 //! `NotificationConsumer` implements the `WebSocketConsumer` trait from
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
-//! `WsBroadcaster` event distribution system and the gRPC build log stream.
+//! `WsBroadcaster` event distribution system and the gRPC log stream.
 
 use std::sync::Arc;
 
@@ -11,7 +11,6 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
@@ -21,8 +20,8 @@ use crate::apps::organizations::models::Organization;
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
 use crate::shared::ws_messages::{
-	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
-	SystemNotificationPayload, WsClientMessage, WsMessage,
+	AppLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
+	WsClientMessage, WsMessage,
 };
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
@@ -46,8 +45,6 @@ pub(crate) enum ParsedAction {
 	Unsubscribe { deployment_ids: Vec<String> },
 	/// Unauthenticated request attempt — send error response.
 	Rejected { response: WsMessage },
-	/// Subscribe to build log events via the gRPC bridge.
-	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log events via the gRPC `LogService` bridge.
 	SubscribeAppLogs { deployment_id: String },
 	/// Acknowledged log stream subscription — send ack and start/stop stream.
@@ -354,147 +351,6 @@ impl WebSocketConsumer for NotificationConsumer {
 				for dep_id in &deployment_ids {
 					self.broadcaster.unsubscribe(&connection_id, dep_id).await;
 				}
-			}
-			ParsedAction::SubscribeBuildLogs { build_id } => {
-				// Cancel any previous log stream before starting a new one.
-				self.cancel_log_stream().await;
-
-				// Spawn a background task that connects to the gRPC
-				// BuildService and forwards log entries as WebSocket messages.
-				// The positive acknowledgement is sent only after the gRPC
-				// connection is established, so the client is not misled when
-				// the connection subsequently fails.
-				let conn = Arc::clone(&context.connection);
-				let bid = build_id.clone();
-				let endpoint = grpc_endpoint();
-
-				let handle_ref = Arc::clone(&self.log_stream_handle);
-
-				// Acquire the lock before spawning so that the task cannot
-				// clear the handle before we store it (fixes the race where a
-				// very fast task completion sets handle_ref to None before
-				// the outer code sets it to Some(handle)).
-				let mut handle_guard = self.log_stream_handle.lock().await;
-
-				let handle = tokio::spawn(async move {
-					let mut client =
-						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Failed to connect to gRPC BuildService for log streaming",
-								);
-								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								// Clear handle on exit.
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
-
-					// Send positive acknowledgement only after a successful
-					// gRPC connection — avoids a contradictory ack/nack pair.
-					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-						acknowledged: true,
-						message: format!("Subscribed to build logs for {bid}"),
-					});
-					let _ = conn.send_json(&ack).await;
-
-					let request = pb::StreamBuildLogsRequest {
-						build_id: bid.clone(),
-						follow: true,
-					};
-
-					let response = match client.stream_build_logs(request).await {
-						Ok(r) => r,
-						Err(e) => {
-							tracing::warn!(
-								build_id = %bid,
-								error = %e,
-								"gRPC StreamBuildLogs call failed",
-							);
-							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
-							let _ = conn.send_json(&err_msg).await;
-							// Clear handle on exit.
-							*handle_ref.lock().await = None;
-							return;
-						}
-					};
-
-					let mut stream = response.into_inner();
-
-					loop {
-						match stream.message().await {
-							Ok(Some(log)) => {
-								let ts = log
-									.timestamp
-									.map(|t| {
-										// Validate nanos is within the valid range
-										// (0..=999_999_999). Out-of-range values
-										// (including negatives from prost_types)
-										// are clamped to 0.
-										let nanos = if (0..=999_999_999).contains(&t.nanos) {
-											t.nanos as u32
-										} else {
-											0
-										};
-										chrono::DateTime::<chrono::Utc>::from_timestamp(
-											t.seconds, nanos,
-										)
-										.map(|dt| dt.to_rfc3339())
-										.unwrap_or_default()
-									})
-									.unwrap_or_default();
-
-								let ws_msg = WsMessage::BuildLog(BuildLogPayload {
-									build_id: bid.clone(),
-									event_type: "log".to_string(),
-									message: log.message,
-									timestamp: ts,
-								});
-
-								if conn.send_json(&ws_msg).await.is_err() {
-									// Connection closed — stop streaming.
-									break;
-								}
-							}
-							Ok(None) => {
-								// Stream ended normally.
-								break;
-							}
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Error receiving build log from gRPC stream",
-								);
-								break;
-							}
-						}
-					}
-
-					// Clear the stale handle when the stream exits normally.
-					*handle_ref.lock().await = None;
-				});
-
-				// Store the handle while still holding the lock so that a
-				// fast-finishing task cannot set the handle to None before
-				// we write Some(handle).
-				*handle_guard = Some(handle);
-				drop(handle_guard);
 			}
 			ParsedAction::SubscribeAppLogs { deployment_id } => {
 				let Some(uid) = user_id.as_deref() else {
