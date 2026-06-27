@@ -230,6 +230,9 @@ pub struct SourceSpec {
 	/// Git hosting provider.
 	pub provider: Option<GitProvider>,
 	/// Secret name containing Git credentials.
+	///
+	/// Source build Jobs only mount the app-owned credentials Secret named
+	/// `<metadata.name>-git-credentials`; other names are rejected by the operator.
 	pub credentials_secret: Option<String>,
 	/// Container build configuration.
 	pub build: Option<BuildSpec>,

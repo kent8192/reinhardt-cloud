@@ -201,11 +201,11 @@ Commits 2-4 (parallel via Agent Team, HA-3):
 
 ## Upstream Issue Reporting
 
-When issues in upstream dependencies (e.g., reinhardt-web) are discovered during Reinhardt Cloud development, they MUST be reported immediately to the upstream repository. See **instructions/UPSTREAM_ISSUE_REPORTING.md** for the full policy, including:
+When issues in upstream dependencies (e.g., reinhardt-web) are discovered during Reinhardt Cloud development, they MUST be prepared for immediate upstream reporting. Creating GitHub issues, tracking issues, or cross-reference comments still requires explicit user instruction. See **instructions/UPSTREAM_ISSUE_REPORTING.md** for the full policy, including:
 
-- Immediate reporting requirement (UR-1)
-- GitHub CLI usage with `-R` flag (UR-2)
-- Cross-referencing between Reinhardt Cloud and upstream issues (UR-4)
+- Immediate report-draft requirement (UR-1)
+- Authorized GitHub CLI usage with `-R` flag (UR-2)
+- Authorized cross-referencing between Reinhardt Cloud and upstream issues (UR-4)
 - Workaround policy (WP-1, WP-2)
 
 ---
@@ -217,7 +217,7 @@ When issues in upstream dependencies (e.g., reinhardt-web) are discovered during
 - Create preceding PRs for cross-crate shared changes before per-crate fix PRs (WU-3)
 - Use descriptive branch names without internal metadata (HA-4)
 - Merge preceding PRs before dependent per-crate PRs (WU-3)
-- Report upstream issues in reinhardt-web immediately upon discovery (UR-1)
+- Prepare upstream issue reports in reinhardt-web immediately upon discovery (UR-1)
 
 ### ❌ NEVER DO
 - Mix changes to unrelated crates in a single issue-fix PR
@@ -225,7 +225,7 @@ When issues in upstream dependencies (e.g., reinhardt-web) are discovered during
 - Skip preceding PRs for cross-crate shared utilities
 - Duplicate shared logic across crate-specific PRs instead of extracting to a preceding PR
 - Delay reporting upstream issues discovered during Reinhardt Cloud development
-- Implement workarounds without creating an upstream issue first
+- Implement workarounds before the upstream issue and tracking workflow is explicitly authorized
 
 ---
 
