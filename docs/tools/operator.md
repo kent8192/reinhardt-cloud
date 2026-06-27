@@ -612,8 +612,10 @@ helm rollback reinhardt-cloud-operator -n reinhardt-cloud-system
 The operator emits custom Prometheus metrics on `/metrics` (served by the operator's HTTP server,
 enabled via `metrics.enabled`). A shipped `ServiceMonitor` template exposes them to the Prometheus
 Operator when `metrics.serviceMonitor.enabled` is set (requires the Prometheus Operator CRDs).
-The HTTP server always serves `/healthz` for kubelet probes; `metrics.enabled` controls only the
-`/metrics` endpoint contents (it returns 404 when disabled).
+The HTTP server always serves `/healthz` for manual diagnostics; `metrics.enabled` controls only the
+`/metrics` endpoint contents (it returns 404 when disabled). The Helm chart uses an exec probe
+(`reinhardt-cloud-operator --healthcheck`) so kubelet health checks do not depend on the externally
+reachable metrics listener.
 
 **Metrics catalog:**
 
