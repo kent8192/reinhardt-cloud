@@ -19,7 +19,7 @@ use crate::apps::auth::services::oauth::linking::link_or_create_user;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::auth::services::oauth::{OAuthBackendBox, OAuthBackendBoxKey};
 use crate::apps::auth::services::session::{
-	SessionService, SessionServiceKey, session_cookie_header, session_id_from_cookie_header,
+	SessionService, SessionServiceKey, session_cookie_header,
 };
 use crate::apps::auth::services::token::{TokenError, TokenPurpose, verify_token};
 use crate::config::settings::get_settings;
@@ -31,6 +31,9 @@ pub struct OAuthCallbackQuery {
 	code: String,
 	state: String,
 }
+
+const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state";
+const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
 
 fn oauth_backend(
 	backend: &OAuthBackendBox,
@@ -58,31 +61,39 @@ fn map_session_error(err: impl std::fmt::Display) -> AppError {
 	AppError::Internal("Internal server error".to_string())
 }
 
-async fn current_user_from_cookie(
-	request: &ServerFnRequest,
-	session_service: &SessionService,
-) -> Result<Option<User>, AppError> {
-	let Some(session_id) = request
+fn cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
+	cookie_header.split(';').find_map(|pair| {
+		let pair = pair.trim();
+		let (name, value) = pair.split_once('=')?;
+		if name.trim() == cookie_name {
+			Some(value.trim().to_string())
+		} else {
+			None
+		}
+	})
+}
+
+fn request_cookie(request: &ServerFnRequest, cookie_name: &str) -> Option<String> {
+	request
 		.inner()
 		.headers
 		.get("Cookie")
-		.and_then(|v| v.to_str().ok())
-		.and_then(session_id_from_cookie_header)
-	else {
-		return Ok(None);
-	};
-	let Some((user_id, _username)) = session_service.validate_session(&session_id).await else {
-		return Ok(None);
-	};
-	let user = User::objects()
-		.filter(User::field_id().eq(user_id.clone()))
-		.first()
-		.await
-		.map_err(|err| {
-			error!("Failed to look up session user {user_id} during OAuth callback: {err}");
-			AppError::Internal("Internal server error".to_string())
-		})?;
-	Ok(user)
+		.and_then(|value| value.to_str().ok())
+		.and_then(|header| cookie_value(header, cookie_name))
+}
+
+fn oauth_state_cookie_header(state: &str, debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}={state}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth{secure_flag}; Max-Age={OAUTH_STATE_COOKIE_MAX_AGE_SECONDS}"
+	)
+}
+
+fn clear_oauth_state_cookie_header(debug: bool) -> String {
+	let secure_flag = if debug { "" } else { "; Secure" };
+	format!(
+		"{OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth{secure_flag}; Max-Age=0"
+	)
 }
 
 /// Start an OAuth authorization flow for a configured provider.
@@ -98,20 +109,39 @@ pub async fn oauth_start(
 		.begin_auth(&provider_id, None, None)
 		.await
 		.map_err(map_oauth_error)?;
-	Ok(Response::temporary_redirect(auth.authorization_url))
+	let is_debug = get_settings().core.debug;
+	Ok(
+		Response::temporary_redirect(auth.authorization_url).append_header(
+			"Set-Cookie",
+			&oauth_state_cookie_header(&auth.state, is_debug),
+		),
+	)
 }
 
 /// Complete an OAuth authorization flow and establish a dashboard session.
+///
+/// The callback intentionally treats every completed provider flow as a
+/// provider-login flow. It does not derive account-link intent from the
+/// ambient `sessionid` cookie because browsers send `SameSite=Lax` cookies
+/// on top-level callback navigations.
 ///
 /// `GET /api/auth/oauth/{provider_id}/callback/`
 #[get("/oauth/{provider_id}/callback/", name = "oauth-callback")]
 pub async fn oauth_callback(
 	Path(provider_id): Path<String>,
 	Query(query): Query<OAuthCallbackQuery>,
-	#[inject] http_request: ServerFnRequest,
 	#[inject] backend: Depends<OAuthBackendBoxKey, OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionServiceKey, SessionService>,
+	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
+	let expected_state = request_cookie(&http_request, OAUTH_STATE_COOKIE_NAME)
+		.ok_or_else(|| AppError::Validation("Missing OAuth state cookie".to_string()))?;
+	if expected_state != query.state {
+		return Err(AppError::Validation(
+			"Invalid OAuth state cookie".to_string(),
+		));
+	}
+
 	let backend = oauth_backend(&backend, &provider_id)?;
 	let result = backend
 		.handle_callback(&provider_id, &query.code, &query.state)
@@ -121,8 +151,7 @@ pub async fn oauth_callback(
 		AppError::Validation("OAuth provider did not return user claims".to_string())
 	})?;
 	let storage = OrmSocialAccountStorage::new();
-	let current_user = current_user_from_cookie(&http_request, &session_service).await?;
-	let user = link_or_create_user(&storage, &provider_id, &claims, current_user)
+	let user = link_or_create_user(&storage, &provider_id, &claims, None)
 		.await
 		.map_err(|err| AppError::Validation(err.to_string()))?;
 	let oauth_token = result.token_response.to_oauth_token();
@@ -139,6 +168,7 @@ pub async fn oauth_callback(
 		.map_err(map_session_error)?;
 	let is_debug = get_settings().core.debug;
 	Ok(Response::temporary_redirect("/")
+		.append_header("Set-Cookie", &clear_oauth_state_cookie_header(is_debug))
 		.append_header("Set-Cookie", &session_cookie_header(&session_id, is_debug)))
 }
 

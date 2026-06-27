@@ -125,10 +125,10 @@ before drawing conclusions.**
 > `installation_id` by listing installations visible to the encrypted OAuth
 > user token before binding that installation to the current organization.
 > The repository page then lists repositories visible to the GitHub App
-> installation, obtains an installation access token, clones the selected
-> repository into a temporary checkout, runs `manage introspect --format
-> yaml`, embeds the introspect output in the generated `Project` YAML,
-> and routes two agent commands to the selected cluster:
+> installation, obtains an installation access token, derives safe import
+> metadata from dashboard-controlled inputs without executing repository
+> contents, embeds that metadata in the generated `Project` YAML, and
+> routes two agent commands to the selected cluster:
 > `ApplyGitCredentialsSecret` for private repositories and
 > `ApplyProject` for the CRD manifest. The agent applies both resources
 > in-cluster using server-side apply, so the operator owns the derived

@@ -42,6 +42,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -54,13 +55,10 @@ jobs:
       - name: Install nightly toolchain
         run: rustup install nightly --profile minimal
 
-      - name: Install cargo-binstall
-        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-
       - name: Install cargo-public-api
         continue-on-error: true
         id: install-public-api
-        run: cargo binstall cargo-public-api@0.51.0 --no-confirm --locked
+        run: cargo install cargo-public-api --version 0.51.0 --locked
 
       - name: Generate public API diff body
         id: generate
