@@ -58,8 +58,8 @@ pub(crate) fn validate_port(field: &'static str, port: i32) -> Result<i32, crate
 /// `spec.imagePullSecrets` is user-controlled. Restricting names to the
 /// application-owned prefix prevents a `Project` author from causing kubelet
 /// to use shared namespace registry credentials that the author cannot read.
-/// Preview environments may also use the parent app's prefix because preview
-/// names are derived as `{parent}-pr-{number}`.
+/// Operator-created preview environments may also use the parent app's prefix
+/// when their metadata matches the preview namespace and label contract.
 pub(crate) fn validated_image_pull_secrets(
 	app: &reinhardt_cloud_types::crd::Project,
 ) -> Result<Option<Vec<k8s_openapi::api::core::v1::LocalObjectReference>>, crate::error::Error> {
@@ -70,7 +70,7 @@ pub(crate) fn validated_image_pull_secrets(
 	let Some(secrets) = app.spec.image_pull_secrets.as_ref() else {
 		return Ok(None);
 	};
-	let allowed_prefixes = image_pull_secret_prefixes(&app_name);
+	let allowed_prefixes = image_pull_secret_prefixes(app, &app_name);
 
 	for secret in secrets {
 		if !allowed_prefixes
@@ -88,9 +88,12 @@ pub(crate) fn validated_image_pull_secrets(
 	Ok(Some(secrets.clone()))
 }
 
-fn image_pull_secret_prefixes(app_name: &str) -> Vec<String> {
+fn image_pull_secret_prefixes(
+	app: &reinhardt_cloud_types::crd::Project,
+	app_name: &str,
+) -> Vec<String> {
 	let app_prefix = format!("{app_name}-");
-	let Some((parent_name, _)) = app_name.split_once("-pr-") else {
+	let Some(parent_name) = verified_preview_parent_name(app, app_name) else {
 		return vec![app_prefix];
 	};
 
@@ -100,6 +103,58 @@ fn image_pull_secret_prefixes(app_name: &str) -> Vec<String> {
 	} else {
 		vec![app_prefix, parent_prefix]
 	}
+}
+
+fn verified_preview_parent_name(
+	app: &reinhardt_cloud_types::crd::Project,
+	app_name: &str,
+) -> Option<String> {
+	let labels = app.metadata.labels.as_ref()?;
+	let parent_name = labels.get(crate::resources::preview::PARENT_APP_LABEL_KEY)?;
+	let pr_number = labels.get(crate::resources::preview::PR_NUMBER_LABEL_KEY)?;
+
+	if labels
+		.get(crate::resources::preview::PREVIEW_LABEL_KEY)
+		.map(String::as_str)
+		!= Some("true")
+		|| labels
+			.get("app.kubernetes.io/managed-by")
+			.map(String::as_str)
+			!= Some(crate::resources::preview::MANAGED_BY_LABEL_VALUE)
+		|| !pr_number
+			.chars()
+			.all(|character| character.is_ascii_digit())
+		|| pr_number.is_empty()
+	{
+		return None;
+	}
+
+	let expected_name = crate::resources::preview::preview_project_name(parent_name, pr_number);
+	if app_name == expected_name && verified_preview_namespace(app, labels, parent_name) {
+		Some(parent_name.clone())
+	} else {
+		None
+	}
+}
+
+fn verified_preview_namespace(
+	app: &reinhardt_cloud_types::crd::Project,
+	labels: &std::collections::BTreeMap<String, String>,
+	parent_name: &str,
+) -> bool {
+	let Some(namespace) = app.metadata.namespace.as_deref() else {
+		return false;
+	};
+	let Some(parent_namespace) = labels.get(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY)
+	else {
+		return crate::resources::preview_namespace::legacy_preview_namespace_matches(
+			namespace,
+			parent_name,
+		);
+	};
+	let expected_namespace =
+		crate::resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
+	namespace == expected_namespace
 }
 
 #[cfg(test)]
@@ -154,6 +209,12 @@ mod tests {
 	fn test_validated_image_pull_secrets_accepts_preview_parent_owned_names() {
 		// Arrange
 		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some(crate::resources::preview_namespace::preview_namespace_name(
+			"default", "web",
+		));
+		app.metadata.labels = Some(crate::resources::preview::preview_labels(
+			"default", "web", "42",
+		));
 		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
 			name: "web-regcred".to_string(),
 		}]);
@@ -166,6 +227,100 @@ mod tests {
 		// Assert
 		assert_eq!(secrets.len(), 1);
 		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_accepts_legacy_preview_parent_owned_names() {
+		// Arrange
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some(crate::resources::preview_namespace::preview_namespace_name(
+			"default", "web",
+		));
+		let mut labels = crate::resources::preview::preview_labels("default", "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let secrets = validated_image_pull_secrets(&app)
+			.expect("legacy preview image pull secret should be accepted")
+			.expect("image pull secrets should be present");
+
+		// Assert
+		assert_eq!(secrets.len(), 1);
+		assert_eq!(secrets[0].name, "web-regcred");
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_rejects_legacy_preview_truncated_namespace() {
+		// Arrange
+		let parent_namespace =
+			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix";
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some(crate::resources::preview_namespace::preview_namespace_name(
+			parent_namespace,
+			"web",
+		));
+		let mut labels = crate::resources::preview::preview_labels(parent_namespace, "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("legacy preview with a truncated namespace should be rejected");
+
+		// Assert
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_rejects_legacy_preview_wrong_namespace() {
+		// Arrange
+		let mut app = test_app("web-pr-42");
+		app.metadata.namespace = Some("default".to_string());
+		let mut labels = crate::resources::preview::preview_labels("default", "web", "42");
+		labels.remove(crate::resources::preview::PARENT_NAMESPACE_LABEL_KEY);
+		app.metadata.labels = Some(labels);
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("legacy preview in a non-canonical namespace should be rejected");
+
+		// Assert
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
+	}
+
+	#[rstest]
+	fn test_validated_image_pull_secrets_rejects_spoofed_preview_parent_owned_names() {
+		// Arrange
+		let mut app = test_app("web-pr-evil");
+		app.spec.image_pull_secrets = Some(vec![LocalObjectReference {
+			name: "web-regcred".to_string(),
+		}]);
+
+		// Act
+		let error = validated_image_pull_secrets(&app)
+			.expect_err("spoofed preview image pull secret should be rejected");
+
+		// Assert
+		assert!(matches!(
+			error,
+			crate::error::Error::InvalidImagePullSecret { .. }
+		));
 	}
 
 	#[rstest]
