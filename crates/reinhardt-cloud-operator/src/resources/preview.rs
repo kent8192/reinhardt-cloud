@@ -11,24 +11,36 @@ use reinhardt_cloud_types::crd::{DeletionPolicy, Project, ProjectSpec};
 
 use crate::error::Error;
 
+pub(crate) const PREVIEW_LABEL_KEY: &str = "reinhardt.dev/preview";
+pub(crate) const PARENT_APP_LABEL_KEY: &str = "reinhardt.dev/parent-app";
+pub(crate) const PARENT_NAMESPACE_LABEL_KEY: &str = "reinhardt.dev/parent-namespace";
+pub(crate) const PR_NUMBER_LABEL_KEY: &str = "reinhardt.dev/pr-number";
+pub(crate) const MANAGED_BY_LABEL_VALUE: &str = "reinhardt-cloud";
+
 /// Returns standard labels for a preview environment resource.
 ///
 /// Labels include:
 /// - `reinhardt.dev/preview` = `"true"`
 /// - `reinhardt.dev/parent-app` = the parent project name
+/// - `reinhardt.dev/parent-namespace` = the parent project namespace
 /// - `reinhardt.dev/pr-number` = the PR/MR number
 /// - `app.kubernetes.io/managed-by` = `"reinhardt-cloud"`
-pub(crate) fn preview_labels(parent_name: &str, pr_number: &str) -> BTreeMap<String, String> {
+pub(crate) fn preview_labels(
+	parent_namespace: &str,
+	parent_name: &str,
+	pr_number: &str,
+) -> BTreeMap<String, String> {
 	BTreeMap::from([
-		("reinhardt.dev/preview".to_string(), "true".to_string()),
+		(PREVIEW_LABEL_KEY.to_string(), "true".to_string()),
+		(PARENT_APP_LABEL_KEY.to_string(), parent_name.to_string()),
 		(
-			"reinhardt.dev/parent-app".to_string(),
-			parent_name.to_string(),
+			PARENT_NAMESPACE_LABEL_KEY.to_string(),
+			parent_namespace.to_string(),
 		),
-		("reinhardt.dev/pr-number".to_string(), pr_number.to_string()),
+		(PR_NUMBER_LABEL_KEY.to_string(), pr_number.to_string()),
 		(
 			"app.kubernetes.io/managed-by".to_string(),
-			"reinhardt-cloud".to_string(),
+			MANAGED_BY_LABEL_VALUE.to_string(),
 		),
 	])
 }
@@ -307,17 +319,21 @@ mod tests {
 	#[rstest]
 	fn test_preview_labels_returns_correct_labels() {
 		// Arrange & Act
-		let labels = preview_labels("my-app", "42");
+		let labels = preview_labels("default", "my-app", "42");
 
 		// Assert
 		assert_eq!(labels.get("reinhardt.dev/preview").unwrap(), "true");
 		assert_eq!(labels.get("reinhardt.dev/parent-app").unwrap(), "my-app");
+		assert_eq!(
+			labels.get("reinhardt.dev/parent-namespace").unwrap(),
+			"default"
+		);
 		assert_eq!(labels.get("reinhardt.dev/pr-number").unwrap(), "42");
 		assert_eq!(
 			labels.get("app.kubernetes.io/managed-by").unwrap(),
 			"reinhardt-cloud"
 		);
-		assert_eq!(labels.len(), 4);
+		assert_eq!(labels.len(), 5);
 	}
 
 	#[rstest]
