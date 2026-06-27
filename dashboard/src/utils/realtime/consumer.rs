@@ -15,6 +15,7 @@ use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
+use crate::apps::auth::models::User;
 use crate::apps::auth::services::session::validate_session;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::models::Organization;
@@ -61,6 +62,48 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
+}
+
+fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
+	move |mut request: tonic::Request<()>| {
+		let value = format!("Bearer {token}").parse().map_err(|e| {
+			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
+		})?;
+		request.metadata_mut().insert("authorization", value);
+		Ok(request)
+	}
+}
+
+async fn connect_grpc_channel(
+	endpoint: &str,
+) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+	tonic::transport::Endpoint::from_shared(endpoint.to_string())?
+		.connect()
+		.await
+}
+
+async fn dashboard_grpc_user_token(user_id: &str) -> Result<String, WsMessage> {
+	let user_id =
+		Uuid::parse_str(user_id).map_err(|_| log_stream_rejected("Authentication required"))?;
+	let user = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(error = %e, "Failed to load user for gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		})?
+		.ok_or_else(|| log_stream_rejected("Authentication required"))?;
+	let secret = crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		tracing::error!("JWT secret is not configured for dashboard gRPC log client");
+		log_stream_rejected("Log streaming is not configured")
+	})?;
+	reinhardt_cloud_core::auth::create_token(user.id, &user.username, secret.as_bytes(), 1).map_err(
+		|e| {
+			tracing::error!(error = %e, "Failed to mint dashboard gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		},
+	)
 }
 
 /// Convert a proto `LogLevel` enum value to its lowercase string form.
@@ -352,6 +395,22 @@ impl WebSocketConsumer for NotificationConsumer {
 				}
 			}
 			ParsedAction::SubscribeBuildLogs { build_id } => {
+				let Some(uid) = user_id.as_deref() else {
+					let _ = context
+						.connection
+						.send_json(&log_stream_rejected(
+							"Authentication required for build logs",
+						))
+						.await;
+					return Ok(());
+				};
+				let grpc_token = match dashboard_grpc_user_token(uid).await {
+					Ok(token) => token,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -373,29 +432,31 @@ impl WebSocketConsumer for NotificationConsumer {
 				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
-					let mut client =
-						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Failed to connect to gRPC BuildService for log streaming",
-								);
-								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								// Clear handle on exit.
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
+					let channel = match connect_grpc_channel(&endpoint).await {
+						Ok(channel) => channel,
+						Err(e) => {
+							tracing::warn!(
+								build_id = %bid,
+								error = %e,
+								"Failed to connect to gRPC BuildService for log streaming",
+							);
+							// Notify client that the stream could not be established.
+							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+								acknowledged: false,
+								message: format!(
+									"Failed to connect to build log service for {bid}: {e}"
+								),
+							});
+							let _ = conn.send_json(&err_msg).await;
+							// Clear handle on exit.
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let mut client = pb::build_service_client::BuildServiceClient::with_interceptor(
+						channel,
+						dashboard_grpc_auth_interceptor(grpc_token),
+					);
 
 					// Send positive acknowledgement only after a successful
 					// gRPC connection — avoids a contradictory ack/nack pair.
@@ -507,6 +568,13 @@ impl WebSocketConsumer for NotificationConsumer {
 						return Ok(());
 					}
 				};
+				let grpc_token = match dashboard_grpc_user_token(uid).await {
+					Ok(token) => token,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
 				// Cancel any previous log stream before starting a new one.
 				self.cancel_log_stream().await;
 
@@ -527,27 +595,29 @@ impl WebSocketConsumer for NotificationConsumer {
 				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
-					let mut client =
-						match log_pb::log_service_client::LogServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									project_name = %project,
-									error = %e,
-									"Failed to connect to gRPC LogService for app log streaming",
-								);
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to log service for {project}: {e}"
-									),
-								});
-								let _ = conn.send_json(&err_msg).await;
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
+					let channel = match connect_grpc_channel(&endpoint).await {
+						Ok(channel) => channel,
+						Err(e) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %e,
+								"Failed to connect to gRPC LogService for app log streaming",
+							);
+							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
+								acknowledged: false,
+								message: format!(
+									"Failed to connect to log service for {project}: {e}"
+								),
+							});
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
+						channel,
+						dashboard_grpc_auth_interceptor(grpc_token),
+					);
 
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
