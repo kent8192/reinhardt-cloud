@@ -224,15 +224,16 @@ pub async fn github_webhook(
 			AppError::Internal("Failed to load deployment cluster".to_string())
 		})?
 		.ok_or_else(|| AppError::NotFound("Deployment cluster not found".to_string()))?;
-	if let Err(e) = refresh_git_credentials_secret_for_webhook(
-		&repository,
-		&project,
-		&cluster,
-		manifest,
-		&settings,
-		&agent_registry,
-	)
-	.await
+	if should_refresh_git_credentials_for_webhook(&dispatch.action)
+		&& let Err(e) = refresh_git_credentials_secret_for_webhook(
+			&repository,
+			&project,
+			&cluster,
+			manifest,
+			&settings,
+			&agent_registry,
+		)
+		.await
 	{
 		error!("Failed to refresh GitHub credentials for deployment {deployment_id}: {e}");
 		deployment.status = "error".to_string();
@@ -409,7 +410,10 @@ async fn refresh_git_credentials_secret_for_webhook(
 		.ok_or_else(|| "GitHub installation not found".to_string())?;
 	let client = ReqwestGitHubAppClient::new(settings.clone());
 	let installation_token = client
-		.create_installation_access_token(installation.installation_id)
+		.create_repository_installation_access_token(
+			installation.installation_id,
+			repository.github_repository_id,
+		)
 		.await
 		.map_err(|e| format!("Failed to mint GitHub installation access token: {e}"))?;
 	let app = reinhardt_cloud_k8s::resources::parse_project_yaml(manifest)
@@ -434,6 +438,13 @@ fn required_header(request: &ServerFnRequest, name: &str) -> Result<String, AppE
 		.and_then(|value| value.to_str().ok())
 		.map(str::to_string)
 		.ok_or_else(|| AppError::Validation(format!("Missing required header: {name}")))
+}
+
+fn should_refresh_git_credentials_for_webhook(action: &WebhookAction) -> bool {
+	matches!(
+		action,
+		WebhookAction::BuildTrigger { .. } | WebhookAction::TagRelease { .. }
+	)
 }
 
 fn webhook_action_name(action: &WebhookAction) -> &'static str {
