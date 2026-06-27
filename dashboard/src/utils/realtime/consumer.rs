@@ -38,6 +38,12 @@ const META_USER_ID: &str = "user_id";
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
 const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 
+/// Generic client-facing failure for unavailable build-log streams.
+const BUILD_LOG_STREAM_UNAVAILABLE: &str = "Build log stream is currently unavailable";
+
+/// Generic client-facing failure for unavailable application-log streams.
+const APP_LOG_STREAM_UNAVAILABLE: &str = "Application log stream is currently unavailable";
+
 /// Parsed result from a client message before async execution.
 ///
 /// Separates the synchronous parsing/validation phase from the async
@@ -225,6 +231,14 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 		acknowledged: false,
 		message: message.into(),
 	})
+}
+
+fn build_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(BUILD_LOG_STREAM_UNAVAILABLE)
+}
+
+fn app_log_stream_unavailable() -> WsMessage {
+	log_stream_rejected(APP_LOG_STREAM_UNAVAILABLE)
 }
 
 async fn authorize_app_log_subscription(
@@ -433,12 +447,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									"Failed to connect to gRPC BuildService for log streaming",
 								);
 								// Notify client that the stream could not be established.
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to build log service for {bid}: {e}"
-									),
-								});
+								let err_msg = build_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								// Clear handle on exit.
 								*handle_ref.lock().await = None;
@@ -468,10 +477,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								"gRPC StreamBuildLogs call failed",
 							);
 							// Notify client that the stream call failed.
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("Build log stream failed for {bid}: {e}"),
-							});
+							let err_msg = build_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							// Clear handle on exit.
 							*handle_ref.lock().await = None;
@@ -586,12 +592,7 @@ impl WebSocketConsumer for NotificationConsumer {
 									error = %e,
 									"Failed to connect to gRPC LogService for app log streaming",
 								);
-								let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-									acknowledged: false,
-									message: format!(
-										"Failed to connect to log service for {project}: {e}"
-									),
-								});
+								let err_msg = app_log_stream_unavailable();
 								let _ = conn.send_json(&err_msg).await;
 								*handle_ref.lock().await = None;
 								return;
@@ -617,10 +618,7 @@ impl WebSocketConsumer for NotificationConsumer {
 								error = %e,
 								"gRPC TailLogs call failed",
 							);
-							let err_msg = WsMessage::LogStreamAck(LogStreamAckPayload {
-								acknowledged: false,
-								message: format!("App log stream failed for {project}: {e}"),
-							});
+							let err_msg = app_log_stream_unavailable();
 							let _ = conn.send_json(&err_msg).await;
 							*handle_ref.lock().await = None;
 							return;
@@ -976,6 +974,36 @@ mod tests {
 			extract_cookie_value("csrftoken=xyz; other=val", "sessionid"),
 			None
 		);
+	}
+
+	#[rstest]
+	fn test_build_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = build_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, BUILD_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
+	}
+
+	#[rstest]
+	fn test_app_log_stream_unavailable_uses_generic_message() {
+		// Arrange and Act
+		let response = app_log_stream_unavailable();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(payload.message, APP_LOG_STREAM_UNAVAILABLE);
+			}
+			_ => panic!("expected LogStreamAck response"),
+		}
 	}
 
 	#[rstest]
