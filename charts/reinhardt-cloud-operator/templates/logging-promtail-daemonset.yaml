@@ -39,9 +39,6 @@ spec:
               mountPath: /etc/promtail
             - name: run
               mountPath: /run/promtail
-            - name: varlog
-              mountPath: /var/log
-              readOnly: true
             - name: pods
               mountPath: /var/log/pods
               readOnly: true
@@ -53,9 +50,6 @@ spec:
             name: {{ include "reinhardt-cloud-operator.fullname" . }}-promtail
         - name: run
           emptyDir: {}
-        - name: varlog
-          hostPath:
-            path: /var/log
         - name: pods
           hostPath:
             path: /var/log/pods
