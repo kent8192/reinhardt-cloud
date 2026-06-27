@@ -390,7 +390,7 @@ public = false
 
 		// Assert
 		assert!(
-			error.contains("infrastructure.buckets[].name must be non-empty"),
+			error.contains("infrastructure.buckets[].name must contain only"),
 			"unexpected error: {error}"
 		);
 	}
