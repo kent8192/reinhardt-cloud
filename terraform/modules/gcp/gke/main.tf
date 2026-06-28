@@ -39,8 +39,9 @@ resource "google_container_cluster" "primary" {
     services_secondary_range_name = var.services_range_name
   }
 
-  # Dataplane V2 is create-time-only for GKE clusters, so keep it opt-in
-  # to avoid replacing existing clusters during security patch rollouts.
+  # Dataplane V2 enforces Kubernetes NetworkPolicy for tenant isolation.
+  # It is create-time-only for GKE clusters, so existing clusters can opt out
+  # during planned migrations to avoid replacement.
   datapath_provider = var.enable_dataplane_v2 ? "ADVANCED_DATAPATH" : null
 
   private_cluster_config {
