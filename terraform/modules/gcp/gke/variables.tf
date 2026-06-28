@@ -57,9 +57,9 @@ variable "disk_size_gb" {
 }
 
 variable "enable_dataplane_v2" {
-  description = "Enable GKE Dataplane V2 for NetworkPolicy enforcement. Enabling this on an existing cluster can force replacement; use only during planned cluster creation or migration."
+  description = "Enable GKE Dataplane V2 for NetworkPolicy enforcement. Set this to false only when managing an existing cluster that was created without Dataplane V2 and cannot be replaced during the current maintenance window."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "labels" {
