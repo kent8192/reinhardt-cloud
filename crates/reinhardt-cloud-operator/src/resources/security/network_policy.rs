@@ -70,7 +70,6 @@ fn dns_egress_rule(dns_allow_cidrs: &[String]) -> NetworkPolicyEgressRule {
 	NetworkPolicyEgressRule {
 		to: Some(peers),
 		ports: Some(dns_ports()),
-		..Default::default()
 	}
 }
 
