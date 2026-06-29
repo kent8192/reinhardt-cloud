@@ -3048,9 +3048,9 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.18.4"
+version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+checksum = "993f007684f2e9727160da8b960ec161264703bfd1af084fd2e34d040c9a0dd4"
 dependencies = [
  "console",
  "portable-atomic",
@@ -3145,9 +3145,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
-version = "0.2.29"
+version = "0.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34f877a98676d2fb664698d74cc6a51ce6c484ce8c770f05d0108ec9090aeb46"
+checksum = "7d75ad598edda7c00a28de3073b8fce023305057001c46aac1fb4fa5e5fb01d7"
 dependencies = [
  "defmt",
  "jiff-static",
@@ -3159,9 +3159,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.29"
+version = "0.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0666b5ab5ecaca213fc2a85b8c0083d9004e84ee2d5f9a7e0017aaf50986f25f"
+checksum = "2db1a96e4a8748d93838d0b7a67377781e53ad0a168005a66aab6ae17edbadf3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5579,7 +5579,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "reinhardt-cloud-core",
  "reinhardt-cloud-grpc",
@@ -5591,7 +5591,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-agent"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "chrono",
  "clap",
@@ -5616,7 +5616,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-cli"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "clap",
  "colored",
@@ -5645,7 +5645,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-core"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5668,7 +5668,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-dashboard"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5724,7 +5724,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-grpc"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5753,7 +5753,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-integration-tests"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5780,7 +5780,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-k8s"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "k8s-openapi",
  "kube",
@@ -5797,7 +5797,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-operator"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "anyhow",
  "base64",
@@ -5833,7 +5833,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-proto"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "prost 0.13.5",
  "prost-types 0.13.5",
@@ -5844,7 +5844,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-telemetry"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5874,7 +5874,7 @@ dependencies = [
 
 [[package]]
 name = "reinhardt-cloud-types"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "chrono",
  "k8s-openapi",
