@@ -40,8 +40,8 @@ resource "google_container_cluster" "primary" {
   }
 
   # Dataplane V2 enforces Kubernetes NetworkPolicy for tenant isolation.
-  # It is create-time-only for GKE clusters, so existing clusters can opt out
-  # during planned migrations to avoid replacement.
+  # It is replacement-only for existing GKE clusters, so the reusable module
+  # keeps it explicit while new-cluster examples opt in.
   datapath_provider = var.enable_dataplane_v2 ? "ADVANCED_DATAPATH" : null
 
   private_cluster_config {
