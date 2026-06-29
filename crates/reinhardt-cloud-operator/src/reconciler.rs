@@ -60,6 +60,14 @@ use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
 const FINALIZER_NAME: &str = "paas.reinhardt-cloud.dev/cleanup";
 
+fn managed_git_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-git-credentials")
+}
+
+fn managed_github_credentials_secret_name(project_name: &str) -> String {
+	format!("{project_name}-github-git-credentials")
+}
+
 /// Annotation key on a `Project` that carries an incoming W3C `traceparent`
 /// for distributed-trace propagation into the reconcile span.
 ///
@@ -248,6 +256,81 @@ pub(crate) async fn reconcile(obj: Arc<Project>, ctx: Arc<Context>) -> Result<Ac
 	.await
 }
 
+fn resource_is_controlled_by_project(secret: &Secret, app: &Project) -> bool {
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return false;
+	};
+
+	secret
+		.metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default()
+		.iter()
+		.any(|owner| owner.uid == project_uid && owner.controller == Some(true))
+}
+
+fn git_credentials_cleanup_names(app: &Project, project_name: &str) -> Vec<String> {
+	let fallback_name = managed_git_credentials_secret_name(project_name);
+	let github_name = managed_github_credentials_secret_name(project_name);
+	let mut names = vec![fallback_name, github_name];
+	if let Some(source) = app.spec.source.as_ref()
+		&& let Some(secret_name) = source.credentials_secret.as_ref()
+		&& (secret_name == &names[0] || secret_name == &names[1])
+		&& !names.contains(secret_name)
+	{
+		names.push(secret_name.clone());
+	}
+	names
+}
+
+fn git_credentials_secret_has_dashboard_labels(secret: &Secret) -> bool {
+	let Some(labels) = secret.metadata.labels.as_ref() else {
+		return false;
+	};
+	labels
+		.get("reinhardt.dev/credential-type")
+		.map(String::as_str)
+		== Some("git")
+		&& labels.get("reinhardt.dev/provider").map(String::as_str) == Some("github")
+}
+
+fn git_credentials_secret_is_managed(
+	secret: &Secret,
+	app: &Project,
+	project_name: &str,
+	secret_name: &str,
+) -> bool {
+	if resource_is_controlled_by_project(secret, app) {
+		return true;
+	}
+	secret_name == managed_github_credentials_secret_name(project_name)
+		&& git_credentials_secret_has_dashboard_labels(secret)
+}
+
+async fn delete_git_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	project_name: &str,
+	secret_name: &str,
+) -> Result<(), Error> {
+	let Some(existing) = secret_api.get_opt(secret_name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	if git_credentials_secret_is_managed(&existing, app, project_name, secret_name) {
+		let _ = secret_api
+			.delete(secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Git credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{project_name}"
+	);
+	Ok(())
+}
+
 /// Apply the desired state for a `Project`.
 fn existing_resource_is_controlled_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
 	let Some(project_uid) = app.metadata.uid.as_deref() else {
@@ -326,7 +409,15 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.tenant
 				.as_ref()
 				.expect("tenant presence verified by validate_tenant_namespace");
-			reconcile_tenant_resources(&ctx.client, tenant).await?;
+			reconcile_tenant_resources(
+				&ctx.client,
+				tenant,
+				app.spec
+					.isolation
+					.as_ref()
+					.and_then(|isolation| isolation.network.as_ref()),
+			)
+			.await?;
 		}
 		Ok(None) => {
 			// Backward-compat path: tenant unset, no enforcement.
@@ -518,7 +609,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		// set of platform-appropriate resources (on-prem StatefulSet/PVC,
 		// AWS ACK DBInstance, or GCP Config Connector SQL resources) and
 		// apply them via server-side apply.
-		let resources = infer_database_resources(&app, &ctx.platform);
+		let resources = infer_database_resources(&app, &ctx.platform)?;
 		for resource in resources {
 			match resource {
 				DatabaseResource::StatefulSet(ss) => {
@@ -851,6 +942,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 			info!(
 				"DeletionPolicy is Retain: keeping database and cache resources for {name}. \
 				 Manual cleanup may be required for: {name}-db-credentials, \
+				 {name}-redis-credentials, \
 				 {name}-postgresql"
 			);
 		}
@@ -868,6 +960,8 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				.delete(&format!("{name}-db-credentials"), &DeleteParams::default())
 				.await;
 
+			delete_redis_credentials_secret_if_managed(&secret_api, &app, namespace, &name).await?;
+
 			// Delete SMTP credentials Secret
 			let _ = secret_api
 				.delete(
@@ -876,13 +970,15 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				)
 				.await;
 
-			// Delete git credentials Secret (use spec reference if available)
-			if let Some(ref source) = app.spec.source
-				&& let Some(ref creds_name) = source.credentials_secret
-			{
-				let _ = secret_api
-					.delete(creds_name, &DeleteParams::default())
-					.await;
+			for secret_name in git_credentials_cleanup_names(&app, &name) {
+				delete_git_credentials_secret_if_managed(
+					&secret_api,
+					&app,
+					namespace,
+					&name,
+					&secret_name,
+				)
+				.await?;
 			}
 
 			// Delete introspect-managed database resources
@@ -913,13 +1009,19 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 					&name,
 					parent_uid,
 				) {
-					ns_api
-						.delete(&preview_ns, &DeleteParams::default())
-						.await
-						.map_err(Error::Kube)?;
-					info!(
-						"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
-					);
+					match ns_api.delete(&preview_ns, &DeleteParams::default()).await {
+						Ok(_) => {
+							info!(
+								"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
+							);
+						}
+						Err(err) if preview_namespace_delete_is_best_effort_error(&err) => {
+							warn!(
+								"Leaving preview namespace {preview_ns} during cleanup of {namespace}/{name}: namespace delete was not permitted or the namespace disappeared ({err})"
+							);
+						}
+						Err(err) => return Err(Error::Kube(err)),
+					}
 				} else {
 					warn!(
 						"Skipping preview namespace cleanup for {namespace}/{name}: {preview_ns} is not labeled as owned by this Project"
@@ -1541,22 +1643,76 @@ async fn reconcile_redis_credentials_secret(
 	let secret_name = format!("{name}-redis-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
 
-	if secret_api
+	if let Some(existing) = secret_api
 		.get_opt(&secret_name)
 		.await
 		.map_err(Error::Kube)?
-		.is_some()
 	{
-		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
-		return Ok(());
+		if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
+			return Ok(());
+		}
+
+		return Err(ownership_conflict_error(
+			"Secret",
+			namespace,
+			&secret_name,
+			app,
+		));
 	}
 
-	let secret = build_redis_credentials_secret(&name, namespace);
+	let secret = build_managed_redis_credentials_secret(app, namespace);
 	secret_api
 		.create(&PostParams::default(), &secret)
 		.await
 		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
+	Ok(())
+}
+
+fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
+	build_redis_credentials_secret(&app.name_any(), namespace)
+}
+
+fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
+	if existing_resource_is_controlled_by_project(metadata, app) {
+		return true;
+	}
+
+	let app_name = app.name_any();
+	metadata.labels.as_ref().is_some_and(|labels| {
+		labels.get("app.kubernetes.io/name").map(String::as_str) == Some(app_name.as_str())
+			&& labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str)
+				== Some("reinhardt-cloud-operator")
+	})
+}
+
+async fn delete_redis_credentials_secret_if_managed(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{name}-redis-credentials");
+	let Some(existing) = secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+	else {
+		return Ok(());
+	};
+	if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+		let _ = secret_api
+			.delete(&secret_name, &DeleteParams::default())
+			.await;
+		return Ok(());
+	}
+
+	warn!(
+		"Skipping Redis credentials Secret {namespace}/{secret_name}: existing Secret is not managed by Project {namespace}/{name}"
+	);
 	Ok(())
 }
 
@@ -1871,6 +2027,7 @@ fn validate_tenant_namespace(
 async fn reconcile_tenant_resources(
 	client: &Client,
 	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
+	network: Option<&reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec>,
 ) -> Result<(), Error> {
 	let namespace_name = tenant.namespace();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -1899,7 +2056,7 @@ async fn reconcile_tenant_resources(
 	let policies: Api<NetworkPolicy> = Api::namespaced(client.clone(), &namespace_name);
 	for policy in [
 		tenant_resources::build_default_deny_policy(tenant),
-		tenant_resources::build_allow_same_namespace_policy(tenant),
+		tenant_resources::build_allow_same_namespace_policy(tenant, network),
 		tenant_resources::build_allow_ingress_controller_policy(tenant),
 	] {
 		let policy_name = policy
@@ -2517,6 +2674,10 @@ where
 	Ok(())
 }
 
+fn preview_namespace_delete_is_best_effort_error(error: &kube::Error) -> bool {
+	matches!(error, kube::Error::Api(status) if status.code == 403 || status.code == 404)
+}
+
 async fn delete_migration_jobs(
 	client: &Client,
 	namespace: &str,
@@ -3110,6 +3271,80 @@ mod tests {
 		);
 	}
 
+	#[rstest]
+	fn build_managed_redis_credentials_secret_uses_retained_secret_shape() {
+		// Arrange
+		let app = make_test_app("payments");
+
+		// Act
+		let secret = build_managed_redis_credentials_secret(&app, "default");
+
+		// Assert
+		assert_eq!(
+			secret.metadata.name.as_deref(),
+			Some("payments-redis-credentials")
+		);
+		assert!(
+			secret.metadata.owner_references.is_none(),
+			"Redis credentials must not be garbage-collected under Retain policy"
+		);
+		let labels = secret.metadata.labels.expect("standard labels");
+		assert_eq!(
+			labels.get("app.kubernetes.io/name").map(String::as_str),
+			Some("payments")
+		);
+		assert_eq!(
+			labels
+				.get("app.kubernetes.io/managed-by")
+				.map(String::as_str),
+			Some("reinhardt-cloud-operator")
+		);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_accepts_legacy_standard_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "payments".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_rejects_other_app_labels() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			labels: Some(BTreeMap::from([
+				("app.kubernetes.io/name".to_string(), "other".to_string()),
+				(
+					"app.kubernetes.io/managed-by".to_string(),
+					"reinhardt-cloud-operator".to_string(),
+				),
+			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_managed);
+	}
+
 	fn make_test_build_status(target: BuildTargetKind) -> BuildStatus {
 		let mut build = BuildStatus {
 			phase: BuildPhase::Succeeded,
@@ -3650,6 +3885,29 @@ mod tests {
 	}
 
 	#[rstest]
+	#[case::forbidden(403, true)]
+	#[case::not_found(404, true)]
+	#[case::server_error(500, false)]
+	fn preview_namespace_delete_best_effort_error_classification(
+		#[case] code: u16,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let status = kube::core::Status {
+			code,
+			message: "preview namespace delete failed".to_string(),
+			..Default::default()
+		};
+		let error = kube::Error::Api(Box::new(status));
+
+		// Act
+		let is_best_effort = preview_namespace_delete_is_best_effort_error(&error);
+
+		// Assert
+		assert_eq!(is_best_effort, expected);
+	}
+
+	#[rstest]
 	fn test_build_status_updates_transition_time_when_status_changes() {
 		// Arrange
 		let old_time = "2025-01-01T00:00:00Z";
@@ -3884,7 +4142,8 @@ mod tests {
 		// function. A non-empty result proves the wiring is reachable;
 		// the previous code path (introspect-only) would have ignored
 		// the explicit spec entirely.
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(
@@ -4004,6 +4263,166 @@ mod tests {
 
 		// Act / Assert — DeletionPolicy::Delete means everything gets cleaned up
 		assert_eq!(app.spec.deletion_policy, DeletionPolicy::Delete);
+	}
+
+	#[rstest]
+	fn managed_git_credentials_secret_name_uses_project_scoped_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_git_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-git-credentials");
+	}
+
+	#[rstest]
+	fn managed_github_credentials_secret_name_uses_dashboard_import_name() {
+		// Arrange
+		let project_name = "delete-all-app";
+
+		// Act
+		let secret_name = managed_github_credentials_secret_name(project_name);
+
+		// Assert
+		assert_eq!(secret_name, "delete-all-app-github-git-credentials");
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_include_github_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("private-app-github-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(names.contains(&"private-app-git-credentials".to_string()));
+		assert!(names.contains(&"private-app-github-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_cleanup_names_exclude_shared_spec_reference() {
+		// Arrange
+		let mut app = make_test_app("private-app");
+		app.spec.source = Some(reinhardt_cloud_types::crd::source::SourceSpec {
+			repository: "https://github.com/example/private-app".to_string(),
+			branch: None,
+			provider: None,
+			credentials_secret: Some("shared-git-credentials".to_string()),
+			build: None,
+			webhook: None,
+			preview: None,
+		});
+
+		// Act
+		let names = git_credentials_cleanup_names(&app, "private-app");
+
+		// Assert
+		assert!(!names.contains(&"shared-git-credentials".to_string()));
+	}
+
+	#[rstest]
+	fn git_credentials_secret_accepts_dashboard_applied_project_scoped_secret() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"private-app-github-git-credentials",
+		);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn git_credentials_secret_accepts_project_owner_reference() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				owner_references: Some(vec![
+					k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference {
+						api_version: "paas.reinhardt-cloud.dev/v1alpha2".to_string(),
+						kind: "Project".to_string(),
+						name: "private-app".to_string(),
+						uid: "test-uid-12345".to_string(),
+						controller: Some(true),
+						block_owner_deletion: Some(true),
+					},
+				]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn git_credentials_secret_rejects_shared_secret_even_with_git_labels() {
+		// Arrange
+		let app = make_test_app("private-app");
+		let secret = Secret {
+			metadata: kube::api::ObjectMeta {
+				labels: Some(BTreeMap::from([
+					(
+						"reinhardt.dev/credential-type".to_string(),
+						"git".to_string(),
+					),
+					("reinhardt.dev/provider".to_string(), "github".to_string()),
+				])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
+
+		// Assert
+		assert!(!is_managed);
 	}
 
 	// ── conflict resolution tests ───────────────────────────────────

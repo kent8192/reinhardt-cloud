@@ -15,7 +15,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 - **Database engine**: PostgreSQL (inferred from `FieldType::TimestampTz`, `FieldType::Uuid` in migration source, and `engine = "postgresql"` in `dashboard/settings/base.toml`)
 - **Frontend framework**: reinhardt-pages + reinhardt-admin features of the `reinhardt` crate — not Yew, Leptos, or Dioxus
 - **WASM build**: The library crate declares `crate-type = ["cdylib", "rlib"]` for dual native/WASM compilation. The `dashboard/index.html` file is the WASM shell HTML; `build.rs` uses `cfg_aliases` to set `cfg(wasm)` / `cfg(native)` compile-time flags. WASM bundle build tooling is not declared in `Cargo.toml` — see §7.8 of the source audit (outstanding verification: WASM bundler invocation, e.g. `trunk build`, is not documented in Makefile.toml and must be verified from the broader build pipeline before documenting the exact command)
-- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on `0.0.0.0:50051` by default (`crates/reinhardt-cloud-grpc/src/config.rs`)
+- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on `0.0.0.0:50051` by default for deployed profiles; local and CI profiles override `[grpc].bind_host` to `127.0.0.1` (`crates/reinhardt-cloud-grpc/src/config.rs`, `dashboard/settings/*.toml`)
 - **Settings loader**: environment-variable-driven TOML files in `dashboard/settings/` (selected via `REINHARDT_SETTINGS_MODULE`)
 
 ### Dashboard vs CLI vs Operator
@@ -35,7 +35,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 | DB engine (production) | PostgreSQL | `dashboard/settings/base.toml` `engine = "postgresql"` |
 | Frontend framework | reinhardt pages + admin | `dashboard/Cargo.toml` WASM deps `reinhardt = { features = ["pages", "admin"] }` |
 | WASM build tooling | Outstanding verification (see §7.8) | `dashboard/index.html` exists; bundler not confirmed |
-| gRPC server | tonic 0.13, default bind address `0.0.0.0:50051` | `crates/reinhardt-cloud-grpc/src/config.rs` |
+| gRPC server | tonic 0.13, default bind address `0.0.0.0:50051` with local/CI profile loopback override | `crates/reinhardt-cloud-grpc/src/config.rs`, `dashboard/settings/*.toml` |
 | Migration format | Rust source files | `dashboard/migrations/` (no `.sql` files) |
 
 ---
@@ -151,7 +151,8 @@ The image also:
 
 1. Sets `REINHARDT_SETTINGS_MODULE=reinhardt_cloud_dashboard.config.settings` at process startup
 2. Bundles Dashboard settings under `/app/settings`
-3. Exposes port 8000 for the HTTP API
+3. Sets `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` and defaults `REINHARDT_ENV=production` so direct container launches use the hardened production profile unless operators explicitly override the profile
+4. Exposes port 8000 for the HTTP API
 
 ### Database requirements
 
@@ -212,7 +213,7 @@ This is set unconditionally by `dashboard/src/bin/manage.rs` before delegating t
 | `static_files.url` | URL prefix for static files (default `/static/`) |
 | `static_files.root` | Filesystem path to static files |
 
-Override at deploy time by mounting a `local.toml` as a `ConfigMap` volume, or by supplying a `production.toml` file alongside `base.toml` in the settings directory. The reinhardt-web loader merges files in lexicographic order of their names.
+The Dashboard runtime image defaults `REINHARDT_ENV=production`, which loads `production.toml` from `/app/settings` and keeps direct container deployments on the hardened profile. Override `REINHARDT_ENV` only when intentionally running a non-production profile, and prefer environment variables or mounted replacement settings files for deployment-specific values.
 
 ### GitHub OAuth
 

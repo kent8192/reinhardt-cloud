@@ -18,6 +18,9 @@ jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of random
 # and `REINHARDT_CLOUD_REDIS_URL` (database 0) used across CI workflows.
 redis_url = "redis://localhost:6379/0"
 
+[grpc]
+bind_host = "127.0.0.1"
+
 [core]
 debug = true
 secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
