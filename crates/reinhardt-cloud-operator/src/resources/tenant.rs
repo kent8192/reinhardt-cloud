@@ -127,7 +127,6 @@ fn dns_egress_rule(network: Option<&NetworkIsolationSpec>) -> NetworkPolicyEgres
 	NetworkPolicyEgressRule {
 		to: Some(peers),
 		ports: Some(dns_ports()),
-		..Default::default()
 	}
 }
 
