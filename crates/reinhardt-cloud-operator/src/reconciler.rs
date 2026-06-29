@@ -284,8 +284,28 @@ fn git_credentials_cleanup_names(app: &Project, project_name: &str) -> Vec<Strin
 	names
 }
 
-fn git_credentials_secret_is_managed(secret: &Secret, app: &Project) -> bool {
-	resource_is_controlled_by_project(secret, app)
+fn git_credentials_secret_has_dashboard_labels(secret: &Secret) -> bool {
+	let Some(labels) = secret.metadata.labels.as_ref() else {
+		return false;
+	};
+	labels
+		.get("reinhardt.dev/credential-type")
+		.map(String::as_str)
+		== Some("git")
+		&& labels.get("reinhardt.dev/provider").map(String::as_str) == Some("github")
+}
+
+fn git_credentials_secret_is_managed(
+	secret: &Secret,
+	app: &Project,
+	project_name: &str,
+	secret_name: &str,
+) -> bool {
+	if resource_is_controlled_by_project(secret, app) {
+		return true;
+	}
+	secret_name == managed_github_credentials_secret_name(project_name)
+		&& git_credentials_secret_has_dashboard_labels(secret)
 }
 
 async fn delete_git_credentials_secret_if_managed(
@@ -298,7 +318,7 @@ async fn delete_git_credentials_secret_if_managed(
 	let Some(existing) = secret_api.get_opt(secret_name).await.map_err(Error::Kube)? else {
 		return Ok(());
 	};
-	if git_credentials_secret_is_managed(&existing, app) {
+	if git_credentials_secret_is_managed(&existing, app, project_name, secret_name) {
 		let _ = secret_api
 			.delete(secret_name, &DeleteParams::default())
 			.await;
@@ -4280,7 +4300,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn git_credentials_secret_rejects_dashboard_applied_secret_labels_without_owner() {
+	fn git_credentials_secret_accepts_dashboard_applied_project_scoped_secret() {
 		// Arrange
 		let app = make_test_app("private-app");
 		let secret = Secret {
@@ -4298,10 +4318,15 @@ mod tests {
 		};
 
 		// Act
-		let is_managed = git_credentials_secret_is_managed(&secret, &app);
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"private-app-github-git-credentials",
+		);
 
 		// Assert
-		assert!(!is_managed);
+		assert!(is_managed);
 	}
 
 	#[rstest]
@@ -4326,7 +4351,12 @@ mod tests {
 		};
 
 		// Act
-		let is_managed = git_credentials_secret_is_managed(&secret, &app);
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
 
 		// Assert
 		assert!(is_managed);
@@ -4351,7 +4381,12 @@ mod tests {
 		};
 
 		// Act
-		let is_managed = git_credentials_secret_is_managed(&secret, &app);
+		let is_managed = git_credentials_secret_is_managed(
+			&secret,
+			&app,
+			"private-app",
+			"shared-git-credentials",
+		);
 
 		// Assert
 		assert!(!is_managed);
