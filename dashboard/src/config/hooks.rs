@@ -14,7 +14,7 @@ use reinhardt::commands::{RunserverContext, RunserverHook, RunserverHookRegistra
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 
 use super::grpc::start_grpc_server;
-use super::settings::get_redis_url;
+use super::settings::{get_grpc_server_config, get_redis_url};
 use super::urls::init_websocket_routes;
 
 /// Validates that a Redis URL is configured before the server starts.
@@ -90,7 +90,7 @@ impl RunserverHook for GrpcRunserverHook {
 		ctx: &RunserverContext,
 	) -> Result<(), Box<dyn Error + Send + Sync>> {
 		let mut shutdown_rx = ctx.shutdown_coordinator.subscribe();
-		let grpc_config = GrpcServerConfig::default();
+		let grpc_config: GrpcServerConfig = get_grpc_server_config();
 		// `tokio::spawn` does not propagate task-local storage, so the
 		// gRPC startup task cannot rely on `get_di_context`. Capture the
 		// root DI context here and pass it explicitly into the spawned
