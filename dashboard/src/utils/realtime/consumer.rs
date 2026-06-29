@@ -2,7 +2,7 @@
 //!
 //! `NotificationConsumer` implements the `WebSocketConsumer` trait from
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
-//! `WsBroadcaster` event distribution system and the gRPC build log stream.
+//! `WsBroadcaster` event distribution system and the gRPC log stream.
 
 use std::sync::Arc;
 
@@ -27,6 +27,7 @@ use crate::shared::ws_messages::{
 	AppLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
 	WsClientMessage, WsMessage,
 };
+use crate::utils::grpc::dashboard_grpc_auth_interceptor;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
@@ -73,16 +74,6 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
-}
-
-fn dashboard_grpc_auth_interceptor(token: String) -> impl tonic::service::Interceptor + Clone {
-	move |mut request: tonic::Request<()>| {
-		let value = format!("Bearer {token}").parse().map_err(|e| {
-			tonic::Status::internal(format!("Invalid dashboard gRPC auth metadata: {e}"))
-		})?;
-		request.metadata_mut().insert("authorization", value);
-		Ok(request)
-	}
 }
 
 async fn connect_grpc_channel(
@@ -587,9 +578,23 @@ impl WebSocketConsumer for NotificationConsumer {
 							return;
 						}
 					};
+					let interceptor = match dashboard_grpc_auth_interceptor(&grpc_token) {
+						Ok(interceptor) => interceptor,
+						Err(_error) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %_error,
+								"Failed to encode dashboard gRPC auth metadata for app log streaming",
+							);
+							let err_msg = app_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
 					let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
 						channel,
-						dashboard_grpc_auth_interceptor(grpc_token),
+						interceptor,
 					);
 
 					let request = log_pb::TailLogsRequest {

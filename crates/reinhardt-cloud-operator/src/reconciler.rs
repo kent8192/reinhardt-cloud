@@ -410,7 +410,15 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.tenant
 				.as_ref()
 				.expect("tenant presence verified by validate_tenant_namespace");
-			reconcile_tenant_resources(&ctx.client, tenant).await?;
+			reconcile_tenant_resources(
+				&ctx.client,
+				tenant,
+				app.spec
+					.isolation
+					.as_ref()
+					.and_then(|isolation| isolation.network.as_ref()),
+			)
+			.await?;
 		}
 		Ok(None) => {
 			// Backward-compat path: tenant unset, no enforcement.
@@ -602,7 +610,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		// set of platform-appropriate resources (on-prem StatefulSet/PVC,
 		// AWS ACK DBInstance, or GCP Config Connector SQL resources) and
 		// apply them via server-side apply.
-		let resources = infer_database_resources(&app, &ctx.platform);
+		let resources = infer_database_resources(&app, &ctx.platform)?;
 		for resource in resources {
 			match resource {
 				DatabaseResource::StatefulSet(ss) => {
@@ -2014,6 +2022,7 @@ fn validate_tenant_namespace(
 async fn reconcile_tenant_resources(
 	client: &Client,
 	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
+	network: Option<&reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec>,
 ) -> Result<(), Error> {
 	let namespace_name = tenant.namespace();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -2042,7 +2051,7 @@ async fn reconcile_tenant_resources(
 	let policies: Api<NetworkPolicy> = Api::namespaced(client.clone(), &namespace_name);
 	for policy in [
 		tenant_resources::build_default_deny_policy(tenant),
-		tenant_resources::build_allow_same_namespace_policy(tenant),
+		tenant_resources::build_allow_same_namespace_policy(tenant, network),
 		tenant_resources::build_allow_ingress_controller_policy(tenant),
 	] {
 		let policy_name = policy
@@ -4101,7 +4110,8 @@ mod tests {
 		// function. A non-empty result proves the wiring is reachable;
 		// the previous code path (introspect-only) would have ignored
 		// the explicit spec entirely.
-		let resources = infer_database_resources(&app, &platform);
+		let resources =
+			infer_database_resources(&app, &platform).expect("database resources should infer");
 
 		// Assert
 		assert_eq!(
