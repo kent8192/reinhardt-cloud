@@ -913,13 +913,19 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 					&name,
 					parent_uid,
 				) {
-					ns_api
-						.delete(&preview_ns, &DeleteParams::default())
-						.await
-						.map_err(Error::Kube)?;
-					info!(
-						"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
-					);
+					match ns_api.delete(&preview_ns, &DeleteParams::default()).await {
+						Ok(_) => {
+							info!(
+								"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
+							);
+						}
+						Err(err) if preview_namespace_delete_is_best_effort_error(&err) => {
+							warn!(
+								"Leaving preview namespace {preview_ns} during cleanup of {namespace}/{name}: namespace delete was not permitted or the namespace disappeared ({err})"
+							);
+						}
+						Err(err) => return Err(Error::Kube(err)),
+					}
 				} else {
 					warn!(
 						"Skipping preview namespace cleanup for {namespace}/{name}: {preview_ns} is not labeled as owned by this Project"
@@ -2517,6 +2523,10 @@ where
 	Ok(())
 }
 
+fn preview_namespace_delete_is_best_effort_error(error: &kube::Error) -> bool {
+	matches!(error, kube::Error::Api(status) if status.code == 403 || status.code == 404)
+}
+
 async fn delete_migration_jobs(
 	client: &Client,
 	namespace: &str,
@@ -3647,6 +3657,29 @@ mod tests {
 			status.conditions[0].last_transition_time,
 			Some(preserved_time.to_string())
 		);
+	}
+
+	#[rstest]
+	#[case::forbidden(403, true)]
+	#[case::not_found(404, true)]
+	#[case::server_error(500, false)]
+	fn preview_namespace_delete_best_effort_error_classification(
+		#[case] code: u16,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let status = kube::core::Status {
+			code,
+			message: "preview namespace delete failed".to_string(),
+			..Default::default()
+		};
+		let error = kube::Error::Api(Box::new(status));
+
+		// Act
+		let is_best_effort = preview_namespace_delete_is_best_effort_error(&error);
+
+		// Assert
+		assert_eq!(is_best_effort, expected);
 	}
 
 	#[rstest]
