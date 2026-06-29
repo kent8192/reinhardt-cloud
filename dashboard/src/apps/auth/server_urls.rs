@@ -22,6 +22,7 @@ use crate::apps::auth::models::User;
 use crate::apps::auth::services::oauth::linking::link_or_create_user;
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::auth::services::oauth::{OAuthBackendBox, OAuthBackendBoxKey};
+use crate::apps::auth::services::registration::ensure_personal_organization;
 use crate::apps::auth::services::session::{
 	SessionService, SessionServiceKey, session_cookie_header,
 };
@@ -237,8 +238,8 @@ pub async fn oauth_callback(
 ///
 /// `GET /api/auth/verify-email/{token}/`
 ///
-/// On success, sets `is_active = true` for the user. Returns 200 even
-/// if the user is already active.
+/// On success, sets `is_active = true` for the user and ensures their
+/// Personal Organization exists. Returns 200 even if the user is already active.
 #[get("/verify-email/{token}/", name = "verify-email")]
 pub async fn verify_email(
 	Path(token): Path<String>,
@@ -268,12 +269,15 @@ pub async fn verify_email(
 	if !user.is_active() {
 		let mut updated = user;
 		updated.is_active = true;
-		User::objects().update(&updated).await.map_err(|e| {
+		let updated = User::objects().update(&updated).await.map_err(|e| {
 			error!("Failed to activate user {user_id}: {e}");
 			AppError::Internal("Internal server error".to_string())
 		})?;
+		ensure_personal_organization(&updated).await?;
 		info!("User {user_id} email verified and activated");
-	}
+	} else {
+		ensure_personal_organization(&user).await?;
+	};
 
 	let body = serde_json::json!({
 		"success": true,

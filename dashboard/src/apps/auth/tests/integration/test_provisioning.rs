@@ -24,7 +24,7 @@ mod tests {
 		ensure_personal_organization, provision_personal_organization,
 	};
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
-	use crate::apps::organizations::roles::sanitize_username_to_slug;
+	use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
 	use crate::config::test_helpers::build_test_app;
 	use reinhardt::UrlReverser;
 
@@ -219,5 +219,103 @@ mod tests {
 			.await
 			.expect("query memberships");
 		assert_eq!(memberships.len(), 1);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_ensure_personal_organization_ignores_unrelated_membership(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let owner = create_user("owner-org", "owner-org@example.com").await;
+		let member = create_user("member-only", "member-only@example.com").await;
+		let now = Utc::now();
+		let foreign_org = Organization::objects()
+			.create(&Organization {
+				id: None,
+				slug: "owner-org".to_string(),
+				name: "owner-org".to_string(),
+				created_by: owner.id,
+				created_at: now,
+				updated_at: now,
+			})
+			.await
+			.expect("seed foreign Organization");
+		OrganizationMembership::objects()
+			.create(
+				&OrganizationMembership::build()
+					.organization(foreign_org.id.expect("created Organization has id"))
+					.user(member.id)
+					.role(MembershipRole::Developer.as_db_str().to_string())
+					.finish(),
+			)
+			.await
+			.expect("seed unrelated membership");
+
+		// Act
+		ensure_personal_organization(&member)
+			.await
+			.expect("ensure should create the missing Personal Org");
+
+		// Assert
+		let personal_org = Organization::objects()
+			.filter(Organization::field_created_by().eq(member.id.to_string()))
+			.first()
+			.await
+			.expect("query member Personal Org")
+			.expect("member Personal Org should exist");
+		assert_eq!(personal_org.created_by, member.id);
+		let memberships = OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(member.id.to_string()))
+			.all()
+			.await
+			.expect("query member memberships");
+		assert_eq!(memberships.len(), 2);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_ensure_personal_organization_is_concurrency_safe(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			Arc<DatabaseConnection>,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let user = create_user("concurrent-org", "concurrent-org@example.com").await;
+
+		// Act
+		let (first, second) = tokio::join!(
+			ensure_personal_organization(&user),
+			ensure_personal_organization(&user),
+		);
+		first.expect("first ensure should succeed");
+		second.expect("second ensure should succeed");
+
+		// Assert
+		let personal_orgs = Organization::objects()
+			.filter(Organization::field_created_by().eq(user.id.to_string()))
+			.all()
+			.await
+			.expect("query Personal Orgs");
+		assert_eq!(personal_orgs.len(), 1);
+		let memberships = OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.all()
+			.await
+			.expect("query memberships");
+		assert_eq!(memberships.len(), 1);
+		assert_eq!(memberships[0].role, MembershipRole::Owner.as_db_str());
 	}
 }
