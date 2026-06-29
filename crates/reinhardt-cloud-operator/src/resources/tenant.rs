@@ -19,12 +19,13 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::{Namespace, ResourceQuota, ResourceQuotaSpec};
 use k8s_openapi::api::networking::v1::{
-	NetworkPolicy, NetworkPolicyEgressRule, NetworkPolicyIngressRule, NetworkPolicyPeer,
+	IPBlock, NetworkPolicy, NetworkPolicyEgressRule, NetworkPolicyIngressRule, NetworkPolicyPeer,
 	NetworkPolicyPort, NetworkPolicySpec,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+use reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
 /// Label key that records the owning tenant on every resource the
@@ -54,6 +55,13 @@ const ALLOW_INGRESS_CONTROLLER_POLICY_NAME: &str = "tenant-allow-ingress-control
 /// into the tenant namespace.
 const INGRESS_CONTROLLER_NAMESPACE_LABEL: &str = "ingress-nginx";
 
+/// Namespace and pod labels used by the standard Kubernetes DNS
+/// deployment. The DNS egress rule must select this destination
+/// explicitly so tenant workloads cannot exfiltrate to arbitrary
+/// port-53 endpoints.
+const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
+const KUBE_DNS_APP_LABEL: &str = "kube-dns";
+
 /// Operator-default `ResourceQuota` values. Override per CR is tracked
 /// in #416's follow-up work; for now the same defaults apply to every
 /// tenant.
@@ -64,6 +72,63 @@ const DEFAULT_QUOTA_LIMITS_MEMORY: &str = "40Gi";
 const DEFAULT_QUOTA_PVC_COUNT: &str = "20";
 const DEFAULT_QUOTA_PVC_STORAGE: &str = "200Gi";
 const DEFAULT_QUOTA_POD_COUNT: &str = "100";
+
+fn kube_dns_peer() -> NetworkPolicyPeer {
+	NetworkPolicyPeer {
+		namespace_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"kubernetes.io/metadata.name".to_string(),
+				KUBE_DNS_NAMESPACE_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		pod_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"k8s-app".to_string(),
+				KUBE_DNS_APP_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		..Default::default()
+	}
+}
+
+fn dns_ports() -> Vec<NetworkPolicyPort> {
+	vec![
+		NetworkPolicyPort {
+			port: Some(IntOrString::Int(53)),
+			protocol: Some("UDP".to_string()),
+			..Default::default()
+		},
+		NetworkPolicyPort {
+			port: Some(IntOrString::Int(53)),
+			protocol: Some("TCP".to_string()),
+			..Default::default()
+		},
+	]
+}
+
+fn dns_egress_rule(network: Option<&NetworkIsolationSpec>) -> NetworkPolicyEgressRule {
+	let mut peers = vec![kube_dns_peer()];
+	if let Some(network) = network {
+		peers.extend(
+			network
+				.dns_allow_cidrs
+				.iter()
+				.map(|cidr| NetworkPolicyPeer {
+					ip_block: Some(IPBlock {
+						cidr: cidr.clone(),
+						except: None,
+					}),
+					..Default::default()
+				}),
+		);
+	}
+	NetworkPolicyEgressRule {
+		to: Some(peers),
+		ports: Some(dns_ports()),
+	}
+}
 
 /// Build the standard set of labels applied to every operator-managed
 /// tenant-scoped resource (namespace, quota, network policy).
@@ -177,7 +242,10 @@ pub(crate) fn build_default_deny_policy(tenant: &TenantRef) -> NetworkPolicy {
 /// the tenant namespace and DNS egress to the cluster's kube-dns. This
 /// is the minimum surface needed for an app's web tier to reach its
 /// own database/cache without re-enabling cross-tenant traffic.
-pub(crate) fn build_allow_same_namespace_policy(tenant: &TenantRef) -> NetworkPolicy {
+pub(crate) fn build_allow_same_namespace_policy(
+	tenant: &TenantRef,
+	network: Option<&NetworkIsolationSpec>,
+) -> NetworkPolicy {
 	let same_namespace_peer = NetworkPolicyPeer {
 		pod_selector: Some(LabelSelector::default()),
 		..Default::default()
@@ -203,24 +271,10 @@ pub(crate) fn build_allow_same_namespace_policy(tenant: &TenantRef) -> NetworkPo
 					to: Some(vec![same_namespace_peer]),
 					..Default::default()
 				},
-				// DNS — required for service discovery. Permitted to
-				// any destination because kube-dns selectors vary
-				// across distros (kube-system / openshift-dns / etc.).
-				NetworkPolicyEgressRule {
-					ports: Some(vec![
-						NetworkPolicyPort {
-							port: Some(IntOrString::Int(53)),
-							protocol: Some("UDP".to_string()),
-							..Default::default()
-						},
-						NetworkPolicyPort {
-							port: Some(IntOrString::Int(53)),
-							protocol: Some("TCP".to_string()),
-							..Default::default()
-						},
-					]),
-					..Default::default()
-				},
+				// DNS — required for service discovery and restricted
+				// to the cluster kube-dns pods so the tenant default-deny
+				// posture still blocks arbitrary port-53 egress.
+				dns_egress_rule(network),
 			]),
 		}),
 	}
@@ -389,7 +443,7 @@ mod tests {
 		let tenant = tenant_org();
 
 		// Act
-		let policy = build_allow_same_namespace_policy(&tenant);
+		let policy = build_allow_same_namespace_policy(&tenant, None);
 
 		// Assert — there MUST be a DNS rule on port 53 so service
 		// discovery works inside the tenant namespace even with the
@@ -405,12 +459,92 @@ mod tests {
 	}
 
 	#[rstest]
+	fn allow_same_namespace_policy_restricts_dns_egress_to_kube_dns() {
+		// Arrange
+		let tenant = tenant_org();
+
+		// Act
+		let policy = build_allow_same_namespace_policy(&tenant, None);
+
+		// Assert
+		let egress = policy.spec.expect("spec").egress.expect("egress");
+		let dns_rule = egress
+			.iter()
+			.find(|rule| {
+				rule.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule");
+		let to = dns_rule.to.as_ref().expect("DNS destination peers");
+		assert_eq!(to.len(), 1);
+		let peer = &to[0];
+		let namespace_labels = peer
+			.namespace_selector
+			.as_ref()
+			.expect("namespace_selector")
+			.match_labels
+			.as_ref()
+			.expect("namespace match_labels");
+		assert_eq!(
+			namespace_labels
+				.get("kubernetes.io/metadata.name")
+				.map(String::as_str),
+			Some(KUBE_DNS_NAMESPACE_LABEL),
+		);
+		let pod_labels = peer
+			.pod_selector
+			.as_ref()
+			.expect("pod_selector")
+			.match_labels
+			.as_ref()
+			.expect("pod match_labels");
+		assert_eq!(
+			pod_labels.get("k8s-app").map(String::as_str),
+			Some(KUBE_DNS_APP_LABEL),
+		);
+	}
+
+	#[rstest]
+	fn allow_same_namespace_policy_allows_configured_dns_cidr() {
+		// Arrange
+		let tenant = tenant_org();
+		let network = NetworkIsolationSpec {
+			dns_allow_cidrs: vec!["169.254.20.10/32".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let policy = build_allow_same_namespace_policy(&tenant, Some(&network));
+
+		// Assert
+		let egress = policy.spec.expect("spec").egress.expect("egress");
+		let dns_rule = egress
+			.iter()
+			.find(|rule| {
+				rule.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule");
+		let peers = dns_rule.to.as_ref().expect("DNS destination peers");
+		assert!(peers.iter().any(|peer| {
+			peer.ip_block
+				.as_ref()
+				.map(|block| block.cidr.as_str() == "169.254.20.10/32")
+				.unwrap_or(false)
+		}));
+	}
+
+	#[rstest]
 	fn allow_same_namespace_policy_permits_in_namespace_traffic() {
 		// Arrange
 		let tenant = tenant_org();
 
 		// Act
-		let policy = build_allow_same_namespace_policy(&tenant);
+		let policy = build_allow_same_namespace_policy(&tenant, None);
 
 		// Assert — the ingress rule MUST allow same-namespace pods
 		// (empty pod_selector) so the web tier can talk to the worker
@@ -463,7 +597,7 @@ mod tests {
 		let namespace = build_namespace(&tenant);
 		let quota = build_default_resource_quota(&tenant);
 		let deny = build_default_deny_policy(&tenant);
-		let allow_same = build_allow_same_namespace_policy(&tenant);
+		let allow_same = build_allow_same_namespace_policy(&tenant, None);
 		let allow_ingress = build_allow_ingress_controller_policy(&tenant);
 
 		// Assert — every operator-managed resource MUST be discoverable
