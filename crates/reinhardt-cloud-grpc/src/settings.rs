@@ -12,7 +12,7 @@ use crate::config::GrpcServerConfig;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct GrpcSettings {
-	/// Address the gRPC server binds to (default: 127.0.0.1).
+	/// Address the gRPC server binds to (default: 0.0.0.0).
 	pub bind_host: String,
 	/// gRPC server port (default: 50051).
 	pub port: u16,
@@ -31,7 +31,7 @@ pub struct GrpcSettings {
 impl Default for GrpcSettings {
 	fn default() -> Self {
 		Self {
-			bind_host: "127.0.0.1".to_string(),
+			bind_host: "0.0.0.0".to_string(),
 			port: 50051,
 			max_message_size: 4 * 1024 * 1024,
 			timeout_secs: 30,
@@ -67,7 +67,7 @@ mod tests {
 		let settings = GrpcSettings::default();
 
 		// Assert
-		assert_eq!(settings.bind_host, "127.0.0.1");
+		assert_eq!(settings.bind_host, "0.0.0.0");
 		assert_eq!(settings.port, 50051);
 		assert_eq!(settings.max_message_size, 4 * 1024 * 1024);
 		assert_eq!(settings.timeout_secs, 30);
@@ -134,7 +134,7 @@ mod tests {
 		let settings: GrpcSettings = toml::from_str(toml_str).unwrap();
 
 		// Assert
-		assert_eq!(settings.bind_host, "127.0.0.1");
+		assert_eq!(settings.bind_host, "0.0.0.0");
 		assert_eq!(settings.port, 7777);
 		assert_eq!(settings.max_message_size, 4 * 1024 * 1024); // default
 		assert_eq!(settings.timeout_secs, 30); // default

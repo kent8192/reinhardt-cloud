@@ -49,6 +49,7 @@ use reinhardt::conf::{
 };
 use reinhardt::di::{Depends, FactoryOutput};
 use reinhardt::settings;
+use reinhardt_cloud_grpc::{config::GrpcServerConfig, settings::GrpcSettings};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -62,6 +63,10 @@ use std::path::{Path, PathBuf};
 /// - `[cors]` → `CorsSettings` (includes `allow_origins` used by `OriginGuardMiddleware`)
 /// - `[email]` → `EmailSettings` (SMTP backend configuration for transactional emails)
 /// - `[contacts]` → `ContactSettings` (required by settings-aware management commands)
+///
+/// The `[grpc]` table is read separately by [`get_grpc_server_config`] because
+/// `GrpcSettings` is owned by the `reinhardt-cloud-grpc` crate rather than the
+/// Reinhardt settings-fragment system.
 #[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings | contacts: ContactSettings)]
 pub struct ProjectSettings;
 
@@ -302,6 +307,33 @@ async fn create_project_settings() -> FactoryOutput<ProjectSettingsKey, ProjectS
 /// Returns `None` if the Redis URL is not configured in either source.
 pub fn get_redis_url() -> Option<String> {
 	get_env_or_top_level_string("REINHARDT_CLOUD_REDIS_URL", "redis_url")
+}
+
+/// gRPC server configuration for the Dashboard control plane.
+///
+/// Reads the merged `[grpc]` table from the active settings profile and the
+/// `REINHARDT_GRPC__*` environment overrides. Missing fields use
+/// `GrpcSettings::default()`.
+pub fn get_grpc_server_config() -> GrpcServerConfig {
+	let profile_str = profile_name();
+	let settings_dir = resolve_settings_dir();
+	let dotenv_dir = resolve_dotenv_dir(&settings_dir);
+	let builder = add_dashboard_dotenv_sources(SettingsBuilder::new(), &dotenv_dir, &profile_str);
+
+	builder
+		.profile(Profile::parse(&profile_str))
+		.add_source(default_project_settings_source())
+		.add_source(TomlFileSource::new(settings_dir.join("base.toml")).with_interpolation())
+		.add_source(
+			TomlFileSource::new(settings_dir.join(format!("{}.toml", profile_str)))
+				.with_interpolation(),
+		)
+		.add_source(EnvSource::new().with_prefix("REINHARDT_"))
+		.build()
+		.ok()
+		.and_then(|settings| settings.get_optional::<GrpcSettings>("grpc"))
+		.unwrap_or_default()
+		.into()
 }
 
 /// Log backend selected for the dashboard's gRPC `LogServiceServer`.

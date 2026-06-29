@@ -273,8 +273,8 @@ Required / useful environment variables:
 
 The notification WebSocket route is registered by `WebSocketRunserverHook`.
 The gRPC server is spawned alongside HTTP by `GrpcRunserverHook`
-(`dashboard/src/config/hooks.rs`) and binds to `127.0.0.1:50051` using
-`GrpcServerConfig::default()` (`crates/reinhardt-cloud-grpc/src/config.rs`).
+(`dashboard/src/config/hooks.rs`) and binds to `127.0.0.1:50051` through the
+local profile's `[grpc].bind_host` override (`dashboard/settings/local.toml`).
 
 ## 5. Run the Operator
 

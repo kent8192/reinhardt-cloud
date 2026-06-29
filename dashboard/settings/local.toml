@@ -27,6 +27,9 @@ jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of random
 # leak into the merged settings as unknown top-level keys.
 redis_url = "redis://${RC_REDIS_HOST:-localhost}:6379/1"
 
+[grpc]
+bind_host = "127.0.0.1"
+
 [core]
 debug = true
 secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"

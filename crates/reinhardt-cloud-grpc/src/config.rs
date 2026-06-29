@@ -25,7 +25,7 @@ pub struct GrpcServerConfig {
 impl Default for GrpcServerConfig {
 	fn default() -> Self {
 		Self {
-			bind_host: "127.0.0.1".to_string(),
+			bind_host: "0.0.0.0".to_string(),
 			port: 50051,
 			max_message_size: 4 * 1024 * 1024, // 4MB
 			timeout: Duration::from_secs(30),
@@ -58,7 +58,7 @@ mod tests {
 		let config = GrpcServerConfig::default();
 
 		// Assert
-		assert_eq!(config.bind_host, "127.0.0.1");
+		assert_eq!(config.bind_host, "0.0.0.0");
 		assert_eq!(config.port, 50051);
 		assert_eq!(config.max_message_size, 4 * 1024 * 1024);
 		assert_eq!(config.timeout, Duration::from_secs(30));
