@@ -183,7 +183,7 @@ On-premise support (k3s/kubeadm, local Postgres, self-hosted Harbor) is planned 
 ## Security Notes
 
 - **No credentials are hardcoded.** All sensitive values (database passwords, service account keys) are passed via Terraform variables or retrieved from the provider's secret manager.
-- **GKE clusters** enable Dataplane V2 (`ADVANCED_DATAPATH`) by default so Kubernetes `NetworkPolicy` resources generated for tenant isolation are enforced. Set `enable_dataplane_v2 = false` only when managing an existing cluster that was created without Dataplane V2 and cannot be replaced during the current maintenance window.
+- **GKE clusters** expose `enable_dataplane_v2` for explicit new-cluster or planned-replacement opt-in to Dataplane V2 (`ADVANCED_DATAPATH`) NetworkPolicy enforcement. The module defaults to `false` so routine upgrades of existing clusters do not plan replacement; set it to `true` only after validating Workload Identity metadata egress and ingress-controller source allowances for the target cluster.
 - **EKS API server** is private-endpoint-only (`endpoint_public_access = false`). Access via VPN or AWS Systems Manager Session Manager.
 - **EKS managed nodes** use a launch template that requires IMDSv2 and limits metadata response hops to `1`, preventing tenant pods from reaching node-role credentials through the instance metadata service.
 - **RDS and Cloud SQL** are deployed with private IP only; no public endpoint.
