@@ -19,6 +19,7 @@ use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
 use kube::runtime::watcher;
 use kube::{Client, Resource, ResourceExt};
+use serde::Serialize;
 use tracing::{Instrument, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
@@ -54,7 +55,8 @@ use reinhardt_cloud_types::crd::database::{DatabaseStatus, ResourcePhase};
 use reinhardt_cloud_types::crd::policy::DeletionPolicy;
 use reinhardt_cloud_types::crd::spec::ScaleMetric;
 use reinhardt_cloud_types::crd::{
-	BuildStatus, BuildTargetKind, Project, ProjectCondition, ProjectPhase, ProjectStatus,
+	BuildStatus, BuildTargetKind, PreviewStatus, Project, ProjectCondition, ProjectPhase,
+	ProjectStatus,
 };
 use reinhardt_cloud_types::{ConditionStatus, ConditionType};
 
@@ -77,6 +79,25 @@ fn managed_github_credentials_secret_name(project_name: &str) -> String {
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
+
+#[derive(Debug, Clone, Serialize)]
+struct StatusSubresourcePatch<T> {
+	status: T,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewStatusMergePatch {
+	previews: Vec<PreviewStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DegradedStatusMergePatch {
+	phase: ProjectPhase,
+	observed_generation: Option<i64>,
+	conditions: Vec<ProjectCondition>,
+}
 
 /// Platform-level preview environment configuration read from the environment.
 ///
@@ -2377,18 +2398,26 @@ async fn reconcile_preview_status(
 	Ok(())
 }
 
-fn build_preview_status_patch(preview_projects: &[Project]) -> serde_json::Value {
+fn build_preview_status_patch(
+	preview_projects: &[Project],
+) -> StatusSubresourcePatch<PreviewStatusMergePatch> {
 	let previews = resources::preview_status::build_preview_status_list(preview_projects, "https");
-	serde_json::json!({ "status": { "previews": previews } })
+	StatusSubresourcePatch {
+		status: PreviewStatusMergePatch { previews },
+	}
 }
 
 /// Builds a `Degraded`-condition status patch payload for the given
 /// reason and message.
 ///
 /// Pure function so it is exercised by unit tests without spinning up a
-/// kube client. The returned JSON value is shaped to merge into the
+/// kube client. The returned typed value is shaped to merge into the
 /// `status` sub-resource via `Patch::Merge`.
-fn build_degraded_status_patch(app: &Project, reason: &str, message: &str) -> serde_json::Value {
+fn build_degraded_status_patch(
+	app: &Project,
+	reason: &str,
+	message: &str,
+) -> StatusSubresourcePatch<DegradedStatusMergePatch> {
 	let condition = ProjectCondition {
 		type_: ConditionType::Degraded,
 		status: ConditionStatus::True,
@@ -2398,13 +2427,13 @@ fn build_degraded_status_patch(app: &Project, reason: &str, message: &str) -> se
 		observed_generation: app.metadata.generation,
 	};
 
-	serde_json::json!({
-		"status": {
-			"phase": ProjectPhase::Failed,
-			"observedGeneration": app.metadata.generation,
-			"conditions": [condition],
-		}
-	})
+	StatusSubresourcePatch {
+		status: DegradedStatusMergePatch {
+			phase: ProjectPhase::Failed,
+			observed_generation: app.metadata.generation,
+			conditions: vec![condition],
+		},
+	}
 }
 
 /// Best-effort: write a `Degraded` condition to the app's status
@@ -2426,7 +2455,7 @@ async fn record_degraded_condition(
 		.patch_status(
 			&app.name_any(),
 			&PatchParams::default(),
-			&Patch::Merge(payload),
+			&Patch::Merge(&payload),
 		)
 		.await
 	{
@@ -2848,12 +2877,14 @@ async fn update_status(
 	);
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
-	let status = serde_json::json!({ "status": typed_status });
+	let status = StatusSubresourcePatch {
+		status: typed_status,
+	};
 
 	api.patch_status(
 		&app.name_any(),
 		&PatchParams::default(),
-		&Patch::Merge(status),
+		&Patch::Merge(&status),
 	)
 	.await
 	.map_err(Error::Kube)?;
@@ -3104,6 +3135,10 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	fn status_patch_value<T: Serialize>(patch: &StatusSubresourcePatch<T>) -> serde_json::Value {
+		serde_json::to_value(patch).expect("status patch should serialize")
 	}
 
 	fn service_account_with_owner(uid: Option<&str>) -> ServiceAccount {
@@ -3473,7 +3508,7 @@ mod tests {
 		};
 
 		// Act
-		let patch = build_preview_status_patch(&[preview]);
+		let patch = status_patch_value(&build_preview_status_patch(&[preview]));
 
 		// Assert
 		assert_eq!(patch["status"]["previews"][0]["name"], "ready-app-pr-42");
@@ -5352,11 +5387,11 @@ mod tests {
 		let app = make_test_app("acme-app");
 
 		// Act
-		let payload = build_degraded_status_patch(
+		let payload = status_patch_value(&build_degraded_status_patch(
 			&app,
 			"TenantMismatch",
 			"namespace 'default' does not match expected 'tenant-acme'",
-		);
+		));
 
 		// Assert — the emitted JSON must drive the CR into `Failed`
 		// phase and carry a single Degraded=True condition with the
@@ -5384,7 +5419,7 @@ mod tests {
 		app.metadata.generation = Some(7);
 
 		// Act
-		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+		let payload = status_patch_value(&build_degraded_status_patch(&app, "Reason", "msg"));
 
 		// Assert
 		let status = &payload["status"];
@@ -5401,7 +5436,7 @@ mod tests {
 		let app = make_test_app("ts-app");
 
 		// Act
-		let payload = build_degraded_status_patch(&app, "Reason", "msg");
+		let payload = status_patch_value(&build_degraded_status_patch(&app, "Reason", "msg"));
 
 		// Assert — `lastTransitionTime` must be a non-empty RFC-3339 string.
 		let ts = payload["status"]["conditions"][0]["lastTransitionTime"]
