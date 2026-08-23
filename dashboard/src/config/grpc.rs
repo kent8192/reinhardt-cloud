@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reinhardt::{Argon2Hasher, Model, PasswordHasher};
 
-use reinhardt::di::{FactoryOutput, InjectionContext};
+use reinhardt::di::{InjectionContext, KeyedFactoryOutput as FactoryOutput};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;

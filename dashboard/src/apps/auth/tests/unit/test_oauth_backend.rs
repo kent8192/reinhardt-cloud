@@ -19,7 +19,7 @@
 mod tests {
 	use std::sync::Arc;
 
-	use reinhardt::di::FactoryOutput;
+	use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 	use rstest::rstest;
 	use serial_test::serial;
 

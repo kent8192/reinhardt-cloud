@@ -10,7 +10,7 @@ use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
-use reinhardt::di::Depends;
+use reinhardt::di::KeyedDepends as Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::{BaseUser, CurrentUser, Path, Query, Response, StatusCode, get};
@@ -257,7 +257,7 @@ pub async fn verify_email(
 	})?;
 
 	let user = User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.map_err(|e| {

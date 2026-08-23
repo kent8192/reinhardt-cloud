@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{QueryValue, get_connection};
-use reinhardt::di::Depends;
+use reinhardt::di::KeyedDepends as Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{Response, StatusCode, get};
 use tokio::sync::Mutex;

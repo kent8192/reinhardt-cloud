@@ -15,7 +15,7 @@
 
 use std::env;
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 
 use crate::apps::auth::services::oauth::token_crypto::token_encryption_key_is_configured;
 /// Credentials for a single OAuth provider, populated from env vars.

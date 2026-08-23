@@ -2,13 +2,12 @@
 
 #![cfg(test)]
 
-use std::sync::Arc;
-
 use chrono::Utc;
 use reinhardt::CurrentUser;
 use reinhardt::Model;
-use reinhardt::prelude::DatabaseConnection;
-use reinhardt::test::fixtures::{ContainerAsync, GenericImage, postgres_with_migrations_from_dir};
+use reinhardt::test::fixtures::{
+	ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
+};
 use rstest::fixture;
 use rstest::rstest;
 use serial_test::serial;
@@ -25,17 +24,18 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::MembershipRole;
 
 #[fixture]
-async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
+async fn db() -> (ContainerAsync<GenericImage>, MigrationDatabase) {
 	let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 	postgres_with_migrations_from_dir(&migrations_dir)
 		.await
 		.expect("Failed to start PostgreSQL with migrations")
 }
 
-async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
+async fn create_user(conn: &MigrationDatabase, username: &str) -> User {
+	let mut conn_handle = **conn;
 	User::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&User::build()
 				.username(username.to_string())
 				.email(format!("{username}@example.com"))
@@ -51,11 +51,12 @@ async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
 		.expect("create user")
 }
 
-async fn create_org(conn: &Arc<DatabaseConnection>, creator: &User, slug: &str) -> Organization {
+async fn create_org(conn: &MigrationDatabase, creator: &User, slug: &str) -> Organization {
 	let now = Utc::now();
+	let mut conn_handle = **conn;
 	Organization::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&Organization {
 				id: None,
 				slug: slug.to_string(),
@@ -70,14 +71,15 @@ async fn create_org(conn: &Arc<DatabaseConnection>, creator: &User, slug: &str) 
 }
 
 async fn add_membership(
-	conn: &Arc<DatabaseConnection>,
+	conn: &MigrationDatabase,
 	user: &User,
 	org: &Organization,
 	role: MembershipRole,
 ) {
+	let mut conn_handle = **conn;
 	OrganizationMembership::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&OrganizationMembership::build()
 				.organization(org.id.expect("created org has id"))
 				.user(user.id)
@@ -88,10 +90,11 @@ async fn add_membership(
 		.expect("create membership");
 }
 
-async fn create_cluster(conn: &Arc<DatabaseConnection>, org: &Organization, name: &str) -> Cluster {
+async fn create_cluster(conn: &MigrationDatabase, org: &Organization, name: &str) -> Cluster {
+	let mut conn_handle = **conn;
 	Cluster::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&Cluster::build()
 				.organization(org.id.expect("created org has id"))
 				.name(name.to_string())
@@ -106,15 +109,16 @@ async fn create_cluster(conn: &Arc<DatabaseConnection>, org: &Organization, name
 }
 
 async fn create_deployment(
-	conn: &Arc<DatabaseConnection>,
+	conn: &MigrationDatabase,
 	org: &Organization,
 	cluster: &Cluster,
 	project_name: &str,
 	project_yaml: Option<String>,
 ) -> Deployment {
+	let mut conn_handle = **conn;
 	Deployment::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&Deployment::build()
 				.organization(org.id.expect("created org has id"))
 				.project_name(project_name.to_string())
@@ -129,13 +133,14 @@ async fn create_deployment(
 }
 
 async fn create_github_project(
-	conn: &Arc<DatabaseConnection>,
+	conn: &MigrationDatabase,
 	org: &Organization,
 	deployment: &Deployment,
 ) -> GitHubProject {
+	let mut conn_handle = **conn;
 	let installation = GitHubInstallation::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&GitHubInstallation::build()
 				.organization(org.id.expect("created org has id"))
 				.installation_id(721_001)
@@ -149,7 +154,7 @@ async fn create_github_project(
 		.expect("create github installation");
 	let repository = GitHubRepository::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&GitHubRepository::build()
 				.installation(installation.id.expect("created installation has id"))
 				.github_repository_id(721_003)
@@ -165,7 +170,7 @@ async fn create_github_project(
 		.expect("create github repository");
 	GitHubProject::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&GitHubProject::build()
 				.organization(org.id.expect("created org has id"))
 				.repository(repository.id.expect("created repository has id"))
@@ -183,7 +188,7 @@ async fn create_github_project(
 #[tokio::test]
 #[serial(database)]
 async fn deployment_preview_list_scopes_to_current_org_and_reports_row_errors(
-	#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 ) {
 	// Arrange
 	let (_container, conn) = db.await;
@@ -222,7 +227,7 @@ async fn deployment_preview_list_scopes_to_current_org_and_reports_row_errors(
 #[tokio::test]
 #[serial(database)]
 async fn github_preview_list_uses_repository_full_name_and_branch(
-	#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+	#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 ) {
 	// Arrange
 	let (_container, conn) = db.await;

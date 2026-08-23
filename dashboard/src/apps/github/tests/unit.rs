@@ -868,7 +868,7 @@ pub mod model_tests {
 		assert_eq!(GitHubInstallation::app_label(), "github");
 		assert_eq!(GitHubInstallation::table_name(), "github_installations");
 		assert_eq!(installation.id, None);
-		assert_eq!(*installation.organization_id(), organization_id);
+		assert_eq!(installation.organization_id(), organization_id);
 		assert_eq!(installation.installation_id, installation_id);
 		assert_eq!(installation.account_login, account_login);
 		assert_eq!(installation.status, status);
@@ -898,7 +898,7 @@ pub mod model_tests {
 		assert_eq!(GitHubRepository::app_label(), "github");
 		assert_eq!(GitHubRepository::table_name(), "github_repositories");
 		assert_eq!(repository.id, None);
-		assert_eq!(*repository.installation_id(), installation_id);
+		assert_eq!(repository.installation_id(), installation_id);
 		assert_eq!(repository.github_repository_id, github_repository_id);
 		assert_eq!(repository.full_name, full_name);
 		assert_eq!(repository.default_branch, default_branch);
@@ -927,9 +927,9 @@ pub mod model_tests {
 		assert_eq!(GitHubProject::app_label(), "github");
 		assert_eq!(GitHubProject::table_name(), "github_projects");
 		assert_eq!(project.id, None);
-		assert_eq!(*project.organization_id(), organization_id);
-		assert_eq!(*project.repository_id(), repository_id);
-		assert_eq!(*project.deployment_id(), deployment_id);
+		assert_eq!(project.organization_id(), organization_id);
+		assert_eq!(project.repository_id(), repository_id);
+		assert_eq!(project.deployment_id(), deployment_id);
 		assert_eq!(project.project_name, "reinhardt-cloud");
 		assert_eq!(project.production_branch, "main");
 		assert_eq!(project.status, "imported");
@@ -1386,7 +1386,7 @@ pub mod server_fn_tests {
 
 		// Assert
 		assert_eq!(row.id, None);
-		assert_eq!(*row.installation_id(), 7);
+		assert_eq!(row.installation_id(), 7);
 		assert_eq!(row.github_repository_id, 123_456_789);
 		assert_eq!(row.full_name, "kent8192/reinhardt-cloud");
 		assert_eq!(row.owner_login, "kent8192");

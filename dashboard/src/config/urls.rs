@@ -18,8 +18,8 @@
 //! `#[injectable]`. These are aggregated into
 //! `RouterInfrastructure` (a transient factory) together with the
 //! admin routes, DI context, and Redis session backend.
-//! The router builder resolves `RouterInfrastructure` from the
-//! DI registry at startup.
+//! The routes entry point resolves `RouterInfrastructure` from the
+//! DI registry at startup, then builds the client-enabled router outside DI.
 //!
 //! ## WebSocket routes (native only)
 //!
@@ -38,13 +38,21 @@ use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
 use reinhardt::di::{
-	ContextLevel, Depends, DiRegistrationList, FactoryOutput, InjectionContext, get_di_context,
+	ContextLevel, DiRegistrationList, InjectionContext, KeyedDepends as Depends,
+	KeyedFactoryOutput as FactoryOutput, get_di_context,
 };
+#[cfg(native)]
+use reinhardt::pages::router::ClientRouter;
 #[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
 #[cfg(native)]
 use reinhardt::urls::prelude::UnifiedRouter;
+
+#[cfg(native)]
+type DashboardUnifiedRouter = UnifiedRouter<ClientRouter>;
+#[cfg(not(native))]
+type DashboardUnifiedRouter = UnifiedRouter;
 
 #[cfg(native)]
 use crate::shared::client::pages::not_found::not_found_page;
@@ -239,26 +247,11 @@ async fn create_router_infrastructure(
 
 // ── Router construction ─────────────────────────────────────────────
 
-/// Application-specific router wrapper.
-///
-/// Wraps the framework's `UnifiedRouter` to comply with the DI pseudo
-/// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
-/// point unwraps this to return the inner `UnifiedRouter` to the framework.
-#[cfg(native)]
-#[derive(Debug)]
-pub(crate) struct DashboardRouter(pub UnifiedRouter);
-
-#[cfg(native)]
-#[reinhardt::di::injectable_key]
-#[derive(Debug)]
-pub(crate) struct DashboardRouterKey;
-
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
-/// On native, the `#[inject]` parameter resolves `DashboardRouter` from
-/// the DI registry, which triggers the `make_router` factory and all its
-/// transitive dependencies. The framework creates the `InjectionContext`
-/// automatically for async routes.
+/// On native, the `#[inject]` parameter resolves the Send-safe router
+/// infrastructure. The client-enabled `UnifiedRouter` is intentionally built
+/// afterwards because its reactive client state is not Send or Sync.
 ///
 /// On wasm the function reduces to a stub that returns an empty
 /// `UnifiedRouter`. The body is never executed in a browser context —
@@ -269,14 +262,14 @@ pub(crate) struct DashboardRouterKey;
 pub async fn routes(
 	#[cfg(native)]
 	#[inject]
-	router: Depends<DashboardRouterKey, DashboardRouter>,
-) -> UnifiedRouter {
+	infra: Depends<RouterInfrastructureKey, RouterInfrastructure>,
+) -> DashboardUnifiedRouter {
 	#[cfg(native)]
 	{
-		router
+		let infra = infra
 			.try_unwrap()
-			.expect("DashboardRouter has multiple owners after resolve")
-			.0
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
+		build_dashboard_router(infra)
 	}
 	#[cfg(not(native))]
 	{
@@ -297,21 +290,9 @@ fn initialize_dashboard_static_resolver() {
 	);
 }
 
-/// Build the application router by resolving dependencies from DI.
-///
-/// Infrastructure components (`RouterInfrastructure`) are resolved
-/// transitively from the DI registry. Tests can override singletons
-/// like `AllowedOrigins` by pre-registering in the `SingletonScope`
-/// before calling this function.
+/// Build the application router from DI-resolved infrastructure.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "transient")]
-async fn make_router(
-	#[inject] infra: Depends<RouterInfrastructureKey, RouterInfrastructure>,
-) -> FactoryOutput<DashboardRouterKey, DashboardRouter> {
-	let infra = infra
-		.try_unwrap()
-		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
-
+pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUnifiedRouter {
 	let unified = UnifiedRouter::new()
 			// Project-level SPA 404 fallback — owned here rather than by any
 			// individual app because Reinhardt's `not_found` slot is per
@@ -373,7 +354,7 @@ async fn make_router(
 			))
 			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware);
 
-	FactoryOutput::new(DashboardRouter(unified))
+	unified
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

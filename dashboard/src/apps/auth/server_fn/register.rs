@@ -22,11 +22,11 @@ pub async fn register(
 	email: String,
 	password: String,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<
+	#[inject] settings: reinhardt::di::KeyedDepends<
 		crate::config::ProjectSettingsKey,
 		crate::config::ProjectSettings,
 	>,
-	#[inject] email_service: reinhardt::di::Depends<
+	#[inject] email_service: reinhardt::di::KeyedDepends<
 		crate::apps::auth::services::EmailServiceKey,
 		crate::apps::auth::services::EmailService,
 	>,

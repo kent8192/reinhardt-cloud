@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use reinhardt::conf::EmailSettings;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
 use reinhardt::mail::{EmailBackend, backend_from_settings};
 

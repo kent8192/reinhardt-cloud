@@ -93,7 +93,7 @@ pub async fn create_cluster_for_current_org(
 	name: String,
 	api_url: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] agent_token_service: reinhardt::di::Depends<
+	#[inject] agent_token_service: reinhardt::di::KeyedDepends<
 		crate::apps::clusters::services::AgentTokenServiceKey,
 		crate::apps::clusters::services::AgentTokenService,
 	>,
@@ -258,7 +258,7 @@ pub async fn delete_cluster_for_current_org(
 pub async fn rotate_cluster_token_for_current_org(
 	cluster_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] agent_token_service: reinhardt::di::Depends<
+	#[inject] agent_token_service: reinhardt::di::KeyedDepends<
 		crate::apps::clusters::services::AgentTokenServiceKey,
 		crate::apps::clusters::services::AgentTokenService,
 	>,

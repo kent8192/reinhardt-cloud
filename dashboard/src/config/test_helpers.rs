@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use reinhardt::OpenApiRouter;
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::{FactoryOutput, InjectionContext, SingletonScope};
+use reinhardt::di::{InjectionContext, KeyedFactoryOutput as FactoryOutput, SingletonScope};
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -52,7 +52,10 @@ use crate::apps::auth::models::User;
 use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
 use crate::config::settings::get_redis_url;
-use crate::config::urls::{AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey};
+use crate::config::urls::{
+	AllowedOrigins, AllowedOriginsKey, RouterInfrastructure, RouterInfrastructureKey,
+	build_dashboard_router,
+};
 
 /// Build the dashboard router via DI and return an in-process test client
 /// together with the [`UrlReverser`] for URL reverse-resolution.
@@ -116,20 +119,18 @@ pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+	let infra: Arc<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>> =
 		tokio::task::block_in_place(|| {
-			tokio::runtime::Handle::current()
-				.block_on(di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>())
+			tokio::runtime::Handle::current().block_on(
+				di_ctx.resolve::<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>>(),
+			)
 		})
-		.expect("Failed to resolve DashboardRouter");
+		.expect("Failed to resolve RouterInfrastructure");
 
-	let server_router = Arc::new(
-		Arc::try_unwrap(router)
-			.expect("DashboardRouter has multiple owners after resolve")
-			.into_inner()
-			.0
-			.into_server(),
-	);
+	let infra = Arc::try_unwrap(infra)
+		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
+		.into_inner();
+	let server_router = Arc::new(build_dashboard_router(infra).into_server());
 	register_router_arc(server_router.clone());
 	let url_reverser = UrlReverser::from_global();
 
@@ -177,6 +178,7 @@ pub async fn force_login_user(
 	email: &str,
 ) -> User {
 	use reinhardt::db::orm::Model;
+	let mut conn_handle = **conn;
 
 	let user = User::build()
 		.username(username.to_string())
@@ -189,7 +191,7 @@ pub async fn force_login_user(
 		.is_superuser(false)
 		.finish();
 	let user = User::objects()
-		.create_with_conn(conn, &user)
+		.create_with_conn(&mut conn_handle, &user)
 		.await
 		.expect("Failed to create test user");
 
@@ -211,6 +213,7 @@ pub async fn force_login_user_with_org(
 	email: &str,
 ) -> (User, Organization) {
 	use reinhardt::db::orm::Model;
+	let mut conn_handle = **conn;
 
 	let user = User::build()
 		.username(username.to_string())
@@ -223,7 +226,7 @@ pub async fn force_login_user_with_org(
 		.is_superuser(false)
 		.finish();
 	let user = User::objects()
-		.create_with_conn(conn, &user)
+		.create_with_conn(&mut conn_handle, &user)
 		.await
 		.expect("Failed to create test user");
 
@@ -250,6 +253,7 @@ pub async fn provision_personal_org_for_user(
 	user: &User,
 ) -> Organization {
 	use reinhardt::db::orm::Model;
+	let mut conn_handle = **conn;
 
 	let now = chrono::Utc::now();
 	let suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -261,7 +265,7 @@ pub async fn provision_personal_org_for_user(
 
 	let org = Organization::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&Organization {
 				id: None,
 				slug,
@@ -276,7 +280,7 @@ pub async fn provision_personal_org_for_user(
 
 	OrganizationMembership::objects()
 		.create_with_conn(
-			conn,
+			&mut conn_handle,
 			&OrganizationMembership::build()
 				.organization(org.id.expect("created Organization has id"))
 				.user(user.id)
@@ -321,16 +325,17 @@ pub async fn set_membership_role(
 	role: MembershipRole,
 ) {
 	use reinhardt::db::orm::Model;
+	let mut conn_handle = **conn;
 
 	let mut membership = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user.id))
 		.first()
 		.await
 		.expect("Failed to look up membership for set_membership_role")
 		.expect("set_membership_role called for user with no membership");
 	membership.role = role.as_db_str().to_string();
 	OrganizationMembership::objects()
-		.update_with_conn(conn, &membership)
+		.update_with_conn(&mut conn_handle, &membership)
 		.await
 		.expect("Failed to update membership role");
 }

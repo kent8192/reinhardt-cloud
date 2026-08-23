@@ -16,10 +16,9 @@ mod tests {
 		InMemorySocialAccountStorage, SocialAccount, SocialAccountStorage,
 	};
 	use reinhardt::db::orm::Model;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::*;
 	use serial_test::serial;
 	use std::collections::HashMap;
@@ -33,7 +32,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -87,7 +86,7 @@ mod tests {
 
 	async fn membership_count(user_id: uuid::Uuid) -> usize {
 		OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user_id))
 			.all()
 			.await
 			.expect("query memberships")
@@ -100,7 +99,7 @@ mod tests {
 	async fn test_already_linked_returns_existing_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -133,7 +132,7 @@ mod tests {
 	async fn test_authenticated_link_attaches_to_current_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -142,7 +141,7 @@ mod tests {
 		let (_c, _conn, _cli, _urls) = db.await;
 		let user_id = seed_user("link_authed", "authed@example.com").await;
 		let current = User::objects()
-			.filter(User::field_id().eq(user_id.to_string()))
+			.filter(User::field_id().eq(user_id))
 			.first()
 			.await
 			.unwrap()
@@ -170,7 +169,7 @@ mod tests {
 	async fn test_email_verified_match_links_existing_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -198,7 +197,7 @@ mod tests {
 	async fn test_email_unverified_collision_returns_email_conflict(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -236,7 +235,7 @@ mod tests {
 	async fn test_new_user_created_with_no_password(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -275,7 +274,7 @@ mod tests {
 	async fn test_already_linked_user_without_membership_is_repaired(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -328,7 +327,7 @@ mod tests {
 	async fn test_username_collision_appends_suffix(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -354,7 +353,7 @@ mod tests {
 	async fn test_email_verified_true_but_no_email_creates_new_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -387,7 +386,7 @@ mod tests {
 	async fn test_username_falls_back_to_sub_when_no_login_or_name(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),

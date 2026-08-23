@@ -43,7 +43,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(account.id, Uuid::nil());
-		assert_eq!(*account.user_id(), Uuid::nil());
+		assert_eq!(account.user_id(), Uuid::nil());
 		assert!(account.provider.is_empty());
 		assert!(account.provider_user_id.is_empty());
 		assert!(account.provider_username.is_none());

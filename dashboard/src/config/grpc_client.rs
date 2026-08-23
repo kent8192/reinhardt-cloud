@@ -12,7 +12,7 @@
 //! `tonic::Status` with `Code::Unavailable` and are mapped to HTTP 503
 //! by the existing view-layer error translation.
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 use tonic::transport::{Channel, Endpoint};
 
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.

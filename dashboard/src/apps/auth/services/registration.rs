@@ -19,8 +19,8 @@
 use chrono::Utc;
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::connection::QueryValue;
-use reinhardt::db::orm::transaction::TransactionScope;
+use reinhardt::db::orm::connection::{OrmExecutor, QueryValue};
+use reinhardt::db::orm::transaction::AtomicTransaction;
 use reinhardt::db::orm::{Model, get_connection};
 use tracing::{error, info};
 
@@ -33,7 +33,7 @@ use crate::apps::organizations::roles::{
 use crate::config::ProjectSettings;
 
 const MAX_ORG_SLUG_LEN: usize = 63;
-type ProvisionResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type ProvisionResult<T> = Result<T, AppError>;
 
 /// Register an inactive user and send the verification email.
 ///
@@ -142,37 +142,26 @@ async fn provision_personal_organization_inner(
 		AppError::Internal("Internal server error".to_string())
 	})?;
 
-	let mut tx = TransactionScope::begin(&conn).await.map_err(|e| {
-		error!("Failed to begin Personal Org provisioning transaction: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-
-	let result = provision_personal_organization_tx(&mut tx, user_id, username).await;
+	let result: ProvisionResult<()> = conn
+		.atomic(async |tx| provision_personal_organization_tx(tx, user_id, username).await)
+		.await;
 
 	if let Err(e) = result {
 		error!(
 			"Failed to provision Personal Org for user {}: {e}",
 			created.id
 		);
-		if let Err(rollback_err) = tx.rollback().await {
-			error!("Failed to roll back Personal Org provisioning transaction: {rollback_err}");
-		}
 		if rollback_on_failure {
 			rollback_user(created).await;
 		}
 		return Err(AppError::Internal("Internal server error".to_string()));
 	}
 
-	tx.commit().await.map_err(|e| {
-		error!("Failed to commit Personal Org provisioning transaction: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-
 	Ok(())
 }
 
 async fn provision_personal_organization_tx(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 	username: String,
 ) -> ProvisionResult<()> {
@@ -212,7 +201,7 @@ async fn provision_personal_organization_tx(
 }
 
 async fn lock_personal_org_provisioning(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 ) -> ProvisionResult<()> {
 	tx.execute(
@@ -224,11 +213,11 @@ async fn lock_personal_org_provisioning(
 }
 
 async fn find_personal_organization_id(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 ) -> ProvisionResult<Option<i64>> {
 	let row = tx
-		.query_optional(
+		.fetch_all(
 			"SELECT o.id \
 			 FROM organizations o \
 			 JOIN organization_memberships m ON m.organization_id = o.id \
@@ -242,19 +231,21 @@ async fn find_personal_organization_id(
 				QueryValue::String(MembershipRole::Owner.as_db_str().to_string()),
 			],
 		)
-		.await?;
-	Ok(row.and_then(|row| row.get("id")))
+		.await?
+		.into_iter()
+		.next();
+	row.map(|row| row.get("id")).transpose().map_err(Into::into)
 }
 
 async fn insert_personal_organization(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 	username: &str,
 	slug: &str,
 	now: chrono::DateTime<Utc>,
 ) -> ProvisionResult<Option<i64>> {
 	let row = tx
-		.query_optional(
+		.fetch_all(
 			"INSERT INTO organizations (slug, name, created_by, created_at, updated_at) \
 			 VALUES ($1, $2, $3, $4, $5) \
 			 ON CONFLICT (slug) DO NOTHING \
@@ -267,17 +258,14 @@ async fn insert_personal_organization(
 				QueryValue::Timestamp(now),
 			],
 		)
-		.await?;
-	row.map(|row| {
-		row.get("id")
-			.ok_or_else(|| std::io::Error::other("created Personal Organization did not return id"))
-	})
-	.transpose()
-	.map_err(Into::into)
+		.await?
+		.into_iter()
+		.next();
+	row.map(|row| row.get("id")).transpose().map_err(Into::into)
 }
 
 async fn insert_owner_membership(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 	org_id: i64,
 	now: chrono::DateTime<Utc>,
@@ -295,7 +283,7 @@ async fn insert_owner_membership(
 			],
 		)
 		.await?;
-	Ok(rows > 0)
+	Ok(rows.rows_affected > 0)
 }
 
 fn personal_org_slug(username: &str) -> String {

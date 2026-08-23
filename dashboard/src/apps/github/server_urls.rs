@@ -3,7 +3,7 @@
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
-use reinhardt::di::Depends;
+use reinhardt::di::KeyedDepends as Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::reinhardt_params::Body;
@@ -165,7 +165,7 @@ pub async fn github_webhook(
 			},
 		);
 	};
-	let deployment_id = *project.deployment_id();
+	let deployment_id = project.deployment_id();
 	let mut deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.first()
@@ -214,7 +214,7 @@ pub async fn github_webhook(
 			error!("Failed to update deployment {deployment_id} from GitHub webhook: {e}");
 			AppError::Internal("Failed to update deployment".to_string())
 		})?;
-	let cluster_id = *deployment.cluster_id();
+	let cluster_id = deployment.cluster_id();
 	let cluster = Cluster::objects()
 		.filter(Cluster::field_id().eq(cluster_id))
 		.first()
@@ -288,7 +288,7 @@ async fn upsert_verified_installation(
 			AppError::Internal("Failed to persist GitHub installation".to_string())
 		})?;
 	if let Some(mut existing) = existing {
-		if *existing.organization_id() != organization_id {
+		if existing.organization_id() != organization_id {
 			return Err(AppError::Conflict(
 				"GitHub App installation is already linked to another organization".to_string(),
 			));
@@ -403,7 +403,7 @@ async fn refresh_git_credentials_secret_for_webhook(
 		return Ok(());
 	}
 	let installation = GitHubInstallation::objects()
-		.filter(GitHubInstallation::field_id().eq(*repository.installation_id()))
+		.filter(GitHubInstallation::field_id().eq(repository.installation_id()))
 		.first()
 		.await
 		.map_err(|e| format!("Failed to load GitHub installation: {e}"))?

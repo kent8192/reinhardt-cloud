@@ -8,7 +8,7 @@
 use reinhardt::Argon2Hasher;
 use reinhardt::PasswordHasher;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
 use reinhardt_cloud_grpc::agent_claims::create_agent_token;
 use uuid::Uuid;
 

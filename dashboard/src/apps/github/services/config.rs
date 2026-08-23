@@ -6,7 +6,7 @@
 use std::env;
 use std::fmt;
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 
 const APP_ID_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_ID";
 const PRIVATE_KEY_PEM_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_PRIVATE_KEY_PEM";

@@ -9,10 +9,18 @@ pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(native)]
+use reinhardt::pages::router::ClientRouter;
+
+#[cfg(native)]
+type AppRouter = UnifiedRouter<ClientRouter>;
+#[cfg(not(native))]
+type AppRouter = UnifiedRouter;
+
 use crate::apps::dashboard::client::layout::dashboard_shell;
 
 /// Returns the unified URL patterns for the dashboard app.
-pub fn url_patterns() -> UnifiedRouter {
+pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
 		.server(|s| s)
 		.client(|c| c.component(dashboard_shell))

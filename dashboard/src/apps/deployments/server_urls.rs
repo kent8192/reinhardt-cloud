@@ -3,7 +3,7 @@
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
-use reinhardt::di::Depends;
+use reinhardt::di::KeyedDepends as Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::reinhardt_params::Body;
 use reinhardt::{CurrentUser, Response, StatusCode, Validate, post};

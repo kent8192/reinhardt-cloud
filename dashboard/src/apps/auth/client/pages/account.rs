@@ -204,11 +204,20 @@ fn account_error(message: &str) -> Page {
 }
 
 /// Render the account page.
-#[reinhardt::pages::component("/account", "auth:account_page")]
+#[reinhardt::pages::component("/account", name = "auth:account_page")]
 pub fn account_page() -> Page {
-	let user = use_resource(|| async move { self::load_current_user().await }, ());
-	let providers = use_resource(|| async move { self::load_oauth_providers().await }, ());
-	let linked = use_resource(|| async move { self::load_linked_accounts().await }, ());
+	let user = use_resource(
+		|| async move { self::load_current_user().await },
+		reinhardt::pages::deps![],
+	);
+	let providers = use_resource(
+		|| async move { self::load_oauth_providers().await },
+		reinhardt::pages::deps![],
+	);
+	let linked = use_resource(
+		|| async move { self::load_linked_accounts().await },
+		reinhardt::pages::deps![],
+	);
 
 	let content =
 		page!(|user: Resource<UserInfo, String>,

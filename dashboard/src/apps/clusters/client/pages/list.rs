@@ -111,9 +111,12 @@ struct ClustersListPageViewProps {
 }
 
 /// Render the clusters page.
-#[reinhardt::pages::component("/clusters", "clusters:list")]
+#[reinhardt::pages::component("/clusters", name = "clusters:list")]
 pub fn clusters_list_page() -> Page {
-	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
+	let clusters = use_resource(
+		|| async move { self::load_clusters().await },
+		reinhardt::pages::deps![],
+	);
 
 	let create_form = form! {
 		name: CreateClusterForm,

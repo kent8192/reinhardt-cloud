@@ -11,10 +11,9 @@ mod tests {
 	use chrono::Utc;
 	use reinhardt::BaseUser;
 	use reinhardt::db::orm::Model;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::*;
 	use serial_test::serial;
 	use std::sync::Arc;
@@ -31,7 +30,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -74,7 +73,7 @@ mod tests {
 	async fn test_provision_personal_organization_happy_path(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -101,13 +100,13 @@ mod tests {
 
 		// Assert -- exactly one Owner membership wiring user to org
 		let membership = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.first()
 			.await
 			.expect("query membership")
 			.expect("Owner membership should exist");
 		assert_eq!(
-			*membership.organization_id(),
+			membership.organization_id(),
 			org.id.expect("created Organization has id"),
 		);
 		assert_eq!(membership.role, "owner");
@@ -124,7 +123,7 @@ mod tests {
 	async fn test_provision_personal_organization_retries_on_slug_collision(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -162,7 +161,7 @@ mod tests {
 		// Assert -- the new user's Organization exists with a uuid-suffixed slug
 		// and records `new_user.id` as creator (NOT `squatter.id`)
 		let new_org = Organization::objects()
-			.filter(Organization::field_created_by().eq(new_user.id.to_string()))
+			.filter(Organization::field_created_by().eq(new_user.id))
 			.first()
 			.await
 			.expect("query Organization by created_by")
@@ -195,7 +194,7 @@ mod tests {
 	async fn test_ensure_personal_organization_is_idempotent(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -214,7 +213,7 @@ mod tests {
 
 		// Assert
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.all()
 			.await
 			.expect("query memberships");
@@ -227,7 +226,7 @@ mod tests {
 	async fn test_ensure_personal_organization_ignores_unrelated_membership(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -266,14 +265,14 @@ mod tests {
 
 		// Assert
 		let personal_org = Organization::objects()
-			.filter(Organization::field_created_by().eq(member.id.to_string()))
+			.filter(Organization::field_created_by().eq(member.id))
 			.first()
 			.await
 			.expect("query member Personal Org")
 			.expect("member Personal Org should exist");
 		assert_eq!(personal_org.created_by, member.id);
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(member.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(member.id))
 			.all()
 			.await
 			.expect("query member memberships");
@@ -286,7 +285,7 @@ mod tests {
 	async fn test_ensure_personal_organization_is_concurrency_safe(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -305,13 +304,13 @@ mod tests {
 
 		// Assert
 		let personal_orgs = Organization::objects()
-			.filter(Organization::field_created_by().eq(user.id.to_string()))
+			.filter(Organization::field_created_by().eq(user.id))
 			.all()
 			.await
 			.expect("query Personal Orgs");
 		assert_eq!(personal_orgs.len(), 1);
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.all()
 			.await
 			.expect("query memberships");

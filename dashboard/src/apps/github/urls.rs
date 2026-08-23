@@ -2,11 +2,19 @@
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
+#[cfg(native)]
+use reinhardt::pages::router::ClientRouter;
+
+#[cfg(native)]
+type AppRouter = UnifiedRouter<ClientRouter>;
+#[cfg(not(native))]
+type AppRouter = UnifiedRouter;
+
 use crate::apps::github::client::pages::github_repositories_page;
 #[cfg(native)]
 use crate::apps::github::server_urls;
 
-pub fn url_patterns() -> UnifiedRouter {
+pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
 		.server(|s| {
 			#[cfg(native)]

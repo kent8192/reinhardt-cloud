@@ -47,7 +47,7 @@ use reinhardt::conf::{
 	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
 	settings::builder::{BuildError, SettingsBuilder},
 };
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
 use reinhardt::settings;
 use reinhardt_cloud_grpc::{config::GrpcServerConfig, settings::GrpcSettings};
 use std::env;

@@ -49,7 +49,7 @@ pub async fn generate_api_key(
 ) -> Result<(String, ApiKey), ApiKeyError> {
 	// Confirm the user exists (fail fast with a clear error).
 	let _user = User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.map_err(|e| ApiKeyError::Database(e.to_string()))?
@@ -101,9 +101,9 @@ pub async fn verify_api_key(plaintext: &str) -> Option<(User, i64)> {
 		return None;
 	}
 
-	let user_id = *api_key.user_id();
+	let user_id = api_key.user_id();
 	let user = User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.ok()
@@ -133,7 +133,7 @@ pub async fn revoke_api_key(id: i64) -> Result<(), ApiKeyError> {
 /// List all keys for a user (any status; the caller decides display filtering).
 pub async fn list_api_keys_for_user(user_id: Uuid) -> Result<Vec<ApiKey>, ApiKeyError> {
 	ApiKey::objects()
-		.filter(ApiKey::field_user_id().eq(user_id.to_string()))
+		.filter(ApiKey::field_user_id().eq(user_id))
 		.order_by(&["id"])
 		.all()
 		.await

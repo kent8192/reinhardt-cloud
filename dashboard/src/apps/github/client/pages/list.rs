@@ -180,15 +180,24 @@ struct GitHubRepositoriesPageViewProps {
 }
 
 /// Render the GitHub repository import page.
-#[reinhardt::pages::component("/github", "github:repositories")]
+#[reinhardt::pages::component("/github", name = "github:repositories")]
 pub fn github_repositories_page() -> Page {
-	let repositories = use_resource(|| async move { self::load_repositories().await }, ());
-	let onboarding = use_resource(|| async move { self::load_onboarding().await }, ());
+	let repositories = use_resource(
+		|| async move { self::load_repositories().await },
+		reinhardt::pages::deps![],
+	);
+	let onboarding = use_resource(
+		|| async move { self::load_onboarding().await },
+		reinhardt::pages::deps![],
+	);
 	let imported_project_previews = use_resource(
 		|| async move { self::load_imported_project_previews().await },
-		(),
+		reinhardt::pages::deps![],
 	);
-	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
+	let clusters = use_resource(
+		|| async move { self::load_clusters().await },
+		reinhardt::pages::deps![],
+	);
 
 	let import_form = form! {
 		name: ImportGitHubRepositoryForm,

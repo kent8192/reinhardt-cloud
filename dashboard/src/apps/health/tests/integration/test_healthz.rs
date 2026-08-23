@@ -16,18 +16,18 @@
 mod tests {
 	use std::sync::Arc;
 
-	use reinhardt::di::{FactoryOutput, InjectionContext, SingletonScope};
-	use reinhardt::prelude::DatabaseConnection;
+	use reinhardt::di::{InjectionContext, KeyedFactoryOutput as FactoryOutput, SingletonScope};
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use reinhardt::{OpenApiRouter, UrlReverser};
 	use rstest::*;
 	use serial_test::serial;
 
 	use crate::config::test_helpers::build_test_app;
 	use crate::config::urls::{
-		AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
+		AllowedOrigins, AllowedOriginsKey, RouterInfrastructure, RouterInfrastructureKey,
+		build_dashboard_router,
 	};
 	use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
 
@@ -41,7 +41,7 @@ mod tests {
 	#[fixture]
 	async fn db_with_app() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -68,7 +68,7 @@ mod tests {
 	async fn test_healthz_returns_503_when_grpc_unreachable(
 		#[future] db_with_app: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -110,7 +110,7 @@ mod tests {
 	async fn test_healthz_returns_200_when_all_probes_succeed(
 		#[future] db_with_app: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -138,20 +138,18 @@ mod tests {
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+		let infra: Arc<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>> =
 			tokio::task::block_in_place(|| {
 				tokio::runtime::Handle::current().block_on(
-					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
+					di_ctx
+						.resolve::<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>>(),
 				)
 			})
-			.expect("Failed to resolve DashboardRouter");
-		let server_router = Arc::new(
-			Arc::try_unwrap(router)
-				.expect("DashboardRouter has multiple owners after resolve")
-				.into_inner()
-				.0
-				.into_server(),
-		);
+			.expect("Failed to resolve RouterInfrastructure");
+		let infra = Arc::try_unwrap(infra)
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
+			.into_inner();
+		let server_router = Arc::new(build_dashboard_router(infra).into_server());
 		let handler =
 			OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 		let probe_client = APIClient::from_handler(handler);
@@ -203,20 +201,18 @@ mod tests {
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
+		let infra: Arc<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>> =
 			tokio::task::block_in_place(|| {
 				tokio::runtime::Handle::current().block_on(
-					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
+					di_ctx
+						.resolve::<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>>(),
 				)
 			})
-			.expect("Failed to resolve DashboardRouter");
-		let server_router = Arc::new(
-			Arc::try_unwrap(router)
-				.expect("DashboardRouter has multiple owners after resolve")
-				.into_inner()
-				.0
-				.into_server(),
-		);
+			.expect("Failed to resolve RouterInfrastructure");
+		let infra = Arc::try_unwrap(infra)
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
+			.into_inner();
+		let server_router = Arc::new(build_dashboard_router(infra).into_server());
 		let handler =
 			OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 		let client = APIClient::from_handler(handler);

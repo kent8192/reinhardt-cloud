@@ -364,12 +364,20 @@ struct DeploymentsListPageViewProps {
 }
 
 /// Render the deployments page.
-#[reinhardt::pages::component("/deployments", "deployments:list")]
+#[reinhardt::pages::component("/deployments", name = "deployments:list")]
 pub fn deployments_list_page() -> Page {
-	let deployments = use_resource(|| async move { self::load_deployments().await }, ());
-	let deployment_previews =
-		use_resource(|| async move { self::load_deployment_previews().await }, ());
-	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
+	let deployments = use_resource(
+		|| async move { self::load_deployments().await },
+		reinhardt::pages::deps![],
+	);
+	let deployment_previews = use_resource(
+		|| async move { self::load_deployment_previews().await },
+		reinhardt::pages::deps![],
+	);
+	let clusters = use_resource(
+		|| async move { self::load_clusters().await },
+		reinhardt::pages::deps![],
+	);
 
 	let create_form = form! {
 		name: CreateDeploymentForm,
@@ -538,7 +546,7 @@ pub fn deployments_list_page() -> Page {
 				async move { self::load_deployment_logs(deployment_id).await }
 			}
 		},
-		(log_deployment_id.clone(),),
+		reinhardt::pages::deps![log_deployment_id],
 	);
 	let logs = log_viewer_container(log_history);
 	let deployments_for_inventory = deployments.clone();

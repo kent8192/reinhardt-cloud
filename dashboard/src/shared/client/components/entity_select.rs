@@ -1,8 +1,9 @@
 //! Shared entity selection controls for dashboard forms.
 
-use reinhardt::pages::component::{IntoPage, Page, PageElement};
+use reinhardt::pages::component::{IntoPage, Page, PageElement, PageEventHandler};
+use reinhardt::pages::event::ChangeEvent;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::Signal;
+use reinhardt::pages::prelude::{EventPayload, Signal, typed_event_handler};
 
 /// Display option for selecting a persisted dashboard entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,38 +31,17 @@ impl EntitySelectOption {
 	}
 }
 
-#[cfg(wasm)]
-fn select_change_handler<F>(
-	selected_value: Signal<String>,
-	on_change: F,
-) -> impl Fn(web_sys::Event) + 'static
+fn select_change_handler<F>(selected_value: Signal<String>, on_change: F) -> PageEventHandler
 where
 	F: Fn(String) + 'static,
 {
-	use wasm_bindgen::JsCast;
-
-	move |event| {
-		let Some(target) = event.target() else {
+	typed_event_handler::<ChangeEvent, _>(move |event: ChangeEvent| {
+		let Ok(value) = event.value() else {
 			return;
 		};
-		let Ok(select) = target.dyn_into::<web_sys::HtmlSelectElement>() else {
-			return;
-		};
-		let value = select.value();
 		selected_value.set(value.clone());
 		on_change(value);
-	}
-}
-
-#[cfg(native)]
-fn select_change_handler<F>(
-	_selected_value: Signal<String>,
-	_on_change: F,
-) -> impl Fn(reinhardt::pages::component::DummyEvent) + 'static
-where
-	F: Fn(String) + 'static,
-{
-	|_event| {}
+	})
 }
 
 /// Render a labeled select that writes the selected entity ID into a form signal.
@@ -100,7 +80,10 @@ where
 	let select = PageElement::new("select")
 		.attr("class", "rc-input")
 		.bool_attr("disabled", is_empty)
-		.listener("change", select_change_handler(selected_value, on_change))
+		.on(
+			ChangeEvent::EVENT,
+			select_change_handler(selected_value, on_change),
+		)
 		.child(placeholder_option)
 		.children(option_pages)
 		.into_page();

@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 use reinhardt::{Message, RoomManager, WebSocketConnection};
 use tokio::sync::RwLock;
 

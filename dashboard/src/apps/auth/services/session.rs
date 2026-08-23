@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
 use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
 
 use crate::apps::auth::models::User;

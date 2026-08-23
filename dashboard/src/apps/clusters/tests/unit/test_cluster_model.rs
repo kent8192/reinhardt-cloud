@@ -26,7 +26,7 @@ mod tests {
 			.finish();
 
 		// Assert
-		assert_eq!(*cluster.organization_id(), organization_id);
+		assert_eq!(cluster.organization_id(), organization_id);
 		assert_eq!(cluster.name, name);
 		assert_eq!(cluster.api_url, api_url);
 		assert!(cluster.is_active);
@@ -307,6 +307,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "created_at".to_string(),
@@ -316,6 +318,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "id".to_string(),
@@ -325,6 +329,8 @@ mod tests {
 					primary_key: true,
 					auto_increment: true,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "is_active".to_string(),
@@ -334,6 +340,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "name".to_string(),
@@ -343,6 +351,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "updated_at".to_string(),
@@ -352,6 +362,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 			],
 			constraints: vec![],

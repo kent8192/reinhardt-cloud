@@ -65,7 +65,7 @@ async fn current_org_id_for_action(
 
 #[cfg(native)]
 fn deployment_info(deployment: crate::apps::deployments::models::Deployment) -> DeploymentInfo {
-	let cluster_id = *deployment.cluster_id();
+	let cluster_id = deployment.cluster_id();
 	DeploymentInfo {
 		id: deployment.id.unwrap_or_default(),
 		project_name: deployment.project_name,
@@ -105,7 +105,7 @@ async fn preview_input_for_deployment(
 			ServerFnError::application(format!("Failed to load GitHub project metadata: {e}"))
 		})?;
 	if let Some(github_project) = github_project {
-		let repository_id = *github_project.repository_id();
+		let repository_id = github_project.repository_id();
 		let repository = GitHubRepository::objects()
 			.filter(GitHubRepository::field_id().eq(repository_id))
 			.first()
@@ -388,11 +388,11 @@ pub async fn update_deployment_status_for_current_org(
 pub async fn deployment_logs_for_current_org(
 	deployment_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] grpc_channel: reinhardt::di::Depends<
+	#[inject] grpc_channel: reinhardt::di::KeyedDepends<
 		crate::config::GrpcChannelSingletonKey,
 		crate::config::GrpcChannelSingleton,
 	>,
-	#[inject] jwt_secret: reinhardt::di::Depends<
+	#[inject] jwt_secret: reinhardt::di::KeyedDepends<
 		crate::apps::clusters::services::JwtSecretKey,
 		crate::apps::clusters::services::JwtSecret,
 	>,

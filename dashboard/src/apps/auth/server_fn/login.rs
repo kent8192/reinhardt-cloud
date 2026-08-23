@@ -18,11 +18,11 @@ pub async fn login(
 	username: String,
 	password: String,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<
+	#[inject] settings: reinhardt::di::KeyedDepends<
 		crate::config::ProjectSettingsKey,
 		crate::config::ProjectSettings,
 	>,
-	#[inject] session_service: reinhardt::di::Depends<
+	#[inject] session_service: reinhardt::di::KeyedDepends<
 		crate::apps::auth::services::SessionServiceKey,
 		crate::apps::auth::services::SessionService,
 	>,
@@ -69,7 +69,7 @@ fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
 
 #[cfg(all(test, native))]
 mod tests {
-	use reinhardt::pages::server_fn::ServerFnError;
+	use reinhardt::pages::server_fn::ServerFnErrorKind;
 	use rstest::rstest;
 
 	use super::*;
@@ -84,10 +84,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Invalid credentials");
-		assert!(matches!(
-			server_fn_error,
-			ServerFnError::Server { status: 401, .. }
-		));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Server);
+		assert_eq!(server_fn_error.status(), Some(401));
 	}
 
 	#[rstest]
@@ -100,10 +98,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Email verification required");
-		assert!(matches!(
-			server_fn_error,
-			ServerFnError::Server { status: 403, .. }
-		));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Server);
+		assert_eq!(server_fn_error.status(), Some(403));
 	}
 
 	#[rstest]
@@ -116,6 +112,7 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Internal server error");
-		assert!(matches!(server_fn_error, ServerFnError::Application(_)));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Application);
+		assert_eq!(server_fn_error.status(), None);
 	}
 }

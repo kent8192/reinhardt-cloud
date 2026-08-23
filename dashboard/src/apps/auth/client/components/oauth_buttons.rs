@@ -61,7 +61,10 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 
 /// Render OAuth provider buttons when providers are configured.
 pub fn oauth_buttons() -> Page {
-	let providers = use_resource(|| async move { self::load_oauth_providers().await }, ());
+	let providers = use_resource(
+		|| async move { self::load_oauth_providers().await },
+		reinhardt::pages::deps![],
+	);
 
 	page!(|providers: Resource<Vec<OAuthProviderInfo>, String>| {
 		{

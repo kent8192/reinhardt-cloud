@@ -39,9 +39,9 @@ mod tests {
 			.finish();
 
 		// Assert
-		assert_eq!(*deployment.organization_id(), organization_id);
+		assert_eq!(deployment.organization_id(), organization_id);
 		assert_eq!(deployment.project_name, project_name);
-		assert_eq!(*deployment.cluster_id(), cluster_id);
+		assert_eq!(deployment.cluster_id(), cluster_id);
 		assert_eq!(deployment.status, status);
 		assert_eq!(deployment.image, image);
 		assert_eq!(deployment.project_yaml, Some(project_yaml));

@@ -695,9 +695,8 @@ mod tests {
 
 	use crate::shared::ws_messages::WsClientMessage;
 	use chrono::Utc;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::fixtures::{
-		ContainerAsync, GenericImage, postgres_with_migrations_from_dir,
+		ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
 	};
 	use rstest::fixture;
 	use rstest::rstest;
@@ -743,17 +742,18 @@ mod tests {
 	}
 
 	#[fixture]
-	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
+	async fn db() -> (ContainerAsync<GenericImage>, MigrationDatabase) {
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations")
 	}
 
-	async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
+	async fn create_user(conn: &MigrationDatabase, username: &str) -> User {
+		let mut conn_handle = **conn;
 		User::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&User::build()
 					.username(username.to_string())
 					.email(format!("{username}@example.com"))
@@ -769,15 +769,12 @@ mod tests {
 			.expect("create user")
 	}
 
-	async fn create_org(
-		conn: &Arc<DatabaseConnection>,
-		creator: &User,
-		slug: &str,
-	) -> Organization {
+	async fn create_org(conn: &MigrationDatabase, creator: &User, slug: &str) -> Organization {
 		let now = Utc::now();
+		let mut conn_handle = **conn;
 		Organization::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Organization {
 					id: None,
 					slug: slug.to_string(),
@@ -791,10 +788,11 @@ mod tests {
 			.expect("create org")
 	}
 
-	async fn add_membership(conn: &Arc<DatabaseConnection>, user: &User, org: &Organization) {
+	async fn add_membership(conn: &MigrationDatabase, user: &User, org: &Organization) {
+		let mut conn_handle = **conn;
 		OrganizationMembership::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&OrganizationMembership::build()
 					.organization(org.id.expect("created org has id"))
 					.user(user.id)
@@ -806,13 +804,14 @@ mod tests {
 	}
 
 	async fn create_deployment(
-		conn: &Arc<DatabaseConnection>,
+		conn: &MigrationDatabase,
 		org: &Organization,
 		project_name: &str,
 	) -> Deployment {
+		let mut conn_handle = **conn;
 		let cluster = Cluster::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Cluster::build()
 					.organization(org.id.expect("created org has id"))
 					.name(format!("{project_name}-cluster"))
@@ -826,7 +825,7 @@ mod tests {
 			.expect("create cluster");
 		Deployment::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Deployment::build()
 					.organization(org.id.expect("created org has id"))
 					.project_name(project_name.to_string())
@@ -1176,7 +1175,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_deployment_subscriptions_allows_current_org_deployments(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1201,7 +1200,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_deployment_subscriptions_skips_cross_org_deployment_guess(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1252,7 +1251,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_allows_deployment_in_current_org(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1279,7 +1278,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_user_without_membership(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1309,7 +1308,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_cross_org_deployment_guess(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;

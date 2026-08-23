@@ -73,7 +73,7 @@ async fn github_account_linked(
 	use crate::apps::auth::models::SocialAccount;
 
 	SocialAccount::objects()
-		.filter(SocialAccount::field_user_id().eq(user.id.to_string()))
+		.filter(SocialAccount::field_user_id().eq(user.id))
 		.filter(SocialAccount::field_provider().eq("github"))
 		.exists()
 		.await
@@ -126,7 +126,7 @@ async fn rollback_created_github_project(project_id: i64) {
 #[cfg(native)]
 async fn agent_registry()
 -> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
-	use reinhardt::di::{ContextLevel, FactoryOutput, get_di_context};
+	use reinhardt::di::{ContextLevel, KeyedFactoryOutput as FactoryOutput, get_di_context};
 
 	use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
 
@@ -173,8 +173,8 @@ pub(crate) fn github_project_info(
 ) -> GitHubProjectInfo {
 	GitHubProjectInfo {
 		id: project.id.unwrap_or_default(),
-		repository_id: *project.repository_id(),
-		deployment_id: *project.deployment_id(),
+		repository_id: project.repository_id(),
+		deployment_id: project.deployment_id(),
 		project_name: project.project_name,
 		production_branch: project.production_branch,
 		status: project.status,
@@ -379,7 +379,7 @@ pub async fn import_github_repository_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("Failed to load GitHub repository: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "GitHub repository not found"))?;
 	let installation = GitHubInstallation::objects()
-		.filter(GitHubInstallation::field_id().eq(*repository.installation_id()))
+		.filter(GitHubInstallation::field_id().eq(repository.installation_id()))
 		.filter(GitHubInstallation::field_organization_id().eq(organization_id))
 		.first()
 		.await
@@ -581,8 +581,8 @@ pub async fn list_github_project_previews_for_current_org(
 
 		let mut summaries = Vec::with_capacity(projects.len());
 		for project in projects {
-			let repository_id = *project.repository_id();
-			let deployment_id = *project.deployment_id();
+			let repository_id = project.repository_id();
+			let deployment_id = project.deployment_id();
 			let repository = GitHubRepository::objects()
 				.filter(GitHubRepository::field_id().eq(repository_id))
 				.first()

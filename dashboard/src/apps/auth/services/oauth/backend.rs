@@ -58,7 +58,7 @@ use reinhardt::auth::social::core::config::ProviderConfig;
 use reinhardt::auth::social::core::error::SocialAuthError;
 use reinhardt::auth::social::flow::state::InMemoryStateStore;
 use reinhardt::auth::social::providers::github::GitHubProvider;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
 
 use crate::apps::auth::services::oauth::config::{
 	OAuthSettings, OAuthSettingsKey, ProviderCredentials,

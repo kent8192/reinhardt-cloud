@@ -27,7 +27,7 @@ use crate::apps::organizations::models::{Organization, OrganizationMembership};
 /// Used by server functions that operate on the user's current Personal Org.
 pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppError> {
 	let m = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user_id))
 		.order_by(&["created_at"])
 		.first()
 		.await
@@ -37,7 +37,7 @@ pub async fn current_organization_id_for_user(user_id: Uuid) -> Result<i64, AppE
 				"user has no organization membership; re-register to provision one".to_string(),
 			)
 		})?;
-	Ok(*m.organization_id())
+	Ok(m.organization_id())
 }
 
 /// Resolve an org slug to its `organization_id`, asserting membership.
@@ -75,7 +75,7 @@ pub async fn resolve_org_by_slug(user_id: Uuid, slug: &str) -> Result<i64, AppEr
 	})?;
 
 	let membership = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user_id))
 		.filter(OrganizationMembership::field_organization_id().eq(org_id))
 		.first()
 		.await

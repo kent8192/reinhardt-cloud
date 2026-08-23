@@ -14,10 +14,9 @@ mod tests {
 	use reinhardt::auth::social::core::OAuthToken;
 	use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 	use reinhardt::db::orm::Model;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::*;
 	use serial_test::serial;
 	use std::sync::Arc;
@@ -65,7 +64,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -131,7 +130,7 @@ mod tests {
 	async fn test_create_then_find_by_provider(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -177,7 +176,7 @@ mod tests {
 	async fn test_store_token_for_user_encrypts_and_loads_explicitly(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -230,7 +229,7 @@ mod tests {
 	async fn test_find_by_provider_returns_none_for_missing(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -255,7 +254,7 @@ mod tests {
 	async fn test_find_by_user_lists_all_providers(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -293,7 +292,7 @@ mod tests {
 	async fn test_update_missing_returns_error(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -317,7 +316,7 @@ mod tests {
 	async fn test_delete_removes_row(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -345,7 +344,7 @@ mod tests {
 	async fn test_unique_provider_user_id_is_enforced(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
