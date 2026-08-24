@@ -273,8 +273,8 @@ async fn insert_owner_membership(
 	let rows = tx
 		.execute(
 			"INSERT INTO organization_memberships (organization_id, user_id, role, created_at) \
-		 VALUES ($1, $2, $3, $4) \
-		 ON CONFLICT ON CONSTRAINT organization_memberships_org_user_unique DO NOTHING",
+			 VALUES ($1, $2, $3, $4) \
+			 ON CONFLICT (organization_id, user_id) DO NOTHING",
 			vec![
 				QueryValue::Int(org_id),
 				QueryValue::Uuid(user_id),

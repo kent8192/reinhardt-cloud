@@ -16,7 +16,11 @@ pub struct GitHubInstallation {
 	pub id: Option<i64>,
 
 	/// Organization that owns this GitHub App installation.
-	#[rel(foreign_key, related_name = "github_installations")]
+	#[rel(
+		foreign_key,
+		related_name = "github_installations",
+		on_delete = Cascade
+	)]
 	pub organization: ForeignKeyField<Organization>,
 
 	/// GitHub installation identifier.

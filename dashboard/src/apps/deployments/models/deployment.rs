@@ -16,7 +16,7 @@ pub struct Deployment {
 	pub id: Option<i64>,
 
 	/// Organization that owns this deployment.
-	#[rel(foreign_key, related_name = "deployments")]
+	#[rel(foreign_key, related_name = "deployments", on_delete = Cascade)]
 	pub organization: ForeignKeyField<Organization>,
 
 	/// Project name
@@ -24,7 +24,12 @@ pub struct Deployment {
 	pub project_name: String,
 
 	/// Cluster targeted by this deployment.
-	#[rel(foreign_key, related_name = "deployments")]
+	#[rel(
+		foreign_key,
+		related_name = "deployments",
+		on_delete = Restrict,
+		on_update = Cascade
+	)]
 	pub cluster: ForeignKeyField<Cluster>,
 
 	/// Deployment lifecycle status (pending, running, failed, succeeded)

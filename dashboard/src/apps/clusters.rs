@@ -8,6 +8,7 @@ use reinhardt::app_config;
 #[cfg(native)]
 pub mod admin;
 pub mod client;
+pub mod model_form;
 #[cfg(native)]
 pub mod models;
 #[cfg(native)]

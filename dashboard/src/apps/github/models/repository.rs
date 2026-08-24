@@ -16,7 +16,7 @@ pub struct GitHubRepository {
 	pub id: Option<i64>,
 
 	/// Installation that grants repository access.
-	#[rel(foreign_key, related_name = "repositories")]
+	#[rel(foreign_key, related_name = "repositories", on_delete = Cascade)]
 	pub installation: ForeignKeyField<GitHubInstallation>,
 
 	/// GitHub repository identifier.

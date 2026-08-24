@@ -10,7 +10,20 @@ use crate::apps::github::models::GitHubRepository;
 use crate::apps::organizations::models::Organization;
 
 /// A Reinhardt Cloud project imported from one GitHub repository.
-#[model(app_label = "github", table_name = "github_projects")]
+#[model(
+	app_label = "github",
+	table_name = "github_projects",
+	constraints = [
+		unique(
+			fields = ["repository_id"],
+			name = "github_projects_repository_id_key"
+		),
+		unique(
+			fields = ["deployment_id"],
+			name = "github_projects_deployment_id_key"
+		)
+	]
+)]
 #[derive(Serialize, Deserialize)]
 pub struct GitHubProject {
 	/// Primary key (None for auto-increment on insert).
@@ -18,15 +31,28 @@ pub struct GitHubProject {
 	pub id: Option<i64>,
 
 	/// Organization that owns the imported project.
-	#[rel(foreign_key, related_name = "github_projects")]
+	#[rel(
+		foreign_key,
+		related_name = "github_projects",
+		on_delete = Cascade
+	)]
 	pub organization: ForeignKeyField<Organization>,
 
 	/// Imported GitHub repository. Unique at the database layer.
-	#[rel(foreign_key, related_name = "github_project")]
+	#[rel(
+		foreign_key,
+		related_name = "github_project",
+		on_delete = Cascade
+	)]
 	pub repository: ForeignKeyField<GitHubRepository>,
 
-	/// Production deployment generated for this repository.
-	#[rel(foreign_key, related_name = "github_project")]
+	/// Production deployment generated for this repository. Unique at the
+	/// database layer.
+	#[rel(
+		foreign_key,
+		related_name = "github_project",
+		on_delete = Cascade
+	)]
 	pub deployment: ForeignKeyField<Deployment>,
 
 	/// Reinhardt project name generated for the repository.

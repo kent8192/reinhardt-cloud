@@ -21,7 +21,14 @@ use super::User;
 /// The `id` is a UUID rather than an auto-increment integer to match the
 /// `reinhardt-auth` `SocialAccountStorage` trait surface (its `delete`
 /// takes `Uuid`), and to keep enumeration of links non-trivial.
-#[model(app_label = "auth", table_name = "auth_social_accounts")]
+#[model(
+	app_label = "auth",
+	table_name = "auth_social_accounts",
+	constraints = [unique(
+		fields = ["provider", "provider_user_id"],
+		name = "auth_social_account_provider_uid_uniq"
+	)]
+)]
 #[derive(Default, Serialize, Deserialize)]
 pub struct SocialAccount {
 	/// Primary key (UUID v4, generated on insert).

@@ -3,19 +3,17 @@
 #[cfg(test)]
 mod tests {
 	use chrono::Utc;
-	use reinhardt::db::migrations::operations::Operation;
+	use reinhardt::db::migrations::ForeignKeyAction;
+	use reinhardt::db::migrations::operations::{Constraint, Operation};
 	use rstest::rstest;
 	use uuid::Uuid;
 
 	use crate::apps::auth::models::SocialAccount;
 
-	// Included migration files keep `pub fn migration()` because production
-	// discovery loads that symbol from standalone migration modules.
-	#[allow(unreachable_pub)]
-	mod token_metadata_migration {
+	mod auth_initial_migration {
 		include!(concat!(
 			env!("CARGO_MANIFEST_DIR"),
-			"/migrations/auth/0006_add_social_account_token_metadata.rs"
+			"/migrations/auth/0001_initial.rs"
 		));
 	}
 
@@ -109,41 +107,159 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_social_account_token_metadata_migration_adds_nullable_columns() {
+	fn test_auth_initial_migration_contains_final_social_account_token_columns() {
 		// Arrange
-		let migration = token_metadata_migration::migration();
+		let migration = auth_initial_migration::migration();
 
-		// Act & Assert
-		assert_add_column(
-			&migration.operations,
-			"encrypted_access_token",
-			"VarChar(4096)",
-		);
-		assert_add_column(&migration.operations, "token_expires_at", "TimestampTz");
-		assert_add_column(&migration.operations, "scopes", "VarChar(2048)");
-		assert_eq!(
-			migration.dependencies,
-			vec![("auth".to_string(), "0005_add_social_accounts".to_string())]
-		);
-	}
-
-	fn assert_add_column(operations: &[Operation], name: &str, field_type: &str) {
-		let column = operations
+		// Act
+		let columns = migration
+			.operations
 			.iter()
 			.find_map(|operation| match operation {
-				Operation::AddColumn { table, column, .. }
-					if table == "auth_social_accounts" && column.name == name =>
-				{
-					Some(column)
+				Operation::CreateTable { name, columns, .. } if name == "auth_social_accounts" => {
+					Some(columns)
 				}
 				_ => None,
 			})
-			.unwrap_or_else(|| panic!("{name} column must be added"));
-		assert_eq!(format!("{:?}", column.type_definition), field_type);
-		assert!(!column.not_null, "{name}.not_null");
-		assert!(!column.unique, "{name}.unique");
-		assert!(!column.primary_key, "{name}.primary_key");
-		assert!(!column.auto_increment, "{name}.auto_increment");
-		assert!(column.default.is_none(), "{name}.default");
+			.expect("auth_social_accounts table must be created");
+		let token_columns = columns
+			.iter()
+			.filter(|column| {
+				matches!(
+					column.name.as_str(),
+					"encrypted_access_token" | "token_expires_at" | "scopes"
+				)
+			})
+			.map(|column| {
+				(
+					column.name.as_str(),
+					format!("{:?}", column.type_definition),
+					column.not_null,
+					column.unique,
+					column.primary_key,
+					column.auto_increment,
+					column.default.as_deref(),
+				)
+			})
+			.collect::<Vec<_>>();
+
+		// Assert
+		assert_eq!(migration.app_label, "auth");
+		assert_eq!(migration.name, "0001_initial");
+		assert_eq!(
+			token_columns,
+			vec![
+				(
+					"encrypted_access_token",
+					"VarChar(4096)".to_string(),
+					false,
+					false,
+					false,
+					false,
+					None,
+				),
+				(
+					"scopes",
+					"VarChar(2048)".to_string(),
+					false,
+					false,
+					false,
+					false,
+					None,
+				),
+				(
+					"token_expires_at",
+					"TimestampTz".to_string(),
+					false,
+					false,
+					false,
+					false,
+					None,
+				),
+			]
+		);
+	}
+
+	#[rstest]
+	fn test_auth_initial_migration_preserves_constraints_and_active_token_index() {
+		// Arrange
+		let migration = auth_initial_migration::migration();
+
+		// Act
+		let social_unique_constraints = migration
+			.operations
+			.iter()
+			.find_map(|operation| match operation {
+				Operation::CreateTable {
+					name, constraints, ..
+				} if name == "auth_social_accounts" => Some(
+					constraints
+						.iter()
+						.filter_map(|constraint| match constraint {
+							Constraint::Unique { name, columns } => {
+								Some((name.clone(), columns.clone()))
+							}
+							_ => None,
+						})
+						.collect::<Vec<_>>(),
+				),
+				_ => None,
+			})
+			.expect("auth_social_accounts table must be created");
+		let api_key_user_action =
+			migration
+				.operations
+				.iter()
+				.find_map(|operation| match operation {
+					Operation::CreateTable {
+						name, constraints, ..
+					} if name == "auth_api_keys" => constraints.iter().find_map(|constraint| match constraint {
+						Constraint::ForeignKey {
+							columns,
+							on_delete,
+							on_update,
+							..
+						} if columns == &["user_id"] => Some((*on_delete, *on_update)),
+						_ => None,
+					}),
+					_ => None,
+				});
+		let email_token_indexes = migration
+			.operations
+			.iter()
+			.filter_map(|operation| match operation {
+				Operation::CreateIndex {
+					table,
+					columns,
+					unique,
+					where_clause,
+					..
+				} if table == "auth_email_verification_tokens" => {
+					Some((columns.clone(), *unique, where_clause.clone()))
+				}
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+
+		// Assert
+		assert_eq!(
+			social_unique_constraints,
+			vec![(
+				"auth_social_account_provider_uid_uniq".to_string(),
+				vec!["provider".to_string(), "provider_user_id".to_string()],
+			)]
+		);
+		assert_eq!(
+			api_key_user_action,
+			Some((ForeignKeyAction::Cascade, ForeignKeyAction::NoAction))
+		);
+		assert_eq!(
+			email_token_indexes,
+			vec![(
+				vec!["user_id".to_string()],
+				false,
+				Some("consumed_at IS NULL".to_string()),
+			)]
+		);
 	}
 }
