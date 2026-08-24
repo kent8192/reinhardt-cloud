@@ -38,24 +38,22 @@ use reinhardt::ServerRouter;
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
 use reinhardt::di::{
-	ContextLevel, DiRegistrationList, InjectionContext, KeyedDepends as Depends,
-	KeyedFactoryOutput as FactoryOutput, get_di_context,
+	DiRegistrationList, KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput,
 };
 #[cfg(native)]
 use reinhardt::pages::router::ClientRouter;
 #[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
-#[cfg(native)]
 use reinhardt::urls::prelude::UnifiedRouter;
 
 #[cfg(native)]
 type DashboardUnifiedRouter = UnifiedRouter<ClientRouter>;
+// The `#[routes]` macro consumes this wasm-only signature while generating
+// route resolvers, so rustc does not see a direct use after expansion.
 #[cfg(not(native))]
+#[allow(dead_code)]
 type DashboardUnifiedRouter = UnifiedRouter;
-
-#[cfg(native)]
-use crate::shared::client::pages::not_found::not_found_page;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
@@ -185,12 +183,10 @@ async fn create_cookie_session_config()
 
 /// Pre-built infrastructure components for the application router.
 ///
-/// Groups the DI context, admin routes with DI registrations,
-/// session backend, and middleware configuration so they can be
-/// resolved as a single dependency by `make_router`.
+/// Groups admin routes with DI registrations, session backend, and middleware
+/// configuration so they can be resolved as a single dependency by `make_router`.
 #[cfg(native)]
 pub(crate) struct RouterInfrastructure {
-	pub di_ctx: Arc<InjectionContext>,
 	pub admin_router: ServerRouter,
 	pub admin_di: DiRegistrationList,
 	pub session_backend: Arc<RedisSessionBackend>,
@@ -220,7 +216,6 @@ async fn create_router_infrastructure(
 	#[inject] _local_auth_service: Depends<LocalAuthServiceKey, LocalAuthService>,
 	#[inject] _grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
 ) -> FactoryOutput<RouterInfrastructureKey, RouterInfrastructure> {
-	let di_ctx = get_di_context(ContextLevel::Root);
 	initialize_dashboard_static_resolver();
 
 	// Configure admin site with DI registration.
@@ -236,7 +231,6 @@ async fn create_router_infrastructure(
 	);
 
 	FactoryOutput::new(RouterInfrastructure {
-		di_ctx,
 		admin_router,
 		admin_di,
 		session_backend,
@@ -291,23 +285,22 @@ fn initialize_dashboard_static_resolver() {
 }
 
 /// Build the application router from DI-resolved infrastructure.
+///
+/// The `#[routes]` inventory wrapper attaches its own injection context after
+/// this builder returns. Direct callers must attach their context themselves.
 #[cfg(native)]
 pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUnifiedRouter {
-	let unified = UnifiedRouter::new()
-			// Project-level SPA 404 fallback — owned here rather than by any
-			// individual app because Reinhardt's `not_found` slot is per
-			// `UnifiedRouter`, not per mounted segment.
-			.client(|c| c.not_found(not_found_page))
+	UnifiedRouter::new()
+			// App routers contribute server routes only. The complete client tree
+			// is attached below so layout nesting has one source of truth.
+			.client(|c| c)
 			// Admin panel
 			.mount("/admin/", infra.admin_router)
 			.mount("/static/admin/", admin_static_routes())
 			.with_prefix("/api/")
 			.with_di_registrations(infra.admin_di)
-			// Per-app unified routers — `mount_unified` carries server
-			// endpoints (mounted under the given prefix) AND merges client
-			// SPA `route` entries into the parent's client router so
-			// the global reverser sees `auth:login_page`,
-			// `dashboard:home`, etc.
+			// Per-app unified routers carry server endpoints under the given
+			// prefix. SPA route registration is centralized below.
 			.mount_unified("/", dashboard_urls::url_patterns())
 			.mount_unified("/auth/", auth_urls::url_patterns())
 			// Cluster and deployment data mutations are exposed through
@@ -318,6 +311,7 @@ pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUn
 			.mount_unified("/github/", github_urls::url_patterns())
 			.mount_unified("/", health_urls::url_patterns())
 			.mount_unified("/", organization_urls::url_patterns())
+			.client(crate::client::router::configure_routes)
 			.server(|s| {
 				s.server_fn(server_fn::login::login::marker)
 					.server_fn(server_fn::linked_accounts::list_linked_oauth_accounts::marker)
@@ -344,7 +338,6 @@ pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUn
 					.server_fn(github_server_fn::list_github_project_previews_for_current_org::marker)
 					.server_fn(github_server_fn::import_github_repository_for_current_org::marker)
 			})
-			.with_di_context(infra.di_ctx)
 			.with_middleware(SecurityMiddleware::new())
 			.with_middleware(CspPathMiddleware)
 			.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
@@ -352,9 +345,8 @@ pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUn
 				infra.session_backend,
 				infra.session_config,
 			))
-			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware);
-
-	unified
+			.with_middleware(crate::apps::auth::middleware::validated_session::ValidatedSessionAuthMiddleware)
+			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware)
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

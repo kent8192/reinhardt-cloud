@@ -31,7 +31,7 @@ mod tests {
 
 		// Assert
 		assert!(html.contains("Link GitHub"));
-		assert!(html.contains(r#"href="/api/auth/oauth/github/start/""#));
+		assert!(html.contains(r#"href="/api/auth/oauth/github/start/?intent=link""#));
 		assert!(html.contains(r#"rel="external""#));
 	}
 

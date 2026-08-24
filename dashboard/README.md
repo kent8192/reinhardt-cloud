@@ -64,9 +64,49 @@ cluster, deployment, and GitHub pages.
 ### Database
 
 ```bash
-cargo make makemigrations   # Create new migrations
-cargo make migrate          # Apply migrations
+cd dashboard && cargo make makemigrations   # Generate migrations from model changes
+cd dashboard && cargo run --bin manage migrate   # Apply checked-in migrations
 ```
+
+The v0.4.0-alpha.8 migration baseline is a breaking reset with six generated
+app initial migrations (`auth`, `clusters`, `default`, `deployments`,
+`github`, and `organizations`). It supports only an empty PostgreSQL database.
+Existing migration histories, in-place data migration, and `fake-initial`
+compatibility are not provided.
+
+`cd dashboard && cargo make makemigrations` is the authoritative way to
+regenerate migrations. Migration files are generated source and must not be
+hand-edited.
+
+Cluster creation uses a generated ModelForm that accepts only `name` and
+`api_url`; the owning organization, active state, and agent token state are
+set by the server.
+
+### Client routes and data
+
+The v0.4.0-alpha.8 client uses one reinhardt-pages `ClientRouter` tree. The
+`#[layout]` Dashboard shell renders its child routes through `Outlet`:
+`/login` and `/register` are public, while `/`, `/account`, `/clusters`,
+`/deployments`, and `/github` are authenticated children.
+
+Client reads use Query Client V2 generated server-function query descriptors
+with `use_query`. The Launcher or SSR runtime owns the QueryClient; pages do
+not install a separate client cache provider. Mutation success invalidates the
+affected query keys so dependent views refetch.
+
+Deployment log selection is canonically represented by
+`/deployments?logs=<i64>`. The alpha.8 component extractor cannot extract a
+missing optional query parameter, so the client manually parses `logs` at the
+route boundary. Deployment IDs are `i64`; no UUID compatibility adapter is
+used.
+
+### OAuth account linking
+
+Normal GitHub OAuth sign-in remains independent of account linking. Starting a
+link from `/account` creates a signed, short-lived intent bound to the
+initiating valid session. The callback links an identity only when its current
+`sessionid` still validates and matches that intent's user and session binding;
+logout, session rotation, or a session swap invalidates the link flow.
 
 ### Testing
 

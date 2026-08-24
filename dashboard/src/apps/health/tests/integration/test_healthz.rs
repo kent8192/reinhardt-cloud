@@ -149,7 +149,11 @@ mod tests {
 		let infra = Arc::try_unwrap(infra)
 			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
 			.into_inner();
-		let server_router = Arc::new(build_dashboard_router(infra).into_server());
+		let server_router = Arc::new(
+			build_dashboard_router(infra)
+				.with_di_context(di_ctx)
+				.into_server(),
+		);
 		let handler =
 			OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 		let probe_client = APIClient::from_handler(handler);
@@ -212,7 +216,11 @@ mod tests {
 		let infra = Arc::try_unwrap(infra)
 			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
 			.into_inner();
-		let server_router = Arc::new(build_dashboard_router(infra).into_server());
+		let server_router = Arc::new(
+			build_dashboard_router(infra)
+				.with_di_context(di_ctx)
+				.into_server(),
+		);
 		let handler =
 			OpenApiRouter::wrap(server_router).expect("Failed to wrap with OpenApiRouter");
 		let client = APIClient::from_handler(handler);

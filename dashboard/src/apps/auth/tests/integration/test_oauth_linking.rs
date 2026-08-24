@@ -1,4 +1,4 @@
-//! Integration tests for `link_or_create_user`.
+//! Integration tests for OAuth user resolution and target-only account linking.
 //!
 //! Covers the four-way decision tree from #428: already-linked,
 //! authenticated link, email-verified email match, and new-user creation.
@@ -24,7 +24,9 @@ mod tests {
 	use std::collections::HashMap;
 
 	use crate::apps::auth::models::User;
-	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
+	use crate::apps::auth::services::oauth::linking::{
+		LinkError, link_or_create_user, link_user_to_provider,
+	};
 	use crate::apps::organizations::models::OrganizationMembership;
 	use crate::config::test_helpers::build_test_app;
 	use reinhardt::UrlReverser;
@@ -161,6 +163,64 @@ mod tests {
 		let links = storage.find_by_user(user_id).await.unwrap();
 		assert_eq!(links.len(), 1);
 		assert_eq!(links[0].provider_user_id, "gh_authed_42");
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_target_only_link_rejects_provider_owned_by_another_user(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_c, _conn, _cli, _urls) = db.await;
+		let owner_id = seed_user("link_owner", "owner@example.com").await;
+		let target_id = seed_user("link_target", "target@example.com").await;
+		let owner = User::objects()
+			.filter(User::field_id().eq(owner_id))
+			.first()
+			.await
+			.expect("load link owner")
+			.expect("seeded link owner");
+		let target = User::objects()
+			.filter(User::field_id().eq(target_id))
+			.first()
+			.await
+			.expect("load link target")
+			.expect("seeded link target");
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = github_claims("gh_owned_elsewhere", Some("github@example.com"), Some(true));
+		link_or_create_user(&storage, "github", &claims, Some(owner))
+			.await
+			.expect("seed provider link for the owner");
+
+		// Act
+		let result = link_user_to_provider(&storage, "github", &claims, target).await;
+
+		// Assert
+		match result {
+			Err(LinkError::ProviderAlreadyLinked { provider }) => assert_eq!(provider, "github"),
+			other => panic!("expected ProviderAlreadyLinked, got {other:?}"),
+		}
+		assert!(
+			storage
+				.find_by_user(target_id)
+				.await
+				.expect("load target links")
+				.is_empty()
+		);
+		assert_eq!(
+			storage
+				.find_by_user(owner_id)
+				.await
+				.expect("load owner links")
+				.len(),
+			1
+		);
 	}
 
 	#[rstest]

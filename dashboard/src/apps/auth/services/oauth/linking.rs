@@ -57,6 +57,43 @@ pub enum LinkError {
 		 existing account first and link {provider} from your profile"
 	)]
 	EmailConflict { email: String, provider: String },
+	/// The provider identity is already linked to a different local user.
+	#[error("this {provider} account is already linked to another user")]
+	ProviderAlreadyLinked { provider: String },
+}
+
+/// Attach a provider identity to one explicitly selected user.
+///
+/// Account-link callbacks use this stricter operation rather than the generic
+/// login decision tree. A pre-existing provider link may be returned only when
+/// it belongs to the same selected user; it must never switch the callback to
+/// another local account.
+pub async fn link_user_to_provider(
+	storage: &dyn SocialAccountStorage,
+	provider: &str,
+	claims: &StandardClaims,
+	user: User,
+) -> Result<User, LinkError> {
+	if claims.sub.is_empty() {
+		return Err(LinkError::MissingClaim("sub"));
+	}
+
+	if let Some(link) = storage
+		.find_by_provider_and_uid(provider, &claims.sub)
+		.await
+		.map_err(|error| LinkError::Storage(error.to_string()))?
+	{
+		if link.user_id != user.id {
+			return Err(LinkError::ProviderAlreadyLinked {
+				provider: provider.to_string(),
+			});
+		}
+		return ensure_user_has_personal_organization(user).await;
+	}
+
+	let user_id = user.id;
+	create_link(storage, provider, claims, user_id).await?;
+	ensure_user_has_personal_organization(user).await
 }
 
 /// Resolve OAuth claims into a local `User`, linking or creating as needed.
