@@ -10,7 +10,6 @@ type AppRouter = UnifiedRouter<ClientRouter>;
 #[cfg(not(native))]
 type AppRouter = UnifiedRouter;
 
-use crate::apps::github::client::pages::github_repositories_page;
 #[cfg(native)]
 use crate::apps::github::server_urls;
 
@@ -22,7 +21,7 @@ pub fn url_patterns() -> AppRouter {
 				.endpoint(server_urls::github_webhook);
 			s
 		})
-		.client(|c| c.component(github_repositories_page))
+		.client(|c| c)
 }
 
 #[cfg(all(test, native))]
@@ -58,19 +57,5 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, Some("/api/github/setup/".to_string()));
-	}
-
-	#[rstest]
-	fn github_repositories_page_route_is_registered_from_component_metadata() {
-		// Arrange
-		let router = UnifiedRouter::new()
-			.mount_unified("/", super::url_patterns())
-			.into_client();
-
-		// Act
-		let route = router.reverse("github:repositories", &[]);
-
-		// Assert
-		assert_eq!(route, Ok("/github".to_string()));
 	}
 }

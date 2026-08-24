@@ -5,6 +5,7 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
 
+use crate::apps::auth::serializers::LoginRequest;
 use crate::shared::AuthResponse;
 
 /// Authenticate user with credentials and set session cookie.
@@ -15,8 +16,7 @@ use crate::shared::AuthResponse;
 /// on subsequent requests.
 #[server_fn]
 pub async fn login(
-	username: String,
-	password: String,
+	request: LoginRequest,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
 	#[inject] settings: reinhardt::di::KeyedDepends<
 		crate::config::ProjectSettingsKey,
@@ -32,7 +32,10 @@ pub async fn login(
 	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
 
-	let user = services::verify_credentials(&username, &password)
+	#[cfg(native)]
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
+
+	let user = services::verify_credentials(&request.username, &request.password)
 		.await
 		.map_err(server_fn_error_from_app_error)?;
 
@@ -69,6 +72,8 @@ fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
 
 #[cfg(all(test, native))]
 mod tests {
+	use std::collections::BTreeSet;
+
 	use reinhardt::pages::server_fn::ServerFnErrorKind;
 	use rstest::rstest;
 
@@ -114,5 +119,30 @@ mod tests {
 		assert_eq!(server_fn_error.message(), "Internal server error");
 		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Application);
 		assert_eq!(server_fn_error.status(), None);
+	}
+
+	#[rstest]
+	fn login_request_validation_preserves_structured_field_errors() {
+		// Arrange
+		let request = LoginRequest {
+			username: String::new(),
+			password: String::new(),
+		};
+
+		// Act
+		let error = reinhardt::Validate::validate(&request)
+			.map_err(ServerFnError::from)
+			.expect_err("invalid login request should not reach credential verification");
+
+		// Assert
+		assert_eq!(error.kind(), ServerFnErrorKind::Validation);
+		assert_eq!(
+			error
+				.field_errors()
+				.iter()
+				.map(|field| field.field())
+				.collect::<BTreeSet<_>>(),
+			BTreeSet::from(["password", "username"])
+		);
 	}
 }

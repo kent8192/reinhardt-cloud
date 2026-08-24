@@ -3,9 +3,9 @@
 pub(crate) fn route_href(route_name: &'static str, fallback: &'static str) -> String {
 	#[cfg(wasm)]
 	{
-		crate::client::router::init_router()
-			.reverse(route_name, &[])
-			.unwrap_or_else(|_| fallback.to_string())
+		reinhardt::pages::app::try_with_spa_router(|router| router.reverse(route_name, &[]).ok())
+			.flatten()
+			.unwrap_or_else(|| fallback.to_string())
 	}
 	#[cfg(not(wasm))]
 	{

@@ -15,7 +15,6 @@ pub mod client;
 pub mod middleware;
 #[cfg(native)]
 pub mod models;
-#[cfg(native)]
 pub mod serializers;
 #[cfg(native)]
 pub mod server_urls;

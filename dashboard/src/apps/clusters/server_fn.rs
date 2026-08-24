@@ -3,8 +3,18 @@
 //! Organization-scoped operations resolve RBAC permissions before loading
 //! cluster records so read-only members cannot perform mutations.
 
+use reinhardt::pages::ClientForm;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
+
+use crate::apps::clusters::model_form::{ClusterCreateFields, ClusterCreateFormData};
+
+#[cfg(native)]
+use reinhardt::core::exception::Error as AppError;
+#[cfg(native)]
+use reinhardt::core::model_form::ModelFormPayload;
+#[cfg(native)]
+use reinhardt::core::validators::{UrlValidator, Validator};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClusterInfo {
@@ -19,6 +29,23 @@ pub struct ClusterInfo {
 pub struct ClusterTokenInfo {
 	pub cluster: ClusterInfo,
 	pub auth_token: String,
+}
+
+/// Browser payload for updating a cluster in the current organization.
+#[reinhardt::dto]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
+#[client_form(
+	server_fn = crate::apps::clusters::server_fn::update_cluster_for_current_org,
+	validate
+)]
+pub struct UpdateClusterFormRequest {
+	#[validate(length(min = 1))]
+	pub cluster_id: String,
+	#[validate(length(min = 1, max = 63))]
+	pub name: String,
+	#[validate(url, length(max = 2048))]
+	pub api_url: String,
+	pub is_active: bool,
 }
 
 #[cfg(native)]
@@ -43,9 +70,9 @@ fn cluster_info(cluster: crate::apps::clusters::models::Cluster) -> ClusterInfo 
 }
 
 #[cfg(native)]
-fn cluster_id_from_pk(id: Option<i64>) -> Result<uuid::Uuid, ServerFnError> {
+fn cluster_id_from_pk(id: Option<i64>) -> Result<uuid::Uuid, AppError> {
 	let pk = id.ok_or_else(|| {
-		ServerFnError::application("Cluster row missing primary key after insert")
+		AppError::Internal("Cluster row missing primary key after insert".to_string())
 	})?;
 	let mut bytes = [0u8; 16];
 	bytes[..8].copy_from_slice(b"RHCL-CID");
@@ -54,15 +81,46 @@ fn cluster_id_from_pk(id: Option<i64>) -> Result<uuid::Uuid, ServerFnError> {
 }
 
 #[cfg(native)]
-async fn rollback_created_cluster(cluster_id: i64) {
-	use reinhardt::Model;
+fn validated_cluster_create_payload(
+	payload: &ClusterCreateFormData<ClusterCreateFields>,
+) -> Result<(String, String), ServerFnError> {
+	if !payload.forbidden_fields().is_empty() {
+		return Err(ServerFnError::validation_with_message(
+			"Cluster form contains server-managed fields",
+			payload.forbidden_fields().iter().map(|field| {
+				(
+					(*field).to_string(),
+					"This field is managed by the server".to_string(),
+				)
+			}),
+		));
+	}
 
-	use crate::apps::clusters::models::Cluster;
+	let name = payload
+		.name()
+		.map_or_else(String::new, |value| value.trim().to_string());
+	let api_url = payload
+		.api_url()
+		.map_or_else(String::new, |value| value.trim().to_string());
+	let mut errors = Vec::new();
 
-	if let Err(delete_err) = Cluster::objects().delete(cluster_id).await {
-		tracing::warn!(
-			"Failed to roll back cluster {cluster_id} after token persistence error: {delete_err}"
-		);
+	if name.is_empty() {
+		errors.push(("name", "This field is required"));
+	} else if name.len() > 63 {
+		errors.push(("name", "Must be 63 characters or fewer"));
+	}
+	if api_url.is_empty() {
+		errors.push(("api_url", "This field is required"));
+	} else if api_url.len() > 2048 {
+		errors.push(("api_url", "Must be 2048 characters or fewer"));
+	} else if UrlValidator::new().validate(api_url.as_str()).is_err() {
+		errors.push(("api_url", "Enter a valid HTTP or HTTPS URL"));
+	}
+
+	if errors.is_empty() {
+		Ok((name, api_url))
+	} else {
+		Err(ServerFnError::validation(errors))
 	}
 }
 
@@ -88,11 +146,11 @@ pub async fn list_clusters_for_current_org(
 	Ok(clusters.into_iter().map(cluster_info).collect())
 }
 
-#[server_fn]
+#[server_fn(model_form = true)]
 pub async fn create_cluster_for_current_org(
-	name: String,
-	api_url: String,
+	payload: ClusterCreateFormData<ClusterCreateFields>,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] database: reinhardt::db::orm::DatabaseConnection,
 	#[inject] agent_token_service: reinhardt::di::KeyedDepends<
 		crate::apps::clusters::services::AgentTokenServiceKey,
 		crate::apps::clusters::services::AgentTokenService,
@@ -107,67 +165,49 @@ pub async fn create_cluster_for_current_org(
 		crate::apps::organizations::permissions::Action::ClusterCreate,
 	)
 	.await?;
-	let name = name.trim().to_string();
-	let api_url = api_url.trim().to_string();
-	if name.is_empty() || name.len() > 63 {
-		return Err(ServerFnError::server(
-			400,
-			"Cluster name must be 1-63 characters",
-		));
-	}
-	if api_url.is_empty() || api_url.len() > 2048 {
-		return Err(ServerFnError::server(
-			400,
-			"API URL must be 1-2048 characters",
-		));
-	}
+	let (name, api_url) = validated_cluster_create_payload(&payload)?;
 
 	let manager = Cluster::objects();
-	let new_cluster = Cluster::build()
-		.organization(organization_id)
-		.name(name)
-		.api_url(api_url)
-		.is_active(true)
-		.token_hash(None)
-		.token_last_rotated_at(None)
-		.finish();
-	let mut created = manager.create(&new_cluster).await.map_err(|e| {
-		let msg = e.to_string();
-		if msg.to_lowercase().contains("unique") || msg.to_lowercase().contains("duplicate") {
-			ServerFnError::server(409, "Cluster name already exists in this organization")
+	let result: Result<(Cluster, String), AppError> = database
+		.atomic(async |transaction| {
+			let new_cluster = Cluster::build()
+				.organization(organization_id)
+				.name(name)
+				.api_url(api_url)
+				.is_active(true)
+				.token_hash(None)
+				.token_last_rotated_at(None)
+				.finish();
+			let mut created = manager.create_with_conn(transaction, &new_cluster).await?;
+			let cluster_uuid = cluster_id_from_pk(created.id)?;
+			let issued = agent_token_service.issue(cluster_uuid)?;
+			created.token_hash = Some(issued.hash);
+			created.token_last_rotated_at = Some(chrono::Utc::now());
+			let updated = manager.update_with_conn(transaction, &created).await?;
+			Ok((updated, issued.plaintext))
+		})
+		.await;
+	let (updated, auth_token) = result.map_err(|error| {
+		let message = error.to_string();
+		if message.to_lowercase().contains("unique") || message.to_lowercase().contains("duplicate")
+		{
+			ServerFnError::validation([(
+				"name",
+				"Cluster name already exists in this organization",
+			)])
 		} else {
-			ServerFnError::application(format!("Failed to create cluster: {msg}"))
+			ServerFnError::application(format!("Failed to create cluster: {message}"))
 		}
 	})?;
-	let cluster_uuid = cluster_id_from_pk(created.id)?;
-	let issued = agent_token_service
-		.issue(cluster_uuid)
-		.map_err(|e| ServerFnError::application(format!("Failed to issue agent token: {e}")))?;
-	created.token_hash = Some(issued.hash);
-	created.token_last_rotated_at = Some(chrono::Utc::now());
-	let updated = match manager.update(&created).await {
-		Ok(updated) => updated,
-		Err(e) => {
-			if let Some(cluster_id) = created.id {
-				rollback_created_cluster(cluster_id).await;
-			}
-			return Err(ServerFnError::application(format!(
-				"Failed to persist agent token: {e}"
-			)));
-		}
-	};
 	Ok(ClusterTokenInfo {
 		cluster: cluster_info(updated),
-		auth_token: issued.plaintext,
+		auth_token,
 	})
 }
 
 #[server_fn]
 pub async fn update_cluster_for_current_org(
-	cluster_id: String,
-	name: String,
-	api_url: String,
-	is_active: bool,
+	request: UpdateClusterFormRequest,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<ClusterInfo, ServerFnError> {
 	use reinhardt::Model;
@@ -179,22 +219,24 @@ pub async fn update_cluster_for_current_org(
 		crate::apps::organizations::permissions::Action::ClusterUpdate,
 	)
 	.await?;
-	let cluster_id: i64 = cluster_id
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
+	let cluster_id: i64 = request
+		.cluster_id
 		.parse()
-		.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
-	let name = name.trim().to_string();
-	let api_url = api_url.trim().to_string();
+		.map_err(|_| ServerFnError::validation([("cluster_id", "Select a valid cluster")]))?;
+	let name = request.name.trim().to_string();
+	let api_url = request.api_url.trim().to_string();
 	if name.is_empty() || name.len() > 63 {
-		return Err(ServerFnError::server(
-			400,
+		return Err(ServerFnError::validation([(
+			"name",
 			"Cluster name must be 1-63 characters",
-		));
+		)]));
 	}
 	if api_url.is_empty() || api_url.len() > 2048 {
-		return Err(ServerFnError::server(
-			400,
+		return Err(ServerFnError::validation([(
+			"api_url",
 			"API URL must be 1-2048 characters",
-		));
+		)]));
 	}
 
 	let manager = Cluster::objects();
@@ -204,14 +246,19 @@ pub async fn update_cluster_for_current_org(
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load cluster: {e}")))?
-		.ok_or_else(|| ServerFnError::server(404, "Cluster not found"))?;
+		.ok_or_else(|| {
+			ServerFnError::validation([("cluster_id", "The selected cluster is not available")])
+		})?;
 	cluster.name = name;
 	cluster.api_url = api_url;
-	cluster.is_active = is_active;
+	cluster.is_active = request.is_active;
 	let updated = manager.update(&cluster).await.map_err(|e| {
 		let msg = e.to_string();
 		if msg.to_lowercase().contains("unique") || msg.to_lowercase().contains("duplicate") {
-			ServerFnError::server(409, "Cluster name already exists in this organization")
+			ServerFnError::validation([(
+				"name",
+				"Cluster name already exists in this organization",
+			)])
 		} else {
 			ServerFnError::application(format!("Failed to update cluster: {msg}"))
 		}
@@ -283,7 +330,8 @@ pub async fn rotate_cluster_token_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load cluster: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Cluster not found"))?;
-	let cluster_uuid = cluster_id_from_pk(cluster.id)?;
+	let cluster_uuid = cluster_id_from_pk(cluster.id)
+		.map_err(|error| ServerFnError::application(error.to_string()))?;
 	let issued = agent_token_service
 		.issue(cluster_uuid)
 		.map_err(|e| ServerFnError::application(format!("Failed to issue agent token: {e}")))?;
@@ -297,4 +345,94 @@ pub async fn rotate_cluster_token_for_current_org(
 		cluster: cluster_info(updated),
 		auth_token: issued.plaintext,
 	})
+}
+
+#[cfg(all(test, native))]
+mod tests {
+	use reinhardt::pages::server_fn::ServerFnErrorKind;
+	use rstest::rstest;
+
+	use super::validated_cluster_create_payload;
+	use crate::apps::clusters::model_form::{ClusterCreateFields, ClusterCreateFormData};
+
+	#[rstest]
+	fn cluster_create_model_form_trims_public_values() {
+		// Arrange
+		let mut payload = ClusterCreateFormData::<ClusterCreateFields>::empty();
+		payload
+			.set_name(" production ".to_string())
+			.expect("set public name");
+		payload
+			.set_api_url(" https://kubernetes.example.com:6443 ".to_string())
+			.expect("set public API URL");
+
+		// Act
+		let values = validated_cluster_create_payload(&payload).expect("validate payload");
+
+		// Assert
+		assert_eq!(
+			values,
+			(
+				"production".to_string(),
+				"https://kubernetes.example.com:6443".to_string(),
+			)
+		);
+	}
+
+	#[rstest]
+	fn cluster_create_model_form_rejects_server_owned_fields() {
+		// Arrange
+		let payload = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+			serde_json::json!({
+				"name": "production",
+				"api_url": "https://kubernetes.example.com:6443",
+				"organization_id": 42,
+			}),
+		)
+		.expect("deserialize cluster model form payload");
+
+		// Act
+		let error = validated_cluster_create_payload(&payload)
+			.expect_err("reject a server-managed organization ID");
+
+		// Assert
+		assert_eq!(error.kind(), ServerFnErrorKind::Validation);
+		assert_eq!(
+			error.message(),
+			"Cluster form contains server-managed fields"
+		);
+		assert_eq!(error.field_errors().len(), 1);
+		assert_eq!(error.field_errors()[0].field(), "organization_id");
+		assert_eq!(
+			error.field_errors()[0].message(),
+			"This field is managed by the server"
+		);
+	}
+
+	#[rstest]
+	fn cluster_create_model_form_reports_structured_field_errors() {
+		// Arrange
+		let payload = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+			serde_json::json!({
+				"name": "",
+				"api_url": "not-a-url",
+			}),
+		)
+		.expect("deserialize cluster model form payload");
+
+		// Act
+		let error = validated_cluster_create_payload(&payload)
+			.expect_err("reject invalid generated form values");
+
+		// Assert
+		assert_eq!(error.kind(), ServerFnErrorKind::Validation);
+		assert_eq!(error.field_errors().len(), 2);
+		assert_eq!(error.field_errors()[0].field(), "name");
+		assert_eq!(error.field_errors()[0].message(), "This field is required");
+		assert_eq!(error.field_errors()[1].field(), "api_url");
+		assert_eq!(
+			error.field_errors()[1].message(),
+			"Enter a valid HTTP or HTTPS URL"
+		);
+	}
 }

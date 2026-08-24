@@ -1,10 +1,15 @@
 //! Login request serializer.
 
-use reinhardt::{Schema, ToSchema, Validate};
-use serde::Deserialize;
+use reinhardt::pages::ClientForm;
+#[cfg(native)]
+use reinhardt::{Schema, ToSchema};
+use serde::{Deserialize, Serialize};
 
 /// Login request body.
-#[derive(Debug, Clone, Deserialize, Validate, Schema)]
+#[reinhardt::dto]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize, ClientForm)]
+#[cfg_attr(native, derive(Schema))]
+#[client_form(server_fn = crate::apps::auth::server_fn::login::login)]
 pub struct LoginRequest {
 	#[validate(length(min = 1, max = 150))]
 	pub username: String,

@@ -3,6 +3,7 @@
 //! Organization-scoped operations resolve RBAC permissions before loading
 //! deployment records so read-only members cannot perform mutations.
 
+use reinhardt::pages::ClientForm;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,56 @@ pub struct DeploymentInfo {
 	pub cluster_id: i64,
 	pub status: String,
 	pub image: String,
+}
+
+/// Browser payload for creating a deployment in the current organization.
+#[reinhardt::dto]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
+#[client_form(
+	server_fn = crate::apps::deployments::server_fn::create_deployment_for_current_org,
+	validate
+)]
+pub struct CreateDeploymentFormRequest {
+	#[validate(length(min = 1, max = 63))]
+	pub project_name: String,
+	#[validate(length(min = 1))]
+	pub cluster_id: String,
+	#[validate(length(min = 1, max = 512))]
+	pub image: String,
+	#[validate(length(max = 65535))]
+	pub project_yaml: String,
+}
+
+/// Browser payload for updating a deployment in the current organization.
+#[reinhardt::dto]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
+#[client_form(
+	server_fn = crate::apps::deployments::server_fn::update_deployment_for_current_org,
+	validate
+)]
+pub struct UpdateDeploymentFormRequest {
+	#[validate(length(min = 1))]
+	pub deployment_id: String,
+	#[validate(length(min = 1, max = 63))]
+	pub project_name: String,
+	#[validate(length(min = 1, max = 512))]
+	pub image: String,
+	#[validate(length(min = 1, max = 50))]
+	pub status: String,
+}
+
+/// Browser payload for changing a deployment status in the current organization.
+#[reinhardt::dto]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
+#[client_form(
+	server_fn = crate::apps::deployments::server_fn::update_deployment_status_for_current_org,
+	validate
+)]
+pub struct UpdateDeploymentStatusFormRequest {
+	#[validate(length(min = 1))]
+	pub deployment_id: String,
+	#[validate(length(min = 1, max = 50))]
+	pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,10 +251,7 @@ pub async fn list_deployment_previews_for_current_org(
 
 #[server_fn]
 pub async fn create_deployment_for_current_org(
-	project_name: String,
-	cluster_id: String,
-	image: String,
-	project_yaml: String,
+	request: CreateDeploymentFormRequest,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
@@ -217,20 +265,25 @@ pub async fn create_deployment_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentCreate,
 	)
 	.await?;
-	let project_name = project_name.trim().to_string();
-	let image = image.trim().to_string();
-	let cluster_id: i64 = cluster_id
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
+	let project_name = request.project_name.trim().to_string();
+	let image = request.image.trim().to_string();
+	if project_name.is_empty() {
+		return Err(ServerFnError::validation([(
+			"project_name",
+			"Project name cannot be blank",
+		)]));
+	}
+	if image.is_empty() {
+		return Err(ServerFnError::validation([(
+			"image",
+			"Image cannot be blank",
+		)]));
+	}
+	let cluster_id: i64 = request
+		.cluster_id
 		.parse()
-		.map_err(|_| ServerFnError::application("Invalid cluster_id"))?;
-	if project_name.is_empty() || project_name.len() > 63 {
-		return Err(ServerFnError::server(
-			400,
-			"Project name must be 1-63 characters",
-		));
-	}
-	if image.is_empty() || image.len() > 512 {
-		return Err(ServerFnError::server(400, "Image must be 1-512 characters"));
-	}
+		.map_err(|_| ServerFnError::validation([("cluster_id", "Select a valid cluster")]))?;
 	let cluster_exists = Cluster::objects()
 		.filter(Cluster::field_id().eq(cluster_id))
 		.filter(Cluster::field_organization_id().eq(organization_id))
@@ -238,13 +291,17 @@ pub async fn create_deployment_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to check cluster: {e}")))?;
 	if !cluster_exists {
-		return Err(ServerFnError::server(404, "Cluster not found"));
+		return Err(ServerFnError::validation([(
+			"cluster_id",
+			"The selected cluster is not available",
+		)]));
 	}
-	validate_project_manifest(&project_yaml).map_err(|e| ServerFnError::server(400, e))?;
-	let manifest = if project_yaml.trim().is_empty() {
+	validate_project_manifest(&request.project_yaml)
+		.map_err(|error| ServerFnError::validation([("project_yaml", error)]))?;
+	let manifest = if request.project_yaml.trim().is_empty() {
 		None
 	} else {
-		Some(project_yaml)
+		Some(request.project_yaml)
 	};
 	let new_deployment = Deployment::build()
 		.organization(organization_id)
@@ -263,10 +320,7 @@ pub async fn create_deployment_for_current_org(
 
 #[server_fn]
 pub async fn update_deployment_for_current_org(
-	deployment_id: String,
-	project_name: String,
-	image: String,
-	status: String,
+	request: UpdateDeploymentFormRequest,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
@@ -278,23 +332,31 @@ pub async fn update_deployment_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentUpdate,
 	)
 	.await?;
-	let deployment_id: i64 = deployment_id
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
+	let deployment_id: i64 = request
+		.deployment_id
 		.parse()
-		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let project_name = project_name.trim().to_string();
-	let image = image.trim().to_string();
-	let status = status.trim().to_string();
-	if project_name.is_empty() || project_name.len() > 63 {
-		return Err(ServerFnError::server(
-			400,
-			"Project name must be 1-63 characters",
-		));
+		.map_err(|_| ServerFnError::validation([("deployment_id", "Select a valid deployment")]))?;
+	let project_name = request.project_name.trim().to_string();
+	let image = request.image.trim().to_string();
+	let status = request.status.trim().to_string();
+	if project_name.is_empty() {
+		return Err(ServerFnError::validation([(
+			"project_name",
+			"Project name cannot be blank",
+		)]));
 	}
-	if image.is_empty() || image.len() > 512 {
-		return Err(ServerFnError::server(400, "Image must be 1-512 characters"));
+	if image.is_empty() {
+		return Err(ServerFnError::validation([(
+			"image",
+			"Image cannot be blank",
+		)]));
 	}
-	if status.is_empty() || status.len() > 50 {
-		return Err(ServerFnError::server(400, "Status must be 1-50 characters"));
+	if status.is_empty() {
+		return Err(ServerFnError::validation([(
+			"status",
+			"Status cannot be blank",
+		)]));
 	}
 
 	let manager = Deployment::objects();
@@ -304,7 +366,12 @@ pub async fn update_deployment_for_current_org(
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
-		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
+		.ok_or_else(|| {
+			ServerFnError::validation([(
+				"deployment_id",
+				"The selected deployment is not available",
+			)])
+		})?;
 	deployment.project_name = project_name;
 	deployment.image = image;
 	deployment.status = status;
@@ -348,8 +415,7 @@ pub async fn delete_deployment_for_current_org(
 
 #[server_fn]
 pub async fn update_deployment_status_for_current_org(
-	deployment_id: String,
-	status: String,
+	request: UpdateDeploymentStatusFormRequest,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 ) -> Result<DeploymentInfo, ServerFnError> {
 	use reinhardt::Model;
@@ -361,12 +427,17 @@ pub async fn update_deployment_status_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentUpdate,
 	)
 	.await?;
-	let deployment_id: i64 = deployment_id
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
+	let deployment_id: i64 = request
+		.deployment_id
 		.parse()
-		.map_err(|_| ServerFnError::application("Invalid deployment_id"))?;
-	let status = status.trim().to_string();
-	if status.is_empty() || status.len() > 50 {
-		return Err(ServerFnError::server(400, "Status must be 1-50 characters"));
+		.map_err(|_| ServerFnError::validation([("deployment_id", "Select a valid deployment")]))?;
+	let status = request.status.trim().to_string();
+	if status.is_empty() {
+		return Err(ServerFnError::validation([(
+			"status",
+			"Status cannot be blank",
+		)]));
 	}
 	let manager = Deployment::objects();
 	let mut deployment = manager
@@ -375,7 +446,12 @@ pub async fn update_deployment_status_for_current_org(
 		.first()
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
-		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
+		.ok_or_else(|| {
+			ServerFnError::validation([(
+				"deployment_id",
+				"The selected deployment is not available",
+			)])
+		})?;
 	deployment.status = status;
 	let updated = manager
 		.update(&deployment)

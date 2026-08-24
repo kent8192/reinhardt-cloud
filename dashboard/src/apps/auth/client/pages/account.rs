@@ -2,58 +2,29 @@
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{Resource, ResourceState, use_resource};
+use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QuerySnapshot, QueryStatus, use_query};
+use reinhardt::pages::server_fn::ServerFnError;
 
-use crate::apps::auth::server_fn::linked_accounts::LinkedOAuthAccountInfo;
-use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
-use crate::apps::dashboard::client::layout::dashboard_app_shell;
+use crate::apps::auth::server_fn::linked_accounts::{
+	LinkedOAuthAccountInfo, list_linked_oauth_accounts,
+};
+use crate::apps::auth::server_fn::me::me;
+use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, list_oauth_providers};
 use crate::shared::UserInfo;
 use crate::shared::client::routes::route_href;
-
-#[cfg(wasm)]
-use crate::apps::auth::server_fn::linked_accounts::list_linked_oauth_accounts;
-#[cfg(wasm)]
-use crate::apps::auth::server_fn::me::me;
-#[cfg(wasm)]
-use crate::apps::auth::server_fn::oauth_providers::list_oauth_providers;
-
-#[cfg(wasm)]
-async fn load_current_user() -> Result<UserInfo, String> {
-	me().await.map_err(|err| err.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_current_user() -> Result<UserInfo, String> {
-	Err("current user is loaded by the browser client".to_string())
-}
-
-#[cfg(wasm)]
-async fn load_linked_accounts() -> Result<Vec<LinkedOAuthAccountInfo>, String> {
-	list_linked_oauth_accounts()
-		.await
-		.map_err(|err| err.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_linked_accounts() -> Result<Vec<LinkedOAuthAccountInfo>, String> {
-	Ok(Vec::new())
-}
-
-#[cfg(wasm)]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	list_oauth_providers().await.map_err(|err| err.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	Ok(Vec::new())
-}
 
 fn github_link_url(providers: &[OAuthProviderInfo]) -> Option<String> {
 	providers
 		.iter()
 		.find(|provider| provider.id == "github")
-		.map(|provider| provider.start_url.clone())
+		.map(|provider| {
+			let separator = if provider.start_url.contains('?') {
+				"&"
+			} else {
+				"?"
+			};
+			format!("{}{}intent=link", provider.start_url, separator)
+		})
 }
 
 fn github_account(linked: &[LinkedOAuthAccountInfo]) -> Option<&LinkedOAuthAccountInfo> {
@@ -71,7 +42,10 @@ pub(crate) fn render_account_content(
 		.and_then(|account| account.provider_username)
 		.unwrap_or_else(|| "Linked".to_string());
 	let github_link_url = github_link_url(&providers);
-	page!(|user: UserInfo, github_linked: bool, github_label: String, github_link_url: Option<String>| {
+	page!(|user: UserInfo,
+	 github_linked: bool,
+	 github_label: String,
+	 github_link_url: Option<String>| {
 		div {
 			class: "rc-shell",
 			div {
@@ -203,42 +177,163 @@ fn account_error(message: &str) -> Page {
 	})(message.to_string(), login_href)
 }
 
-/// Render the account page.
-#[reinhardt::pages::component("/account", name = "auth:account_page")]
-pub fn account_page() -> Page {
-	let user = use_resource(
-		|| async move { self::load_current_user().await },
-		reinhardt::pages::deps![],
-	);
-	let providers = use_resource(
-		|| async move { self::load_oauth_providers().await },
-		reinhardt::pages::deps![],
-	);
-	let linked = use_resource(
-		|| async move { self::load_linked_accounts().await },
-		reinhardt::pages::deps![],
-	);
-
-	let content =
-		page!(|user: Resource<UserInfo, String>,
-		       providers: Resource<Vec<OAuthProviderInfo>, String>,
-		       linked: Resource<Vec<LinkedOAuthAccountInfo>, String>| {
-			{
-				match (user.get(), providers.get(), linked.get()) {
-					(
-						ResourceState::Success(user),
-						ResourceState::Success(providers),
-						ResourceState::Success(linked),
-					) => self::render_account_content(user, providers, linked),
-					(ResourceState::Error(err), _, _) => self::account_error(&err),
-					(_, ResourceState::Error(err), _) => self::account_error(&err),
-					(_, _, ResourceState::Error(err)) => self::account_error(&err),
-					_ => Page::Empty,
+fn account_loading(message: &'static str) -> Page {
+	page!(|message: &'static str| {
+		div {
+			class: "rc-shell",
+			div {
+				class: "rc-panel-pad",
+				p {
+					class: "rc-muted text-sm",
+					{ message }
 				}
 			}
-		})(user, providers, linked);
+		}
+	})(message)
+}
 
-	dashboard_app_shell("account", content)
+fn query_error_message(error: Option<ServerFnError>, fallback: &'static str) -> String {
+	error
+		.map(|error| error.user_message().to_string())
+		.unwrap_or_else(|| fallback.to_string())
+}
+
+fn query_refresh_notice(
+	is_fetching: bool,
+	refetch_error: Option<ServerFnError>,
+	label: &'static str,
+) -> Page {
+	if let Some(error) = refetch_error {
+		return page!(|message: String| {
+			div {
+				class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
+				{ message }
+			}
+		})(format!(
+			"Showing cached {label}; the latest refresh failed: {}",
+			error.user_message()
+		));
+	}
+	if is_fetching {
+		return page!(|label: &'static str| {
+			div {
+				class: "border-b border-cloud-100 bg-cloud-50 px-4 py-2 text-xs font-medium text-cloud-600",
+				"Refreshing " { label }"..."
+			}
+		})(label);
+	}
+	Page::Empty
+}
+
+fn render_account_queries(
+	user: QuerySnapshot<UserInfo, ServerFnError>,
+	providers: QuerySnapshot<Vec<OAuthProviderInfo>, ServerFnError>,
+	linked: QuerySnapshot<Vec<LinkedOAuthAccountInfo>, ServerFnError>,
+) -> Page {
+	match user.status {
+		QueryStatus::Idle => {
+			return account_loading("Account data is not available during server rendering.");
+		}
+		QueryStatus::Pending => return account_loading("Loading account..."),
+		QueryStatus::Error => {
+			return account_error(&query_error_message(
+				user.error,
+				"Account data is temporarily unavailable.",
+			));
+		}
+		QueryStatus::Success => {}
+	}
+
+	let user_refresh_notice =
+		query_refresh_notice(user.is_fetching, user.refetch_error, "account details");
+	let provider_refresh_notice = query_refresh_notice(
+		providers.is_fetching,
+		providers.refetch_error,
+		"OAuth providers",
+	);
+	let linked_refresh_notice =
+		query_refresh_notice(linked.is_fetching, linked.refetch_error, "linked accounts");
+	let Some(user) = user.data else {
+		return account_error("Account data is temporarily unavailable.");
+	};
+	let providers = match providers.status {
+		QueryStatus::Idle => {
+			return account_loading(
+				"Account integrations are not available during server rendering.",
+			);
+		}
+		QueryStatus::Pending => return account_loading("Loading account integrations..."),
+		QueryStatus::Error => {
+			return account_error(&query_error_message(
+				providers.error,
+				"OAuth providers are temporarily unavailable.",
+			));
+		}
+		QueryStatus::Success => match providers.data {
+			Some(providers) => providers,
+			None => return account_error("OAuth providers are temporarily unavailable."),
+		},
+	};
+	let linked = match linked.status {
+		QueryStatus::Idle => {
+			return account_loading(
+				"Account integrations are not available during server rendering.",
+			);
+		}
+		QueryStatus::Pending => return account_loading("Loading account integrations..."),
+		QueryStatus::Error => {
+			return account_error(&query_error_message(
+				linked.error,
+				"Linked accounts are temporarily unavailable.",
+			));
+		}
+		QueryStatus::Success => match linked.data {
+			Some(linked) => linked,
+			None => return account_error("Linked accounts are temporarily unavailable."),
+		},
+	};
+
+	let notices = vec![
+		user_refresh_notice,
+		provider_refresh_notice,
+		linked_refresh_notice,
+	];
+	let content = render_account_content(user, providers, linked);
+	page!(|notices: Vec<Page>, content: Page| {
+		div {
+			{ notices }
+			{ content }
+		}
+	})(notices, content)
+}
+
+struct AccountPageViewProps {
+	user: QueryHandle<UserInfo, ServerFnError>,
+	providers: QueryHandle<Vec<OAuthProviderInfo>, ServerFnError>,
+	linked: QueryHandle<Vec<LinkedOAuthAccountInfo>, ServerFnError>,
+}
+
+/// Render the account page.
+#[reinhardt::pages::component("account", name = "auth:account_page")]
+pub fn account_page() -> Page {
+	let props = AccountPageViewProps {
+		user: use_query(me::query(), QueryOptions::new().enabled(cfg!(wasm))),
+		providers: use_query(
+			list_oauth_providers::query(),
+			QueryOptions::new().enabled(cfg!(wasm)),
+		),
+		linked: use_query(
+			list_linked_oauth_accounts::query(),
+			QueryOptions::new().enabled(cfg!(wasm)),
+		),
+	};
+	Page::reactive(move || {
+		render_account_queries(
+			props.user.snapshot(),
+			props.providers.snapshot(),
+			props.linked.snapshot(),
+		)
+	})
 }
 
 #[cfg(test)]
@@ -246,6 +341,17 @@ mod tests {
 	use rstest::rstest;
 
 	use super::*;
+
+	fn successful_query<T>(data: T) -> QuerySnapshot<T, ServerFnError> {
+		QuerySnapshot {
+			status: QueryStatus::Success,
+			data: Some(data),
+			error: None,
+			refetch_error: None,
+			is_fetching: false,
+			is_stale: false,
+		}
+	}
 
 	#[rstest]
 	fn account_content_renders_link_action_when_github_is_unlinked() {
@@ -266,7 +372,8 @@ mod tests {
 
 		// Assert
 		assert!(html.contains("Link GitHub"));
-		assert!(html.contains(r#"href="/api/auth/oauth/github/start/""#));
+		assert!(html.contains(r#"href="/api/auth/oauth/github/start/?intent=link""#));
+		assert!(html.contains(r#"rel="external""#));
 	}
 
 	#[rstest]
@@ -290,5 +397,95 @@ mod tests {
 		assert!(html.contains("GitHub account linked"));
 		assert!(html.contains("octocat"));
 		assert!(!html.contains("Link GitHub"));
+	}
+
+	#[rstest]
+	fn account_read_queries_use_generated_server_function_families() {
+		// Arrange
+		let user = me::query();
+		let providers = list_oauth_providers::query();
+		let linked = list_linked_oauth_accounts::query();
+
+		// Act
+		let user_family = user.key().family_id();
+		let provider_family = providers.key().family_id();
+		let linked_family = linked.key().family_id();
+
+		// Assert
+		assert_eq!(user_family, me::family().id());
+		assert_eq!(provider_family, list_oauth_providers::family().id());
+		assert_eq!(linked_family, list_linked_oauth_accounts::family().id());
+		assert_ne!(user_family, provider_family);
+		assert_ne!(user_family, linked_family);
+	}
+
+	#[rstest]
+	fn account_query_initial_states_render_loading_or_error() {
+		// Arrange
+		let pending = QuerySnapshot {
+			status: QueryStatus::Pending,
+			data: None,
+			error: None,
+			refetch_error: None,
+			is_fetching: true,
+			is_stale: false,
+		};
+		let failed = QuerySnapshot {
+			status: QueryStatus::Error,
+			data: None,
+			error: Some(ServerFnError::application("Session expired")),
+			refetch_error: None,
+			is_fetching: false,
+			is_stale: false,
+		};
+
+		// Act
+		let pending_html = render_account_queries(
+			pending,
+			successful_query(Vec::new()),
+			successful_query(Vec::new()),
+		)
+		.render_to_string();
+		let failed_html = render_account_queries(
+			failed,
+			successful_query(Vec::new()),
+			successful_query(Vec::new()),
+		)
+		.render_to_string();
+
+		// Assert
+		assert!(pending_html.contains("Loading account..."));
+		assert!(failed_html.contains("Session expired"));
+		assert!(failed_html.contains("Sign in"));
+	}
+
+	#[rstest]
+	fn account_query_refetch_error_keeps_cached_profile_visible() {
+		// Arrange
+		let user = QuerySnapshot {
+			status: QueryStatus::Success,
+			data: Some(UserInfo {
+				id: "user-1".to_string(),
+				username: "alice".to_string(),
+				email: "alice@example.com".to_string(),
+			}),
+			error: None,
+			refetch_error: Some(ServerFnError::application("Refresh timed out")),
+			is_fetching: false,
+			is_stale: true,
+		};
+
+		// Act
+		let html = render_account_queries(
+			user,
+			successful_query(Vec::new()),
+			successful_query(Vec::new()),
+		)
+		.render_to_string();
+
+		// Assert
+		assert!(html.contains("alice@example.com"));
+		assert!(html.contains("Showing cached account details; the latest refresh failed"));
+		assert!(html.contains("Refresh timed out"));
 	}
 }

@@ -2,21 +2,10 @@
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{Resource, ResourceState, use_resource};
+use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QueryStatus, use_query};
+use reinhardt::pages::server_fn::ServerFnError;
 
-use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
-#[cfg(wasm)]
-use crate::apps::auth::server_fn::oauth_providers::list_oauth_providers;
-
-#[cfg(wasm)]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	list_oauth_providers().await.map_err(|err| err.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	Ok(Vec::new())
-}
+use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, list_oauth_providers};
 
 fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 	if providers.is_empty() {
@@ -61,19 +50,59 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 
 /// Render OAuth provider buttons when providers are configured.
 pub fn oauth_buttons() -> Page {
-	let providers = use_resource(
-		|| async move { self::load_oauth_providers().await },
-		reinhardt::pages::deps![],
+	let providers = use_query(
+		list_oauth_providers::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
 	);
+	Page::reactive(move || render_provider_query(&providers))
+}
 
-	page!(|providers: Resource<Vec<OAuthProviderInfo>, String>| {
-		{
-			match providers.get() {
-				ResourceState::Loading | ResourceState::Error(_) => Page::Empty,
-				ResourceState::Success(items) => self::render_provider_buttons(items),
+fn render_provider_query(providers: &QueryHandle<Vec<OAuthProviderInfo>, ServerFnError>) -> Page {
+	let snapshot = providers.snapshot();
+	match snapshot.status {
+		QueryStatus::Idle => Page::Empty,
+		QueryStatus::Pending => page!(|| {
+			p {
+				class: "mt-4 text-center text-xs font-medium text-ink-500",
+				"Loading sign-in options..."
 			}
+		})(),
+		QueryStatus::Error => page!(|message: String| {
+			p {
+				class: "mt-4 text-center text-xs font-medium text-red-700",
+				{ message }
+			}
+		})(
+			snapshot
+				.error
+				.map(|error| error.user_message().to_string())
+				.unwrap_or_else(|| "OAuth sign-in is unavailable.".to_string()),
+		),
+		QueryStatus::Success => {
+			let buttons = render_provider_buttons(snapshot.data.unwrap_or_default());
+			let notice = if let Some(error) = snapshot.refetch_error {
+				page!(|message: String| {
+					p {
+						class: "mt-4 text-center text-xs font-medium text-amber-700",
+						{ message }
+					}
+				})(format!(
+					"Showing cached sign-in options; refresh failed: {}",
+					error.user_message()
+				))
+			} else if snapshot.is_fetching {
+				page!(|| {
+					p {
+						class: "mt-4 text-center text-xs font-medium text-ink-500",
+						"Refreshing sign-in options..."
+					}
+				})()
+			} else {
+				Page::Empty
+			};
+			Page::fragment([notice, buttons])
 		}
-	})(providers)
+	}
 }
 
 #[cfg(test)]
