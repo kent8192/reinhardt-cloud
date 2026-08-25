@@ -106,7 +106,7 @@ See instructions/TESTING_STANDARDS.md for comprehensive testing standards includ
 - Testing philosophy (TP-1, TP-2)
 - Test organization (TO-1, TO-2)
 - Test implementation (TI-1 ~ TI-6)
-- Infrastructure testing (IT-1)
+- Infrastructure testing (IT-1 ~ IT-2)
 
 ### File Management
 
@@ -246,7 +246,7 @@ Unchanged Quality Guardrails (apply equally to autonomous operations):
 See instructions/GITHUB_INTERACTION.md for comprehensive GitHub interaction guidelines including:
 - Posting authorization policy (PP-1 ~ PP-3)
 - PR review response format (RR-1 ~ RR-3)
-- Copilot review handling (CR-1 ~ CR-3)
+- Copilot review handling (CR-1 ~ CR-5)
 - Issue discussion guidelines (ID-1 ~ ID-2)
 - Agent context provision (AC-1 ~ AC-2)
 
