@@ -43,6 +43,14 @@ ignore = [
 	# Transitive: reinhardt-web -> aquamarine -> proc-macro-error
 	"RUSTSEC-2024-0370",
 
+	# rkyv: inactive optional dependency; the compatible rust_decimal release
+	# only supports rkyv 0.7, while the advisory requires >=0.8.17.
+	# Transitive: reinhardt-web -> reinhardt-db -> rust_decimal -> rkyv (optional)
+	# Tracked in reinhardt-cloud#881, upstream reinhardt-web#6177.
+	# Remove this exception when the upstream dependency graph no longer locks rkyv 0.7.
+	# Ideal resolution: resolve rust_decimal without its inactive rkyv dependency or with rkyv >=0.8.17.
+	"RUSTSEC-2026-0235",
+
 	# aws-lc-sys: vulnerability (severity: high 7.4)
 	# Transitive: reinhardt-web -> reinhardt-auth -> jsonwebtoken -> aws-lc-rs -> aws-lc-sys
 	"RUSTSEC-2026-0048",

@@ -40,8 +40,8 @@ jobs:
         # syntax the dashboard targets. Use immutable crates.io version pins here;
         # mutable Git branches are not safe for CI install-time code execution.
         run: |
-          cargo install reinhardt-admin-cli --version "=0.3.0-rc.2" --locked
-          cargo install reinhardt-formatter --version "=0.3.0-rc.2" --locked
+          cargo install reinhardt-admin-cli --version "=0.4.0-alpha.8" --locked
+          cargo install reinhardt-formatter --version "=0.4.0-alpha.8" --locked
 
       - name: Check code formatting
         run: cargo make fmt-check
