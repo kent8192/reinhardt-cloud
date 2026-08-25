@@ -82,4 +82,14 @@ ignore = [
 	#             -> testcontainers 0.27.2 -> astral-tokio-tar 0.6.0
 	# Tracked in reinhardt-cloud#460, upstream reinhardt-web#4010.
 	"RUSTSEC-2026-0113",
+
+	# quick-xml: quadratic duplicate-attribute check (solution: upgrade to >=0.41.0).
+	# Transitive: reinhardt-web -> reinhardt-views/reinhardt-rest -> quick-xml 0.38.4
+	#             and reinhardt-db -> phonenumber -> quick-xml 0.38.4
+	# Those crates pin <0.41, so this workspace cannot upgrade independently.
+	"RUSTSEC-2026-0194",
+
+	# quick-xml: unbounded namespace-declaration allocation in NsReader
+	# (solution: upgrade to >=0.41.0). Same transitive pin as RUSTSEC-2026-0194.
+	"RUSTSEC-2026-0195",
 ]
