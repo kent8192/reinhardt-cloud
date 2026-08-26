@@ -28,7 +28,7 @@ use crate::shared::ws_messages::{
 	WsClientMessage, WsMessage,
 };
 use crate::utils::grpc::dashboard_grpc_auth_interceptor;
-use crate::utils::realtime::broadcaster::WsBroadcaster;
+use crate::utils::realtime::broadcaster::{MAX_SUBSCRIPTIONS_PER_USER, WsBroadcaster};
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
 const META_CONNECTION_ID: &str = "connection_id";
@@ -194,6 +194,13 @@ impl NotificationConsumer {
 							message: "You must be authenticated to subscribe".to_string(),
 							timestamp: String::new(),
 						}),
+					};
+				}
+				if deployment_ids.len() > MAX_SUBSCRIPTIONS_PER_USER {
+					return ParsedAction::Rejected {
+						response: log_stream_rejected(
+							"Too many deployment subscriptions requested",
+						),
 					};
 				}
 				ParsedAction::Subscribe { deployment_ids }
@@ -879,6 +886,32 @@ mod tests {
 				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
 			}
 			_ => panic!("expected Subscribe action"),
+		}
+	}
+
+	#[rstest]
+	fn test_parse_subscribe_rejects_oversized_batch() {
+		// Arrange
+		let msg = WsClientMessage::Subscribe {
+			deployment_ids: vec!["1".to_string(); MAX_SUBSCRIPTIONS_PER_USER + 1],
+		};
+
+		// Act
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
+
+		// Assert
+		match action {
+			ParsedAction::Rejected { response } => match response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Too many deployment subscriptions requested"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 
