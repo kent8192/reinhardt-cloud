@@ -384,8 +384,10 @@ features:
 
 Namespace lifecycle RBAC is disabled by default to keep the operator service account least-privilege.
 When tenant or preview namespaces are managed by a separate platform workflow, leave
-`rbac.namespaces.manageLifecycle=false` and pre-create those namespaces. Set it to `true` only when
-the operator is intentionally trusted to create, update, and delete its managed namespaces.
+`rbac.namespaces.manageLifecycle=false` and pre-create those namespaces. In this mode, the operator
+uses merge patches to update labels on existing namespaces; those patches cannot create a missing
+namespace. Set it to `true` only when the operator is intentionally trusted to create, update, and
+delete its managed namespaces.
 
 ### Isolation defaults
 
