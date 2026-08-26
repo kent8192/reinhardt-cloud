@@ -1015,9 +1015,9 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 								"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
 							);
 						}
-						Err(err) if preview_namespace_delete_is_best_effort_error(&err) => {
+						Err(err) if preview_namespace_delete_is_not_found_error(&err) => {
 							warn!(
-								"Leaving preview namespace {preview_ns} during cleanup of {namespace}/{name}: namespace delete was not permitted or the namespace disappeared ({err})"
+								"Preview namespace {preview_ns} disappeared during cleanup of {namespace}/{name} ({err})"
 							);
 						}
 						Err(err) => return Err(Error::Kube(err)),
@@ -2674,8 +2674,8 @@ where
 	Ok(())
 }
 
-fn preview_namespace_delete_is_best_effort_error(error: &kube::Error) -> bool {
-	matches!(error, kube::Error::Api(status) if status.code == 403 || status.code == 404)
+fn preview_namespace_delete_is_not_found_error(error: &kube::Error) -> bool {
+	matches!(error, kube::Error::Api(status) if status.code == 404)
 }
 
 async fn delete_migration_jobs(
@@ -3885,10 +3885,10 @@ mod tests {
 	}
 
 	#[rstest]
-	#[case::forbidden(403, true)]
+	#[case::forbidden(403, false)]
 	#[case::not_found(404, true)]
 	#[case::server_error(500, false)]
-	fn preview_namespace_delete_best_effort_error_classification(
+	fn preview_namespace_delete_not_found_error_classification(
 		#[case] code: u16,
 		#[case] expected: bool,
 	) {
@@ -3901,10 +3901,10 @@ mod tests {
 		let error = kube::Error::Api(Box::new(status));
 
 		// Act
-		let is_best_effort = preview_namespace_delete_is_best_effort_error(&error);
+		let is_not_found = preview_namespace_delete_is_not_found_error(&error);
 
 		// Assert
-		assert_eq!(is_best_effort, expected);
+		assert_eq!(is_not_found, expected);
 	}
 
 	#[rstest]
