@@ -1,23 +1,23 @@
 //! Request/response serializers for auth endpoints.
 
-#[cfg(native)]
+#[cfg(server)]
 pub mod change_password;
-#[cfg(native)]
+#[cfg(server)]
 pub mod forgot_password;
 pub mod login;
-#[cfg(native)]
+#[cfg(server)]
 pub mod profile;
 pub mod register;
-#[cfg(native)]
+#[cfg(server)]
 pub mod reset_password;
 
-#[cfg(native)]
+#[cfg(server)]
 pub use change_password::ChangePasswordRequest;
-#[cfg(native)]
+#[cfg(server)]
 pub use forgot_password::ForgotPasswordRequest;
 pub use login::LoginRequest;
-#[cfg(native)]
+#[cfg(server)]
 pub use profile::{ProfileResponse, UpdateProfileRequest};
 pub use register::RegisterRequest;
-#[cfg(native)]
+#[cfg(server)]
 pub use reset_password::ResetPasswordRequest;

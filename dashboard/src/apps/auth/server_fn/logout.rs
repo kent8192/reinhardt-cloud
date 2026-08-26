@@ -10,10 +10,7 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 #[server_fn]
 pub async fn logout(
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] session_service: reinhardt::di::KeyedDepends<
-		crate::apps::auth::services::SessionServiceKey,
-		crate::apps::auth::services::SessionService,
-	>,
+	#[inject] session_service: reinhardt::di::Depends<crate::apps::auth::services::SessionService>,
 ) -> Result<bool, ServerFnError> {
 	use tracing::warn;
 

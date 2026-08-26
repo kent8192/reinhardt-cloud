@@ -2,24 +2,25 @@
 //!
 //! Provides cluster management server functions and SPA pages.
 
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::app_config;
 
-#[cfg(native)]
+#[cfg(server)]
 pub mod admin;
+#[cfg(client)]
 pub mod client;
 pub mod model_form;
-#[cfg(native)]
+#[cfg(server)]
 pub mod models;
-#[cfg(native)]
+#[cfg(server)]
 pub mod serializers;
 pub mod server_fn;
-#[cfg(native)]
+#[cfg(server)]
 pub mod services;
-#[cfg(native)]
+#[cfg(server)]
 pub mod tests;
 pub mod urls;
 
-#[cfg(native)]
+#[cfg(server)]
 #[app_config(name = "clusters", label = "clusters")]
 pub struct ClustersConfig;

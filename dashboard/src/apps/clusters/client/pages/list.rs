@@ -9,8 +9,9 @@ use reinhardt::pages::form;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{
 	Action, Callback, FieldError, FormState, QueryClient, QueryHandle, QueryOptions, QueryStatus,
-	Signal, UseFormAsyncSubmitOutcome, queries, use_action, use_form, use_query,
+	Signal, UseFormAsyncSubmitOutcome, queries, use_action, use_callback, use_form, use_query,
 };
+use reinhardt::pages::reactive::ExplicitDeps;
 use reinhardt::pages::server_fn::ServerFnError;
 
 use crate::apps::clusters::model_form::{
@@ -163,8 +164,9 @@ fn cluster_token_confirmation_with_callback(
 }
 
 fn success_alert(message: Signal<Option<String>>) -> Page {
-	Page::reactive(move || {
-		message
+	page!({
+		{
+			message
 			.get()
 			.map(|message| {
 				page!({
@@ -175,6 +177,7 @@ fn success_alert(message: Signal<Option<String>>) -> Page {
 				})
 			})
 			.unwrap_or(Page::Empty)
+		}
 	})
 }
 
@@ -182,20 +185,22 @@ fn form_field_error<Field>(field_errors: Signal<HashMap<Field, FieldError>>, fie
 where
 	Field: Copy + Eq + Hash + 'static,
 {
-	Page::reactive(move || {
-		field_errors
-			.get()
-			.get(&field)
-			.map(|error| {
-				let message = error.message().to_owned();
-				page!({
-					p {
-						class: "mt-1 text-xs font-medium text-red-700",
-						{ message }
-					}
+	page!({
+		{
+			field_errors
+				.get()
+				.get(&field)
+				.map(|error| {
+					let message = error.message().to_owned();
+					page!({
+						p {
+							class: "mt-1 text-xs font-medium text-red-700",
+							{ message }
+						}
+					})
 				})
-			})
-			.unwrap_or(Page::Empty)
+				.unwrap_or(Page::Empty)
+		}
 	})
 }
 
@@ -233,109 +238,111 @@ fn render_cluster_update_form(view: ClusterUpdateFormView) -> Page {
 		UpdateClusterFormRequestClientFormField::ApiUrl,
 	);
 
-	Page::reactive(move || {
-		let is_submitting = state.is_submitting.get();
-		let dirty_notice = if state.is_dirty.get() {
-			page!({
-				p {
-					class: "mt-2 text-xs text-amber-700",
-					"Unsaved changes"
-				}
-			})
-		} else {
-			Page::Empty
-		};
-		let submit_status = if is_submitting {
-			page!({
-				p {
-					class: "mt-2 text-xs text-ink-600",
-					"Updating..."
-				}
-			})
-		} else {
-			Page::Empty
-		};
-		page!(|success_view: Page,
-		 error_view: Page,
-		 submit: Callback<SubmitEvent, ()>,
-		 name: Signal<String>,
-		 api_url: Signal<String>,
-		 is_active: Signal<bool>,
-		 name_error: Page,
-		 api_url_error: Page,
-		 dirty_notice: Page,
-		 submit_status: Page,
-		 is_submitting: bool| {
-			{ success_view }
-			{ error_view }
-			form {
-				class: "rc-form-stack mt-3",
-				@submit: submit,
-				div {
-					class: "rc-field",
+	page!({
+		{
+			let is_submitting = state.is_submitting.get();
+			let dirty_notice = if state.is_dirty.get() {
+				page!({
+					p {
+						class: "mt-2 text-xs text-amber-700",
+						"Unsaved changes"
+					}
+				})
+			} else {
+				Page::Empty
+			};
+			let submit_status = if is_submitting {
+				page!({
+					p {
+						class: "mt-2 text-xs text-ink-600",
+						"Updating..."
+					}
+				})
+			} else {
+				Page::Empty
+			};
+			page!(|success_view: Page,
+			 error_view: Page,
+			 submit: Callback<SubmitEvent, ()>,
+			 name: Signal<String>,
+			 api_url: Signal<String>,
+			 is_active: Signal<bool>,
+			 name_error: Page,
+			 api_url_error: Page,
+			 dirty_notice: Page,
+			 submit_status: Page,
+			 is_submitting: bool| {
+				{ success_view }
+				{ error_view }
+				form {
+					class: "rc-form-stack mt-3",
+					@submit: submit,
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "update-cluster-name",
+							"Name"
+						}
+						input {
+							id: "update-cluster-name",
+							aria_label: "Cluster name",
+							class: "rc-input",
+							type: "text",
+							maxlength: 63,
+							bind: name,
+						}
+						{ name_error }
+					}
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "update-cluster-api-url",
+							"API URL"
+						}
+						input {
+							id: "update-cluster-api-url",
+							aria_label: "Cluster API URL",
+							class: "rc-input",
+							type: "text",
+							maxlength: 2048,
+							bind: api_url,
+						}
+						{ api_url_error }
+					}
 					label {
-						class: "rc-label",
-						r#for: "update-cluster-name",
-						"Name"
+						class: "rc-checkbox-field",
+						input {
+							id: "update-cluster-active",
+							type: "checkbox",
+							bind: is_active,
+						}
+						span { "Active" }
 					}
-					input {
-						id: "update-cluster-name",
-						aria_label: "Cluster name",
-						class: "rc-input",
-						type: "text",
-						maxlength: 63,
-						bind: name,
+					button {
+						type: "submit",
+						class: "btn-dark min-h-11 w-full",
+						disabled: is_submitting,
+						"Update cluster"
 					}
-					{ name_error }
 				}
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "update-cluster-api-url",
-						"API URL"
-					}
-					input {
-						id: "update-cluster-api-url",
-						aria_label: "Cluster API URL",
-						class: "rc-input",
-						type: "text",
-						maxlength: 2048,
-						bind: api_url,
-					}
-					{ api_url_error }
-				}
-				label {
-					class: "rc-checkbox-field",
-					input {
-						id: "update-cluster-active",
-						type: "checkbox",
-						bind: is_active,
-					}
-					span { "Active" }
-				}
-				button {
-					type: "submit",
-					class: "btn-dark min-h-11 w-full",
-					disabled: is_submitting,
-					"Update cluster"
-				}
-			}
-			{ dirty_notice }
-			{ submit_status }
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			submit,
-			name,
-			api_url,
-			is_active,
-			name_error.clone(),
-			api_url_error.clone(),
-			dirty_notice,
-			submit_status,
-			is_submitting,
-		)
+				{ dirty_notice }
+				{ submit_status }
+			})(
+				success_view.clone(),
+				error_view.clone(),
+				submit,
+				name,
+				api_url,
+				is_active,
+				name_error.clone(),
+				api_url_error.clone(),
+				dirty_notice,
+				submit_status,
+				is_submitting,
+			)
+		}
 	})
 }
 
@@ -362,56 +369,58 @@ fn render_delete_cluster_action(view: DeleteClusterActionView) -> Page {
 	});
 	let error_view = alert(error);
 	let success_view = success_alert(success);
-	Page::reactive(move || {
-		let is_pending = action.is_pending();
-		let is_confirmed = confirmed.get();
-		let has_selected_cluster = !cluster_id.get().trim().is_empty();
-		page!(|success_view: Page,
-		 error_view: Page,
-		 delete: Callback<ClickEvent, ()>,
-		 confirmed: Signal<bool>,
-		 is_pending: bool,
-		 is_confirmed: bool,
-		 has_selected_cluster: bool| {
-			{ success_view }
-			{ error_view }
-			div {
-				class: "rc-form-stack mt-3",
-				label {
-					class: "flex items-start gap-2 text-sm text-ink-700",
-					input {
-						id: "confirm-cluster-delete",
-						type: "checkbox",
-						bind: confirmed,
+	page!({
+		{
+			let is_pending = action.is_pending();
+			let is_confirmed = confirmed.get();
+			let has_selected_cluster = !cluster_id.get().trim().is_empty();
+			page!(|success_view: Page,
+			 error_view: Page,
+			 delete: Callback<ClickEvent, ()>,
+			 confirmed: Signal<bool>,
+			 is_pending: bool,
+			 is_confirmed: bool,
+			 has_selected_cluster: bool| {
+				{ success_view }
+				{ error_view }
+				div {
+					class: "rc-form-stack mt-3",
+					label {
+						class: "flex items-start gap-2 text-sm text-ink-700",
+						input {
+							id: "confirm-cluster-delete",
+							type: "checkbox",
+							bind: confirmed,
+						}
+						span { "I understand this permanently deletes the selected cluster." }
 					}
-					span { "I understand this permanently deletes the selected cluster." }
+					button {
+						type: "button",
+						class: "btn-danger min-h-11 w-full",
+						disabled: !is_confirmed || !has_selected_cluster || is_pending,
+						@click: delete,
+						"Delete cluster"
+					} {
+						if is_pending {
+							page!( {
+								p {
+									class: "text-xs text-ink-600",
+									"Deleting..."
+								}
+							})
+						} else { Page::Empty }
+					}
 				}
-				button {
-					type: "button",
-					class: "btn-danger min-h-11 w-full",
-					disabled: !is_confirmed || !has_selected_cluster || is_pending,
-					@click: delete,
-					"Delete cluster"
-				} {
-					if is_pending {
-						page!( {
-							p {
-								class: "text-xs text-ink-600",
-								"Deleting..."
-							}
-						})
-					} else { Page::Empty }
-				}
-			}
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			delete,
-			confirmed,
-			is_pending,
-			is_confirmed,
-			has_selected_cluster,
-		)
+			})(
+				success_view.clone(),
+				error_view.clone(),
+				delete,
+				confirmed,
+				is_pending,
+				is_confirmed,
+				has_selected_cluster,
+			)
+		}
 	})
 }
 
@@ -443,60 +452,62 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 		action.reset();
 	});
 	let error_view = alert(error);
-	Page::reactive(move || {
-		let is_pending = action.is_pending();
-		let is_confirmed = confirmed.get();
-		let has_selected_cluster = !cluster_id.get().trim().is_empty();
-		let token_confirmation = action
-			.result()
-			.map(|token| self::cluster_token_confirmation_with_callback(token, dismiss));
-		let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
-		page!(|error_view: Page,
-		 rotate: Callback<ClickEvent, ()>,
-		 confirmed: Signal<bool>,
-		 is_pending: bool,
-		 is_confirmed: bool,
-		 has_selected_cluster: bool,
-		 token_confirmation: Page| {
-			{ error_view }
-			div {
-				class: "rc-form-stack mt-3",
-				label {
-					class: "flex items-start gap-2 text-sm text-ink-700",
-					input {
-						id: "confirm-cluster-token-rotation",
-						type: "checkbox",
-						bind: confirmed,
+	page!({
+		{
+			let is_pending = action.is_pending();
+			let is_confirmed = confirmed.get();
+			let has_selected_cluster = !cluster_id.get().trim().is_empty();
+			let token_confirmation = action
+				.result()
+				.map(|token| self::cluster_token_confirmation_with_callback(token, dismiss));
+			let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
+			page!(|error_view: Page,
+			 rotate: Callback<ClickEvent, ()>,
+			 confirmed: Signal<bool>,
+			 is_pending: bool,
+			 is_confirmed: bool,
+			 has_selected_cluster: bool,
+			 token_confirmation: Page| {
+				{ error_view }
+				div {
+					class: "rc-form-stack mt-3",
+					label {
+						class: "flex items-start gap-2 text-sm text-ink-700",
+						input {
+							id: "confirm-cluster-token-rotation",
+							type: "checkbox",
+							bind: confirmed,
+						}
+						span { "I understand this invalidates the current agent token." }
 					}
-					span { "I understand this invalidates the current agent token." }
+					button {
+						type: "button",
+						class: "btn-warning min-h-11 w-full",
+						disabled: !is_confirmed || !has_selected_cluster || is_pending,
+						@click: rotate,
+						"Rotate token"
+					} {
+						if is_pending {
+							page!( {
+								p {
+									class: "text-xs text-ink-600",
+									"Rotating..."
+								}
+							})
+						} else { Page::Empty }
+					}
 				}
-				button {
-					type: "button",
-					class: "btn-warning min-h-11 w-full",
-					disabled: !is_confirmed || !has_selected_cluster || is_pending,
-					@click: rotate,
-					"Rotate token"
-				} {
-					if is_pending {
-						page!( {
-							p {
-								class: "text-xs text-ink-600",
-								"Rotating..."
-							}
-						})
-					} else { Page::Empty }
-				}
-			}
-			{ token_confirmation }
-		})(
-			error_view.clone(),
-			rotate,
-			confirmed,
-			is_pending,
-			is_confirmed,
-			has_selected_cluster,
-			token_confirmation,
-		)
+				{ token_confirmation }
+			})(
+				error_view.clone(),
+				rotate,
+				confirmed,
+				is_pending,
+				is_confirmed,
+				has_selected_cluster,
+				token_confirmation,
+			)
+		}
 	})
 }
 
@@ -647,24 +658,31 @@ pub fn clusters_list_page() -> Page {
 		})
 		.build();
 	let create_state = create_runtime.form_state();
-	let create_name_input = {
-		let form = create_form.clone();
-		Callback::new(move |event: InputEvent| {
+	let create_name_form = create_form.clone();
+	let create_name_input = use_callback(
+		move |event: InputEvent| {
 			let Ok(value) = event.value() else {
 				return;
 			};
-			let _ = form.set_value("name", serde_json::Value::String(value));
-		})
-	};
-	let create_api_url_input = {
-		let form = create_form.clone();
-		Callback::new(move |event: InputEvent| {
+			let _ = create_name_form.set_value("name", serde_json::Value::String(value));
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
+	let create_api_url_form = create_form.clone();
+	let create_api_url_input = use_callback(
+		move |event: InputEvent| {
 			let Ok(value) = event.value() else {
 				return;
 			};
-			let _ = form.set_value("api_url", serde_json::Value::String(value));
-		})
-	};
+			let _ = create_api_url_form.set_value("api_url", serde_json::Value::String(value));
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
+	// Workaround for reinhardt-web#6189 (tracked in reinhardt-cloud#892).
+	// Remove when generated form submission has one target-neutral API.
+	//
+	// Ideal implementation (without workaround):
+	//   use_action(move |()| runtime.submit_server_fn(|| form.submit_response()))
 	#[cfg(wasm)]
 	let create_action = {
 		let runtime = create_runtime.clone();
@@ -697,82 +715,84 @@ pub fn clusters_list_page() -> Page {
 	let create_name_error = form_field_error(create_state.field_errors, create_form.name_field());
 	let create_api_url_error =
 		form_field_error(create_state.field_errors, create_form.api_url_field());
-	let create_view = Page::reactive(move || {
-		let is_submitting = create_action.is_pending();
-		let token_confirmation = create_action
-			.result()
-			.and_then(|outcome| match outcome {
-				UseFormAsyncSubmitOutcome::Submitted(token) => Some(token),
-				UseFormAsyncSubmitOutcome::AlreadyPending
-				| UseFormAsyncSubmitOutcome::ValidationFailed => None,
-			})
-			.map(|token| self::cluster_token_confirmation_with_callback(token, create_dismiss));
-		let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
-		page!({
-			div {
-				class: "space-y-3",
-				{ create_error }
-				form {
-					class: "rc-form-grid",
-					@submit: create_submit,
-					div {
-						class: "rc-field",
-						label {
-							class: "rc-label",
-							r#for: "create-cluster-name",
-							"Name"
+	let create_view = page!({
+		{
+			let is_submitting = create_action.is_pending();
+			let token_confirmation = create_action
+				.result()
+				.and_then(|outcome| match outcome {
+					UseFormAsyncSubmitOutcome::Submitted(token) => Some(token),
+					UseFormAsyncSubmitOutcome::AlreadyPending
+					| UseFormAsyncSubmitOutcome::ValidationFailed => None,
+				})
+				.map(|token| self::cluster_token_confirmation_with_callback(token, create_dismiss));
+			let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
+			page!({
+				div {
+					class: "space-y-3",
+					{ create_error }
+					form {
+						class: "rc-form-grid",
+						@submit: create_submit,
+						div {
+							class: "rc-field",
+							label {
+								class: "rc-label",
+								r#for: "create-cluster-name",
+								"Name"
+							}
+							input {
+								id: "create-cluster-name",
+								name: "name",
+								aria_label: "Cluster name",
+								class: "rc-input",
+								type: "text",
+								maxlength: 63,
+								placeholder: "prod-us-east",
+								@input: create_name_input,
+							}
+							p {
+								class: "mt-1 text-xs text-ink-600",
+								"For example: prod-us-east"
+							}
+							{ create_name_error }
 						}
-						input {
-							id: "create-cluster-name",
-							name: "name",
-							aria_label: "Cluster name",
-							class: "rc-input",
-							type: "text",
-							maxlength: 63,
-							placeholder: "prod-us-east",
-							@input: create_name_input,
+						div {
+							class: "rc-field",
+							label {
+								class: "rc-label",
+								r#for: "create-cluster-api-url",
+								"API URL"
+							}
+							input {
+								id: "create-cluster-api-url",
+								name: "api_url",
+								aria_label: "Cluster API URL",
+								class: "rc-input",
+								type: "text",
+								maxlength: 2048,
+								placeholder: "https://kubernetes.example.com:6443",
+								@input: create_api_url_input,
+							}
+							p {
+								class: "mt-1 text-xs text-ink-600",
+								"For example: https://kubernetes.example.com:6443"
+							}
+							{ create_api_url_error }
 						}
-						p {
-							class: "mt-1 text-xs text-ink-600",
-							"For example: prod-us-east"
+						button {
+							type: "submit",
+							class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start",
+							disabled: is_submitting,
+							{
+								if is_submitting { "Registering..." } else { "Register cluster" }
+							}
 						}
-						{ create_name_error }
 					}
-					div {
-						class: "rc-field",
-						label {
-							class: "rc-label",
-							r#for: "create-cluster-api-url",
-							"API URL"
-						}
-						input {
-							id: "create-cluster-api-url",
-							name: "api_url",
-							aria_label: "Cluster API URL",
-							class: "rc-input",
-							type: "text",
-							maxlength: 2048,
-							placeholder: "https://kubernetes.example.com:6443",
-							@input: create_api_url_input,
-						}
-						p {
-							class: "mt-1 text-xs text-ink-600",
-							"For example: https://kubernetes.example.com:6443"
-						}
-						{ create_api_url_error }
-					}
-					button {
-						type: "submit",
-						class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start",
-						disabled: is_submitting,
-						{
-							if is_submitting { "Registering..." } else { "Register cluster" }
-						}
-					}
+					{ token_confirmation }
 				}
-				{ token_confirmation }
-			}
-		})
+			})
+		}
 	});
 
 	let edit_form =

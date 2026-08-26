@@ -12,7 +12,6 @@
 //! `tonic::Status` with `Code::Unavailable` and are mapped to HTTP 503
 //! by the existing view-layer error translation.
 
-use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 use tonic::transport::{Channel, Endpoint};
 
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
@@ -29,9 +28,6 @@ pub struct GrpcChannelSingleton {
 	/// Lazily-connected tonic transport channel.
 	pub channel: Channel,
 }
-
-#[reinhardt::di::injectable_key]
-pub struct GrpcChannelSingletonKey;
 
 impl GrpcChannelSingleton {
 	/// Build a [`GrpcChannelSingleton`] for the given endpoint URI.
@@ -56,11 +52,8 @@ fn resolve_endpoint() -> String {
 /// factory never fails on unreachable endpoints. Tests can override
 /// via `SingletonScope::set()` before resolution.
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_grpc_channel_singleton()
--> FactoryOutput<GrpcChannelSingletonKey, GrpcChannelSingleton> {
+async fn create_grpc_channel_singleton() -> GrpcChannelSingleton {
 	let endpoint = resolve_endpoint();
-	FactoryOutput::new(
-		GrpcChannelSingleton::new(&endpoint)
-			.expect("GRPC_ENDPOINT must be a valid URI (e.g. http://127.0.0.1:50051)"),
-	)
+	GrpcChannelSingleton::new(&endpoint)
+		.expect("GRPC_ENDPOINT must be a valid URI (e.g. http://127.0.0.1:50051)")
 }

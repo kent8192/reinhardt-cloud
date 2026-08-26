@@ -17,24 +17,15 @@ use crate::shared::AuthResponse;
 /// hashed password and `is_active = false`, then sends a verification
 /// email. No session cookie is set — the user must verify their email
 /// first. Returns an application error if the username or email already exists.
-#[server_fn]
+#[server_fn(pre_validate = true)]
 pub async fn register(
 	request: RegisterRequest,
 	#[inject] _http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::KeyedDepends<
-		crate::config::ProjectSettingsKey,
-		crate::config::ProjectSettings,
-	>,
-	#[inject] email_service: reinhardt::di::KeyedDepends<
-		crate::apps::auth::services::EmailServiceKey,
-		crate::apps::auth::services::EmailService,
-	>,
+	#[inject] settings: reinhardt::di::Depends<crate::config::ProjectSettings>,
+	#[inject] email_service: reinhardt::di::Depends<crate::apps::auth::services::EmailService>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
-
-	#[cfg(native)]
-	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 
 	let created = services::register_inactive_user(
 		&request.username,

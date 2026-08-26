@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::{QueryValue, get_connection};
-use reinhardt::di::KeyedDepends as Depends;
+use reinhardt::di::Depends;
 use reinhardt::http::ViewResult;
 use reinhardt::{Response, StatusCode, get};
 use tokio::sync::Mutex;
@@ -31,7 +31,7 @@ use tonic_health::pb::health_client::HealthClient;
 use tracing::warn;
 
 use crate::apps::health::serializers::{HealthzResponse, STATUS_ERROR, STATUS_OK};
-use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
+use crate::config::GrpcChannelSingleton;
 
 /// Per-probe timeout. Each individual probe (DB and gRPC) must complete
 /// within this window or it is reported as `"error"`.
@@ -143,7 +143,7 @@ async fn cached_probe_results(grpc_channel: &GrpcChannelSingleton) -> CachedHeal
 /// not require credentials.
 #[get("/healthz/", name = "healthz")]
 pub async fn healthz(
-	#[inject] grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
+	#[inject] grpc_channel: Depends<GrpcChannelSingleton>,
 ) -> ViewResult<Response> {
 	let probes = cached_probe_results(&grpc_channel).await;
 	let db_ok = probes.db_ok;

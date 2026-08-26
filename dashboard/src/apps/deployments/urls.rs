@@ -1,32 +1,35 @@
 //! Client SPA routes for the deployments app.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::pages::router::ClientRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 type AppRouter = UnifiedRouter<ClientRouter>;
-#[cfg(not(native))]
+#[cfg(not(server))]
 type AppRouter = UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use crate::apps::deployments::server_urls;
 
 /// Returns the unified URL patterns for the deployments app.
+#[cfg(server)]
 pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::cli_deploy);
-			s
-		})
-		.client(|c| c)
+		.server(|server| server.endpoint(server_urls::cli_deploy))
+		.client(|client| client)
 }
 
-#[cfg(all(test, native))]
+#[cfg(not(server))]
+pub fn url_patterns() -> AppRouter {
+	UnifiedRouter::new()
+}
+
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;

@@ -6,7 +6,6 @@
 use async_trait::async_trait;
 use reinhardt::BaseUser;
 use reinhardt::db::orm::Model;
-use reinhardt::di::KeyedFactoryOutput as FactoryOutput;
 use reinhardt_cloud_core::auth::{self, Claims};
 use reinhardt_cloud_core::error::ApiError;
 use reinhardt_cloud_core::traits::AuthService;
@@ -24,9 +23,6 @@ use crate::config::settings::get_jwt_secret;
 /// the gRPC layer).
 pub struct LocalAuthService;
 
-#[reinhardt::di::injectable_key]
-pub struct LocalAuthServiceKey;
-
 impl LocalAuthService {
 	/// Create a new `LocalAuthService`.
 	pub fn new() -> Self {
@@ -43,8 +39,8 @@ impl Default for LocalAuthService {
 /// DI factory — auto-registers `LocalAuthService` as a singleton.
 /// Tests can override via `SingletonScope::set()` before resolution.
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_local_auth_service() -> FactoryOutput<LocalAuthServiceKey, LocalAuthService> {
-	FactoryOutput::new(LocalAuthService::new())
+async fn create_local_auth_service() -> LocalAuthService {
+	LocalAuthService::new()
 }
 
 impl LocalAuthService {

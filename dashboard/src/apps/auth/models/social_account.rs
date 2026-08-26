@@ -36,7 +36,7 @@ pub struct SocialAccount {
 	pub id: Uuid,
 
 	/// User that owns this provider account link.
-	#[rel(foreign_key, related_name = "social_accounts")]
+	#[rel(foreign_key, related_name = "social_accounts", on_delete = Cascade)]
 	pub user: ForeignKeyField<User>,
 
 	/// Provider identifier — `"github"`, `"gitlab"`, etc. Lowercase, stable.

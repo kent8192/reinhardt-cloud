@@ -464,14 +464,8 @@ pub async fn update_deployment_status_for_current_org(
 pub async fn deployment_logs_for_current_org(
 	deployment_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] grpc_channel: reinhardt::di::KeyedDepends<
-		crate::config::GrpcChannelSingletonKey,
-		crate::config::GrpcChannelSingleton,
-	>,
-	#[inject] jwt_secret: reinhardt::di::KeyedDepends<
-		crate::apps::clusters::services::JwtSecretKey,
-		crate::apps::clusters::services::JwtSecret,
-	>,
+	#[inject] grpc_channel: reinhardt::di::Depends<crate::config::GrpcChannelSingleton>,
+	#[inject] jwt_secret: reinhardt::di::Depends<crate::apps::clusters::services::JwtSecret>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;

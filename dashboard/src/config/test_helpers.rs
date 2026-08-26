@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use reinhardt::OpenApiRouter;
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::{InjectionContext, KeyedFactoryOutput as FactoryOutput, SingletonScope};
+use reinhardt::di::{Depends, InjectionContext, KeyedFactoryOutput, SelfKey, SingletonScope};
 use reinhardt::middleware::session::AsyncSessionBackend;
 use reinhardt::prelude::DatabaseConnection;
 use reinhardt::test::APIClient;
@@ -23,21 +23,20 @@ use rstest::fixture;
 ///
 /// Centralizes the four-line setup (`SingletonScope::new` →
 /// `scope.set` overrides → `InjectionContext::builder` → `Arc::new`)
-/// used by services converted to keyed `#[injectable]` providers. The
+/// used by services converted to `#[injectable]` providers. The
 /// closure parameter receives the scope before the context is built so
 /// tests can override any dependency that the factory under test injects
-/// via `Depends<Key, T>`.
+/// via `Depends<T>`.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// let ctx = make_test_di_context(|scope| {
-///     scope.set(FactoryOutput::<MySettingsKey, MySettings>::new(MySettings {
+///     scope.set(MySettings {
 ///         jwt_secret: "test".into(),
-///     }));
+///     });
 /// });
-/// let svc: Arc<FactoryOutput<MyServiceKey, MyService>> =
-///     ctx.resolve::<FactoryOutput<MyServiceKey, MyService>>().await.unwrap();
+/// let svc = Depends::<MyService>::builder().resolve(&ctx).await.unwrap();
 /// ```
 pub fn make_test_di_context<F>(setup: F) -> Arc<InjectionContext>
 where
@@ -48,14 +47,19 @@ where
 	Arc::new(InjectionContext::builder(scope).build())
 }
 
+/// Register a test value for a self-keyed `#[injectable]` provider.
+pub fn set_provider_value<T>(scope: &Arc<SingletonScope>, value: T)
+where
+	T: Send + Sync + 'static,
+{
+	scope.set(KeyedFactoryOutput::<SelfKey<T>, T>::new(value));
+}
+
 use crate::apps::auth::models::User;
 use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{MembershipRole, sanitize_username_to_slug};
 use crate::config::settings::get_redis_url;
-use crate::config::urls::{
-	AllowedOrigins, AllowedOriginsKey, RouterInfrastructure, RouterInfrastructureKey,
-	build_dashboard_router,
-};
+use crate::config::urls::{AllowedOrigins, RouterInfrastructure, build_dashboard_router};
 
 /// Build the dashboard router via DI and return an in-process test client
 /// together with the [`UrlReverser`] for URL reverse-resolution.
@@ -102,9 +106,7 @@ pub fn test_app() -> (APIClient, Arc<UrlReverser>) {
 /// tests exercise the same global URL reversal path as application code.
 pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 	let scope = Arc::new(SingletonScope::new());
-	scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
-		AllowedOrigins(vec!["http://testserver".into()]),
-	));
+	set_provider_value(&scope, AllowedOrigins(vec!["http://testserver".into()]));
 
 	// Register the global DatabaseConnection in the DI scope when available.
 	// This ensures view handlers see the same DB connection as helpers using
@@ -119,17 +121,15 @@ pub fn build_test_app() -> (APIClient, Arc<UrlReverser>) {
 
 	let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-	let infra: Arc<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>> =
-		tokio::task::block_in_place(|| {
-			tokio::runtime::Handle::current().block_on(
-				di_ctx.resolve::<FactoryOutput<RouterInfrastructureKey, RouterInfrastructure>>(),
-			)
-		})
-		.expect("Failed to resolve RouterInfrastructure");
+	let infra = tokio::task::block_in_place(|| {
+		tokio::runtime::Handle::current()
+			.block_on(Depends::<RouterInfrastructure>::builder().resolve(&di_ctx))
+	})
+	.expect("Failed to resolve RouterInfrastructure");
 
-	let infra = Arc::try_unwrap(infra)
-		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"))
-		.into_inner();
+	let infra = infra
+		.try_unwrap()
+		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 	let server_router = Arc::new(
 		build_dashboard_router(infra)
 			.with_di_context(di_ctx)

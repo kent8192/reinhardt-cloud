@@ -2,19 +2,19 @@
 //!
 //! Exposes the unauthenticated `/api/healthz/` infrastructure endpoint.
 
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::app_config;
 
-#[cfg(native)]
+#[cfg(server)]
 pub mod models;
-#[cfg(native)]
+#[cfg(server)]
 pub mod serializers;
-#[cfg(native)]
+#[cfg(server)]
 pub mod server_urls;
-#[cfg(native)]
+#[cfg(server)]
 pub mod tests;
 pub mod urls;
 
-#[cfg(native)]
+#[cfg(server)]
 #[app_config(name = "health", label = "health")]
 pub struct HealthConfig;

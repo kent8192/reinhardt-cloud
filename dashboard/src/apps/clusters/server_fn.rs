@@ -137,8 +137,7 @@ pub async fn create_cluster_for_current_org(
 	payload: ClusterCreateFormData<ClusterCreateFields>,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 	#[inject] database: reinhardt::db::orm::DatabaseConnection,
-	#[inject] agent_token_service: reinhardt::di::KeyedDepends<
-		crate::apps::clusters::services::AgentTokenServiceKey,
+	#[inject] agent_token_service: reinhardt::di::Depends<
 		crate::apps::clusters::services::AgentTokenService,
 	>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
@@ -291,8 +290,7 @@ pub async fn delete_cluster_for_current_org(
 pub async fn rotate_cluster_token_for_current_org(
 	cluster_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] agent_token_service: reinhardt::di::KeyedDepends<
-		crate::apps::clusters::services::AgentTokenServiceKey,
+	#[inject] agent_token_service: reinhardt::di::Depends<
 		crate::apps::clusters::services::AgentTokenService,
 	>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {

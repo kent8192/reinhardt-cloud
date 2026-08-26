@@ -17,14 +17,11 @@ fn nav_item_class(is_active: bool) -> &'static str {
 	}
 }
 
-fn active_item(path: &str) -> &'static str {
-	match path.split_once('?').map_or(path, |(path, _)| path) {
-		"/account" => "account",
-		"/clusters" => "clusters",
-		"/deployments" => "deployments",
-		"/github" => "github",
-		_ => "overview",
-	}
+fn route_is_active(current_path: &str, route_href: &str) -> bool {
+	current_path
+		.split_once('?')
+		.map_or(current_path, |(path, _)| path)
+		== route_href
 }
 
 #[cfg(wasm)]
@@ -73,122 +70,124 @@ pub fn dashboard_layout(outlet: Outlet) -> Page {
 	let deployments_href = route_href("deployments:list", "/deployments");
 	let github_href = route_href("github:repositories", "/github");
 
-	Page::reactive(move || {
-		let active_item = current_path
-			.map(|path| active_item(&path.get()))
-			.unwrap_or("overview");
-		let outlet = outlet.clone();
-		let account_href = account_href.clone();
-		let home_href = home_href.clone();
-		let clusters_href = clusters_href.clone();
-		let deployments_href = deployments_href.clone();
-		let github_href = github_href.clone();
-		let logout_action = logout_action;
-		page!({
-			div {
-				class: "rc-app flex flex-col",
-				header {
-					class: "sticky top-0 z-10 h-16 border-b border-cloud-200 bg-white/90 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0",
-					div {
-						class: "flex items-center gap-3",
-						span {
-							class: "grid h-9 w-9 place-items-center rounded-md bg-ink-950 text-sm font-bold text-white shadow-[0_10px_20px_rgba(17,16,19,0.16)]",
-							"RC"
-						}
-						div {
-							span {
-								class: "block text-base font-bold leading-tight text-ink-950",
-								"Reinhardt Cloud"
-							}
-							span {
-								class: "hidden text-xs font-semibold uppercase text-ink-600 sm:block",
-								"Deploy control"
-							}
-						}
-					}
-					div {
-						class: "flex items-center gap-2 sm:gap-3",
-						span {
-							class: "hidden rounded-md border border-cloud-200 bg-cloud-50 px-3 py-1.5 text-xs font-bold uppercase text-ink-600 sm:inline-flex",
-							"Healthy"
-						}
-						a {
-							href: account_href.clone(),
-							class: "rc-link",
-							"Account"
-						}
-						button {
-							type: "button",
-							class: "rc-link",
-							@click: move |event: ClickEvent| {
-								event.prevent_default();
-								logout_action.dispatch(());
-							},
-							"Logout"
-						}
-					}
-				}
+	page!({
+		{
+			let current_path = current_path
+				.map(|path| path.get())
+				.unwrap_or_else(|| "/".to_string());
+			let outlet = outlet.clone();
+			let account_href = account_href.clone();
+			let home_href = home_href.clone();
+			let clusters_href = clusters_href.clone();
+			let deployments_href = deployments_href.clone();
+			let github_href = github_href.clone();
+			let logout_action = logout_action;
+			page!({
 				div {
-					class: "flex flex-1 flex-col md:flex-row",
-					nav {
-						class: "box-border w-full border-b border-cloud-200 bg-cloud-50/85 p-4 shrink-0 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:bg-white/80",
+					class: "rc-app flex flex-col",
+					header {
+						class: "sticky top-0 z-10 h-16 border-b border-cloud-200 bg-white/90 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0",
 						div {
-							class: "mb-4 rounded-md border border-cloud-200 bg-white p-3",
-							p {
-								class: "text-xs font-bold uppercase text-ink-600",
-								"Organization"
+							class: "flex items-center gap-3",
+							span {
+								class: "grid h-9 w-9 place-items-center rounded-md bg-ink-950 text-sm font-bold text-white shadow-[0_10px_20px_rgba(17,16,19,0.16)]",
+								"RC"
 							}
-							p {
-								class: "mt-1 truncate text-sm font-bold text-ink-950",
-								"current workspace"
+							div {
+								span {
+									class: "block text-base font-bold leading-tight text-ink-950",
+									"Reinhardt Cloud"
+								}
+								span {
+									class: "hidden text-xs font-semibold uppercase text-ink-600 sm:block",
+									"Deploy control"
+								}
 							}
 						}
-						ul {
-							class: "space-y-1.5",
-							li {
-								a {
-									href: home_href,
-									class: self::nav_item_class(active_item == "overview"),
-									"Overview"
-								}
+						div {
+							class: "flex items-center gap-2 sm:gap-3",
+							span {
+								class: "hidden rounded-md border border-cloud-200 bg-cloud-50 px-3 py-1.5 text-xs font-bold uppercase text-ink-600 sm:inline-flex",
+								"Healthy"
 							}
-							li {
-								a {
-									href: clusters_href,
-									class: self::nav_item_class(active_item == "clusters"),
-									"Clusters"
-								}
+							a {
+								href: account_href.clone(),
+								class: "rc-link",
+								"Account"
 							}
-							li {
-								a {
-									href: deployments_href,
-									class: self::nav_item_class(active_item == "deployments"),
-									"Deployments"
-								}
-							}
-							li {
-								a {
-									href: github_href,
-									class: self::nav_item_class(active_item == "github"),
-									"GitHub"
-								}
-							}
-							li {
-								a {
-									href: account_href,
-									class: self::nav_item_class(active_item == "account"),
-									"Account"
-								}
+							button {
+								type: "button",
+								class: "rc-link",
+								@click: move |event: ClickEvent| {
+									event.prevent_default();
+									logout_action.dispatch(());
+								},
+								"Logout"
 							}
 						}
 					}
-					main {
-						class: "min-w-0 flex-1",
-						{ outlet }
+					div {
+						class: "flex flex-1 flex-col md:flex-row",
+						nav {
+							class: "box-border w-full border-b border-cloud-200 bg-cloud-50/85 p-4 shrink-0 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:bg-white/80",
+							div {
+								class: "mb-4 rounded-md border border-cloud-200 bg-white p-3",
+								p {
+									class: "text-xs font-bold uppercase text-ink-600",
+									"Organization"
+								}
+								p {
+									class: "mt-1 truncate text-sm font-bold text-ink-950",
+									"current workspace"
+								}
+							}
+							ul {
+								class: "space-y-1.5",
+								li {
+									a {
+										href: home_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &home_href)),
+										"Overview"
+									}
+								}
+								li {
+									a {
+										href: clusters_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &clusters_href)),
+										"Clusters"
+									}
+								}
+								li {
+									a {
+										href: deployments_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &deployments_href)),
+										"Deployments"
+									}
+								}
+								li {
+									a {
+										href: github_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &github_href)),
+										"GitHub"
+									}
+								}
+								li {
+									a {
+										href: account_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &account_href)),
+										"Account"
+									}
+								}
+							}
+						}
+						main {
+							class: "min-w-0 flex-1",
+							{ outlet }
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	})
 }
 
@@ -327,21 +326,21 @@ mod tests {
 	use rstest::rstest;
 
 	#[rstest]
-	#[case::overview("/", "overview")]
-	#[case::account("/account", "account")]
-	#[case::clusters("/clusters", "clusters")]
-	#[case::deployments("/deployments", "deployments")]
-	#[case::deployment_logs("/deployments?logs=42", "deployments")]
-	#[case::github("/github", "github")]
-	fn active_item_matches_dashboard_route(#[case] path: &str, #[case] expected: &str) {
+	#[case::overview("/", "/", true)]
+	#[case::account("/account", "/account", true)]
+	#[case::clusters("/clusters", "/clusters", true)]
+	#[case::deployment_logs("/deployments?logs=42", "/deployments", true)]
+	#[case::different_route("/github", "/clusters", false)]
+	fn route_active_state_matches_path(
+		#[case] path: &str,
+		#[case] route: &str,
+		#[case] expected: bool,
+	) {
 		// Arrange
-		let expected_item = expected;
-
-		// Act
-		let item = super::active_item(path);
+		let active = super::route_is_active(path, route);
 
 		// Assert
-		assert_eq!(item, expected_item);
+		assert_eq!(active, expected);
 	}
 
 	#[rstest]

@@ -58,11 +58,9 @@ use reinhardt::auth::social::core::config::ProviderConfig;
 use reinhardt::auth::social::core::error::SocialAuthError;
 use reinhardt::auth::social::flow::state::InMemoryStateStore;
 use reinhardt::auth::social::providers::github::GitHubProvider;
-use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
+use reinhardt::di::Depends;
 
-use crate::apps::auth::services::oauth::config::{
-	OAuthSettings, OAuthSettingsKey, ProviderCredentials,
-};
+use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
 
 /// DI-resolvable wrapper around the optional `SocialAuthBackend`.
 ///
@@ -74,9 +72,6 @@ use crate::apps::auth::services::oauth::config::{
 /// effectively disabled.
 pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 
-#[reinhardt::di::injectable_key]
-pub struct OAuthBackendBoxKey;
-
 /// DI factory — singleton scope so the state store and registered
 /// providers are shared across all requests for the lifetime of the
 /// process. Replaces the previous process-wide `OnceLock<Arc<InMemoryStateStore>>`
@@ -87,14 +82,12 @@ pub struct OAuthBackendBoxKey;
 /// deploy-time configuration errors (bad provider config / missing
 /// dependencies), not recoverable runtime faults.
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_oauth_backend(
-	#[inject] settings: Depends<OAuthSettingsKey, OAuthSettings>,
-) -> FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox> {
-	FactoryOutput::new(OAuthBackendBox(
+async fn create_oauth_backend(#[inject] settings: Depends<OAuthSettings>) -> OAuthBackendBox {
+	OAuthBackendBox(
 		assemble_social_auth_backend(&settings)
 			.await
 			.expect("Failed to construct SocialAuthBackend: check OAuth provider configuration"),
-	))
+	)
 }
 
 async fn assemble_social_auth_backend(
@@ -147,7 +140,8 @@ fn non_empty_env(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 	use rstest::rstest;
 
 	#[rstest]
@@ -157,14 +151,12 @@ mod tests {
 		// providers enabled. The factory should short-circuit to None
 		// rather than constructing an empty backend.
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				OAuthSettings::default(),
-			));
+			set_provider_value(scope, OAuthSettings::default());
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("OAuthBackendBox factory should resolve when OAuthSettings is registered");
 
@@ -187,14 +179,12 @@ mod tests {
 			}),
 		};
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				settings,
-			));
+			set_provider_value(scope, settings);
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("OAuthBackendBox factory should resolve when GitHub credentials are present");
 

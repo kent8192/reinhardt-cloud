@@ -7,8 +7,9 @@ use reinhardt::pages::page;
 use reinhardt::pages::prelude::FieldError;
 use reinhardt::pages::prelude::{
 	Action, Callback, FormState, QueryClient, Signal, UseFormAsyncSubmitOutcome, queries,
-	use_action, use_form,
+	use_action, use_callback, use_form,
 };
+use reinhardt::pages::reactive::ExplicitDeps;
 use reinhardt::pages::server_fn::ServerFnError;
 
 use crate::apps::auth::client::components::oauth_buttons;
@@ -43,28 +44,31 @@ fn login_field_error(
 	state: FormState<LoginRequestClientFormField>,
 	field: LoginRequestClientFormField,
 ) -> Page {
-	Page::reactive(move || {
-		state
-			.field_errors
-			.get()
-			.get(&field)
-			.map(|error| {
-				let message = error.message().to_owned();
-				page!({
-					p {
-						class: "mt-1 text-xs font-medium text-red-700",
-						role: "alert",
-						{ message }
-					}
+	page!({
+		{
+			state
+				.field_errors
+				.get()
+				.get(&field)
+				.map(|error| {
+					let message = error.message().to_owned();
+					page!({
+						p {
+							class: "mt-1 text-xs font-medium text-red-700",
+							role: "alert",
+							{ message }
+						}
+					})
 				})
-			})
-			.unwrap_or(Page::Empty)
+				.unwrap_or(Page::Empty)
+		}
 	})
 }
 
 fn login_form_error(state: FormState<LoginRequestClientFormField>) -> Page {
-	Page::reactive(move || {
-		state
+	page!({
+		{
+			state
 			.form_error
 			.get()
 			.or_else(|| state.submit_error.get())
@@ -78,93 +82,94 @@ fn login_form_error(state: FormState<LoginRequestClientFormField>) -> Page {
 				})
 			})
 			.unwrap_or(Page::Empty)
+		}
 	})
 }
 
 fn render_login_form(view: LoginFormView) -> Page {
-	let LoginFormView {
-		state,
-		action,
-		username,
-		password,
-		password_input,
-	} = view;
-	let submit = Callback::new(move |event: SubmitEvent| {
-		event.prevent_default();
-		action.dispatch(());
-	});
-	let form_error = login_form_error(state.clone());
-	let username_error = login_field_error(state.clone(), LoginRequestClientFormField::Username);
-	let password_error = login_field_error(state.clone(), LoginRequestClientFormField::Password);
+	let submit = use_callback(
+		move |event: SubmitEvent| {
+			event.prevent_default();
+			view.action.dispatch(());
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
+	let form_error = login_form_error(view.state.clone());
+	let username_error =
+		login_field_error(view.state.clone(), LoginRequestClientFormField::Username);
+	let password_error =
+		login_field_error(view.state.clone(), LoginRequestClientFormField::Password);
 
-	Page::reactive(move || {
-		let is_submitting = state.is_submitting.get();
-		let password_value = password.get();
-		let submit_label = if is_submitting {
-			"Signing in..."
-		} else {
-			"Sign in"
-		};
-		page!({
-			form {
-				class: "rc-form-stack",
-				@submit: submit,
-				{ form_error }
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "login-username",
-						"Username"
-					}
-					input {
-						id: "login-username",
-						aria_label: "Username",
-						aria_describedby: "login-username-error",
-						class: "rc-input",
-						type: "text",
-						autocomplete: "username",
-						maxlength: 150,
-						placeholder: "Enter your username",
-						bind: username,
+	page!({
+		{
+			let is_submitting = view.state.is_submitting.get();
+			let password_value = view.password.get();
+			let submit_label = if is_submitting {
+				"Signing in..."
+			} else {
+				"Sign in"
+			};
+			page!({
+				form {
+					class: "rc-form-stack",
+					@submit: submit,
+					{ form_error }
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "login-username",
+							"Username"
+						}
+						input {
+							id: "login-username",
+							aria_label: "Username",
+							aria_describedby: "login-username-error",
+							class: "rc-input",
+							type: "text",
+							autocomplete: "username",
+							maxlength: 150,
+							placeholder: "Enter your username",
+							bind: view.username,
+						}
+						div {
+							id: "login-username-error",
+							{ username_error }
+						}
 					}
 					div {
-						id: "login-username-error",
-						{ username_error }
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "login-password",
+							"Password"
+						}
+						input {
+							id: "login-password",
+							aria_label: "Password",
+							aria_describedby: "login-password-error",
+							class: "rc-input",
+							type: "password",
+							autocomplete: "current-password",
+							maxlength: 128,
+							placeholder: "Enter your password",
+							value: password_value,
+							@input: view.password_input,
+						}
+						div {
+							id: "login-password-error",
+							{ password_error }
+						}
+					}
+					button {
+						type: "submit",
+						class: "btn-primary min-h-11 w-full text-base",
+						disabled: is_submitting,
+						{ submit_label }
 					}
 				}
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "login-password",
-						"Password"
-					}
-					input {
-						id: "login-password",
-						aria_label: "Password",
-						aria_describedby: "login-password-error",
-						class: "rc-input",
-						type: "password",
-						autocomplete: "current-password",
-						maxlength: 128,
-						placeholder: "Enter your password",
-						value: password_value,
-						@input: password_input,
-					}
-					div {
-						id: "login-password-error",
-						{ password_error }
-					}
-				}
-				button {
-					type: "submit",
-					class: "btn-primary min-h-11 w-full text-base",
-					disabled: is_submitting,
-					{ submit_label }
-				}
-			}
-		})
+			})
+		}
 	})
 }
 
@@ -218,16 +223,22 @@ pub fn login_page() -> Page {
 	let login_state = login_runtime.form_state();
 	let username = login_runtime.watch_field::<String>(login_form.username_field());
 	let password = login_runtime.watch_field::<String>(login_form.password_field());
-	let password_input = {
-		Callback::new(move |event: InputEvent| {
+	let password_input = use_callback(
+		move |event: InputEvent| {
 			let Ok(value) = event.value() else {
 				return;
 			};
 			password.set(value);
-		})
-	};
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let submit_form = login_form.clone();
 	let submit_runtime = login_runtime.clone();
+	// Workaround for reinhardt-web#6189 (tracked in reinhardt-cloud#892).
+	// Remove when generated form submission has one target-neutral API.
+	//
+	// Ideal implementation (without workaround):
+	//   use_action(move |()| submit_form.submit(&submit_runtime))
 	let login_action = use_action(move |(): ()| {
 		let form = submit_form.clone();
 		let runtime = submit_runtime.clone();

@@ -265,7 +265,10 @@ pub fn github_repositories_page() -> Page {
 			button {
 				type: "submit",
 				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start",
-				"Import repository"
+				disabled: import_state.is_submitting.get(),
+				{
+					if import_state.is_submitting.get() { "Importing..." } else { "Import repository" }
+				}
 			}
 		}
 	});
@@ -473,7 +476,7 @@ pub fn github_repositories_page() -> Page {
 																		span { "Link your GitHub account before installing the GitHub App." }
 																		a {
 																			class: "btn-secondary text-xs",
-																			href: "/api/auth/oauth/github/start/",
+														href: "/api/auth/oauth/github/start/?intent=link",
 																			"Link GitHub account"
 																		}
 																	}

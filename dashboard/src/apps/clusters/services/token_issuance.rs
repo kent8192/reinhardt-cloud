@@ -8,7 +8,7 @@
 use reinhardt::Argon2Hasher;
 use reinhardt::PasswordHasher;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
+use reinhardt::di::Depends;
 use reinhardt_cloud_grpc::agent_claims::create_agent_token;
 use uuid::Uuid;
 
@@ -40,19 +40,16 @@ pub struct IssuedAgentToken {
 /// resolve and shared across all subsequent service instantiations.
 pub struct JwtSecret(pub String);
 
-#[reinhardt::di::injectable_key]
-pub struct JwtSecretKey;
-
 /// DI factory — resolves the JWT secret from the active settings
 /// profile (TOML key `jwt_secret` with the
 /// `REINHARDT_CLOUD_JWT_SECRET` env-var fallback). Panics if no source
 /// supplies a value, which is treated as a deploy-time configuration
 /// error rather than a recoverable runtime fault.
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_jwt_secret() -> FactoryOutput<JwtSecretKey, JwtSecret> {
-	FactoryOutput::new(JwtSecret(get_jwt_secret().expect(
+async fn create_jwt_secret() -> JwtSecret {
+	JwtSecret(get_jwt_secret().expect(
 		"JWT secret not configured: set jwt_secret in TOML or REINHARDT_CLOUD_JWT_SECRET env var",
-	)))
+	))
 }
 
 /// Cluster agent token issuance service.
@@ -63,18 +60,13 @@ pub struct AgentTokenService {
 	jwt_secret: String,
 }
 
-#[reinhardt::di::injectable_key]
-pub struct AgentTokenServiceKey;
-
 /// DI factory — `transient` because the service is cheap to clone and
 /// may be resolved per request without contention.
 #[reinhardt::di::injectable(scope = "transient")]
-async fn create_agent_token_service(
-	#[inject] jwt_secret: Depends<JwtSecretKey, JwtSecret>,
-) -> FactoryOutput<AgentTokenServiceKey, AgentTokenService> {
-	FactoryOutput::new(AgentTokenService {
+async fn create_agent_token_service(#[inject] jwt_secret: Depends<JwtSecret>) -> AgentTokenService {
+	AgentTokenService {
 		jwt_secret: jwt_secret.0.clone(),
-	})
+	}
 }
 
 impl AgentTokenService {
@@ -100,9 +92,9 @@ impl AgentTokenService {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 	use rstest::rstest;
-	use std::sync::Arc;
 
 	#[rstest]
 	#[tokio::test]
@@ -110,14 +102,12 @@ mod tests {
 		// Arrange — override JwtSecret so the factory does not touch
 		// global settings; tests run in parallel without serial_test locks.
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<JwtSecretKey, JwtSecret>::new(JwtSecret(
-				"test-secret-do-not-use-in-prod".into(),
-			)));
+			set_provider_value(scope, JwtSecret("test-secret-do-not-use-in-prod".into()));
 		});
 
 		// Act
-		let svc: Arc<FactoryOutput<AgentTokenServiceKey, AgentTokenService>> = ctx
-			.resolve::<FactoryOutput<AgentTokenServiceKey, AgentTokenService>>()
+		let svc = Depends::<AgentTokenService>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("AgentTokenService factory should resolve when JwtSecret is registered");
 		let cluster_id = Uuid::now_v7();
@@ -140,12 +130,10 @@ mod tests {
 	async fn test_agent_token_service_issued_token_contains_cluster_id_claim() {
 		// Arrange
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<JwtSecretKey, JwtSecret>::new(JwtSecret(
-				"test-secret-claim-check".into(),
-			)));
+			set_provider_value(scope, JwtSecret("test-secret-claim-check".into()));
 		});
-		let svc: Arc<FactoryOutput<AgentTokenServiceKey, AgentTokenService>> = ctx
-			.resolve::<FactoryOutput<AgentTokenServiceKey, AgentTokenService>>()
+		let svc = Depends::<AgentTokenService>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("factory should resolve");
 		let cluster_id = Uuid::now_v7();

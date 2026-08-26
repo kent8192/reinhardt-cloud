@@ -8,4 +8,4 @@ pub mod pipeline;
 pub mod setup_state;
 pub mod webhook;
 
-pub use config::{GitHubAppSettings, GitHubAppSettingsKey};
+pub use config::GitHubAppSettings;

@@ -4,7 +4,7 @@
 mod tests {
 	use rstest::rstest;
 
-	use crate::apps::auth::server_urls::{
+	use crate::apps::auth::server_urls::oauth::{
 		OAUTH_STATE_COOKIE_NAME, cookie_value_from_header, expired_oauth_state_cookie_header,
 		oauth_link_intent_value, oauth_state_cookie_header, oauth_state_cookie_signature,
 		validate_oauth_link_intent_value,

@@ -2,29 +2,34 @@
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::pages::router::ClientRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 type AppRouter = UnifiedRouter<ClientRouter>;
-#[cfg(not(native))]
+#[cfg(not(server))]
 type AppRouter = UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use crate::apps::github::server_urls;
 
+#[cfg(server)]
 pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::github_setup)
-				.endpoint(server_urls::github_webhook);
-			s
+		.server(|server| {
+			server
+				.endpoint(server_urls::github_setup)
+				.endpoint(server_urls::github_webhook)
 		})
-		.client(|c| c)
+		.client(|client| client)
 }
 
-#[cfg(all(test, native))]
+#[cfg(not(server))]
+pub fn url_patterns() -> AppRouter {
+	UnifiedRouter::new()
+}
+
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;

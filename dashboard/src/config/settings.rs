@@ -47,7 +47,7 @@ use reinhardt::conf::{
 	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
 	settings::builder::{BuildError, SettingsBuilder},
 };
-use reinhardt::di::{KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput};
+use reinhardt::di::Depends;
 use reinhardt::settings;
 use reinhardt_cloud_grpc::{config::GrpcServerConfig, settings::GrpcSettings};
 use std::env;
@@ -70,10 +70,7 @@ use std::path::{Path, PathBuf};
 #[settings(core: CoreSettings | I18nSettings | static_files: StaticSettings | MediaSettings | CorsSettings | EmailSettings | contacts: ContactSettings)]
 pub struct ProjectSettings;
 
-#[reinhardt::di::injectable_key]
-pub struct ProjectSettingsKey;
-
-pub type ProjectSettingsDepends = Depends<ProjectSettingsKey, ProjectSettings>;
+pub type ProjectSettingsDepends = Depends<ProjectSettings>;
 
 /// Resolve the settings directory path.
 ///
@@ -294,8 +291,8 @@ pub fn get_settings() -> ProjectSettings {
 /// `ProjectSettings` value rather than rebuilding settings independently.
 #[cfg(native)]
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_project_settings() -> FactoryOutput<ProjectSettingsKey, ProjectSettings> {
-	FactoryOutput::new(build_settings())
+async fn create_project_settings() -> ProjectSettings {
+	build_settings()
 }
 
 /// Get Redis URL from settings or environment.

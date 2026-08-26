@@ -37,9 +37,7 @@ use reinhardt::ServerRouter;
 #[cfg(native)]
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
-use reinhardt::di::{
-	DiRegistrationList, KeyedDepends as Depends, KeyedFactoryOutput as FactoryOutput,
-};
+use reinhardt::di::{Depends, DiRegistrationList};
 #[cfg(native)]
 use reinhardt::pages::router::ClientRouter;
 #[cfg(native)]
@@ -59,7 +57,7 @@ type DashboardUnifiedRouter = UnifiedRouter;
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 #[cfg(native)]
-use crate::apps::auth::services::{LocalAuthService, LocalAuthServiceKey};
+use crate::apps::auth::services::LocalAuthService;
 #[cfg(native)]
 use crate::apps::auth::{server_fn, urls as auth_urls};
 #[cfg(native)]
@@ -75,15 +73,15 @@ use crate::apps::health::urls as health_urls;
 #[cfg(native)]
 use crate::apps::organizations::urls as organization_urls;
 #[cfg(native)]
+use crate::config::GrpcChannelSingleton;
+#[cfg(native)]
 use crate::config::admin::configure_admin;
 #[cfg(native)]
 use crate::config::middleware::CspPathMiddleware;
 #[cfg(native)]
 use crate::config::settings::{get_redis_url, get_settings};
 #[cfg(native)]
-use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
-#[cfg(native)]
-use crate::utils::realtime::{WsBroadcaster, WsBroadcasterKey};
+use crate::utils::realtime::WsBroadcaster;
 #[cfg(native)]
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
@@ -103,20 +101,17 @@ const DASHBOARD_STATIC_URL_PREFIX: &str = "/api/static/";
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct AllowedOriginsKey;
-
 /// DI factory — resolves allowed origins from settings.
 #[cfg(native)]
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_allowed_origins() -> FactoryOutput<AllowedOriginsKey, AllowedOrigins> {
+async fn create_allowed_origins() -> AllowedOrigins {
 	let settings = get_settings();
 	let port = std::env::var("PORT").ok();
-	FactoryOutput::new(AllowedOrigins(build_allowed_origins(
+	AllowedOrigins(build_allowed_origins(
 		&settings.cors.allow_origins,
 		settings.core.debug,
 		port.as_deref(),
-	)))
+	))
 }
 
 #[cfg(native)]
@@ -153,16 +148,12 @@ fn build_allowed_origins(configured: &[String], debug: bool, port: Option<&str>)
 pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct DashboardSessionConfigKey;
-
 /// DI factory — builds `DashboardSessionConfig` from settings.
 #[cfg(native)]
 #[reinhardt::di::injectable(scope = "singleton")]
-async fn create_cookie_session_config()
--> FactoryOutput<DashboardSessionConfigKey, DashboardSessionConfig> {
+async fn create_cookie_session_config() -> DashboardSessionConfig {
 	let settings = get_settings();
-	FactoryOutput::new(DashboardSessionConfig(CookieSessionConfig {
+	DashboardSessionConfig(CookieSessionConfig {
 		cookie_name: "sessionid".to_string(),
 		sliding_ttl: std::time::Duration::from_secs(1800),
 		absolute_max: std::time::Duration::from_secs(86400),
@@ -176,7 +167,7 @@ async fn create_cookie_session_config()
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
 		],
-	}))
+	})
 }
 
 // ── Router infrastructure ───────────────────────────────────────────
@@ -195,9 +186,6 @@ pub(crate) struct RouterInfrastructure {
 }
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct RouterInfrastructureKey;
-
 /// DI factory — builds shared router infrastructure components.
 ///
 /// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
@@ -210,12 +198,12 @@ pub(crate) struct RouterInfrastructureKey;
 #[cfg(native)]
 #[reinhardt::di::injectable(scope = "transient")]
 async fn create_router_infrastructure(
-	#[inject] allowed_origins: Depends<AllowedOriginsKey, AllowedOrigins>,
-	#[inject] session_config: Depends<DashboardSessionConfigKey, DashboardSessionConfig>,
-	#[inject] _ws_broadcaster: Depends<WsBroadcasterKey, WsBroadcaster>,
-	#[inject] _local_auth_service: Depends<LocalAuthServiceKey, LocalAuthService>,
-	#[inject] _grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
-) -> FactoryOutput<RouterInfrastructureKey, RouterInfrastructure> {
+	#[inject] allowed_origins: Depends<AllowedOrigins>,
+	#[inject] session_config: Depends<DashboardSessionConfig>,
+	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
+	#[inject] _local_auth_service: Depends<LocalAuthService>,
+	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
+) -> RouterInfrastructure {
 	initialize_dashboard_static_resolver();
 
 	// Configure admin site with DI registration.
@@ -230,13 +218,13 @@ async fn create_router_infrastructure(
 			.expect("Failed to create Redis session backend"),
 	);
 
-	FactoryOutput::new(RouterInfrastructure {
+	RouterInfrastructure {
 		admin_router,
 		admin_di,
 		session_backend,
 		allowed_origins: allowed_origins.0.clone(),
 		session_config: session_config.0.clone(),
-	})
+	}
 }
 
 // ── Router construction ─────────────────────────────────────────────
@@ -256,7 +244,7 @@ async fn create_router_infrastructure(
 pub async fn routes(
 	#[cfg(native)]
 	#[inject]
-	infra: Depends<RouterInfrastructureKey, RouterInfrastructure>,
+	infra: Depends<RouterInfrastructure>,
 ) -> DashboardUnifiedRouter {
 	#[cfg(native)]
 	{

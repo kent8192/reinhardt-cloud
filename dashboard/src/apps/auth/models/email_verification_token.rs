@@ -42,7 +42,8 @@ pub struct EmailVerificationToken {
 	#[rel(
 		foreign_key,
 		related_name = "email_verification_tokens",
-		db_index = false
+		db_index = false,
+		on_delete = Cascade
 	)]
 	pub user: ForeignKeyField<User>,
 

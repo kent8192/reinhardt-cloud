@@ -134,28 +134,15 @@ async fn rollback_created_deployment(deployment_id: i64) {
 }
 
 #[cfg(native)]
-async fn rollback_created_github_project(project_id: i64) {
-	use reinhardt::Model;
-
-	use crate::apps::github::models::GitHubProject;
-
-	if let Err(delete_err) = GitHubProject::objects().delete(project_id).await {
-		tracing::warn!(
-			"Failed to roll back GitHub project {project_id} after repository update error: {delete_err}"
-		);
-	}
-}
-
-#[cfg(native)]
 async fn agent_registry()
 -> Result<std::sync::Arc<reinhardt_cloud_grpc::registry::AgentRegistry>, ServerFnError> {
-	use reinhardt::di::{ContextLevel, KeyedFactoryOutput as FactoryOutput, get_di_context};
+	use reinhardt::di::{ContextLevel, Depends, get_di_context};
 
-	use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
+	use crate::config::AgentRegistrySingleton;
 
 	let ctx = get_di_context(ContextLevel::Root);
-	let registry = ctx
-		.resolve::<FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton>>()
+	let registry = Depends::<AgentRegistrySingleton>::builder()
+		.resolve(&ctx)
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to resolve AgentRegistry: {e}")))?;
 	Ok(registry.0.clone())
@@ -408,7 +395,7 @@ pub async fn import_github_repository_for_current_org(
 		.map_err(|e| ServerFnError::application(format!("Failed to load cluster: {e}")))?
 		.ok_or_else(|| ServerFnError::validation([("cluster_id", "Select an active cluster")]))?;
 
-	let mut repository = GitHubRepository::objects()
+	let repository = GitHubRepository::objects()
 		.filter(GitHubRepository::field_id().eq(repository_id))
 		.first()
 		.await
@@ -438,120 +425,144 @@ pub async fn import_github_repository_for_current_org(
 			"GitHub repository is already imported",
 		)]));
 	}
-
-	let mut import_spec = import_spec_from_repository(&repository, &project_name, &registry)
-		.map_err(|message| {
-			let field = if project_name.is_empty() {
-				"repository_id"
-			} else {
-				"project_name"
-			};
-			ServerFnError::validation([(field, message)])
-		})?;
-	let settings = GitHubAppSettings::from_env()
-		.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
-	let client = ReqwestGitHubAppClient::new(settings);
-	let installation_token = client
-		.create_repository_installation_access_token(
-			installation.installation_id,
-			repository.github_repository_id,
-		)
+	let claimed = GitHubRepository::objects()
+		.filter(GitHubRepository::field_id().eq(repository_id))
+		.filter(GitHubRepository::field_selected().eq(false))
+		.update_fields([(GitHubRepository::field_selected(), true)])
 		.await
 		.map_err(|e| {
-			ServerFnError::application(format!(
-				"Failed to create GitHub installation access token: {e}"
-			))
+			ServerFnError::application(format!("Failed to claim GitHub repository import: {e}"))
 		})?;
-	let pipeline_input = GitHubDeployPipelineInput {
-		installation_id: installation.installation_id,
-		full_name: repository.full_name.clone(),
-		branch: repository.default_branch.clone(),
-		project_name: import_spec.project_name.clone(),
-		namespace: import_spec.namespace.clone(),
-		registry: import_spec.registry.clone(),
-		private: repository.private,
-	};
-	let pipeline_output = run_github_deploy_pipeline(&pipeline_input, &installation_token.token)
-		.await
-		.map_err(|e| ServerFnError::application(format!("GitHub deploy pipeline failed: {e}")))?;
-	enrich_import_spec(
-		&mut import_spec,
-		pipeline_output.introspect,
-		pipeline_output.credentials_secret,
-	);
-	let manifest = source_project_yaml(&import_spec).map_err(|e| ServerFnError::server(400, e))?;
-	let agent_registry = agent_registry().await?;
-	if let Some(secret_name) = import_spec.credentials_secret.as_deref() {
-		send_git_credentials_secret_to_cluster(
+	if claimed != 1 {
+		return Err(ServerFnError::validation([(
+			"repository_id",
+			"GitHub repository is already importing or imported",
+		)]));
+	}
+
+	let result = async {
+		let mut import_spec = import_spec_from_repository(&repository, &project_name, &registry)
+			.map_err(|message| {
+				let field = if project_name.is_empty() {
+					"repository_id"
+				} else {
+					"project_name"
+				};
+				ServerFnError::validation([(field, message)])
+			})?;
+		let settings = GitHubAppSettings::from_env()
+			.map_err(|e| ServerFnError::application(format!("GitHub App settings invalid: {e}")))?;
+		let client = ReqwestGitHubAppClient::new(settings);
+		let installation_token = client
+			.create_repository_installation_access_token(
+				installation.installation_id,
+				repository.github_repository_id,
+			)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to create GitHub installation access token: {e}"
+				))
+			})?;
+		let pipeline_input = GitHubDeployPipelineInput {
+			installation_id: installation.installation_id,
+			full_name: repository.full_name.clone(),
+			branch: repository.default_branch.clone(),
+			project_name: import_spec.project_name.clone(),
+			namespace: import_spec.namespace.clone(),
+			registry: import_spec.registry.clone(),
+			private: repository.private,
+		};
+		let pipeline_output =
+			run_github_deploy_pipeline(&pipeline_input, &installation_token.token)
+				.await
+				.map_err(|e| {
+					ServerFnError::application(format!("GitHub deploy pipeline failed: {e}"))
+				})?;
+		enrich_import_spec(
+			&mut import_spec,
+			pipeline_output.introspect,
+			pipeline_output.credentials_secret,
+		);
+		let manifest =
+			source_project_yaml(&import_spec).map_err(|e| ServerFnError::server(400, e))?;
+		let agent_registry = agent_registry().await?;
+		if let Some(secret_name) = import_spec.credentials_secret.as_deref() {
+			send_git_credentials_secret_to_cluster(
+				&agent_registry,
+				&cluster,
+				&import_spec.project_name,
+				&import_spec.namespace,
+				secret_name,
+				&installation_token.token,
+			)
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to apply GitHub repository credentials: {e}"
+				))
+			})?;
+		}
+		send_project_apply_to_cluster(
 			&agent_registry,
 			&cluster,
 			&import_spec.project_name,
-			&import_spec.namespace,
-			secret_name,
-			&installation_token.token,
+			&manifest,
 		)
 		.await
 		.map_err(|e| {
-			ServerFnError::application(format!(
-				"Failed to apply GitHub repository credentials: {e}"
-			))
+			ServerFnError::application(format!("Failed to apply Project manifest: {e}"))
 		})?;
+		let deployment = Deployment::build()
+			.organization(organization_id)
+			.project_name(import_spec.project_name.clone())
+			.cluster(cluster_id)
+			.status("pending".to_string())
+			.image(format!("{}:pending", import_spec.registry))
+			.project_yaml(Some(manifest))
+			.finish();
+		let deployment = Deployment::objects()
+			.create(&deployment)
+			.await
+			.map_err(|e| ServerFnError::application(format!("Failed to create deployment: {e}")))?;
+		let deployment_id = deployment.id.ok_or_else(|| {
+			ServerFnError::application("Deployment row missing primary key after insert")
+		})?;
+		let repository_row_id = repository.id.ok_or_else(|| {
+			ServerFnError::application("GitHub repository row missing primary key")
+		})?;
+		let production_branch = import_spec.branch.clone();
+		let project = GitHubProject::build()
+			.organization(organization_id)
+			.repository(repository_row_id)
+			.deployment(deployment_id)
+			.project_name(import_spec.project_name)
+			.production_branch(production_branch)
+			.status("imported".to_string())
+			.finish();
+		let project = match GitHubProject::objects().create(&project).await {
+			Ok(project) => project,
+			Err(e) => {
+				rollback_created_deployment(deployment_id).await;
+				return Err(ServerFnError::application(format!(
+					"Failed to create GitHub project: {e}"
+				)));
+			}
+		};
+		Ok(github_project_info(project))
 	}
-	send_project_apply_to_cluster(
-		&agent_registry,
-		&cluster,
-		&import_spec.project_name,
-		&manifest,
-	)
-	.await
-	.map_err(|e| ServerFnError::application(format!("Failed to apply Project manifest: {e}")))?;
-	let deployment = Deployment::build()
-		.organization(organization_id)
-		.project_name(import_spec.project_name.clone())
-		.cluster(cluster_id)
-		.status("pending".to_string())
-		.image(format!("{}:pending", import_spec.registry))
-		.project_yaml(Some(manifest))
-		.finish();
-	let deployment = Deployment::objects()
-		.create(&deployment)
-		.await
-		.map_err(|e| ServerFnError::application(format!("Failed to create deployment: {e}")))?;
-	let deployment_id = deployment.id.ok_or_else(|| {
-		ServerFnError::application("Deployment row missing primary key after insert")
-	})?;
-	let repository_row_id = repository
-		.id
-		.ok_or_else(|| ServerFnError::application("GitHub repository row missing primary key"))?;
-	let production_branch = import_spec.branch.clone();
-	let project = GitHubProject::build()
-		.organization(organization_id)
-		.repository(repository_row_id)
-		.deployment(deployment_id)
-		.project_name(import_spec.project_name)
-		.production_branch(production_branch)
-		.status("imported".to_string())
-		.finish();
-	let project = match GitHubProject::objects().create(&project).await {
-		Ok(project) => project,
-		Err(e) => {
-			rollback_created_deployment(deployment_id).await;
-			return Err(ServerFnError::application(format!(
-				"Failed to create GitHub project: {e}"
-			)));
-		}
-	};
-	repository.selected = true;
-	if let Err(e) = GitHubRepository::objects().update(&repository).await {
-		if let Some(project_id) = project.id {
-			rollback_created_github_project(project_id).await;
-		}
-		rollback_created_deployment(deployment_id).await;
-		return Err(ServerFnError::application(format!(
-			"Failed to update GitHub repository: {e}"
-		)));
+	.await;
+	if result.is_err()
+		&& let Err(error) = GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.update_fields([(GitHubRepository::field_selected(), false)])
+			.await
+	{
+		tracing::warn!(
+			"Failed to release GitHub repository import claim for {repository_id}: {error}"
+		);
 	}
-	Ok(github_project_info(project))
+	result
 }
 
 #[server_fn]

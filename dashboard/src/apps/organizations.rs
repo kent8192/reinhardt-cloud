@@ -6,17 +6,17 @@
 //! is handled by sub-issue #416. The `urls` submodule is cross-target
 //! so the typed SPA accessor reaches it on wasm.
 
-#[cfg(native)]
+#[cfg(server)]
 pub mod helpers;
-#[cfg(native)]
+#[cfg(server)]
 pub mod models;
-#[cfg(native)]
+#[cfg(server)]
 pub mod permissions;
-#[cfg(native)]
+#[cfg(server)]
 pub mod roles;
-#[cfg(native)]
+#[cfg(server)]
 pub mod services;
 pub mod urls;
 
-#[cfg(all(test, native))]
+#[cfg(all(test, server))]
 mod tests;

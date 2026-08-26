@@ -400,9 +400,9 @@ pub(super) fn migration() -> Migration {
 				],
 				constraints: vec![
 					Constraint::ForeignKey {
-						name: "fk_github_projects_organization_id".to_string(),
-						columns: vec!["organization_id".to_string()],
-						referenced_table: "organizations".to_string(),
+						name: "fk_github_projects_repository_id".to_string(),
+						columns: vec!["repository_id".to_string()],
+						referenced_table: "github_repositories".to_string(),
 						referenced_columns: vec!["id".to_string()],
 						on_delete: ForeignKeyAction::Cascade,
 						on_update: ForeignKeyAction::NoAction,
@@ -418,9 +418,9 @@ pub(super) fn migration() -> Migration {
 						deferrable: None,
 					},
 					Constraint::ForeignKey {
-						name: "fk_github_projects_repository_id".to_string(),
-						columns: vec!["repository_id".to_string()],
-						referenced_table: "github_repositories".to_string(),
+						name: "fk_github_projects_organization_id".to_string(),
+						columns: vec!["organization_id".to_string()],
+						referenced_table: "organizations".to_string(),
 						referenced_columns: vec!["id".to_string()],
 						on_delete: ForeignKeyAction::Cascade,
 						on_update: ForeignKeyAction::NoAction,

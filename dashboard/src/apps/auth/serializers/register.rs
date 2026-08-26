@@ -1,14 +1,14 @@
 //! Register request serializer.
 
 use reinhardt::pages::ClientForm;
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::{Schema, ToSchema};
 use serde::{Deserialize, Serialize};
 
 /// User registration request body.
 #[reinhardt::dto]
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize, ClientForm)]
-#[cfg_attr(native, derive(Schema))]
+#[cfg_attr(server, derive(Schema))]
 #[client_form(server_fn = crate::apps::auth::server_fn::register::register, validate)]
 pub struct RegisterRequest {
 	#[validate(length(min = 3, max = 32))]

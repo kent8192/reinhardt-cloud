@@ -2,36 +2,41 @@
 //!
 //! Client SPA routes for the auth app.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use reinhardt::pages::router::ClientRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 type AppRouter = UnifiedRouter<ClientRouter>;
-#[cfg(not(native))]
+#[cfg(not(server))]
 type AppRouter = UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use crate::apps::auth::server_urls;
 
 /// Returns the unified URL patterns for the auth app.
+#[cfg(server)]
 pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
 		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::verify_email)
+			s.endpoint(server_urls::verify_email)
 				.endpoint(server_urls::oauth_start)
 				.endpoint(server_urls::oauth_callback)
-				.endpoint(server_urls::api_me);
-			s
+				.endpoint(server_urls::api_me)
 		})
-		.client(|c| c)
+		.client(|client| client)
 }
 
-#[cfg(all(test, native))]
+#[cfg(not(server))]
+pub fn url_patterns() -> AppRouter {
+	UnifiedRouter::new()
+}
+
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;

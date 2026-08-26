@@ -6,9 +6,10 @@ use reinhardt::pages::page;
 #[cfg(test)]
 use reinhardt::pages::prelude::FieldError;
 use reinhardt::pages::prelude::{
-	Action, Callback, FormState, Signal, UseFormAsyncSubmitOutcome, use_action, use_form,
-	use_router,
+	Action, Callback, FormState, Signal, UseFormAsyncSubmitOutcome, use_action, use_callback,
+	use_form, use_router,
 };
+use reinhardt::pages::reactive::ExplicitDeps;
 use reinhardt::pages::server_fn::ServerFnError;
 
 use crate::apps::auth::client::components::oauth_buttons;
@@ -35,28 +36,31 @@ fn register_field_error(
 	state: FormState<RegisterRequestClientFormField>,
 	field: RegisterRequestClientFormField,
 ) -> Page {
-	Page::reactive(move || {
-		state
-			.field_errors
-			.get()
-			.get(&field)
-			.map(|error| {
-				let message = error.message().to_owned();
-				page!({
-					p {
-						class: "mt-1 text-xs font-medium text-red-700",
-						role: "alert",
-						{ message }
-					}
+	page!({
+		{
+			state
+				.field_errors
+				.get()
+				.get(&field)
+				.map(|error| {
+					let message = error.message().to_owned();
+					page!({
+						p {
+							class: "mt-1 text-xs font-medium text-red-700",
+							role: "alert",
+							{ message }
+						}
+					})
 				})
-			})
-			.unwrap_or(Page::Empty)
+				.unwrap_or(Page::Empty)
+		}
 	})
 }
 
 fn register_form_error(state: FormState<RegisterRequestClientFormField>) -> Page {
-	Page::reactive(move || {
-		state
+	page!({
+		{
+			state
 			.form_error
 			.get()
 			.or_else(|| state.submit_error.get())
@@ -70,123 +74,121 @@ fn register_form_error(state: FormState<RegisterRequestClientFormField>) -> Page
 				})
 			})
 			.unwrap_or(Page::Empty)
+		}
 	})
 }
 
 fn render_register_form(view: RegisterFormView) -> Page {
-	let RegisterFormView {
-		state,
-		action,
-		username,
-		email,
-		password,
-		email_input,
-		password_input,
-	} = view;
-	let submit = Callback::new(move |event: SubmitEvent| {
-		event.prevent_default();
-		action.dispatch(());
-	});
-	let form_error = register_form_error(state.clone());
+	let submit = use_callback(
+		move |event: SubmitEvent| {
+			event.prevent_default();
+			view.action.dispatch(());
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
+	let form_error = register_form_error(view.state.clone());
 	let username_error =
-		register_field_error(state.clone(), RegisterRequestClientFormField::Username);
-	let email_error = register_field_error(state.clone(), RegisterRequestClientFormField::Email);
+		register_field_error(view.state.clone(), RegisterRequestClientFormField::Username);
+	let email_error =
+		register_field_error(view.state.clone(), RegisterRequestClientFormField::Email);
 	let password_error =
-		register_field_error(state.clone(), RegisterRequestClientFormField::Password);
+		register_field_error(view.state.clone(), RegisterRequestClientFormField::Password);
 
-	Page::reactive(move || {
-		let is_submitting = state.is_submitting.get();
-		let email_value = email.get();
-		let password_value = password.get();
-		let submit_label = if is_submitting {
-			"Creating account..."
-		} else {
-			"Create account"
-		};
-		page!({
-			form {
-				class: "rc-form-stack",
-				@submit: submit,
-				{ form_error }
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "register-username",
-						"Username"
-					}
-					input {
-						id: "register-username",
-						aria_label: "Username",
-						aria_describedby: "register-username-error",
-						class: "rc-input",
-						type: "text",
-						autocomplete: "username",
-						maxlength: 32,
-						placeholder: "Choose a username",
-						bind: username,
+	page!({
+		{
+			let is_submitting = view.state.is_submitting.get();
+			let email_value = view.email.get();
+			let password_value = view.password.get();
+			let submit_label = if is_submitting {
+				"Creating account..."
+			} else {
+				"Create account"
+			};
+			page!({
+				form {
+					class: "rc-form-stack",
+					@submit: submit,
+					{ form_error }
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "register-username",
+							"Username"
+						}
+						input {
+							id: "register-username",
+							aria_label: "Username",
+							aria_describedby: "register-username-error",
+							class: "rc-input",
+							type: "text",
+							autocomplete: "username",
+							maxlength: 32,
+							placeholder: "Choose a username",
+							bind: view.username,
+						}
+						div {
+							id: "register-username-error",
+							{ username_error }
+						}
 					}
 					div {
-						id: "register-username-error",
-						{ username_error }
-					}
-				}
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "register-email",
-						"Email"
-					}
-					input {
-						id: "register-email",
-						aria_label: "Email",
-						aria_describedby: "register-email-error",
-						class: "rc-input",
-						type: "email",
-						autocomplete: "email",
-						maxlength: 254,
-						placeholder: "Enter your email",
-						value: email_value,
-						@input: email_input,
-					}
-					div {
-						id: "register-email-error",
-						{ email_error }
-					}
-				}
-				div {
-					class: "rc-field",
-					label {
-						class: "rc-label",
-						r#for: "register-password",
-						"Password"
-					}
-					input {
-						id: "register-password",
-						aria_label: "Password",
-						aria_describedby: "register-password-error",
-						class: "rc-input",
-						type: "password",
-						autocomplete: "new-password",
-						maxlength: 128,
-						placeholder: "Create a password (min 8 characters)",
-						value: password_value,
-						@input: password_input,
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "register-email",
+							"Email"
+						}
+						input {
+							id: "register-email",
+							aria_label: "Email",
+							aria_describedby: "register-email-error",
+							class: "rc-input",
+							type: "email",
+							autocomplete: "email",
+							maxlength: 254,
+							placeholder: "Enter your email",
+							value: email_value,
+							@input: view.email_input,
+						}
+						div {
+							id: "register-email-error",
+							{ email_error }
+						}
 					}
 					div {
-						id: "register-password-error",
-						{ password_error }
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "register-password",
+							"Password"
+						}
+						input {
+							id: "register-password",
+							aria_label: "Password",
+							aria_describedby: "register-password-error",
+							class: "rc-input",
+							type: "password",
+							autocomplete: "new-password",
+							maxlength: 128,
+							placeholder: "Create a password (min 8 characters)",
+							value: password_value,
+							@input: view.password_input,
+						}
+						div {
+							id: "register-password-error",
+							{ password_error }
+						}
+					}
+					button {
+						type: "submit",
+						class: "btn-primary min-h-11 w-full text-base",
+						disabled: is_submitting,
+						{ submit_label }
 					}
 				}
-				button {
-					type: "submit",
-					class: "btn-primary min-h-11 w-full text-base",
-					disabled: is_submitting,
-					{ submit_label }
-				}
-			}
-		})
+			})
+		}
 	})
 }
 
@@ -210,24 +212,31 @@ pub fn register_page() -> Page {
 	let username = register_runtime.watch_field::<String>(register_form.username_field());
 	let email = register_runtime.watch_field::<String>(register_form.email_field());
 	let password = register_runtime.watch_field::<String>(register_form.password_field());
-	let email_input = {
-		Callback::new(move |event: InputEvent| {
+	let email_input = use_callback(
+		move |event: InputEvent| {
 			let Ok(value) = event.value() else {
 				return;
 			};
 			email.set(value);
-		})
-	};
-	let password_input = {
-		Callback::new(move |event: InputEvent| {
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
+	let password_input = use_callback(
+		move |event: InputEvent| {
 			let Ok(value) = event.value() else {
 				return;
 			};
 			password.set(value);
-		})
-	};
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let submit_form = register_form.clone();
 	let submit_runtime = register_runtime.clone();
+	// Workaround for reinhardt-web#6189 (tracked in reinhardt-cloud#892).
+	// Remove when generated form submission has one target-neutral API.
+	//
+	// Ideal implementation (without workaround):
+	//   use_action(move |()| submit_form.submit(&submit_runtime))
 	let register_action = use_action(move |(): ()| {
 		let form = submit_form.clone();
 		let runtime = submit_runtime.clone();

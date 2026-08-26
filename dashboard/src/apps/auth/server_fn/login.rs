@@ -14,26 +14,17 @@ use crate::shared::AuthResponse;
 /// the database, creates a Redis session, and sets an HTTP-only
 /// `sessionid` cookie. The browser automatically sends this cookie
 /// on subsequent requests.
-#[server_fn]
+#[server_fn(pre_validate = true)]
 pub async fn login(
 	request: LoginRequest,
 	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::KeyedDepends<
-		crate::config::ProjectSettingsKey,
-		crate::config::ProjectSettings,
-	>,
-	#[inject] session_service: reinhardt::di::KeyedDepends<
-		crate::apps::auth::services::SessionServiceKey,
-		crate::apps::auth::services::SessionService,
-	>,
+	#[inject] settings: reinhardt::di::Depends<crate::config::ProjectSettings>,
+	#[inject] session_service: reinhardt::di::Depends<crate::apps::auth::services::SessionService>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
 
 	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
-
-	#[cfg(native)]
-	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 
 	let user = services::verify_credentials(&request.username, &request.password)
 		.await
