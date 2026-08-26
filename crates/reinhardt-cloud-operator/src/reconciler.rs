@@ -937,6 +937,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
+			detach_redis_credentials_secret_if_managed(&ctx.client, &app, namespace, &name).await?;
 			// Deployment and Service are cleaned up via ownerReferences GC.
 			// Secrets and StatefulSets are retained for manual cleanup.
 			info!(
@@ -1661,7 +1662,7 @@ async fn reconcile_redis_credentials_secret(
 		));
 	}
 
-	let secret = build_managed_redis_credentials_secret(app, namespace);
+	let secret = build_managed_redis_credentials_secret(app, namespace)?;
 	secret_api
 		.create(&PostParams::default(), &secret)
 		.await
@@ -1670,23 +1671,41 @@ async fn reconcile_redis_credentials_secret(
 	Ok(())
 }
 
-fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
-	build_redis_credentials_secret(&app.name_any(), namespace)
+fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Result<Secret, Error> {
+	let mut secret = build_redis_credentials_secret(&app.name_any(), namespace);
+	secret.metadata.owner_references = Some(vec![crate::resources::labels::owner_reference(app)?]);
+	Ok(secret)
 }
 
 fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
-	if existing_resource_is_controlled_by_project(metadata, app) {
-		return true;
+	existing_resource_is_controlled_by_project(metadata, app)
+}
+
+async fn detach_redis_credentials_secret_if_managed(
+	client: &Client,
+	app: &Project,
+	namespace: &str,
+	name: &str,
+) -> Result<(), Error> {
+	let secret_name = format!("{name}-redis-credentials");
+	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+	let Some(existing) = secret_api
+		.get_opt(&secret_name)
+		.await
+		.map_err(Error::Kube)?
+	else {
+		return Ok(());
+	};
+	if !redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+		return Ok(());
 	}
 
-	let app_name = app.name_any();
-	metadata.labels.as_ref().is_some_and(|labels| {
-		labels.get("app.kubernetes.io/name").map(String::as_str) == Some(app_name.as_str())
-			&& labels
-				.get("app.kubernetes.io/managed-by")
-				.map(String::as_str)
-				== Some("reinhardt-cloud-operator")
-	})
+	let patch = serde_json::json!({"metadata": {"ownerReferences": null}});
+	secret_api
+		.patch(&secret_name, &PatchParams::default(), &Patch::Merge(&patch))
+		.await
+		.map_err(Error::Kube)?;
+	Ok(())
 }
 
 async fn delete_redis_credentials_secret_if_managed(
@@ -3272,22 +3291,23 @@ mod tests {
 	}
 
 	#[rstest]
-	fn build_managed_redis_credentials_secret_uses_retained_secret_shape() {
+	fn build_managed_redis_credentials_secret_uses_project_owner_reference() {
 		// Arrange
 		let app = make_test_app("payments");
 
 		// Act
-		let secret = build_managed_redis_credentials_secret(&app, "default");
+		let secret = build_managed_redis_credentials_secret(&app, "default")
+			.expect("test app has a valid owner reference");
 
 		// Assert
 		assert_eq!(
 			secret.metadata.name.as_deref(),
 			Some("payments-redis-credentials")
 		);
-		assert!(
-			secret.metadata.owner_references.is_none(),
-			"Redis credentials must not be garbage-collected under Retain policy"
-		);
+		let owners = secret.metadata.owner_references.expect("owner references");
+		assert_eq!(owners.len(), 1);
+		assert_eq!(owners[0].uid, "test-uid-12345");
+		assert_eq!(owners[0].controller, Some(true));
 		let labels = secret.metadata.labels.expect("standard labels");
 		assert_eq!(
 			labels.get("app.kubernetes.io/name").map(String::as_str),
@@ -3302,7 +3322,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn redis_credentials_secret_accepts_legacy_standard_labels() {
+	fn redis_credentials_secret_rejects_standard_labels_without_owner_reference() {
 		// Arrange
 		let app = make_test_app("payments");
 		let metadata = ObjectMeta {
@@ -3320,7 +3340,7 @@ mod tests {
 		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
 
 		// Assert
-		assert!(is_managed);
+		assert!(!is_managed);
 	}
 
 	#[rstest]

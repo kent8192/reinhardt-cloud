@@ -1010,9 +1010,11 @@ No bearer tokens or cloud-provider secrets are mounted into the pod by the chart
 
 Application-level secrets (JWT keys, database credentials, and Redis credentials) are created by
 the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
-written to disk on the operator node. Operator-generated Redis credential Secrets are owned by the
-corresponding `Project`; `deletion_policy: Delete` removes them explicitly, while
-`deletion_policy: Retain` keeps them for manual cleanup with the retained cache/database resources.
+written to disk on the operator node. Operator-generated Redis credential Secrets use a controller
+owner reference to the corresponding `Project`; labels alone are not accepted as proof of
+ownership. `deletion_policy: Delete` removes them explicitly, while `deletion_policy: Retain`
+removes the owner reference during finalization so that they remain available for manual cleanup
+with the retained cache/database resources.
 
 ---
 
