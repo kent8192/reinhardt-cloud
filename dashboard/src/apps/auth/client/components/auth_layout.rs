@@ -12,7 +12,7 @@ use reinhardt::pages::page;
 /// is the page-specific form view rendered inside the card body.
 pub fn auth_layout(title: &str, form_content: Page) -> Page {
 	let title = title.to_string();
-	page!(|title: String, form_content: Page| {
+	page!({
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -42,5 +42,5 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 				}
 			}
 		}
-	})(title, form_content)
+	})
 }

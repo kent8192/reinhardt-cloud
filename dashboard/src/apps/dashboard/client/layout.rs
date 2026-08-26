@@ -55,7 +55,7 @@ fn replace_document(_location: &str) -> Result<(), ServerFnError> {
 #[reinhardt::pages::layout("/", name = "dashboard:layout")]
 pub fn dashboard_layout(outlet: Outlet) -> Page {
 	let login_href = route_href("auth:login_page", "/login");
-	let logout_action = use_action({
+	let logout_action: Action<bool, ServerFnError> = use_action({
 		let login_href = login_href.clone();
 		move |_: ()| {
 			let login_href = login_href.clone();
@@ -84,14 +84,7 @@ pub fn dashboard_layout(outlet: Outlet) -> Page {
 		let deployments_href = deployments_href.clone();
 		let github_href = github_href.clone();
 		let logout_action = logout_action;
-		page!(|outlet: Outlet,
-		 account_href: String,
-		 home_href: String,
-		 clusters_href: String,
-		 deployments_href: String,
-		 github_href: String,
-		 logout_action: Action<bool, ServerFnError>,
-		 active_item: &'static str| {
+		page!({
 			div {
 				class: "rc-app flex flex-col",
 				header {
@@ -195,16 +188,7 @@ pub fn dashboard_layout(outlet: Outlet) -> Page {
 					}
 				}
 			}
-		})(
-			outlet,
-			account_href,
-			home_href,
-			clusters_href,
-			deployments_href,
-			github_href,
-			logout_action,
-			active_item,
-		)
+		})
 	})
 }
 
@@ -214,7 +198,7 @@ pub fn dashboard_shell() -> Page {
 	let clusters_href = route_href("clusters:list", "/clusters");
 	let deployments_href = route_href("deployments:list", "/deployments");
 	let github_href = route_href("github:repositories", "/github");
-	page!(|clusters_href: String, deployments_href: String, github_href: String| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -335,7 +319,7 @@ pub fn dashboard_shell() -> Page {
 				}
 			}
 		}
-	})(clusters_href, deployments_href, github_href)
+	})
 }
 
 #[cfg(test)]

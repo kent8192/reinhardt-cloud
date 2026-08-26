@@ -25,13 +25,7 @@ pub struct Cluster {
 	pub id: Option<i64>,
 
 	/// Organization that owns this cluster.
-	// Workaround for kent8192/reinhardt-web#6148 (tracked in
-	// kent8192/reinhardt-cloud#872). Remove this workaround when a required
-	// generated relation ID can be non-editable without referencing an undeclared
-	// deferred_field in FormModel::build_from_payload.
-	//
-	// Ideal implementation (without workaround):
-	//   #[field(editable = false)]
+	#[field(editable = false)]
 	#[rel(foreign_key, related_name = "clusters", on_delete = Cascade)]
 	pub organization: ForeignKeyField<Organization>,
 

@@ -3,21 +3,18 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use reinhardt::pages::component::{IntoPage, Page, PageElement, PageEventHandler};
+use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{ClickEvent, InputEvent, SubmitEvent};
 use reinhardt::pages::form;
-use reinhardt::pages::form::ModelFormPayloadError;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{
-	Action, Callback, EventPayload, FieldError, FormState, QueryClient, QueryHandle, QueryOptions,
-	QueryStatus, Signal, UseFormAsyncSubmitOutcome, queries, typed_event_handler, use_action,
-	use_form, use_query,
+	Action, Callback, FieldError, FormState, QueryClient, QueryHandle, QueryOptions, QueryStatus,
+	Signal, UseFormAsyncSubmitOutcome, queries, use_action, use_form, use_query,
 };
 use reinhardt::pages::server_fn::ServerFnError;
 
 use crate::apps::clusters::model_form::{
-	ClusterCreateFields, ClusterCreateFormData, ClusterCreateFormFormSchema,
-	ClusterCreateFormModelFormData,
+	ClusterCreateFields, ClusterCreateFormFormSchema, ClusterCreateFormModelFormData,
 };
 use crate::apps::clusters::server_fn::{
 	ClusterInfo, ClusterTokenInfo, UpdateClusterFormRequest, UpdateClusterFormRequestClientForm,
@@ -33,21 +30,21 @@ use crate::apps::deployments::client::components::cluster_health::cluster_health
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 
 fn alert(error: Signal<Option<String>>) -> Page {
-	page!(|error: Signal<Option<String>>| {
+	page!({
 		{
 			error
 	.get()
 	.map(|message| {
-		page!(|message: String| {
-			div {
-				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-				{ message }
-			}
-		})(message)
-	})
-	.unwrap_or(Page::Empty)
+			page!({
+				div {
+					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+					{ message }
+				}
+			})
+		})
+		.unwrap_or(Page::Empty)
 		}
-	})(error)
+	})
 }
 
 fn query_error_message(error: Option<ServerFnError>, fallback: &'static str) -> String {
@@ -62,23 +59,24 @@ fn query_refetch_notice(
 	label: &'static str,
 ) -> Page {
 	if let Some(error) = refetch_error {
-		return page!(|message: String| {
+		let message = format!(
+			"Showing cached {label}; the latest refresh failed: {}",
+			error.user_message()
+		);
+		return page!({
 			div {
 				class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
 				{ message }
 			}
-		})(format!(
-			"Showing cached {label}; the latest refresh failed: {}",
-			error.user_message()
-		));
+		});
 	}
 	if is_fetching {
-		return page!(|label: &'static str| {
+		return page!({
 			div {
 				class: "border-b border-cloud-100 bg-cloud-50 px-4 py-2 text-xs font-medium text-cloud-600",
 				"Refreshing " { label }"..."
 			}
-		})(label);
+		});
 	}
 	Page::Empty
 }
@@ -89,22 +87,6 @@ fn invalidate_cluster_list_query(query_client: &QueryClient) {
 
 fn invalidate_cluster_query_family(query_client: &QueryClient) {
 	query_client.invalidate_family(list_clusters_for_current_org::family());
-}
-
-#[cfg(wasm)]
-async fn submit_cluster_create(
-	payload: ClusterCreateFormData<ClusterCreateFields>,
-) -> Result<ClusterTokenInfo, ServerFnError> {
-	create_cluster_for_current_org(payload).await
-}
-
-#[cfg(not(wasm))]
-async fn submit_cluster_create(
-	_payload: ClusterCreateFormData<ClusterCreateFields>,
-) -> Result<ClusterTokenInfo, ServerFnError> {
-	Err(ServerFnError::application(
-		"Cluster registration is unavailable during server rendering",
-	))
 }
 
 #[cfg(wasm)]
@@ -151,180 +133,11 @@ async fn submit_cluster_token_rotation(
 	))
 }
 
-#[derive(Clone)]
-struct ClusterCreateErrors {
-	name: Signal<Option<String>>,
-	api_url: Signal<Option<String>>,
-	global: Signal<Option<String>>,
-}
-
-impl ClusterCreateErrors {
-	fn new() -> Self {
-		Self {
-			name: Signal::new(None),
-			api_url: Signal::new(None),
-			global: Signal::new(None),
-		}
-	}
-
-	fn clear(&self) {
-		self.name.set(None);
-		self.api_url.set(None);
-		self.global.set(None);
-	}
-
-	fn clear_field(&self, field: &str) {
-		match field {
-			"name" => self.name.set(None),
-			"api_url" => self.api_url.set(None),
-			_ => {}
-		}
-	}
-
-	fn add_field_error(&self, field: &str, message: impl Into<String>) -> bool {
-		let error = match field {
-			"name" => self.name,
-			"api_url" => self.api_url,
-			_ => return false,
-		};
-		let message = message.into();
-		let message = error
-			.get()
-			.map_or(message.clone(), |current| format!("{current}\n{message}"));
-		error.set(Some(message));
-		true
-	}
-}
-
-fn apply_cluster_create_payload_error(errors: &ClusterCreateErrors, error: &ModelFormPayloadError) {
-	match error {
-		ModelFormPayloadError::InvalidValue { field, message }
-			if errors.add_field_error(field, message.clone()) => {}
-		_ => errors.global.set(Some(error.to_string())),
-	}
-}
-
-fn apply_cluster_create_server_error(errors: &ClusterCreateErrors, error: &ServerFnError) {
-	errors.clear();
-	let mut unmatched = Vec::new();
-	for field_error in error.field_errors() {
-		if !errors.add_field_error(field_error.field(), field_error.message()) {
-			unmatched.push(format!(
-				"{}: {}",
-				field_error.field(),
-				field_error.message()
-			));
-		}
-	}
-	if error.field_errors().is_empty() || !unmatched.is_empty() {
-		let mut message = error.user_message().to_owned();
-		if !unmatched.is_empty() {
-			message.push('\n');
-			message.push_str(&unmatched.join("\n"));
-		}
-		errors.global.set(Some(message));
-	}
-}
-
-struct ClusterCreateField {
-	id: &'static str,
-	label: &'static str,
-	input_type: &'static str,
-	placeholder: &'static str,
-	help_text: &'static str,
-	value: String,
-	error: Option<String>,
-	handler: PageEventHandler,
-}
-
-fn cluster_create_field(field: ClusterCreateField) -> Page {
-	let ClusterCreateField {
-		id,
-		label,
-		input_type,
-		placeholder,
-		help_text,
-		value,
-		error,
-		handler,
-	} = field;
-	let error_id = format!("{id}-error");
-	let has_error = error.is_some();
-	let input = PageElement::new("input")
-		.attr("id", id)
-		.attr("name", id)
-		.attr("type", input_type)
-		.attr("class", "rc-input")
-		.attr("placeholder", placeholder)
-		.attr("value", value)
-		.attr("aria-required", "true")
-		.attr("aria-invalid", if has_error { "true" } else { "false" })
-		.attr("aria-describedby", error_id.clone())
-		.on(InputEvent::EVENT, handler);
-	let mut field = PageElement::new("div")
-		.attr("class", "rc-field")
-		.child(
-			PageElement::new("label")
-				.attr("class", "rc-label")
-				.attr("for", id)
-				.child(label),
-		)
-		.child(input)
-		.child(
-			PageElement::new("p")
-				.attr("class", "mt-1 text-xs text-ink-600")
-				.child(help_text),
-		);
-	if let Some(error) = error {
-		field = field.child(
-			PageElement::new("p")
-				.attr("id", error_id)
-				.attr("class", "mt-1 text-xs font-medium text-red-700")
-				.child(error),
-		);
-	}
-	field.into_page()
-}
-
-fn cluster_token_confirmation(token: ClusterTokenInfo, dismiss_handler: PageEventHandler) -> Page {
-	PageElement::new("div")
-		.attr(
-			"class",
-			"mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950",
-		)
-		.child(
-			PageElement::new("p")
-				.attr("class", "font-semibold")
-				.child(format!("{} is ready.", token.cluster.name)),
-		)
-		.child(
-			PageElement::new("p")
-				.attr("class", "mt-1")
-				.child("Save this agent token now. It cannot be shown again."),
-		)
-		.child(
-			PageElement::new("code")
-				.attr(
-					"class",
-					"mt-2 block break-all rounded bg-white px-2 py-1 font-mono text-xs",
-				)
-				.child(token.auth_token),
-		)
-		.child(
-			PageElement::new("button")
-				.attr("type", "button")
-				.attr("class", "btn-dark mt-3 min-h-10")
-				.on(ClickEvent::EVENT, dismiss_handler)
-				.child("I have saved this token"),
-		)
-		.into_page()
-}
-
 fn cluster_token_confirmation_with_callback(
 	token: ClusterTokenInfo,
 	dismiss: Callback<ClickEvent, ()>,
 ) -> Page {
-	page!(|token: ClusterTokenInfo, dismiss: Callback<ClickEvent, ()>| {
+	page!({
 		div {
 			class: "mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950",
 			p {
@@ -346,95 +159,6 @@ fn cluster_token_confirmation_with_callback(
 				"I have saved this token"
 			}
 		}
-	})(token, dismiss)
-}
-
-struct ClusterCreateFormView {
-	name: Signal<String>,
-	api_url: Signal<String>,
-	errors: ClusterCreateErrors,
-	action: Action<ClusterTokenInfo, ServerFnError>,
-	name_handler: PageEventHandler,
-	api_url_handler: PageEventHandler,
-	submit_handler: PageEventHandler,
-	dismiss_handler: PageEventHandler,
-}
-
-fn cluster_create_form_view(view: ClusterCreateFormView) -> Page {
-	let ClusterCreateFormView {
-		name,
-		api_url,
-		errors,
-		action,
-		name_handler,
-		api_url_handler,
-		submit_handler,
-		dismiss_handler,
-	} = view;
-	Page::reactive(move || {
-		let name_value = name.get();
-		let api_url_value = api_url.get();
-		let name_error = errors.name.get();
-		let api_url_error = errors.api_url.get();
-		let global_error = errors.global.get();
-		let is_submitting = action.is_pending();
-		let token_confirmation = action
-			.result()
-			.map(|token| self::cluster_token_confirmation(token, dismiss_handler.clone()));
-
-		let mut form = PageElement::new("form")
-			.attr("class", "rc-form-grid")
-			.attr("novalidate", "novalidate")
-			.on(SubmitEvent::EVENT, submit_handler.clone())
-			.child(self::cluster_create_field(ClusterCreateField {
-				id: "name",
-				label: "Name",
-				input_type: "text",
-				placeholder: "prod-us-east",
-				help_text: "For example: prod-us-east",
-				value: name_value,
-				error: name_error,
-				handler: name_handler.clone(),
-			}))
-			.child(self::cluster_create_field(ClusterCreateField {
-				id: "api_url",
-				label: "API URL",
-				input_type: "url",
-				placeholder: "https://kubernetes.example.com:6443",
-				help_text: "For example: https://kubernetes.example.com:6443",
-				value: api_url_value,
-				error: api_url_error,
-				handler: api_url_handler.clone(),
-			}));
-		if let Some(error) = global_error {
-			form = form.child(
-				PageElement::new("p")
-					.attr("class", "text-sm font-medium text-red-700")
-					.child(error),
-			);
-		}
-		form = form.child(
-			PageElement::new("button")
-				.attr("type", "submit")
-				.attr(
-					"class",
-					"btn-primary min-h-11 w-full md:w-auto md:justify-self-start",
-				)
-				.bool_attr("disabled", is_submitting)
-				.child(if is_submitting {
-					"Registering..."
-				} else {
-					"Register cluster"
-				}),
-		);
-
-		let mut view = PageElement::new("div")
-			.attr("class", "space-y-3")
-			.child(form);
-		if let Some(token_confirmation) = token_confirmation {
-			view = view.child(token_confirmation);
-		}
-		view.into_page()
 	})
 }
 
@@ -443,12 +167,12 @@ fn success_alert(message: Signal<Option<String>>) -> Page {
 		message
 			.get()
 			.map(|message| {
-				page!(|message: String| {
+				page!({
 					div {
 						class: "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800",
 						{ message }
 					}
-				})(message)
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -463,12 +187,13 @@ where
 			.get()
 			.get(&field)
 			.map(|error| {
-				page!(|message: String| {
+				let message = error.message().to_owned();
+				page!({
 					p {
 						class: "mt-1 text-xs font-medium text-red-700",
 						{ message }
 					}
-				})(error.message().to_owned())
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -511,22 +236,22 @@ fn render_cluster_update_form(view: ClusterUpdateFormView) -> Page {
 	Page::reactive(move || {
 		let is_submitting = state.is_submitting.get();
 		let dirty_notice = if state.is_dirty.get() {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-amber-700",
 					"Unsaved changes"
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
 		let submit_status = if is_submitting {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-ink-600",
 					"Updating..."
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
@@ -669,12 +394,12 @@ fn render_delete_cluster_action(view: DeleteClusterActionView) -> Page {
 					"Delete cluster"
 				} {
 					if is_pending {
-						page!(|| {
+						page!( {
 							p {
 								class: "text-xs text-ink-600",
 								"Deleting..."
 							}
-						})()
+						})
 					} else { Page::Empty }
 				}
 			}
@@ -725,6 +450,7 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 		let token_confirmation = action
 			.result()
 			.map(|token| self::cluster_token_confirmation_with_callback(token, dismiss));
+		let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
 		page!(|error_view: Page,
 		 rotate: Callback<ClickEvent, ()>,
 		 confirmed: Signal<bool>,
@@ -752,12 +478,12 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 					"Rotate token"
 				} {
 					if is_pending {
-						page!(|| {
+						page!( {
 							p {
 								class: "text-xs text-ink-600",
 								"Rotating..."
 							}
-						})()
+						})
 					} else { Page::Empty }
 				}
 			}
@@ -769,7 +495,7 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 			is_pending,
 			is_confirmed,
 			has_selected_cluster,
-			token_confirmation.unwrap_or(Page::Empty),
+			token_confirmation,
 		)
 	})
 }
@@ -794,15 +520,15 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 
 fn render_cluster_inventory(items: Vec<ClusterInfo>) -> Page {
 	if items.is_empty() {
-		return page!(|| {
+		return page!({
 			div {
 				class: "rc-empty",
 				"No clusters registered."
 			}
-		})();
+		});
 	}
 
-	page!(|items: Vec<ClusterInfo>| {
+	page!({
 		div {
 			class: "overflow-x-auto",
 			table {
@@ -834,7 +560,7 @@ fn render_cluster_inventory(items: Vec<ClusterInfo>) -> Page {
 				}
 				tbody {
 					class: "divide-y divide-cloud-100 bg-white",
-					{ items.iter().cloned().map(|cluster| page!(|cluster: ClusterInfo| {
+					{ items.clone().into_iter().map(|cluster| page!({
 						tr {
 							td {
 								class: "px-4 py-2 font-mono text-xs text-ink-600",
@@ -860,13 +586,14 @@ fn render_cluster_inventory(items: Vec<ClusterInfo>) -> Page {
 								{ cluster.token_last_rotated_at.clone().unwrap_or_else(|| "never".to_string()) }
 							}
 						}
-					})(cluster)).collect::<Vec<_>>() }
+					})).collect::<Vec<_>>() }
 				}
 			}
 		}
-	})(items)
+	})
 }
 
+#[derive(Clone)]
 struct ClustersListPageViewProps {
 	clusters_for_inventory: QueryHandle<Vec<ClusterInfo>, ServerFnError>,
 	clusters_for_edit: QueryHandle<Vec<ClusterInfo>, ServerFnError>,
@@ -912,121 +639,140 @@ pub fn clusters_list_page() -> Page {
 			}
 		}
 	};
-	let create_name = Signal::new(String::new());
-	let create_api_url = Signal::new(String::new());
-	let create_errors = ClusterCreateErrors::new();
-
-	// Workaround for kent8192/reinhardt-web#6153 (tracked in
-	// kent8192/reinhardt-cloud#875). `form!.into_page()` discards the typed
-	// ModelForm response and flattens structured server errors, so it cannot
-	// safely present the one-time token or attach validation errors to controls.
-	// Remove this workaround when generated ModelForm pages retain typed responses
-	// and route ServerFnError field errors through their submit lifecycle.
-	//
-	// Ideal implementation (without workaround):
-	//   create_form.into_page() retains `ClusterTokenInfo` and maps
-	//   `ServerFnError::field_errors()` to the generated controls.
-	let create_success_errors = create_errors.clone();
-	let create_success_name = create_name;
-	let create_success_api_url = create_api_url;
-	let create_success_query_client = query_client.clone();
-	let create_error_state = create_errors.clone();
-	let create_action = use_action(|payload: ClusterCreateFormData<ClusterCreateFields>| {
-		submit_cluster_create(payload)
-	})
-	.on_success(move |_| {
-		create_success_errors.clear();
-		create_success_name.set(String::new());
-		create_success_api_url.set(String::new());
-		self::invalidate_cluster_list_query(&create_success_query_client);
-	})
-	.on_error(move |error| self::apply_cluster_create_server_error(&create_error_state, error));
-	let create_name_handler = {
+	let create_query_client = query_client.clone();
+	let create_runtime = use_form(&create_form)
+		.on_submit_success(move |runtime| {
+			self::invalidate_cluster_list_query(&create_query_client);
+			runtime.reset();
+		})
+		.build();
+	let create_state = create_runtime.form_state();
+	let create_name_input = {
 		let form = create_form.clone();
-		let value = create_name;
-		let errors = create_errors.clone();
-		typed_event_handler::<InputEvent, _>(move |event: InputEvent| {
-			let Ok(input) = event.value() else {
+		Callback::new(move |event: InputEvent| {
+			let Ok(value) = event.value() else {
 				return;
 			};
-			value.set(input.clone());
-			errors.clear_field("name");
-			if let Err(error) = form.set_value("name", serde_json::Value::String(input)) {
-				self::apply_cluster_create_payload_error(&errors, &error);
-			}
+			let _ = form.set_value("name", serde_json::Value::String(value));
 		})
 	};
-	let create_api_url_handler = {
+	let create_api_url_input = {
 		let form = create_form.clone();
-		let value = create_api_url;
-		let errors = create_errors.clone();
-		typed_event_handler::<InputEvent, _>(move |event: InputEvent| {
-			let Ok(input) = event.value() else {
+		Callback::new(move |event: InputEvent| {
+			let Ok(value) = event.value() else {
 				return;
 			};
-			value.set(input.clone());
-			errors.clear_field("api_url");
-			if let Err(error) = form.set_value("api_url", serde_json::Value::String(input)) {
-				self::apply_cluster_create_payload_error(&errors, &error);
-			}
+			let _ = form.set_value("api_url", serde_json::Value::String(value));
 		})
 	};
-	let create_submit_handler = {
+	#[cfg(wasm)]
+	let create_action = {
+		let runtime = create_runtime.clone();
 		let form = create_form.clone();
-		let name = create_name;
-		let api_url = create_api_url;
-		let errors = create_errors.clone();
-		let action = create_action;
-		typed_event_handler::<SubmitEvent, _>(move |event: SubmitEvent| {
-			event.prevent_default();
-			if action.is_pending() {
-				return;
-			}
-			errors.clear();
-			let name_is_valid = match form.set_value("name", serde_json::Value::String(name.get()))
-			{
-				Ok(()) => true,
-				Err(error) => {
-					self::apply_cluster_create_payload_error(&errors, &error);
-					false
-				}
-			};
-			let api_url_is_valid =
-				match form.set_value("api_url", serde_json::Value::String(api_url.get())) {
-					Ok(()) => true,
-					Err(error) => {
-						self::apply_cluster_create_payload_error(&errors, &error);
-						false
+		use_action(move |(): ()| {
+			let runtime = runtime.clone();
+			let form = form.clone();
+			async move { runtime.submit_server_fn(|| form.submit_response()).await }
+		})
+	};
+	#[cfg(not(wasm))]
+	let create_action = use_action(|(): ()| async {
+		Err::<UseFormAsyncSubmitOutcome<ClusterTokenInfo>, ServerFnError>(
+			ServerFnError::application(
+				"Cluster registration is unavailable during server rendering",
+			),
+		)
+	});
+	let create_submit = Callback::new(move |event: SubmitEvent| {
+		event.prevent_default();
+		if !create_action.is_pending() {
+			create_action.dispatch(());
+		}
+	});
+	let create_dismiss = Callback::new(move |event: ClickEvent| {
+		event.prevent_default();
+		create_action.reset();
+	});
+	let create_error = alert(create_state.form_error);
+	let create_name_error = form_field_error(create_state.field_errors, create_form.name_field());
+	let create_api_url_error =
+		form_field_error(create_state.field_errors, create_form.api_url_field());
+	let create_view = Page::reactive(move || {
+		let is_submitting = create_action.is_pending();
+		let token_confirmation = create_action
+			.result()
+			.and_then(|outcome| match outcome {
+				UseFormAsyncSubmitOutcome::Submitted(token) => Some(token),
+				UseFormAsyncSubmitOutcome::AlreadyPending
+				| UseFormAsyncSubmitOutcome::ValidationFailed => None,
+			})
+			.map(|token| self::cluster_token_confirmation_with_callback(token, create_dismiss));
+		let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
+		page!({
+			div {
+				class: "space-y-3",
+				{ create_error }
+				form {
+					class: "rc-form-grid",
+					@submit: create_submit,
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "create-cluster-name",
+							"Name"
+						}
+						input {
+							id: "create-cluster-name",
+							name: "name",
+							aria_label: "Cluster name",
+							class: "rc-input",
+							type: "text",
+							maxlength: 63,
+							placeholder: "prod-us-east",
+							@input: create_name_input,
+						}
+						p {
+							class: "mt-1 text-xs text-ink-600",
+							"For example: prod-us-east"
+						}
+						{ create_name_error }
 					}
-				};
-			if !name_is_valid || !api_url_is_valid {
-				return;
-			}
-			match form.data() {
-				Ok(payload) => {
-					action.reset();
-					action.dispatch(payload);
+					div {
+						class: "rc-field",
+						label {
+							class: "rc-label",
+							r#for: "create-cluster-api-url",
+							"API URL"
+						}
+						input {
+							id: "create-cluster-api-url",
+							name: "api_url",
+							aria_label: "Cluster API URL",
+							class: "rc-input",
+							type: "text",
+							maxlength: 2048,
+							placeholder: "https://kubernetes.example.com:6443",
+							@input: create_api_url_input,
+						}
+						p {
+							class: "mt-1 text-xs text-ink-600",
+							"For example: https://kubernetes.example.com:6443"
+						}
+						{ create_api_url_error }
+					}
+					button {
+						type: "submit",
+						class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start",
+						disabled: is_submitting,
+						{
+							if is_submitting { "Registering..." } else { "Register cluster" }
+						}
+					}
 				}
-				Err(error) => self::apply_cluster_create_payload_error(&errors, &error),
+				{ token_confirmation }
 			}
 		})
-	};
-	let create_dismiss_handler = {
-		let action = create_action;
-		typed_event_handler::<ClickEvent, _>(move |event: ClickEvent| {
-			event.prevent_default();
-			action.reset();
-		})
-	};
-	let create_view = self::cluster_create_form_view(ClusterCreateFormView {
-		name: create_name,
-		api_url: create_api_url,
-		errors: create_errors,
-		action: create_action,
-		name_handler: create_name_handler,
-		api_url_handler: create_api_url_handler,
-		submit_handler: create_submit_handler,
-		dismiss_handler: create_dismiss_handler,
 	});
 
 	let edit_form =
@@ -1217,7 +963,7 @@ pub fn clusters_list_page() -> Page {
 		health,
 	};
 
-	page!(|props: ClustersListPageViewProps| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -1251,35 +997,43 @@ pub fn clusters_list_page() -> Page {
 							}{
 								let snapshot = props.clusters_for_inventory.snapshot();
 								match snapshot.status {
-									QueryStatus::Idle => page!(|| {
+									QueryStatus::Idle => page!({
 										div {
 											class: "rc-empty",
 											"Clusters are not available during server rendering."
 										}
-									})(),
-									QueryStatus::Pending => page!(|| {
+									}),
+									QueryStatus::Pending => page!({
 										div {
 											class: "rc-empty",
 											"Loading clusters..."
 										}
-									})(),
-									QueryStatus::Error => page!(|message: String| {
-										div {
-											class: "px-4 py-8 text-sm font-medium text-red-700",
-											{ message }
-										}
-									})(self::query_error_message(snapshot.error, "Clusters are temporarily unavailable.")),
-									QueryStatus::Success => page!(|notice: Page, inventory: Page| {
-										{ notice }
-										{ inventory }
-									})(
-										self::query_refetch_notice(
+									}),
+									QueryStatus::Error => {
+										let message = self::query_error_message(
+											snapshot.error,
+											"Clusters are temporarily unavailable.",
+										);
+										page!({
+											div {
+												class: "px-4 py-8 text-sm font-medium text-red-700",
+												{ message }
+											}
+										})
+									}
+									QueryStatus::Success => {
+										let notice = self::query_refetch_notice(
 											snapshot.is_fetching,
 											snapshot.refetch_error,
 											"clusters",
-										),
-										self::render_cluster_inventory(snapshot.data.unwrap_or_default()),
-									),
+										);
+										let inventory =
+											self::render_cluster_inventory(snapshot.data.unwrap_or_default());
+										page!({
+											{ notice }
+											{ inventory }
+										})
+									}
 								}
 							}
 						}
@@ -1334,36 +1088,40 @@ pub fn clusters_list_page() -> Page {
 												}
 											},
 										);
-										page!(|notice: Page, selector: Page| {
+										let notice = self::query_refetch_notice(
+											snapshot.is_fetching,
+											snapshot.refetch_error,
+											"clusters",
+										);
+										page!({
 											{ notice }
 											{ selector }
-										})(
-											self::query_refetch_notice(
-												snapshot.is_fetching,
-												snapshot.refetch_error,
-												"clusters",
-											),
-											selector,
-										)
+										})
 									}
-									QueryStatus::Idle => page!(|| {
+									QueryStatus::Idle => page!({
 										p {
 											class: "mb-3 text-xs text-cloud-500",
 											"Clusters are not available during server rendering."
 										}
-									})(),
-									QueryStatus::Pending => page!(|| {
+									}),
+									QueryStatus::Pending => page!({
 										p {
 											class: "mb-3 text-xs text-ink-600",
 											"Loading clusters..."
 										}
-									})(),
-									QueryStatus::Error => page!(|message: String| {
-										p {
-											class: "mb-3 text-xs font-medium text-red-700",
-											{ message }
-										}
-									})(self::query_error_message(snapshot.error, "Clusters are temporarily unavailable.")),
+									}),
+									QueryStatus::Error => {
+										let message = self::query_error_message(
+											snapshot.error,
+											"Clusters are temporarily unavailable.",
+										);
+										page!({
+											p {
+												class: "mb-3 text-xs font-medium text-red-700",
+												{ message }
+											}
+										})
+									}
 								}
 							} {
 								props.edit_view.clone()
@@ -1375,43 +1133,49 @@ pub fn clusters_list_page() -> Page {
 								let snapshot = props.clusters_for_rotate.snapshot();
 								match snapshot.status {
 									QueryStatus::Success => {
+										let items = snapshot.data.unwrap_or_default();
 										let selection_changed = props.rotate_selection_changed;
-										page!(|notice: Page, selector: Page| {
+										let notice = self::query_refetch_notice(
+											snapshot.is_fetching,
+											snapshot.refetch_error,
+											"clusters",
+										);
+										let selector = self::entity_select(
+											"Cluster",
+											"Select cluster",
+											self::cluster_select_options(&items),
+											props.rotate_cluster_id,
+											move |value| selection_changed.call(value),
+										);
+										page!({
 											{ notice }
 											{ selector }
-										})(
-											self::query_refetch_notice(
-												snapshot.is_fetching,
-												snapshot.refetch_error,
-												"clusters",
-											),
-											self::entity_select(
-												"Cluster",
-												"Select cluster",
-												self::cluster_select_options(&snapshot.data.unwrap_or_default()),
-												props.rotate_cluster_id,
-												move |value| selection_changed.call(value),
-											),
-										)
+										})
 									}
-									QueryStatus::Idle => page!(|| {
+									QueryStatus::Idle => page!({
 										p {
 											class: "mb-3 text-xs text-cloud-500",
 											"Clusters are not available during server rendering."
 										}
-									})(),
-									QueryStatus::Pending => page!(|| {
+									}),
+									QueryStatus::Pending => page!({
 										p {
 											class: "mb-3 text-xs text-ink-600",
 											"Loading clusters..."
 										}
-									})(),
-									QueryStatus::Error => page!(|message: String| {
-										p {
-											class: "mb-3 text-xs font-medium text-red-700",
-											{ message }
-										}
-									})(self::query_error_message(snapshot.error, "Clusters are temporarily unavailable.")),
+									}),
+									QueryStatus::Error => {
+										let message = self::query_error_message(
+											snapshot.error,
+											"Clusters are temporarily unavailable.",
+										);
+										page!({
+											p {
+												class: "mb-3 text-xs font-medium text-red-700",
+												{ message }
+											}
+										})
+									}
 								}
 							} {
 								props.rotate_view.clone()
@@ -1423,43 +1187,49 @@ pub fn clusters_list_page() -> Page {
 								let snapshot = props.clusters_for_delete.snapshot();
 								match snapshot.status {
 									QueryStatus::Success => {
+										let items = snapshot.data.unwrap_or_default();
 										let selection_changed = props.delete_selection_changed;
-										page!(|notice: Page, selector: Page| {
+										let notice = self::query_refetch_notice(
+											snapshot.is_fetching,
+											snapshot.refetch_error,
+											"clusters",
+										);
+										let selector = self::entity_select(
+											"Cluster",
+											"Select cluster",
+											self::cluster_select_options(&items),
+											props.delete_cluster_id,
+											move |value| selection_changed.call(value),
+										);
+										page!({
 											{ notice }
 											{ selector }
-										})(
-											self::query_refetch_notice(
-												snapshot.is_fetching,
-												snapshot.refetch_error,
-												"clusters",
-											),
-											self::entity_select(
-												"Cluster",
-												"Select cluster",
-												self::cluster_select_options(&snapshot.data.unwrap_or_default()),
-												props.delete_cluster_id,
-												move |value| selection_changed.call(value),
-											),
-										)
+										})
 									}
-									QueryStatus::Idle => page!(|| {
+									QueryStatus::Idle => page!({
 										p {
 											class: "mb-3 text-xs text-cloud-500",
 											"Clusters are not available during server rendering."
 										}
-									})(),
-									QueryStatus::Pending => page!(|| {
+									}),
+									QueryStatus::Pending => page!({
 										p {
 											class: "mb-3 text-xs text-ink-600",
 											"Loading clusters..."
 										}
-									})(),
-									QueryStatus::Error => page!(|message: String| {
-										p {
-											class: "mb-3 text-xs font-medium text-red-700",
-											{ message }
-										}
-									})(self::query_error_message(snapshot.error, "Clusters are temporarily unavailable.")),
+									}),
+									QueryStatus::Error => {
+										let message = self::query_error_message(
+											snapshot.error,
+											"Clusters are temporarily unavailable.",
+										);
+										page!({
+											p {
+												class: "mb-3 text-xs font-medium text-red-700",
+												{ message }
+											}
+										})
+									}
 								}
 							} {
 								props.delete_view.clone()
@@ -1469,7 +1239,7 @@ pub fn clusters_list_page() -> Page {
 				}
 			}
 		}
-	})(props)
+	})
 }
 
 #[cfg(test)]
@@ -1488,7 +1258,14 @@ mod tests {
 	fn test_cluster_create_error_routing_preserves_structured_fields() {
 		ReactiveScope::run(|| {
 			// Arrange
-			let errors = ClusterCreateErrors::new();
+			let form = form! {
+				name: CreateClusterStructuredErrorForm,
+				model: ClusterCreateForm,
+				policy: ClusterCreateFields,
+				fields: [name, api_url],
+				server_fn: create_cluster_for_current_org,
+			};
+			let runtime = use_form(&form).build();
 			let error = ServerFnError::validation_with_message(
 				"Please correct the cluster form",
 				[
@@ -1499,19 +1276,27 @@ mod tests {
 			);
 
 			// Act
-			apply_cluster_create_server_error(&errors, &error);
+			runtime.apply_server_error(&error);
 
 			// Assert
 			assert_eq!(
-				errors.name.get(),
-				Some("A cluster with this name already exists".to_string())
+				runtime
+					.get_field_state(form.name_field())
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("A cluster with this name already exists")
 			);
 			assert_eq!(
-				errors.api_url.get(),
-				Some("Enter a valid Kubernetes API URL".to_string())
+				runtime
+					.get_field_state(form.api_url_field())
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("Enter a valid Kubernetes API URL")
 			);
 			assert_eq!(
-				errors.global.get(),
+				runtime.form_state().form_error.get(),
 				Some(
 					"Please correct the cluster form\norganization_id: This field is managed by the server"
 						.to_string()

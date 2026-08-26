@@ -12,8 +12,6 @@ use crate::apps::clusters::model_form::{ClusterCreateFields, ClusterCreateFormDa
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
 #[cfg(native)]
-use reinhardt::core::model_form::ModelFormPayload;
-#[cfg(native)]
 use reinhardt::core::validators::{UrlValidator, Validator};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -84,18 +82,6 @@ fn cluster_id_from_pk(id: Option<i64>) -> Result<uuid::Uuid, AppError> {
 fn validated_cluster_create_payload(
 	payload: &ClusterCreateFormData<ClusterCreateFields>,
 ) -> Result<(String, String), ServerFnError> {
-	if !payload.forbidden_fields().is_empty() {
-		return Err(ServerFnError::validation_with_message(
-			"Cluster form contains server-managed fields",
-			payload.forbidden_fields().iter().map(|field| {
-				(
-					(*field).to_string(),
-					"This field is managed by the server".to_string(),
-				)
-			}),
-		));
-	}
-
 	let name = payload
 		.name()
 		.map_or_else(String::new, |value| value.trim().to_string());
@@ -380,32 +366,24 @@ mod tests {
 	}
 
 	#[rstest]
-	fn cluster_create_model_form_rejects_server_owned_fields() {
-		// Arrange
-		let payload = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+	fn cluster_create_model_form_rejects_server_owned_fields_at_decode() {
+		// Arrange and Act
+		let result = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
 			serde_json::json!({
 				"name": "production",
 				"api_url": "https://kubernetes.example.com:6443",
 				"organization_id": 42,
 			}),
-		)
-		.expect("deserialize cluster model form payload");
-
-		// Act
-		let error = validated_cluster_create_payload(&payload)
-			.expect_err("reject a server-managed organization ID");
+		);
+		let error = match result {
+			Err(error) => error,
+			Ok(_) => panic!("reject a server-managed organization ID during decoding"),
+		};
 
 		// Assert
-		assert_eq!(error.kind(), ServerFnErrorKind::Validation);
 		assert_eq!(
-			error.message(),
-			"Cluster form contains server-managed fields"
-		);
-		assert_eq!(error.field_errors().len(), 1);
-		assert_eq!(error.field_errors()[0].field(), "organization_id");
-		assert_eq!(
-			error.field_errors()[0].message(),
-			"This field is managed by the server"
+			error.to_string(),
+			"unknown field `organization_id`, expected `name` or `api_url`"
 		);
 	}
 

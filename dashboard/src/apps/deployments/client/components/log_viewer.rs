@@ -45,7 +45,7 @@ pub fn log_viewer_container(deployment_id: Signal<String>) -> Page {
 
 #[cfg(wasm)]
 fn log_viewer_empty() -> Page {
-	page!(|| {
+	page!({
 		pre {
 			id: "log-viewer",
 			class: "log-viewer max-h-96 overflow-auto rounded-md bg-ink-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap",
@@ -54,7 +54,7 @@ fn log_viewer_empty() -> Page {
 				"Select a deployment to load logs."
 			}
 		}
-	})()
+	})
 }
 
 #[cfg(wasm)]
@@ -63,81 +63,83 @@ fn render_log_history(
 ) -> Page {
 	let snapshot = history.snapshot();
 	let content = match snapshot.status {
-		QueryStatus::Idle => page!(|| {
+		QueryStatus::Idle => page!({
 			span {
 				class: "block text-gray-400",
 				"Log history is not available during server rendering."
 			}
-		})(),
-		QueryStatus::Pending => page!(|| {
+		}),
+		QueryStatus::Pending => page!({
 			span {
 				class: "block text-gray-400",
 				"Loading logs..."
 			}
-		})(),
-		QueryStatus::Error => page!(|message: String| {
-			span {
-				class: "block text-red-300",
-				{ message }
-			}
-		})(
-			snapshot
+		}),
+		QueryStatus::Error => {
+			let message = snapshot
 				.error
 				.map(|error| error.user_message().to_owned())
-				.unwrap_or_else(|| "Unable to load logs.".to_owned()),
-		),
+				.unwrap_or_else(|| "Unable to load logs.".to_owned());
+			page!({
+				span {
+					class: "block text-red-300",
+					{ message }
+				}
+			})
+		}
 		QueryStatus::Success => {
 			let lines = snapshot.data.unwrap_or_default();
 			let history = if lines.is_empty() {
-				page!(|| {
+				page!({
 					span {
 						class: "block text-gray-400",
 						"No log entries."
 					}
-				})()
+				})
 			} else {
-				page!(|lines: Vec<DeploymentLogInfo>| {
+				page!({
 					{
 						lines
 							.iter()
 							.map(self::render_history_line)
 							.collect::<Vec<_>>()
 					}
-				})(lines)
+				})
 			};
 			let refetch_notice = if let Some(error) = snapshot.refetch_error {
-				page!(|message: String| {
+				let message = error.user_message().to_owned();
+				page!({
 					span {
 						class: "block text-amber-300",
 						{ format!("Showing cached logs: {message}") }
 					}
-				})(error.user_message().to_owned())
+				})
 			} else if snapshot.is_fetching {
-				page!(|| {
+				page!({
 					span {
 						class: "block text-gray-400",
 						"Refreshing logs..."
 					}
-				})()
+				})
 			} else {
 				Page::Empty
 			};
-			page!(|refetch_notice: Page, history: Page| {
+			page!({
 				{
 					refetch_notice
 				}
 				{ history }
-			})(refetch_notice, history)
+			})
 		}
 	};
 
-	page!(|content: Page| {
+	page!({
 		pre {
 			id: "log-viewer",
 			class: "log-viewer max-h-96 overflow-auto rounded-md bg-ink-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap",
 			{ content }
 		}
-	})(content)
+	})
 }
 
 #[cfg(not(wasm))]
@@ -150,17 +152,15 @@ pub fn log_viewer_container(
 #[cfg(wasm)]
 fn render_history_line(line: &DeploymentLogInfo) -> Page {
 	let level_class = level_class(&line.level);
-	page!(|timestamp: String, level: String, message: String, level_class: &'static str| {
+	let timestamp = line.timestamp.clone();
+	let level = line.level.clone();
+	let message = line.message.clone();
+	page!({
 		span {
 			class: format!("log-line {level_class} block"),
 			{ format!("[{timestamp}] [{level}] {message}") }
 		}
-	})(
-		line.timestamp.clone(),
-		line.level.clone(),
-		line.message.clone(),
-		level_class,
-	)
+	})
 }
 
 /// Append an application log line to the viewer.

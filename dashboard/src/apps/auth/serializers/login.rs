@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[reinhardt::dto]
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize, ClientForm)]
 #[cfg_attr(native, derive(Schema))]
-#[client_form(server_fn = crate::apps::auth::server_fn::login::login)]
+#[client_form(server_fn = crate::apps::auth::server_fn::login::login, validate)]
 pub struct LoginRequest {
 	#[validate(length(min = 1, max = 150))]
 	pub username: String,

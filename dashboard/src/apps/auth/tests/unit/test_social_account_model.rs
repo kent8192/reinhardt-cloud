@@ -4,6 +4,7 @@
 mod tests {
 	use chrono::Utc;
 	use reinhardt::db::migrations::ForeignKeyAction;
+	use reinhardt::db::migrations::model_registry::global_registry;
 	use reinhardt::db::migrations::operations::{Constraint, Operation};
 	use rstest::rstest;
 	use uuid::Uuid;
@@ -48,6 +49,29 @@ mod tests {
 		assert!(account.encrypted_access_token.is_none());
 		assert!(account.token_expires_at.is_none());
 		assert!(account.scopes.is_none());
+	}
+
+	#[rstest]
+	fn email_verification_token_active_user_index_is_registered_for_migrations() {
+		// Arrange
+		let token = global_registry()
+			.get_model("auth", "EmailVerificationToken")
+			.expect("email verification token migration metadata");
+
+		// Act
+		let active_user_index = token.indexes().iter().find(|index| {
+			index.fields.len() == 1
+				&& index.fields.first().is_some_and(|field| field == "user_id")
+				&& index.where_clause.as_deref() == Some("consumed_at IS NULL")
+		});
+
+		// Assert
+		let active_user_index = active_user_index.expect("active token partial index");
+		assert_eq!(
+			active_user_index.name,
+			"idx_auth_email_verification_tokens_user_id"
+		);
+		assert!(!active_user_index.unique);
 	}
 
 	#[rstest]

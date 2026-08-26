@@ -2,9 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-	use reinhardt::core::model_form::{
-		ModelFormFieldKind, ModelFormPayload, ModelFormPolicy, ModelFormSchema,
-	};
+	use reinhardt::core::model_form::{ModelFormFieldKind, ModelFormPolicy, ModelFormSchema};
 	use reinhardt::db::orm::Model;
 	use reinhardt::db::orm::inspection::ConstraintType;
 	use rstest::rstest;
@@ -458,11 +456,7 @@ mod tests {
 		let fields = ClusterCreateFormSchema::fields();
 
 		// Act
-		let names = fields
-			.iter()
-			.filter(|field| ClusterCreateFields::allows(field.name))
-			.map(|field| field.name)
-			.collect::<Vec<_>>();
+		let names = fields.iter().map(|field| field.name).collect::<Vec<_>>();
 		let server_owned = [
 			"id",
 			"organization_id",
@@ -497,18 +491,23 @@ mod tests {
 	#[rstest]
 	fn test_cluster_create_form_rejects_organization_tampering() {
 		// Arrange and Act
-		let payload = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+		let result = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
 			serde_json::json!({
 				"name": "production",
 				"api_url": "https://k8s.example.com:6443",
 				"organization_id": 42,
 			}),
-		)
-		.expect("deserialize cluster form payload");
+		);
+		let error = match result {
+			Err(error) => error,
+			Ok(_) => panic!("reject a server-managed organization ID during decoding"),
+		};
 
 		// Assert
-		assert_eq!(payload.supplied_fields(), ["name", "api_url"]);
-		assert_eq!(payload.forbidden_fields(), ["organization_id"]);
+		assert_eq!(
+			error.to_string(),
+			"unknown field `organization_id`, expected `name` or `api_url`"
+		);
 	}
 
 	#[rstest]

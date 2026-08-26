@@ -36,40 +36,40 @@ use crate::apps::github::server_fn::{
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 
 fn alert(error: Signal<Option<String>>) -> Page {
-	page!(|error: Signal<Option<String>>| {
+	page!({
 		{
 			error
 	.get()
 	.map(|message| {
-		page!(|message: String| {
-			div {
-				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-				{ message }
-			}
-		})(message)
-	})
-	.unwrap_or(Page::Empty)
+			page!({
+				div {
+					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+					{ message }
+				}
+			})
+		})
+		.unwrap_or(Page::Empty)
 		}
-	})(error)
+	})
 }
 
 fn refetch_notice(is_fetching: bool, error: Option<ServerFnError>, label: &'static str) -> Page {
 	if let Some(error) = error {
 		let message = format!("Refresh failed: {}", error.user_message());
-		return page!(|message: String| {
+		return page!({
 			div {
 				class: "mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800",
 				{ message }
 			}
-		})(message);
+		});
 	}
 	if is_fetching {
-		return page!(|label: &'static str| {
+		return page!({
 			div {
 				class: "mb-3 rounded-md border border-cloud-100 bg-cloud-50 px-3 py-2 text-xs font-medium text-cloud-600",
 				"Refreshing " { label }"..."
 			}
-		})(label);
+		});
 	}
 	Page::Empty
 }
@@ -82,38 +82,35 @@ fn import_field_error(
 	field_errors: Signal<HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>>,
 	field: GitHubRepositoryImportRequestClientFormField,
 ) -> Page {
-	page!(|field_errors: Signal<
-		HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>,
-	>,
-	       field: GitHubRepositoryImportRequestClientFormField| {
+	page!({
 		{
 			field_errors
 				.get()
 				.get(&field)
 				.map(|error| {
 					let message = error.message().to_owned();
-					page!(|message: String| {
+					page!({
 						p {
 							class: "mt-1 text-xs font-medium text-red-700",
 							{ message }
 						}
-					})(message)
+					})
 				})
 				.unwrap_or(Page::Empty)
 		}
-	})(field_errors, field)
+	})
 }
 
 pub(crate) fn render_imported_project_card(summary: &ProjectPreviewSummary) -> Page {
 	let identity = render_project_identity(summary);
 	let previews = render_preview_list(summary);
-	page!(|identity: Page, previews: Page| {
+	page!({
 		article {
 			class: "rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]",
 			{ identity }
 			{ previews }
 		}
-	})(identity, previews)
+	})
 }
 
 fn repository_select_options(items: &[GitHubRepositoryInfo]) -> Vec<EntitySelectOption> {
@@ -147,6 +144,7 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 		.collect()
 }
 
+#[derive(Clone)]
 struct GitHubRepositoriesPageViewProps {
 	repositories_for_inventory: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
 	repositories_for_import: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
@@ -224,12 +222,7 @@ pub fn github_repositories_page() -> Page {
 		event.prevent_default();
 		import_action.dispatch(());
 	});
-	let import_view = page!(|submit_import: Callback<SubmitEvent, ()>,
-	 import_project_name: Signal<String>,
-	 import_registry: Signal<String>,
-	 import_field_errors: Signal<
-	 HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>,
-	 >| {
+	let import_view = page!({
 		form {
 			class: "rc-form-stack",
 			@submit: submit_import,
@@ -275,12 +268,7 @@ pub fn github_repositories_page() -> Page {
 				"Import repository"
 			}
 		}
-	})(
-		submit_import,
-		import_project_name,
-		import_registry,
-		import_state.field_errors,
-	);
+	});
 	let import_error = import_state.form_error;
 	let repositories_for_inventory = repositories.clone();
 	let repositories_for_import = repositories.clone();
@@ -316,13 +304,7 @@ pub fn github_repositories_page() -> Page {
 		selected_project_name,
 	};
 
-	page!(|props: GitHubRepositoriesPageViewProps,
-						 imported_project_previews_for_refetch: QueryHandle<Vec<ProjectPreviewSummary>, ServerFnError>,
-						 repositories_for_inventory_refetch: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
-						 onboarding_for_refetch: QueryHandle<GitHubOnboardingInfo, ServerFnError>,
-						 repositories_for_import_refetch: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
-						 clusters_for_import_refetch: QueryHandle<Vec<ClusterInfo>, ServerFnError>,
-						 clusters_for_inventory_refetch: QueryHandle<Vec<ClusterInfo>, ServerFnError>| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -367,31 +349,31 @@ pub fn github_repositories_page() -> Page {
 								{
 									let snapshot = props.imported_project_previews_for_list.snapshot();
 									match snapshot.status {
-										QueryStatus::Idle | QueryStatus::Pending => page!(|| {
+										QueryStatus::Idle | QueryStatus::Pending => page!({
 											div {
 												class: "rc-empty",
 												"Loading imported projects..."
 											}
-										})(),
-										QueryStatus::Error => page!(|| {
+										}),
+										QueryStatus::Error => page!({
 											div {
 												class: "px-4 py-8 text-sm font-medium text-amber-700",
 												"Imported projects are temporarily unavailable"
 											}
-										})(),
+										}),
 										QueryStatus::Success => match snapshot.data {
-											Some(items) if items.is_empty() => page!(|| {
+											Some(items) if items.is_empty() => page!({
 												div {
 													class: "rc-empty",
 													"No imported projects yet"
 												}
-											})(),
-											Some(items) => page!(|items: Vec<ProjectPreviewSummary>| {
+											}),
+											Some(items) => page!({
 												div {
 													class: "grid gap-3 xl:grid-cols-2",
 													{ items.iter().map(self::render_imported_project_card).collect::<Vec<_>>() }
 												}
-											})(items),
+											}),
 											None => Page::Empty,
 										},
 									}
@@ -454,7 +436,7 @@ pub fn github_repositories_page() -> Page {
 										{
 											let snapshot = props.repositories_for_inventory.snapshot();
 											match snapshot.status {
-											QueryStatus::Idle | QueryStatus::Pending => page!(|| {
+											QueryStatus::Idle | QueryStatus::Pending => page!({
 												tr {
 													td {
 														class: "rc-empty",
@@ -462,8 +444,10 @@ pub fn github_repositories_page() -> Page {
 														"Loading repositories..."
 													}
 												}
-											})(),
-											QueryStatus::Error => page!(|err: String| {
+											}),
+											QueryStatus::Error => {
+												let err = self::query_error_message(snapshot.error);
+												page!({
 												tr {
 													td {
 														class: "px-4 py-8 text-sm font-medium text-red-700",
@@ -471,8 +455,11 @@ pub fn github_repositories_page() -> Page {
 														{ err }
 													}
 												}
-											})(self::query_error_message(snapshot.error)),
-											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => page!(|onboarding: QueryHandle<GitHubOnboardingInfo, ServerFnError>| {
+												})
+											},
+											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => {
+												let onboarding = props.onboarding.clone();
+												page!({
 												tr {
 													td {
 														class: "rc-empty",
@@ -480,7 +467,7 @@ pub fn github_repositories_page() -> Page {
 														{
 															let snapshot = onboarding.snapshot();
 															match snapshot.status {
-																QueryStatus::Success if snapshot.data.as_ref().is_some_and(|info| !info.github_account_linked) => page!(|| {
+																QueryStatus::Success if snapshot.data.as_ref().is_some_and(|info| !info.github_account_linked) => page!({
 																	div {
 																		class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
 																		span { "Link your GitHub account before installing the GitHub App." }
@@ -490,10 +477,10 @@ pub fn github_repositories_page() -> Page {
 																			"Link GitHub account"
 																		}
 																	}
-																})(),
+																}),
 																QueryStatus::Success => {
 																	if let Some(url) = snapshot.data.and_then(|info| info.install_url) {
-																		page!(|url: String| {
+																		page!({
 																			div {
 																				class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
 																				span { "No GitHub App repositories are available." }
@@ -503,20 +490,23 @@ pub fn github_repositories_page() -> Page {
 																					"Connect GitHub repositories"
 																				}
 																			}
-																		})(url)
+																		})
 																	} else {
-																		page!(|| { "No GitHub App repositories are available." })()
+																		page!({ "No GitHub App repositories are available." })
 																	}
 																}
-																_ => page!(|| { "No GitHub App repositories are available." })(),
+																_ => page!({ "No GitHub App repositories are available." }),
 															}
 														}
 													}
 												}
-												})(props.onboarding.clone()),
-											QueryStatus::Success => page!(|items: Vec<GitHubRepositoryInfo>| { {
+												})
+											},
+											QueryStatus::Success => {
+												let items = snapshot.data.unwrap_or_default();
+												page!({ {
 												items.clone().into_iter().map(|repo| {
-													page!(|repo: GitHubRepositoryInfo| {
+													page!({
 														tr {
 															td {
 																class: "px-4 py-3 font-mono text-xs text-ink-600",
@@ -555,9 +545,10 @@ pub fn github_repositories_page() -> Page {
 																}
 															}
 														}
-													})(repo)
+													})
 												}).collect::<Vec<_>>()
-											} })(snapshot.data.unwrap_or_default()),
+												} })
+											},
 											}
 										}
 									}
@@ -653,24 +644,26 @@ pub fn github_repositories_page() -> Page {
 											}, )
 											;
 											let import_field_errors = props.import_field_errors;
-										page!(|repository_select: Page,
-											   import_field_errors: Signal<HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>>| {
+										page!({
 											{ repository_select }
 											{ self::import_field_error(import_field_errors, GitHubRepositoryImportRequestClientFormField::RepositoryId) }
-										})(repository_select, import_field_errors)
+										})
 									}
-									QueryStatus::Idle | QueryStatus::Pending => page!(|| {
+									QueryStatus::Idle | QueryStatus::Pending => page!({
 										p {
 											class: "mb-3 text-xs text-cloud-500",
 											"Loading repositories..."
 										}
-									})(),
-									QueryStatus::Error => page!(|error: String| {
+									}),
+									QueryStatus::Error => {
+										let error = self::query_error_message(snapshot.error);
+										page!({
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
 											{ error }
 										}
-									})(self::query_error_message(snapshot.error)),
+										})
+									},
 								}
 							}
 							{
@@ -687,24 +680,26 @@ pub fn github_repositories_page() -> Page {
 									QueryStatus::Success => {
 										let cluster_select = self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&snapshot.data.unwrap_or_default()), props.import_cluster_id, |_value| {}, );
 										let import_field_errors = props.import_field_errors;
-										page!(|cluster_select: Page,
-											   import_field_errors: Signal<HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>>| {
+										page!({
 											{ cluster_select }
 											{ self::import_field_error(import_field_errors, GitHubRepositoryImportRequestClientFormField::ClusterId) }
-										})(cluster_select, import_field_errors)
+										})
 									}
-									QueryStatus::Idle | QueryStatus::Pending => page!(|| {
+									QueryStatus::Idle | QueryStatus::Pending => page!({
 										p {
 											class: "mb-3 text-xs text-cloud-500",
 											"Loading clusters..."
 										}
-									})(),
-									QueryStatus::Error => page!(|error: String| {
+									}),
+									QueryStatus::Error => {
+										let error = self::query_error_message(snapshot.error);
+										page!({
 										p {
 											class: "mb-3 text-xs font-medium text-red-700",
 											{ error }
 										}
-									})(self::query_error_message(snapshot.error)),
+										})
+									},
 								}
 							}
 							{
@@ -736,27 +731,32 @@ pub fn github_repositories_page() -> Page {
 									{
 										let snapshot = props.clusters_for_inventory.snapshot();
 										match snapshot.status {
-										QueryStatus::Idle | QueryStatus::Pending => page!(|| {
+										QueryStatus::Idle | QueryStatus::Pending => page!({
 											p {
 												class: "text-cloud-500",
 												"Loading clusters..."
 											}
-										})(),
-										QueryStatus::Error => page!(|err: String| {
+										}),
+										QueryStatus::Error => {
+											let err = self::query_error_message(snapshot.error);
+											page!({
 											p {
 												class: "text-red-700",
 												{ err }
 											}
-										})(self::query_error_message(snapshot.error)),
-											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => page!(|| {
+											})
+										},
+											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => page!({
 											p {
 												class: "text-cloud-500",
 												"No active clusters."
 											}
-										})(),
-											QueryStatus::Success => page!(|items: Vec<ClusterInfo>| { {
+											}),
+											QueryStatus::Success => {
+												let items = snapshot.data.unwrap_or_default();
+												page!({ {
 											items.clone().into_iter().map(|cluster| {
-												page!(|cluster: ClusterInfo| {
+												page!({
 													div {
 														class: "rounded-md border border-cloud-200 bg-white px-3 py-2 shadow-[0_1px_0_rgba(17,16,19,0.03)]",
 														div {
@@ -784,9 +784,10 @@ pub fn github_repositories_page() -> Page {
 															}
 														}
 													}
-												})(cluster)
+												})
 											}).collect::<Vec<_>>()
-											} })(snapshot.data.unwrap_or_default()),
+												} })
+											},
 									}
 								}
 							}
@@ -795,15 +796,7 @@ pub fn github_repositories_page() -> Page {
 				}
 			}
 		}
-	})(
-		props,
-		imported_project_previews_for_refetch,
-		repositories_for_inventory_refetch,
-		onboarding_for_refetch,
-		repositories_for_import_refetch,
-		clusters_for_import_refetch,
-		clusters_for_inventory_refetch,
-	)
+	})
 }
 
 #[cfg(test)]

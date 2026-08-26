@@ -42,10 +42,7 @@ pub(crate) fn render_account_content(
 		.and_then(|account| account.provider_username)
 		.unwrap_or_else(|| "Linked".to_string());
 	let github_link_url = github_link_url(&providers);
-	page!(|user: UserInfo,
-	 github_linked: bool,
-	 github_label: String,
-	 github_link_url: Option<String>| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -108,12 +105,12 @@ pub(crate) fn render_account_content(
 							}
 						} {
 							if github_linked {
-								page!(|label: String| {
+								page!( {
 									span {
 										class: "inline-flex shrink-0 rounded-full bg-control-500/10 px-2.5 py-1 text-xs font-semibold text-control-700",
-										{ label }
+										{ github_label }
 									}
-								})(github_label.clone())
+								})
 							} else { Page::Empty }
 						}
 					}
@@ -121,40 +118,41 @@ pub(crate) fn render_account_content(
 						class: "mt-5",
 						{
 							if github_linked {
-								page!(|| {
+								page!( {
 									p {
 										class: "text-sm font-medium text-ink-700",
 										"GitHub account linked"
 									}
-								})()
+								})
 							} else if let Some(url) = github_link_url.clone() {
-								page!(|url: String| {
+								page!( {
 									a {
 										href: url,
 										rel: "external",
 										class: "btn-primary inline-flex px-4 py-2 text-sm",
 										"Link GitHub"
 									}
-								})(url)
+								})
 							} else {
-								page!(|| {
+								page!( {
 									p {
 										class: "text-sm font-medium text-ink-600",
 										"GitHub OAuth is not configured"
 									}
-								})()
+								})
 							}
 						}
 					}
 				}
 			}
 		}
-	})(user, github_linked, github_label, github_link_url)
+	})
 }
 
 fn account_error(message: &str) -> Page {
 	let login_href = route_href("auth:login_page", "/login");
-	page!(|message: String, login_href: String| {
+	let message = message.to_string();
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -174,11 +172,11 @@ fn account_error(message: &str) -> Page {
 				}
 			}
 		}
-	})(message.to_string(), login_href)
+	})
 }
 
 fn account_loading(message: &'static str) -> Page {
-	page!(|message: &'static str| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -189,7 +187,7 @@ fn account_loading(message: &'static str) -> Page {
 				}
 			}
 		}
-	})(message)
+	})
 }
 
 fn query_error_message(error: Option<ServerFnError>, fallback: &'static str) -> String {
@@ -204,23 +202,24 @@ fn query_refresh_notice(
 	label: &'static str,
 ) -> Page {
 	if let Some(error) = refetch_error {
-		return page!(|message: String| {
+		let message = format!(
+			"Showing cached {label}; the latest refresh failed: {}",
+			error.user_message()
+		);
+		return page!({
 			div {
 				class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
 				{ message }
 			}
-		})(format!(
-			"Showing cached {label}; the latest refresh failed: {}",
-			error.user_message()
-		));
+		});
 	}
 	if is_fetching {
-		return page!(|label: &'static str| {
+		return page!({
 			div {
 				class: "border-b border-cloud-100 bg-cloud-50 px-4 py-2 text-xs font-medium text-cloud-600",
 				"Refreshing " { label }"..."
 			}
-		})(label);
+		});
 	}
 	Page::Empty
 }
@@ -299,12 +298,12 @@ fn render_account_queries(
 		linked_refresh_notice,
 	];
 	let content = render_account_content(user, providers, linked);
-	page!(|notices: Vec<Page>, content: Page| {
+	page!({
 		div {
 			{ notices }
 			{ content }
 		}
-	})(notices, content)
+	})
 }
 
 struct AccountPageViewProps {

@@ -8,7 +8,7 @@ use crate::shared::client::routes::route_href;
 /// Render a centered 404 page with a link back to the dashboard.
 pub fn not_found_page() -> Page {
 	let home_href = route_href("dashboard:home", "/");
-	page!(|home_href: String| {
+	page!({
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -28,5 +28,5 @@ pub fn not_found_page() -> Page {
 				}
 			}
 		}
-	})(home_href)
+	})
 }

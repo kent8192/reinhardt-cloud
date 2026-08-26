@@ -58,7 +58,7 @@ pub(super) fn migration() -> Migration {
 						name: "slug".to_string(),
 						type_definition: FieldType::VarChar(63u32),
 						not_null: true,
-						unique: true,
+						unique: false,
 						primary_key: false,
 						auto_increment: false,
 						default: None,
@@ -77,7 +77,10 @@ pub(super) fn migration() -> Migration {
 						domain: None,
 					},
 				],
-				constraints: vec![],
+				constraints: vec![Constraint::Unique {
+					name: "organizations_slug_uniq_65c93552".to_string(),
+					columns: vec!["slug".to_string()],
+				}],
 				without_rowid: None,
 				interleave_in_parent: None,
 				partition: None,
@@ -160,13 +163,13 @@ pub(super) fn migration() -> Migration {
 						on_update: ForeignKeyAction::NoAction,
 						deferrable: None,
 					},
+					Constraint::Check {
+						name: "role_check".to_string(),
+						expression: "role IN ('owner', 'admin', 'developer', 'viewer')".to_string(),
+					},
 					Constraint::Unique {
 						name: "organization_memberships_org_user_unique".to_string(),
 						columns: vec!["organization_id".to_string(), "user_id".to_string()],
-					},
-					Constraint::Check {
-						name: "organization_memberships_role_check".to_string(),
-						expression: "role IN ('owner', 'admin', 'developer', 'viewer')".to_string(),
 					},
 				],
 				without_rowid: None,

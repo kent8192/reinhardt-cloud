@@ -1,5 +1,6 @@
 use chrono::Utc;
 use reinhardt::db::migrations::ForeignKeyAction;
+use reinhardt::db::migrations::model_registry::global_registry;
 use reinhardt::db::migrations::operations::{Constraint, Operation};
 use reinhardt::db::orm::Model;
 use reinhardt::db::orm::inspection::ConstraintType;
@@ -60,7 +61,30 @@ fn membership_role_metadata_restricts_values() {
 }
 
 #[rstest]
-fn organizations_initial_migration_contains_membership_role_check() {
+fn membership_role_check_is_registered_for_migrations() {
+	// Arrange
+	let membership = global_registry()
+		.get_model("organizations", "OrganizationMembership")
+		.expect("organization membership migration metadata");
+
+	// Act
+	let role_check = membership
+		.constraints()
+		.iter()
+		.find(|constraint| constraint.name == "role_check");
+
+	// Assert
+	let role_check = role_check.expect("membership role CHECK migration metadata");
+	assert_eq!(role_check.constraint_type, "check");
+	assert!(role_check.fields.is_empty());
+	assert_eq!(
+		role_check.expression.as_deref(),
+		Some("role IN ('owner', 'admin', 'developer', 'viewer')")
+	);
+}
+
+#[rstest]
+fn organizations_initial_migration_contains_membership_role_check_expression() {
 	// Arrange
 	let migration = organizations_initial_migration::migration();
 
@@ -73,8 +97,8 @@ fn organizations_initial_migration_contains_membership_role_check() {
 				name, constraints, ..
 			} if name == "organization_memberships" => {
 				constraints.iter().find_map(|constraint| match constraint {
-					Constraint::Check { name, expression }
-						if name == "organization_memberships_role_check" =>
+					Constraint::Check { expression, .. }
+						if expression == "role IN ('owner', 'admin', 'developer', 'viewer')" =>
 					{
 						Some(expression.as_str())
 					}

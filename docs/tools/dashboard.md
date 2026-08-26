@@ -68,7 +68,7 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The v0.4.0-alpha.8 WASM client (`dashboard/src/client/router.rs`) defines one
+The v0.4.0-alpha.10 WASM client (`dashboard/src/client/router.rs`) defines one
 `ClientRouter` tree. `/login` and `/register` are public root routes. The
 authenticated `#[layout]` Dashboard shell renders `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` as child routes through `Outlet`. The HTTP server
@@ -81,6 +81,9 @@ continues to mount API namespaces and the admin panel separately:
 5. **GitHub** (`/github`) — repository import and deployment preview
 6. **Auth API** (`/auth/`) — login, registration, OAuth callback, and session endpoints
 7. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
+
+Direct `page!({ ... })` bodies automatically capture cloneable local values in
+alpha.10. Reserve explicit closure arguments for reusable page factories.
 
 ### Client data fetching
 
@@ -117,9 +120,9 @@ Rollback capability via the Dashboard UI is not confirmed in source. To roll bac
 
 The selected deployment is represented by the canonical client URL
 `/deployments?logs=<i64>`. Deployment IDs are positive `i64` values. The
-alpha.8 component extractor cannot extract a missing optional query parameter,
-so the Dashboard manually parses `logs` at the route boundary and treats an
-omitted or invalid value as no selection. No UUID adapter is provided.
+route receives `Query(logs): Query<Option<i64>>`: an omitted parameter is no
+selection, while a malformed value is rejected by the typed extractor. No UUID
+adapter is provided.
 
 Application logs are read through the Dashboard's JWT-protected gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
@@ -188,11 +191,11 @@ cd dashboard && cargo run --bin manage migrate
 
 The migration command is provided by reinhardt-web's built-in `migrate` management command (invoked through `execute_from_command_line()` in `dashboard/src/bin/manage.rs`). Migration files are generated source and must not be hand-edited.
 
-> **Breaking v0.4.0-alpha.8 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
+> **Breaking v0.4.0-alpha.10 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
 
-### v0.4.0-alpha.8 PR review checklist
+### v0.4.0-alpha.10 PR review checklist
 
-- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.8`. The only lockfile exception is the official, transitive `reinhardt-event-catalog 0.4.0-alpha.1`, which alpha.8 framework crates explicitly require because no alpha.8 event-catalog release exists. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
+- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.10`. The only lockfile exception is the official, transitive `reinhardt-event-catalog 0.4.0-alpha.1`, which alpha.10 framework crates explicitly require because no alpha.10 event-catalog release exists. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
 - **Configuration, architecture, migration** (`configuration`, `architecture`, `migration`): verify the single client route tree, server configuration boundaries, generated migration history, and the empty-PostgreSQL-only upgrade contract.
 - **Pages, macros, signals** (`pages`, `macros`, `signals`): verify public versus authenticated layout placement, `Outlet` nesting, typed event handlers, and reactive query/form state.
 - **API, auth, authorization, dependency injection, modeling, admin** (`api-development`, `authentication`, `authorization`, `dependency-injection`, `modeling`, `admin`): verify server-function input ownership, session revalidation, organization scoping, injected services, database constraints, and admin registrations.
@@ -285,9 +288,9 @@ rolling the Dashboard Deployment pods:
 cd dashboard && cargo run --bin manage migrate
 ```
 
-The v0.4.0-alpha.8 migration reset is an exception: provision a new empty
+The v0.4.0-alpha.10 migration reset is an exception: provision a new empty
 PostgreSQL database, apply its six initial migrations with the command above,
-then deploy the alpha.8 image. No supported existing-history, data-migration,
+then deploy the alpha.10 image. No supported existing-history, data-migration,
 or `fake-initial` upgrade path exists for this reset.
 
 #### Multi-tenancy
@@ -369,7 +372,7 @@ If the discrepancy persists beyond a few minutes, verify the agent's heartbeat i
 | `/register` | Registration page | WASM client route |
 | `/clusters` | Clusters page | WASM client route for registered Kubernetes clusters |
 | `/deployments` | Deployments page | WASM client route for deployment records and logs |
-| `/deployments?logs=<i64>` | Deployment logs selection | Canonical client URL; optional `logs` is parsed manually for alpha.8 |
+| `/deployments?logs=<i64>` | Deployment logs selection | Canonical client URL; extracted as `Query<Option<i64>>` |
 | `/github` | GitHub page | WASM client route for repository import and previews |
 | `/auth/` | Auth app URL patterns | Login, registration, OAuth, and session API endpoints |
 | `/clusters/` | Clusters app URL patterns | Cluster CRUD API |

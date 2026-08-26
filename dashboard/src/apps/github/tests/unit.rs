@@ -1033,7 +1033,15 @@ pub mod model_tests {
 				),
 				(
 					"github_projects".to_string(),
+					vec!["deployment_id".to_string()],
+				),
+				(
+					"github_projects".to_string(),
 					vec!["organization_id".to_string()],
+				),
+				(
+					"github_projects".to_string(),
+					vec!["repository_id".to_string()],
 				),
 				(
 					"github_repositories".to_string(),

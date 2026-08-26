@@ -1,20 +1,18 @@
 //! Registration page backed by the named `RegisterRequest` ClientForm DTO.
 
-#[cfg(test)]
-#[cfg(all(test, native))]
-use std::future::Future;
-
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{InputEvent, SubmitEvent};
 use reinhardt::pages::page;
+#[cfg(test)]
+use reinhardt::pages::prelude::FieldError;
 use reinhardt::pages::prelude::{
-	Action, Callback, FieldError, FormState, Signal, UseFormAsyncSubmitOutcome, UseFormReturn,
-	use_action, use_form, use_router,
+	Action, Callback, FormState, Signal, UseFormAsyncSubmitOutcome, use_action, use_form,
+	use_router,
 };
 use reinhardt::pages::server_fn::ServerFnError;
-use reinhardt::{EmailValidator, Validator};
 
 use crate::apps::auth::client::components::oauth_buttons;
+#[cfg(test)]
 use crate::apps::auth::serializers::RegisterRequest;
 use crate::apps::auth::serializers::register::{
 	RegisterRequestClientForm, RegisterRequestClientFormField,
@@ -43,13 +41,14 @@ fn register_field_error(
 			.get()
 			.get(&field)
 			.map(|error| {
-				page!(|message: String| {
+				let message = error.message().to_owned();
+				page!({
 					p {
 						class: "mt-1 text-xs font-medium text-red-700",
 						role: "alert",
 						{ message }
 					}
-				})(error.message().to_owned())
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -62,13 +61,13 @@ fn register_form_error(state: FormState<RegisterRequestClientFormField>) -> Page
 			.get()
 			.or_else(|| state.submit_error.get())
 			.map(|message| {
-				page!(|message: String| {
+				page!({
 					div {
 						class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
 						role: "alert",
 						{ message }
 					}
-				})(message)
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -104,20 +103,7 @@ fn render_register_form(view: RegisterFormView) -> Page {
 		} else {
 			"Create account"
 		};
-		page!(|form_error: Page,
-		 submit: Callback<SubmitEvent, ()>,
-		 username: Signal<String>,
-		 email: Signal<String>,
-		 password: Signal<String>,
-		 email_input: Callback<InputEvent, ()>,
-		 password_input: Callback<InputEvent, ()>,
-		 email_value: String,
-		 password_value: String,
-		 username_error: Page,
-		 email_error: Page,
-		 password_error: Page,
-		 is_submitting: bool,
-		 submit_label: &'static str| {
+		page!({
 			form {
 				class: "rc-form-stack",
 				@submit: submit,
@@ -200,136 +186,8 @@ fn render_register_form(view: RegisterFormView) -> Page {
 					{ submit_label }
 				}
 			}
-		})(
-			form_error.clone(),
-			submit,
-			username,
-			email,
-			password,
-			email_input,
-			password_input,
-			email_value,
-			password_value,
-			username_error.clone(),
-			email_error.clone(),
-			password_error.clone(),
-			is_submitting,
-			submit_label,
-		)
+		})
 	})
-}
-
-// Workaround for kent8192/reinhardt-web#6159 (tracked in
-// kent8192/reinhardt-cloud#877). Remove this workaround when DTO-derived
-// ClientForm validation supports wasm32.
-//
-// Ideal implementation (without workaround):
-//   #[client_form(validate, server_fn = crate::apps::auth::server_fn::register::register)]
-//   struct RegisterRequest { /* fields */ }
-fn client_validated_register_request<Deps>(
-	runtime: &UseFormReturn<RegisterRequestClientForm, Deps>,
-) -> Option<RegisterRequest>
-where
-	Deps: Clone + PartialEq + 'static,
-{
-	runtime.clear_errors();
-	let request: RegisterRequest = RegisterRequestClientForm::to_request(runtime);
-	let mut valid = true;
-
-	if request.username.chars().count() < 3 {
-		runtime.set_error(
-			RegisterRequestClientFormField::Username,
-			FieldError::new("Username must be at least 3 characters"),
-		);
-		valid = false;
-	} else if request.username.chars().count() > 32 {
-		runtime.set_error(
-			RegisterRequestClientFormField::Username,
-			FieldError::new("Username must be 32 characters or fewer"),
-		);
-		valid = false;
-	}
-
-	if request.email.is_empty() {
-		runtime.set_error(
-			RegisterRequestClientFormField::Email,
-			FieldError::new("Email is required"),
-		);
-		valid = false;
-	} else if request.email.chars().count() > 254 {
-		runtime.set_error(
-			RegisterRequestClientFormField::Email,
-			FieldError::new("Email must be 254 characters or fewer"),
-		);
-		valid = false;
-	} else if EmailValidator::new()
-		.validate(request.email.as_str())
-		.is_err()
-	{
-		runtime.set_error(
-			RegisterRequestClientFormField::Email,
-			FieldError::new("Enter a valid email address"),
-		);
-		valid = false;
-	}
-
-	if request.password.chars().count() < 8 {
-		runtime.set_error(
-			RegisterRequestClientFormField::Password,
-			FieldError::new("Password must be at least 8 characters"),
-		);
-		valid = false;
-	} else if request.password.chars().count() > 128 {
-		runtime.set_error(
-			RegisterRequestClientFormField::Password,
-			FieldError::new("Password must be 128 characters or fewer"),
-		);
-		valid = false;
-	}
-
-	valid.then_some(request)
-}
-
-#[cfg(all(test, native))]
-async fn submit_register_with_runtime<Deps, Submit, Fut, Output>(
-	runtime: &UseFormReturn<RegisterRequestClientForm, Deps>,
-	submit: Submit,
-) -> Result<UseFormAsyncSubmitOutcome<Output>, ServerFnError>
-where
-	Deps: Clone + PartialEq + 'static,
-	Submit: FnOnce(RegisterRequest) -> Fut,
-	Fut: Future<Output = Result<Output, ServerFnError>>,
-{
-	let Some(request) = client_validated_register_request(runtime) else {
-		return Ok(UseFormAsyncSubmitOutcome::ValidationFailed);
-	};
-	runtime.submit_server_fn(|| submit(request)).await
-}
-
-#[cfg(wasm)]
-async fn submit_register_client_form<Deps>(
-	form: &RegisterRequestClientForm,
-	runtime: &UseFormReturn<RegisterRequestClientForm, Deps>,
-) -> Result<UseFormAsyncSubmitOutcome<AuthResponse>, ServerFnError>
-where
-	Deps: Clone + PartialEq + 'static,
-{
-	if client_validated_register_request(runtime).is_none() {
-		return Ok(UseFormAsyncSubmitOutcome::ValidationFailed);
-	}
-	form.submit(runtime).await
-}
-
-#[cfg(not(wasm))]
-async fn submit_register_client_form<Deps>(
-	_form: &RegisterRequestClientForm,
-	runtime: &UseFormReturn<RegisterRequestClientForm, Deps>,
-) -> Result<UseFormAsyncSubmitOutcome<AuthResponse>, ServerFnError>
-where
-	Deps: Clone + PartialEq + 'static,
-{
-	let _ = client_validated_register_request(runtime);
-	Ok(UseFormAsyncSubmitOutcome::ValidationFailed)
 }
 
 /// Render the registration page inside the shared auth layout.
@@ -373,7 +231,17 @@ pub fn register_page() -> Page {
 	let register_action = use_action(move |(): ()| {
 		let form = submit_form.clone();
 		let runtime = submit_runtime.clone();
-		async move { submit_register_client_form(&form, &runtime).await }
+		async move {
+			#[cfg(wasm)]
+			{
+				form.submit(&runtime).await
+			}
+			#[cfg(not(wasm))]
+			{
+				let _ = (form, runtime);
+				Ok(UseFormAsyncSubmitOutcome::ValidationFailed)
+			}
+		}
 	});
 	let form_view = render_register_form(RegisterFormView {
 		state: register_state,
@@ -385,7 +253,7 @@ pub fn register_page() -> Page {
 		password_input,
 	});
 	let oauth_buttons = oauth_buttons();
-	page!(|form_view: Page, oauth_buttons: Page, login_href: String| {
+	page!({
 		div {
 			class: "rc-app flex items-center justify-center px-4",
 			div {
@@ -424,7 +292,7 @@ pub fn register_page() -> Page {
 				}
 			}
 		}
-	})(form_view, oauth_buttons, login_href)
+	})
 }
 
 #[cfg(test)]
@@ -506,7 +374,7 @@ mod tests {
 	#[cfg(native)]
 	#[rstest]
 	#[tokio::test]
-	async fn register_client_gate_blocks_server_dispatch_for_invalid_input() {
+	async fn register_generated_client_form_blocks_server_dispatch_for_invalid_input() {
 		// Arrange
 		let scope = ReactiveScope::new();
 		let runtime = scope.enter(|| {
@@ -517,12 +385,13 @@ mod tests {
 		let submit_calls_for_submit = Rc::clone(&submit_calls);
 
 		// Act
-		let outcome = submit_register_with_runtime(&runtime, move |_| {
-			submit_calls_for_submit.set(submit_calls_for_submit.get() + 1);
-			async { Ok::<_, ServerFnError>(()) }
-		})
-		.await
-		.expect("client validation rejection should be a submit outcome");
+		let outcome = runtime
+			.submit_server_fn(move || {
+				submit_calls_for_submit.set(submit_calls_for_submit.get() + 1);
+				async { Ok::<_, ServerFnError>(()) }
+			})
+			.await
+			.expect("client validation rejection should be a submit outcome");
 
 		// Assert
 		assert_eq!(outcome, UseFormAsyncSubmitOutcome::ValidationFailed);
@@ -533,7 +402,7 @@ mod tests {
 				.error
 				.as_ref()
 				.map(FieldError::message),
-			Some("Username must be at least 3 characters")
+			Some("Length too short: 0 (minimum: 3)")
 		);
 	}
 }

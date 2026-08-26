@@ -12,7 +12,7 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 		return Page::Empty;
 	}
 
-	page!(|providers: Vec<OAuthProviderInfo>| {
+	page!({
 		div {
 			class: "mt-6 space-y-4",
 			div {
@@ -34,18 +34,18 @@ fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 			div {
 				class: "grid gap-2",
 				{ providers.clone().into_iter().map(|provider| {
-					page!(|href: String, label: String| {
+					page!({
 						a {
-							href: href,
+							href: provider.start_url,
 							rel: "external",
 							class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
-							{ label }
+							{ provider.label }
 						}
-					})(provider.start_url, provider.label)
+					})
 				}).collect::<Vec<_>>() }
 			}
 		}
-	})(providers)
+	})
 }
 
 /// Render OAuth provider buttons when providers are configured.
@@ -61,42 +61,44 @@ fn render_provider_query(providers: &QueryHandle<Vec<OAuthProviderInfo>, ServerF
 	let snapshot = providers.snapshot();
 	match snapshot.status {
 		QueryStatus::Idle => Page::Empty,
-		QueryStatus::Pending => page!(|| {
+		QueryStatus::Pending => page!({
 			p {
 				class: "mt-4 text-center text-xs font-medium text-ink-500",
 				"Loading sign-in options..."
 			}
-		})(),
-		QueryStatus::Error => page!(|message: String| {
-			p {
-				class: "mt-4 text-center text-xs font-medium text-red-700",
-				{ message }
-			}
-		})(
-			snapshot
+		}),
+		QueryStatus::Error => {
+			let message = snapshot
 				.error
 				.map(|error| error.user_message().to_string())
-				.unwrap_or_else(|| "OAuth sign-in is unavailable.".to_string()),
-		),
+				.unwrap_or_else(|| "OAuth sign-in is unavailable.".to_string());
+			page!({
+				p {
+					class: "mt-4 text-center text-xs font-medium text-red-700",
+					{ message }
+				}
+			})
+		}
 		QueryStatus::Success => {
 			let buttons = render_provider_buttons(snapshot.data.unwrap_or_default());
 			let notice = if let Some(error) = snapshot.refetch_error {
-				page!(|message: String| {
+				let message = format!(
+					"Showing cached sign-in options; refresh failed: {}",
+					error.user_message()
+				);
+				page!({
 					p {
 						class: "mt-4 text-center text-xs font-medium text-amber-700",
 						{ message }
 					}
-				})(format!(
-					"Showing cached sign-in options; refresh failed: {}",
-					error.user_message()
-				))
+				})
 			} else if snapshot.is_fetching {
-				page!(|| {
+				page!({
 					p {
 						class: "mt-4 text-center text-xs font-medium text-ink-500",
 						"Refreshing sign-in options..."
 					}
-				})()
+				})
 			} else {
 				Page::Empty
 			};

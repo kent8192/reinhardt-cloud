@@ -5,27 +5,17 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use reinhardt::pages::app::{
-	__clear_spa_router_for_test, __current_path_for_test, __install_client_router_for_test,
-};
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{
-	Callback, FieldError, QueryOptions, Signal, queries, use_action, use_form, use_query,
-	use_router,
+	Callback, FieldError, QueryOptions, queries, use_action, use_form, use_query,
 };
-use reinhardt::pages::reactive::{ReactiveScope, with_runtime};
+use reinhardt::pages::reactive::ReactiveScope;
 use reinhardt::pages::server_fn::ServerFnError;
 use reinhardt::pages::testing::component::{Role, render};
-use reinhardt::urls::routers::ClientRouter;
 use rstest::rstest;
-use serial_test::serial;
 
-use crate::apps::deployments::client::pages::list::{
-	DeploymentLogsRouteSelection, deployment_logs_path, deployment_logs_selection_from_path,
-	install_deployment_log_route_sync,
-};
 use crate::apps::deployments::client::pages::list::{
 	invalidate_deployment_delete_queries, invalidate_deployment_queries,
 };
@@ -37,115 +27,6 @@ use crate::apps::deployments::server_fn::{
 	list_deployments_for_current_org,
 };
 use crate::apps::github::server_fn::list_github_project_previews_for_current_org;
-
-struct InstalledRouterGuard;
-
-impl InstalledRouterGuard {
-	fn install(router: ClientRouter) -> Self {
-		__install_client_router_for_test(router);
-		Self
-	}
-}
-
-impl Drop for InstalledRouterGuard {
-	fn drop(&mut self) {
-		__clear_spa_router_for_test();
-	}
-}
-
-fn deployments_router() -> ClientRouter {
-	ClientRouter::new().route("deployments", "/deployments", || Page::Empty)
-}
-
-#[rstest]
-#[case::absent("/deployments", DeploymentLogsRouteSelection::Absent)]
-#[case::unrelated_query("/deployments?tab=overview", DeploymentLogsRouteSelection::Absent)]
-#[case::valid("/deployments?logs=41", DeploymentLogsRouteSelection::Selected(41))]
-#[case::valid_with_other_query(
-	"/deployments?tab=overview&logs=42",
-	DeploymentLogsRouteSelection::Selected(42)
-)]
-#[case::zero("/deployments?logs=0", DeploymentLogsRouteSelection::Invalid)]
-#[case::negative("/deployments?logs=-1", DeploymentLogsRouteSelection::Invalid)]
-#[case::non_numeric("/deployments?logs=not-an-id", DeploymentLogsRouteSelection::Invalid)]
-fn deployment_log_route_parser_distinguishes_absent_valid_and_invalid(
-	#[case] path: &str,
-	#[case] expected: DeploymentLogsRouteSelection,
-) {
-	// Act
-	let selection = deployment_logs_selection_from_path(path);
-
-	// Assert
-	assert_eq!(selection, expected);
-}
-
-#[rstest]
-#[serial(deployment_log_router)]
-fn deployment_log_route_sync_follows_replace_and_browser_path_changes() {
-	ReactiveScope::run(|| {
-		// Arrange
-		let router = deployments_router();
-		let router_for_popstate = router.clone();
-		let _router = InstalledRouterGuard::install(router);
-		let selected_deployment_id = Signal::new(String::new());
-		install_deployment_log_route_sync(selected_deployment_id.clone());
-
-		// Act: selector chooses a deployment through replace navigation.
-		let selected_path = deployment_logs_path("/deployments", Some(41));
-		let replace_result = use_router().replace(selected_path.clone());
-		with_runtime(|runtime| runtime.flush_updates());
-
-		// Assert: the canonical URL and reactive selection agree.
-		assert!(
-			replace_result.is_ok(),
-			"selector replace must succeed: {replace_result:?}"
-		);
-		assert_eq!(
-			__current_path_for_test().as_deref(),
-			Some(selected_path.as_str())
-		);
-		assert_eq!(selected_deployment_id.get(), "41");
-		let DeploymentLogsRouteSelection::Selected(deployment_id) =
-			deployment_logs_selection_from_path(&selected_path)
-		else {
-			panic!("the selected URL must parse as a deployment log selection");
-		};
-		assert_eq!(
-			deployment_logs_for_current_org::key(deployment_id.to_string()).id(),
-			deployment_logs_for_current_org::key("41".to_owned()).id(),
-			"a deep link must derive the same exact logs query key as the selector"
-		);
-
-		// Act: simulate a browser Back/Forward popstate update.
-		router_for_popstate
-			.current_path()
-			.set("/deployments?logs=42".to_owned());
-		with_runtime(|runtime| runtime.flush_updates());
-
-		// Assert: router path updates flow back into the signal used by logs/WebSocket.
-		assert_eq!(selected_deployment_id.get(), "42");
-
-		// Act: an invalid deep link and a selector clear both produce no selection.
-		router_for_popstate
-			.current_path()
-			.set("/deployments?logs=bad".to_owned());
-		with_runtime(|runtime| runtime.flush_updates());
-		let clear_path = deployment_logs_path("/deployments", None);
-		let clear_result = use_router().replace(clear_path.clone());
-		with_runtime(|runtime| runtime.flush_updates());
-
-		// Assert
-		assert_eq!(selected_deployment_id.get(), "");
-		assert!(
-			clear_result.is_ok(),
-			"clear replace must succeed: {clear_result:?}"
-		);
-		assert_eq!(
-			__current_path_for_test().as_deref(),
-			Some(clear_path.as_str())
-		);
-	});
-}
 
 #[rstest]
 fn generated_deployment_forms_validate_fields_and_map_structured_errors() {

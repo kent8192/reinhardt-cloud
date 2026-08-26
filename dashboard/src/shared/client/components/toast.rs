@@ -13,12 +13,12 @@ use crate::shared::ws_messages::NotificationLevel;
 /// Render the toast container overlay (empty; toasts added dynamically).
 #[cfg(wasm)]
 pub fn toast_container() -> Page {
-	page!(|| {
+	page!({
 		div {
 			id: "toast-container",
 			class: "fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm",
 		}
-	})()
+	})
 }
 
 /// Dynamically add a toast notification to the container.

@@ -9,8 +9,9 @@ use reinhardt::pages::page;
 use reinhardt::pages::prelude::{
 	Action, Callback, FieldError, FormState, QueryClient, QueryHandle, QueryOptions, QuerySnapshot,
 	QueryStatus, RouterHandle, Signal, UseFormAsyncSubmitOutcome, queries, use_action, use_form,
-	use_query, use_retained_effect, use_router,
+	use_query, use_router,
 };
+use reinhardt::pages::router::Query;
 use reinhardt::pages::server_fn::ServerFnError;
 
 use crate::apps::clusters::server_fn::{ClusterInfo, list_clusters_for_current_org};
@@ -56,12 +57,12 @@ fn alert(error: Signal<Option<String>>) -> Page {
 		error
 			.get()
 			.map(|message| {
-				page!(|message: String| {
+				page!({
 					div {
 						class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
 						{ message }
 					}
-				})(message)
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -72,12 +73,12 @@ fn success_alert(message: Signal<Option<String>>) -> Page {
 		message
 			.get()
 			.map(|message| {
-				page!(|message: String| {
+				page!({
 					div {
 						class: "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800",
 						{ message }
 					}
-				})(message)
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
@@ -92,48 +93,16 @@ where
 			.get()
 			.get(&field)
 			.map(|error| {
-				page!(|message: String| {
+				let message = error.message().to_owned();
+				page!({
 					p {
 						class: "mt-1 text-xs font-medium text-red-700",
 						{ message }
 					}
-				})(error.message().to_owned())
+				})
 			})
 			.unwrap_or(Page::Empty)
 	})
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DeploymentLogsRouteSelection {
-	Absent,
-	Selected(i64),
-	Invalid,
-}
-
-/// Parse the deployment log selection from the current dashboard route.
-///
-/// `Query<Option<i64>>` is not supported by the alpha.8 component extractor,
-/// so this keeps optional query parsing at the route boundary without making
-/// an invalid deep link fail route resolution.
-pub(crate) fn deployment_logs_selection_from_path(path: &str) -> DeploymentLogsRouteSelection {
-	let Some((_, query)) = path.split_once('?') else {
-		return DeploymentLogsRouteSelection::Absent;
-	};
-	let Some(value) = query.split('&').find_map(|pair| {
-		let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-		(key == "logs").then_some(value)
-	}) else {
-		return DeploymentLogsRouteSelection::Absent;
-	};
-
-	value
-		.parse::<i64>()
-		.ok()
-		.filter(|deployment_id| *deployment_id > 0)
-		.map_or(
-			DeploymentLogsRouteSelection::Invalid,
-			DeploymentLogsRouteSelection::Selected,
-		)
 }
 
 fn deployment_log_selection_from_value(value: &str) -> Option<i64> {
@@ -150,55 +119,19 @@ pub(crate) fn deployment_logs_path(deployments_href: &str, deployment_id: Option
 	)
 }
 
-fn selected_log_deployment_id(selection: DeploymentLogsRouteSelection) -> String {
-	match selection {
-		DeploymentLogsRouteSelection::Selected(deployment_id) => deployment_id.to_string(),
-		DeploymentLogsRouteSelection::Absent | DeploymentLogsRouteSelection::Invalid => {
-			String::new()
-		}
+pub(crate) fn selected_log_deployment_id(deployment_id: Option<i64>) -> String {
+	deployment_id
+		.filter(|deployment_id| *deployment_id > 0)
+		.map_or_else(String::new, |deployment_id| deployment_id.to_string())
+}
+
+fn synchronize_live_log_subscription(deployment_id: Option<i64>) {
+	let deployment_id = selected_log_deployment_id(deployment_id);
+	if deployment_id.is_empty() {
+		unsubscribe_logs();
+	} else {
+		subscribe_app_logs(&deployment_id);
 	}
-}
-
-fn current_deployment_logs_selection() -> DeploymentLogsRouteSelection {
-	reinhardt::pages::app::try_with_spa_router(|router| *router.current_path())
-		.map(|path| deployment_logs_selection_from_path(&path.get()))
-		.unwrap_or(DeploymentLogsRouteSelection::Absent)
-}
-
-fn synchronize_live_log_subscription(selection: DeploymentLogsRouteSelection) {
-	match selection {
-		DeploymentLogsRouteSelection::Selected(deployment_id) => {
-			subscribe_app_logs(&deployment_id.to_string());
-		}
-		DeploymentLogsRouteSelection::Absent | DeploymentLogsRouteSelection::Invalid => {
-			unsubscribe_logs();
-		}
-	}
-}
-
-pub(crate) fn synchronize_deployment_log_selection(
-	selected_deployment_id: &Signal<String>,
-	selection: DeploymentLogsRouteSelection,
-) {
-	selected_deployment_id.set(selected_log_deployment_id(selection));
-	synchronize_live_log_subscription(selection);
-}
-
-pub(crate) fn install_deployment_log_route_sync(selected_deployment_id: Signal<String>) {
-	let Some(current_path) =
-		reinhardt::pages::app::try_with_spa_router(|router| *router.current_path())
-	else {
-		return;
-	};
-	let path_for_effect = current_path;
-	use_retained_effect(
-		move || {
-			let selection = deployment_logs_selection_from_path(&path_for_effect.get());
-			synchronize_deployment_log_selection(&selected_deployment_id, selection);
-			None::<fn()>
-		},
-		reinhardt::pages::deps![current_path],
-	);
 }
 
 fn render_live_log_selector(
@@ -207,7 +140,6 @@ fn render_live_log_selector(
 	router: RouterHandle,
 	deployments_href: String,
 ) -> Page {
-	let selected_deployment_id_for_change = selected_deployment_id;
 	entity_select(
 		"Deployment",
 		"Select deployment",
@@ -217,10 +149,6 @@ fn render_live_log_selector(
 			let selected = deployment_log_selection_from_value(&value);
 			let path = deployment_logs_path(&deployments_href, selected);
 			let _ = router.replace(path);
-			synchronize_deployment_log_selection(
-				&selected_deployment_id_for_change,
-				current_deployment_logs_selection(),
-			);
 		},
 	)
 }
@@ -332,12 +260,12 @@ fn render_create_deployment_form(view: CreateDeploymentFormView) -> Page {
 	Page::reactive(move || {
 		let is_submitting = state.is_submitting.get();
 		let submit_status = if is_submitting {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-ink-600",
 					"Submitting..."
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
@@ -495,22 +423,22 @@ fn render_update_deployment_form(view: UpdateDeploymentFormView) -> Page {
 	Page::reactive(move || {
 		let is_submitting = state.is_submitting.get();
 		let dirty_notice = if state.is_dirty.get() {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-amber-700",
 					"Unsaved changes"
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
 		let submit_status = if is_submitting {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-ink-600",
 					"Updating..."
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
@@ -637,12 +565,12 @@ fn render_update_deployment_status_form(view: UpdateDeploymentStatusFormView) ->
 	Page::reactive(move || {
 		let is_submitting = state.is_submitting.get();
 		let submit_status = if is_submitting {
-			page!(|| {
+			page!({
 				p {
 					class: "mt-2 text-xs text-ink-600",
 					"Updating..."
 				}
-			})()
+			})
 		} else {
 			Page::Empty
 		};
@@ -744,12 +672,12 @@ fn render_delete_deployment_action(view: DeleteDeploymentActionView) -> Page {
 					"Delete deployment"
 				} {
 					if is_pending {
-						page!(|| {
+						page!( {
 							p {
 								class: "text-xs text-ink-600",
 								"Deleting..."
 							}
-						})()
+						})
 					} else { Page::Empty }
 				}
 			}
@@ -776,23 +704,24 @@ fn query_refetch_notice(
 	label: &'static str,
 ) -> Page {
 	if let Some(error) = refetch_error {
-		return page!(|message: String| {
+		let message = format!(
+			"Showing cached {label}; the latest refresh failed: {}",
+			error.user_message()
+		);
+		return page!({
 			div {
 				class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
 				{ message }
 			}
-		})(format!(
-			"Showing cached {label}; the latest refresh failed: {}",
-			error.user_message()
-		));
+		});
 	}
 	if is_fetching {
-		return page!(|label: &'static str| {
+		return page!({
 			div {
 				class: "border-b border-cloud-100 bg-cloud-50 px-4 py-2 text-xs font-medium text-cloud-600",
 				"Refreshing " { label }"..."
 			}
-		})(label);
+		});
 	}
 	Page::Empty
 }
@@ -851,17 +780,17 @@ fn render_deployment_project_cell(
 	summary: Option<&ProjectPreviewSummary>,
 ) -> Page {
 	if let Some(summary) = summary {
-		return page!(|identity: Page, previews: Page| {
+		let identity = render_project_identity(summary);
+		let previews = render_preview_list(summary);
+		return page!({
 			div {
 				{ identity }
 				{ previews }
 			}
-		})(
-			render_project_identity(summary),
-			render_preview_list(summary),
-		);
+		});
 	}
-	page!(|project_name: String| {
+	let project_name = deployment.project_name.clone();
+	page!({
 		div {
 			div {
 				class: "font-semibold text-ink-950",
@@ -872,26 +801,29 @@ fn render_deployment_project_cell(
 				"No active previews"
 			}
 		}
-	})(deployment.project_name.clone())
+	})
 }
 
 fn render_deployment_status_badge(status: &str) -> Page {
 	let (color, label) = status_badge::badge_style(&self::state_from_status(status));
-	page!(|color: &'static str, label: &'static str| {
+	page!({
 		span {
 			class: format!(
 				"status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"
 			),
 			{ label }
 		}
-	})(color, label)
+	})
 }
 
 fn render_deployment_inventory_row(
 	deployment: &DeploymentInfo,
 	summary: Option<&ProjectPreviewSummary>,
 ) -> Page {
-	page!(|deployment: DeploymentInfo, project_cell: Page, status_cell: Page| {
+	let deployment = deployment.clone();
+	let project_cell = render_deployment_project_cell(&deployment, summary);
+	let status_cell = render_deployment_status_badge(&deployment.status);
+	page!({
 		tr {
 			data_deployment_id: deployment.id.to_string(),
 			td {
@@ -915,11 +847,7 @@ fn render_deployment_inventory_row(
 				{ deployment.image }
 			}
 		}
-	})(
-		deployment.clone(),
-		render_deployment_project_cell(deployment, summary),
-		render_deployment_status_badge(&deployment.status),
-	)
+	})
 }
 
 fn render_deployment_inventory_table(
@@ -927,45 +855,48 @@ fn render_deployment_inventory_table(
 	preview_state: QuerySnapshot<Vec<ProjectPreviewSummary>, ServerFnError>,
 ) -> Page {
 	if items.is_empty() {
-		return page!(|| {
+		return page!({
 			div {
 				class: "rc-empty",
 				"No deployments created."
 			}
-		})();
+		});
 	}
 
 	let (preview_banner, summaries) = match preview_state.status {
 		QueryStatus::Idle => (
-			page!(|| {
+			page!({
 				div {
 					class: "border-b border-cloud-100 px-4 py-2 text-xs font-medium text-cloud-500",
 					"Preview status is not available during server rendering."
 				}
-			})(),
+			}),
 			Vec::new(),
 		),
 		QueryStatus::Pending => (
-			page!(|| {
+			page!({
 				div {
 					class: "border-b border-cloud-100 px-4 py-2 text-xs font-medium text-cloud-500",
 					"Loading previews..."
 				}
-			})(),
+			}),
 			Vec::new(),
 		),
-		QueryStatus::Error => (
-			page!(|message: String| {
-				div {
-					class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
-					{ message }
-				}
-			})(query_error_message(
+		QueryStatus::Error => {
+			let message = query_error_message(
 				preview_state.error,
 				"Preview status is temporarily unavailable.",
-			)),
-			Vec::new(),
-		),
+			);
+			(
+				page!({
+					div {
+						class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
+						{ message }
+					}
+				}),
+				Vec::new(),
+			)
+		}
 		QueryStatus::Success => (
 			query_refetch_notice(
 				preview_state.is_fetching,
@@ -1029,6 +960,7 @@ fn render_deployment_inventory_table(
 	})(preview_banner, rows)
 }
 
+#[derive(Clone)]
 struct DeploymentsListPageViewProps {
 	deployments_for_inventory: QueryHandle<Vec<DeploymentInfo>, ServerFnError>,
 	deployments_for_logs: QueryHandle<Vec<DeploymentInfo>, ServerFnError>,
@@ -1056,7 +988,7 @@ struct DeploymentsListPageViewProps {
 
 /// Render the deployments page.
 #[reinhardt::pages::component("deployments", name = "deployments:list")]
-pub fn deployments_list_page() -> Page {
+pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 	let deployments = use_query(
 		list_deployments_for_current_org::query(),
 		QueryOptions::new().enabled(cfg!(wasm)),
@@ -1187,8 +1119,8 @@ pub fn deployments_list_page() -> Page {
 	let delete_error = Signal::new(None::<String>);
 	let delete_success = Signal::new(None::<String>);
 	let deployments_href = route_href("deployments:list", "/deployments");
-	let log_deployment_id = Signal::new(String::new());
-	self::install_deployment_log_route_sync(log_deployment_id);
+	let log_deployment_id = Signal::new(self::selected_log_deployment_id(logs));
+	self::synchronize_live_log_subscription(logs);
 	let log_router = use_router();
 	let delete_query_client = query_client.clone();
 	let delete_deployment_id_for_action = delete_deployment_id;
@@ -1226,10 +1158,6 @@ pub fn deployments_list_page() -> Page {
 		delete_success_for_callback.set(Some("Deployment deleted.".to_owned()));
 		if log_deployment_id_for_callback.get() == deleted_deployment_id {
 			let _ = log_router.replace(deployments_href_for_callback.clone());
-			self::synchronize_deployment_log_selection(
-				&log_deployment_id_for_callback,
-				self::current_deployment_logs_selection(),
-			);
 		}
 	})
 	.on_error(move |error| {
@@ -1276,7 +1204,7 @@ pub fn deployments_list_page() -> Page {
 		logs,
 	};
 
-	page!(|props: DeploymentsListPageViewProps| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -1310,41 +1238,46 @@ pub fn deployments_list_page() -> Page {
 								} {
 									let snapshot = props.deployments_for_inventory.snapshot();
 									match snapshot.status {
-										QueryStatus::Idle => page!(|| {
+										QueryStatus::Idle => page!({
 											div {
 												class: "rc-empty",
 												"Deployments are not available during server rendering."
 											}
-										})(),
-										QueryStatus::Pending => page!(|| {
+										}),
+										QueryStatus::Pending => page!({
 											div {
 												class: "rc-empty",
 												"Loading deployments..."
 											}
-										})(),
-										QueryStatus::Error => page!(|message: String| {
+										}),
+										QueryStatus::Error => {
+											let message = self::query_error_message(
+												snapshot.error,
+												"Deployments are temporarily unavailable.",
+											);
+											page!({
 											div {
 												class: "px-4 py-8 text-sm font-medium text-red-700",
 												{ message }
 											}
-										})(self::query_error_message(snapshot.error, "Deployments are temporarily unavailable.")),
+											})
+										}
 										QueryStatus::Success => {
 											let items = snapshot.data.unwrap_or_default();
 											self::track_visible_deployments(&items);
-											page!(|warning: Page, inventory: Page| {
-												{ warning }
-												{ inventory }
-											})(
-											self::query_refetch_notice(
+											let warning = self::query_refetch_notice(
 												snapshot.is_fetching,
 												snapshot.refetch_error,
 												"deployments",
-											),
-												self::render_deployment_inventory_table(
-													items,
-													props.deployments_for_previews.snapshot(),
-												),
-											)
+											);
+											let inventory = self::render_deployment_inventory_table(
+												items,
+												props.deployments_for_previews.snapshot(),
+											);
+											page!({
+												{ warning }
+												{ inventory }
+											})
 										}
 									}
 								}
@@ -1360,36 +1293,47 @@ pub fn deployments_list_page() -> Page {
 									match snapshot.status {
 										QueryStatus::Success => {
 											let items = snapshot.data.unwrap_or_default();
-											page!(|warning: Page, selector: Page| {
-												{ warning }
-												{ selector }
-											})(
-											self::query_refetch_notice(
+											let warning = self::query_refetch_notice(
 												snapshot.is_fetching,
 												snapshot.refetch_error,
 												"clusters",
-											),
-										self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), props.create_cluster_id, |_value| {}, ),
-											)
+											);
+											let selector = self::entity_select(
+												"Cluster",
+												"Select target cluster",
+												self::cluster_select_options(&items),
+												props.create_cluster_id,
+												|_value| {},
+											);
+											page!({
+												{ warning }
+												{ selector }
+											})
 										}
-										QueryStatus::Idle => page!(|| {
+										QueryStatus::Idle => page!({
 											p {
 												class: "mb-3 text-xs text-cloud-500",
 												"Clusters are not available during server rendering."
 											}
-										})(),
-										QueryStatus::Pending => page!(|| {
+										}),
+										QueryStatus::Pending => page!({
 											p {
 												class: "mb-3 text-xs text-ink-600",
 												"Loading clusters..."
 											}
-										})(),
-										QueryStatus::Error => page!(|message: String| {
+										}),
+										QueryStatus::Error => {
+											let message = self::query_error_message(
+												snapshot.error,
+												"Clusters are temporarily unavailable.",
+											);
+											page!({
 											p {
 												class: "mb-3 text-xs font-medium text-red-700",
 												{ message }
 											}
-										})(self::query_error_message(snapshot.error, "Clusters are temporarily unavailable.")),
+											})
+										}
 									}
 								}
 							{ props.create_view.clone() }
@@ -1408,24 +1352,30 @@ pub fn deployments_list_page() -> Page {
 											props.log_router,
 											props.deployments_href.clone(),
 										),
-											QueryStatus::Idle => page!(|| {
+											QueryStatus::Idle => page!({
 												p {
 													class: "mb-3 text-xs text-cloud-500",
 													"Deployments are not available during server rendering."
 												}
-											})(),
-											QueryStatus::Pending => page!(|| {
+											}),
+											QueryStatus::Pending => page!({
 												p {
 													class: "mb-3 text-xs text-ink-600",
 													"Loading deployments..."
 												}
-											})(),
-											QueryStatus::Error => page!(|message: String| {
+											}),
+											QueryStatus::Error => {
+												let message = self::query_error_message(
+													snapshot.error,
+													"Deployments are temporarily unavailable.",
+												);
+												page!({
 												p {
 													class: "mb-3 text-xs font-medium text-red-700",
 													{ message }
 												}
-											})(self::query_error_message(snapshot.error, "Deployments are temporarily unavailable.")),
+												})
+											}
 										}
 									}
 							div {
@@ -1459,24 +1409,30 @@ pub fn deployments_list_page() -> Page {
 												}
 											}, )
 										}
-										QueryStatus::Idle => page!(|| {
+						QueryStatus::Idle => page!({
 											p {
 												class: "mb-3 text-xs text-cloud-500",
 												"Deployments are not available during server rendering."
 											}
-										})(),
-										QueryStatus::Pending => page!(|| {
+						}),
+						QueryStatus::Pending => page!({
 											p {
 												class: "mb-3 text-xs text-ink-600",
 												"Loading deployments..."
 											}
-										})(),
-										QueryStatus::Error => page!(|message: String| {
+						}),
+						QueryStatus::Error => {
+							let message = self::query_error_message(
+								snapshot.error,
+								"Deployments are temporarily unavailable.",
+							);
+							page!({
 											p {
 												class: "mb-3 text-xs font-medium text-red-700",
 												{ message }
 											}
-										})(self::query_error_message(snapshot.error, "Deployments are temporarily unavailable.")),
+							})
+						}
 									}
 								}
 							{ props.edit_view.clone() }
@@ -1487,24 +1443,30 @@ pub fn deployments_list_page() -> Page {
 									let snapshot = props.deployments_for_status.snapshot();
 									match snapshot.status {
 									QueryStatus::Success => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&snapshot.data.unwrap_or_default()), props.status_deployment_id, |_value| {}, ),
-										QueryStatus::Idle => page!(|| {
+						QueryStatus::Idle => page!({
 											p {
 												class: "mb-3 text-xs text-cloud-500",
 												"Deployments are not available during server rendering."
 											}
-										})(),
-										QueryStatus::Pending => page!(|| {
+						}),
+						QueryStatus::Pending => page!({
 											p {
 												class: "mb-3 text-xs text-ink-600",
 												"Loading deployments..."
 											}
-										})(),
-										QueryStatus::Error => page!(|message: String| {
+						}),
+						QueryStatus::Error => {
+							let message = self::query_error_message(
+								snapshot.error,
+								"Deployments are temporarily unavailable.",
+							);
+							page!({
 											p {
 												class: "mb-3 text-xs font-medium text-red-700",
 												{ message }
 											}
-										})(self::query_error_message(snapshot.error, "Deployments are temporarily unavailable.")),
+							})
+						}
 									}
 								}
 							{ props.status_view.clone() }
@@ -1515,24 +1477,30 @@ pub fn deployments_list_page() -> Page {
 									let snapshot = props.deployments_for_delete.snapshot();
 									match snapshot.status {
 									QueryStatus::Success => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&snapshot.data.unwrap_or_default()), props.delete_deployment_id, |_value| {}, ),
-										QueryStatus::Idle => page!(|| {
+						QueryStatus::Idle => page!({
 											p {
 												class: "mb-3 text-xs text-cloud-500",
 												"Deployments are not available during server rendering."
 											}
-										})(),
-										QueryStatus::Pending => page!(|| {
+						}),
+						QueryStatus::Pending => page!({
 											p {
 												class: "mb-3 text-xs text-ink-600",
 												"Loading deployments..."
 											}
-										})(),
-										QueryStatus::Error => page!(|message: String| {
+						}),
+						QueryStatus::Error => {
+							let message = self::query_error_message(
+								snapshot.error,
+								"Deployments are temporarily unavailable.",
+							);
+							page!({
 											p {
 												class: "mb-3 text-xs font-medium text-red-700",
 												{ message }
 											}
-										})(self::query_error_message(snapshot.error, "Deployments are temporarily unavailable.")),
+							})
+						}
 									}
 								}
 							{ props.delete_view.clone() }
@@ -1541,5 +1509,5 @@ pub fn deployments_list_page() -> Page {
 				}
 			}
 		}
-	})(props)
+	})
 }

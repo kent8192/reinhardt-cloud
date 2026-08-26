@@ -55,6 +55,7 @@ pub fn entity_select<F>(
 where
 	F: Fn(String) + 'static,
 {
+	let label = label.to_string();
 	let current_value = selected_value.get();
 	let is_empty = options.is_empty();
 	let placeholder_option = PageElement::new("option")
@@ -88,12 +89,12 @@ where
 		.children(option_pages)
 		.into_page();
 
-	page!(|label: String, select: Page| {
+	page!({
 		div {
 			label { { label } }
 			{ select }
 		}
-	})(label.to_string(), select)
+	})
 }
 
 #[cfg(test)]

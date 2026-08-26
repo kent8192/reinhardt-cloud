@@ -9,6 +9,7 @@ use crate::apps::deployments::server_fn::{
 
 /// Renders the primary and secondary project identity used by preview surfaces.
 pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
+	let display_name = summary.display_name.clone();
 	let secondary = match summary.source_kind {
 		ProjectSourceKind::GitHub => summary
 			.production_branch
@@ -17,7 +18,7 @@ pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
 			.unwrap_or_else(|| format!("Project: {}", summary.project_name)),
 		ProjectSourceKind::Manual => "Manual Project".to_string(),
 	};
-	page!(|display_name: String, secondary: String| {
+	page!({
 		div {
 			class: "min-w-0 space-y-1",
 			div {
@@ -29,28 +30,30 @@ pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
 				{ secondary }
 			}
 		}
-	})(summary.display_name.clone(), secondary)
+	})
 }
 
 /// Renders preview state for one parent Project.
 pub fn render_preview_list(summary: &ProjectPreviewSummary) -> Page {
 	if let Some(error) = summary.preview_error.as_ref() {
-		return page!(|error: String| {
+		let error = error.clone();
+		return page!({
 			div {
 				class: "mt-2 text-xs font-medium text-amber-700",
 				{ error }
 			}
-		})(error.clone());
+		});
 	}
 	if summary.previews.is_empty() {
-		return page!(|| {
+		return page!({
 			div {
 				class: "mt-2 text-xs font-medium text-cloud-500",
 				"No active previews"
 			}
-		})();
+		});
 	}
-	page!(|previews: Vec<PreviewSummary>| {
+	let previews = summary.previews.clone();
+	page!({
 		ul {
 			class: "mt-2 space-y-1 text-xs",
 			{ previews
@@ -58,30 +61,33 @@ pub fn render_preview_list(summary: &ProjectPreviewSummary) -> Page {
 			.map(self::render_preview_item)
 			.collect::<Vec<_>>() }
 		}
-	})(summary.previews.clone())
+	})
 }
 
 fn render_preview_item(preview: &PreviewSummary) -> Page {
 	let label = format!("#{} {}", preview.pr_number, preview.name);
 	let meta = preview_meta(preview);
 	match preview.url.as_ref() {
-		Some(url) => page!(|url: String, label: String, meta: String| {
-			li {
-				class: "flex flex-wrap items-center gap-x-2 gap-y-1",
-				a {
-					class: "font-semibold text-control-700 underline underline-offset-2 hover:text-control-900",
-					href: url,
-					target: "_blank",
-					rel: "noreferrer",
-					{ label }
+		Some(url) => {
+			let url = url.clone();
+			page!({
+				li {
+					class: "flex flex-wrap items-center gap-x-2 gap-y-1",
+					a {
+						class: "font-semibold text-control-700 underline underline-offset-2 hover:text-control-900",
+						href: url,
+						target: "_blank",
+						rel: "noreferrer",
+						{ label }
+					}
+					span {
+						class: "text-cloud-500",
+						{ meta }
+					}
 				}
-				span {
-					class: "text-cloud-500",
-					{ meta }
-				}
-			}
-		})(url.clone(), label, meta),
-		None => page!(|label: String, meta: String| {
+			})
+		}
+		None => page!({
 			li {
 				class: "flex flex-wrap items-center gap-x-2 gap-y-1",
 				span {
@@ -93,7 +99,7 @@ fn render_preview_item(preview: &PreviewSummary) -> Page {
 					{ meta }
 				}
 			}
-		})(label, meta),
+		}),
 	}
 }
 
