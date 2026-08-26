@@ -322,7 +322,8 @@ and expands or contracts based on `platform` and `features.*` values at install 
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
-pre-create tenant and preview namespaces when those workflows are used.
+pre-create tenant and preview namespaces when those workflows are used. In this mode the operator
+uses merge patches for namespace labels, which cannot create a missing namespace.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -907,7 +908,9 @@ The Helm chart renders a `ClusterRole` whose rules are determined by the `platfo
 values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
-workflow. The base rules (always present, regardless of platform or features) are:
+workflow. The operator uses merge patches for namespace labels in this mode, so a missing namespace
+cannot be created by a patch request. The base rules (always present, regardless of platform or
+features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|

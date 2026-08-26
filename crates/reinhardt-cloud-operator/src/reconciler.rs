@@ -2018,12 +2018,13 @@ fn validate_tenant_namespace(
 /// Reconcile the per-tenant `Namespace`, `ResourceQuota`, and
 /// `NetworkPolicy` triple.
 ///
-/// Server-side applies each resource so concurrent reconciles for
-/// sibling apps in the same tenant cannot fight over ownership. The
-/// `Namespace` is created without an owner reference because it is
-/// shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
-/// likewise omit owner references for the same reason (see the module
-/// docs in `resources::tenant`).
+/// Server-side applies the namespaced resources so concurrent reconciles
+/// for sibling apps in the same tenant cannot fight over ownership. The
+/// `Namespace` uses a merge patch so the patch-only RBAC mode cannot create
+/// it when it is absent. It is created without an owner reference because it
+/// is shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
+/// likewise omit owner references for the same reason (see the module docs
+/// in `resources::tenant`).
 async fn reconcile_tenant_resources(
 	client: &Client,
 	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
@@ -2036,7 +2037,11 @@ async fn reconcile_tenant_resources(
 	let namespaces: Api<Namespace> = Api::all(client.clone());
 	let desired_ns = tenant_resources::build_namespace(tenant);
 	namespaces
-		.patch(&namespace_name, &ssapply, &Patch::Apply(&desired_ns))
+		.patch(
+			&namespace_name,
+			&Default::default(),
+			&Patch::Merge(&desired_ns),
+		)
 		.await
 		.map_err(Error::Kube)?;
 
@@ -2100,11 +2105,12 @@ async fn reconcile_preview_namespace(
 		);
 		return Ok(());
 	};
+	// A merge patch preserves the patch-only RBAC mode's pre-created namespace boundary.
 	namespaces
 		.patch(
 			&ns_name,
-			&ssapply,
-			&Patch::Apply(&resources::preview_namespace::build_namespace(
+			&Default::default(),
+			&Patch::Merge(&resources::preview_namespace::build_namespace(
 				parent_namespace,
 				parent_name,
 				parent_uid,
