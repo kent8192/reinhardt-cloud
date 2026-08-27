@@ -1,5 +1,6 @@
 //! GitHub App server functions for the WASM dashboard.
 
+use reinhardt::dto;
 use reinhardt::pages::ClientForm;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ pub struct GitHubProjectInfo {
 }
 
 /// Browser payload for importing a GitHub repository into the current organization.
-#[reinhardt::dto]
+#[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::github::server_fn::import_github_repository_for_current_org,
@@ -542,10 +543,11 @@ pub async fn import_github_repository_for_current_org(
 			.finish();
 		let project = match GitHubProject::objects().create(&project).await {
 			Ok(project) => project,
-			Err(e) => {
+			Err(error) => {
+				let message = error.to_string();
 				rollback_created_deployment(deployment_id).await;
 				return Err(ServerFnError::application(format!(
-					"Failed to create GitHub project: {e}"
+					"Failed to create GitHub project: {message}"
 				)));
 			}
 		};

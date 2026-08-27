@@ -37,7 +37,7 @@ use reinhardt::ServerRouter;
 #[cfg(native)]
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
-use reinhardt::di::{Depends, DiRegistrationList};
+use reinhardt::di::{Depends, DiRegistrationList, injectable};
 #[cfg(native)]
 use reinhardt::pages::router::ClientRouter;
 #[cfg(native)]
@@ -103,7 +103,7 @@ pub(crate) struct AllowedOrigins(pub Vec<String>);
 #[cfg(native)]
 /// DI factory — resolves allowed origins from settings.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_allowed_origins() -> AllowedOrigins {
 	let settings = get_settings();
 	let port = std::env::var("PORT").ok();
@@ -150,7 +150,7 @@ pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
 #[cfg(native)]
 /// DI factory — builds `DashboardSessionConfig` from settings.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_cookie_session_config() -> DashboardSessionConfig {
 	let settings = get_settings();
 	DashboardSessionConfig(CookieSessionConfig {
@@ -196,7 +196,7 @@ pub(crate) struct RouterInfrastructure {
 /// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
 /// on the first RPC.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "transient")]
+#[injectable(scope = "transient")]
 async fn create_router_infrastructure(
 	#[inject] allowed_origins: Depends<AllowedOrigins>,
 	#[inject] session_config: Depends<DashboardSessionConfig>,

@@ -47,7 +47,7 @@ use reinhardt::conf::{
 	ContactSettings, EmailSettings, I18nSettings, MediaSettings, StaticSettings,
 	settings::builder::{BuildError, SettingsBuilder},
 };
-use reinhardt::di::Depends;
+use reinhardt::di::{Depends, injectable};
 use reinhardt::settings;
 use reinhardt_cloud_grpc::{config::GrpcServerConfig, settings::GrpcSettings};
 use std::env;
@@ -290,7 +290,7 @@ pub fn get_settings() -> ProjectSettings {
 /// Factories that need a settings fragment should inject this composed
 /// `ProjectSettings` value rather than rebuilding settings independently.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_project_settings() -> ProjectSettings {
 	build_settings()
 }

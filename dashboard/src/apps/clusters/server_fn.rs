@@ -3,6 +3,9 @@
 //! Organization-scoped operations resolve RBAC permissions before loading
 //! cluster records so read-only members cannot perform mutations.
 
+#[cfg(native)]
+use reinhardt::di::Depends;
+use reinhardt::dto;
 use reinhardt::pages::ClientForm;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -30,7 +33,7 @@ pub struct ClusterTokenInfo {
 }
 
 /// Browser payload for updating a cluster in the current organization.
-#[reinhardt::dto]
+#[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::clusters::server_fn::update_cluster_for_current_org,
@@ -137,9 +140,7 @@ pub async fn create_cluster_for_current_org(
 	payload: ClusterCreateFormData<ClusterCreateFields>,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
 	#[inject] database: reinhardt::db::orm::DatabaseConnection,
-	#[inject] agent_token_service: reinhardt::di::Depends<
-		crate::apps::clusters::services::AgentTokenService,
-	>,
+	#[inject] agent_token_service: Depends<crate::apps::clusters::services::AgentTokenService>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
 	use reinhardt::Model;
 
@@ -290,9 +291,7 @@ pub async fn delete_cluster_for_current_org(
 pub async fn rotate_cluster_token_for_current_org(
 	cluster_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] agent_token_service: reinhardt::di::Depends<
-		crate::apps::clusters::services::AgentTokenService,
-	>,
+	#[inject] agent_token_service: Depends<crate::apps::clusters::services::AgentTokenService>,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
 	use reinhardt::Model;
 

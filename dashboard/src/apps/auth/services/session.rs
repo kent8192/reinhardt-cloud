@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::Depends;
+use reinhardt::di::{Depends, injectable};
 use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
 
 use crate::apps::auth::models::User;
@@ -26,7 +26,7 @@ use crate::config::settings::get_redis_url;
 pub struct RedisUrl(pub String);
 
 /// DI factory — resolves the Redis URL from settings.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_redis_url() -> RedisUrl {
 	RedisUrl(
 		get_redis_url()
@@ -46,7 +46,7 @@ pub struct SessionService {
 
 /// DI factory — `singleton` because the Redis-backed session store is
 /// reusable across requests and connection setup is expensive.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_session_service(#[inject] redis_url: Depends<RedisUrl>) -> SessionService {
 	let backend = RedisSessionBackend::new_from_url(&redis_url.0)
 		.expect("Failed to construct Redis session backend");

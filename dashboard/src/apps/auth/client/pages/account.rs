@@ -1,5 +1,6 @@
 //! Account page for profile and OAuth account linking.
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QuerySnapshot, QueryStatus, use_query};
@@ -313,7 +314,7 @@ struct AccountPageViewProps {
 }
 
 /// Render the account page.
-#[reinhardt::pages::component("account", name = "auth:account_page")]
+#[component("account", name = "auth:account_page")]
 pub fn account_page() -> Page {
 	let props = AccountPageViewProps {
 		user: use_query(me::query(), QueryOptions::new().enabled(cfg!(wasm))),

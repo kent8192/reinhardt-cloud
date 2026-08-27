@@ -1,5 +1,6 @@
 //! Dashboard shell layout with header, sidebar, and route outlet.
 
+use reinhardt::pages::component;
 use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{Action, Outlet, Page, use_action};
@@ -192,7 +193,7 @@ pub fn dashboard_layout(outlet: Outlet) -> Page {
 }
 
 /// Render the main dashboard overview.
-#[reinhardt::pages::component("/", name = "dashboard:home")]
+#[component("/", name = "dashboard:home")]
 pub fn dashboard_shell() -> Page {
 	let clusters_href = route_href("clusters:list", "/clusters");
 	let deployments_href = route_href("deployments:list", "/deployments");

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{ClickEvent, SubmitEvent};
 use reinhardt::pages::page;
@@ -290,66 +291,71 @@ fn render_create_deployment_form(view: CreateDeploymentFormView) -> Page {
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "create-deployment-project-name",
-						"Project name"
-					}
-					input {
-						id: "create-deployment-project-name",
-						aria_label: "Project name",
-						class: "rc-input",
-						type: "text",
-						maxlength: 63,
-						placeholder: "web",
-						bind: project_name,
+						span {
+							class: "rc-label",
+							"Project name"
+						}
+						input {
+							id: "create-deployment-project-name",
+							aria_label: "Project name",
+							class: "rc-input",
+							type: "text",
+							maxlength: 63,
+							placeholder: "web",
+							bind: project_name,
+						}
 					}
 					{ project_name_error }
 				}
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "create-deployment-cluster-id",
-						"Cluster"
-					}
-					input {
-						id: "create-deployment-cluster-id",
-						aria_label: "Cluster",
-						class: "rc-input",
-						type: "text",
-						readonly: true,
-						bind: cluster_id,
+						span {
+							class: "rc-label",
+							"Cluster"
+						}
+						input {
+							id: "create-deployment-cluster-id",
+							aria_label: "Cluster",
+							class: "rc-input",
+							type: "text",
+							readonly: true,
+							bind: cluster_id,
+						}
 					}
 					{ cluster_error }
 				}
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "create-deployment-image",
-						"Image"
-					}
-					input {
-						id: "create-deployment-image",
-						aria_label: "Image",
-						class: "rc-input",
-						type: "text",
-						maxlength: 512,
-						placeholder: "ghcr.io/example/web:latest",
-						bind: image,
+						span {
+							class: "rc-label",
+							"Image"
+						}
+						input {
+							id: "create-deployment-image",
+							aria_label: "Image",
+							class: "rc-input",
+							type: "text",
+							maxlength: 512,
+							placeholder: "ghcr.io/example/web:latest",
+							bind: image,
+						}
 					}
 					{ image_error }
 				}
 				div {
 					class: "rc-field md:col-span-2",
 					label {
-						class: "rc-label",
-						r#for: "create-deployment-project-yaml",
-						"Project YAML"
+						id: "create-deployment-project-yaml-label",
+						span {
+							class: "rc-label",
+							"Project YAML"
+						}
 					}
 					textarea {
 						id: "create-deployment-project-yaml",
-						aria_label: "Project YAML",
+						aria_labelledby: "create-deployment-project-yaml-label",
 						class: "rc-input rc-textarea",
 						maxlength: 65535,
 						bind: project_yaml,
@@ -462,51 +468,54 @@ fn render_update_deployment_form(view: UpdateDeploymentFormView) -> Page {
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "update-deployment-project-name",
-						"Project name"
-					}
-					input {
-						id: "update-deployment-project-name",
-						aria_label: "Project name",
-						class: "rc-input",
-						type: "text",
-						maxlength: 63,
-						bind: project_name,
+						span {
+							class: "rc-label",
+							"Project name"
+						}
+						input {
+							id: "update-deployment-project-name",
+							aria_label: "Project name",
+							class: "rc-input",
+							type: "text",
+							maxlength: 63,
+							bind: project_name,
+						}
 					}
 					{ project_name_error }
 				}
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "update-deployment-image",
-						"Image"
-					}
-					input {
-						id: "update-deployment-image",
-						aria_label: "Image",
-						class: "rc-input",
-						type: "text",
-						maxlength: 512,
-						bind: image,
+						span {
+							class: "rc-label",
+							"Image"
+						}
+						input {
+							id: "update-deployment-image",
+							aria_label: "Image",
+							class: "rc-input",
+							type: "text",
+							maxlength: 512,
+							bind: image,
+						}
 					}
 					{ image_error }
 				}
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "update-deployment-status",
-						"Status"
-					}
-					input {
-						id: "update-deployment-status",
-						aria_label: "Status",
-						class: "rc-input",
-						type: "text",
-						maxlength: 50,
-						bind: status,
+						span {
+							class: "rc-label",
+							"Status"
+						}
+						input {
+							id: "update-deployment-status",
+							aria_label: "Status",
+							class: "rc-input",
+							type: "text",
+							maxlength: 50,
+							bind: status,
+						}
 					}
 					{ status_error }
 				}
@@ -589,18 +598,19 @@ fn render_update_deployment_status_form(view: UpdateDeploymentStatusFormView) ->
 				div {
 					class: "rc-field",
 					label {
-						class: "rc-label",
-						r#for: "update-deployment-status-only",
-						"Status"
-					}
-					input {
-						id: "update-deployment-status-only",
-						aria_label: "Status",
-						class: "rc-input",
-						type: "text",
-						maxlength: 50,
-						placeholder: "running",
-						bind: status,
+						span {
+							class: "rc-label",
+							"Status"
+						}
+						input {
+							id: "update-deployment-status-only",
+							aria_label: "Status",
+							class: "rc-input",
+							type: "text",
+							maxlength: 50,
+							placeholder: "running",
+							bind: status,
+						}
 					}
 					{ status_error }
 				}
@@ -987,7 +997,7 @@ struct DeploymentsListPageViewProps {
 }
 
 /// Render the deployments page.
-#[reinhardt::pages::component("deployments", name = "deployments:list")]
+#[component("deployments", name = "deployments:list")]
 pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 	let deployments = use_query(
 		list_deployments_for_current_org::query(),

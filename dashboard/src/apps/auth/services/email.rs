@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use reinhardt::conf::EmailSettings;
-use reinhardt::di::Depends;
+use reinhardt::di::{Depends, injectable};
 use reinhardt::mail::templates::{TemplateContext, TemplateEmailBuilder};
 use reinhardt::mail::{EmailBackend, backend_from_settings};
 
@@ -34,7 +34,7 @@ pub struct EmailService {
 
 /// DI factory — `singleton` because the SMTP transport pool is reusable
 /// across requests and connection setup is expensive.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_email_service(#[inject] settings: Depends<ProjectSettings>) -> EmailService {
 	let backend = build_email_backend(&settings.email)
 		.expect("Failed to build email backend: check Reinhardt email settings");

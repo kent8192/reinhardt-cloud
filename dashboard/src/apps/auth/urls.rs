@@ -11,29 +11,26 @@ use reinhardt::urls::prelude::UnifiedRouter;
 use reinhardt::pages::router::ClientRouter;
 
 #[cfg(server)]
+use crate::apps::auth::server_urls;
+
+#[cfg(server)]
 type AppRouter = UnifiedRouter<ClientRouter>;
 #[cfg(not(server))]
 type AppRouter = UnifiedRouter;
 
-#[cfg(server)]
-use crate::apps::auth::server_urls;
-
 /// Returns the unified URL patterns for the auth app.
-#[cfg(server)]
 pub fn url_patterns() -> AppRouter {
-	UnifiedRouter::new()
-		.server(|s| {
-			s.endpoint(server_urls::verify_email)
-				.endpoint(server_urls::oauth_start)
-				.endpoint(server_urls::oauth_callback)
-				.endpoint(server_urls::api_me)
-		})
-		.client(|client| client)
-}
-
-#[cfg(not(server))]
-pub fn url_patterns() -> AppRouter {
-	UnifiedRouter::new()
+	let router = UnifiedRouter::new();
+	#[cfg(server)]
+	let router = router.server(|s| {
+		s.endpoint(server_urls::verify_email)
+			.endpoint(server_urls::oauth_start)
+			.endpoint(server_urls::oauth_callback)
+			.endpoint(server_urls::api_me)
+	});
+	#[cfg(client)]
+	let router = router.client(|client| client);
+	router
 }
 
 #[cfg(all(test, server))]

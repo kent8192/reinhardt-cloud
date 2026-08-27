@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reinhardt::{Argon2Hasher, Model, PasswordHasher};
 
-use reinhardt::di::{Depends, InjectionContext};
+use reinhardt::di::{Depends, InjectionContext, injectable};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
@@ -84,7 +84,7 @@ fn verify_persisted_agent_token_blocking(
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
 
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_agent_registry_singleton() -> AgentRegistrySingleton {
 	AgentRegistrySingleton(Arc::new(AgentRegistry::new()))
 }
@@ -110,7 +110,7 @@ fn build_log_service() -> Arc<dyn reinhardt_cloud_core::traits::LogService> {
 	}
 }
 
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_log_service_singleton() -> LogServiceSingleton {
 	LogServiceSingleton(build_log_service())
 }

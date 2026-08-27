@@ -4,10 +4,12 @@
 mod tests {
 	use rstest::rstest;
 
+	const OAUTH_SOURCE: &str = include_str!("../../server_urls/oauth.rs");
+
 	#[rstest]
 	fn oauth_callback_uses_signed_account_link_ownership_and_session_binding() {
 		// Arrange
-		let source = include_str!("../../server_urls.rs");
+		let source = OAUTH_SOURCE;
 
 		// Act
 		let callback_directly_extracts_ambient_cookie = source
@@ -22,7 +24,9 @@ mod tests {
 		assert_eq!(links_from_ambient_user, false);
 		assert!(source.contains("let account_link_user_id = validate_oauth_state_cookie("));
 		assert!(source.contains("&session_service,\n\t)\n\t.await?"));
-		assert!(source.contains("current_user_for_account_link_intent(request, session_service)"));
+		assert!(
+			source.contains("current_user_for_account_link_intent(session_id, session_service)")
+		);
 		assert!(source.contains("&account_link_session.session_id"));
 		assert!(source.contains("account_link_session.user.id != intent_user_id"));
 		assert!(source.contains("oauth_link_session_binding(session_id, secret_key)"));
@@ -38,7 +42,7 @@ mod tests {
 	#[rstest]
 	fn oauth_start_sets_browser_bound_state_or_account_link_intent_cookie() {
 		// Arrange
-		let source = include_str!("../../server_urls.rs");
+		let source = OAUTH_SOURCE;
 		let oauth_start = source
 			.split("pub async fn oauth_start")
 			.nth(1)
@@ -55,9 +59,10 @@ mod tests {
 			&& oauth_start.contains("&auth.state,")
 			&& oauth_start.contains("&settings.core.secret_key,");
 		let sets_bound_link_intent = oauth_start.contains("oauth_link_intent_cookie_header(")
-			&& oauth_start
-				.contains("current_user_for_account_link_intent(&http_request, &session_service)")
-			&& oauth_start.contains("Query(query): Query<OAuthStartQuery>");
+			&& oauth_start.contains(
+				"current_user_for_account_link_intent(session_id.as_deref(), &session_service)",
+			) && oauth_start
+			.contains("Query(query): Query<OAuthStartQuery>");
 
 		// Assert
 		assert_eq!(starts_backend_flow, true);
@@ -71,9 +76,9 @@ mod tests {
 	#[rstest]
 	fn oauth_callback_requires_matching_state_cookie_before_backend_callback() {
 		// Arrange
-		let source = include_str!("../../server_urls.rs");
+		let source = OAUTH_SOURCE;
 		let cookie_check = source
-			.find("validate_oauth_state_cookie(\n\t\t&http_request,")
+			.find("validate_oauth_state_cookie(\n\t\toauth_state.as_deref(),")
 			.expect("OAuth callback should validate a browser-bound state cookie");
 		let callback = source
 			.find(".handle_callback(&provider_id, &query.code, &query.state)")

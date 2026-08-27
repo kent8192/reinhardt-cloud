@@ -1,5 +1,6 @@
 //! Login page backed by the named `LoginRequest` ClientForm DTO.
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{InputEvent, SubmitEvent};
 use reinhardt::pages::page;
@@ -117,20 +118,18 @@ fn render_login_form(view: LoginFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "login-username",
-							"Username"
-						}
-						input {
-							id: "login-username",
-							aria_label: "Username",
-							aria_describedby: "login-username-error",
-							class: "rc-input",
-							type: "text",
-							autocomplete: "username",
-							maxlength: 150,
-							placeholder: "Enter your username",
-							bind: view.username,
+							span { class: "rc-label", "Username" }
+							input {
+								id: "login-username",
+								aria_label: "Username",
+								aria_describedby: "login-username-error",
+								class: "rc-input",
+								type: "text",
+								autocomplete: "username",
+								maxlength: 150,
+								placeholder: "Enter your username",
+								bind: view.username,
+							}
 						}
 						div {
 							id: "login-username-error",
@@ -140,21 +139,19 @@ fn render_login_form(view: LoginFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "login-password",
-							"Password"
-						}
-						input {
-							id: "login-password",
-							aria_label: "Password",
-							aria_describedby: "login-password-error",
-							class: "rc-input",
-							type: "password",
-							autocomplete: "current-password",
-							maxlength: 128,
-							placeholder: "Enter your password",
-							value: password_value,
-							@input: view.password_input,
+							span { class: "rc-label", "Password" }
+							input {
+								id: "login-password",
+								aria_label: "Password",
+								aria_describedby: "login-password-error",
+								class: "rc-input",
+								type: "password",
+								autocomplete: "current-password",
+								maxlength: 128,
+								placeholder: "Enter your password",
+								value: password_value,
+								@input: view.password_input,
+							}
 						}
 						div {
 							id: "login-password-error",
@@ -203,7 +200,7 @@ fn replace_document(_location: &str) -> Result<(), ServerFnError> {
 }
 
 /// Render the login page.
-#[reinhardt::pages::component("/login", name = "auth:login_page")]
+#[component("/login", name = "auth:login_page")]
 pub fn login_page() -> Page {
 	let login_form = LoginRequestClientForm::new();
 	let query_client = queries();

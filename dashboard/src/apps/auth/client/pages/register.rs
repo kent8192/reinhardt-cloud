@@ -1,5 +1,6 @@
 //! Registration page backed by the named `RegisterRequest` ClientForm DTO.
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{InputEvent, SubmitEvent};
 use reinhardt::pages::page;
@@ -112,20 +113,18 @@ fn render_register_form(view: RegisterFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "register-username",
-							"Username"
-						}
-						input {
-							id: "register-username",
-							aria_label: "Username",
-							aria_describedby: "register-username-error",
-							class: "rc-input",
-							type: "text",
-							autocomplete: "username",
-							maxlength: 32,
-							placeholder: "Choose a username",
-							bind: view.username,
+							span { class: "rc-label", "Username" }
+							input {
+								id: "register-username",
+								aria_label: "Username",
+								aria_describedby: "register-username-error",
+								class: "rc-input",
+								type: "text",
+								autocomplete: "username",
+								maxlength: 32,
+								placeholder: "Choose a username",
+								bind: view.username,
+							}
 						}
 						div {
 							id: "register-username-error",
@@ -135,21 +134,19 @@ fn render_register_form(view: RegisterFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "register-email",
-							"Email"
-						}
-						input {
-							id: "register-email",
-							aria_label: "Email",
-							aria_describedby: "register-email-error",
-							class: "rc-input",
-							type: "email",
-							autocomplete: "email",
-							maxlength: 254,
-							placeholder: "Enter your email",
-							value: email_value,
-							@input: view.email_input,
+							span { class: "rc-label", "Email" }
+							input {
+								id: "register-email",
+								aria_label: "Email",
+								aria_describedby: "register-email-error",
+								class: "rc-input",
+								type: "email",
+								autocomplete: "email",
+								maxlength: 254,
+								placeholder: "Enter your email",
+								value: email_value,
+								@input: view.email_input,
+							}
 						}
 						div {
 							id: "register-email-error",
@@ -159,21 +156,19 @@ fn render_register_form(view: RegisterFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "register-password",
-							"Password"
-						}
-						input {
-							id: "register-password",
-							aria_label: "Password",
-							aria_describedby: "register-password-error",
-							class: "rc-input",
-							type: "password",
-							autocomplete: "new-password",
-							maxlength: 128,
-							placeholder: "Create a password (min 8 characters)",
-							value: password_value,
-							@input: view.password_input,
+							span { class: "rc-label", "Password" }
+							input {
+								id: "register-password",
+								aria_label: "Password",
+								aria_describedby: "register-password-error",
+								class: "rc-input",
+								type: "password",
+								autocomplete: "new-password",
+								maxlength: 128,
+								placeholder: "Create a password (min 8 characters)",
+								value: password_value,
+								@input: view.password_input,
+							}
 						}
 						div {
 							id: "register-password-error",
@@ -193,7 +188,7 @@ fn render_register_form(view: RegisterFormView) -> Page {
 }
 
 /// Render the registration page inside the shared auth layout.
-#[reinhardt::pages::component("/register", name = "auth:register_page")]
+#[component("/register", name = "auth:register_page")]
 pub fn register_page() -> Page {
 	let register_form = RegisterRequestClientForm::new();
 	let router = use_router();

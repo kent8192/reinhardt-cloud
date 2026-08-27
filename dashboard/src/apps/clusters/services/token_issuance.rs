@@ -8,7 +8,7 @@
 use reinhardt::Argon2Hasher;
 use reinhardt::PasswordHasher;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::di::Depends;
+use reinhardt::di::{Depends, injectable};
 use reinhardt_cloud_grpc::agent_claims::create_agent_token;
 use uuid::Uuid;
 
@@ -45,7 +45,7 @@ pub struct JwtSecret(pub String);
 /// `REINHARDT_CLOUD_JWT_SECRET` env-var fallback). Panics if no source
 /// supplies a value, which is treated as a deploy-time configuration
 /// error rather than a recoverable runtime fault.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_jwt_secret() -> JwtSecret {
 	JwtSecret(get_jwt_secret().expect(
 		"JWT secret not configured: set jwt_secret in TOML or REINHARDT_CLOUD_JWT_SECRET env var",
@@ -62,7 +62,7 @@ pub struct AgentTokenService {
 
 /// DI factory — `transient` because the service is cheap to clone and
 /// may be resolved per request without contention.
-#[reinhardt::di::injectable(scope = "transient")]
+#[injectable(scope = "transient")]
 async fn create_agent_token_service(#[inject] jwt_secret: Depends<JwtSecret>) -> AgentTokenService {
 	AgentTokenService {
 		jwt_secret: jwt_secret.0.clone(),

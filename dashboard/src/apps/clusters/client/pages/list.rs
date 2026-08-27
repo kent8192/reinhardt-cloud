@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::{ClickEvent, InputEvent, SubmitEvent};
 use reinhardt::pages::form;
@@ -98,12 +99,17 @@ async fn submit_cluster_update(
 }
 
 #[cfg(not(wasm))]
+fn unavailable_during_server_rendering<T>(operation: &str) -> Result<T, ServerFnError> {
+	Err(ServerFnError::application(format!(
+		"Cluster {operation} is unavailable during server rendering"
+	)))
+}
+
+#[cfg(not(wasm))]
 async fn submit_cluster_update(
 	_request: UpdateClusterFormRequest,
 ) -> Result<ClusterInfo, ServerFnError> {
-	Err(ServerFnError::application(
-		"Cluster updates are unavailable during server rendering",
-	))
+	unavailable_during_server_rendering("updates")
 }
 
 #[cfg(wasm)]
@@ -113,9 +119,7 @@ async fn submit_cluster_delete(cluster_id: String) -> Result<(), ServerFnError> 
 
 #[cfg(not(wasm))]
 async fn submit_cluster_delete(_cluster_id: String) -> Result<(), ServerFnError> {
-	Err(ServerFnError::application(
-		"Cluster deletion is unavailable during server rendering",
-	))
+	unavailable_during_server_rendering("deletion")
 }
 
 #[cfg(wasm)]
@@ -129,9 +133,7 @@ async fn submit_cluster_token_rotation(
 async fn submit_cluster_token_rotation(
 	_cluster_id: String,
 ) -> Result<ClusterTokenInfo, ServerFnError> {
-	Err(ServerFnError::application(
-		"Cluster token rotation is unavailable during server rendering",
-	))
+	unavailable_during_server_rendering("token rotation")
 }
 
 fn cluster_token_confirmation_with_callback(
@@ -280,34 +282,30 @@ fn render_cluster_update_form(view: ClusterUpdateFormView) -> Page {
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "update-cluster-name",
-							"Name"
-						}
-						input {
-							id: "update-cluster-name",
-							aria_label: "Cluster name",
-							class: "rc-input",
-							type: "text",
-							maxlength: 63,
-							bind: name,
+							span { class: "rc-label", "Name" }
+							input {
+								id: "update-cluster-name",
+								aria_label: "Cluster name",
+								class: "rc-input",
+								type: "text",
+								maxlength: 63,
+								bind: name,
+							}
 						}
 						{ name_error }
 					}
 					div {
 						class: "rc-field",
 						label {
-							class: "rc-label",
-							r#for: "update-cluster-api-url",
-							"API URL"
-						}
-						input {
-							id: "update-cluster-api-url",
-							aria_label: "Cluster API URL",
-							class: "rc-input",
-							type: "text",
-							maxlength: 2048,
-							bind: api_url,
+							span { class: "rc-label", "API URL" }
+							input {
+								id: "update-cluster-api-url",
+								aria_label: "Cluster API URL",
+								class: "rc-input",
+								type: "text",
+								maxlength: 2048,
+								bind: api_url,
+							}
 						}
 						{ api_url_error }
 					}
@@ -624,7 +622,7 @@ struct ClustersListPageViewProps {
 }
 
 /// Render the clusters page.
-#[reinhardt::pages::component("clusters", name = "clusters:list")]
+#[component("clusters", name = "clusters:list")]
 pub fn clusters_list_page() -> Page {
 	let clusters = use_query(
 		list_clusters_for_current_org::query(),
@@ -737,19 +735,17 @@ pub fn clusters_list_page() -> Page {
 						div {
 							class: "rc-field",
 							label {
-								class: "rc-label",
-								r#for: "create-cluster-name",
-								"Name"
-							}
-							input {
-								id: "create-cluster-name",
-								name: "name",
-								aria_label: "Cluster name",
-								class: "rc-input",
-								type: "text",
-								maxlength: 63,
-								placeholder: "prod-us-east",
-								@input: create_name_input,
+								span { class: "rc-label", "Name" }
+								input {
+									id: "create-cluster-name",
+									name: "name",
+									aria_label: "Cluster name",
+									class: "rc-input",
+									type: "text",
+									maxlength: 63,
+									placeholder: "prod-us-east",
+									@input: create_name_input,
+								}
 							}
 							p {
 								class: "mt-1 text-xs text-ink-600",
@@ -760,19 +756,17 @@ pub fn clusters_list_page() -> Page {
 						div {
 							class: "rc-field",
 							label {
-								class: "rc-label",
-								r#for: "create-cluster-api-url",
-								"API URL"
-							}
-							input {
-								id: "create-cluster-api-url",
-								name: "api_url",
-								aria_label: "Cluster API URL",
-								class: "rc-input",
-								type: "text",
-								maxlength: 2048,
-								placeholder: "https://kubernetes.example.com:6443",
-								@input: create_api_url_input,
+								span { class: "rc-label", "API URL" }
+								input {
+									id: "create-cluster-api-url",
+									name: "api_url",
+									aria_label: "Cluster API URL",
+									class: "rc-input",
+									type: "text",
+									maxlength: 2048,
+									placeholder: "https://kubernetes.example.com:6443",
+									@input: create_api_url_input,
+								}
 							}
 							p {
 								class: "mt-1 text-xs text-ink-600",
@@ -1273,6 +1267,23 @@ mod tests {
 	use rstest::rstest;
 
 	use super::*;
+
+	#[cfg(native)]
+	#[rstest]
+	fn server_rendering_actions_share_the_operation_specific_error() {
+		// Arrange
+		let operation = "token rotation";
+
+		// Act
+		let error = unavailable_during_server_rendering::<()>(operation)
+			.expect_err("server rendering must reject cluster mutations");
+
+		// Assert
+		assert_eq!(
+			error.message(),
+			"Cluster token rotation is unavailable during server rendering"
+		);
+	}
 
 	#[rstest]
 	fn test_cluster_create_error_routing_preserves_structured_fields() {

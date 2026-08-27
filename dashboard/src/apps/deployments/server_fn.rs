@@ -3,6 +3,9 @@
 //! Organization-scoped operations resolve RBAC permissions before loading
 //! deployment records so read-only members cannot perform mutations.
 
+#[cfg(native)]
+use reinhardt::di::Depends;
+use reinhardt::dto;
 use reinhardt::pages::ClientForm;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
@@ -20,7 +23,7 @@ pub struct DeploymentInfo {
 }
 
 /// Browser payload for creating a deployment in the current organization.
-#[reinhardt::dto]
+#[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::deployments::server_fn::create_deployment_for_current_org,
@@ -38,7 +41,7 @@ pub struct CreateDeploymentFormRequest {
 }
 
 /// Browser payload for updating a deployment in the current organization.
-#[reinhardt::dto]
+#[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::deployments::server_fn::update_deployment_for_current_org,
@@ -56,7 +59,7 @@ pub struct UpdateDeploymentFormRequest {
 }
 
 /// Browser payload for changing a deployment status in the current organization.
-#[reinhardt::dto]
+#[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::deployments::server_fn::update_deployment_status_for_current_org,
@@ -464,8 +467,8 @@ pub async fn update_deployment_status_for_current_org(
 pub async fn deployment_logs_for_current_org(
 	deployment_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
-	#[inject] grpc_channel: reinhardt::di::Depends<crate::config::GrpcChannelSingleton>,
-	#[inject] jwt_secret: reinhardt::di::Depends<crate::apps::clusters::services::JwtSecret>,
+	#[inject] grpc_channel: Depends<crate::config::GrpcChannelSingleton>,
+	#[inject] jwt_secret: Depends<crate::apps::clusters::services::JwtSecret>,
 ) -> Result<Vec<DeploymentLogInfo>, ServerFnError> {
 	use reinhardt::Model;
 	use reinhardt_cloud_proto::common::PaginationRequest;

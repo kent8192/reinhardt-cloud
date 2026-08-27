@@ -12,6 +12,7 @@
 //! `tonic::Status` with `Code::Unavailable` and are mapped to HTTP 503
 //! by the existing view-layer error translation.
 
+use reinhardt::di::injectable;
 use tonic::transport::{Channel, Endpoint};
 
 /// Default gRPC endpoint used when `GRPC_ENDPOINT` is not set.
@@ -51,7 +52,7 @@ fn resolve_endpoint() -> String {
 /// The channel is created via [`Endpoint::connect_lazy`], so this
 /// factory never fails on unreachable endpoints. Tests can override
 /// via `SingletonScope::set()` before resolution.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_grpc_channel_singleton() -> GrpcChannelSingleton {
 	let endpoint = resolve_endpoint();
 	GrpcChannelSingleton::new(&endpoint)

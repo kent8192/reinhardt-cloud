@@ -61,6 +61,12 @@ Dashboard form styling is centralized in the UnoCSS runtime shortcuts inside
 utility strings so generated `form!` markup stays consistent across auth,
 cluster, deployment, and GitHub pages.
 
+In `page!` forms, place controls inside their visible `label` and style the
+label text with a nested `rc-label` span. This preserves native label behavior
+without raw-identifier HTML attributes. Import Reinhardt attribute macros and
+DI parameter types at module scope so annotations and handler signatures stay
+consistent across Dashboard apps.
+
 ### Database
 
 ```bash

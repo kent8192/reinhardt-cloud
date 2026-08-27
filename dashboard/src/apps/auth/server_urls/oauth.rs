@@ -6,13 +6,14 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, Mac};
+use reinhardt::auth::social::backend::SocialAuthBackend;
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::core::exception::Error as AppError;
 use reinhardt::core::serde::json;
 use reinhardt::db::orm::Model;
 use reinhardt::di::Depends;
+use reinhardt::di::params::{CookieName, CookieNamed, SessionId};
 use reinhardt::http::ViewResult;
-use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::{Path, Query, Response, get};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -23,16 +24,26 @@ use crate::apps::auth::models::User;
 use crate::apps::auth::services::oauth::OAuthBackendBox;
 use crate::apps::auth::services::oauth::linking::{link_or_create_user, link_user_to_provider};
 use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
-use crate::apps::auth::services::session::{
-	SessionService, session_cookie_header, session_id_from_cookie_header,
-};
+use crate::apps::auth::services::session::{SessionService, session_cookie_header};
 use crate::config::settings::get_settings;
 
 type HmacSha256 = Hmac<sha2::Sha256>;
 
+// Workaround for kent8192/reinhardt-web#6197 (tracked in reinhardt-cloud#895).
+// Remove when async session-backed OAuth state carries browser-bound context.
+//
+// Ideal implementation (without workaround):
+//   backend.begin_auth_with_context(provider_id, session_binding, link_intent).await
+//   backend.handle_callback_with_context(provider_id, code, state, session_binding).await
 pub(in crate::apps::auth) const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state_sig";
 const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS: u64 = 600;
 const OAUTH_LINK_INTENT_PREFIX: &str = "link.";
+
+pub(in crate::apps::auth) struct OAuthStateCookie;
+
+impl CookieName for OAuthStateCookie {
+	const NAME: &'static str = OAUTH_STATE_COOKIE_NAME;
+}
 
 #[derive(Debug, Deserialize)]
 pub struct OAuthStartQuery {
@@ -72,13 +83,13 @@ struct AccountLinkSession {
 	session_id: String,
 }
 
-fn oauth_backend(
-	backend: &OAuthBackendBox,
+fn oauth_backend<'a>(
+	backend: &'a OAuthBackendBox,
 	provider_id: &str,
-) -> Result<std::sync::Arc<reinhardt::auth::social::backend::SocialAuthBackend>, AppError> {
+) -> Result<&'a SocialAuthBackend, AppError> {
 	backend
 		.0
-		.clone()
+		.as_deref()
 		.filter(|backend| backend.get_provider(provider_id).is_some())
 		.ok_or_else(|| AppError::NotFound(format!("OAuth provider not configured: {provider_id}")))
 }
@@ -96,21 +107,6 @@ fn map_oauth_error(err: SocialAuthError) -> AppError {
 fn map_session_error(err: impl std::fmt::Display) -> AppError {
 	error!("Failed to create OAuth session: {err}");
 	AppError::Internal("Internal server error".to_string())
-}
-
-pub(in crate::apps::auth) fn cookie_value_from_header(
-	cookie_header: &str,
-	cookie_name: &str,
-) -> Option<String> {
-	cookie_header.split(';').find_map(|pair| {
-		let pair = pair.trim();
-		let (name, value) = pair.split_once('=')?;
-		if name.trim() == cookie_name {
-			Some(value.trim().to_string())
-		} else {
-			None
-		}
-	})
 }
 
 pub(in crate::apps::auth) fn oauth_state_cookie_signature(
@@ -256,33 +252,29 @@ pub(in crate::apps::auth) fn validate_oauth_link_intent_value(
 }
 
 async fn validate_oauth_state_cookie(
-	request: &ServerFnRequest,
+	cookie_signature: Option<&str>,
+	session_id: Option<&str>,
 	provider_id: &str,
 	state: &str,
 	secret_key: &str,
 	session_service: &SessionService,
 ) -> Result<Option<Uuid>, AppError> {
-	let Some(cookie_signature) = request
-		.inner()
-		.headers
-		.get("Cookie")
-		.and_then(|v| v.to_str().ok())
-		.and_then(|cookie_header| cookie_value_from_header(cookie_header, OAUTH_STATE_COOKIE_NAME))
-	else {
+	let Some(cookie_signature) = cookie_signature else {
 		return Err(AppError::Validation(
 			"OAuth state cookie is missing or expired".to_string(),
 		));
 	};
 	if cookie_signature.starts_with(OAUTH_LINK_INTENT_PREFIX) {
-		let account_link_session = current_user_for_account_link_intent(request, session_service)
-			.await?
-			.ok_or_else(|| {
-				AppError::Authentication(
-					"OAuth account-link session is missing, inactive, or expired".to_string(),
-				)
-			})?;
+		let account_link_session =
+			current_user_for_account_link_intent(session_id, session_service)
+				.await?
+				.ok_or_else(|| {
+					AppError::Authentication(
+						"OAuth account-link session is missing, inactive, or expired".to_string(),
+					)
+				})?;
 		let intent_user_id = validate_oauth_link_intent_value(
-			&cookie_signature,
+			cookie_signature,
 			provider_id,
 			state,
 			&account_link_session.session_id,
@@ -309,19 +301,13 @@ async fn validate_oauth_state_cookie(
 }
 
 async fn current_user_for_account_link_intent(
-	request: &ServerFnRequest,
+	session_id: Option<&str>,
 	session_service: &SessionService,
 ) -> Result<Option<AccountLinkSession>, AppError> {
-	let Some(session_id) = request
-		.inner()
-		.headers
-		.get("Cookie")
-		.and_then(|value| value.to_str().ok())
-		.and_then(session_id_from_cookie_header)
-	else {
+	let Some(session_id) = session_id else {
 		return Ok(None);
 	};
-	let Some((user_id, _)) = session_service.validate_session(&session_id).await else {
+	let Some((user_id, _)) = session_service.validate_session(session_id).await else {
 		return Ok(None);
 	};
 	let Ok(user_id) = user_id.parse::<Uuid>() else {
@@ -337,7 +323,10 @@ async fn current_user_for_account_link_intent(
 		})?;
 	Ok(user
 		.filter(|user| user.is_active)
-		.map(|user| AccountLinkSession { user, session_id }))
+		.map(|user| AccountLinkSession {
+			user,
+			session_id: session_id.to_string(),
+		}))
 }
 
 async fn active_user_for_account_link_intent(user_id: Uuid) -> Result<User, AppError> {
@@ -364,13 +353,13 @@ async fn active_user_for_account_link_intent(user_id: Uuid) -> Result<User, AppE
 pub async fn oauth_start(
 	Path(provider_id): Path<String>,
 	Query(query): Query<OAuthStartQuery>,
+	session_id: CookieNamed<SessionId, Option<String>>,
 	#[inject] backend: Depends<OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionService>,
-	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
 	let account_link_session = if query.requests_account_link()? {
 		Some(
-			current_user_for_account_link_intent(&http_request, &session_service)
+			current_user_for_account_link_intent(session_id.as_deref(), &session_service)
 				.await?
 				.ok_or_else(|| {
 					AppError::Authentication("Sign in before linking an OAuth account".to_string())
@@ -419,13 +408,15 @@ pub async fn oauth_start(
 pub async fn oauth_callback(
 	Path(provider_id): Path<String>,
 	Query(query): Query<OAuthCallbackQuery>,
+	oauth_state: CookieNamed<OAuthStateCookie, Option<String>>,
+	session_id: CookieNamed<SessionId, Option<String>>,
 	#[inject] backend: Depends<OAuthBackendBox>,
 	#[inject] session_service: Depends<SessionService>,
-	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
 	let settings = get_settings();
 	let account_link_user_id = validate_oauth_state_cookie(
-		&http_request,
+		oauth_state.as_deref(),
+		session_id.as_deref(),
 		&provider_id,
 		&query.state,
 		&settings.core.secret_key,

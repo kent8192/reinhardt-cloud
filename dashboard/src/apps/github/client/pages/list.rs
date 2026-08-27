@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use reinhardt::pages::component;
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::SubmitEvent;
 use reinhardt::pages::page;
@@ -165,7 +166,7 @@ struct GitHubRepositoriesPageViewProps {
 }
 
 /// Render the GitHub repository import page.
-#[reinhardt::pages::component("github", name = "github:repositories")]
+#[component("github", name = "github:repositories")]
 pub fn github_repositories_page() -> Page {
 	let repositories = use_query(
 		list_github_repositories_for_current_org::query(),

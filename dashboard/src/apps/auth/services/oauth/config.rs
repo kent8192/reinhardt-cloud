@@ -15,6 +15,8 @@
 
 use std::env;
 
+use reinhardt::di::injectable;
+
 use crate::apps::auth::services::oauth::token_crypto::token_encryption_key_is_configured;
 /// Credentials for a single OAuth provider, populated from env vars.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +74,7 @@ impl OAuthSettings {
 ///
 /// Tests should construct [`OAuthSettings`] directly and override the
 /// scope entry with `OAuthSettings` rather than going through this factory.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_oauth_settings() -> OAuthSettings {
 	OAuthSettings::from_env()
 }

@@ -5,23 +5,10 @@ mod tests {
 	use rstest::rstest;
 
 	use crate::apps::auth::server_urls::oauth::{
-		OAUTH_STATE_COOKIE_NAME, cookie_value_from_header, expired_oauth_state_cookie_header,
-		oauth_link_intent_value, oauth_state_cookie_header, oauth_state_cookie_signature,
-		validate_oauth_link_intent_value,
+		expired_oauth_state_cookie_header, oauth_link_intent_value, oauth_state_cookie_header,
+		oauth_state_cookie_signature, validate_oauth_link_intent_value,
 	};
 	use uuid::Uuid;
-
-	#[rstest]
-	fn test_cookie_value_from_header_selects_named_cookie() {
-		// Arrange
-		let header = "sessionid=session-1; oauth_state_sig=signature-1; theme=dark";
-
-		// Act
-		let value = cookie_value_from_header(header, OAUTH_STATE_COOKIE_NAME);
-
-		// Assert
-		assert_eq!(value.as_deref(), Some("signature-1"));
-	}
 
 	#[rstest]
 	fn test_oauth_state_cookie_signature_is_bound_to_provider_and_state() {

@@ -58,7 +58,7 @@ use reinhardt::auth::social::core::config::ProviderConfig;
 use reinhardt::auth::social::core::error::SocialAuthError;
 use reinhardt::auth::social::flow::state::InMemoryStateStore;
 use reinhardt::auth::social::providers::github::GitHubProvider;
-use reinhardt::di::Depends;
+use reinhardt::di::{Depends, injectable};
 
 use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
 
@@ -81,7 +81,7 @@ pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 /// Panics on `SocialAuthError` because backend construction failures are
 /// deploy-time configuration errors (bad provider config / missing
 /// dependencies), not recoverable runtime faults.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_oauth_backend(#[inject] settings: Depends<OAuthSettings>) -> OAuthBackendBox {
 	OAuthBackendBox(
 		assemble_social_auth_backend(&settings)
