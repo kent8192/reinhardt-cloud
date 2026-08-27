@@ -270,19 +270,7 @@ fn render_create_deployment_form(view: CreateDeploymentFormView) -> Page {
 		} else {
 			Page::Empty
 		};
-		page!(|success_view: Page,
-		 error_view: Page,
-		 submit: Callback<SubmitEvent, ()>,
-		 project_name: Signal<String>,
-		 cluster_id: Signal<String>,
-		 image: Signal<String>,
-		 project_yaml: Signal<String>,
-		 project_name_error: Page,
-		 cluster_error: Page,
-		 image_error: Page,
-		 project_yaml_error: Page,
-		 submit_status: Page,
-		 is_submitting: bool| {
+		page!({
 			{ success_view }
 			{ error_view }
 			form {
@@ -370,21 +358,7 @@ fn render_create_deployment_form(view: CreateDeploymentFormView) -> Page {
 				}
 			}
 			{ submit_status }
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			submit,
-			project_name,
-			cluster_id,
-			image,
-			project_yaml,
-			project_name_error.clone(),
-			cluster_error.clone(),
-			image_error.clone(),
-			project_yaml_error.clone(),
-			submit_status,
-			is_submitting,
-		)
+		})
 	})
 }
 
@@ -448,18 +422,7 @@ fn render_update_deployment_form(view: UpdateDeploymentFormView) -> Page {
 		} else {
 			Page::Empty
 		};
-		page!(|success_view: Page,
-		 error_view: Page,
-		 submit: Callback<SubmitEvent, ()>,
-		 project_name: Signal<String>,
-		 image: Signal<String>,
-		 status: Signal<String>,
-		 project_name_error: Page,
-		 image_error: Page,
-		 status_error: Page,
-		 dirty_notice: Page,
-		 submit_status: Page,
-		 is_submitting: bool| {
+		page!({
 			{ success_view }
 			{ error_view }
 			form {
@@ -528,20 +491,7 @@ fn render_update_deployment_form(view: UpdateDeploymentFormView) -> Page {
 			}
 			{ dirty_notice }
 			{ submit_status }
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			submit,
-			project_name,
-			image,
-			status,
-			project_name_error.clone(),
-			image_error.clone(),
-			status_error.clone(),
-			dirty_notice,
-			submit_status,
-			is_submitting,
-		)
+		})
 	})
 }
 
@@ -583,13 +533,7 @@ fn render_update_deployment_status_form(view: UpdateDeploymentStatusFormView) ->
 		} else {
 			Page::Empty
 		};
-		page!(|success_view: Page,
-		 error_view: Page,
-		 submit: Callback<SubmitEvent, ()>,
-		 status: Signal<String>,
-		 status_error: Page,
-		 submit_status: Page,
-		 is_submitting: bool| {
+		page!({
 			{ success_view }
 			{ error_view }
 			form {
@@ -622,15 +566,7 @@ fn render_update_deployment_status_form(view: UpdateDeploymentStatusFormView) ->
 				}
 			}
 			{ submit_status }
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			submit,
-			status,
-			status_error.clone(),
-			submit_status,
-			is_submitting,
-		)
+		})
 	})
 }
 
@@ -655,12 +591,7 @@ fn render_delete_deployment_action(view: DeleteDeploymentActionView) -> Page {
 	Page::reactive(move || {
 		let is_pending = action.is_pending();
 		let is_confirmed = confirmed.get();
-		page!(|success_view: Page,
-		 error_view: Page,
-		 delete: Callback<ClickEvent, ()>,
-		 confirmed: Signal<bool>,
-		 is_pending: bool,
-		 is_confirmed: bool| {
+		page!({
 			{ success_view }
 			{ error_view }
 			div {
@@ -691,14 +622,7 @@ fn render_delete_deployment_action(view: DeleteDeploymentActionView) -> Page {
 					} else { Page::Empty }
 				}
 			}
-		})(
-			success_view.clone(),
-			error_view.clone(),
-			delete,
-			confirmed,
-			is_pending,
-			is_confirmed,
-		)
+		})
 	})
 }
 
@@ -930,7 +854,7 @@ fn render_deployment_inventory_table(
 		})
 		.collect::<Vec<_>>();
 
-	page!(|preview_banner: Page, rows: Vec<Page>| {
+	page!({
 		{ preview_banner }
 		div {
 			class: "overflow-x-auto",
@@ -967,7 +891,7 @@ fn render_deployment_inventory_table(
 				}
 			}
 		}
-	})(preview_banner, rows)
+	})
 }
 
 #[derive(Clone)]

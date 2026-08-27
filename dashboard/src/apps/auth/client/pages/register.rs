@@ -62,19 +62,19 @@ fn register_form_error(state: FormState<RegisterRequestClientFormField>) -> Page
 	page!({
 		{
 			state
-			.form_error
-			.get()
-			.or_else(|| state.submit_error.get())
-			.map(|message| {
-				page!({
-					div {
-						class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-						role: "alert",
-						{ message }
-					}
-				})
-			})
-			.unwrap_or(Page::Empty)
+	.form_error
+	.get()
+	.or_else(|| state.submit_error.get())
+	.map(|message| {
+		page!({
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				role: "alert",
+				{ message }
+			}
+		})
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})
 }
@@ -227,25 +227,10 @@ pub fn register_page() -> Page {
 	);
 	let submit_form = register_form.clone();
 	let submit_runtime = register_runtime.clone();
-	// Workaround for reinhardt-web#6189 (tracked in reinhardt-cloud#892).
-	// Remove when generated form submission has one target-neutral API.
-	//
-	// Ideal implementation (without workaround):
-	//   use_action(move |()| submit_form.submit(&submit_runtime))
 	let register_action = use_action(move |(): ()| {
 		let form = submit_form.clone();
 		let runtime = submit_runtime.clone();
-		async move {
-			#[cfg(wasm)]
-			{
-				form.submit(&runtime).await
-			}
-			#[cfg(not(wasm))]
-			{
-				let _ = (form, runtime);
-				Ok(UseFormAsyncSubmitOutcome::ValidationFailed)
-			}
-		}
+		async move { form.submit(&runtime).await }
 	});
 	let form_view = render_register_form(RegisterFormView {
 		state: register_state,

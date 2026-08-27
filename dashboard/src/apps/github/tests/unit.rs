@@ -60,6 +60,34 @@ pub mod render_tests {
 	}
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub mod import_claim_tests {
+	use chrono::{Duration, Utc};
+	use rstest::rstest;
+
+	use crate::apps::github::server_fn::github_import_claim_is_stale;
+
+	#[rstest]
+	fn import_claim_expiry_is_bounded_and_clock_safe() {
+		// Arrange
+		let now = Utc::now();
+
+		// Act / Assert
+		assert!(github_import_claim_is_stale(
+			now - Duration::minutes(30),
+			now
+		));
+		assert!(!github_import_claim_is_stale(
+			now - Duration::minutes(29),
+			now
+		));
+		assert!(!github_import_claim_is_stale(
+			now + Duration::minutes(1),
+			now
+		));
+	}
+}
+
 #[cfg(test)]
 pub mod pipeline_tests {
 	use std::time::Duration;

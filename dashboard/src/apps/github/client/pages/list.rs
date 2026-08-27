@@ -42,14 +42,14 @@ fn alert(error: Signal<Option<String>>) -> Page {
 			error
 	.get()
 	.map(|message| {
-			page!({
-				div {
-					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-					{ message }
-				}
-			})
+		page!({
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				{ message }
+			}
 		})
-		.unwrap_or(Page::Empty)
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})
 }

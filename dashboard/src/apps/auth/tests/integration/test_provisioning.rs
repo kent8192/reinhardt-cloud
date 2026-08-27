@@ -10,6 +10,7 @@
 mod tests {
 	use chrono::Utc;
 	use reinhardt::BaseUser;
+	use reinhardt::core::exception::Error as AppError;
 	use reinhardt::db::orm::Model;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
@@ -218,6 +219,55 @@ mod tests {
 			.await
 			.expect("query memberships");
 		assert_eq!(memberships.len(), 1);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn test_ensure_personal_organization_does_not_restore_revoked_membership(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _conn, _client, _urls) = db.await;
+		let user = create_user("revoked-membership", "revoked-membership@example.com").await;
+		ensure_personal_organization(&user)
+			.await
+			.expect("initial ensure should provision membership");
+		let membership = OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
+			.first()
+			.await
+			.expect("query Personal Org membership")
+			.expect("Personal Org membership should exist");
+		OrganizationMembership::objects()
+			.delete(membership.id.expect("membership should have an id"))
+			.await
+			.expect("revoke Personal Org membership");
+
+		// Act
+		let error = ensure_personal_organization(&user)
+			.await
+			.expect_err("revoked membership must not be recreated");
+
+		// Assert
+		assert!(matches!(error, AppError::Authorization(_)));
+		let memberships = OrganizationMembership::objects()
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
+			.all()
+			.await
+			.expect("query memberships after rejected restore");
+		assert!(memberships.is_empty());
+		let organizations = Organization::objects()
+			.filter(Organization::field_created_by().eq(user.id))
+			.all()
+			.await
+			.expect("query Personal Organizations after rejected restore");
+		assert_eq!(organizations.len(), 1);
 	}
 
 	#[rstest]

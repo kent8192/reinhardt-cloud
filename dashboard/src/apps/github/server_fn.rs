@@ -6,9 +6,20 @@ use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
 
 #[cfg(native)]
+use chrono::{DateTime, Utc};
+#[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
 
 use crate::apps::deployments::server_fn::ProjectPreviewSummary;
+
+#[cfg(native)]
+const GITHUB_IMPORT_CLAIM_TTL_SECONDS: i64 = 30 * 60;
+
+/// Return whether a repository import claim has outlived its recovery lease.
+#[cfg(native)]
+pub(crate) fn github_import_claim_is_stale(updated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+	now.signed_duration_since(updated_at).num_seconds() >= GITHUB_IMPORT_CLAIM_TTL_SECONDS
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubInstallationInfo {
@@ -426,10 +437,30 @@ pub async fn import_github_repository_for_current_org(
 			"GitHub repository is already imported",
 		)]));
 	}
+	// `selected` is a bounded lease while the external import pipeline runs;
+	// a missing project allows a later request to reclaim an interrupted lease.
+	let observed_updated_at = repository.updated_at;
+	if repository.selected && github_import_claim_is_stale(observed_updated_at, Utc::now()) {
+		GitHubRepository::objects()
+			.filter(GitHubRepository::field_id().eq(repository_id))
+			.filter(GitHubRepository::field_selected().eq(true))
+			.filter(GitHubRepository::field_updated_at().eq(observed_updated_at))
+			.update_fields([GitHubRepository::field_selected().assign(false)])
+			.await
+			.map_err(|e| {
+				ServerFnError::application(format!(
+					"Failed to recover GitHub repository import claim: {e}"
+				))
+			})?;
+	}
+	let claim_started_at = Utc::now();
 	let claimed = GitHubRepository::objects()
 		.filter(GitHubRepository::field_id().eq(repository_id))
 		.filter(GitHubRepository::field_selected().eq(false))
-		.update_fields([(GitHubRepository::field_selected(), true)])
+		.update_fields(vec![
+			GitHubRepository::field_selected().assign(true),
+			GitHubRepository::field_updated_at().assign(claim_started_at),
+		])
 		.await
 		.map_err(|e| {
 			ServerFnError::application(format!("Failed to claim GitHub repository import: {e}"))
@@ -557,7 +588,9 @@ pub async fn import_github_repository_for_current_org(
 	if result.is_err()
 		&& let Err(error) = GitHubRepository::objects()
 			.filter(GitHubRepository::field_id().eq(repository_id))
-			.update_fields([(GitHubRepository::field_selected(), false)])
+			.filter(GitHubRepository::field_selected().eq(true))
+			.filter(GitHubRepository::field_updated_at().eq(claim_started_at))
+			.update_fields([GitHubRepository::field_selected().assign(false)])
 			.await
 	{
 		tracing::warn!(

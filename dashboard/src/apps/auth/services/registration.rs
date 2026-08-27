@@ -67,7 +67,10 @@ pub async fn register_inactive_user(
 		Err(e) => {
 			let err_lower = e.to_string().to_lowercase();
 			if err_lower.contains("unique") || err_lower.contains("duplicate") {
-				let message = if err_lower.contains("auth_user_email_uniq") {
+				let message = if err_lower.contains("email_uniq")
+					|| err_lower.contains("key (email)")
+					|| err_lower.contains("(email)=")
+				{
 					"Email already exists"
 				} else {
 					"Username already exists"
@@ -172,6 +175,9 @@ async fn provision_personal_organization_inner(
 		if rollback_on_failure {
 			rollback_user(created).await;
 		}
+		if matches!(&e, AppError::Authorization(_)) {
+			return Err(e);
+		}
 		return Err(AppError::Internal("Internal server error".to_string()));
 	}
 
@@ -202,10 +208,11 @@ async fn provision_personal_organization_tx(
 		.await?
 		.into_iter()
 		.next();
-	let organization_id = if let Some(organization) = existing {
-		organization.id.ok_or_else(|| {
+	let (organization_id, existing_personal_org) = if let Some(organization) = existing {
+		let organization_id = organization.id.ok_or_else(|| {
 			AppError::Internal("Personal Organization is missing its primary key".to_string())
-		})?
+		})?;
+		(organization_id, true)
 	} else {
 		let now = Utc::now();
 		let organization = Organization {
@@ -216,13 +223,14 @@ async fn provision_personal_organization_tx(
 			created_at: now,
 			updated_at: now,
 		};
-		Organization::objects()
+		let organization_id = Organization::objects()
 			.create_with_conn(tx, &organization)
 			.await?
 			.id
 			.ok_or_else(|| {
 				AppError::Internal("created Personal Organization has no primary key".to_string())
-			})?
+			})?;
+		(organization_id, false)
 	};
 
 	let existing_membership = OrganizationMembership::objects()
@@ -239,6 +247,11 @@ async fn provision_personal_organization_tx(
 			));
 		}
 		return Ok(());
+	}
+	if existing_personal_org {
+		return Err(AppError::Authorization(
+			"Personal Organization membership is no longer active".to_string(),
+		));
 	}
 
 	let membership = OrganizationMembership::build()

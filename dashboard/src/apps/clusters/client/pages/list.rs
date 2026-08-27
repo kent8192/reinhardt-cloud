@@ -37,14 +37,14 @@ fn alert(error: Signal<Option<String>>) -> Page {
 			error
 	.get()
 	.map(|message| {
-			page!({
-				div {
-					class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-					{ message }
-				}
-			})
+		page!({
+			div {
+				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
+				{ message }
+			}
 		})
-		.unwrap_or(Page::Empty)
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})
 }
@@ -90,6 +90,26 @@ fn invalidate_cluster_list_query(query_client: &QueryClient) {
 fn invalidate_cluster_query_family(query_client: &QueryClient) {
 	query_client.invalidate_family(list_clusters_for_current_org::family());
 }
+
+#[cfg(wasm)]
+fn clear_create_cluster_inputs() {
+	use wasm_bindgen::JsCast;
+
+	let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+		return;
+	};
+	for id in ["create-cluster-name", "create-cluster-api-url"] {
+		if let Some(input) = document
+			.get_element_by_id(id)
+			.and_then(|element| element.dyn_into::<web_sys::HtmlInputElement>().ok())
+		{
+			input.set_value("");
+		}
+	}
+}
+
+#[cfg(not(wasm))]
+fn clear_create_cluster_inputs() {}
 
 #[cfg(wasm)]
 async fn submit_cluster_update(
@@ -169,16 +189,16 @@ fn success_alert(message: Signal<Option<String>>) -> Page {
 	page!({
 		{
 			message
-			.get()
-			.map(|message| {
-				page!({
-					div {
-						class: "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800",
-						{ message }
-					}
-				})
-			})
-			.unwrap_or(Page::Empty)
+	.get()
+	.map(|message| {
+		page!({
+			div {
+				class: "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800",
+				{ message }
+			}
+		})
+	})
+	.unwrap_or(Page::Empty)
 		}
 	})
 }
@@ -263,17 +283,7 @@ fn render_cluster_update_form(view: ClusterUpdateFormView) -> Page {
 			} else {
 				Page::Empty
 			};
-			page!(|success_view: Page,
-			 error_view: Page,
-			 submit: Callback<SubmitEvent, ()>,
-			 name: Signal<String>,
-			 api_url: Signal<String>,
-			 is_active: Signal<bool>,
-			 name_error: Page,
-			 api_url_error: Page,
-			 dirty_notice: Page,
-			 submit_status: Page,
-			 is_submitting: bool| {
+			page!({
 				{ success_view }
 				{ error_view }
 				form {
@@ -327,19 +337,7 @@ fn render_cluster_update_form(view: ClusterUpdateFormView) -> Page {
 				}
 				{ dirty_notice }
 				{ submit_status }
-			})(
-				success_view.clone(),
-				error_view.clone(),
-				submit,
-				name,
-				api_url,
-				is_active,
-				name_error.clone(),
-				api_url_error.clone(),
-				dirty_notice,
-				submit_status,
-				is_submitting,
-			)
+			})
 		}
 	})
 }
@@ -372,13 +370,7 @@ fn render_delete_cluster_action(view: DeleteClusterActionView) -> Page {
 			let is_pending = action.is_pending();
 			let is_confirmed = confirmed.get();
 			let has_selected_cluster = !cluster_id.get().trim().is_empty();
-			page!(|success_view: Page,
-			 error_view: Page,
-			 delete: Callback<ClickEvent, ()>,
-			 confirmed: Signal<bool>,
-			 is_pending: bool,
-			 is_confirmed: bool,
-			 has_selected_cluster: bool| {
+			page!({
 				{ success_view }
 				{ error_view }
 				div {
@@ -409,15 +401,7 @@ fn render_delete_cluster_action(view: DeleteClusterActionView) -> Page {
 						} else { Page::Empty }
 					}
 				}
-			})(
-				success_view.clone(),
-				error_view.clone(),
-				delete,
-				confirmed,
-				is_pending,
-				is_confirmed,
-				has_selected_cluster,
-			)
+			})
 		}
 	})
 }
@@ -459,13 +443,7 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 				.result()
 				.map(|token| self::cluster_token_confirmation_with_callback(token, dismiss));
 			let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
-			page!(|error_view: Page,
-			 rotate: Callback<ClickEvent, ()>,
-			 confirmed: Signal<bool>,
-			 is_pending: bool,
-			 is_confirmed: bool,
-			 has_selected_cluster: bool,
-			 token_confirmation: Page| {
+			page!({
 				{ error_view }
 				div {
 					class: "rc-form-stack mt-3",
@@ -496,15 +474,7 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 					}
 				}
 				{ token_confirmation }
-			})(
-				error_view.clone(),
-				rotate,
-				confirmed,
-				is_pending,
-				is_confirmed,
-				has_selected_cluster,
-				token_confirmation,
-			)
+			})
 		}
 	})
 }
@@ -653,6 +623,7 @@ pub fn clusters_list_page() -> Page {
 		.on_submit_success(move |runtime| {
 			self::invalidate_cluster_list_query(&create_query_client);
 			runtime.reset();
+			self::clear_create_cluster_inputs();
 		})
 		.build();
 	let create_state = create_runtime.form_state();
@@ -676,11 +647,8 @@ pub fn clusters_list_page() -> Page {
 		},
 		ExplicitDeps::from_node_ids([]),
 	);
-	// Workaround for reinhardt-web#6189 (tracked in reinhardt-cloud#892).
-	// Remove when generated form submission has one target-neutral API.
-	//
-	// Ideal implementation (without workaround):
-	//   use_action(move |()| runtime.submit_server_fn(|| form.submit_response()))
+	// ModelForm responses are client-only in alpha.11 because native SSR does
+	// not dispatch the mutation and cannot receive the one-time token payload.
 	#[cfg(wasm)]
 	let create_action = {
 		let runtime = create_runtime.clone();

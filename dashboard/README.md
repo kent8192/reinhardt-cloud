@@ -74,7 +74,7 @@ cd dashboard && cargo make makemigrations   # Generate migrations from model cha
 cd dashboard && cargo run --bin manage migrate   # Apply checked-in migrations
 ```
 
-The v0.4.0-alpha.10 migration baseline is a breaking reset with six generated
+The v0.4.0-alpha.11 migration baseline is a breaking reset with six generated
 app initial migrations (`auth`, `clusters`, `default`, `deployments`,
 `github`, and `organizations`). It supports only an empty PostgreSQL database.
 Existing migration histories, in-place data migration, and `fake-initial`
@@ -90,14 +90,15 @@ set by the server.
 
 ### Client routes and data
 
-The v0.4.0-alpha.10 client uses one reinhardt-pages `ClientRouter` tree. The
+The v0.4.0-alpha.11 client uses one reinhardt-pages `ClientRouter` tree. The
 `#[layout]` Dashboard shell renders its child routes through `Outlet`:
 `/login` and `/register` are public, while `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` are authenticated children.
 
 Direct `page!({ ... })` bodies automatically capture cloneable local values in
-alpha.10. Use an explicit closure form only when a reusable page factory is
-needed.
+alpha.11; use an explicit closure form only when a reusable page factory is
+needed. Generated ClientForm submissions have the same typed method on native
+and WASM, so auth forms share one action path.
 
 Client reads use Query Client V2 generated server-function query descriptors
 with `use_query`. The Launcher or SSR runtime owns the QueryClient; pages do
@@ -110,6 +111,11 @@ Deployment log selection is canonically represented by
 selection, while a malformed value is rejected by the typed extractor.
 Deployment IDs are `i64`; no UUID compatibility adapter is used.
 
+GitHub repository imports use the repository `selected` flag as a bounded
+30-minute lease. An interrupted import is reclaimed only when no project row
+exists, and the conditional timestamp check prevents one import from clearing
+another import's lease.
+
 ### OAuth account linking
 
 Normal GitHub OAuth sign-in remains independent of account linking. Starting a
@@ -117,6 +123,8 @@ link from `/account` creates a signed, short-lived intent bound to the
 initiating valid session. The callback links an identity only when its current
 `sessionid` still validates and matches that intent's user and session binding;
 logout, session rotation, or a session swap invalidates the link flow.
+Membership removal is authoritative; reauthentication never recreates a
+revoked Personal Organization membership.
 
 ### Testing
 

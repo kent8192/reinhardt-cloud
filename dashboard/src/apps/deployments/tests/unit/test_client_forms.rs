@@ -200,14 +200,14 @@ fn create_deployment_invalidation_probe(
 			Page::text("Loading deployment queries")
 		}
 	});
-	page!(|query_state: Page, submit: Callback<ClickEvent, ()>| {
+	page!({
 		{ query_state }
 		button {
 			type: "button",
 			@click: submit,
 			"Create deployment"
 		}
-	})(query_state, submit)
+	})
 }
 
 fn shared_deployment_list_query_probe(fetches: Rc<Cell<u32>>) -> Page {
@@ -259,14 +259,14 @@ fn github_project_preview_delete_invalidation_probe(fetches: Rc<Cell<u32>>) -> P
 			Page::text("Loading GitHub project previews")
 		}
 	});
-	page!(|query_state: Page, delete: Callback<ClickEvent, ()>| {
+	page!({
 		{ query_state }
 		button {
 			type: "button",
 			@click: delete,
 			"Delete deployment"
 		}
-	})(query_state, delete)
+	})
 }
 
 #[tokio::test]

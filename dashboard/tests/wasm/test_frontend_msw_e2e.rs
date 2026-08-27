@@ -160,4 +160,16 @@ async fn clusters_page_loads_and_submits_with_msw() {
 	worker
 		.calls_to_server_fn::<create_cluster_for_current_org::marker>()
 		.assert_count(1);
+	let name_after_reset: HtmlInputElement = screen
+		.get_by_label_text("Name")
+		.get()
+		.dyn_into()
+		.expect("cluster name input after reset");
+	let api_url_after_reset: HtmlInputElement = screen
+		.get_by_label_text("API URL")
+		.get()
+		.dyn_into()
+		.expect("cluster API URL input after reset");
+	assert_eq!(name_after_reset.value(), "");
+	assert_eq!(api_url_after_reset.value(), "");
 }

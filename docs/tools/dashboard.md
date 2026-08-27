@@ -68,7 +68,7 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The v0.4.0-alpha.10 WASM client (`dashboard/src/client/router.rs`) defines one
+The v0.4.0-alpha.11 WASM client (`dashboard/src/client/router.rs`) defines one
 `ClientRouter` tree. `/login` and `/register` are public root routes. The
 authenticated `#[layout]` Dashboard shell renders `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` as child routes through `Outlet`. The HTTP server
@@ -83,7 +83,10 @@ continues to mount API namespaces and the admin panel separately:
 7. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
 
 Direct `page!({ ... })` bodies automatically capture cloneable local values in
-alpha.10. Reserve explicit closure arguments for reusable page factories.
+alpha.11; reserve explicit closure arguments for reusable page factories.
+Generated ClientForm submissions expose the same typed method on native and
+WASM, while model-backed forms keep their client-only typed response for
+one-time token delivery.
 
 ### Client data fetching
 
@@ -123,6 +126,11 @@ The selected deployment is represented by the canonical client URL
 route receives `Query(logs): Query<Option<i64>>`: an omitted parameter is no
 selection, while a malformed value is rejected by the typed extractor. No UUID
 adapter is provided.
+
+GitHub repository imports hold a bounded 30-minute lease while the external
+pipeline runs. If the process is interrupted before a project row is written,
+the next import request reclaims the expired lease; a conditional timestamp
+check prevents an older request from clearing a newer claim.
 
 Application logs are read through the Dashboard's JWT-protected gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
@@ -191,11 +199,11 @@ cd dashboard && cargo run --bin manage migrate
 
 The migration command is provided by reinhardt-web's built-in `migrate` management command (invoked through `execute_from_command_line()` in `dashboard/src/bin/manage.rs`). Migration files are generated source and must not be hand-edited.
 
-> **Breaking v0.4.0-alpha.10 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
+> **Breaking v0.4.0-alpha.11 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
 
-### v0.4.0-alpha.10 PR review checklist
+### v0.4.0-alpha.11 PR review checklist
 
-- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.10`. The only lockfile exception is the official, transitive `reinhardt-event-catalog 0.4.0-alpha.1`, which alpha.10 framework crates explicitly require because no alpha.10 event-catalog release exists. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
+- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.11`. The only lockfile exception is the official, transitive `reinhardt-event-catalog 0.4.0-alpha.1`, which alpha.11 framework crates explicitly require because no alpha.11 event-catalog release exists. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
 - **Configuration, architecture, migration** (`configuration`, `architecture`, `migration`): verify the single client route tree, server configuration boundaries, generated migration history, and the empty-PostgreSQL-only upgrade contract.
 - **Pages, macros, signals** (`pages`, `macros`, `signals`): verify public versus authenticated layout placement, `Outlet` nesting, typed event handlers, and reactive query/form state.
 - **API, auth, authorization, dependency injection, modeling, admin** (`api-development`, `authentication`, `authorization`, `dependency-injection`, `modeling`, `admin`): verify server-function input ownership, session revalidation, organization scoping, injected services, database constraints, and admin registrations.
@@ -288,14 +296,14 @@ rolling the Dashboard Deployment pods:
 cd dashboard && cargo run --bin manage migrate
 ```
 
-The v0.4.0-alpha.10 migration reset is an exception: provision a new empty
+The v0.4.0-alpha.11 migration reset is an exception: provision a new empty
 PostgreSQL database, apply its six initial migrations with the command above,
-then deploy the alpha.10 image. No supported existing-history, data-migration,
+then deploy the alpha.11 image. No supported existing-history, data-migration,
 or `fake-initial` upgrade path exists for this reset.
 
 #### Multi-tenancy
 
-The Dashboard is multi-tenant at the application layer: every Cluster and Deployment row carries an `organization_id` foreign key, and every authenticated user has at least one `OrganizationMembership` (auto-provisioned as a "Personal Organization" on registration). Cross-organization access is filtered at every read query and refused with HTTP 403 at every write request — see Appendix B for the permission matrix.
+The Dashboard is multi-tenant at the application layer: every Cluster and Deployment row carries an `organization_id` foreign key, and every authenticated user has at least one `OrganizationMembership` (auto-provisioned as a "Personal Organization" on registration). Membership removal is authoritative and is not silently recreated during reauthentication. Cross-organization access is filtered at every read query and refused with HTTP 403 at every write request — see Appendix B for the permission matrix.
 
 ---
 
