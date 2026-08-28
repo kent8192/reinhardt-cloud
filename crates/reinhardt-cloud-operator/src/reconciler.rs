@@ -1326,7 +1326,7 @@ async fn reconcile_migration_job_resource(
 	job_api
 		.create(&PostParams::default(), &desired)
 		.await
-		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
+		.map_err(Error::Kube)?;
 	info!("Created migration Job {namespace}/{job_name}");
 	Ok(MigrationGateState::Running)
 }
