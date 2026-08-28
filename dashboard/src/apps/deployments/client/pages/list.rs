@@ -38,6 +38,7 @@ use crate::apps::github::server_fn::list_github_project_previews_for_current_org
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
 use crate::shared::client::components::status_badge;
 use crate::shared::client::routes::route_href;
+use crate::shared::client::style::STYLES;
 #[cfg(wasm)]
 use crate::shared::client::ws::track_subscriptions;
 use crate::shared::client::ws::{subscribe_app_logs, unsubscribe_logs};
@@ -743,11 +744,34 @@ fn render_deployment_status_badge(status: &str) -> Page {
 	page!({
 		span {
 			class: format!(
-				"status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}"
+				"{} inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {color}",
+				STYLES.status_badge().as_str(),
 			),
 			{ label }
 		}
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::render_deployment_status_badge;
+	use crate::shared::client::style::STYLES;
+
+	#[test]
+	fn deployment_status_badge_composes_shared_base_and_state_tokens() {
+		// Act
+		let html = render_deployment_status_badge("running").render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<span class=\"{} inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {}\">Running</span>",
+				STYLES.status_badge().as_str(),
+				STYLES.status_running().as_str(),
+			)
+		);
+	}
 }
 
 fn render_deployment_inventory_row(
