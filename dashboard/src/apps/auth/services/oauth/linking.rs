@@ -57,6 +57,41 @@ pub enum LinkError {
 		 existing account first and link {provider} from your profile"
 	)]
 	EmailConflict { email: String, provider: String },
+	/// The provider identity is already linked to a different local user.
+	#[error("this {provider} account is already linked to another user")]
+	ProviderAlreadyLinked { provider: String },
+}
+
+/// Attach a provider identity to one explicitly selected user.
+///
+/// Account-link callbacks use this stricter operation rather than the generic
+/// login decision tree. A pre-existing provider link may be returned only when
+/// it belongs to the same selected user; it must never switch the callback to
+/// another local account.
+pub async fn link_user_to_provider(
+	storage: &dyn SocialAccountStorage,
+	provider: &str,
+	claims: &StandardClaims,
+	user: User,
+) -> Result<User, LinkError> {
+	if claims.sub.is_empty() {
+		return Err(LinkError::MissingClaim("sub"));
+	}
+
+	if let Some(link) = storage
+		.find_by_provider_and_uid(provider, &claims.sub)
+		.await
+		.map_err(|error| LinkError::Storage(error.to_string()))?
+	{
+		if link.user_id != user.id {
+			return Err(LinkError::ProviderAlreadyLinked {
+				provider: provider.to_string(),
+			});
+		}
+	} else {
+		create_link(storage, provider, claims, user.id).await?;
+	}
+	ensure_user_has_personal_organization(user).await
 }
 
 /// Resolve OAuth claims into a local `User`, linking or creating as needed.
@@ -75,63 +110,54 @@ pub async fn link_or_create_user(
 	}
 
 	// (a) Already linked.
-	if let Some(link) = storage
+	let user = if let Some(link) = storage
 		.find_by_provider_and_uid(provider, &claims.sub)
 		.await
 		.map_err(|e| LinkError::Storage(e.to_string()))?
 	{
-		let user = load_user_by_id(link.user_id).await?;
-		return ensure_user_has_personal_organization(user).await;
-	}
+		load_user_by_id(link.user_id).await?
+	} else {
+		let user = if let Some(user) = current_user {
+			// (b) Authenticated link.
+			user
+		} else if claims.email_verified == Some(true)
+			&& let Some(email) = claims.email.as_ref()
+			&& let Some(user) = User::objects()
+				.filter(User::field_email().eq(email.to_lowercase()))
+				.first()
+				.await
+				.map_err(|e| LinkError::Database(e.to_string()))?
+		{
+			// (c) Verified email match.
+			user
+		} else {
+			// (d) New user.
+			create_oauth_user(provider, claims).await?
+		};
+		create_link(storage, provider, claims, user.id).await?;
+		user
+	};
+	ensure_user_has_personal_organization(user).await
+}
 
-	// (b) Authenticated link.
-	if let Some(user) = current_user {
-		let user_id = user.id;
-		create_link(storage, provider, claims, user_id).await?;
-		return ensure_user_has_personal_organization(user).await;
-	}
-
-	// (c) Email match (only when provider asserts email_verified).
-	if claims.email_verified == Some(true)
-		&& let Some(email) = claims.email.as_ref()
-	{
-		let normalized = email.to_lowercase();
-		let existing = User::objects()
-			.filter(User::field_email().eq(normalized))
-			.first()
-			.await
-			.map_err(|e| LinkError::Database(e.to_string()))?;
-		if let Some(user) = existing {
-			let user_id = user.id;
-			create_link(storage, provider, claims, user_id).await?;
-			return ensure_user_has_personal_organization(user).await;
-		}
-	}
-
-	// (d) New user.
+async fn create_oauth_user(provider: &str, claims: &StandardClaims) -> Result<User, LinkError> {
 	let username = generate_unique_username(claims).await?;
 	let email = claims.email.clone().unwrap_or_default().to_lowercase();
-
-	// Defensive: if a user with this email already exists, we got here
-	// only because path (c) declined to merge (provider did not assert
-	// email_verified == true). Refuse rather than crash on the unique
-	// constraint, and surface a message that guides the user to the
-	// link-from-existing-account flow.
-	if !email.is_empty() {
-		let conflict = User::objects()
+	if !email.is_empty()
+		&& User::objects()
 			.filter(User::field_email().eq(email.clone()))
 			.first()
 			.await
-			.map_err(|e| LinkError::Database(e.to_string()))?;
-		if conflict.is_some() {
-			return Err(LinkError::EmailConflict {
-				email,
-				provider: provider.to_string(),
-			});
-		}
+			.map_err(|e| LinkError::Database(e.to_string()))?
+			.is_some()
+	{
+		return Err(LinkError::EmailConflict {
+			email,
+			provider: provider.to_string(),
+		});
 	}
 
-	let new_user = User::build()
+	let user = User::build()
 		.username(username)
 		.email(email)
 		.first_name(claims.given_name.clone().unwrap_or_default())
@@ -141,14 +167,10 @@ pub async fn link_or_create_user(
 		.is_staff(false)
 		.is_superuser(false)
 		.finish();
-	let created = User::objects()
-		.create(&new_user)
+	User::objects()
+		.create(&user)
 		.await
-		.map_err(|e| LinkError::Database(e.to_string()))?;
-	ensure_user_personal_organization(&created).await?;
-	let user_id = created.id;
-	create_link(storage, provider, claims, user_id).await?;
-	Ok(created)
+		.map_err(|e| LinkError::Database(e.to_string()))
 }
 
 async fn ensure_user_has_personal_organization(user: User) -> Result<User, LinkError> {
@@ -166,7 +188,7 @@ async fn ensure_user_personal_organization(user: &User) -> Result<(), LinkError>
 
 async fn load_user_by_id(user_id: Uuid) -> Result<User, LinkError> {
 	User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.map_err(|e| LinkError::Database(e.to_string()))?

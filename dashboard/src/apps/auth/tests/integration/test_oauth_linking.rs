@@ -1,4 +1,4 @@
-//! Integration tests for `link_or_create_user`.
+//! Integration tests for OAuth user resolution and target-only account linking.
 //!
 //! Covers the four-way decision tree from #428: already-linked,
 //! authenticated link, email-verified email match, and new-user creation.
@@ -16,16 +16,17 @@ mod tests {
 		InMemorySocialAccountStorage, SocialAccount, SocialAccountStorage,
 	};
 	use reinhardt::db::orm::Model;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::*;
 	use serial_test::serial;
 	use std::collections::HashMap;
 
 	use crate::apps::auth::models::User;
-	use crate::apps::auth::services::oauth::linking::{LinkError, link_or_create_user};
+	use crate::apps::auth::services::oauth::linking::{
+		LinkError, link_or_create_user, link_user_to_provider,
+	};
 	use crate::apps::organizations::models::OrganizationMembership;
 	use crate::config::test_helpers::build_test_app;
 	use reinhardt::UrlReverser;
@@ -33,7 +34,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -87,7 +88,7 @@ mod tests {
 
 	async fn membership_count(user_id: uuid::Uuid) -> usize {
 		OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user_id))
 			.all()
 			.await
 			.expect("query memberships")
@@ -100,7 +101,7 @@ mod tests {
 	async fn test_already_linked_returns_existing_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -133,7 +134,7 @@ mod tests {
 	async fn test_authenticated_link_attaches_to_current_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -142,7 +143,7 @@ mod tests {
 		let (_c, _conn, _cli, _urls) = db.await;
 		let user_id = seed_user("link_authed", "authed@example.com").await;
 		let current = User::objects()
-			.filter(User::field_id().eq(user_id.to_string()))
+			.filter(User::field_id().eq(user_id))
 			.first()
 			.await
 			.unwrap()
@@ -167,10 +168,68 @@ mod tests {
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
+	async fn test_target_only_link_rejects_provider_owned_by_another_user(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_c, _conn, _cli, _urls) = db.await;
+		let owner_id = seed_user("link_owner", "owner@example.com").await;
+		let target_id = seed_user("link_target", "target@example.com").await;
+		let owner = User::objects()
+			.filter(User::field_id().eq(owner_id))
+			.first()
+			.await
+			.expect("load link owner")
+			.expect("seeded link owner");
+		let target = User::objects()
+			.filter(User::field_id().eq(target_id))
+			.first()
+			.await
+			.expect("load link target")
+			.expect("seeded link target");
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = github_claims("gh_owned_elsewhere", Some("github@example.com"), Some(true));
+		link_or_create_user(&storage, "github", &claims, Some(owner))
+			.await
+			.expect("seed provider link for the owner");
+
+		// Act
+		let result = link_user_to_provider(&storage, "github", &claims, target).await;
+
+		// Assert
+		match result {
+			Err(LinkError::ProviderAlreadyLinked { provider }) => assert_eq!(provider, "github"),
+			other => panic!("expected ProviderAlreadyLinked, got {other:?}"),
+		}
+		assert!(
+			storage
+				.find_by_user(target_id)
+				.await
+				.expect("load target links")
+				.is_empty()
+		);
+		assert_eq!(
+			storage
+				.find_by_user(owner_id)
+				.await
+				.expect("load owner links")
+				.len(),
+			1
+		);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
 	async fn test_email_verified_match_links_existing_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -198,7 +257,7 @@ mod tests {
 	async fn test_email_unverified_collision_returns_email_conflict(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -236,7 +295,7 @@ mod tests {
 	async fn test_new_user_created_with_no_password(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -275,7 +334,7 @@ mod tests {
 	async fn test_already_linked_user_without_membership_is_repaired(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -328,7 +387,7 @@ mod tests {
 	async fn test_username_collision_appends_suffix(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -354,7 +413,7 @@ mod tests {
 	async fn test_email_verified_true_but_no_email_creates_new_user(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -387,7 +446,7 @@ mod tests {
 	async fn test_username_falls_back_to_sub_when_no_login_or_name(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),

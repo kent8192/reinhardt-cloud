@@ -4,10 +4,14 @@
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
 //! `WsBroadcaster` event distribution system and the gRPC log stream.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use reinhardt::{
-	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+	ConsumerBuildError, ConsumerBuildFuture, ConsumerContext, ConsumerPreflightFuture, Depends,
+	InjectionContext, KeyedFactoryOutput, Message, Model, SelfKey, WebSocketConsumer,
+	WebSocketConsumerKey, WebSocketConsumerRegistration, WebSocketEndpointInfo, WebSocketError,
+	WebSocketResult,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -149,15 +153,47 @@ fn proto_entry_to_app_log(entry: &log_pb::LogEntry) -> AppLogPayload {
 	}
 }
 
+enum BroadcasterHandle {
+	Direct(Arc<WsBroadcaster>),
+	Injected(Arc<KeyedFactoryOutput<SelfKey<WsBroadcaster>, WsBroadcaster>>),
+}
+
+impl Deref for BroadcasterHandle {
+	type Target = WsBroadcaster;
+
+	fn deref(&self) -> &Self::Target {
+		match self {
+			Self::Direct(broadcaster) => broadcaster,
+			Self::Injected(broadcaster) => broadcaster,
+		}
+	}
+}
+
+/// Structural endpoint marker used by the unified WebSocket router.
+pub struct NotificationConsumerEndpoint;
+
+/// Stable key shared by the structural route and executable registration.
+pub const NOTIFICATION_CONSUMER_KEY: WebSocketConsumerKey =
+	WebSocketConsumerKey::new("dashboard.notifications");
+
+impl WebSocketEndpointInfo for NotificationConsumerEndpoint {
+	fn path() -> &'static str {
+		"/ws/notifications"
+	}
+
+	fn name() -> Option<&'static str> {
+		Some("notifications")
+	}
+
+	fn consumer_key() -> WebSocketConsumerKey {
+		NOTIFICATION_CONSUMER_KEY
+	}
+}
+
 /// WebSocket consumer that authenticates users, manages deployment
-/// subscriptions, and forwards broadcaster events to individual connections.
-///
-/// Unlike the previous `ConnectionHandle`-based approach, connections are
-/// registered directly with the [`WsBroadcaster`] rooms. This eliminates
-/// the per-connection mpsc channel and forwarding task — the Room broadcasts
-/// to `Arc<WebSocketConnection>` instances directly.
+/// subscriptions, and forwards broadcaster events to individual clients.
 pub struct NotificationConsumer {
-	broadcaster: Arc<WsBroadcaster>,
+	broadcaster: BroadcasterHandle,
 	/// Active log streaming task handle. Protected by a `Mutex` so that only
 	/// one log stream is active per consumer at a time. Subscribing to a new
 	/// stream automatically cancels the previous one. Wrapped in `Arc` so
@@ -170,7 +206,14 @@ impl NotificationConsumer {
 	/// Create a new consumer backed by the given broadcaster.
 	pub fn new(broadcaster: Arc<WsBroadcaster>) -> Self {
 		Self {
-			broadcaster,
+			broadcaster: BroadcasterHandle::Direct(broadcaster),
+			log_stream_handle: Arc::new(Mutex::new(None)),
+		}
+	}
+
+	fn from_injected(broadcaster: Depends<WsBroadcaster>) -> Self {
+		Self {
+			broadcaster: BroadcasterHandle::Injected(Arc::clone(broadcaster.as_arc())),
 			log_stream_handle: Arc::new(Mutex::new(None)),
 		}
 	}
@@ -435,6 +478,45 @@ fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 	})
 }
 
+fn notification_consumer_preflight(context: Arc<InjectionContext>) -> ConsumerPreflightFuture {
+	Box::pin(async move {
+		Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map(|_| ())
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})
+	})
+}
+
+fn build_notification_consumer(context: Arc<InjectionContext>) -> ConsumerBuildFuture {
+	Box::pin(async move {
+		let broadcaster = Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})?;
+		Ok(Box::new(NotificationConsumer::from_injected(broadcaster)) as _)
+	})
+}
+
+inventory::submit! {
+	WebSocketConsumerRegistration::new(
+		NOTIFICATION_CONSUMER_KEY,
+		module_path!(),
+		notification_consumer_preflight,
+		build_notification_consumer,
+	)
+}
+
 #[async_trait::async_trait]
 impl WebSocketConsumer for NotificationConsumer {
 	async fn on_connect(&self, context: &mut ConsumerContext) -> WebSocketResult<()> {
@@ -695,9 +777,8 @@ mod tests {
 
 	use crate::shared::ws_messages::WsClientMessage;
 	use chrono::Utc;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::fixtures::{
-		ContainerAsync, GenericImage, postgres_with_migrations_from_dir,
+		ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
 	};
 	use rstest::fixture;
 	use rstest::rstest;
@@ -743,17 +824,18 @@ mod tests {
 	}
 
 	#[fixture]
-	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
+	async fn db() -> (ContainerAsync<GenericImage>, MigrationDatabase) {
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations")
 	}
 
-	async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
+	async fn create_user(conn: &MigrationDatabase, username: &str) -> User {
+		let mut conn_handle = **conn;
 		User::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&User::build()
 					.username(username.to_string())
 					.email(format!("{username}@example.com"))
@@ -769,15 +851,12 @@ mod tests {
 			.expect("create user")
 	}
 
-	async fn create_org(
-		conn: &Arc<DatabaseConnection>,
-		creator: &User,
-		slug: &str,
-	) -> Organization {
+	async fn create_org(conn: &MigrationDatabase, creator: &User, slug: &str) -> Organization {
 		let now = Utc::now();
+		let mut conn_handle = **conn;
 		Organization::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Organization {
 					id: None,
 					slug: slug.to_string(),
@@ -791,10 +870,11 @@ mod tests {
 			.expect("create org")
 	}
 
-	async fn add_membership(conn: &Arc<DatabaseConnection>, user: &User, org: &Organization) {
+	async fn add_membership(conn: &MigrationDatabase, user: &User, org: &Organization) {
+		let mut conn_handle = **conn;
 		OrganizationMembership::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&OrganizationMembership::build()
 					.organization(org.id.expect("created org has id"))
 					.user(user.id)
@@ -806,13 +886,14 @@ mod tests {
 	}
 
 	async fn create_deployment(
-		conn: &Arc<DatabaseConnection>,
+		conn: &MigrationDatabase,
 		org: &Organization,
 		project_name: &str,
 	) -> Deployment {
+		let mut conn_handle = **conn;
 		let cluster = Cluster::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Cluster::build()
 					.organization(org.id.expect("created org has id"))
 					.name(format!("{project_name}-cluster"))
@@ -826,7 +907,7 @@ mod tests {
 			.expect("create cluster");
 		Deployment::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Deployment::build()
 					.organization(org.id.expect("created org has id"))
 					.project_name(project_name.to_string())
@@ -1176,7 +1257,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_deployment_subscriptions_allows_current_org_deployments(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1201,7 +1282,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_deployment_subscriptions_skips_cross_org_deployment_guess(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1252,7 +1333,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_allows_deployment_in_current_org(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1279,7 +1360,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_user_without_membership(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1309,7 +1390,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_cross_org_deployment_guess(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;

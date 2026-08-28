@@ -7,10 +7,13 @@ pub mod integration {
 }
 pub mod unit {
 	pub mod test_cli_serializers;
+	#[cfg(not(wasm))]
+	pub mod test_client_forms;
 	pub mod test_deployment_model;
 	pub mod test_deployment_property;
 	pub mod test_preview_component;
 	pub mod test_preview_status;
+	pub mod test_query_v2;
 	pub mod test_request_validation;
 	pub mod test_serializer;
 	pub mod test_submit_service;

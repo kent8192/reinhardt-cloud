@@ -2,33 +2,38 @@
 //!
 //! Client SPA routes for the auth app.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::auth::client::pages::{account_page, login_page, register_page};
-#[cfg(native)]
+#[cfg(server)]
+use reinhardt::pages::router::ClientRouter;
+
+#[cfg(server)]
 use crate::apps::auth::server_urls;
 
+#[cfg(server)]
+type AppRouter = UnifiedRouter<ClientRouter>;
+#[cfg(not(server))]
+type AppRouter = UnifiedRouter;
+
 /// Returns the unified URL patterns for the auth app.
-pub fn url_patterns() -> UnifiedRouter {
-	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::verify_email)
-				.endpoint(server_urls::oauth_start)
-				.endpoint(server_urls::oauth_callback)
-				.endpoint(server_urls::api_me);
-			s
-		})
-		.client(|c| {
-			c.component(account_page)
-				.component(login_page)
-				.component(register_page)
-		})
+pub fn url_patterns() -> AppRouter {
+	let router = UnifiedRouter::new();
+	#[cfg(server)]
+	let router = router.server(|s| {
+		s.endpoint(server_urls::verify_email)
+			.endpoint(server_urls::oauth_start)
+			.endpoint(server_urls::oauth_callback)
+			.endpoint(server_urls::api_me)
+	});
+	#[cfg(client)]
+	let router = router.client(|client| client);
+	router
 }
 
-#[cfg(all(test, native))]
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;
@@ -66,35 +71,5 @@ mod tests {
 
 		// Assert — the CLI calls this endpoint to verify a bearer token.
 		assert_eq!(me, Some("/api/auth/me/".to_string()));
-	}
-
-	#[rstest]
-	fn account_page_route_is_registered() {
-		// Arrange
-		let router = UnifiedRouter::new()
-			.mount_unified("/", super::url_patterns())
-			.into_client();
-
-		// Act
-		let account = router.reverse("auth:account_page", &[]);
-
-		// Assert
-		assert_eq!(account, Ok("/account".to_string()));
-	}
-
-	#[rstest]
-	fn login_and_register_page_routes_are_registered_from_component_metadata() {
-		// Arrange
-		let router = UnifiedRouter::new()
-			.mount_unified("/", super::url_patterns())
-			.into_client();
-
-		// Act
-		let login = router.reverse("auth:login_page", &[]);
-		let register = router.reverse("auth:register_page", &[]);
-
-		// Assert
-		assert_eq!(login, Ok("/login".to_string()));
-		assert_eq!(register, Ok("/register".to_string()));
 	}
 }

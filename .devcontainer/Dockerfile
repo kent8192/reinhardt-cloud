@@ -46,11 +46,8 @@ RUN cargo install cargo-nextest --locked --version 0.9.133
 RUN cargo install cargo-audit --locked --version 0.22.1
 RUN cargo install bacon --locked --version 3.22.0
 
-# wasm-bindgen-cli must match the `wasm-bindgen` version in `Cargo.lock`
-# (currently 0.2.118). Note: `dashboard/Makefile.toml`'s `wasm-install-tools`
-# task pins 0.2.114 today; that mismatch is tracked separately and may
-# overwrite this version when `cargo make wasm-build-dev` runs.
-RUN cargo install wasm-bindgen-cli --locked --version 0.2.118
+# wasm-bindgen-cli must match the `wasm-bindgen` version in `Cargo.lock`.
+RUN cargo install wasm-bindgen-cli --locked --version 0.2.126
 
 # `reinhardt-admin` provides the `fmt-all` subcommand used by `cargo make fmt-check`.
 RUN cargo install reinhardt-admin-cli --locked --version 0.1.0-rc.15

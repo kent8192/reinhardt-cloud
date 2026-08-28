@@ -19,7 +19,7 @@ use reinhardt_cloud_dashboard::shared::client::state;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
-use web_sys::HtmlInputElement;
+use web_sys::{HtmlFormElement, HtmlInputElement};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -58,7 +58,7 @@ fn launch_dashboard_at(path: &str) {
 fn cluster_fixture() -> ClusterInfo {
 	ClusterInfo {
 		id: 42,
-		name: "prod-us-east".to_string(),
+		name: "query-loaded-cluster".to_string(),
 		api_url: "https://kubernetes.example.com:6443".to_string(),
 		is_active: true,
 		token_last_rotated_at: Some("2026-06-21T00:00:00Z".to_string()),
@@ -78,13 +78,23 @@ async fn clusters_page_loads_and_submits_with_msw() {
 	});
 	worker.handle_server_fn::<create_cluster_for_current_org::marker>(move |args| {
 		create_call_count_for_handler.set(create_call_count_for_handler.get() + 1);
-		assert_eq!(args.name, "staging-eu");
-		assert_eq!(args.api_url, "https://staging.example.com:6443");
+		let name = args
+			.payload
+			.name()
+			.expect("generated form supplies name")
+			.to_string();
+		let api_url = args
+			.payload
+			.api_url()
+			.expect("generated form supplies API URL")
+			.to_string();
+		assert_eq!(name, "staging-eu");
+		assert_eq!(api_url, "https://staging.example.com:6443");
 		Ok(ClusterTokenInfo {
 			cluster: ClusterInfo {
 				id: 43,
-				name: args.name,
-				api_url: args.api_url,
+				name,
+				api_url,
 				is_active: true,
 				token_last_rotated_at: Some("2026-06-21T00:01:00Z".to_string()),
 			},
@@ -100,7 +110,7 @@ async fn clusters_page_loads_and_submits_with_msw() {
 	let screen_for_inventory_wait = screen.clone();
 	wait_for(move || {
 		screen_for_inventory_wait
-			.get_by_text("prod-us-east")
+			.get_by_text("query-loaded-cluster")
 			.query()
 			.is_some()
 	})
@@ -112,23 +122,34 @@ async fn clusters_page_loads_and_submits_with_msw() {
 		.assert_called();
 
 	let name_input: HtmlInputElement = screen
-		.get_by_placeholder_text("prod-us-east")
+		.get_by_label_text("Name")
 		.get()
 		.dyn_into()
 		.expect("cluster name input");
-	let api_url_input: HtmlInputElement = screen
-		.get_by_placeholder_text("https://kubernetes.example.com:6443")
-		.get()
-		.dyn_into()
-		.expect("cluster API URL input");
-	let submit = screen
-		.get_by_role_with_name("button", "Create cluster")
-		.get();
 
 	// Act
 	UserEvent::type_text(&name_input, "staging-eu");
+
+	// Typing re-renders the reactive form, so acquire the next control from
+	// the current DOM rather than dispatching to the detached input node.
+	let api_url_input: HtmlInputElement = screen
+		.get_by_label_text("API URL")
+		.get()
+		.dyn_into()
+		.expect("cluster API URL input");
 	UserEvent::type_text(&api_url_input, "https://staging.example.com:6443");
-	UserEvent::click(&submit);
+
+	let submit = screen
+		.get_by_role_with_name("button", "Register cluster")
+		.get();
+	let create_form: HtmlFormElement = submit
+		.parent_element()
+		.expect("cluster create form parent")
+		.dyn_into()
+		.expect("cluster create form");
+	create_form
+		.request_submit()
+		.expect("cluster create form should dispatch a submit event");
 
 	// Assert
 	let create_call_count_for_wait = Rc::clone(&create_call_count);
@@ -139,4 +160,16 @@ async fn clusters_page_loads_and_submits_with_msw() {
 	worker
 		.calls_to_server_fn::<create_cluster_for_current_org::marker>()
 		.assert_count(1);
+	let name_after_reset: HtmlInputElement = screen
+		.get_by_label_text("Name")
+		.get()
+		.dyn_into()
+		.expect("cluster name input after reset");
+	let api_url_after_reset: HtmlInputElement = screen
+		.get_by_label_text("API URL")
+		.get()
+		.dyn_into()
+		.expect("cluster API URL input after reset");
+	assert_eq!(name_after_reset.value(), "");
+	assert_eq!(api_url_after_reset.value(), "");
 }

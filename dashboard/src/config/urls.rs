@@ -18,8 +18,8 @@
 //! `#[injectable]`. These are aggregated into
 //! `RouterInfrastructure` (a transient factory) together with the
 //! admin routes, DI context, and Redis session backend.
-//! The router builder resolves `RouterInfrastructure` from the
-//! DI registry at startup.
+//! The routes entry point resolves `RouterInfrastructure` from the
+//! DI registry at startup, then builds the client-enabled router outside DI.
 //!
 //! ## WebSocket routes (native only)
 //!
@@ -37,23 +37,27 @@ use reinhardt::ServerRouter;
 #[cfg(native)]
 use reinhardt::admin::{admin_routes_with_di, admin_static_routes};
 #[cfg(native)]
-use reinhardt::di::{
-	ContextLevel, Depends, DiRegistrationList, FactoryOutput, InjectionContext, get_di_context,
-};
+use reinhardt::di::{Depends, DiRegistrationList, injectable};
+#[cfg(native)]
+use reinhardt::pages::router::ClientRouter;
 #[cfg(native)]
 use reinhardt::pages::server_fn::ServerFnRouterExt;
 use reinhardt::routes;
-#[cfg(native)]
 use reinhardt::urls::prelude::UnifiedRouter;
 
 #[cfg(native)]
-use crate::shared::client::pages::not_found::not_found_page;
+type DashboardUnifiedRouter = UnifiedRouter<ClientRouter>;
+// The `#[routes]` macro consumes this wasm-only signature while generating
+// route resolvers, so rustc does not see a direct use after expansion.
+#[cfg(not(native))]
+#[allow(dead_code)]
+type DashboardUnifiedRouter = UnifiedRouter;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reinhardt::{WebSocketRoute, WebSocketRouter, register_websocket_router};
 
 #[cfg(native)]
-use crate::apps::auth::services::{LocalAuthService, LocalAuthServiceKey};
+use crate::apps::auth::services::LocalAuthService;
 #[cfg(native)]
 use crate::apps::auth::{server_fn, urls as auth_urls};
 #[cfg(native)]
@@ -69,15 +73,15 @@ use crate::apps::health::urls as health_urls;
 #[cfg(native)]
 use crate::apps::organizations::urls as organization_urls;
 #[cfg(native)]
+use crate::config::GrpcChannelSingleton;
+#[cfg(native)]
 use crate::config::admin::configure_admin;
 #[cfg(native)]
 use crate::config::middleware::CspPathMiddleware;
 #[cfg(native)]
 use crate::config::settings::{get_redis_url, get_settings};
 #[cfg(native)]
-use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
-#[cfg(native)]
-use crate::utils::realtime::{WsBroadcaster, WsBroadcasterKey};
+use crate::utils::realtime::WsBroadcaster;
 #[cfg(native)]
 use reinhardt::{
 	CookieSessionAuthMiddleware, CookieSessionConfig, OriginGuardMiddleware, RedisSessionBackend,
@@ -97,20 +101,17 @@ const DASHBOARD_STATIC_URL_PREFIX: &str = "/api/static/";
 pub(crate) struct AllowedOrigins(pub Vec<String>);
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct AllowedOriginsKey;
-
 /// DI factory — resolves allowed origins from settings.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_allowed_origins() -> FactoryOutput<AllowedOriginsKey, AllowedOrigins> {
+#[injectable(scope = "singleton")]
+async fn create_allowed_origins() -> AllowedOrigins {
 	let settings = get_settings();
 	let port = std::env::var("PORT").ok();
-	FactoryOutput::new(AllowedOrigins(build_allowed_origins(
+	AllowedOrigins(build_allowed_origins(
 		&settings.cors.allow_origins,
 		settings.core.debug,
 		port.as_deref(),
-	)))
+	))
 }
 
 #[cfg(native)]
@@ -147,16 +148,12 @@ fn build_allowed_origins(configured: &[String], debug: bool, port: Option<&str>)
 pub(crate) struct DashboardSessionConfig(pub CookieSessionConfig);
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct DashboardSessionConfigKey;
-
 /// DI factory — builds `DashboardSessionConfig` from settings.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_cookie_session_config()
--> FactoryOutput<DashboardSessionConfigKey, DashboardSessionConfig> {
+#[injectable(scope = "singleton")]
+async fn create_cookie_session_config() -> DashboardSessionConfig {
 	let settings = get_settings();
-	FactoryOutput::new(DashboardSessionConfig(CookieSessionConfig {
+	DashboardSessionConfig(CookieSessionConfig {
 		cookie_name: "sessionid".to_string(),
 		sliding_ttl: std::time::Duration::from_secs(1800),
 		absolute_max: std::time::Duration::from_secs(86400),
@@ -170,19 +167,17 @@ async fn create_cookie_session_config()
 			"/api/docs".to_string(),
 			"/api/redoc".to_string(),
 		],
-	}))
+	})
 }
 
 // ── Router infrastructure ───────────────────────────────────────────
 
 /// Pre-built infrastructure components for the application router.
 ///
-/// Groups the DI context, admin routes with DI registrations,
-/// session backend, and middleware configuration so they can be
-/// resolved as a single dependency by `make_router`.
+/// Groups admin routes with DI registrations, session backend, and middleware
+/// configuration so they can be resolved as a single dependency by `make_router`.
 #[cfg(native)]
 pub(crate) struct RouterInfrastructure {
-	pub di_ctx: Arc<InjectionContext>,
 	pub admin_router: ServerRouter,
 	pub admin_di: DiRegistrationList,
 	pub session_backend: Arc<RedisSessionBackend>,
@@ -191,9 +186,6 @@ pub(crate) struct RouterInfrastructure {
 }
 
 #[cfg(native)]
-#[reinhardt::di::injectable_key]
-pub(crate) struct RouterInfrastructureKey;
-
 /// DI factory — builds shared router infrastructure components.
 ///
 /// Resolves `AllowedOrigins`, `DashboardSessionConfig`, `WsBroadcaster`,
@@ -204,15 +196,14 @@ pub(crate) struct RouterInfrastructureKey;
 /// — this surfaces a misconfigured `GRPC_ENDPOINT` immediately rather than
 /// on the first RPC.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "transient")]
+#[injectable(scope = "transient")]
 async fn create_router_infrastructure(
-	#[inject] allowed_origins: Depends<AllowedOriginsKey, AllowedOrigins>,
-	#[inject] session_config: Depends<DashboardSessionConfigKey, DashboardSessionConfig>,
-	#[inject] _ws_broadcaster: Depends<WsBroadcasterKey, WsBroadcaster>,
-	#[inject] _local_auth_service: Depends<LocalAuthServiceKey, LocalAuthService>,
-	#[inject] _grpc_channel: Depends<GrpcChannelSingletonKey, GrpcChannelSingleton>,
-) -> FactoryOutput<RouterInfrastructureKey, RouterInfrastructure> {
-	let di_ctx = get_di_context(ContextLevel::Root);
+	#[inject] allowed_origins: Depends<AllowedOrigins>,
+	#[inject] session_config: Depends<DashboardSessionConfig>,
+	#[inject] _ws_broadcaster: Depends<WsBroadcaster>,
+	#[inject] _local_auth_service: Depends<LocalAuthService>,
+	#[inject] _grpc_channel: Depends<GrpcChannelSingleton>,
+) -> RouterInfrastructure {
 	initialize_dashboard_static_resolver();
 
 	// Configure admin site with DI registration.
@@ -227,38 +218,22 @@ async fn create_router_infrastructure(
 			.expect("Failed to create Redis session backend"),
 	);
 
-	FactoryOutput::new(RouterInfrastructure {
-		di_ctx,
+	RouterInfrastructure {
 		admin_router,
 		admin_di,
 		session_backend,
 		allowed_origins: allowed_origins.0.clone(),
 		session_config: session_config.0.clone(),
-	})
+	}
 }
 
 // ── Router construction ─────────────────────────────────────────────
 
-/// Application-specific router wrapper.
-///
-/// Wraps the framework's `UnifiedRouter` to comply with the DI pseudo
-/// orphan rule (kent8192/reinhardt-web#3468). The `#[routes]` entry
-/// point unwraps this to return the inner `UnifiedRouter` to the framework.
-#[cfg(native)]
-#[derive(Debug)]
-pub(crate) struct DashboardRouter(pub UnifiedRouter);
-
-#[cfg(native)]
-#[reinhardt::di::injectable_key]
-#[derive(Debug)]
-pub(crate) struct DashboardRouterKey;
-
 /// Entry point for the `#[routes]` macro (called by the framework).
 ///
-/// On native, the `#[inject]` parameter resolves `DashboardRouter` from
-/// the DI registry, which triggers the `make_router` factory and all its
-/// transitive dependencies. The framework creates the `InjectionContext`
-/// automatically for async routes.
+/// On native, the `#[inject]` parameter resolves the Send-safe router
+/// infrastructure. The client-enabled `UnifiedRouter` is intentionally built
+/// afterwards because its reactive client state is not Send or Sync.
 ///
 /// On wasm the function reduces to a stub that returns an empty
 /// `UnifiedRouter`. The body is never executed in a browser context —
@@ -269,14 +244,14 @@ pub(crate) struct DashboardRouterKey;
 pub async fn routes(
 	#[cfg(native)]
 	#[inject]
-	router: Depends<DashboardRouterKey, DashboardRouter>,
-) -> UnifiedRouter {
+	infra: Depends<RouterInfrastructure>,
+) -> DashboardUnifiedRouter {
 	#[cfg(native)]
 	{
-		router
+		let infra = infra
 			.try_unwrap()
-			.expect("DashboardRouter has multiple owners after resolve")
-			.0
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
+		build_dashboard_router(infra)
 	}
 	#[cfg(not(native))]
 	{
@@ -297,36 +272,23 @@ fn initialize_dashboard_static_resolver() {
 	);
 }
 
-/// Build the application router by resolving dependencies from DI.
+/// Build the application router from DI-resolved infrastructure.
 ///
-/// Infrastructure components (`RouterInfrastructure`) are resolved
-/// transitively from the DI registry. Tests can override singletons
-/// like `AllowedOrigins` by pre-registering in the `SingletonScope`
-/// before calling this function.
+/// The `#[routes]` inventory wrapper attaches its own injection context after
+/// this builder returns. Direct callers must attach their context themselves.
 #[cfg(native)]
-#[reinhardt::di::injectable(scope = "transient")]
-async fn make_router(
-	#[inject] infra: Depends<RouterInfrastructureKey, RouterInfrastructure>,
-) -> FactoryOutput<DashboardRouterKey, DashboardRouter> {
-	let infra = infra
-		.try_unwrap()
-		.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
-
-	let unified = UnifiedRouter::new()
-			// Project-level SPA 404 fallback — owned here rather than by any
-			// individual app because Reinhardt's `not_found` slot is per
-			// `UnifiedRouter`, not per mounted segment.
-			.client(|c| c.not_found(not_found_page))
+pub(crate) fn build_dashboard_router(infra: RouterInfrastructure) -> DashboardUnifiedRouter {
+	UnifiedRouter::new()
+			// App routers contribute server routes only. The complete client tree
+			// is attached below so layout nesting has one source of truth.
+			.client(|c| c)
 			// Admin panel
 			.mount("/admin/", infra.admin_router)
 			.mount("/static/admin/", admin_static_routes())
 			.with_prefix("/api/")
 			.with_di_registrations(infra.admin_di)
-			// Per-app unified routers — `mount_unified` carries server
-			// endpoints (mounted under the given prefix) AND merges client
-			// SPA `route` entries into the parent's client router so
-			// the global reverser sees `auth:login_page`,
-			// `dashboard:home`, etc.
+			// Per-app unified routers carry server endpoints under the given
+			// prefix. SPA route registration is centralized below.
 			.mount_unified("/", dashboard_urls::url_patterns())
 			.mount_unified("/auth/", auth_urls::url_patterns())
 			// Cluster and deployment data mutations are exposed through
@@ -337,6 +299,7 @@ async fn make_router(
 			.mount_unified("/github/", github_urls::url_patterns())
 			.mount_unified("/", health_urls::url_patterns())
 			.mount_unified("/", organization_urls::url_patterns())
+			.client(crate::client::router::configure_routes)
 			.server(|s| {
 				s.server_fn(server_fn::login::login::marker)
 					.server_fn(server_fn::linked_accounts::list_linked_oauth_accounts::marker)
@@ -363,7 +326,6 @@ async fn make_router(
 					.server_fn(github_server_fn::list_github_project_previews_for_current_org::marker)
 					.server_fn(github_server_fn::import_github_repository_for_current_org::marker)
 			})
-			.with_di_context(infra.di_ctx)
 			.with_middleware(SecurityMiddleware::new())
 			.with_middleware(CspPathMiddleware)
 			.with_middleware(OriginGuardMiddleware::new(infra.allowed_origins))
@@ -371,9 +333,8 @@ async fn make_router(
 				infra.session_backend,
 				infra.session_config,
 			))
-			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware);
-
-	FactoryOutput::new(DashboardRouter(unified))
+			.with_middleware(crate::apps::auth::middleware::validated_session::ValidatedSessionAuthMiddleware)
+			.with_middleware(crate::apps::auth::middleware::api_token::ApiTokenAuthMiddleware)
 }
 
 // ── WebSocket routes ────────────────────────────────────────────────

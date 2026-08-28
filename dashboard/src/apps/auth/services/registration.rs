@@ -19,21 +19,21 @@
 use chrono::Utc;
 use reinhardt::BaseUser;
 use reinhardt::core::exception::Error as AppError;
-use reinhardt::db::orm::connection::QueryValue;
-use reinhardt::db::orm::transaction::TransactionScope;
+use reinhardt::db::orm::transaction::AtomicTransaction;
 use reinhardt::db::orm::{Model, get_connection};
 use tracing::{error, info};
 
 use crate::apps::auth::models::User;
 use crate::apps::auth::services::email::EmailService;
 use crate::apps::auth::services::token::{TokenPurpose, generate_token};
+use crate::apps::organizations::models::{Organization, OrganizationMembership};
 use crate::apps::organizations::roles::{
 	MembershipRole, is_reserved_slug, sanitize_username_to_slug, validate_slug,
 };
 use crate::config::ProjectSettings;
 
 const MAX_ORG_SLUG_LEN: usize = 63;
-type ProvisionResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type ProvisionResult<T> = Result<T, AppError>;
 
 /// Register an inactive user and send the verification email.
 ///
@@ -67,7 +67,10 @@ pub async fn register_inactive_user(
 		Err(e) => {
 			let err_lower = e.to_string().to_lowercase();
 			if err_lower.contains("unique") || err_lower.contains("duplicate") {
-				let message = if err_lower.contains("auth_user_email_uniq") {
+				let message = if err_lower.contains("email_uniq")
+					|| err_lower.contains("key (email)")
+					|| err_lower.contains("(email)=")
+				{
 					"Email already exists"
 				} else {
 					"Username already exists"
@@ -142,160 +145,129 @@ async fn provision_personal_organization_inner(
 		AppError::Internal("Internal server error".to_string())
 	})?;
 
-	let mut tx = TransactionScope::begin(&conn).await.map_err(|e| {
-		error!("Failed to begin Personal Org provisioning transaction: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
-
-	let result = provision_personal_organization_tx(&mut tx, user_id, username).await;
+	let base_slug = personal_org_slug(&username);
+	let mut result = Err(AppError::Internal(
+		"Personal Org provisioning did not run".to_string(),
+	));
+	for attempt in 0..2 {
+		let slug = if attempt == 0 {
+			base_slug.clone()
+		} else {
+			retry_slug(&base_slug)
+		};
+		result = conn
+			.atomic(async |tx| {
+				provision_personal_organization_tx(tx, user_id, username.clone(), slug).await
+			})
+			.await;
+		match &result {
+			Ok(()) => break,
+			Err(error) if attempt == 0 && is_unique_violation(error) => continue,
+			Err(_) => break,
+		}
+	}
 
 	if let Err(e) = result {
 		error!(
 			"Failed to provision Personal Org for user {}: {e}",
 			created.id
 		);
-		if let Err(rollback_err) = tx.rollback().await {
-			error!("Failed to roll back Personal Org provisioning transaction: {rollback_err}");
-		}
 		if rollback_on_failure {
 			rollback_user(created).await;
 		}
+		if matches!(&e, AppError::Authorization(_)) {
+			return Err(e);
+		}
 		return Err(AppError::Internal("Internal server error".to_string()));
 	}
-
-	tx.commit().await.map_err(|e| {
-		error!("Failed to commit Personal Org provisioning transaction: {e}");
-		AppError::Internal("Internal server error".to_string())
-	})?;
 
 	Ok(())
 }
 
 async fn provision_personal_organization_tx(
-	tx: &mut TransactionScope,
+	tx: &mut AtomicTransaction,
 	user_id: uuid::Uuid,
 	username: String,
+	slug: String,
 ) -> ProvisionResult<()> {
-	lock_personal_org_provisioning(tx, user_id).await?;
-	if find_personal_organization_id(tx, user_id).await?.is_some() {
-		return Ok(());
+	let locked_users = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.select_for_update()
+		.all_with_executor(tx)
+		.await?;
+	if locked_users.len() != 1 {
+		return Err(AppError::Internal(
+			"Personal Org user no longer exists".to_string(),
+		));
 	}
 
-	let now = Utc::now();
-	let slug = personal_org_slug(&username);
-	let org_id = if let Some(org_id) =
-		insert_personal_organization(tx, user_id, &username, &slug, now).await?
-	{
-		org_id
+	let existing = Organization::objects()
+		.filter(Organization::field_created_by().eq(user_id))
+		.order_by(&["created_at"])
+		.all_with_db(tx)
+		.await?
+		.into_iter()
+		.next();
+	let (organization_id, existing_personal_org) = if let Some(organization) = existing {
+		let organization_id = organization.id.ok_or_else(|| {
+			AppError::Internal("Personal Organization is missing its primary key".to_string())
+		})?;
+		(organization_id, true)
 	} else {
-		if find_personal_organization_id(tx, user_id).await?.is_some() {
-			return Ok(());
-		}
-		let retry = retry_slug(&slug);
-		insert_personal_organization(tx, user_id, &username, &retry, now)
+		let now = Utc::now();
+		let organization = Organization {
+			id: None,
+			slug,
+			name: username,
+			created_by: user_id,
+			created_at: now,
+			updated_at: now,
+		};
+		let organization_id = Organization::objects()
+			.create_with_conn(tx, &organization)
 			.await?
+			.id
 			.ok_or_else(|| {
-				std::io::Error::other("retry Personal Organization slug also conflicted")
-			})?
+				AppError::Internal("created Personal Organization has no primary key".to_string())
+			})?;
+		(organization_id, false)
 	};
 
-	if !insert_owner_membership(tx, user_id, org_id, now).await?
-		&& find_personal_organization_id(tx, user_id).await?.is_none()
-	{
-		return Err(std::io::Error::other(
-			"Owner membership already existed for a non-Personal Organization",
-		)
-		.into());
+	let existing_membership = OrganizationMembership::objects()
+		.filter(OrganizationMembership::field_organization_id().eq(organization_id))
+		.filter(OrganizationMembership::field_user_id().eq(user_id))
+		.all_with_db(tx)
+		.await?
+		.into_iter()
+		.next();
+	if let Some(membership) = existing_membership {
+		if membership.role != MembershipRole::Owner.as_db_str() {
+			return Err(AppError::Internal(
+				"Personal Organization membership is not owner".to_string(),
+			));
+		}
+		return Ok(());
+	}
+	if existing_personal_org {
+		return Err(AppError::Authorization(
+			"Personal Organization membership is no longer active".to_string(),
+		));
 	}
 
+	let membership = OrganizationMembership::build()
+		.organization(organization_id)
+		.user(user_id)
+		.role(MembershipRole::Owner.as_db_str().to_string())
+		.finish();
+	OrganizationMembership::objects()
+		.create_with_conn(tx, &membership)
+		.await?;
 	Ok(())
 }
 
-async fn lock_personal_org_provisioning(
-	tx: &mut TransactionScope,
-	user_id: uuid::Uuid,
-) -> ProvisionResult<()> {
-	tx.execute(
-		"SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-		vec![QueryValue::String(user_id.to_string())],
-	)
-	.await?;
-	Ok(())
-}
-
-async fn find_personal_organization_id(
-	tx: &mut TransactionScope,
-	user_id: uuid::Uuid,
-) -> ProvisionResult<Option<i64>> {
-	let row = tx
-		.query_optional(
-			"SELECT o.id \
-			 FROM organizations o \
-			 JOIN organization_memberships m ON m.organization_id = o.id \
-			 WHERE o.created_by = $1 \
-			   AND m.user_id = $1 \
-			   AND m.role = $2 \
-			 ORDER BY o.created_at ASC \
-			 LIMIT 1",
-			vec![
-				QueryValue::Uuid(user_id),
-				QueryValue::String(MembershipRole::Owner.as_db_str().to_string()),
-			],
-		)
-		.await?;
-	Ok(row.and_then(|row| row.get("id")))
-}
-
-async fn insert_personal_organization(
-	tx: &mut TransactionScope,
-	user_id: uuid::Uuid,
-	username: &str,
-	slug: &str,
-	now: chrono::DateTime<Utc>,
-) -> ProvisionResult<Option<i64>> {
-	let row = tx
-		.query_optional(
-			"INSERT INTO organizations (slug, name, created_by, created_at, updated_at) \
-			 VALUES ($1, $2, $3, $4, $5) \
-			 ON CONFLICT (slug) DO NOTHING \
-			 RETURNING id",
-			vec![
-				QueryValue::String(slug.to_string()),
-				QueryValue::String(username.to_string()),
-				QueryValue::Uuid(user_id),
-				QueryValue::Timestamp(now),
-				QueryValue::Timestamp(now),
-			],
-		)
-		.await?;
-	row.map(|row| {
-		row.get("id")
-			.ok_or_else(|| std::io::Error::other("created Personal Organization did not return id"))
-	})
-	.transpose()
-	.map_err(Into::into)
-}
-
-async fn insert_owner_membership(
-	tx: &mut TransactionScope,
-	user_id: uuid::Uuid,
-	org_id: i64,
-	now: chrono::DateTime<Utc>,
-) -> ProvisionResult<bool> {
-	let rows = tx
-		.execute(
-			"INSERT INTO organization_memberships (organization_id, user_id, role, created_at) \
-		 VALUES ($1, $2, $3, $4) \
-		 ON CONFLICT ON CONSTRAINT organization_memberships_org_user_unique DO NOTHING",
-			vec![
-				QueryValue::Int(org_id),
-				QueryValue::Uuid(user_id),
-				QueryValue::String(MembershipRole::Owner.as_db_str().to_string()),
-				QueryValue::Timestamp(now),
-			],
-		)
-		.await?;
-	Ok(rows > 0)
+fn is_unique_violation(error: &AppError) -> bool {
+	let message = error.to_string().to_lowercase();
+	message.contains("unique") || message.contains("duplicate")
 }
 
 fn personal_org_slug(username: &str) -> String {

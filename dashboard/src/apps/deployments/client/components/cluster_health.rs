@@ -23,12 +23,12 @@ const CONTAINER_ID: &str = "cluster-health";
 /// Render the cluster health container (empty; rows added dynamically).
 #[cfg(wasm)]
 pub fn cluster_health_container() -> Page {
-	page!(|| {
+	page!({
 		div {
 			id: "cluster-health",
 			class: "cluster-health grid gap-2",
 		}
-	})()
+	})
 }
 
 #[cfg(not(wasm))]

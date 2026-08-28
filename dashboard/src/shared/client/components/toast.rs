@@ -8,17 +8,18 @@ use reinhardt::pages::component::Page;
 #[cfg(wasm)]
 use reinhardt::pages::page;
 
+use crate::shared::client::style::STYLES;
 use crate::shared::ws_messages::NotificationLevel;
 
 /// Render the toast container overlay (empty; toasts added dynamically).
 #[cfg(wasm)]
 pub fn toast_container() -> Page {
-	page!(|| {
+	page!({
 		div {
 			id: "toast-container",
-			class: "fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm",
+			class: STYLES.toast_container(),
 		}
-	})()
+	})
 }
 
 /// Dynamically add a toast notification to the container.
@@ -35,20 +36,22 @@ pub fn show_toast(level: &NotificationLevel, title: &str, message: &str) {
 	};
 
 	let toast = document.create_element("div").unwrap();
-	let (bg, border, icon) = toast_style(level);
+	let (variant, icon) = toast_style(level);
 
 	toast
-		.set_attribute(
-			"class",
-			&format!("{bg} {border} border rounded-md shadow-lg p-4"),
-		)
+		.set_attribute("class", &format!("{} {}", STYLES.toast().as_str(), variant))
 		.unwrap();
 
 	let title_escaped = html_escape(title);
 	let message_escaped = html_escape(message);
 
 	toast.set_inner_html(&format!(
-		r#"<div class="flex items-start gap-3"><span class="text-lg shrink-0">{icon}</span><div class="min-w-0"><p class="font-semibold text-sm text-ink-950">{title_escaped}</p><p class="text-sm text-ink-600 mt-0.5">{message_escaped}</p></div></div>"#
+		r#"<div class="{}"><span class="{}">{icon}</span><div class="{}"><p class="{}">{title_escaped}</p><p class="{}">{message_escaped}</p></div></div>"#,
+		STYLES.toast_content().as_str(),
+		STYLES.toast_icon().as_str(),
+		STYLES.toast_body().as_str(),
+		STYLES.toast_title().as_str(),
+		STYLES.toast_message().as_str(),
 	));
 
 	container.append_child(&toast).unwrap();
@@ -61,11 +64,11 @@ pub fn show_toast(level: &NotificationLevel, title: &str, message: &str) {
 }
 
 /// Map notification level to CSS classes and icon.
-pub fn toast_style(level: &NotificationLevel) -> (&'static str, &'static str, &'static str) {
+pub fn toast_style(level: &NotificationLevel) -> (&'static str, &'static str) {
 	match level {
-		NotificationLevel::Info => ("bg-blue-50", "border-blue-200", "\u{2139}\u{FE0F}"),
-		NotificationLevel::Warning => ("bg-amber-50", "border-amber-200", "\u{26A0}\u{FE0F}"),
-		NotificationLevel::Critical => ("bg-red-50", "border-red-200", "\u{274C}"),
+		NotificationLevel::Info => (STYLES.toast_info().as_str(), "\u{2139}\u{FE0F}"),
+		NotificationLevel::Warning => (STYLES.toast_warning().as_str(), "\u{26A0}\u{FE0F}"),
+		NotificationLevel::Critical => (STYLES.toast_critical().as_str(), "\u{274C}"),
 	}
 }
 
@@ -83,20 +86,18 @@ mod tests {
 	use rstest::rstest;
 
 	#[rstest]
-	#[case(NotificationLevel::Info, "bg-blue-50", "border-blue-200")]
-	#[case(NotificationLevel::Warning, "bg-amber-50", "border-amber-200")]
-	#[case(NotificationLevel::Critical, "bg-red-50", "border-red-200")]
+	#[case(NotificationLevel::Info, STYLES.toast_info().as_str())]
+	#[case(NotificationLevel::Warning, STYLES.toast_warning().as_str())]
+	#[case(NotificationLevel::Critical, STYLES.toast_critical().as_str())]
 	fn test_toast_style_returns_correct_classes(
 		#[case] level: NotificationLevel,
-		#[case] expected_bg: &str,
-		#[case] expected_border: &str,
+		#[case] expected_variant: &str,
 	) {
 		// Act
-		let (bg, border, _icon) = toast_style(&level);
+		let (variant, _icon) = toast_style(&level);
 
 		// Assert
-		assert_eq!(bg, expected_bg);
-		assert_eq!(border, expected_border);
+		assert_eq!(variant, expected_variant);
 	}
 
 	#[rstest]

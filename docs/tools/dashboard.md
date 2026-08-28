@@ -68,14 +68,38 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The WASM client router (`dashboard/src/client/router.rs`) registers the top-level client routes, and the HTTP server mounts project namespaces plus an admin panel:
+The v0.4.0-alpha.11 WASM client (`dashboard/src/client/router.rs`) defines one
+`ClientRouter` tree. `/login` and `/register` are public root routes. The
+authenticated `#[layout]` Dashboard shell renders `/`, `/account`, `/clusters`,
+`/deployments`, and `/github` as child routes through `Outlet`. The HTTP server
+continues to mount API namespaces and the admin panel separately:
 
-1. **Dashboard shell** (`/`) — the root application shell; landing view after login
+1. **Dashboard home** (`/`) — landing view after login
 2. **Account** (`/account`) — profile summary and GitHub account linking
-3. **Auth** (`/auth/`) — login, registration, OAuth callback, and session endpoints
-4. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
-5. **Deployments** (`/deployments/`) — deployment records paired with operator `Project` CRDs
-6. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
+3. **Clusters** (`/clusters/`) — registered Kubernetes cluster list and management
+4. **Deployments** (`/deployments/`) — deployment records paired with operator `Project` CRDs
+5. **GitHub** (`/github`) — repository import and deployment preview
+6. **Auth API** (`/auth/`) — login, registration, OAuth callback, and session endpoints
+7. **Admin panel** (`/api/admin/`) — operator-level administration UI (reinhardt-admin)
+
+Direct `page!({ ... })` bodies automatically capture cloneable local values in
+alpha.11; reserve explicit closure arguments for reusable page factories.
+Generated ClientForm submissions expose the same typed method on native and
+WASM, while model-backed forms keep their client-only typed response for
+one-time token delivery.
+
+### Client data fetching
+
+Dashboard reads use Query Client V2: generated server-function query
+descriptors are consumed with `use_query`, while the Launcher or SSR runtime
+owns the QueryClient. Pages distinguish an initial query failure from a
+background refetch failure. The Dashboard does not install a separate cache
+provider or a normalized entity cache. Successful mutations invalidate the
+affected query keys so dependent views refetch.
+
+The notification WebSocket is mounted at `/ws/notifications` through the
+unified router. Configure its separate `[ws_origin]` allow-list alongside
+`[cors]`; unlisted browser origins are rejected during the handshake.
 
 ---
 
@@ -85,7 +109,7 @@ The WASM client router (`dashboard/src/client/router.rs`) registers the top-leve
 
 The **Deployments** section (`/deployments/`) presents the PaaS-side records that correspond to `Project` CRDs in the cluster. Each entry shows the project name, the associated cluster, and deployment metadata recorded by the Dashboard when a deploy was triggered via the CLI or directly through the API.
 
-The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cluster-management records stored in the Dashboard's own database, not the operator's CRD list).
+The **Clusters** section (`/clusters/`) shows registered Kubernetes clusters (cluster-management records stored in the Dashboard's own database, not the operator's CRD list). Its generated creation form accepts only a cluster name and Kubernetes API URL; the owning organization, active state, and agent token state are set by the server.
 
 Dashboard operation forms use inventory-backed selectors for cluster, repository, and deployment targets. Operators choose records by recognizable names and metadata; the form posts the corresponding persisted ID internally.
 
@@ -100,6 +124,19 @@ The deployments application (`dashboard/src/apps/deployments/`) maintains a data
 Rollback capability via the Dashboard UI is not confirmed in source. To roll back a running workload, use `reinhardt-cloud deploy` with an older image tag, or apply the desired `Project` spec directly with `reinhardt-cloud deploy --direct`.
 
 ### Logs viewer
+
+The selected deployment is represented by the canonical client URL
+`/deployments?logs=<i64>`. Deployment IDs are positive `i64` values. The
+route receives `Query(logs): Query<Option<i64>>`: an omitted parameter is no
+selection, while a malformed value is rejected by the typed extractor. No UUID
+adapter is provided.
+
+GitHub repository imports hold a bounded 30-minute lease in the repository's
+dedicated `import_claimed_at` column while the external pipeline runs.
+Repository synchronization does not renew an active lease. If the process is
+interrupted before a project row is written, the next import request reclaims
+the expired lease; a conditional timestamp check prevents an older request
+from clearing a newer claim.
 
 Application logs are read through the Dashboard's JWT-protected gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
@@ -158,16 +195,25 @@ The image also:
 
 - **ORM**: reinhardt::db (built-in ORM from the `reinhardt` crate)
 - **Supported engines**: PostgreSQL — the only engine declared in `dashboard/settings/base.toml` (`engine = "postgresql"`)
-- **Migration source**: `dashboard/migrations/` — four app-level sub-directories (`auth/`, `clusters/`, `deployments/`, `default/`); all migrations are Rust source files
-- **Migration tooling**: run via the `manage` binary:
+- **Migration source**: `dashboard/migrations/` — six app-level initial migrations (`auth/`, `clusters/`, `default/`, `deployments/`, `github/`, and `organizations/`) plus generated follow-up migrations; all migrations are Rust source files
+- **Migration tooling**: generate migrations only with the authoritative command, then apply the checked-in migration set through the `manage` binary:
 
 ```bash
-cargo run --bin manage migrate
-# or with cargo-make:
-cargo make migrate
+cd dashboard && cargo make makemigrations
+cd dashboard && cargo run --bin manage migrate
 ```
 
-The migration command is provided by reinhardt-web's built-in `migrate` management command (invoked through `execute_from_command_line()` in `dashboard/src/bin/manage.rs`).
+The migration command is provided by reinhardt-web's built-in `migrate` management command (invoked through `execute_from_command_line()` in `dashboard/src/bin/manage.rs`). Migration files are generated source and must not be hand-edited.
+
+> **Breaking v0.4.0-alpha.11 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
+
+### v0.4.0-alpha.11 PR review checklist
+
+- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.11`. The only lockfile exception is the official, transitive `reinhardt-event-catalog 0.4.0-alpha.1`, which alpha.11 framework crates explicitly require because no alpha.11 event-catalog release exists. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
+- **Configuration, architecture, migration** (`configuration`, `architecture`, `migration`): verify the single client route tree, server configuration boundaries, generated migration history, and the empty-PostgreSQL-only upgrade contract.
+- **Pages, macros, signals** (`pages`, `macros`, `signals`): verify public versus authenticated layout placement, `Outlet` nesting, typed event handlers, and reactive query/form state.
+- **API, auth, authorization, dependency injection, modeling, admin** (`api-development`, `authentication`, `authorization`, `dependency-injection`, `modeling`, `admin`): verify server-function input ownership, session revalidation, organization scoping, injected services, database constraints, and admin registrations.
+- **Lint and testing** (`lint`, `testing`): run the format, native/WASM compile, component, database-schema, and migration-idempotence checks required by the Dashboard CI gate.
 
 ### Static asset / WASM asset caching
 
@@ -217,7 +263,7 @@ The Dashboard runtime image defaults `REINHARDT_ENV=production`, which loads `pr
 
 ### GitHub OAuth
 
-GitHub OAuth is enabled when all required provider settings and the OAuth token encryption key are present in the runtime environment. The login and registration pages show only configured providers. Existing users can link GitHub from `/account`; the callback attaches the provider identity to the active session user when a valid `sessionid` cookie is present.
+GitHub OAuth is enabled when all required provider settings and the OAuth token encryption key are present in the runtime environment. The login and registration pages show only configured providers. Normal OAuth sign-in uses its standard signed state flow and establishes a Dashboard session independently of account linking. Starting account linking from `/account` creates a signed, short-lived intent bound to the initiating valid session. Its callback requires the current `sessionid` to remain valid and match both the intent's user and session binding before it links the provider identity; logout, session rotation, or a session swap invalidates the link flow.
 
 The dashboard persists GitHub OAuth access tokens only after encrypting them with `REINHARDT_CLOUD_OAUTH_TOKEN_ENCRYPTION_KEY`. Set this variable to a base64-encoded 32-byte key before enabling GitHub OAuth. The stored token is used to verify GitHub App setup callbacks against `/user/installations`; OAuth storage APIs still return tokenless account records to normal authentication callers.
 
@@ -249,19 +295,22 @@ There are no additional stateful volumes to back up at this commit (no uploaded 
 
 #### Upgrade order
 
-When upgrading the Dashboard to a new version that includes schema changes:
+For releases that retain the installed migration history, run migrations before
+rolling the Dashboard Deployment pods:
 
-1. Run migrations first (with the old binary or a migration-only init container):
-   ```bash
-   cargo run --bin manage migrate
-   ```
-2. Roll the Dashboard Deployment pods to the new image.
+```bash
+cd dashboard && cargo run --bin manage migrate
+```
 
-This order prevents the new code from running against an un-migrated schema.
+The v0.4.0-alpha.11 migration reset is an exception: provision a new empty
+PostgreSQL database, apply the complete checked-in migration set (the six
+initial migrations and any generated follow-ups) with the command above, then
+deploy the alpha.11 image. No supported existing-history, data-migration, or
+`fake-initial` upgrade path exists for this reset.
 
 #### Multi-tenancy
 
-The Dashboard is multi-tenant at the application layer: every Cluster and Deployment row carries an `organization_id` foreign key, and every authenticated user has at least one `OrganizationMembership` (auto-provisioned as a "Personal Organization" on registration). Cross-organization access is filtered at every read query and refused with HTTP 403 at every write request — see Appendix B for the permission matrix.
+The Dashboard is multi-tenant at the application layer: every Cluster and Deployment row carries an `organization_id` foreign key, and every authenticated user has at least one `OrganizationMembership` (auto-provisioned as a "Personal Organization" on registration). Membership removal is authoritative and is not silently recreated during reauthentication. Cross-organization access is filtered at every read query and refused with HTTP 403 at every write request — see Appendix B for the permission matrix.
 
 ---
 
@@ -336,9 +385,14 @@ If the discrepancy persists beyond a few minutes, verify the agent's heartbeat i
 | `/account` | Account page | Shows profile, GitHub linking state, and logout control |
 | `/login` | Login page | WASM client route; auth POST goes to `/auth/` API |
 | `/register` | Registration page | WASM client route |
+| `/clusters` | Clusters page | WASM client route for registered Kubernetes clusters |
+| `/deployments` | Deployments page | WASM client route for deployment records and logs |
+| `/deployments?logs=<i64>` | Deployment logs selection | Canonical client URL; extracted as `Query<Option<i64>>` |
+| `/github` | GitHub page | WASM client route for repository import and previews |
 | `/auth/` | Auth app URL patterns | Login, registration, OAuth, and session API endpoints |
 | `/clusters/` | Clusters app URL patterns | Cluster CRUD API |
 | `/deployments/` | Deployments app URL patterns | Deployment record API |
+| `/github/` | GitHub app URL patterns | GitHub OAuth and repository API |
 | `/api/admin/` | reinhardt-admin panel | Requires admin account |
 | `/api/static/admin/` | Admin static files | Served by reinhardt-admin |
 

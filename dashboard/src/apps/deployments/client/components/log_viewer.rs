@@ -10,10 +10,10 @@ use reinhardt::pages::component::Page;
 #[cfg(wasm)]
 use reinhardt::pages::page;
 #[cfg(wasm)]
-use reinhardt::pages::prelude::{Resource, ResourceState};
+use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QueryStatus, Signal, use_query};
 
 #[cfg(wasm)]
-use crate::apps::deployments::server_fn::DeploymentLogInfo;
+use crate::apps::deployments::server_fn::{DeploymentLogInfo, deployment_logs_for_current_org};
 #[cfg(wasm)]
 use crate::shared::client::components::toast::html_escape;
 use crate::shared::ws_messages::{AppLogPayload, BuildLogPayload};
@@ -26,48 +26,125 @@ const MAX_LINES: usize = 1000;
 #[cfg(wasm)]
 const CONTAINER_ID: &str = "log-viewer";
 
-/// Render the log viewer container with historical lines.
+/// Render the log viewer container with historical lines for the selected deployment.
 #[cfg(wasm)]
-pub fn log_viewer_container(history: Resource<Vec<DeploymentLogInfo>, String>) -> Page {
-	page!(|history: Resource<Vec<DeploymentLogInfo>, String>| {
+pub fn log_viewer_container(deployment_id: Signal<String>) -> Page {
+	Page::reactive(move || {
+		let deployment_id = deployment_id.get();
+		if deployment_id.trim().is_empty() {
+			return log_viewer_empty();
+		}
+
+		let history = use_query(
+			deployment_logs_for_current_org::query(deployment_id),
+			QueryOptions::new(),
+		);
+		Page::reactive(move || render_log_history(&history))
+	})
+}
+
+#[cfg(wasm)]
+fn log_viewer_empty() -> Page {
+	page!({
 		pre {
 			id: "log-viewer",
 			class: "log-viewer max-h-96 overflow-auto rounded-md bg-ink-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap",
-			{
-				match history.get() {
-					ResourceState::Loading => page!(|| {
-						span {
-							class: "block text-gray-400",
-							"Loading logs..."
-						}
-					})(),
-					ResourceState::Error(message) => page!(|message: String| {
-						span {
-							class: "block text-red-300",
-							{ message }
-						}
-					})(message),
-					ResourceState::Success(lines) if lines.is_empty() => page!(|| {
-						span {
-							class: "block text-gray-400",
-							"No log entries."
-						}
-					})(),
-					ResourceState::Success(lines) => page!(|lines: Vec<DeploymentLogInfo>| {
-						{ lines.iter().map(self::render_history_line).collect::<Vec<_>>() }
-					})(lines),
-				}
+			span {
+				class: "block text-gray-400",
+				"Select a deployment to load logs."
 			}
 		}
-	})(history)
+	})
+}
+
+#[cfg(wasm)]
+fn render_log_history(
+	history: &QueryHandle<Vec<DeploymentLogInfo>, reinhardt::pages::server_fn::ServerFnError>,
+) -> Page {
+	let snapshot = history.snapshot();
+	let content = match snapshot.status {
+		QueryStatus::Idle => page!({
+			span {
+				class: "block text-gray-400",
+				"Log history is not available during server rendering."
+			}
+		}),
+		QueryStatus::Pending => page!({
+			span {
+				class: "block text-gray-400",
+				"Loading logs..."
+			}
+		}),
+		QueryStatus::Error => {
+			let message = snapshot
+				.error
+				.map(|error| error.user_message().to_owned())
+				.unwrap_or_else(|| "Unable to load logs.".to_owned());
+			page!({
+				span {
+					class: "block text-red-300",
+					{ message }
+				}
+			})
+		}
+		QueryStatus::Success => {
+			let lines = snapshot.data.unwrap_or_default();
+			let history = if lines.is_empty() {
+				page!({
+					span {
+						class: "block text-gray-400",
+						"No log entries."
+					}
+				})
+			} else {
+				page!({
+					{
+						lines
+							.iter()
+							.map(self::render_history_line)
+							.collect::<Vec<_>>()
+					}
+				})
+			};
+			let refetch_notice = if let Some(error) = snapshot.refetch_error {
+				let message = error.user_message().to_owned();
+				page!({
+					span {
+						class: "block text-amber-300",
+						{ format!("Showing cached logs: {message}") }
+					}
+				})
+			} else if snapshot.is_fetching {
+				page!({
+					span {
+						class: "block text-gray-400",
+						"Refreshing logs..."
+					}
+				})
+			} else {
+				Page::Empty
+			};
+			page!({
+				{
+					refetch_notice
+				}
+				{ history }
+			})
+		}
+	};
+
+	page!({
+		pre {
+			id: "log-viewer",
+			class: "log-viewer max-h-96 overflow-auto rounded-md bg-ink-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap",
+			{ content }
+		}
+	})
 }
 
 #[cfg(not(wasm))]
 pub fn log_viewer_container(
-	_history: reinhardt::pages::prelude::Resource<
-		Vec<crate::apps::deployments::server_fn::DeploymentLogInfo>,
-		String,
-	>,
+	_deployment_id: reinhardt::pages::prelude::Signal<String>,
 ) -> reinhardt::pages::component::Page {
 	reinhardt::pages::component::Page::Empty
 }
@@ -75,17 +152,15 @@ pub fn log_viewer_container(
 #[cfg(wasm)]
 fn render_history_line(line: &DeploymentLogInfo) -> Page {
 	let level_class = level_class(&line.level);
-	page!(|timestamp: String, level: String, message: String, level_class: &'static str| {
+	let timestamp = line.timestamp.clone();
+	let level = line.level.clone();
+	let message = line.message.clone();
+	page!({
 		span {
 			class: format!("log-line {level_class} block"),
 			{ format!("[{timestamp}] [{level}] {message}") }
 		}
-	})(
-		line.timestamp.clone(),
-		line.level.clone(),
-		line.message.clone(),
-		level_class,
-	)
+	})
 }
 
 /// Append an application log line to the viewer.

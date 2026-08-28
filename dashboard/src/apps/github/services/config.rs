@@ -6,7 +6,7 @@
 use std::env;
 use std::fmt;
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::injectable;
 
 const APP_ID_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_ID";
 const PRIVATE_KEY_PEM_ENV: &str = "REINHARDT_CLOUD_GITHUB_APP_PRIVATE_KEY_PEM";
@@ -24,9 +24,6 @@ pub struct GitHubAppSettings {
 	pub api_base_url: String,
 	pub install_url: Option<String>,
 }
-
-#[reinhardt::di::injectable_key]
-pub struct GitHubAppSettingsKey;
 
 /// Error returned when GitHub App settings cannot be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,11 +85,9 @@ impl fmt::Display for GitHubAppSettingsError {
 impl std::error::Error for GitHubAppSettingsError {}
 
 /// DI factory for GitHub App settings.
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_github_app_settings() -> FactoryOutput<GitHubAppSettingsKey, GitHubAppSettings> {
-	FactoryOutput::new(
-		GitHubAppSettings::from_env().expect("GitHub App settings env vars must be configured"),
-	)
+#[injectable(scope = "singleton")]
+async fn create_github_app_settings() -> GitHubAppSettings {
+	GitHubAppSettings::from_env().expect("GitHub App settings env vars must be configured")
 }
 
 fn required_env(key: &str) -> Result<String, GitHubAppSettingsError> {

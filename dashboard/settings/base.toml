@@ -57,6 +57,10 @@ root = "media"
 # OriginGuard filters out "*" — use explicit URLs.
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
 
+[ws_origin]
+policy = { mode = "allow_list", origins = ["http://localhost:8000", "http://127.0.0.1:8000"] }
+reject_missing_origin = true
+
 [email]
 # SMTP backend configuration for transactional emails.
 #

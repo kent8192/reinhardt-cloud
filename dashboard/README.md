@@ -61,12 +61,76 @@ Dashboard form styling is centralized in the UnoCSS runtime shortcuts inside
 utility strings so generated `form!` markup stays consistent across auth,
 cluster, deployment, and GitHub pages.
 
+In `page!` forms, place controls inside their visible `label` and style the
+label text with a nested `rc-label` span. This preserves native label behavior
+without raw-identifier HTML attributes. Import Reinhardt attribute macros and
+DI parameter types at module scope so annotations and handler signatures stay
+consistent across Dashboard apps.
+
 ### Database
 
 ```bash
-cargo make makemigrations   # Create new migrations
-cargo make migrate          # Apply migrations
+cd dashboard && cargo make makemigrations   # Generate migrations from model changes
+cd dashboard && cargo run --bin manage migrate   # Apply checked-in migrations
 ```
+
+The v0.4.0-alpha.11 migration baseline is a breaking reset with six generated
+app initial migrations (`auth`, `clusters`, `default`, `deployments`,
+`github`, and `organizations`) plus any generated follow-up migrations (for
+example, the GitHub import-lease column). It supports only an empty
+PostgreSQL database. Existing migration histories, in-place data migration,
+and `fake-initial` compatibility are not provided.
+
+`cd dashboard && cargo make makemigrations` is the authoritative way to
+regenerate migrations. Migration files are generated source and must not be
+hand-edited.
+
+Cluster creation uses a generated ModelForm that accepts only `name` and
+`api_url`; the owning organization, active state, and agent token state are
+set by the server.
+
+### Client routes and data
+
+The v0.4.0-alpha.11 client uses one reinhardt-pages `ClientRouter` tree. The
+`#[layout]` Dashboard shell renders its child routes through `Outlet`:
+`/login` and `/register` are public, while `/`, `/account`, `/clusters`,
+`/deployments`, and `/github` are authenticated children.
+
+Direct `page!({ ... })` bodies automatically capture cloneable local values in
+alpha.11; use an explicit closure form only when a reusable page factory is
+needed. Generated ClientForm submissions have the same typed method on native
+and WASM, so auth forms share one action path.
+
+Client reads use Query Client V2 generated server-function query descriptors
+with `use_query`. The Launcher or SSR runtime owns the QueryClient; pages do
+not install a separate client cache provider. Mutation success invalidates the
+affected query keys so dependent views refetch.
+
+The notification WebSocket is mounted at `/ws/notifications`. Configure its
+separate `[ws_origin]` allow-list alongside `[cors]`; unlisted browser origins
+are rejected during the handshake.
+
+Deployment log selection is canonically represented by
+`/deployments?logs=<i64>` and is extracted at the component boundary as
+`Query(logs): Query<Option<i64>>`. An omitted `logs` parameter produces no
+selection, while a malformed value is rejected by the typed extractor.
+Deployment IDs are `i64`; no UUID compatibility adapter is used.
+
+GitHub repository imports use the repository `selected` flag plus the dedicated
+`import_claimed_at` timestamp as a bounded 30-minute lease. Repository
+synchronization does not renew an active lease. An interrupted import is
+reclaimed only when no project row exists, and the conditional timestamp check
+prevents one import from clearing another import's lease.
+
+### OAuth account linking
+
+Normal GitHub OAuth sign-in remains independent of account linking. Starting a
+link from `/account` creates a signed, short-lived intent bound to the
+initiating valid session. The callback links an identity only when its current
+`sessionid` still validates and matches that intent's user and session binding;
+logout, session rotation, or a session swap invalidates the link flow.
+Membership removal is authoritative; reauthentication never recreates a
+revoked Personal Organization membership.
 
 ### Testing
 

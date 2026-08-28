@@ -60,6 +60,34 @@ pub mod render_tests {
 	}
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub mod import_claim_tests {
+	use chrono::{Duration, Utc};
+	use rstest::rstest;
+
+	use crate::apps::github::server_fn::github_import_claim_is_stale;
+
+	#[rstest]
+	fn import_claim_expiry_is_bounded_and_clock_safe() {
+		// Arrange
+		let now = Utc::now();
+
+		// Act / Assert
+		assert!(github_import_claim_is_stale(
+			now - Duration::minutes(30),
+			now
+		));
+		assert!(!github_import_claim_is_stale(
+			now - Duration::minutes(29),
+			now
+		));
+		assert!(!github_import_claim_is_stale(
+			now + Duration::minutes(1),
+			now
+		));
+	}
+}
+
 #[cfg(test)]
 pub mod pipeline_tests {
 	use std::time::Duration;
@@ -378,6 +406,7 @@ pub mod import_tests {
 			.default_branch("main".to_string())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish()
 	}
 
@@ -822,29 +851,19 @@ pub mod config_tests {
 
 #[cfg(test)]
 pub mod model_tests {
-	// Included migration files keep `pub fn migration()` because production
-	// discovery loads that symbol from standalone migration modules.
-	#[allow(unreachable_pub)]
+	use reinhardt::db::migrations::ForeignKeyAction;
+	use reinhardt::db::migrations::operations::{Constraint, Operation};
+	use reinhardt::db::orm::Model;
+	use rstest::rstest;
+
+	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
+
 	mod github_initial_migration {
 		include!(concat!(
 			env!("CARGO_MANIFEST_DIR"),
 			"/migrations/github/0001_initial.rs"
 		));
 	}
-
-	#[allow(unreachable_pub)]
-	mod github_project_rename_migration {
-		include!(concat!(
-			env!("CARGO_MANIFEST_DIR"),
-			"/migrations/github/0002_rename_github_projects_project_name_alter_g_and_more.rs"
-		));
-	}
-
-	use reinhardt::db::migrations::operations::{ColumnDefinition, Operation};
-	use reinhardt::db::orm::Model;
-	use rstest::rstest;
-
-	use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
 
 	#[rstest]
 	fn test_github_installation_build_sets_fields() {
@@ -868,7 +887,7 @@ pub mod model_tests {
 		assert_eq!(GitHubInstallation::app_label(), "github");
 		assert_eq!(GitHubInstallation::table_name(), "github_installations");
 		assert_eq!(installation.id, None);
-		assert_eq!(*installation.organization_id(), organization_id);
+		assert_eq!(installation.organization_id(), organization_id);
 		assert_eq!(installation.installation_id, installation_id);
 		assert_eq!(installation.account_login, account_login);
 		assert_eq!(installation.status, status);
@@ -892,18 +911,20 @@ pub mod model_tests {
 			.default_branch(default_branch.clone())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish();
 
 		// Assert
 		assert_eq!(GitHubRepository::app_label(), "github");
 		assert_eq!(GitHubRepository::table_name(), "github_repositories");
 		assert_eq!(repository.id, None);
-		assert_eq!(*repository.installation_id(), installation_id);
+		assert_eq!(repository.installation_id(), installation_id);
 		assert_eq!(repository.github_repository_id, github_repository_id);
 		assert_eq!(repository.full_name, full_name);
 		assert_eq!(repository.default_branch, default_branch);
 		assert!(repository.private);
 		assert!(!repository.selected);
+		assert_eq!(repository.import_claimed_at, None);
 	}
 
 	#[rstest]
@@ -927,381 +948,171 @@ pub mod model_tests {
 		assert_eq!(GitHubProject::app_label(), "github");
 		assert_eq!(GitHubProject::table_name(), "github_projects");
 		assert_eq!(project.id, None);
-		assert_eq!(*project.organization_id(), organization_id);
-		assert_eq!(*project.repository_id(), repository_id);
-		assert_eq!(*project.deployment_id(), deployment_id);
+		assert_eq!(project.organization_id(), organization_id);
+		assert_eq!(project.repository_id(), repository_id);
+		assert_eq!(project.deployment_id(), deployment_id);
 		assert_eq!(project.project_name, "reinhardt-cloud");
 		assert_eq!(project.production_branch, "main");
 		assert_eq!(project.status, "imported");
 	}
 
 	#[rstest]
-	fn test_github_initial_migration_keeps_historical_app_name_column() {
+	fn test_github_initial_migration_preserves_foreign_keys_and_supporting_indexes() {
 		// Arrange
 		let migration = github_initial_migration::migration();
 
 		// Act
-		let installation_columns =
-			create_table_columns(&migration.operations, "github_installations");
-		let repository_columns = create_table_columns(&migration.operations, "github_repositories");
-
-		// Assert
-		assert_eq!(migration.app_label, GitHubInstallation::app_label());
-		assert_eq!(migration.name, "0001_initial");
-		assert_eq!(
-			migration.dependencies,
-			vec![
-				("organizations".to_string(), "0001_initial".to_string()),
-				(
-					"deployments".to_string(),
-					"0005_add_reinhardt_app_yaml".to_string()
-				)
-			]
-		);
-		assert_column(
-			installation_columns,
-			"id",
-			"BigInteger",
-			true,
-			false,
-			true,
-			true,
-		);
-		assert_column(
-			installation_columns,
-			"organization_id",
-			"BigInteger",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			installation_columns,
-			"installation_id",
-			"BigInteger",
-			false,
-			true,
-			true,
-			false,
-		);
-		assert_column(
-			installation_columns,
-			"account_login",
-			"VarChar(255)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			installation_columns,
-			"account_type",
-			"VarChar(32)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			installation_columns,
-			"status",
-			"VarChar(32)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"id",
-			"BigInteger",
-			true,
-			false,
-			true,
-			true,
-		);
-		assert_column(
-			repository_columns,
-			"installation_id",
-			"BigInteger",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"github_repository_id",
-			"BigInteger",
-			false,
-			true,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"full_name",
-			"VarChar(512)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"owner_login",
-			"VarChar(255)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"name",
-			"VarChar(255)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"default_branch",
-			"VarChar(255)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"private",
-			"Boolean",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			repository_columns,
-			"selected",
-			"Boolean",
-			false,
-			false,
-			true,
-			false,
-		);
-		let project_columns = create_table_columns(&migration.operations, "github_projects");
-		assert_column(project_columns, "id", "BigInteger", true, false, true, true);
-		assert_column(
-			project_columns,
-			"organization_id",
-			"BigInteger",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			project_columns,
-			"repository_id",
-			"BigInteger",
-			false,
-			true,
-			true,
-			false,
-		);
-		assert_column(
-			project_columns,
-			"deployment_id",
-			"BigInteger",
-			false,
-			true,
-			true,
-			false,
-		);
-		assert_column(
-			project_columns,
-			"app_name",
-			"VarChar(63)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			project_columns,
-			"production_branch",
-			"VarChar(255)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert_column(
-			project_columns,
-			"status",
-			"VarChar(32)",
-			false,
-			false,
-			true,
-			false,
-		);
-		assert!(
-			has_constraint(
-				&migration.operations,
-				"github_installations",
-				"github_installations_organization_id_fk"
-			),
-			"github_installations must reference organizations"
-		);
-		assert!(
-			has_constraint(
-				&migration.operations,
-				"github_repositories",
-				"github_repositories_installation_id_fk"
-			),
-			"github_repositories must reference github_installations"
-		);
-		assert!(
-			has_constraint(
-				&migration.operations,
-				"github_projects",
-				"github_projects_repository_id_fk"
-			),
-			"github_projects must reference github_repositories"
-		);
-		assert!(
-			has_constraint(
-				&migration.operations,
-				"github_projects",
-				"github_projects_deployment_id_fk"
-			),
-			"github_projects must reference deployments"
-		);
-		assert!(
-			has_index(
-				&migration.operations,
-				"github_installations",
-				"organization_id"
-			),
-			"github_installations.organization_id must be indexed"
-		);
-		assert!(
-			has_index(
-				&migration.operations,
-				"github_repositories",
-				"installation_id"
-			),
-			"github_repositories.installation_id must be indexed"
-		);
-		assert!(
-			has_index(&migration.operations, "github_projects", "organization_id"),
-			"github_projects.organization_id must be indexed"
-		);
-	}
-
-	#[rstest]
-	fn test_github_project_rename_migration_preserves_project_name_data() {
-		// Arrange
-		let migration = github_project_rename_migration::migration();
-
-		// Act
-		let has_project_name_rename = migration.operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::RenameColumn {
-					table,
-					old_name,
-					new_name
-				} if table == "github_projects"
-					&& old_name == "app_name"
-					&& new_name == "project_name"
-			)
-		});
-		let has_destructive_project_name_change = migration.operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::AddColumn { table, column, .. }
-					if table == "github_projects"
-						&& matches!(column.name.as_str(), "app_name" | "project_name")
-			) || matches!(
-				operation,
-				Operation::DropColumn { table, column, .. }
-					if table == "github_projects"
-						&& matches!(column.as_str(), "app_name" | "project_name")
-			)
-		});
-
-		// Assert
-		assert!(has_project_name_rename);
-		assert!(!has_destructive_project_name_change);
-	}
-
-	fn create_table_columns<'a>(
-		operations: &'a [Operation],
-		table_name: &str,
-	) -> &'a [ColumnDefinition] {
-		operations
-			.iter()
-			.find_map(|operation| match operation {
-				Operation::CreateTable { name, columns, .. } if name == table_name => {
-					Some(columns.as_slice())
+		let mut foreign_keys = Vec::new();
+		for operation in &migration.operations {
+			let Operation::CreateTable {
+				name, constraints, ..
+			} = operation
+			else {
+				continue;
+			};
+			for constraint in constraints {
+				if let Constraint::ForeignKey {
+					columns,
+					referenced_table,
+					referenced_columns,
+					on_delete,
+					on_update,
+					..
+				} = constraint
+				{
+					foreign_keys.push((
+						name.clone(),
+						columns.clone(),
+						referenced_table.clone(),
+						referenced_columns.clone(),
+						*on_delete,
+						*on_update,
+					));
 				}
-				_ => None,
-			})
-			.unwrap_or_else(|| panic!("{table_name} table must be created"))
-	}
-
-	fn assert_column(
-		columns: &[ColumnDefinition],
-		name: &str,
-		field_type: &str,
-		primary_key: bool,
-		unique: bool,
-		not_null: bool,
-		auto_increment: bool,
-	) {
-		let column = columns
+			}
+		}
+		foreign_keys.sort();
+		let mut indexes = migration
+			.operations
 			.iter()
-			.find(|column| column.name == name)
-			.unwrap_or_else(|| panic!("{name} column must exist"));
-		assert_eq!(format!("{:?}", column.type_definition), field_type);
-		assert_eq!(column.primary_key, primary_key, "{name}.primary_key");
-		assert_eq!(column.unique, unique, "{name}.unique");
-		assert_eq!(column.not_null, not_null, "{name}.not_null");
-		assert_eq!(
-			column.auto_increment, auto_increment,
-			"{name}.auto_increment"
-		);
-	}
-
-	fn has_constraint(operations: &[Operation], table_name: &str, constraint_name: &str) -> bool {
-		operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::AddConstraint {
-					table,
-					constraint_sql,
-				} if table == table_name && constraint_sql.contains(constraint_name)
-			)
-		})
-	}
-
-	fn has_index(operations: &[Operation], table_name: &str, column_name: &str) -> bool {
-		operations.iter().any(|operation| {
-			matches!(
-				operation,
+			.filter_map(|operation| match operation {
 				Operation::CreateIndex {
 					table,
 					columns,
 					unique: false,
 					..
-				} if table == table_name && columns == &vec![column_name.to_string()]
-			)
-		})
+				} => Some((table.clone(), columns.clone())),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		indexes.sort();
+
+		// Assert
+		assert_eq!(migration.app_label, "github");
+		assert_eq!(migration.name, "0001_initial");
+		assert_eq!(
+			foreign_keys,
+			vec![
+				(
+					"github_installations".to_string(),
+					vec!["organization_id".to_string()],
+					"organizations".to_string(),
+					vec!["id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+				(
+					"github_projects".to_string(),
+					vec!["deployment_id".to_string()],
+					"deployments".to_string(),
+					vec!["id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+				(
+					"github_projects".to_string(),
+					vec!["organization_id".to_string()],
+					"organizations".to_string(),
+					vec!["id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+				(
+					"github_projects".to_string(),
+					vec!["repository_id".to_string()],
+					"github_repositories".to_string(),
+					vec!["id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+				(
+					"github_repositories".to_string(),
+					vec!["installation_id".to_string()],
+					"github_installations".to_string(),
+					vec!["id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+			]
+		);
+		assert_eq!(
+			indexes,
+			vec![
+				(
+					"github_installations".to_string(),
+					vec!["organization_id".to_string()],
+				),
+				(
+					"github_projects".to_string(),
+					vec!["deployment_id".to_string()],
+				),
+				(
+					"github_projects".to_string(),
+					vec!["organization_id".to_string()],
+				),
+				(
+					"github_projects".to_string(),
+					vec!["repository_id".to_string()],
+				),
+				(
+					"github_repositories".to_string(),
+					vec!["installation_id".to_string()],
+				),
+			]
+		);
+		let project_unique_constraints = migration
+			.operations
+			.iter()
+			.find_map(|operation| match operation {
+				Operation::CreateTable {
+					name, constraints, ..
+				} if name == "github_projects" => Some(
+					constraints
+						.iter()
+						.filter_map(|constraint| match constraint {
+							Constraint::Unique { name, columns } => {
+								Some((name.clone(), columns.clone()))
+							}
+							_ => None,
+						})
+						.collect::<Vec<_>>(),
+				),
+				_ => None,
+			})
+			.expect("github_projects table must be created");
+		assert_eq!(
+			project_unique_constraints,
+			vec![
+				(
+					"github_projects_repository_id_key".to_string(),
+					vec!["repository_id".to_string()],
+				),
+				(
+					"github_projects_deployment_id_key".to_string(),
+					vec!["deployment_id".to_string()],
+				),
+			]
+		);
 	}
 }
 
@@ -1352,6 +1163,7 @@ pub mod server_fn_tests {
 			.default_branch("main".to_string())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish();
 		repository.id = Some(11);
 
@@ -1386,7 +1198,7 @@ pub mod server_fn_tests {
 
 		// Assert
 		assert_eq!(row.id, None);
-		assert_eq!(*row.installation_id(), 7);
+		assert_eq!(row.installation_id(), 7);
 		assert_eq!(row.github_repository_id, 123_456_789);
 		assert_eq!(row.full_name, "kent8192/reinhardt-cloud");
 		assert_eq!(row.owner_login, "kent8192");

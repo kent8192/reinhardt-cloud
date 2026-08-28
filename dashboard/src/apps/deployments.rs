@@ -5,23 +5,24 @@
 #[cfg(native)]
 use reinhardt::app_config;
 
+#[cfg(client)]
 pub mod client;
 
-#[cfg(native)]
+#[cfg(server)]
 pub mod admin;
-#[cfg(native)]
+#[cfg(server)]
 pub mod models;
-#[cfg(native)]
+#[cfg(server)]
 pub mod serializers;
 pub mod server_fn;
-#[cfg(native)]
+#[cfg(server)]
 pub mod server_urls;
-#[cfg(native)]
+#[cfg(server)]
 pub mod services;
-#[cfg(native)]
+#[cfg(server)]
 pub mod tests;
 pub mod urls;
 
-#[cfg(native)]
+#[cfg(server)]
 #[app_config(name = "deployments", label = "deployments")]
 pub struct DeploymentsConfig;

@@ -1,0 +1,140 @@
+//! Source-level contracts for Dashboard's generated component stylesheet.
+
+const INDEX_HTML: &str = include_str!("../../index.html");
+const AUTH_STYLE_SOURCE: &str = include_str!("../../src/apps/auth/client/style.rs");
+const SHARED_IMPERATIVE_SOURCES: &[(&str, &str)] = &[
+	(
+		"entity_select",
+		include_str!("../../src/shared/client/components/entity_select.rs"),
+	),
+	(
+		"status_badge",
+		include_str!("../../src/shared/client/components/status_badge.rs"),
+	),
+	(
+		"toast",
+		include_str!("../../src/shared/client/components/toast.rs"),
+	),
+	("websocket", include_str!("../../src/shared/client/ws.rs")),
+];
+
+const AUTH_PRODUCTION_SOURCES: &[(&str, &str)] = &[
+	(
+		"auth_layout",
+		include_str!("../../src/apps/auth/client/components/auth_layout.rs"),
+	),
+	(
+		"oauth_buttons",
+		include_str!("../../src/apps/auth/client/components/oauth_buttons.rs"),
+	),
+	(
+		"account",
+		include_str!("../../src/apps/auth/client/pages/account.rs"),
+	),
+	(
+		"login",
+		include_str!("../../src/apps/auth/client/pages/login.rs"),
+	),
+	(
+		"register",
+		include_str!("../../src/apps/auth/client/pages/register.rs"),
+	),
+];
+
+#[test]
+fn generated_component_stylesheet_is_the_only_document_style_runtime() {
+	// Arrange
+	let document = INDEX_HTML.to_ascii_lowercase();
+
+	// Act
+	let unocss_references = document.matches("unocss").count();
+	let component_stylesheet_links = document.matches("__reinhardt__/components.css").count();
+
+	// Assert
+	assert_eq!(unocss_references, 0);
+	assert_eq!(component_stylesheet_links, 1);
+}
+
+#[test]
+fn shared_imperative_dom_paths_do_not_embed_utility_class_literals() {
+	// Arrange
+	let utility_class_literals = [
+		"\"bg-",
+		"\"border-",
+		"\"fixed ",
+		"\"flex ",
+		"\"gap-",
+		"\"items-",
+		"\"justify-",
+		"\"max-w-",
+		"\"min-w-",
+		"\"p-",
+		"\"px-",
+		"\"py-",
+		"\"rounded-",
+		"\"shadow-",
+		"\"text-",
+		"\"top-",
+		"\"right-",
+		"\"z-",
+	];
+
+	// Act + Assert
+	for (source_name, source) in SHARED_IMPERATIVE_SOURCES {
+		for utility_class_literal in utility_class_literals {
+			assert_eq!(
+				source.matches(utility_class_literal).count(),
+				0,
+				"{source_name} must use typed shared style tokens"
+			);
+		}
+	}
+}
+
+#[test]
+fn auth_pages_and_components_use_typed_style_tokens() {
+	// Arrange + Act + Assert
+	for (source_name, source) in AUTH_PRODUCTION_SOURCES {
+		assert!(
+			!source.contains("class: \""),
+			"{source_name} must use typed shared or auth-local style tokens"
+		);
+	}
+}
+
+#[test]
+fn auth_account_grid_retains_the_desktop_two_column_rule() {
+	// Arrange + Act
+	let has_desktop_breakpoint = AUTH_STYLE_SOURCE.contains("@media (min-width: 1024px)");
+	let has_two_columns = AUTH_STYLE_SOURCE
+		.contains("grid-template-columns: unchecked_fn!(repeat(2, minmax(0, 1fr)));");
+
+	// Assert
+	assert!(
+		has_desktop_breakpoint,
+		"account layout must define a desktop breakpoint"
+	);
+	assert!(
+		has_two_columns,
+		"account layout must restore two desktop columns"
+	);
+}
+
+#[test]
+fn auth_actions_share_one_spacing_token() {
+	// Arrange + Act
+	let has_shared_spacing =
+		AUTH_STYLE_SOURCE.contains(".account_action_spacing {\n\t\tmargin-top: 1.25rem;\n\t}");
+	let has_duplicate_spacing = AUTH_STYLE_SOURCE.contains(".account_actions {")
+		|| AUTH_STYLE_SOURCE.contains(".account_error_action {");
+
+	// Assert
+	assert!(
+		has_shared_spacing,
+		"auth actions must share one spacing token"
+	);
+	assert!(
+		!has_duplicate_spacing,
+		"auth actions must not define duplicate spacing tokens"
+	);
+}

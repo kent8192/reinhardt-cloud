@@ -63,7 +63,7 @@ cargo make runserver        # start the dashboard on http://localhost:8000
 | --- | --- |
 | Base image | `mcr.microsoft.com/devcontainers/rust:1-bookworm` |
 | Rust toolchain | 1.94.0 (matches `rust-toolchain.toml`) + `wasm32-unknown-unknown` |
-| Cargo tools | `cargo-make`, `cargo-nextest`, `cargo-audit`, `bacon`, `wasm-bindgen-cli` (0.2.118), `reinhardt-admin-cli` (0.1.0-rc.15) |
+| Cargo tools | `cargo-make`, `cargo-nextest`, `cargo-audit`, `bacon`, `wasm-bindgen-cli` (0.2.126), `reinhardt-admin-cli` (0.1.0-rc.15) |
 | System tools | `protoc`, `binaryen` (`wasm-opt`), `lldb`, `postgresql-client`, `redis-tools`, `gh` |
 | Sidecar services | `postgres:17-bookworm`, `redis:7-alpine` (compose, healthchecked, container-internal) |
 | Forwarded ports | `8000` (dashboard) |
@@ -96,11 +96,9 @@ template on first container start.
   `redis-cli` invocation) instead. Running the dashboard's host-side
   `cargo make infra-up` in parallel is therefore safe; the two setups
   do not share ports.
-- **wasm-bindgen-cli version drift**: this container installs 0.2.118 to
-  match `Cargo.lock`. Running `cargo make wasm-build-dev` may currently
-  reinstall 0.2.114 because of an upstream pin in `dashboard/Makefile.toml`
-  — that mismatch is tracked separately and does not break the build, only
-  the cached binary.
+- **wasm-bindgen-cli version drift**: this container and
+  `dashboard/Makefile.toml` install 0.2.126 to match `Cargo.lock`. Keep the
+  CLI and crate versions synchronized when updating the Rust toolchain.
 - **First build is slow**: the cargo tools are compiled from source. Caching
   then makes container restarts effectively instant.
 

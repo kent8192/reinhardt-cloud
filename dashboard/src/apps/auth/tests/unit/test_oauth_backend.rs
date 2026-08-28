@@ -17,16 +17,13 @@
 
 #[cfg(test)]
 mod tests {
-	use std::sync::Arc;
 
-	use reinhardt::di::FactoryOutput;
 	use rstest::rstest;
 	use serial_test::serial;
 
-	use crate::apps::auth::services::oauth::{
-		OAuthBackendBox, OAuthBackendBoxKey, OAuthSettings, OAuthSettingsKey, ProviderCredentials,
-	};
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::apps::auth::services::oauth::{OAuthBackendBox, OAuthSettings, ProviderCredentials};
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 
 	const KEY_AUTHORIZE: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_AUTHORIZE_URL";
 	const KEY_TOKEN: &str = "REINHARDT_CLOUD_OAUTH_GITHUB_TOKEN_URL";
@@ -93,14 +90,12 @@ mod tests {
 			(KEY_USERINFO, Some("https://fake.test/userinfo")),
 		]);
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				populated_settings(),
-			));
+			set_provider_value(scope, populated_settings());
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("factory should resolve when github is configured");
 
@@ -124,14 +119,12 @@ mod tests {
 			(KEY_USERINFO, Some("")),
 		]);
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				populated_settings(),
-			));
+			set_provider_value(scope, populated_settings());
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("factory should resolve even with empty endpoint overrides");
 

@@ -2,10 +2,14 @@
 
 #[cfg(test)]
 mod tests {
+	use reinhardt::core::model_form::{ModelFormFieldKind, ModelFormPolicy, ModelFormSchema};
 	use reinhardt::db::orm::Model;
 	use reinhardt::db::orm::inspection::ConstraintType;
 	use rstest::rstest;
 
+	use crate::apps::clusters::model_form::{
+		ClusterCreateFields, ClusterCreateFormData, ClusterCreateFormSchema,
+	};
 	use crate::apps::clusters::models::Cluster;
 
 	#[rstest]
@@ -26,7 +30,7 @@ mod tests {
 			.finish();
 
 		// Assert
-		assert_eq!(*cluster.organization_id(), organization_id);
+		assert_eq!(cluster.organization_id(), organization_id);
 		assert_eq!(cluster.name, name);
 		assert_eq!(cluster.api_url, api_url);
 		assert!(cluster.is_active);
@@ -307,6 +311,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "created_at".to_string(),
@@ -316,6 +322,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "id".to_string(),
@@ -325,6 +333,8 @@ mod tests {
 					primary_key: true,
 					auto_increment: true,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "is_active".to_string(),
@@ -334,6 +344,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "name".to_string(),
@@ -343,6 +355,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 				ColumnDefinition {
 					name: "updated_at".to_string(),
@@ -352,6 +366,8 @@ mod tests {
 					primary_key: false,
 					auto_increment: false,
 					default: None,
+					domain: None,
+					generated: None,
 				},
 			],
 			constraints: vec![],
@@ -431,6 +447,90 @@ mod tests {
 		assert_eq!(
 			constraint.definition, "UNIQUE (organization_id, name)",
 			"Constraint definition must cover (organization_id, name) in that order"
+		);
+	}
+
+	#[rstest]
+	fn test_cluster_create_form_exposes_only_client_owned_fields() {
+		// Arrange
+		let fields = ClusterCreateFormSchema::fields();
+
+		// Act
+		let names = fields.iter().map(|field| field.name).collect::<Vec<_>>();
+		let server_owned = [
+			"id",
+			"organization_id",
+			"is_active",
+			"token_hash",
+			"token_last_rotated_at",
+			"created_at",
+			"updated_at",
+		]
+		.map(ClusterCreateFields::allows);
+
+		// Assert
+		assert_eq!(names, ["name", "api_url"]);
+		assert_eq!(server_owned, [false; 7]);
+		assert_eq!(
+			ClusterCreateFormSchema::name().kind,
+			ModelFormFieldKind::Text {
+				min_length: Some(1),
+				max_length: Some(63),
+				multiline: false,
+			}
+		);
+		assert_eq!(
+			ClusterCreateFormSchema::api_url().kind,
+			ModelFormFieldKind::Url {
+				min_length: None,
+				max_length: Some(2048),
+			}
+		);
+	}
+
+	#[rstest]
+	fn test_cluster_create_form_rejects_organization_tampering() {
+		// Arrange and Act
+		let result = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+			serde_json::json!({
+				"name": "production",
+				"api_url": "https://k8s.example.com:6443",
+				"organization_id": 42,
+			}),
+		);
+		let error = match result {
+			Err(error) => error,
+			Ok(_) => panic!("reject a server-managed organization ID during decoding"),
+		};
+
+		// Assert
+		assert_eq!(
+			error.to_string(),
+			"unknown field `organization_id`, expected `name` or `api_url`"
+		);
+	}
+
+	#[rstest]
+	fn test_cluster_create_form_uses_public_json_wire_contract() {
+		// Arrange
+		let payload = serde_json::from_value::<ClusterCreateFormData<ClusterCreateFields>>(
+			serde_json::json!({
+				"name": "production",
+				"api_url": "https://k8s.example.com:6443",
+			}),
+		)
+		.expect("deserialize public cluster form payload");
+
+		// Act
+		let wire = serde_json::to_value(payload).expect("serialize public cluster form payload");
+
+		// Assert
+		assert_eq!(
+			wire,
+			serde_json::json!({
+				"name": "production",
+				"api_url": "https://k8s.example.com:6443",
+			})
 		);
 	}
 

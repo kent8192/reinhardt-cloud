@@ -21,7 +21,7 @@ RUN cargo build --release -p reinhardt-cloud-dashboard
 
 FROM rust:1.94.0-bookworm AS wasm
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install wasm-bindgen-cli@0.2.118
+RUN cargo install wasm-bindgen-cli@0.2.126
 WORKDIR /app
 COPY . .
 RUN cargo build --release --target wasm32-unknown-unknown --lib -p reinhardt-cloud-dashboard

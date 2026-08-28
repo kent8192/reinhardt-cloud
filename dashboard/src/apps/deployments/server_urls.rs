@@ -17,7 +17,7 @@ use crate::apps::deployments::services::{
 	SubmitProjectDeploymentError, SubmitProjectDeploymentInput, submit_project_deployment,
 };
 use crate::apps::organizations::permissions::{Action, require_permission};
-use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
+use crate::config::AgentRegistrySingleton;
 
 #[derive(Debug, Serialize)]
 struct ApiErrorResponse<'a> {
@@ -29,7 +29,7 @@ struct ApiErrorResponse<'a> {
 pub async fn cli_deploy(
 	Body(payload): Body,
 	#[inject] CurrentUser(user): CurrentUser<User>,
-	#[inject] agent_registry: Depends<AgentRegistrySingletonKey, AgentRegistrySingleton>,
+	#[inject] agent_registry: Depends<AgentRegistrySingleton>,
 ) -> ViewResult<Response> {
 	let mut request: CliDeploymentRequest = match serde_json::from_slice(&payload) {
 		Ok(request) => request,

@@ -1,8 +1,13 @@
-//! Dashboard shell layout with header, sidebar, and main content area.
+//! Dashboard shell layout with header, sidebar, and route outlet.
 
-use reinhardt::pages::component::Page;
+use reinhardt::pages::component;
+use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::page;
+use reinhardt::pages::prelude::{Action, Outlet, Page, use_action};
+use reinhardt::pages::server_fn::ServerFnError;
 
+#[cfg(wasm)]
+use crate::apps::auth::server_fn::logout::logout;
 use crate::shared::client::routes::route_href;
 
 fn nav_item_class(is_active: bool) -> &'static str {
@@ -13,131 +18,187 @@ fn nav_item_class(is_active: bool) -> &'static str {
 	}
 }
 
-/// Render the shared dashboard application chrome around a section page.
-pub fn dashboard_app_shell(active_item: &'static str, content: Page) -> Page {
+fn route_is_active(current_path: &str, route_href: &str) -> bool {
+	current_path
+		.split_once('?')
+		.map_or(current_path, |(path, _)| path)
+		== route_href
+}
+
+#[cfg(wasm)]
+async fn end_dashboard_session() -> Result<bool, ServerFnError> {
+	logout().await
+}
+
+#[cfg(not(wasm))]
+async fn end_dashboard_session() -> Result<bool, ServerFnError> {
+	Ok(true)
+}
+
+#[cfg(wasm)]
+fn replace_document(location: &str) -> Result<(), ServerFnError> {
+	let window = web_sys::window()
+		.ok_or_else(|| ServerFnError::server(500, "Browser window is unavailable"))?;
+	window.location().replace(location).map_err(|error| {
+		ServerFnError::server(500, format!("Unable to leave dashboard: {error:?}"))
+	})
+}
+
+#[cfg(not(wasm))]
+fn replace_document(_location: &str) -> Result<(), ServerFnError> {
+	Ok(())
+}
+
+/// Render the shared dashboard chrome around its active child route.
+#[reinhardt::pages::layout("/", name = "dashboard:layout")]
+pub fn dashboard_layout(outlet: Outlet) -> Page {
+	let login_href = route_href("auth:login_page", "/login");
+	let logout_action: Action<bool, ServerFnError> = use_action({
+		let login_href = login_href.clone();
+		move |_: ()| {
+			let login_href = login_href.clone();
+			async move {
+				let logged_out = end_dashboard_session().await?;
+				replace_document(&login_href)?;
+				Ok(logged_out)
+			}
+		}
+	});
+	let current_path = reinhardt::pages::app::try_with_spa_router(|router| *router.current_path());
 	let account_href = route_href("auth:account_page", "/account");
 	let home_href = route_href("dashboard:home", "/");
 	let clusters_href = route_href("clusters:list", "/clusters");
 	let deployments_href = route_href("deployments:list", "/deployments");
 	let github_href = route_href("github:repositories", "/github");
-	page!(|active_item: &'static str, content: Page, account_href: String, home_href: String, clusters_href: String, deployments_href: String, github_href: String| {
-		div {
-			class: "rc-app flex flex-col",
-			header {
-				class: "sticky top-0 z-10 h-16 border-b border-cloud-200 bg-white/90 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0",
+
+	page!({
+		{
+			let current_path = current_path
+				.map(|path| path.get())
+				.unwrap_or_else(|| "/".to_string());
+			let outlet = outlet.clone();
+			let account_href = account_href.clone();
+			let home_href = home_href.clone();
+			let clusters_href = clusters_href.clone();
+			let deployments_href = deployments_href.clone();
+			let github_href = github_href.clone();
+			let logout_action = logout_action;
+			page!({
 				div {
-					class: "flex items-center gap-3",
-					span {
-						class: "grid h-9 w-9 place-items-center rounded-md bg-ink-950 text-sm font-bold text-white shadow-[0_10px_20px_rgba(17,16,19,0.16)]",
-						"RC"
-					}
-					div {
-						span {
-							class: "block text-base font-bold leading-tight text-ink-950",
-							"Reinhardt Cloud"
-						}
-						span {
-							class: "hidden text-xs font-semibold uppercase text-ink-600 sm:block",
-							"Deploy control"
-						}
-					}
-				}
-				div {
-					class: "flex items-center gap-2 sm:gap-3",
-					span {
-						class: "hidden rounded-md border border-cloud-200 bg-cloud-50 px-3 py-1.5 text-xs font-bold uppercase text-ink-600 sm:inline-flex",
-						"Healthy"
-					}
-					a {
-						href: account_href.clone(),
-						class: "rc-link",
-						"Account"
-					}
-					button {
-						type: "button",
-						class: "rc-link js-dashboard-logout",
-						"Logout"
-					}
-				}
-			}
-			div {
-				class: "flex flex-1 flex-col md:flex-row",
-				nav {
-					class: "box-border w-full border-b border-cloud-200 bg-cloud-50/85 p-4 shrink-0 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:bg-white/80",
-					div {
-						class: "mb-4 rounded-md border border-cloud-200 bg-white p-3",
-						p {
-							class: "text-xs font-bold uppercase text-ink-600",
-							"Organization"
-						}
-						p {
-							class: "mt-1 truncate text-sm font-bold text-ink-950",
-							"current workspace"
-						}
-					}
-					ul {
-						class: "space-y-1.5",
-						li {
-							a {
-								href: home_href,
-								class: self::nav_item_class(active_item == "overview"),
-								"Overview"
+					class: "rc-app flex flex-col",
+					header {
+						class: "sticky top-0 z-10 h-16 border-b border-cloud-200 bg-white/90 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0",
+						div {
+							class: "flex items-center gap-3",
+							span {
+								class: "grid h-9 w-9 place-items-center rounded-md bg-ink-950 text-sm font-bold text-white shadow-[0_10px_20px_rgba(17,16,19,0.16)]",
+								"RC"
+							}
+							div {
+								span {
+									class: "block text-base font-bold leading-tight text-ink-950",
+									"Reinhardt Cloud"
+								}
+								span {
+									class: "hidden text-xs font-semibold uppercase text-ink-600 sm:block",
+									"Deploy control"
+								}
 							}
 						}
-						li {
-							a {
-								href: clusters_href,
-								class: self::nav_item_class(active_item == "clusters"),
-								"Clusters"
+						div {
+							class: "flex items-center gap-2 sm:gap-3",
+							span {
+								class: "hidden rounded-md border border-cloud-200 bg-cloud-50 px-3 py-1.5 text-xs font-bold uppercase text-ink-600 sm:inline-flex",
+								"Healthy"
 							}
-						}
-						li {
 							a {
-								href: deployments_href,
-								class: self::nav_item_class(active_item == "deployments"),
-								"Deployments"
-							}
-						}
-						li {
-							a {
-								href: github_href,
-								class: self::nav_item_class(active_item == "github"),
-								"GitHub"
-							}
-						}
-						li {
-							a {
-								href: account_href,
-								class: self::nav_item_class(active_item == "account"),
+								href: account_href.clone(),
+								class: "rc-link",
 								"Account"
 							}
+							button {
+								type: "button",
+								class: "rc-link",
+								@click: move |event: ClickEvent| {
+									event.prevent_default();
+									logout_action.dispatch(());
+								},
+								"Logout"
+							}
+						}
+					}
+					div {
+						class: "flex flex-1 flex-col md:flex-row",
+						nav {
+							class: "box-border w-full border-b border-cloud-200 bg-cloud-50/85 p-4 shrink-0 md:min-h-[calc(100vh-4rem)] md:w-64 md:border-b-0 md:border-r md:bg-white/80",
+							div {
+								class: "mb-4 rounded-md border border-cloud-200 bg-white p-3",
+								p {
+									class: "text-xs font-bold uppercase text-ink-600",
+									"Organization"
+								}
+								p {
+									class: "mt-1 truncate text-sm font-bold text-ink-950",
+									"current workspace"
+								}
+							}
+							ul {
+								class: "space-y-1.5",
+								li {
+									a {
+										href: home_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &home_href)),
+										"Overview"
+									}
+								}
+								li {
+									a {
+										href: clusters_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &clusters_href)),
+										"Clusters"
+									}
+								}
+								li {
+									a {
+										href: deployments_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &deployments_href)),
+										"Deployments"
+									}
+								}
+								li {
+									a {
+										href: github_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &github_href)),
+										"GitHub"
+									}
+								}
+								li {
+									a {
+										href: account_href,
+										class: self::nav_item_class(self::route_is_active(&current_path, &account_href)),
+										"Account"
+									}
+								}
+							}
+						}
+						main {
+							class: "min-w-0 flex-1",
+							{ outlet }
 						}
 					}
 				}
-				main {
-					class: "min-w-0 flex-1",
-					{ content }
-				}
-			}
+			})
 		}
-	})(
-		active_item,
-		content,
-		account_href,
-		home_href,
-		clusters_href,
-		deployments_href,
-		github_href,
-	)
+	})
 }
 
-/// Render the main dashboard shell with navigation sidebar and overview cards.
-#[reinhardt::pages::component("/", "dashboard:home")]
+/// Render the main dashboard overview.
+#[component("/", name = "dashboard:home")]
 pub fn dashboard_shell() -> Page {
 	let clusters_href = route_href("clusters:list", "/clusters");
 	let deployments_href = route_href("deployments:list", "/deployments");
 	let github_href = route_href("github:repositories", "/github");
-	let content = page!(|clusters_href: String, deployments_href: String, github_href: String| {
+	page!({
 		div {
 			class: "rc-shell",
 			div {
@@ -258,8 +319,7 @@ pub fn dashboard_shell() -> Page {
 				}
 			}
 		}
-	})(clusters_href, deployments_href, github_href);
-	dashboard_app_shell("overview", content)
+	})
 }
 
 #[cfg(test)]
@@ -267,40 +327,37 @@ mod tests {
 	use rstest::rstest;
 
 	#[rstest]
-	#[case::active(
-		true,
-		"block rounded-md border border-control-500/20 bg-control-500/10 px-3 py-2 text-sm font-bold text-control-700 shadow-[inset_3px_0_0_#147d74]"
-	)]
-	#[case::inactive(
-		false,
-		"block rounded-md border border-transparent px-3 py-2 text-sm font-semibold text-ink-600 hover:border-cloud-200 hover:bg-white hover:text-ink-950"
-	)]
-	fn nav_item_class_reflects_active_state(#[case] is_active: bool, #[case] expected: &str) {
+	#[case::overview("/", "/", true)]
+	#[case::account("/account", "/account", true)]
+	#[case::clusters("/clusters", "/clusters", true)]
+	#[case::deployment_logs("/deployments?logs=42", "/deployments", true)]
+	#[case::different_route("/github", "/clusters", false)]
+	fn route_active_state_matches_path(
+		#[case] path: &str,
+		#[case] route: &str,
+		#[case] expected: bool,
+	) {
 		// Arrange
-		let expected_class = expected;
-
-		// Act
-		let class = super::nav_item_class(is_active);
+		let active = super::route_is_active(path, route);
 
 		// Assert
-		assert_eq!(class, expected_class);
+		assert_eq!(active, expected);
 	}
 
 	#[rstest]
-	fn dashboard_shell_renders_account_and_logout_controls() {
-		use reinhardt::pages::component::Page;
-
+	fn dashboard_shell_renders_overview_links() {
 		// Arrange
-		let content = Page::Empty;
+		let shell = super::dashboard_shell(super::DashboardShellProps {});
 
 		// Act
-		let html = super::dashboard_app_shell("account", content).render_to_string();
+		let html = shell.render_to_string();
 
 		// Assert
-		assert!(html.contains(r#"href="/account""#));
-		assert!(html.contains("Account"));
-		assert!(html.contains("js-dashboard-logout"));
-		assert!(html.contains("Logout"));
-		assert!(!html.contains(">Login<"));
+		let hrefs = html
+			.split("href=\"")
+			.skip(1)
+			.map(|fragment| fragment.split('"').next().unwrap_or_default())
+			.collect::<Vec<_>>();
+		assert_eq!(hrefs, vec!["/clusters", "/deployments", "/github"]);
 	}
 }

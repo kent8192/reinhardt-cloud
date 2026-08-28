@@ -1,25 +1,35 @@
 //! Client SPA routes for the deployments app.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::deployments::client::pages::deployments_list_page;
-#[cfg(native)]
+#[cfg(server)]
+use reinhardt::pages::router::ClientRouter;
+
+#[cfg(server)]
+type AppRouter = UnifiedRouter<ClientRouter>;
+#[cfg(not(server))]
+type AppRouter = UnifiedRouter;
+
+#[cfg(server)]
 use crate::apps::deployments::server_urls;
 
 /// Returns the unified URL patterns for the deployments app.
-pub fn url_patterns() -> UnifiedRouter {
+#[cfg(server)]
+pub fn url_patterns() -> AppRouter {
 	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::cli_deploy);
-			s
-		})
-		.client(|c| c.component(deployments_list_page))
+		.server(|server| server.endpoint(server_urls::cli_deploy))
+		.client(|client| client)
 }
 
-#[cfg(all(test, native))]
+#[cfg(not(server))]
+pub fn url_patterns() -> AppRouter {
+	UnifiedRouter::new()
+}
+
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;
@@ -37,19 +47,5 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, Some("/api/deployments/cli/".to_string()));
-	}
-
-	#[rstest]
-	fn deployments_page_route_is_registered_from_component_metadata() {
-		// Arrange
-		let router = UnifiedRouter::new()
-			.mount_unified("/", super::url_patterns())
-			.into_client();
-
-		// Act
-		let route = router.reverse("deployments:list", &[]);
-
-		// Assert
-		assert_eq!(route, Ok("/deployments".to_string()));
 	}
 }
