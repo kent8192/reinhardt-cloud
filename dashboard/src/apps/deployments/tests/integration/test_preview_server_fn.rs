@@ -164,6 +164,7 @@ async fn create_github_project(
 				.default_branch("main".to_string())
 				.private(false)
 				.selected(true)
+				.import_claimed_at(None)
 				.finish(),
 		)
 		.await

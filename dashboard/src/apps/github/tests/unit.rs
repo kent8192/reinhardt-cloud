@@ -406,6 +406,7 @@ pub mod import_tests {
 			.default_branch("main".to_string())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish()
 	}
 
@@ -910,6 +911,7 @@ pub mod model_tests {
 			.default_branch(default_branch.clone())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish();
 
 		// Assert
@@ -922,6 +924,7 @@ pub mod model_tests {
 		assert_eq!(repository.default_branch, default_branch);
 		assert!(repository.private);
 		assert!(!repository.selected);
+		assert_eq!(repository.import_claimed_at, None);
 	}
 
 	#[rstest]
@@ -1160,6 +1163,7 @@ pub mod server_fn_tests {
 			.default_branch("main".to_string())
 			.private(true)
 			.selected(false)
+			.import_claimed_at(None)
 			.finish();
 		repository.id = Some(11);
 

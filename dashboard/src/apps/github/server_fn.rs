@@ -17,8 +17,11 @@ const GITHUB_IMPORT_CLAIM_TTL_SECONDS: i64 = 30 * 60;
 
 /// Return whether a repository import claim has outlived its recovery lease.
 #[cfg(native)]
-pub(crate) fn github_import_claim_is_stale(updated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-	now.signed_duration_since(updated_at).num_seconds() >= GITHUB_IMPORT_CLAIM_TTL_SECONDS
+pub(crate) fn github_import_claim_is_stale(
+	claim_started_at: DateTime<Utc>,
+	now: DateTime<Utc>,
+) -> bool {
+	now.signed_duration_since(claim_started_at).num_seconds() >= GITHUB_IMPORT_CLAIM_TTL_SECONDS
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -219,6 +222,7 @@ pub(crate) fn repository_from_installation_repository(
 		.default_branch(repository.default_branch)
 		.private(repository.private)
 		.selected(false)
+		.import_claimed_at(None)
 		.finish()
 }
 
@@ -257,19 +261,43 @@ async fn sync_repositories_for_installation(
 			next.id = existing.id;
 			next.selected = existing.selected;
 			existing.installation = next.installation;
-			existing.full_name = next.full_name;
-			existing.owner_login = next.owner_login;
-			existing.name = next.name;
-			existing.default_branch = next.default_branch;
+			existing.full_name = next.full_name.clone();
+			existing.owner_login = next.owner_login.clone();
+			existing.name = next.name.clone();
+			existing.default_branch = next.default_branch.clone();
 			existing.private = next.private;
-			GitHubRepository::objects()
-				.update(&existing)
-				.await
-				.map_err(|e| {
-					ServerFnError::application(format!(
-						"Failed to update cached GitHub repository: {e}"
-					))
-				})?;
+			if existing.selected {
+				// Repository synchronization must not renew an active import lease.
+				GitHubRepository::objects()
+					.filter(GitHubRepository::field_id().eq(existing.id.ok_or_else(|| {
+						ServerFnError::application("GitHub repository row missing primary key")
+					})?))
+					.update_fields(vec![
+						GitHubRepository::field_installation_id()
+							.assign(existing.installation_id()),
+						GitHubRepository::field_full_name().assign(existing.full_name.clone()),
+						GitHubRepository::field_owner_login().assign(existing.owner_login.clone()),
+						GitHubRepository::field_name().assign(existing.name.clone()),
+						GitHubRepository::field_default_branch()
+							.assign(existing.default_branch.clone()),
+						GitHubRepository::field_private().assign(existing.private),
+					])
+					.await
+					.map_err(|e| {
+						ServerFnError::application(format!(
+							"Failed to update cached GitHub repository: {e}"
+						))
+					})?;
+			} else {
+				GitHubRepository::objects()
+					.update(&existing)
+					.await
+					.map_err(|e| {
+						ServerFnError::application(format!(
+							"Failed to update cached GitHub repository: {e}"
+						))
+					})?;
+			}
 		} else {
 			GitHubRepository::objects()
 				.create(&next)
@@ -439,13 +467,32 @@ pub async fn import_github_repository_for_current_org(
 	}
 	// `selected` is a bounded lease while the external import pipeline runs;
 	// a missing project allows a later request to reclaim an interrupted lease.
-	let observed_updated_at = repository.updated_at;
-	if repository.selected && github_import_claim_is_stale(observed_updated_at, Utc::now()) {
-		GitHubRepository::objects()
+	let observed_claimed_at = repository
+		.import_claimed_at
+		.or_else(|| repository.selected.then_some(repository.updated_at));
+	if repository.selected
+		&& observed_claimed_at
+			.is_some_and(|claimed_at| github_import_claim_is_stale(claimed_at, Utc::now()))
+	{
+		let mut claim_query = GitHubRepository::objects()
 			.filter(GitHubRepository::field_id().eq(repository_id))
-			.filter(GitHubRepository::field_selected().eq(true))
-			.filter(GitHubRepository::field_updated_at().eq(observed_updated_at))
-			.update_fields([GitHubRepository::field_selected().assign(false)])
+			.filter(GitHubRepository::field_selected().eq(true));
+		if let Some(claimed_at) = repository.import_claimed_at {
+			claim_query = claim_query
+				.filter(GitHubRepository::field_import_claimed_at().eq(Some(claimed_at)));
+		} else {
+			// Legacy selected rows have no dedicated lease timestamp; keep the
+			// fallback compare conditional so a concurrent refresh cannot clear a
+			// newer claim after it has been initialized.
+			claim_query = claim_query
+				.filter(GitHubRepository::field_import_claimed_at().is_null())
+				.filter(GitHubRepository::field_updated_at().eq(repository.updated_at));
+		}
+		claim_query
+			.update_fields(vec![
+				GitHubRepository::field_selected().assign(false),
+				GitHubRepository::field_import_claimed_at().assign(Option::<DateTime<Utc>>::None),
+			])
 			.await
 			.map_err(|e| {
 				ServerFnError::application(format!(
@@ -459,6 +506,7 @@ pub async fn import_github_repository_for_current_org(
 		.filter(GitHubRepository::field_selected().eq(false))
 		.update_fields(vec![
 			GitHubRepository::field_selected().assign(true),
+			GitHubRepository::field_import_claimed_at().assign(Some(claim_started_at)),
 			GitHubRepository::field_updated_at().assign(claim_started_at),
 		])
 		.await
@@ -589,8 +637,11 @@ pub async fn import_github_repository_for_current_org(
 		&& let Err(error) = GitHubRepository::objects()
 			.filter(GitHubRepository::field_id().eq(repository_id))
 			.filter(GitHubRepository::field_selected().eq(true))
-			.filter(GitHubRepository::field_updated_at().eq(claim_started_at))
-			.update_fields([GitHubRepository::field_selected().assign(false)])
+			.filter(GitHubRepository::field_import_claimed_at().eq(Some(claim_started_at)))
+			.update_fields(vec![
+				GitHubRepository::field_selected().assign(false),
+				GitHubRepository::field_import_claimed_at().assign(Option::<DateTime<Utc>>::None),
+			])
 			.await
 	{
 		tracing::warn!(

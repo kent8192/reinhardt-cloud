@@ -76,9 +76,10 @@ cd dashboard && cargo run --bin manage migrate   # Apply checked-in migrations
 
 The v0.4.0-alpha.11 migration baseline is a breaking reset with six generated
 app initial migrations (`auth`, `clusters`, `default`, `deployments`,
-`github`, and `organizations`). It supports only an empty PostgreSQL database.
-Existing migration histories, in-place data migration, and `fake-initial`
-compatibility are not provided.
+`github`, and `organizations`) plus any generated follow-up migrations (for
+example, the GitHub import-lease column). It supports only an empty
+PostgreSQL database. Existing migration histories, in-place data migration,
+and `fake-initial` compatibility are not provided.
 
 `cd dashboard && cargo make makemigrations` is the authoritative way to
 regenerate migrations. Migration files are generated source and must not be
@@ -111,10 +112,11 @@ Deployment log selection is canonically represented by
 selection, while a malformed value is rejected by the typed extractor.
 Deployment IDs are `i64`; no UUID compatibility adapter is used.
 
-GitHub repository imports use the repository `selected` flag as a bounded
-30-minute lease. An interrupted import is reclaimed only when no project row
-exists, and the conditional timestamp check prevents one import from clearing
-another import's lease.
+GitHub repository imports use the repository `selected` flag plus the dedicated
+`import_claimed_at` timestamp as a bounded 30-minute lease. Repository
+synchronization does not renew an active lease. An interrupted import is
+reclaimed only when no project row exists, and the conditional timestamp check
+prevents one import from clearing another import's lease.
 
 ### OAuth account linking
 

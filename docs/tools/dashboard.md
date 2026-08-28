@@ -127,10 +127,12 @@ route receives `Query(logs): Query<Option<i64>>`: an omitted parameter is no
 selection, while a malformed value is rejected by the typed extractor. No UUID
 adapter is provided.
 
-GitHub repository imports hold a bounded 30-minute lease while the external
-pipeline runs. If the process is interrupted before a project row is written,
-the next import request reclaims the expired lease; a conditional timestamp
-check prevents an older request from clearing a newer claim.
+GitHub repository imports hold a bounded 30-minute lease in the repository's
+dedicated `import_claimed_at` column while the external pipeline runs.
+Repository synchronization does not renew an active lease. If the process is
+interrupted before a project row is written, the next import request reclaims
+the expired lease; a conditional timestamp check prevents an older request
+from clearing a newer claim.
 
 Application logs are read through the Dashboard's JWT-protected gRPC `LogServiceServer`. In development the server is backed by the in-process `LocalLogService`; in clusters it can be backed by `reinhardt-cloud-telemetry::LokiLogService` by setting `log_backend = "loki"` or `REINHARDT_CLOUD_LOG_BACKEND=loki`. The Loki backend reads historical logs with `/loki/api/v1/query_range` and tails live logs with `/loki/api/v1/tail`.
 
@@ -189,7 +191,7 @@ The image also:
 
 - **ORM**: reinhardt::db (built-in ORM from the `reinhardt` crate)
 - **Supported engines**: PostgreSQL — the only engine declared in `dashboard/settings/base.toml` (`engine = "postgresql"`)
-- **Migration source**: `dashboard/migrations/` — six app-level initial migrations (`auth/`, `clusters/`, `default/`, `deployments/`, `github/`, and `organizations/`); all migrations are Rust source files
+- **Migration source**: `dashboard/migrations/` — six app-level initial migrations (`auth/`, `clusters/`, `default/`, `deployments/`, `github/`, and `organizations/`) plus generated follow-up migrations; all migrations are Rust source files
 - **Migration tooling**: generate migrations only with the authoritative command, then apply the checked-in migration set through the `manage` binary:
 
 ```bash
@@ -297,9 +299,10 @@ cd dashboard && cargo run --bin manage migrate
 ```
 
 The v0.4.0-alpha.11 migration reset is an exception: provision a new empty
-PostgreSQL database, apply its six initial migrations with the command above,
-then deploy the alpha.11 image. No supported existing-history, data-migration,
-or `fake-initial` upgrade path exists for this reset.
+PostgreSQL database, apply the complete checked-in migration set (the six
+initial migrations and any generated follow-ups) with the command above, then
+deploy the alpha.11 image. No supported existing-history, data-migration, or
+`fake-initial` upgrade path exists for this reset.
 
 #### Multi-tenancy
 
