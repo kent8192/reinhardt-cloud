@@ -12,10 +12,8 @@ use reinhardt::di::FactoryOutput;
 use reinhardt::{Message, RoomManager, WebSocketConnection};
 use tokio::sync::RwLock;
 
+pub use crate::shared::ws_messages::MAX_SUBSCRIPTIONS_PER_USER;
 use crate::shared::ws_messages::{DeploymentStatusPayload, SystemNotificationPayload, WsMessage};
-
-/// Maximum number of deployment subscriptions allowed per user.
-pub const MAX_SUBSCRIPTIONS_PER_USER: usize = 100;
 
 /// Room ID used for system-wide notifications delivered to all connections.
 const SYSTEM_ROOM_ID: &str = "system:all";

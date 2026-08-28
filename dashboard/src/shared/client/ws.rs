@@ -19,7 +19,8 @@ use web_sys::{MessageEvent, WebSocket};
 
 #[cfg(wasm)]
 use crate::shared::ws_messages::{
-	DeploymentState, DeploymentStatusPayload, NotificationLevel, WsClientMessage, WsMessage,
+	DeploymentState, DeploymentStatusPayload, MAX_SUBSCRIPTIONS_PER_USER, NotificationLevel,
+	WsClientMessage, WsMessage,
 };
 
 #[cfg(wasm)]
@@ -94,10 +95,10 @@ pub fn connect_notifications() {
 		RECONNECT_ATTEMPTS.with(|c| *c.borrow_mut() = 0);
 
 		SUBSCRIBED_IDS.with(|ids| {
-			let ids = ids.borrow();
-			if !ids.is_empty() {
+			let ids = ids.borrow().iter().cloned().collect::<Vec<_>>();
+			for chunk in ids.chunks(MAX_SUBSCRIPTIONS_PER_USER) {
 				let sub = WsClientMessage::Subscribe {
-					deployment_ids: ids.iter().cloned().collect(),
+					deployment_ids: chunk.to_vec(),
 				};
 				send_client_message(&ws_for_open, &sub);
 			}
