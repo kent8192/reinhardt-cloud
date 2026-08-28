@@ -161,6 +161,9 @@ pub struct ProjectStatus {
 	/// Status of the provisioned cache sub-resource
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<CacheStatus>,
+	/// API-assigned UID of the operator-created Redis credentials Secret.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub redis_credentials_secret_uid: Option<String>,
 	/// Status of the worker deployment sub-resource
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub worker: Option<WorkerStatus>,
@@ -204,6 +207,27 @@ mod tests {
 		assert_eq!(deserialized.conditions[0].status, ConditionStatus::True);
 		assert_eq!(deserialized.observed_generation, Some(1));
 		assert_eq!(deserialized.ready_replicas, Some(3));
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_uid_roundtrips() {
+		// Arrange
+		let status = ProjectStatus {
+			redis_credentials_secret_uid: Some("secret-uid".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let json = serde_json::to_value(&status).expect("serialization should succeed");
+		let deserialized: ProjectStatus =
+			serde_json::from_value(json.clone()).expect("deserialization should succeed");
+
+		// Assert
+		assert_eq!(json["redisCredentialsSecretUid"], "secret-uid");
+		assert_eq!(
+			deserialized.redis_credentials_secret_uid.as_deref(),
+			Some("secret-uid")
+		);
 	}
 
 	#[rstest]

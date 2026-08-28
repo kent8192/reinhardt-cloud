@@ -395,6 +395,10 @@ async fn ensure_service_apply_target_is_owned(
 async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Action, Error> {
 	let name = app.name_any();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
+	let mut redis_credentials_secret_uid = app
+		.status
+		.as_ref()
+		.and_then(|status| status.redis_credentials_secret_uid.clone());
 
 	// Tenancy enforcement (#416) — runs before any per-app resource so a
 	// misplaced CR cannot create work in the wrong namespace. Validation
@@ -658,6 +662,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 			ready_replicas,
 			migration_state,
 			Vec::new(),
+			redis_credentials_secret_uid,
 		)
 		.await?;
 		update_replica_gauges(
@@ -760,7 +765,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
-		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
+		redis_credentials_secret_uid =
+			Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?);
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
@@ -817,7 +823,8 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		})
 		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
-		reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
+		redis_credentials_secret_uid =
+			Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?);
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
@@ -855,6 +862,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		ready_replicas,
 		migration_state,
 		child_conditions,
+		redis_credentials_secret_uid,
 	)
 	.await?;
 	if previews_enabled {
@@ -937,7 +945,6 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
-			detach_redis_credentials_secret_if_managed(&ctx.client, &app, namespace, &name).await?;
 			// Deployment and Service are cleaned up via ownerReferences GC.
 			// Secrets and StatefulSets are retained for manual cleanup.
 			info!(
@@ -1633,13 +1640,14 @@ async fn reconcile_hpa(
 
 /// Reconciles the Redis credentials `Secret` for a `Project`.
 ///
-/// Only creates the secret if it does not already exist, preserving existing
-/// Redis passwords across reconciliation cycles.
+/// Creates the secret if it does not already exist, preserving existing Redis
+/// passwords across reconciliation cycles. The API-assigned Secret UID is
+/// returned so it can be recorded in the `Project` status as provenance.
 async fn reconcile_redis_credentials_secret(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
-) -> Result<(), Error> {
+) -> Result<String, Error> {
 	let name = app.name_any();
 	let secret_name = format!("{name}-redis-credentials");
 	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
@@ -1651,7 +1659,9 @@ async fn reconcile_redis_credentials_secret(
 	{
 		if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
 			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
-			return Ok(());
+			return existing.metadata.uid.clone().ok_or_else(|| {
+				Error::SecretGeneration("Redis credentials Secret has no UID".to_string())
+			});
 		}
 
 		return Err(ownership_conflict_error(
@@ -1662,50 +1672,39 @@ async fn reconcile_redis_credentials_secret(
 		));
 	}
 
-	let secret = build_managed_redis_credentials_secret(app, namespace)?;
-	secret_api
+	let secret = build_managed_redis_credentials_secret(app, namespace);
+	let created = secret_api
 		.create(&PostParams::default(), &secret)
 		.await
-		.map_err(|e| Error::SecretGeneration(e.to_string()))?;
+		.map_err(Error::Kube)?;
+	let uid = created.metadata.uid.ok_or_else(|| {
+		Error::SecretGeneration("created Redis credentials Secret has no UID".to_string())
+	})?;
+	let project_api: Api<Project> = Api::namespaced(client.clone(), namespace);
+	let status_patch = serde_json::json!({
+		"status": { "redisCredentialsSecretUid": &uid }
+	});
+	project_api
+		.patch_status(&name, &PatchParams::default(), &Patch::Merge(&status_patch))
+		.await
+		.map_err(Error::Kube)?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
-	Ok(())
+	Ok(uid)
 }
 
-fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Result<Secret, Error> {
-	let mut secret = build_redis_credentials_secret(&app.name_any(), namespace);
-	secret.metadata.owner_references = Some(vec![crate::resources::labels::owner_reference(app)?]);
-	Ok(secret)
+fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
+	build_redis_credentials_secret(&app.name_any(), namespace)
 }
 
 fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
-	existing_resource_is_controlled_by_project(metadata, app)
-}
-
-async fn detach_redis_credentials_secret_if_managed(
-	client: &Client,
-	app: &Project,
-	namespace: &str,
-	name: &str,
-) -> Result<(), Error> {
-	let secret_name = format!("{name}-redis-credentials");
-	let secret_api: Api<Secret> = Api::namespaced(client.clone(), namespace);
-	let Some(existing) = secret_api
-		.get_opt(&secret_name)
-		.await
-		.map_err(Error::Kube)?
+	let Some(expected_uid) = app
+		.status
+		.as_ref()
+		.and_then(|status| status.redis_credentials_secret_uid.as_deref())
 	else {
-		return Ok(());
+		return false;
 	};
-	if !redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
-		return Ok(());
-	}
-
-	let patch = serde_json::json!({"metadata": {"ownerReferences": null}});
-	secret_api
-		.patch(&secret_name, &PatchParams::default(), &Patch::Merge(&patch))
-		.await
-		.map_err(Error::Kube)?;
-	Ok(())
+	metadata.uid.as_deref() == Some(expected_uid)
 }
 
 async fn delete_redis_credentials_secret_if_managed(
@@ -2772,6 +2771,8 @@ fn build_status(
 		.map(|status| status.conditions.clone())
 		.unwrap_or_default();
 	let build = existing_status.and_then(|status| status.build.clone());
+	let redis_credentials_secret_uid =
+		existing_status.and_then(|status| status.redis_credentials_secret_uid.clone());
 	let previews = existing_status
 		.map(|status| status.previews.clone())
 		.unwrap_or_default();
@@ -2839,6 +2840,7 @@ fn build_status(
 		ready_replicas: Some(ready_replicas),
 		build,
 		database,
+		redis_credentials_secret_uid,
 		previews,
 		..Default::default()
 	}
@@ -2856,15 +2858,17 @@ async fn update_status(
 	ready_replicas: i32,
 	migration_state: MigrationGateState,
 	child_conditions: Vec<ProjectCondition>,
+	redis_credentials_secret_uid: Option<String>,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let typed_status = build_status(
+	let mut typed_status = build_status(
 		app,
 		ready,
 		ready_replicas,
 		migration_state,
 		child_conditions,
 	);
+	typed_status.redis_credentials_secret_uid = redis_credentials_secret_uid;
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -3291,23 +3295,19 @@ mod tests {
 	}
 
 	#[rstest]
-	fn build_managed_redis_credentials_secret_uses_project_owner_reference() {
+	fn build_managed_redis_credentials_secret_has_no_owner_reference() {
 		// Arrange
 		let app = make_test_app("payments");
 
 		// Act
-		let secret = build_managed_redis_credentials_secret(&app, "default")
-			.expect("test app has a valid owner reference");
+		let secret = build_managed_redis_credentials_secret(&app, "default");
 
 		// Assert
 		assert_eq!(
 			secret.metadata.name.as_deref(),
 			Some("payments-redis-credentials")
 		);
-		let owners = secret.metadata.owner_references.expect("owner references");
-		assert_eq!(owners.len(), 1);
-		assert_eq!(owners[0].uid, "test-uid-12345");
-		assert_eq!(owners[0].controller, Some(true));
+		assert!(secret.metadata.owner_references.is_none());
 		let labels = secret.metadata.labels.expect("standard labels");
 		assert_eq!(
 			labels.get("app.kubernetes.io/name").map(String::as_str),
@@ -3333,6 +3333,46 @@ mod tests {
 					"reinhardt-cloud-operator".to_string(),
 				),
 			])),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(!is_managed);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_accepts_the_status_recorded_uid() {
+		// Arrange
+		let mut app = make_test_app("payments");
+		app.status = Some(ProjectStatus {
+			redis_credentials_secret_uid: Some("secret-uid".to_string()),
+			..Default::default()
+		});
+		let metadata = ObjectMeta {
+			uid: Some("secret-uid".to_string()),
+			..Default::default()
+		};
+
+		// Act
+		let is_managed = redis_credentials_secret_is_managed_by_project(&metadata, &app);
+
+		// Assert
+		assert!(is_managed);
+	}
+
+	#[rstest]
+	fn redis_credentials_secret_rejects_a_forged_project_owner_reference() {
+		// Arrange
+		let app = make_test_app("payments");
+		let metadata = ObjectMeta {
+			uid: Some("attacker-secret-uid".to_string()),
+			owner_references: Some(vec![
+				crate::resources::labels::owner_reference(&app)
+					.expect("test app has a valid owner reference"),
+			]),
 			..Default::default()
 		};
 
