@@ -2015,14 +2015,36 @@ fn validate_tenant_namespace(
 	Ok(Some(expected))
 }
 
+async fn patch_or_create_namespace(
+	namespaces: &Api<Namespace>,
+	name: &str,
+	desired: &Namespace,
+) -> Result<(), Error> {
+	match namespaces
+		.patch(name, &PatchParams::default(), &Patch::Merge(desired))
+		.await
+	{
+		Ok(_) => Ok(()),
+		Err(kube::Error::Api(status)) if status.code == 404 => {
+			namespaces
+				.create(&PostParams::default(), desired)
+				.await
+				.map_err(Error::Kube)?;
+			Ok(())
+		}
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
 /// Reconcile the per-tenant `Namespace`, `ResourceQuota`, and
 /// `NetworkPolicy` triple.
 ///
 /// Server-side applies the namespaced resources so concurrent reconciles
 /// for sibling apps in the same tenant cannot fight over ownership. The
-/// `Namespace` uses a merge patch so the patch-only RBAC mode cannot create
-/// it when it is absent. It is created without an owner reference because it
-/// is shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
+/// `Namespace` is merge-patched when it exists and created when a 404 is
+/// returned; creation therefore succeeds only when the configured RBAC grants
+/// the lifecycle permission. It is created without an owner reference because
+/// it is shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
 /// likewise omit owner references for the same reason (see the module docs
 /// in `resources::tenant`).
 async fn reconcile_tenant_resources(
@@ -2036,14 +2058,7 @@ async fn reconcile_tenant_resources(
 	// Namespace is cluster-scoped; use Api::all.
 	let namespaces: Api<Namespace> = Api::all(client.clone());
 	let desired_ns = tenant_resources::build_namespace(tenant);
-	namespaces
-		.patch(
-			&namespace_name,
-			&Default::default(),
-			&Patch::Merge(&desired_ns),
-		)
-		.await
-		.map_err(Error::Kube)?;
+	patch_or_create_namespace(&namespaces, &namespace_name, &desired_ns).await?;
 
 	let quotas: Api<k8s_openapi::api::core::v1::ResourceQuota> =
 		Api::namespaced(client.clone(), &namespace_name);
@@ -2105,19 +2120,9 @@ async fn reconcile_preview_namespace(
 		);
 		return Ok(());
 	};
-	// A merge patch preserves the patch-only RBAC mode's pre-created namespace boundary.
-	namespaces
-		.patch(
-			&ns_name,
-			&Default::default(),
-			&Patch::Merge(&resources::preview_namespace::build_namespace(
-				parent_namespace,
-				parent_name,
-				parent_uid,
-			)),
-		)
-		.await
-		.map_err(Error::Kube)?;
+	let desired_ns =
+		resources::preview_namespace::build_namespace(parent_namespace, parent_name, parent_uid);
+	patch_or_create_namespace(&namespaces, &ns_name, &desired_ns).await?;
 
 	let quota =
 		resources::preview_namespace::build_resource_quota(parent_namespace, parent_name, budget);
