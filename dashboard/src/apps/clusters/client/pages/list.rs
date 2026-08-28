@@ -156,35 +156,6 @@ async fn submit_cluster_token_rotation(
 	unavailable_during_server_rendering("token rotation")
 }
 
-fn cluster_token_confirmation_with_callback(
-	token: ClusterTokenInfo,
-	dismiss: Callback<ClickEvent, ()>,
-) -> Page {
-	page!({
-		div {
-			class: "mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950",
-			p {
-				class: "font-semibold",
-				{ format!("{} is ready.", token.cluster.name) }
-			}
-			p {
-				class: "mt-1",
-				"Save this agent token now. It cannot be shown again."
-			}
-			code {
-				class: "mt-2 block break-all rounded bg-white px-2 py-1 font-mono text-xs",
-				{ token.auth_token }
-			}
-			button {
-				type: "button",
-				class: "btn-dark mt-3 min-h-10",
-				@click: dismiss,
-				"I have saved this token"
-			}
-		}
-	})
-}
-
 fn success_alert(message: Signal<Option<String>>) -> Page {
 	page!({
 		{
@@ -439,9 +410,31 @@ fn render_rotate_cluster_token_action(view: RotateClusterTokenActionView) -> Pag
 			let is_pending = action.is_pending();
 			let is_confirmed = confirmed.get();
 			let has_selected_cluster = !cluster_id.get().trim().is_empty();
-			let token_confirmation = action
-				.result()
-				.map(|token| self::cluster_token_confirmation_with_callback(token, dismiss));
+			let token_confirmation = action.result().map(|token| {
+				page!({
+					div {
+						class: "mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950",
+						p {
+							class: "font-semibold",
+							{ format!("{} is ready.", token.cluster.name) }
+						}
+						p {
+							class: "mt-1",
+							"Save this agent token now. It cannot be shown again."
+						}
+						code {
+							class: "mt-2 block break-all rounded bg-white px-2 py-1 font-mono text-xs",
+							{ token.auth_token }
+						}
+						button {
+							type: "button",
+							class: "btn-dark mt-3 min-h-10",
+							@click: dismiss,
+							"I have saved this token"
+						}
+					}
+				})
+			});
 			let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
 			page!({
 				{ error_view }
@@ -691,7 +684,31 @@ pub fn clusters_list_page() -> Page {
 					UseFormAsyncSubmitOutcome::AlreadyPending
 					| UseFormAsyncSubmitOutcome::ValidationFailed => None,
 				})
-				.map(|token| self::cluster_token_confirmation_with_callback(token, create_dismiss));
+				.map(|token| {
+					page!({
+						div {
+							class: "mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950",
+							p {
+								class: "font-semibold",
+								{ format!("{} is ready.", token.cluster.name) }
+							}
+							p {
+								class: "mt-1",
+								"Save this agent token now. It cannot be shown again."
+							}
+							code {
+								class: "mt-2 block break-all rounded bg-white px-2 py-1 font-mono text-xs",
+								{ token.auth_token }
+							}
+							button {
+								type: "button",
+								class: "btn-dark mt-3 min-h-10",
+								@click: create_dismiss,
+								"I have saved this token"
+							}
+						}
+					})
+				});
 			let token_confirmation = token_confirmation.unwrap_or(Page::Empty);
 			page!({
 				div {
@@ -791,25 +808,28 @@ pub fn clusters_list_page() -> Page {
 	});
 	let edit_runtime_for_selection = edit_runtime.clone();
 	let edit_success_for_selection = edit_success;
-	let edit_selection_changed = Callback::new(move |request: UpdateClusterFormRequest| {
-		edit_runtime_for_selection.set_value(
-			UpdateClusterFormRequestClientFormField::ClusterId,
-			request.cluster_id,
-		);
-		edit_runtime_for_selection
-			.set_value(UpdateClusterFormRequestClientFormField::Name, request.name);
-		edit_runtime_for_selection.set_value(
-			UpdateClusterFormRequestClientFormField::ApiUrl,
-			request.api_url,
-		);
-		edit_runtime_for_selection.set_value(
-			UpdateClusterFormRequestClientFormField::IsActive,
-			request.is_active,
-		);
-		edit_runtime_for_selection.reset_default_values();
-		edit_runtime_for_selection.clear_errors();
-		edit_success_for_selection.set(None);
-	});
+	let edit_selection_changed = use_callback(
+		move |request: UpdateClusterFormRequest| {
+			edit_runtime_for_selection.set_value(
+				UpdateClusterFormRequestClientFormField::ClusterId,
+				request.cluster_id,
+			);
+			edit_runtime_for_selection
+				.set_value(UpdateClusterFormRequestClientFormField::Name, request.name);
+			edit_runtime_for_selection.set_value(
+				UpdateClusterFormRequestClientFormField::ApiUrl,
+				request.api_url,
+			);
+			edit_runtime_for_selection.set_value(
+				UpdateClusterFormRequestClientFormField::IsActive,
+				request.is_active,
+			);
+			edit_runtime_for_selection.reset_default_values();
+			edit_runtime_for_selection.clear_errors();
+			edit_success_for_selection.set(None);
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let edit_view = self::render_cluster_update_form(ClusterUpdateFormView {
 		state: edit_state,
 		action: edit_action,
@@ -860,12 +880,15 @@ pub fn clusters_list_page() -> Page {
 	let delete_error_for_selection = delete_error;
 	let delete_success_for_selection = delete_success;
 	let delete_action_for_selection = delete_action;
-	let delete_selection_changed = Callback::new(move |_cluster_id: String| {
-		delete_confirmed_for_selection.set(false);
-		delete_error_for_selection.set(None);
-		delete_success_for_selection.set(None);
-		delete_action_for_selection.reset();
-	});
+	let delete_selection_changed = use_callback(
+		move |_cluster_id: String| {
+			delete_confirmed_for_selection.set(false);
+			delete_error_for_selection.set(None);
+			delete_success_for_selection.set(None);
+			delete_action_for_selection.reset();
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let delete_view = self::render_delete_cluster_action(DeleteClusterActionView {
 		action: delete_action,
 		cluster_id: delete_cluster_id,
@@ -909,11 +932,14 @@ pub fn clusters_list_page() -> Page {
 	let rotate_confirmed_for_selection = rotate_confirmed;
 	let rotate_error_for_selection = rotate_error;
 	let rotate_action_for_selection = rotate_action;
-	let rotate_selection_changed = Callback::new(move |_cluster_id: String| {
-		rotate_confirmed_for_selection.set(false);
-		rotate_error_for_selection.set(None);
-		rotate_action_for_selection.reset();
-	});
+	let rotate_selection_changed = use_callback(
+		move |_cluster_id: String| {
+			rotate_confirmed_for_selection.set(false);
+			rotate_error_for_selection.set(None);
+			rotate_action_for_selection.reset();
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let rotate_view = self::render_rotate_cluster_token_action(RotateClusterTokenActionView {
 		action: rotate_action,
 		cluster_id: rotate_cluster_id,

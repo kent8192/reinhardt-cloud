@@ -353,8 +353,11 @@ mod tests {
 		let html = shell.render_to_string();
 
 		// Assert
-		assert!(html.contains(r#"href="/clusters""#));
-		assert!(html.contains(r#"href="/deployments""#));
-		assert!(html.contains(r#"href="/github""#));
+		let hrefs = html
+			.split("href=\"")
+			.skip(1)
+			.map(|fragment| fragment.split('"').next().unwrap_or_default())
+			.collect::<Vec<_>>();
+		assert_eq!(hrefs, vec!["/clusters", "/deployments", "/github"]);
 	}
 }

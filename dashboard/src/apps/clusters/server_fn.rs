@@ -34,6 +34,12 @@ pub struct ClusterTokenInfo {
 
 /// Browser payload for updating a cluster in the current organization.
 #[dto]
+// Workaround for kent8192/reinhardt-web#6195 (tracked in reinhardt-cloud#893).
+// Remove this workaround when the `client_form` helper generates `ClientForm`
+// automatically.
+//
+// Ideal implementation (without workaround):
+//   #[client_form(...)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ClientForm)]
 #[client_form(
 	server_fn = crate::apps::clusters::server_fn::update_cluster_for_current_org,

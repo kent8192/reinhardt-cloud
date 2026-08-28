@@ -389,10 +389,13 @@ pub async fn update_deployment_for_current_org(
 pub async fn delete_deployment_for_current_org(
 	deployment_id: String,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
+	#[inject] database: reinhardt::db::orm::DatabaseConnection,
 ) -> Result<(), ServerFnError> {
 	use reinhardt::Model;
+	use reinhardt::core::exception::Error as AppError;
 
 	use crate::apps::deployments::models::Deployment;
+	use crate::apps::github::models::{GitHubProject, GitHubRepository};
 
 	let organization_id = current_org_id_for_action(
 		&user,
@@ -409,10 +412,37 @@ pub async fn delete_deployment_for_current_org(
 		.await
 		.map_err(|e| ServerFnError::application(format!("Failed to load deployment: {e}")))?
 		.ok_or_else(|| ServerFnError::server(404, "Deployment not found"))?;
-	Deployment::objects()
-		.delete(deployment_id)
-		.await
-		.map_err(|e| ServerFnError::application(format!("Failed to delete deployment: {e}")))?;
+	let result: Result<(), AppError> = database
+		.atomic_write(async |transaction| {
+			if let Some(github_project) = GitHubProject::objects()
+				.filter(GitHubProject::field_deployment_id().eq(deployment_id))
+				.filter(GitHubProject::field_organization_id().eq(organization_id))
+				.one_with_executor(transaction)
+				.await?
+				.into_iter()
+				.next()
+			{
+				GitHubRepository::objects()
+					.filter(GitHubRepository::field_id().eq(github_project.repository_id()))
+					.update_fields_with_conn(
+						transaction,
+						[
+							GitHubRepository::field_selected().assign(false),
+							GitHubRepository::field_import_claimed_at()
+								.assign(Option::<chrono::DateTime<chrono::Utc>>::None),
+						],
+					)
+					.await?;
+			}
+			Deployment::objects()
+				.filter(Deployment::field_id().eq(deployment_id))
+				.filter(Deployment::field_organization_id().eq(organization_id))
+				.delete_with_conn(transaction)
+				.await?;
+			Ok(())
+		})
+		.await;
+	result.map_err(|e| ServerFnError::application(format!("Failed to delete deployment: {e}")))?;
 	Ok(())
 }
 

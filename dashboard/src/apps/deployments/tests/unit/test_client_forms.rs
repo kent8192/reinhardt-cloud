@@ -269,6 +269,7 @@ fn github_project_preview_delete_invalidation_probe(fetches: Rc<Cell<u32>>) -> P
 	})
 }
 
+#[rstest]
 #[tokio::test]
 async fn generated_create_form_success_invalidates_deployment_query_families() {
 	// Arrange
@@ -314,6 +315,7 @@ async fn generated_create_form_success_invalidates_deployment_query_families() {
 	assert_eq!(github_project_preview_fetches.get(), 1);
 }
 
+#[rstest]
 #[tokio::test]
 async fn identical_deployment_list_observers_share_one_fetch() {
 	// Arrange
@@ -331,6 +333,7 @@ async fn identical_deployment_list_observers_share_one_fetch() {
 	assert_eq!(fetches.get(), 1);
 }
 
+#[rstest]
 #[tokio::test]
 async fn successful_deployment_delete_invalidates_github_project_preview_queries() {
 	// Arrange

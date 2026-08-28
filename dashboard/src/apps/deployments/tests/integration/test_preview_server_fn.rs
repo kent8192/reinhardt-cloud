@@ -16,7 +16,7 @@ use crate::apps::auth::models::User;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::deployments::server_fn::{
-	ProjectSourceKind, list_deployment_previews_for_current_org,
+	ProjectSourceKind, delete_deployment_for_current_org, list_deployment_previews_for_current_org,
 };
 use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
 use crate::apps::github::server_fn::list_github_project_previews_for_current_org;
@@ -262,4 +262,68 @@ async fn github_preview_list_uses_repository_full_name_and_branch(
 		summaries[0].preview_error.as_deref(),
 		Some("Preview status is unavailable until cluster agent telemetry reports Project status")
 	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn deleting_github_deployment_releases_repository_import_claim(
+	#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
+) {
+	// Arrange
+	let (_container, conn) = db.await;
+	let user = create_user(&conn, "github-deleter").await;
+	let org = create_org(&conn, &user, "github-deleter-org").await;
+	add_membership(&conn, &user, &org, MembershipRole::Owner).await;
+	let cluster = create_cluster(&conn, &org, "github-deleter-cluster").await;
+	let deployment = create_deployment(&conn, &org, &cluster, "reinhardt-cloud", None).await;
+	let github_project = create_github_project(&conn, &org, &deployment).await;
+	let repository_id = github_project.repository_id();
+	let claim_started_at = Utc::now();
+	GitHubRepository::objects()
+		.filter(GitHubRepository::field_id().eq(repository_id))
+		.update_fields([
+			GitHubRepository::field_selected().assign(true),
+			GitHubRepository::field_import_claimed_at().assign(Some(claim_started_at)),
+		])
+		.await
+		.expect("claim github repository");
+	let database = reinhardt::db::orm::get_connection()
+		.await
+		.expect("get database connection");
+
+	// Act
+	delete_deployment_for_current_org(
+		deployment.id.expect("deployment id").to_string(),
+		CurrentUser(user),
+		database,
+	)
+	.await
+	.expect("delete deployment");
+
+	// Assert
+	assert!(
+		Deployment::objects()
+			.filter(Deployment::field_id().eq(deployment.id.expect("deployment id")))
+			.first()
+			.await
+			.expect("query deleted deployment")
+			.is_none()
+	);
+	assert!(
+		GitHubProject::objects()
+			.filter(GitHubProject::field_id().eq(github_project.id.expect("github project id")))
+			.first()
+			.await
+			.expect("query deleted github project")
+			.is_none()
+	);
+	let repository = GitHubRepository::objects()
+		.filter(GitHubRepository::field_id().eq(repository_id))
+		.first()
+		.await
+		.expect("query released github repository")
+		.expect("github repository remains after project deletion");
+	assert!(!repository.selected);
+	assert_eq!(repository.import_claimed_at, None);
 }
