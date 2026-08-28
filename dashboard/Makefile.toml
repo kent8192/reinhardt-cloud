@@ -185,7 +185,7 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
 script = '''
 # Keep this version in sync with the wasm-bindgen crate in Cargo.lock
-cargo install wasm-bindgen-cli --version "0.2.118" --locked 2>/dev/null || true
+cargo install wasm-bindgen-cli --version "0.2.126" --locked 2>/dev/null || true
 '''
 
 [tasks.wasm-install-test-tools]
