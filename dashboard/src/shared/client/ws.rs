@@ -27,6 +27,8 @@ use super::components::status_badge;
 #[cfg(wasm)]
 use super::components::toast::show_toast;
 #[cfg(wasm)]
+use super::style::STYLES;
+#[cfg(wasm)]
 use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 
 #[cfg(wasm)]
@@ -265,8 +267,9 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 		return;
 	};
 	let selector = format!(
-		"[data-deployment-id='{}'] .status-badge",
-		payload.deployment_id
+		"[data-deployment-id='{}'] .{}",
+		payload.deployment_id,
+		STYLES.status_badge().as_str(),
 	);
 	let Ok(Some(badge)) = document.query_selector(&selector) else {
 		return;
@@ -276,9 +279,7 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 	badge
 		.set_attribute(
 			"class",
-			&format!(
-				"status-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {color}"
-			),
+			&format!("{} {color}", STYLES.status_badge().as_str()),
 		)
 		.unwrap();
 	badge.set_text_content(Some(label));

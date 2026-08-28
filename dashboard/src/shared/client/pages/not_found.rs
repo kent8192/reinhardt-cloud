@@ -4,26 +4,27 @@ use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
 use crate::shared::client::routes::route_href;
+use crate::shared::client::style::STYLES;
 
 /// Render a centered 404 page with a link back to the dashboard.
 pub fn not_found_page() -> Page {
 	let home_href = route_href("dashboard:home", "/");
 	page!({
 		div {
-			class: "rc-app flex items-center justify-center px-4",
+			class: STYLES.not_found_page(),
 			div {
-				class: "text-center",
+				class: STYLES.not_found_content(),
 				h1 {
-					class: "mb-4 text-6xl font-semibold text-cloud-200",
+					class: STYLES.not_found_code(),
 					"404"
 				}
 				p {
-					class: "mb-8 text-xl text-ink-600",
+					class: STYLES.not_found_message(),
 					"Page not found"
 				}
 				a {
 					href: home_href,
-					class: "btn-primary px-6 py-3",
+					class: STYLES.button_primary() + STYLES.not_found_action(),
 					"Back to Dashboard"
 				}
 			}

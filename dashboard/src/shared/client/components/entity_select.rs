@@ -5,6 +5,8 @@ use reinhardt::pages::event::ChangeEvent;
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{EventPayload, Signal, typed_event_handler};
 
+use crate::shared::client::style::STYLES;
+
 /// Display option for selecting a persisted dashboard entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntitySelectOption {
@@ -79,7 +81,14 @@ where
 		})
 		.collect::<Vec<_>>();
 	let select = PageElement::new("select")
-		.attr("class", "rc-input")
+		.attr(
+			"class",
+			format!(
+				"{} {}",
+				STYLES.input().as_str(),
+				STYLES.entity_select_control().as_str(),
+			),
+		)
 		.bool_attr("disabled", is_empty)
 		.on(
 			ChangeEvent::EVENT,
@@ -91,7 +100,11 @@ where
 
 	page!({
 		div {
-			label { { label } }
+			class: STYLES.entity_select(),
+			label {
+				class: STYLES.entity_select_label(),
+				{ label }
+			}
 			{ select }
 		}
 	})
