@@ -13,7 +13,8 @@ use reinhardt::pages::prelude::{
 use reinhardt::pages::reactive::ExplicitDeps;
 use reinhardt::pages::server_fn::ServerFnError;
 
-use crate::apps::auth::client::components::oauth_buttons;
+use crate::apps::auth::client::components::{auth_layout, oauth_buttons};
+use crate::apps::auth::client::style::STYLES;
 #[cfg(test)]
 use crate::apps::auth::serializers::LoginRequest;
 use crate::apps::auth::serializers::login::{LoginRequestClientForm, LoginRequestClientFormField};
@@ -31,6 +32,7 @@ use crate::apps::github::server_fn::{
 };
 use crate::shared::AuthResponse;
 use crate::shared::client::routes::route_href;
+use crate::shared::client::style::STYLES as SHARED_STYLES;
 
 #[derive(Clone)]
 struct LoginFormView {
@@ -55,7 +57,7 @@ fn login_field_error(
 					let message = error.message().to_owned();
 					page!({
 						p {
-							class: "mt-1 text-xs font-medium text-red-700",
+							class: STYLES.field_error(),
 							role: "alert",
 							{ message }
 						}
@@ -70,19 +72,19 @@ fn login_form_error(state: FormState<LoginRequestClientFormField>) -> Page {
 	page!({
 		{
 			state
-	.form_error
-	.get()
-	.or_else(|| state.submit_error.get())
-	.map(|message| {
-		page!({
-			div {
-				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-				role: "alert",
-				{ message }
-			}
-		})
-	})
-	.unwrap_or(Page::Empty)
+				.form_error
+				.get()
+				.or_else(|| state.submit_error.get())
+				.map(|message| {
+					page!({
+						div {
+							class: STYLES.form_error(),
+							role: "alert",
+							{ message }
+						}
+					})
+				})
+				.unwrap_or(Page::Empty)
 		}
 	})
 }
@@ -112,18 +114,18 @@ fn render_login_form(view: LoginFormView) -> Page {
 			};
 			page!({
 				form {
-					class: "rc-form-stack",
+					class: SHARED_STYLES.form_stack(),
 					@submit: submit,
 					{ form_error }
 					div {
-						class: "rc-field",
+						class: SHARED_STYLES.field(),
 						label {
-							span { class: "rc-label", "Username" }
+							span { class: SHARED_STYLES.label(), "Username" }
 							input {
 								id: "login-username",
 								aria_label: "Username",
 								aria_describedby: "login-username-error",
-								class: "rc-input",
+								class: SHARED_STYLES.input(),
 								type: "text",
 								autocomplete: "username",
 								maxlength: 150,
@@ -137,14 +139,14 @@ fn render_login_form(view: LoginFormView) -> Page {
 						}
 					}
 					div {
-						class: "rc-field",
+						class: SHARED_STYLES.field(),
 						label {
-							span { class: "rc-label", "Password" }
+							span { class: SHARED_STYLES.label(), "Password" }
 							input {
 								id: "login-password",
 								aria_label: "Password",
 								aria_describedby: "login-password-error",
-								class: "rc-input",
+								class: SHARED_STYLES.input(),
 								type: "password",
 								autocomplete: "current-password",
 								maxlength: 128,
@@ -160,7 +162,7 @@ fn render_login_form(view: LoginFormView) -> Page {
 					}
 					button {
 						type: "submit",
-						class: "btn-primary min-h-11 w-full text-base",
+						class: SHARED_STYLES.button_primary() + STYLES.form_submit(),
 						disabled: is_submitting,
 						{ submit_label }
 					}
@@ -245,46 +247,20 @@ pub fn login_page() -> Page {
 	});
 	let oauth_buttons = oauth_buttons();
 	let register_href = route_href("auth:register_page", "/register");
-	page!({
+	let footer = page!({
 		div {
-			class: "rc-app flex items-center justify-center px-4",
-			div {
-				class: "w-full max-w-md",
-				div {
-					class: "text-center mb-8",
-					p {
-						class: "rc-kicker mb-2",
-						"Control plane"
-					}
-					h1 {
-						class: "text-3xl font-semibold text-ink-950",
-						"Reinhardt Cloud"
-					}
-					p {
-						class: "rc-muted mt-1",
-						"Cloud Platform"
-					}
-				}
-				div {
-					class: "rc-panel-pad p-8",
-					h2 {
-						class: "text-xl font-semibold text-ink-950 mb-6 text-center",
-						"Sign in to your account"
-					}
-					{ form_view }
-					{ oauth_buttons }
-					div {
-						class: "mt-6 text-center text-sm text-ink-600",
-						"Don't have an account? " a {
-							href: register_href,
-							class: "font-semibold text-control-700 underline-offset-4 hover:underline",
-							"Create one"
-						}
-					}
-				}
+			class: STYLES.auth_footer(),
+			"Don't have an account? " a {
+				href: register_href,
+				class: SHARED_STYLES.link(),
+				"Create one"
 			}
 		}
-	})
+	});
+	auth_layout(
+		"Sign in to your account",
+		Page::fragment([form_view, oauth_buttons, footer]),
+	)
 }
 
 #[cfg(test)]

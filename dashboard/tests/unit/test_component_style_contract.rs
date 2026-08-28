@@ -17,6 +17,29 @@ const SHARED_IMPERATIVE_SOURCES: &[(&str, &str)] = &[
 	("websocket", include_str!("../../src/shared/client/ws.rs")),
 ];
 
+const AUTH_PRODUCTION_SOURCES: &[(&str, &str)] = &[
+	(
+		"auth_layout",
+		include_str!("../../src/apps/auth/client/components/auth_layout.rs"),
+	),
+	(
+		"oauth_buttons",
+		include_str!("../../src/apps/auth/client/components/oauth_buttons.rs"),
+	),
+	(
+		"account",
+		include_str!("../../src/apps/auth/client/pages/account.rs"),
+	),
+	(
+		"login",
+		include_str!("../../src/apps/auth/client/pages/login.rs"),
+	),
+	(
+		"register",
+		include_str!("../../src/apps/auth/client/pages/register.rs"),
+	),
+];
+
 #[test]
 fn generated_component_stylesheet_is_the_only_document_style_runtime() {
 	// Arrange
@@ -64,5 +87,16 @@ fn shared_imperative_dom_paths_do_not_embed_utility_class_literals() {
 				"{source_name} must use typed shared style tokens"
 			);
 		}
+	}
+}
+
+#[test]
+fn auth_pages_and_components_use_typed_style_tokens() {
+	// Arrange + Act + Assert
+	for (source_name, source) in AUTH_PRODUCTION_SOURCES {
+		assert!(
+			!source.contains("class: \""),
+			"{source_name} must use typed shared or auth-local style tokens"
+		);
 	}
 }

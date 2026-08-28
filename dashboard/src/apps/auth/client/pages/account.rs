@@ -6,6 +6,7 @@ use reinhardt::pages::page;
 use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QuerySnapshot, QueryStatus, use_query};
 use reinhardt::pages::server_fn::ServerFnError;
 
+use crate::apps::auth::client::style::STYLES;
 use crate::apps::auth::server_fn::linked_accounts::{
 	LinkedOAuthAccountInfo, list_linked_oauth_accounts,
 };
@@ -13,6 +14,7 @@ use crate::apps::auth::server_fn::me::me;
 use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, list_oauth_providers};
 use crate::shared::UserInfo;
 use crate::shared::client::routes::route_href;
+use crate::shared::client::style::STYLES as SHARED_STYLES;
 
 fn github_link_url(providers: &[OAuthProviderInfo]) -> Option<String> {
 	providers
@@ -45,70 +47,70 @@ pub(crate) fn render_account_content(
 	let github_link_url = github_link_url(&providers);
 	page!({
 		div {
-			class: "rc-shell",
+			class: SHARED_STYLES.shell(),
 			div {
-				class: "rc-topline",
+				class: SHARED_STYLES.topline(),
 				div {
 					p {
-						class: "rc-kicker",
+						class: SHARED_STYLES.kicker(),
 						"Account"
 					}
 					h1 {
-						class: "rc-title mt-1",
+						class: SHARED_STYLES.title(),
 						"Account"
 					}
 				}
 			}
 			div {
-				class: "grid gap-4 lg:grid-cols-2",
+				class: STYLES.account_grid(),
 				section {
-					class: "rc-panel-pad",
+					class: SHARED_STYLES.panel_pad(),
 					h2 {
-						class: "text-base font-semibold text-ink-950",
+						class: STYLES.account_heading(),
 						"Profile"
 					}
 					dl {
-						class: "mt-4 grid gap-3 text-sm",
+						class: STYLES.account_details(),
 						div {
 							dt {
-								class: "font-medium text-ink-600",
+								class: STYLES.account_term(),
 								"Username"
 							}
 							dd {
-								class: "mt-1 text-ink-950",
+								class: STYLES.account_value(),
 								{ user.username.clone() }
 							}
 						}
 						div {
 							dt {
-								class: "font-medium text-ink-600",
+								class: STYLES.account_term(),
 								"Email"
 							}
 							dd {
-								class: "mt-1 text-ink-950",
+								class: STYLES.account_value(),
 								{ user.email.clone() }
 							}
 						}
 					}
 				}
 				section {
-					class: "rc-panel-pad",
+					class: SHARED_STYLES.panel_pad(),
 					div {
-						class: "flex items-start justify-between gap-4",
+						class: STYLES.account_provider_head(),
 						div {
 							h2 {
-								class: "text-base font-semibold text-ink-950",
+								class: STYLES.account_heading(),
 								"GitHub"
 							}
 							p {
-								class: "rc-muted mt-1",
+								class: SHARED_STYLES.muted(),
 								"Authentication provider"
 							}
 						} {
 							if github_linked {
 								page!( {
 									span {
-										class: "inline-flex shrink-0 rounded-full bg-control-500/10 px-2.5 py-1 text-xs font-semibold text-control-700",
+										class: STYLES.account_badge(),
 										{ github_label }
 									}
 								})
@@ -116,12 +118,12 @@ pub(crate) fn render_account_content(
 						}
 					}
 					div {
-						class: "mt-5",
+						class: STYLES.account_action(),
 						{
 							if github_linked {
 								page!( {
 									p {
-										class: "text-sm font-medium text-ink-700",
+										class: STYLES.account_status(),
 										"GitHub account linked"
 									}
 								})
@@ -130,14 +132,14 @@ pub(crate) fn render_account_content(
 									a {
 										href: url,
 										rel: "external",
-										class: "btn-primary inline-flex px-4 py-2 text-sm",
+										class: SHARED_STYLES.button_primary(),
 										"Link GitHub"
 									}
 								})
 							} else {
 								page!( {
 									p {
-										class: "text-sm font-medium text-ink-600",
+										class: STYLES.account_status(),
 										"GitHub OAuth is not configured"
 									}
 								})
@@ -155,20 +157,20 @@ fn account_error(message: &str) -> Page {
 	let message = message.to_string();
 	page!({
 		div {
-			class: "rc-shell",
+			class: SHARED_STYLES.shell(),
 			div {
-				class: "rc-panel-pad",
+				class: SHARED_STYLES.panel_pad(),
 				h1 {
-					class: "text-xl font-semibold text-ink-950",
+					class: STYLES.auth_form_title(),
 					"Account"
 				}
 				p {
-					class: "rc-muted mt-2",
+					class: SHARED_STYLES.muted(),
 					{ message }
 				}
 				a {
 					href: login_href,
-					class: "btn-primary mt-5 inline-flex px-4 py-2 text-sm",
+					class: SHARED_STYLES.button_primary() + STYLES.account_action(),
 					"Sign in"
 				}
 			}
@@ -179,11 +181,11 @@ fn account_error(message: &str) -> Page {
 fn account_loading(message: &'static str) -> Page {
 	page!({
 		div {
-			class: "rc-shell",
+			class: SHARED_STYLES.shell(),
 			div {
-				class: "rc-panel-pad",
+				class: SHARED_STYLES.panel_pad(),
 				p {
-					class: "rc-muted text-sm",
+					class: SHARED_STYLES.muted(),
 					{ message }
 				}
 			}
@@ -209,7 +211,7 @@ fn query_refresh_notice(
 		);
 		return page!({
 			div {
-				class: "border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700",
+				class: STYLES.account_refresh_notice() + STYLES.account_refresh_warning(),
 				{ message }
 			}
 		});
@@ -217,7 +219,7 @@ fn query_refresh_notice(
 	if is_fetching {
 		return page!({
 			div {
-				class: "border-b border-cloud-100 bg-cloud-50 px-4 py-2 text-xs font-medium text-cloud-600",
+				class: STYLES.account_refresh_notice() + STYLES.account_refresh_info(),
 				"Refreshing " { label }"..."
 			}
 		});

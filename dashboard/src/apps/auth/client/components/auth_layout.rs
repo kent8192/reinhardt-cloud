@@ -6,6 +6,9 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::apps::auth::client::style::STYLES;
+use crate::shared::client::style::STYLES as SHARED_STYLES;
+
 /// Render a centered authentication layout with a branded card.
 ///
 /// The `title` is shown below the Reinhardt Cloud header and `form_content`
@@ -14,28 +17,28 @@ pub fn auth_layout(title: &str, form_content: Page) -> Page {
 	let title = title.to_string();
 	page!({
 		div {
-			class: "rc-app flex items-center justify-center px-4",
+			class: SHARED_STYLES.app() + STYLES.auth_page(),
 			div {
-				class: "w-full max-w-md",
+				class: STYLES.auth_card(),
 				div {
-					class: "text-center mb-8",
+					class: STYLES.auth_brand(),
 					p {
-						class: "rc-kicker mb-2",
+						class: SHARED_STYLES.kicker() + STYLES.auth_kicker(),
 						"Control plane"
 					}
 					h1 {
-						class: "text-3xl font-semibold text-ink-950",
+						class: STYLES.auth_brand_name(),
 						"Reinhardt Cloud"
 					}
 					p {
-						class: "rc-muted mt-1",
+						class: SHARED_STYLES.muted() + STYLES.auth_brand_subtitle(),
 						"Cloud Platform"
 					}
 				}
 				div {
-					class: "rc-panel-pad p-8",
+					class: SHARED_STYLES.panel_pad() + STYLES.auth_panel(),
 					h2 {
-						class: "text-xl font-semibold text-ink-950 mb-6 text-center",
+						class: STYLES.auth_form_title(),
 						{ title }
 					}
 					{ form_content }
