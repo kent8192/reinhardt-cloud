@@ -4,10 +4,14 @@
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
 //! `WsBroadcaster` event distribution system and the gRPC log stream.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use reinhardt::{
-	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+	ConsumerBuildError, ConsumerBuildFuture, ConsumerContext, ConsumerPreflightFuture, Depends,
+	InjectionContext, KeyedFactoryOutput, Message, Model, SelfKey, WebSocketConsumer,
+	WebSocketConsumerKey, WebSocketConsumerRegistration, WebSocketEndpointInfo, WebSocketError,
+	WebSocketResult,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -149,15 +153,47 @@ fn proto_entry_to_app_log(entry: &log_pb::LogEntry) -> AppLogPayload {
 	}
 }
 
+enum BroadcasterHandle {
+	Direct(Arc<WsBroadcaster>),
+	Injected(Arc<KeyedFactoryOutput<SelfKey<WsBroadcaster>, WsBroadcaster>>),
+}
+
+impl Deref for BroadcasterHandle {
+	type Target = WsBroadcaster;
+
+	fn deref(&self) -> &Self::Target {
+		match self {
+			Self::Direct(broadcaster) => broadcaster,
+			Self::Injected(broadcaster) => broadcaster,
+		}
+	}
+}
+
+/// Structural endpoint marker used by the unified WebSocket router.
+pub struct NotificationConsumerEndpoint;
+
+/// Stable key shared by the structural route and executable registration.
+pub const NOTIFICATION_CONSUMER_KEY: WebSocketConsumerKey =
+	WebSocketConsumerKey::new("dashboard.notifications");
+
+impl WebSocketEndpointInfo for NotificationConsumerEndpoint {
+	fn path() -> &'static str {
+		"/ws/notifications"
+	}
+
+	fn name() -> Option<&'static str> {
+		Some("notifications")
+	}
+
+	fn consumer_key() -> WebSocketConsumerKey {
+		NOTIFICATION_CONSUMER_KEY
+	}
+}
+
 /// WebSocket consumer that authenticates users, manages deployment
-/// subscriptions, and forwards broadcaster events to individual connections.
-///
-/// Unlike the previous `ConnectionHandle`-based approach, connections are
-/// registered directly with the [`WsBroadcaster`] rooms. This eliminates
-/// the per-connection mpsc channel and forwarding task — the Room broadcasts
-/// to `Arc<WebSocketConnection>` instances directly.
+/// subscriptions, and forwards broadcaster events to individual clients.
 pub struct NotificationConsumer {
-	broadcaster: Arc<WsBroadcaster>,
+	broadcaster: BroadcasterHandle,
 	/// Active log streaming task handle. Protected by a `Mutex` so that only
 	/// one log stream is active per consumer at a time. Subscribing to a new
 	/// stream automatically cancels the previous one. Wrapped in `Arc` so
@@ -170,7 +206,14 @@ impl NotificationConsumer {
 	/// Create a new consumer backed by the given broadcaster.
 	pub fn new(broadcaster: Arc<WsBroadcaster>) -> Self {
 		Self {
-			broadcaster,
+			broadcaster: BroadcasterHandle::Direct(broadcaster),
+			log_stream_handle: Arc::new(Mutex::new(None)),
+		}
+	}
+
+	fn from_injected(broadcaster: Depends<WsBroadcaster>) -> Self {
+		Self {
+			broadcaster: BroadcasterHandle::Injected(Arc::clone(broadcaster.as_arc())),
 			log_stream_handle: Arc::new(Mutex::new(None)),
 		}
 	}
@@ -433,6 +476,45 @@ fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 			None
 		}
 	})
+}
+
+fn notification_consumer_preflight(context: Arc<InjectionContext>) -> ConsumerPreflightFuture {
+	Box::pin(async move {
+		Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map(|_| ())
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})
+	})
+}
+
+fn build_notification_consumer(context: Arc<InjectionContext>) -> ConsumerBuildFuture {
+	Box::pin(async move {
+		let broadcaster = Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})?;
+		Ok(Box::new(NotificationConsumer::from_injected(broadcaster)) as _)
+	})
+}
+
+inventory::submit! {
+	WebSocketConsumerRegistration::new(
+		NOTIFICATION_CONSUMER_KEY,
+		module_path!(),
+		notification_consumer_preflight,
+		build_notification_consumer,
+	)
 }
 
 #[async_trait::async_trait]

@@ -21,7 +21,9 @@ type AppRouter = UnifiedRouter;
 /// Returns the unified URL patterns for the dashboard app.
 #[cfg(server)]
 pub fn url_patterns() -> AppRouter {
-	UnifiedRouter::new().client(|client| client)
+	UnifiedRouter::new()
+		.client(|client| client)
+		.websocket(|websocket| websocket.mount("/", ws_urls::ws_url_patterns()))
 }
 
 #[cfg(not(server))]

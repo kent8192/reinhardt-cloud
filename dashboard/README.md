@@ -106,6 +106,10 @@ with `use_query`. The Launcher or SSR runtime owns the QueryClient; pages do
 not install a separate client cache provider. Mutation success invalidates the
 affected query keys so dependent views refetch.
 
+The notification WebSocket is mounted at `/ws/notifications`. Configure its
+separate `[ws_origin]` allow-list alongside `[cors]`; unlisted browser origins
+are rejected during the handshake.
+
 Deployment log selection is canonically represented by
 `/deployments?logs=<i64>` and is extracted at the component boundary as
 `Query(logs): Query<Option<i64>>`. An omitted `logs` parameter produces no

@@ -97,6 +97,10 @@ background refetch failure. The Dashboard does not install a separate cache
 provider or a normalized entity cache. Successful mutations invalidate the
 affected query keys so dependent views refetch.
 
+The notification WebSocket is mounted at `/ws/notifications` through the
+unified router. Configure its separate `[ws_origin]` allow-list alongside
+`[cors]`; unlisted browser origins are rejected during the handshake.
+
 ---
 
 ## Features
