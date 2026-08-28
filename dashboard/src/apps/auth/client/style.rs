@@ -152,10 +152,7 @@ pub static STYLES: AuthStyles = style! {
 		font-weight: 600;
 		color: #0a4d48;
 	}
-	.account_actions {
-		margin-top: 1.25rem;
-	}
-	.account_error_action {
+	.account_action_spacing {
 		margin-top: 1.25rem;
 	}
 	.account_status {

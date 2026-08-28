@@ -119,3 +119,22 @@ fn auth_account_grid_retains_the_desktop_two_column_rule() {
 		"account layout must restore two desktop columns"
 	);
 }
+
+#[test]
+fn auth_actions_share_one_spacing_token() {
+	// Arrange + Act
+	let has_shared_spacing =
+		AUTH_STYLE_SOURCE.contains(".account_action_spacing {\n\t\tmargin-top: 1.25rem;\n\t}");
+	let has_duplicate_spacing = AUTH_STYLE_SOURCE.contains(".account_actions {")
+		|| AUTH_STYLE_SOURCE.contains(".account_error_action {");
+
+	// Assert
+	assert!(
+		has_shared_spacing,
+		"auth actions must share one spacing token"
+	);
+	assert!(
+		!has_duplicate_spacing,
+		"auth actions must not define duplicate spacing tokens"
+	);
+}
