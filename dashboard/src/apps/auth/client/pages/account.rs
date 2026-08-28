@@ -118,7 +118,7 @@ pub(crate) fn render_account_content(
 						}
 					}
 					div {
-						class: STYLES.account_action(),
+						class: STYLES.account_actions(),
 						{
 							if github_linked {
 								page!( {
@@ -170,7 +170,7 @@ fn account_error(message: &str) -> Page {
 				}
 				a {
 					href: login_href,
-					class: SHARED_STYLES.button_primary() + STYLES.account_action(),
+					class: SHARED_STYLES.button_primary() + STYLES.account_error_action(),
 					"Sign in"
 				}
 			}

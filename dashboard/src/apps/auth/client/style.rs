@@ -111,6 +111,9 @@ pub static STYLES: AuthStyles = style! {
 	.account_grid {
 		display: grid;
 		gap: 1rem;
+		@media (min-width: 1024px) {
+			grid-template-columns: unchecked_fn!(repeat(2, minmax(0, 1fr)));
+		}
 	}
 	.account_heading {
 		font-size: 1rem;
@@ -149,12 +152,11 @@ pub static STYLES: AuthStyles = style! {
 		font-weight: 600;
 		color: #0a4d48;
 	}
-	.account_action {
+	.account_actions {
 		margin-top: 1.25rem;
-		padding: 0.5rem;
-		padding-left: 1rem;
-		padding-right: 1rem;
-		font-size: 0.875rem;
+	}
+	.account_error_action {
+		margin-top: 1.25rem;
 	}
 	.account_status {
 		font-size: 0.875rem;

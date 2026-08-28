@@ -1,6 +1,7 @@
 //! Source-level contracts for Dashboard's generated component stylesheet.
 
 const INDEX_HTML: &str = include_str!("../../index.html");
+const AUTH_STYLE_SOURCE: &str = include_str!("../../src/apps/auth/client/style.rs");
 const SHARED_IMPERATIVE_SOURCES: &[(&str, &str)] = &[
 	(
 		"entity_select",
@@ -99,4 +100,22 @@ fn auth_pages_and_components_use_typed_style_tokens() {
 			"{source_name} must use typed shared or auth-local style tokens"
 		);
 	}
+}
+
+#[test]
+fn auth_account_grid_retains_the_desktop_two_column_rule() {
+	// Arrange + Act
+	let has_desktop_breakpoint = AUTH_STYLE_SOURCE.contains("@media (min-width: 1024px)");
+	let has_two_columns = AUTH_STYLE_SOURCE
+		.contains("grid-template-columns: unchecked_fn!(repeat(2, minmax(0, 1fr)));");
+
+	// Assert
+	assert!(
+		has_desktop_breakpoint,
+		"account layout must define a desktop breakpoint"
+	);
+	assert!(
+		has_two_columns,
+		"account layout must restore two desktop columns"
+	);
 }
