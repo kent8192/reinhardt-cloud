@@ -31,6 +31,8 @@ spec:
           env:
             - name: REINHARDT_CLOUD_PLATFORM
               value: {{ .Values.platform | quote }}
+            - name: REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE
+              value: {{ .Values.rbac.namespaces.manageLifecycle | quote }}
             # Always bind the always-on HTTP server (healthz + optional
             # metrics) to `.Values.metrics.port` so the containerPort and
             # probe targets stay consistent even when metrics scraping is

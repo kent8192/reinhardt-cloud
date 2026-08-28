@@ -79,6 +79,7 @@ Common top-level value keys (summarized from `values.yaml`):
 | `imagePullSecrets` | List of pull-secret references | `[]` |
 | `namespace` | Kubernetes namespace the operator is installed into | `reinhardt-cloud-system` |
 | `platform` | Target platform (`onpremise` / `aws` / `gcp`); drives `PlatformConfig` and RBAC rules | `onpremise` |
+| `rbac.namespaces.manageLifecycle` | Grant and enable creation/deletion of tenant and preview namespaces | `false` |
 | `features.database` | Enable database inference and RBAC rules | `true` |
 | `features.cache` | Enable Redis cache inference | `false` |
 | `features.ingress` | Enable Ingress inference and RBAC rules | `false` |
@@ -322,7 +323,9 @@ and expands or contracts based on `platform` and `features.*` values at install 
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
-pre-create tenant and preview namespaces when those workflows are used.
+pre-create tenant and preview namespaces when those workflows are used. The chart passes this same
+setting to the operator, which skips preview-namespace deletion while lifecycle management is
+disabled; enabling it requires both the chart's lifecycle RBAC verbs and the operator setting.
 
 **Always-present rules (all platforms and feature configurations)**:
 

@@ -77,6 +77,20 @@ fn managed_github_credentials_secret_name(project_name: &str) -> String {
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
+/// Enables creation and deletion of operator-managed tenant namespaces.
+const MANAGE_NAMESPACE_LIFECYCLE_ENV: &str = "REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE";
+
+fn parse_namespace_lifecycle_enabled(value: Option<&str>) -> bool {
+	value.is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
+fn namespace_lifecycle_enabled() -> bool {
+	parse_namespace_lifecycle_enabled(
+		std::env::var(MANAGE_NAMESPACE_LIFECYCLE_ENV)
+			.ok()
+			.as_deref(),
+	)
+}
 
 /// Platform-level preview environment configuration read from the environment.
 ///
@@ -123,6 +137,8 @@ pub(crate) struct Context {
 	/// `managed_apps{phase}` gauge in sync as objects transition between
 	/// phases and when they are deleted. Key is `(namespace, name)`.
 	pub phase_state: Arc<DashMap<(String, String), String>>,
+	/// Whether the operator may create and delete tenant and preview namespaces.
+	pub manage_namespace_lifecycle: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -989,15 +1005,16 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 		}
 	}
 
-	// Preview namespace (#707): when previews were enabled, the operator owns a
-	// parent-qualified preview namespace. Deleting it cascade-removes every
-	// preview child Project and its sub-resources. Best-effort: a missing
-	// namespace (previews never enabled) is not an error.
-	if app
-		.spec
-		.source
-		.as_ref()
-		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
+	// Preview namespace (#707): when previews were enabled and namespace
+	// lifecycle management is enabled, the operator owns a parent-qualified
+	// preview namespace. Deleting it cascade-removes every preview child
+	// Project and its sub-resources. A missing namespace is not an error.
+	if ctx.manage_namespace_lifecycle
+		&& app
+			.spec
+			.source
+			.as_ref()
+			.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
 		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
 		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
@@ -1033,6 +1050,15 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 				"Skipping preview namespace cleanup for {namespace}/{name}: Project UID is missing"
 			);
 		}
+	} else if app
+		.spec
+		.source
+		.as_ref()
+		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
+	{
+		info!(
+			"Skipping preview namespace cleanup for {namespace}/{name}: namespace lifecycle management is disabled"
+		);
 	}
 
 	// Decrement the `managed_apps` gauge for the phase this object was
@@ -3032,6 +3058,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 		metrics,
 		backoff_state: Arc::new(DashMap::new()),
 		phase_state: Arc::new(DashMap::new()),
+		manage_namespace_lifecycle: namespace_lifecycle_enabled(),
 	});
 
 	Controller::new(apps, watcher::Config::default())
@@ -3908,6 +3935,20 @@ mod tests {
 	}
 
 	#[rstest]
+	#[case::unset(None, false)]
+	#[case::disabled(Some("false"), false)]
+	#[case::enabled(Some("true"), true)]
+	#[case::enabled_uppercase(Some("TRUE"), true)]
+	#[case::enabled_numeric(Some("1"), true)]
+	fn namespace_lifecycle_setting_is_parsed(#[case] value: Option<&str>, #[case] expected: bool) {
+		// Act
+		let enabled = parse_namespace_lifecycle_enabled(value);
+
+		// Assert
+		assert_eq!(enabled, expected);
+	}
+
+	#[rstest]
 	fn test_build_status_updates_transition_time_when_status_changes() {
 		// Arrange
 		let old_time = "2025-01-01T00:00:00Z";
@@ -4041,6 +4082,7 @@ mod tests {
 			metrics: Metrics::new(),
 			backoff_state: Arc::new(DashMap::new()),
 			phase_state: Arc::new(DashMap::new()),
+			manage_namespace_lifecycle: false,
 		})
 	}
 
