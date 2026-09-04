@@ -4,6 +4,7 @@
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
 //! `WsBroadcaster` event distribution system and the gRPC log stream.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use reinhardt::{
@@ -24,8 +25,8 @@ use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
 use crate::config::settings::get_settings;
 use crate::shared::ws_messages::{
-	AppLogPayload, LogStreamAckPayload, NotificationLevel, SystemNotificationPayload,
-	WsClientMessage, WsMessage,
+	AppLogPayload, LogStreamAckPayload, MAX_SUBSCRIPTIONS_PER_USER, NotificationLevel,
+	SystemNotificationPayload, WsClientMessage, WsMessage,
 };
 use crate::utils::grpc::dashboard_grpc_auth_interceptor;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
@@ -196,6 +197,13 @@ impl NotificationConsumer {
 						}),
 					};
 				}
+				if deployment_ids.len() > MAX_SUBSCRIPTIONS_PER_USER {
+					return ParsedAction::Rejected {
+						response: log_stream_rejected(
+							"Too many deployment subscriptions requested",
+						),
+					};
+				}
 				ParsedAction::Subscribe { deployment_ids }
 			}
 			WsClientMessage::Unsubscribe { deployment_ids } => {
@@ -282,39 +290,44 @@ async fn authorize_deployment_subscriptions(
 	let organization_id = require_permission(user_id, Action::DeploymentRead)
 		.await
 		.map_err(|_| log_stream_rejected("Not authorized to subscribe to deployment updates"))?;
-	let mut authorized = Vec::with_capacity(deployment_ids.len());
-	for deployment_id in deployment_ids {
-		let Ok(deployment_id_i64) = deployment_id.parse::<i64>() else {
-			tracing::debug!(
-				deployment_id,
-				"Skipping invalid WebSocket deployment subscription id"
-			);
-			continue;
-		};
-		let deployment = Deployment::objects()
-			.filter(Deployment::field_id().eq(deployment_id_i64))
-			.filter(Deployment::field_organization_id().eq(organization_id))
-			.first()
-			.await
-			.map_err(|e| {
-				tracing::error!(
-					error = %e,
-					"Failed to load deployment for WebSocket subscription"
+	let parsed_ids = deployment_ids
+		.iter()
+		.filter_map(|deployment_id| match deployment_id.parse::<i64>() {
+			Ok(deployment_id_i64) => Some(deployment_id_i64),
+			Err(_) => {
+				tracing::debug!(
+					deployment_id,
+					"Skipping invalid WebSocket deployment subscription id"
 				);
-				log_stream_rejected("Failed to authorize deployment subscription")
-			})?;
-		let Some(deployment) = deployment else {
-			tracing::debug!(
-				deployment_id = deployment_id_i64,
-				"Skipping stale or unauthorized WebSocket deployment subscription id"
-			);
-			continue;
-		};
-		if let Some(id) = deployment.id {
-			authorized.push(id.to_string());
-		}
+				None
+			}
+		})
+		.collect::<Vec<_>>();
+	if parsed_ids.is_empty() {
+		return Ok(Vec::new());
 	}
-	Ok(authorized)
+
+	let deployments = Deployment::objects()
+		.filter(Deployment::field_id().is_in(parsed_ids.iter().copied()))
+		.filter(Deployment::field_organization_id().eq(organization_id))
+		.all()
+		.await
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load deployments for WebSocket subscription"
+			);
+			log_stream_rejected("Failed to authorize deployment subscription")
+		})?;
+	let authorized_ids: HashSet<i64> = deployments
+		.into_iter()
+		.filter_map(|deployment| deployment.id)
+		.collect();
+	Ok(parsed_ids
+		.into_iter()
+		.filter(|id| authorized_ids.contains(id))
+		.map(|id| id.to_string())
+		.collect())
 }
 
 fn build_log_rejected() -> WsMessage {
@@ -879,6 +892,32 @@ mod tests {
 				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
 			}
 			_ => panic!("expected Subscribe action"),
+		}
+	}
+
+	#[rstest]
+	fn test_parse_subscribe_rejects_oversized_batch() {
+		// Arrange
+		let msg = WsClientMessage::Subscribe {
+			deployment_ids: vec!["1".to_string(); MAX_SUBSCRIPTIONS_PER_USER + 1],
+		};
+
+		// Act
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
+
+		// Assert
+		match action {
+			ParsedAction::Rejected { response } => match response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Too many deployment subscriptions requested"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 

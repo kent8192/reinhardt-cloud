@@ -6,6 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Maximum number of deployment subscriptions accepted in one request and
+/// tracked for a user.
+pub const MAX_SUBSCRIPTIONS_PER_USER: usize = 100;
+
 /// Server-to-client WebSocket message.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", content = "payload")]
