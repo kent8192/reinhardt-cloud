@@ -17,7 +17,7 @@ const PUBLIC_PATHS: &[&str] = &[
 ];
 
 /// Paths that require agent authentication (not user authentication).
-const AGENT_PATH_PREFIXES: &[&str] = &["/reinhardt.paas.v1.ClusterAgentService/"];
+const AGENT_PATH_PREFIXES: &[&str] = &["/reinhardt.cloud.cluster_agent.AgentService/"];
 const LOG_SERVICE_PUSH_LOGS_PATH: &str = "/reinhardt.cloud.log.LogService/PushLogs";
 
 type AgentTokenValidator = Arc<dyn Fn(&str, &AgentClaims) -> Result<(), Status> + Send + Sync>;
@@ -500,13 +500,16 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_agent_interceptor_call_missing_auth_on_agent_path() {
+	#[case("AgentStream")]
+	#[case("ReportHealth")]
+	#[case("ReportDeployStatus")]
+	fn test_agent_interceptor_call_missing_auth_on_agent_path(#[case] method: &'static str) {
 		// Arrange
 		let mut interceptor = AgentJwtInterceptor::new(TEST_SECRET);
 		let mut req = Request::new(());
 		req.extensions_mut().insert(tonic::GrpcMethod::new(
-			"reinhardt.paas.v1.ClusterAgentService",
-			"AgentStream",
+			"reinhardt.cloud.cluster_agent.AgentService",
+			method,
 		));
 
 		// Act
@@ -525,7 +528,7 @@ mod tests {
 		let token = create_agent_token(cluster_id, TEST_SECRET, 24).unwrap();
 		let mut req = Request::new(());
 		req.extensions_mut().insert(tonic::GrpcMethod::new(
-			"reinhardt.paas.v1.ClusterAgentService",
+			"reinhardt.cloud.cluster_agent.AgentService",
 			"AgentStream",
 		));
 		req.metadata_mut()
