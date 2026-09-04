@@ -15,7 +15,7 @@ The reinhardt-cloud Dashboard is a full-stack web application that provides a br
 - **Database engine**: PostgreSQL (inferred from `FieldType::TimestampTz`, `FieldType::Uuid` in migration source, and `engine = "postgresql"` in `dashboard/settings/base.toml`)
 - **Frontend framework**: reinhardt-pages + reinhardt-admin features of the `reinhardt` crate — not Yew, Leptos, or Dioxus
 - **WASM build**: The library crate declares `crate-type = ["cdylib", "rlib"]` for dual native/WASM compilation. The `dashboard/index.html` file is the WASM shell HTML; `build.rs` uses `cfg_aliases` to set `cfg(wasm)` / `cfg(native)` compile-time flags. WASM bundle build tooling is not declared in `Cargo.toml` — see §7.8 of the source audit (outstanding verification: WASM bundler invocation, e.g. `trunk build`, is not documented in Makefile.toml and must be verified from the broader build pipeline before documenting the exact command)
-- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting `AgentService` and `BuildService` on `0.0.0.0:50051` by default for deployed profiles; local and CI profiles override `[grpc].bind_host` to `127.0.0.1` (`crates/reinhardt-cloud-grpc/src/config.rs`, `dashboard/settings/*.toml`)
+- **gRPC**: tonic 0.13 + tonic-reflection 0.13, hosting the agent-JWT-authenticated `AgentService` and `BuildService` on `0.0.0.0:50051` by default for deployed profiles; local and CI profiles override `[grpc].bind_host` to `127.0.0.1` (`crates/reinhardt-cloud-grpc/src/config.rs`, `dashboard/settings/*.toml`)
 - **Settings loader**: environment-variable-driven TOML files in `dashboard/settings/` (selected via `REINHARDT_SETTINGS_MODULE`)
 
 ### Dashboard vs CLI vs Operator

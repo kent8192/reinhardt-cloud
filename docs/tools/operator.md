@@ -907,7 +907,9 @@ The Helm chart renders a `ClusterRole` whose rules are determined by the `platfo
 values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
-workflow. The base rules (always present, regardless of platform or features) are:
+workflow. A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
+delete its preview namespace; grant that permission through the lifecycle setting before deleting
+the parent. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -1050,6 +1052,10 @@ loop retries every 30 seconds (fixed interval — no exponential backoff; tracke
 **Cause:** `Error::Kube(#[from] kube::Error)` — the API server returned an error (connection
 refused, 401 Unauthorized, 403 Forbidden, 429 Too Many Requests, etc.).
 
+Migration Job API failures retain this `Error::Kube` classification and are retried with the
+configured backoff. Invalid database specifications are reported as `DatabaseProvisioning` and
+remain permanent until the `Project` spec is corrected.
+
 **Diagnose:**
 ```bash
 kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
@@ -1172,7 +1178,9 @@ has permission to create `Secret` objects in the target namespace (see RBAC foot
 `paas.reinhardt-cloud.dev/cleanup` is not removed.
 
 **Cause:** `Error::Finalizer(Box<dyn Error + Send + Sync>)` — the cleanup path in the finalizer
-returned an error, or the operator is not running.
+returned an error, or the operator is not running. For preview-enabled projects, cleanup keeps the
+finalizer in place when preview namespace deletion is forbidden so that preview workloads are not
+orphaned.
 
 **Diagnose:**
 ```bash

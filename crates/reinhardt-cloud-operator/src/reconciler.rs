@@ -1017,7 +1017,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 						}
 						Err(err) if preview_namespace_delete_is_best_effort_error(&err) => {
 							warn!(
-								"Leaving preview namespace {preview_ns} during cleanup of {namespace}/{name}: namespace delete was not permitted or the namespace disappeared ({err})"
+								"Preview namespace {preview_ns} disappeared during cleanup of {namespace}/{name} ({err})"
 							);
 						}
 						Err(err) => return Err(Error::Kube(err)),
@@ -1326,7 +1326,7 @@ async fn reconcile_migration_job_resource(
 	job_api
 		.create(&PostParams::default(), &desired)
 		.await
-		.map_err(|e| Error::DatabaseProvisioning(e.to_string()))?;
+		.map_err(Error::Kube)?;
 	info!("Created migration Job {namespace}/{job_name}");
 	Ok(MigrationGateState::Running)
 }
@@ -2675,7 +2675,7 @@ where
 }
 
 fn preview_namespace_delete_is_best_effort_error(error: &kube::Error) -> bool {
-	matches!(error, kube::Error::Api(status) if status.code == 403 || status.code == 404)
+	matches!(error, kube::Error::Api(status) if status.code == 404)
 }
 
 async fn delete_migration_jobs(
@@ -3885,7 +3885,7 @@ mod tests {
 	}
 
 	#[rstest]
-	#[case::forbidden(403, true)]
+	#[case::forbidden(403, false)]
 	#[case::not_found(404, true)]
 	#[case::server_error(500, false)]
 	fn preview_namespace_delete_best_effort_error_classification(
