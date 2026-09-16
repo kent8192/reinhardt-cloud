@@ -485,4 +485,40 @@ mod tests {
 			"second link with duplicate (provider, provider_user_id) must fail"
 		);
 	}
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn concurrent_identities_for_one_user_and_provider_have_one_winner(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _connection, _client, _urls) = db.await;
+		let user_id = create_test_user("provider_race", "race@example.com").await;
+		let storage = OrmSocialAccountStorage::new();
+
+		// Act
+		let (first, second) = tokio::join!(
+			storage.create(sample_account(user_id, "github", "first")),
+			storage.create(sample_account(user_id, "github", "second")),
+		);
+
+		// Assert
+		let winner = match (first, second) {
+			(Ok(winner), Err(SocialAuthError::Storage(_)))
+			| (Err(SocialAuthError::Storage(_)), Ok(winner)) => winner,
+			other => panic!("exactly one concurrent insert must succeed: {other:?}"),
+		};
+		let links = storage
+			.find_by_user(user_id)
+			.await
+			.expect("load persisted link");
+		assert_eq!(links.len(), 1);
+		assert_eq!(links[0].id, winner.id);
+		assert_eq!(links[0].provider_user_id, winner.provider_user_id);
+	}
 }

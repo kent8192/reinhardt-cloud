@@ -60,6 +60,9 @@ pub enum LinkError {
 	/// The provider identity is already linked to a different local user.
 	#[error("this {provider} account is already linked to another user")]
 	ProviderAlreadyLinked { provider: String },
+	/// The local user already linked a different identity from this provider.
+	#[error("this user already has a linked {provider} account")]
+	UserAlreadyLinked { provider: String },
 }
 
 /// Attach a provider identity to one explicitly selected user.
@@ -204,6 +207,17 @@ async fn create_link(
 	claims: &StandardClaims,
 	user_id: Uuid,
 ) -> Result<(), LinkError> {
+	if storage
+		.find_by_user(user_id)
+		.await
+		.map_err(|error| LinkError::Storage(error.to_string()))?
+		.iter()
+		.any(|account| account.provider == provider)
+	{
+		return Err(LinkError::UserAlreadyLinked {
+			provider: provider.to_owned(),
+		});
+	}
 	let now = Utc::now();
 	let acc = SocialAccount {
 		id: Uuid::now_v7(),

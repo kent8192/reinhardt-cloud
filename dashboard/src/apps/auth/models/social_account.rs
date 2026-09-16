@@ -2,7 +2,9 @@
 //!
 //! Links a local `User` to a third-party identity provider (GitHub, GitLab,
 //! ...). One row per (user, provider) link; the same user may link several
-//! providers. The pair `(provider, provider_user_id)` is globally unique so
+//! providers. Both `(user_id, provider)` and `(provider, provider_user_id)`
+//! are unique, preventing concurrent callbacks from adding a second identity
+//! for the same provider and user. Provider identities are globally unique so
 //! that the same external identity cannot be claimed by two local users.
 //!
 //! OAuth tokens are stored only as encrypted metadata when a downstream
@@ -24,10 +26,16 @@ use super::User;
 #[model(
 	app_label = "auth",
 	table_name = "auth_social_accounts",
-	constraints = [unique(
-		fields = ["provider", "provider_user_id"],
-		name = "auth_social_account_provider_uid_uniq"
-	)]
+	constraints = [
+		unique(
+			fields = ["provider", "provider_user_id"],
+			name = "auth_social_account_provider_uid_uniq"
+		),
+		unique(
+			fields = ["user_id", "provider"],
+			name = "auth_social_account_user_provider_uniq"
+		)
+	]
 )]
 #[derive(Default, Serialize, Deserialize)]
 pub struct SocialAccount {

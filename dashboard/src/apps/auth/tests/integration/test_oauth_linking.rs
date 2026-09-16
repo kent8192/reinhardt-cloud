@@ -538,4 +538,51 @@ mod tests {
 		// sanitizer (alnum, '-', '_', '.' are kept).
 		assert_eq!(user.get_username(), "raw-sub-42");
 	}
+	#[rstest]
+	#[case::explicit_link("explicit")]
+	#[case::authenticated_link("authenticated")]
+	#[case::verified_email_link("email")]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn second_identity_from_the_same_provider_is_rejected(
+		#[case] flow: &str,
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _connection, _client, _urls) = db.await;
+		let user_id = seed_user("single_provider", "single@example.com").await;
+		let storage = InMemorySocialAccountStorage::new();
+		let claims = github_claims("first", Some("single@example.com"), Some(true));
+		let user = link_or_create_user(&storage, "github", &claims, None)
+			.await
+			.expect("initial provider link");
+		link_user_to_provider(&storage, "github", &claims, user.clone())
+			.await
+			.expect("relinking the identical identity is idempotent");
+		let other_claims = github_claims("second", Some("single@example.com"), Some(true));
+
+		// Act
+		let result = match flow {
+			"explicit" => link_user_to_provider(&storage, "github", &other_claims, user).await,
+			"authenticated" => {
+				link_or_create_user(&storage, "github", &other_claims, Some(user)).await
+			}
+			"email" => link_or_create_user(&storage, "github", &other_claims, None).await,
+			_ => unreachable!("test case defines a supported linking flow"),
+		};
+
+		// Assert
+		match result {
+			Err(LinkError::UserAlreadyLinked { provider }) => assert_eq!(provider, "github"),
+			other => panic!("expected UserAlreadyLinked, got {other:?}"),
+		}
+		let links = storage.find_by_user(user_id).await.expect("provider links");
+		assert_eq!(links.len(), 1);
+		assert_eq!(links[0].provider_user_id, "first");
+	}
 }

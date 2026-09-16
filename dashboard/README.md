@@ -104,6 +104,9 @@ input values in place and preserve focus while typing. The runtime owns field
 values, touched/dirty state, and resets; password values stay out of rendered
 HTML attributes.
 
+OAuth links allow only one identity per user and provider, enforced by both the
+linking service and a database unique constraint.
+
 ### Database
 
 ```bash
