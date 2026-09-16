@@ -19,59 +19,32 @@ This file defines the pull request (PR) policy for the Reinhardt Cloud project. 
 
 ## PR Creation Policy
 
-### PC-1 (MUST): Use GitHub MCP or CLI
+### PC-1 (MUST): Use GitHub CLI with Task Authorization
 
-- **MUST** prefer GitHub MCP tools (`create_pull_request`) for creating pull requests when available
-- **Fallback**: Use GitHub CLI (`gh pr create`) when GitHub MCP is not available
-- **NEVER** use web browser UI for PR creation when MCP or CLI is available
-- **Autonomy (Reinhardt family)**: The Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` does not authorize creating PRs or converting Draft PRs to Ready for Review without explicit user instruction. When PR creation is explicitly authorized, the Draft PR body MUST still follow `.github/PULL_REQUEST_TEMPLATE.md` and `--draft` MUST be passed for work in progress.
+Use `gh` for PR operations. Creation and readiness changes require explicit task
+authorization; local implementation or commit permission alone is insufficient.
+Reuse authorization already supplied and preserve an explicit Draft/Ready choice.
+Default new PRs to Draft unless a Ready PR was requested and PC-4a is satisfied.
 
-The following diagram summarizes the PR creation flow. Ready-for-Review conversion is governed separately by § PC-4a and requires explicit user instruction:
+Read [.github/PULL_REQUEST_TEMPLATE.md](../.github/PULL_REQUEST_TEMPLATE.md), write
+the complete body to a temporary file, and pass it with `--body-file`. Inspect the
+base, source branch, title, labels, and body before publishing. Remove the owned
+temporary file once it is no longer needed.
 
-```mermaid
-flowchart TD
-    A[Create new PR as Draft] --> B{GitHub MCP available?}
-    B -->|Yes| C[create_pull_request with draft=true]
-    B -->|No| D[gh pr create --draft]
-    C --> E[Follow PR template structure]
-    D --> E
-    E --> F[Add appropriate labels]
-    F --> G[PR created as Draft]
-    G --> H["Explicit Ready instruction?<br/>see § PC-4a"]
-    H -->|Yes| I[Mark Ready<br/>gh pr ready]
-    H -->|No| G
-```
-
-**PR Template Location:** `.github/PULL_REQUEST_TEMPLATE.md`
-
-**Example:**
 ```bash
-gh pr create --title "feat(reconciler): add exponential backoff to error policy" \
-  --body "$(cat <<'EOF'
-## Summary
-
-- Implement exponential backoff in reconciler error policy
-- Add configurable max retry duration
-- Include unit tests for backoff calculation
-
-## Test plan
-
-- [x] `cargo make test` passes
-- [x] All existing tests pass
-- [x] Manual testing with simulated API errors
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+# After PR creation is authorized and the complete template body is prepared:
+gh pr create --draft --base <base> --head <source-branch> \
+  --title 'feat(reconciler): add exponential backoff to error policy' \
+  --body-file /tmp/reinhardt-cloud-pr-body.md
 ```
 
 ### PC-2 (MUST): Follow PR Template Structure
 
 **PR Template Location:** `.github/PULL_REQUEST_TEMPLATE.md`
 
-When creating PRs via `gh pr create`, the `--body` content MUST follow the PR template structure defined in `.github/PULL_REQUEST_TEMPLATE.md`.
+When creating PRs via `gh pr create`, the `--body-file` content MUST follow the PR template structure defined in `.github/PULL_REQUEST_TEMPLATE.md`.
 
-**CLI Note:** GitHub CLI does not automatically apply the PR template like the Web UI. Read the template file and include its structure in your `--body` content.
+**CLI Note:** GitHub CLI does not automatically apply the PR template like the Web UI. Read the template file and include its structure in the file passed to `--body-file`.
 
 ### PC-3 (MUST): Branch Naming
 
@@ -112,7 +85,7 @@ Converting a Draft PR to Ready for Review requires explicit user instruction. Im
 - The agent **MUST NOT** convert a Draft PR to Ready for Review without explicit user instruction
 - The agent **MUST** convert when explicitly instructed only if the PC-4a readiness criteria are met, unless the user explicitly overrides the unmet criteria
 - The agent **MUST NOT** convert when the requested action conflicts with protected-branch, release, or safety policies
-- Use `gh pr ready <number>` (or the equivalent GitHub MCP call) for conversion
+- Use `gh pr ready <number>` for conversion and verify the resulting PR state
 
 **Readiness Criteria (verify before recommending conversion):**
 - [ ] Implementation is complete (no remaining `todo!()` or `// TODO:` introduced by this PR)
@@ -133,9 +106,9 @@ gh pr view 123 --json isDraft
 
 | Action | Explicit Instruction | Plan Mode Approval | Implementation Complete |
 |--------|---------------------|-------------------|--------------------------|
-| Commit | ✅ Authorized | ✅ Authorized | n/a |
+| Commit | ✅ Authorized | ✅ Authorized within the approved scope | Local exception only after relevant checks and diff review; see CE-1 |
 | Push | ✅ Authorized | ❌ Not authorized | ❌ Not authorized |
-| GitHub Comments | ✅ Authorized | ✅ Authorized | ❌ Not authorized |
+| GitHub Comments | ✅ Authorized | ✅ Only when included in the approved scope | ❌ Not authorized |
 | Draft PR → Ready | ✅ Authorized if PC-4a passes or the instruction explicitly overrides unmet criteria | ❌ Not authorized | ❌ Not authorized |
 
 The following diagram illustrates the Draft PR lifecycle:
@@ -156,7 +129,7 @@ stateDiagram-v2
 ### PC-5 (MUST): PR Labels
 
 - **MUST** add appropriate labels to every PR
-- Use GitHub MCP, GitHub CLI, or web UI to add labels
+- Use `gh` to apply labels within the authorized PR operation
 
 **Required Labels by PR Type:**
 
@@ -241,7 +214,7 @@ PR descriptions MUST follow the structure defined in `.github/PULL_REQUEST_TEMPL
 
 **Optional Sections:** Performance Impact, Breaking Changes, Screenshots, Related Issues, Additional Context
 
-**Footer:** Include Claude Code attribution for AI-assisted PRs
+**Footer:** Attribute the actual authoring agent using [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md#footer-format); replace a template's Claude Code footer with Codex attribution for Codex-authored PRs.
 
 ### DF-2 (MUST): Linking PRs to Issues
 
@@ -281,19 +254,17 @@ Include additional sections when relevant:
 Before **merging**, ensure the following. Draft → Ready conversion is governed separately by § PC-4a and requires explicit user instruction plus satisfied readiness criteria unless the user explicitly overrides them.
 
 - [ ] All CI checks pass
-- [ ] All tests pass locally
+- [ ] Relevant local checks pass; any limitations are explicitly reported
 - [ ] Code follows project style guidelines
 - [ ] Documentation is updated
 - [ ] Commit history is clean and logical
 - [ ] PR description is complete and accurate
 
-**Commands to run:**
-```bash
-cargo check --workspace --all --all-features
-cargo make test
-cargo make fmt-check
-cargo make clippy-check
-```
+Choose local commands using [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#verification).
+Documentation-only instruction edits need structural checks rather than a full
+Rust build. Broad code changes may require workspace check/build/test and all
+relevant format/lint tasks. This does not waive required remote CI or authorize a
+merge; MP-1 applies separately.
 
 ### RP-2 (SHOULD): Self-Review
 
@@ -307,52 +278,23 @@ cargo make clippy-check
 
 ### RP-3 (MUST): Address Review Comments
 
-- Respond to all review comments
-- Mark conversations as resolved when addressed
-- Request re-review after making changes
-- Be respectful and constructive in discussions
+Evaluate all in-scope feedback against the current code. Complete authorized local
+fixes even when posting is outside scope, then prepare replies and report pending
+external actions. Reply and resolve only when authorized by
+[GITHUB_INTERACTION.md](GITHUB_INTERACTION.md#posting-policy). PR creation alone
+does not authorize review replies or resolution.
 
 ### RP-6 (MUST): Copilot Review Workflow
 
-After creating a PR, Claude Code MUST handle GitHub Copilot's automated review comments as part of the PR workflow when authorized by the posting policy in `instructions/GITHUB_INTERACTION.md` PP-1.
+Use the complete inventory and delivery order in
+[GITHUB_INTERACTION.md](GITHUB_INTERACTION.md#copilot-review-handling): fetch every
+page, evaluate findings, fix and verify, publish when authorized, reply with
+evidence, resolve, then re-audit the current head. Each thread needs a reply before
+resolution. Do not mark a code finding fixed while the repair exists only locally.
 
-**Workflow:**
-
-1. **Fetch review threads** — Use the GraphQL review-thread query documented in `instructions/GITHUB_INTERACTION.md` CR-2
-2. **Report once if absent** — If no Copilot review exists, report that state once and wait for further instruction; do not poll in a loop
-3. **Evaluate each comment** — For each Copilot suggestion:
-   - Assess whether the suggestion is valid and improves code quality
-   - Check if the suggestion aligns with project conventions (CLAUDE.md, instructions/)
-   - Determine if the change is necessary or cosmetic
-4. **Act on evaluation:**
-   - **Valid suggestion** → Fix the code, reply with the fix description, commit the change, then resolve the conversation
-   - **Invalid or unnecessary suggestion** → Reply with a brief technical justification, then resolve the conversation
-5. **Verify completion** — Ensure all Copilot review conversations are resolved before considering the PR ready
-
-The following diagram summarizes the Copilot review handling flow:
-
-```mermaid
-flowchart TD
-    A[PR created] --> B[Fetch review threads via GraphQL]
-    B --> C{Copilot review exists?}
-    C -->|No| D[Report once and wait]
-    C -->|Yes| E[Filter unresolved Copilot threads]
-    E --> F[Evaluate each comment]
-    F --> G{Suggestion valid?}
-    G -->|Yes| H[Fix code + reply + commit]
-    H --> I[Resolve conversation]
-    G -->|No| J[Reply with justification<br/>then resolve]
-    I --> K{More comments?}
-    J --> K
-    K -->|Yes| F
-    K -->|No| L[All conversations resolved]
-```
-
-**Important Notes:**
-- Copilot review is treated as automated feedback, NOT as a blocking human review
-- Plan Mode approval authorizes handling Copilot review comments within the approved PR workflow
-- Fixes for Copilot suggestions follow the same commit policy as other changes
-- Every thread MUST receive a reply before being resolved; see `instructions/GITHUB_INTERACTION.md` CR-3 and CR-4
+Report an absent review once. Continue other work without waiting for an unrequested
+future review. Scheduled monitoring requires an explicitly requested monitor.
+Distinguish actionable findings from false positives with code-specific evidence.
 
 ### RP-4 (SHOULD): Keep PRs Small
 
@@ -385,7 +327,7 @@ PR conflicts MUST be resolved using a worktree-based merge strategy. Rebase and 
 
 **Procedure:**
 
-1. Create a worktree for the source branch:
+1. Reuse the authoritative source-branch worktree, or create one if absent after checking branch/worktree state:
    ```bash
    git worktree add /tmp/<worktree-name> <source-branch>
    ```
@@ -400,7 +342,7 @@ PR conflicts MUST be resolved using a worktree-based merge strategy. Rebase and 
    git add <resolved-files>
    git commit
    ```
-4. Push and clean up:
+4. Push only when authorized. Remove only a task-created worktree whose owned changes are delivered or otherwise durably preserved; keep existing worktrees and uncommitted work:
    ```bash
    git push origin <source-branch>
    cd -
@@ -437,7 +379,7 @@ sequenceDiagram
 
 ### MP-1 (MUST): Merge Requirements
 
-A PR can only be merged when:
+A PR can only be merged with explicit merge authorization and when:
 
 - All CI checks pass
 - All conversations are resolved
@@ -461,7 +403,7 @@ A PR can only be merged when:
 
 ### MP-3 (SHOULD): Delete Branch After Merge
 
-- Delete feature branches after successful merge
+- Delete feature branches after successful merge only when cleanup is authorized and the branch has no undelivered work
 - Keeps repository clean
 
 ---
@@ -470,7 +412,7 @@ A PR can only be merged when:
 
 ### Documentation-Only PRs
 
-For documentation changes:
+For documentation changes, use the prose/example checks in [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#verification).
 
 **Title Format:**
 ```
@@ -487,12 +429,12 @@ docs(operator): update deployment guide for Kubernetes 1.29
 
 ### ✅ MUST DO
 - Write all PR content in English
-- Use GitHub MCP (`create_pull_request`) or `gh pr create` for creating PRs
+- Use `gh pr create` for authorized PR creation
 - Follow PR template structure from `.github/PULL_REQUEST_TEMPLATE.md`
 - Follow Conventional Commits format for titles
 - Include Summary, Type of Change, Motivation and Context, How Was This Tested, Checklist sections
 - Include Labels to Apply section with appropriate type and scope labels
-- Run all checks before **merging** and verify readiness criteria before recommending Draft → Ready conversion (see § PC-4a)
+- Complete required remote checks and relevant local validation before **merging**; verify PC-4a before recommending Draft → Ready conversion
 - Address all review comments
 - Handle Copilot review comments according to RP-6 when authorized
 - Resolve all Copilot review conversations before considering PR complete
@@ -518,7 +460,7 @@ docs(operator): update deployment guide for Kubernetes 1.29
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Issue Handling Principles**: instructions/ISSUE_HANDLING.md
-- **Commit Guidelines**: instructions/COMMIT_GUIDELINE.md
-- **GitHub Interaction**: instructions/GITHUB_INTERACTION.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Issue Handling Principles**: [ISSUE_HANDLING.md](ISSUE_HANDLING.md)
+- **Commit Guidelines**: [COMMIT_GUIDELINE.md](COMMIT_GUIDELINE.md)
+- **GitHub Interaction**: [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md)

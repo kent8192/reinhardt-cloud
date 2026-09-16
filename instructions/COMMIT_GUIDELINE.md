@@ -19,53 +19,47 @@ Key principles from the specification:
 
 ## Commit Execution Policy
 
-### CE-1 (MUST): Explicit User Authorization
+### CE-1 (MUST): Authorization and Verified Changes
 
-- **NEVER** create commits without explicit user instruction
-- **NEVER** push commits without explicit user instruction
-- Always wait for user confirmation before committing changes
-- Prepare changes and inform the user, but let them decide when to commit
-- **EXCEPTION (Reinhardt family)**: When operating inside `reinhardt-web` / `reinhardt-cloud` / `awesome-delions` / `reinhardt-cc`, the **Autonomous Operation Policy** in `CLAUDE.md` / `AGENTS.md` (see the "Autonomous Operation Policy (Reinhardt Family)" subsection of `### Git Workflow`) authorizes only local commits on ordinary non-protected work branches after the agent has made and verified changes. Any push, any PR or Issue operation, protected branches (`main`, `master`, `develop/*`, `release/*`), release automation branches (`release-plz-*`, `develop-release-plz-*`), privileged CI-triggering branches, and history-rewriting pushes (force-push, rebase-push) still require explicit user instruction.
+Apply existing task authorization before asking for confirmation. Implementation
+requests permit local work and verification; publication requires the scope below.
 
-The following diagram summarizes the commit authorization decision flow:
+#### Autonomous Operation Policy (Reinhardt Family)
+
+In `reinhardt-web`, `reinhardt-cloud`, `awesome-delions`, and `reinhardt-cc`, local
+commits are allowed on ordinary work branches after the agent has made changes,
+run the relevant checks, and reviewed the owned diff. This exception does not
+include pushes, PR/Issue operations, comments, or protected/restricted branches.
+
+| Action | Required authorization |
+|--------|------------------------|
+| Local commit on an ordinary work branch | Explicit instruction, an approved implementation plan, or the verified-local-change exception above |
+| A planned batch of commits | Explicit approval of the batch, including an approved plan; execute and inspect each commit sequentially |
+| Any push, PR creation/readiness change, or Issue creation | Explicit task authorization for that action |
+| Comments, replies, reviews, or thread resolution | The applicable authorization in [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md) |
+| Protected/restricted branch writes or history rewriting | Explicit authorization for the specific operation; never infer it from ordinary delivery |
+
+Protected/restricted branches include `main`, `master`, `develop/*`, `release/*`,
+`release-plz-*`, `develop-release-plz-*`, and branches that trigger privileged CI.
+
+Plan approval authorizes implementation and its scoped commits, not an implicit
+push or PR action. A materially changed scope requires a new decision; an already
+approved action does not require repeated confirmation. Failed or incomplete
+implementation must be diagnosed and reported before creating a completion commit.
+Prepare a concrete verified diff before requesting any missing authorization.
 
 ```mermaid
 flowchart TD
-    A[Want to create a commit] --> B{Explicit user instruction?}
-    B -->|Yes| C[Create commit]
-    B -->|No| D{Plan Mode approved?}
-    D -->|Yes| E{Implementation + tests passed?}
-    E -->|Yes| C
-    E -->|No| F[Report failure to user, do NOT commit]
-    D -->|No| G[Do NOT commit, wait for instruction]
+    A[Reviewed changes and relevant checks] --> B{Commit and any planned batch authorized?}
+    B -->|Explicit instruction or scoped approved plan| C[Stage owned diff]
+    B -->|No| D{Verified local change on ordinary work branch with no unapproved batch?}
+    D -->|Yes| C
+    D -->|No| E[Keep local diff and request missing authorization]
+    C --> F[Create one focused commit and inspect it]
+    F --> G{Publication authorized?}
+    G -->|Yes| H[Perform only the authorized remote actions]
+    G -->|No| I[Deliver local result]
 ```
-
-**EXCEPTION: Plan Mode Approval**
-
-When a user approves a plan by accepting Exit Plan Mode, this constitutes explicit authorization for both:
-1. Implementation of the planned changes
-2. Creation of all commits associated with the implementation
-
-**Automatic Commit Workflow after Plan Mode Approval:**
-
-1. **Success Case**: If implementation completes successfully and all tests pass:
-   - Automatically create all commits as planned in the approved plan
-   - NO additional user confirmation required for each commit
-   - Follow commit granularity rules (CE-2) and commit message format (CM-1, CM-2, CM-3)
-   - Commits are created sequentially in the logical order defined in the plan
-
-2. **Failure Case**: If implementation fails or tests fail:
-   - **DO NOT** create any commits
-   - Report the failure to the user with detailed information
-   - Wait for user instruction on how to proceed
-
-**Important Notes:**
-
-- Plan Mode approval does NOT authorize pushing commits to remote
-- Pushing still requires explicit user instruction
-- The approved plan should clearly outline the planned commits (number, scope, messages)
-- If the implementation deviates significantly from the plan, seek user confirmation before committing
-- Batch commits are still prohibited - commits are created one at a time, but automatically without confirmation
 
 ### CE-2 (MUST): Commit Granularity
 
@@ -329,21 +323,23 @@ Footers follow the [git trailer convention](https://git-scm.com/docs/git-interpr
 | `Closes` | Closes related issues | `Closes #123` |
 | `Fixes` | Fixes related issues | `Fixes #789` |
 
-**Required Footer for Claude Code:**
+**Agent attribution:** Use the actual authoring agent, not a copied template's
+identity. For Codex-assisted commits:
 
+```text
+🤖 Generated with [Codex](https://openai.com/codex)
+
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
+For Claude Code-assisted commits, retain the Claude Code attribution and
+`Co-Authored-By: Claude <noreply@anthropic.com>`.
 
 **Requirements:**
 
-- **EXACTLY one blank line** between body and footer section
-- Footer tokens MUST use `-` in place of whitespace (except `BREAKING CHANGE`)
-- Footer **MUST** include the Claude Code attribution when AI-assisted
-- Footer **MUST** include Co-Authored-By line when AI-assisted
+- Separate the body and attribution with one blank line.
+- Footer tokens use `-` in place of whitespace, except `BREAKING CHANGE`.
+- Include the actual agent's attribution and co-author trailer when AI-assisted.
 
 ---
 
@@ -473,6 +469,6 @@ release-plz generate-changelog
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Main Standards**: @CLAUDE.md
-- **Release Configuration**: @release-plz.toml
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Main Standards**: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
+- **Release Configuration**: [release-plz.toml](../release-plz.toml)

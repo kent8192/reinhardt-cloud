@@ -36,7 +36,7 @@ The following diagram summarizes the upstream issue reporting flow:
 ```mermaid
 flowchart TD
     A[Discover issue during Reinhardt Cloud development] --> B{Is the issue in Reinhardt Cloud code?}
-    B -->|Yes| C[Create issue in reinhardt-cloud repo]
+    B -->|Yes| C[Prepare Cloud issue draft and apply issue authorization policy]
     B -->|No| D{Is the issue in reinhardt-web?}
     D -->|Yes| E{Issue creation explicitly authorized?}
     D -->|No| F[Investigate further]
@@ -227,10 +227,16 @@ When an upstream issue blocks Reinhardt Cloud development:
 
 ### WP-2 (MUST): No Silent Workarounds
 
-**NEVER** implement workarounds for upstream issues without:
-1. Getting explicit authorization for the upstream issue and tracking workflow
-2. Creating the upstream issue and tracking issue when authorized
-3. Adding a reference comment in the workaround code
+Before implementing an upstream workaround:
+1. Check whether the task already authorizes the issue/tracking workflow; reuse
+   that authorization rather than asking again.
+2. Search and reuse valid existing upstream/tracking issues, or create the missing
+   issues and cross-links when authorized. Do not create duplicates to satisfy a
+   workflow step.
+3. Add the issue references, removal condition, and ideal implementation comment.
+
+If required authorization is absent, prepare the reports and continue independent
+local work. Explain the concrete blocker before introducing the workaround.
 
 ### WP-3 (MUST): Include Ideal Implementation in Workaround Comments
 
@@ -295,10 +301,10 @@ Every workaround comment MUST include the **ideal implementation** — the code 
 
 ## Related Documentation
 
-- **Issue Guidelines**: instructions/ISSUE_GUIDELINES.md
-- **Issue Handling**: instructions/ISSUE_HANDLING.md
-- **GitHub Interaction**: instructions/GITHUB_INTERACTION.md
-- **Main Quick Reference**: CLAUDE.md (see Quick Reference section)
+- **Issue Guidelines**: [ISSUE_GUIDELINES.md](ISSUE_GUIDELINES.md)
+- **Issue Handling**: [ISSUE_HANDLING.md](ISSUE_HANDLING.md)
+- **GitHub Interaction**: [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md)
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
 - **reinhardt-web Repository**: <https://github.com/kent8192/reinhardt-web>
 
 ---
