@@ -23,19 +23,13 @@ This file defines the issue policy for the Reinhardt Cloud project. These rules 
 
 ## Issue Creation Policy
 
-### IC-1 (MUST): Use GitHub Tools
+### IC-1 (MUST): Use GitHub CLI with Task Authorization
 
-Issues MUST be created using:
-- GitHub Web Interface
-- GitHub CLI (`gh issue create`)
-- GitHub MCP server
-
-**Example (GitHub CLI):**
-```bash
-gh issue create --title "Bug: Reconciler panics on missing Deployment" --body "Description..."
-```
-
-**Autonomy (Reinhardt family):** The Autonomous Operation Policy in `CLAUDE.md` / `AGENTS.md` does not authorize creating, closing, or deleting Issues without explicit user instruction. When issue creation is explicitly authorized, the Issue body MUST still follow the appropriate template under `.github/ISSUE_TEMPLATE/` and carry at least one type label.
+Use `gh issue create` for authorized issue creation. Creation, closure, deletion,
+and comments require the corresponding task authorization; reuse it when already
+provided. Otherwise prepare a concrete title, body, and labels before asking.
+Follow the installed template and include at least one type label. Read-only
+search and local investigation can proceed without publication approval.
 
 ### IC-2 (MUST): Search Before Creating
 
@@ -50,53 +44,29 @@ gh issue list --search "reconciler panic"
 gh issue list --state closed --search "deployment"
 ```
 
-### IC-3 (MUST): Use Issue Templates
+### IC-3 (MUST): Use Existing Issue Templates
 
-Issues MUST be created using the appropriate issue template:
-- Bug Report (`.github/ISSUE_TEMPLATE/1-bug_report.yml`)
-- Feature Request (`.github/ISSUE_TEMPLATE/2-feature_request.yml`)
-- Documentation (`.github/ISSUE_TEMPLATE/3-documentation.yml`)
-- Question (`.github/ISSUE_TEMPLATE/4-question.yml`)
-- Performance Issue (`.github/ISSUE_TEMPLATE/5-performance.yml`)
-- CI/CD Issue (`.github/ISSUE_TEMPLATE/6-ci_cd.yml`)
-- Security Vulnerability (`.github/ISSUE_TEMPLATE/7-security.yml`)
-- API Change Proposal (`.github/ISSUE_TEMPLATE/8-api_change.yml`)
+Inspect [.github/ISSUE_TEMPLATE/](../.github/ISSUE_TEMPLATE/) before preparing an
+issue; available templates and their fields can change. Current templates are:
 
-**Template Selection:**
-| Issue Type | Template File | Label Applied |
-|------------|--------------|---------------|
-| Bug report | `.github/ISSUE_TEMPLATE/1-bug_report.yml` | `bug` |
-| Feature request | `.github/ISSUE_TEMPLATE/2-feature_request.yml` | `enhancement` |
-| Documentation | `.github/ISSUE_TEMPLATE/3-documentation.yml` | `documentation` |
-| Question | `.github/ISSUE_TEMPLATE/4-question.yml` | `question` |
-| Performance | `.github/ISSUE_TEMPLATE/5-performance.yml` | `performance` |
-| CI/CD | `.github/ISSUE_TEMPLATE/6-ci_cd.yml` | `ci-cd` |
-| Security | `.github/ISSUE_TEMPLATE/7-security.yml` | `security`, `critical` |
-| API change proposal | `.github/ISSUE_TEMPLATE/8-api_change.yml` | `enhancement` |
+| Issue type | Template | Type label |
+|------------|----------|------------|
+| Bug | [Bug report](../.github/ISSUE_TEMPLATE/1-bug_report.yml) | `bug` |
+| Feature or API proposal | [Feature request](../.github/ISSUE_TEMPLATE/2-feature_request.yml) | `enhancement` |
+| CI/CD | [CI/CD issue](../.github/ISSUE_TEMPLATE/3-ci_cd.yml) | `ci-cd` |
 
-**CLI Template Usage:**
+For a category without a dedicated template, use the nearest applicable existing
+structure and choose the correct type label from
+[infra/repository/labels.tf](../infra/repository/labels.tf). Do not refer to nonexistent templates.
+Verify labels against the live repository with `gh label list` before an authorized
+write; Terraform definitions do not prove the remote configuration was applied.
+Usage questions belong in Discussions when appropriate.
 
-When creating issues via `gh issue create`, GitHub CLI does not automatically apply templates like the Web UI. Read the appropriate template file from `.github/ISSUE_TEMPLATE/` and include its structure in your `--body` content.
-
-**Note:** For security vulnerabilities, ALWAYS use GitHub Security Advisories instead of public issues.
-
-The following diagram illustrates the template selection decision tree:
-
-```mermaid
-flowchart TD
-    A[Create new issue] --> B{What type?}
-    B -->|Bug| C["1-bug_report.yml<br/>Label: bug"]
-    B -->|Feature| D["2-feature_request.yml<br/>Label: enhancement"]
-    B -->|Docs| E["3-documentation.yml<br/>Label: documentation"]
-    B -->|Question| F{Consider GitHub Discussions first}
-    F -->|Still Issue| G["4-question.yml<br/>Label: question"]
-    B -->|Performance| H["5-performance.yml<br/>Label: performance"]
-    B -->|CI/CD| I["6-ci_cd.yml<br/>Label: ci-cd"]
-    B -->|Security| J{Is it a vulnerability?}
-    J -->|Yes| K["Use GitHub Security Advisories<br/>NOT public issue"]
-    J -->|No| L["7-security.yml<br/>Labels: security, critical"]
-    B -->|API Change| M["8-api_change.yml<br/>Label: enhancement"]
-```
+`gh` does not apply form templates automatically. Prepare their required sections
+in a temporary body file and pass it with `--body-file`; clean up the owned file
+when finished. Re-read the created issue to verify its body, state, and labels.
+Security vulnerabilities use private disclosure under [SECURITY.md](../SECURITY.md),
+never a public issue template.
 
 ---
 
@@ -194,6 +164,9 @@ Issues created by LLM agent bug discovery MUST include the `agent-suspect` label
 - The label is removed ONLY after independent verification confirms the issue
 - Independent verification requires a separate agent (with independent context) or human review
 - The verifying entity MUST NOT have participated in the initial detection
+- This independent-verification rule does not authorize spawning another agent.
+  Keep the label and report verification pending unless a human verifies it or
+  the user explicitly requests independent delegated verification.
 
 ### IL-4 (MUST): Upstream Tracking Issue Labels
 
@@ -299,12 +272,12 @@ https://github.com/kent8192/reinhardt-cloud/security/advisories
 
 ## Related Documentation
 
-- **Pull Request Guidelines**: instructions/PR_GUIDELINE.md
-- **Issue Handling Principles**: instructions/ISSUE_HANDLING.md
-- **Upstream Issue Reporting**: instructions/UPSTREAM_ISSUE_REPORTING.md
-- **Commit Guidelines**: instructions/COMMIT_GUIDELINE.md
-- **Security Policy**: SECURITY.md
-- **Label Definitions**: .github/labels.yml
+- **Pull Request Guidelines**: [PR_GUIDELINE.md](PR_GUIDELINE.md)
+- **Issue Handling Principles**: [ISSUE_HANDLING.md](ISSUE_HANDLING.md)
+- **Upstream Issue Reporting**: [UPSTREAM_ISSUE_REPORTING.md](UPSTREAM_ISSUE_REPORTING.md)
+- **Commit Guidelines**: [COMMIT_GUIDELINE.md](COMMIT_GUIDELINE.md)
+- **Security Policy**: [SECURITY.md](../SECURITY.md)
+- **Label Definitions**: [infra/repository/labels.tf](../infra/repository/labels.tf)
 
 ---
 
