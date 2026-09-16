@@ -93,6 +93,11 @@ the Pages server serves the linked asset; the dashboard-local `cargo make
 runserver` skips that preflight. Generated static output is a build artifact
 and is not committed.
 
+The Dashboard image runs `collectstatic` in its builder stage and copies the
+complete static root, including the manifest, hashed component stylesheet, and
+processed HTML, into the runtime image. Collection needs no running database or
+Redis service. Runtime credentials are supplied separately at deployment.
+
 In `page!` forms, place controls inside their visible `label` and style the
 label text with a nested `rc-label` span. This preserves native label behavior
 without raw-identifier HTML attributes. Import Reinhardt attribute macros and
