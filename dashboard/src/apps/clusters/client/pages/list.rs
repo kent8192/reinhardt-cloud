@@ -701,6 +701,7 @@ pub fn clusters_list_page() -> Page {
 		.build();
 	let edit_submit = Callback::new(move |event: SubmitEvent| {
 		event.prevent_default();
+		UpdateClusterFormRequestClientForm::normalize_values(&edit_action.form());
 		edit_action.dispatch();
 	});
 	let edit_runtime_for_selection = edit_runtime.clone();

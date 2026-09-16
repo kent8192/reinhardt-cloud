@@ -104,6 +104,11 @@ input values in place and preserve focus while typing. The runtime owns field
 values, touched/dirty state, and resets; password values stay out of rendered
 HTML attributes.
 
+Registration, cluster updates, deployment mutations, and GitHub imports normalize
+their text fields before generated client validation and repeat that normalization
+at the server boundary. Passwords and deployment manifests retain their original
+bytes.
+
 OAuth links allow only one identity per user and provider, enforced by both the
 linking service and a database unique constraint.
 

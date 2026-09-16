@@ -233,6 +233,7 @@ pub fn github_repositories_page() -> Page {
 		.build();
 	let submit_import = Callback::new(move |event: SubmitEvent| {
 		event.prevent_default();
+		GitHubRepositoryImportRequestClientForm::normalize_values(&import_action.form());
 		import_action.dispatch();
 	});
 	let import_view = page!({

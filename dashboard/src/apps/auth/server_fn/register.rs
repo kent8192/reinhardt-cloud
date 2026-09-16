@@ -27,7 +27,7 @@ use crate::shared::AuthResponse;
 /// hashed password and `is_active = false`, then sends a verification
 /// email. No session cookie is set — the user must verify their email
 /// first. Proven username/email uniqueness violations return structured field errors.
-#[server_fn(pre_validate = true)]
+#[server_fn]
 pub async fn register(
 	request: RegisterRequest,
 	#[inject] _http_request: ServerFnRequest,
@@ -36,6 +36,9 @@ pub async fn register(
 ) -> Result<AuthResponse, ServerFnError> {
 	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
+
+	let request = request.normalized();
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 
 	let created = services::register_inactive_user(
 		&request.username,

@@ -373,3 +373,132 @@ async fn clusters_page_loads_and_submits_with_msw() {
 	assert_eq!(name_after_reset.value(), "");
 	assert_eq!(api_url_after_reset.value(), "");
 }
+
+#[rstest::rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn registration_submits_normalized_text_without_changing_the_password() {
+	// Arrange
+	let _env = wasm_test_env();
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<list_oauth_providers::marker>(|_| Ok(vec![]));
+	worker
+		.handle_server_fn::<reinhardt_cloud_dashboard::apps::auth::server_fn::register::register::marker>(
+			|args| {
+				assert_eq!(args.request.username, "alice");
+				assert_eq!(args.request.email, "alice@example.com");
+				assert_eq!(args.request.password, "  secret password  ");
+				Ok(AuthResponse {
+					success: true,
+					user: None,
+				})
+			},
+		);
+	launch_dashboard_at("/register");
+	let screen = screen();
+	let username: HtmlInputElement = screen
+		.get_by_label_text("Username")
+		.get()
+		.dyn_into()
+		.unwrap();
+	let email: HtmlInputElement = screen.get_by_label_text("Email").get().dyn_into().unwrap();
+	let password: HtmlInputElement = screen
+		.get_by_label_text("Password")
+		.get()
+		.dyn_into()
+		.unwrap();
+
+	// Act
+	UserEvent::type_text(&username, " alice ");
+	UserEvent::type_text(&email, "Alice@Example.COM");
+	UserEvent::type_text(&password, "  secret password  ");
+	let form: HtmlFormElement = username
+		.closest("form")
+		.unwrap()
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	form.request_submit().expect("registration submit");
+	let screen_for_wait = screen.clone();
+	wait_for(move || {
+		screen_for_wait
+			.get_by_role_with_name("button", "Sign in")
+			.query()
+			.is_some()
+	})
+	.await
+	.expect("registration navigates to login");
+
+	// Assert
+	worker.calls_to_server_fn::<reinhardt_cloud_dashboard::apps::auth::server_fn::register::register::marker>().assert_called();
+}
+
+#[rstest::rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn cluster_update_normalizes_bound_values_before_client_validation() {
+	// Arrange
+	let _env = wasm_test_env();
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<me::marker>(|_| {
+		Ok(UserInfo {
+			id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+			username: "alice".to_owned(),
+			email: "alice@example.com".to_owned(),
+		})
+	});
+	worker
+		.handle_server_fn::<list_clusters_for_current_org::marker>(|_| Ok(vec![cluster_fixture()]));
+	worker.handle_server_fn::<reinhardt_cloud_dashboard::apps::clusters::server_fn::update_cluster_for_current_org::marker>(|args| {
+		assert_eq!(args.request.cluster_id, "42");
+		assert_eq!(args.request.name, "a".repeat(63));
+		assert_eq!(args.request.api_url, "https://updated.example.com:6443");
+		Ok(ClusterInfo { name: args.request.name, api_url: args.request.api_url, ..cluster_fixture() })
+	});
+	launch_dashboard_at("/clusters");
+	let document = web_sys::window().unwrap().document().unwrap();
+	let document_for_wait = document.clone();
+	wait_for(move || {
+		document_for_wait
+			.query_selector("select option[value='42']")
+			.unwrap()
+			.is_some()
+	})
+	.await
+	.expect("cluster selection loaded");
+	let select: web_sys::HtmlSelectElement = document
+		.query_selector("select")
+		.unwrap()
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	select.set_value("42");
+	select
+		.dispatch_event(&web_sys::Event::new("change").unwrap())
+		.unwrap();
+	let name: HtmlInputElement = document
+		.get_element_by_id("update-cluster-name")
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	// Act
+	UserEvent::type_text(&name, &format!(" {} ", "a".repeat(63)));
+	let api_url: HtmlInputElement = document
+		.get_element_by_id("update-cluster-api-url")
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	UserEvent::type_text(&api_url, " https://updated.example.com:6443 ");
+	let name: HtmlInputElement = document
+		.get_element_by_id("update-cluster-name")
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	let form: HtmlFormElement = name.closest("form").unwrap().unwrap().dyn_into().unwrap();
+	form.request_submit().expect("cluster update submit");
+	let screen = screen();
+	wait_for(move || screen.get_by_text("Cluster updated.").query().is_some())
+		.await
+		.expect("normalized cluster update succeeded");
+
+	// Assert
+	worker.calls_to_server_fn::<reinhardt_cloud_dashboard::apps::clusters::server_fn::update_cluster_for_current_org::marker>().assert_called();
+}

@@ -1047,6 +1047,7 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 		.build();
 	let create_submit = Callback::new(move |event: SubmitEvent| {
 		event.prevent_default();
+		CreateDeploymentFormRequestClientForm::normalize_values(&create_action.form());
 		create_action.dispatch();
 	});
 	let create_view = self::render_create_deployment_form(CreateDeploymentFormView {
@@ -1081,6 +1082,7 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 		.build();
 	let edit_submit = Callback::new(move |event: SubmitEvent| {
 		event.prevent_default();
+		UpdateDeploymentFormRequestClientForm::normalize_values(&edit_action.form());
 		edit_action.dispatch();
 	});
 	let edit_view = self::render_update_deployment_form(UpdateDeploymentFormView {
@@ -1107,6 +1109,7 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 		.build();
 	let status_submit = Callback::new(move |event: SubmitEvent| {
 		event.prevent_default();
+		UpdateDeploymentStatusFormRequestClientForm::normalize_values(&status_action.form());
 		status_action.dispatch();
 	});
 	let status_view = self::render_update_deployment_status_form(UpdateDeploymentStatusFormView {

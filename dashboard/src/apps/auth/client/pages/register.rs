@@ -196,6 +196,7 @@ pub fn register_page() -> Page {
 	let submit = use_callback(
 		move |event: SubmitEvent| {
 			event.prevent_default();
+			RegisterRequestClientForm::normalize_values(&mutation.form());
 			mutation.dispatch();
 		},
 		ExplicitDeps::from_node_ids([]),

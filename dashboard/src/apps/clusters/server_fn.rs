@@ -51,6 +51,27 @@ pub struct UpdateClusterFormRequest {
 	pub is_active: bool,
 }
 
+impl UpdateClusterFormRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.name = self.name.trim().to_owned();
+		self.api_url = self.api_url.trim().to_owned();
+		self
+	}
+}
+
+impl UpdateClusterFormRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(UpdateClusterFormRequestClientFormField::Name, request.name);
+		runtime.set_value(
+			UpdateClusterFormRequestClientFormField::ApiUrl,
+			request.api_url,
+		);
+	}
+}
+
 #[cfg(native)]
 async fn current_org_id_for_action(
 	user: &crate::apps::auth::models::User,
@@ -99,10 +120,9 @@ fn validated_cluster_create_payload(
 
 #[cfg(native)]
 fn validated_cluster_update_payload(
-	mut request: UpdateClusterFormRequest,
+	request: UpdateClusterFormRequest,
 ) -> Result<UpdateClusterFormRequest, ServerFnError> {
-	request.name = request.name.trim().to_owned();
-	request.api_url = request.api_url.trim().to_owned();
+	let request = request.normalized();
 	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 	Ok(request)
 }

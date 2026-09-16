@@ -40,6 +40,30 @@ pub struct CreateDeploymentFormRequest {
 	pub project_yaml: String,
 }
 
+impl CreateDeploymentFormRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.project_name = self.project_name.trim().to_owned();
+		self.image = self.image.trim().to_owned();
+		self
+	}
+}
+
+impl CreateDeploymentFormRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(
+			CreateDeploymentFormRequestClientFormField::ProjectName,
+			request.project_name,
+		);
+		runtime.set_value(
+			CreateDeploymentFormRequestClientFormField::Image,
+			request.image,
+		);
+	}
+}
+
 /// Browser payload for updating a deployment in the current organization.
 #[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -58,6 +82,35 @@ pub struct UpdateDeploymentFormRequest {
 	pub status: String,
 }
 
+impl UpdateDeploymentFormRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.project_name = self.project_name.trim().to_owned();
+		self.image = self.image.trim().to_owned();
+		self.status = self.status.trim().to_owned();
+		self
+	}
+}
+
+impl UpdateDeploymentFormRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(
+			UpdateDeploymentFormRequestClientFormField::ProjectName,
+			request.project_name,
+		);
+		runtime.set_value(
+			UpdateDeploymentFormRequestClientFormField::Image,
+			request.image,
+		);
+		runtime.set_value(
+			UpdateDeploymentFormRequestClientFormField::Status,
+			request.status,
+		);
+	}
+}
+
 /// Browser payload for changing a deployment status in the current organization.
 #[dto]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -70,6 +123,25 @@ pub struct UpdateDeploymentStatusFormRequest {
 	pub deployment_id: String,
 	#[validate(length(min = 1, max = 50))]
 	pub status: String,
+}
+
+impl UpdateDeploymentStatusFormRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.status = self.status.trim().to_owned();
+		self
+	}
+}
+
+impl UpdateDeploymentStatusFormRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(
+			UpdateDeploymentStatusFormRequestClientFormField::Status,
+			request.status,
+		);
+	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -268,9 +340,10 @@ pub async fn create_deployment_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentCreate,
 	)
 	.await?;
+	let request = request.normalized();
 	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
-	let project_name = request.project_name.trim().to_string();
-	let image = request.image.trim().to_string();
+	let project_name = request.project_name;
+	let image = request.image;
 	if project_name.is_empty() {
 		return Err(ServerFnError::validation([(
 			"project_name",
@@ -335,14 +408,15 @@ pub async fn update_deployment_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentUpdate,
 	)
 	.await?;
+	let request = request.normalized();
 	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 	let deployment_id: i64 = request
 		.deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::validation([("deployment_id", "Select a valid deployment")]))?;
-	let project_name = request.project_name.trim().to_string();
-	let image = request.image.trim().to_string();
-	let status = request.status.trim().to_string();
+	let project_name = request.project_name;
+	let image = request.image;
+	let status = request.status;
 	if project_name.is_empty() {
 		return Err(ServerFnError::validation([(
 			"project_name",
@@ -460,12 +534,13 @@ pub async fn update_deployment_status_for_current_org(
 		crate::apps::organizations::permissions::Action::DeploymentUpdate,
 	)
 	.await?;
+	let request = request.normalized();
 	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 	let deployment_id: i64 = request
 		.deployment_id
 		.parse()
 		.map_err(|_| ServerFnError::validation([("deployment_id", "Select a valid deployment")]))?;
-	let status = request.status.trim().to_string();
+	let status = request.status;
 	if status.is_empty() {
 		return Err(ServerFnError::validation([(
 			"status",

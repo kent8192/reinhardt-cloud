@@ -144,6 +144,30 @@ pub struct GitHubRepositoryImportRequest {
 	pub registry: String,
 }
 
+impl GitHubRepositoryImportRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.project_name = self.project_name.trim().to_owned();
+		self.registry = self.registry.trim().to_owned();
+		self
+	}
+}
+
+impl GitHubRepositoryImportRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(
+			GitHubRepositoryImportRequestClientFormField::ProjectName,
+			request.project_name,
+		);
+		runtime.set_value(
+			GitHubRepositoryImportRequestClientFormField::Registry,
+			request.registry,
+		);
+	}
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GitHubOnboardingInfo {
 	pub github_account_linked: bool,
@@ -444,7 +468,7 @@ pub async fn list_github_installations_for_current_org(
 		.collect())
 }
 
-#[server_fn(pre_validate = true)]
+#[server_fn]
 pub async fn import_github_repository_for_current_org(
 	request: GitHubRepositoryImportRequest,
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,
@@ -468,6 +492,8 @@ pub async fn import_github_repository_for_current_org(
 	};
 	use crate::apps::organizations::permissions::{Action, require_permission};
 
+	let request = request.normalized();
+	reinhardt::Validate::validate(&request).map_err(ServerFnError::from)?;
 	let GitHubRepositoryImportRequest {
 		repository_id,
 		cluster_id,

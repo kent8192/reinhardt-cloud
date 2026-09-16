@@ -16,3 +16,21 @@ pub struct RegisterRequest {
 	#[validate(length(min = 8, max = 128))]
 	pub password: String,
 }
+
+impl RegisterRequest {
+	/// Normalize user-entered text before applying DTO validation.
+	pub(crate) fn normalized(mut self) -> Self {
+		self.username = self.username.trim().to_owned();
+		self.email = self.email.trim().to_lowercase();
+		self
+	}
+}
+
+impl RegisterRequestClientForm {
+	/// Normalize bound values before generated client validation and dispatch.
+	pub(crate) fn normalize_values(runtime: &reinhardt::pages::UseFormReturn<Self>) {
+		let request = Self::to_request(runtime).normalized();
+		runtime.set_value(RegisterRequestClientFormField::Username, request.username);
+		runtime.set_value(RegisterRequestClientFormField::Email, request.email);
+	}
+}
