@@ -117,6 +117,10 @@ reconnects, and clear the previous session's subscriptions before navigation.
 Framework authentication invalidation also evicts cached query data and cancels
 in-flight reads, so a subsequent session cannot reuse another user's results.
 
+Deployment deletion confirmation belongs to the selected deployment and resets
+when the selection changes. Completion uses the submitted deployment ID when
+closing its logs, preserving log views for other deployments.
+
 ### Database
 
 ```bash

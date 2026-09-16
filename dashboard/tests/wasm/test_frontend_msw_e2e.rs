@@ -608,3 +608,161 @@ async fn cluster_update_normalizes_bound_values_before_client_validation() {
 	// Assert
 	worker.calls_to_server_fn::<reinhardt_cloud_dashboard::apps::clusters::server_fn::update_cluster_for_current_org::marker>().assert_called();
 }
+
+fn select_deployment_for_deletion(value: &str) {
+	let document = web_sys::window().unwrap().document().unwrap();
+	let selectors = document.query_selector_all("select").unwrap();
+	let selector: web_sys::HtmlSelectElement = selectors
+		.item(selectors.length() - 1)
+		.unwrap()
+		.dyn_into()
+		.unwrap();
+	selector.set_value(value);
+	selector
+		.dispatch_event(&web_sys::Event::new("change").unwrap())
+		.unwrap();
+}
+
+fn deployment_delete_confirmation() -> HtmlInputElement {
+	web_sys::window()
+		.unwrap()
+		.document()
+		.unwrap()
+		.get_element_by_id("confirm-deployment-delete")
+		.unwrap()
+		.dyn_into()
+		.unwrap()
+}
+
+#[rstest::rstest]
+#[case::deleted_deployment_logs(7, "")]
+#[case::other_deployment_logs(8, "?logs=8")]
+#[test_attr(wasm_bindgen_test)]
+async fn deployment_deletion_uses_its_submitted_selection(
+	#[case] log_id: i64,
+	#[case] expected_search: &str,
+) {
+	use reinhardt::pages::server_fn::ServerFnError;
+	use reinhardt_cloud_dashboard::apps::deployments::server_fn::{
+		delete_deployment_for_current_org, deployment_logs_for_current_org,
+		list_deployment_previews_for_current_org,
+	};
+
+	// Arrange
+	let _env = wasm_test_env();
+	let _sockets = super::test_notification_lifecycle::NotificationSocketFixture::new();
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<me::marker>(|_| {
+		Ok(UserInfo {
+			id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+			username: "alice".to_owned(),
+			email: "alice@example.com".to_owned(),
+		})
+	});
+	worker
+		.handle_server_fn::<list_clusters_for_current_org::marker>(|_| Ok(vec![cluster_fixture()]));
+	worker.handle_server_fn::<list_deployment_previews_for_current_org::marker>(|_| Ok(vec![]));
+	worker.handle_server_fn::<deployment_logs_for_current_org::marker>(|_| Ok(vec![]));
+	worker.handle_server_fn::<list_deployments_for_current_org::marker>(|_| {
+		Ok([7, 8]
+			.into_iter()
+			.map(|id| DeploymentInfo {
+				id,
+				project_name: format!("web-{id}"),
+				cluster_id: 42,
+				status: "running".to_owned(),
+				image: "registry.example.com/web:v1".to_owned(),
+			})
+			.collect())
+	});
+	let delete_calls = Rc::new(Cell::new(0));
+	let delete_calls_for_handler = Rc::clone(&delete_calls);
+	worker.handle_server_fn::<delete_deployment_for_current_org::marker>(move |args| {
+		assert_eq!(args.deployment_id, "7");
+		delete_calls_for_handler.set(delete_calls_for_handler.get() + 1);
+		if delete_calls_for_handler.get() == 1 {
+			return Err(ServerFnError::application("Delete failed"));
+		}
+		// Change the live selection while the submitted request is still pending.
+		select_deployment_for_deletion("8");
+		assert_eq!(deployment_delete_confirmation().checked(), false);
+		Ok(())
+	});
+	launch_dashboard_at(&format!("/deployments?logs={log_id}"));
+	let document = web_sys::window().unwrap().document().unwrap();
+	let document_for_wait = document.clone();
+	wait_for(move || {
+		document_for_wait
+			.query_selector("select option[value='8']")
+			.unwrap()
+			.is_some()
+	})
+	.await
+	.expect("deployment selectors loaded");
+	let screen = screen();
+
+	// Act
+	select_deployment_for_deletion("7");
+	UserEvent::click(deployment_delete_confirmation().as_ref());
+	assert_eq!(deployment_delete_confirmation().checked(), true);
+	select_deployment_for_deletion("8");
+	assert_eq!(deployment_delete_confirmation().checked(), false);
+	let delete_button: web_sys::HtmlButtonElement = screen
+		.get_by_role_with_name("button", "Delete deployment")
+		.get()
+		.dyn_into()
+		.unwrap();
+	assert_eq!(delete_button.disabled(), true);
+	select_deployment_for_deletion("7");
+	UserEvent::click(deployment_delete_confirmation().as_ref());
+	UserEvent::click(
+		&screen
+			.get_by_role_with_name("button", "Delete deployment")
+			.get(),
+	);
+	let screen_for_wait = screen.clone();
+	wait_for(move || {
+		screen_for_wait
+			.get_by_text("Delete failed")
+			.query()
+			.is_some()
+	})
+	.await
+	.expect("delete error shown");
+	select_deployment_for_deletion("8");
+	assert_eq!(screen.get_by_text("Delete failed").query().is_some(), false);
+	assert_eq!(deployment_delete_confirmation().checked(), false);
+	select_deployment_for_deletion("7");
+	UserEvent::click(deployment_delete_confirmation().as_ref());
+	UserEvent::click(
+		&screen
+			.get_by_role_with_name("button", "Delete deployment")
+			.get(),
+	);
+	let screen_for_wait = screen.clone();
+	let expected_search_for_wait = expected_search.to_owned();
+	wait_for(move || {
+		web_sys::window().unwrap().location().search().unwrap() == expected_search_for_wait
+			&& if log_id == 7 {
+				screen_for_wait
+					.get_by_text("Select a deployment to load logs.")
+					.query()
+					.is_some()
+			} else {
+				screen_for_wait
+					.get_by_text("Deployment deleted.")
+					.query()
+					.is_some()
+			}
+	})
+	.await
+	.expect("only the submitted deployment's logs are closed");
+
+	// Assert
+	assert_eq!(delete_calls.get(), 2);
+	assert_eq!(
+		web_sys::window().unwrap().location().search().unwrap(),
+		expected_search
+	);
+	assert_eq!(deployment_delete_confirmation().checked(), false);
+}

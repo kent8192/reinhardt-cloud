@@ -9,9 +9,10 @@ use reinhardt::pages::event::{ClickEvent, SubmitEvent};
 use reinhardt::pages::page;
 use reinhardt::pages::prelude::{
 	Callback, FieldError, QueryClient, QueryHandle, QueryOptions, QuerySnapshot, QueryStatus,
-	RouterHandle, ServerMutation, Signal, UseFormReturn, queries, use_form, use_query, use_router,
-	use_server_mutation,
+	RouterHandle, ServerMutation, Signal, UseFormReturn, queries, use_callback, use_form,
+	use_query, use_router, use_server_mutation,
 };
+use reinhardt::pages::reactive::ExplicitDeps;
 use reinhardt::pages::router::Query;
 use reinhardt::pages::server_fn::ServerFnError;
 
@@ -484,7 +485,7 @@ fn render_update_deployment_status_form(view: UpdateDeploymentStatusFormView) ->
 
 #[derive(Clone)]
 struct DeleteDeploymentActionView {
-	action: ServerMutation<(), ()>,
+	action: ServerMutation<(), String>,
 	error: Signal<Option<String>>,
 	success: Signal<Option<String>>,
 	confirmed: Signal<bool>,
@@ -1007,6 +1008,7 @@ struct DeploymentsListPageViewProps {
 	status_deployment_id: Signal<String>,
 	delete_view: Page,
 	delete_deployment_id: Signal<String>,
+	delete_selection_changed: Callback<String, ()>,
 	log_deployment_id: Signal<String>,
 	log_router: RouterHandle,
 	deployments_href: String,
@@ -1151,16 +1153,18 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 					"Select a deployment before deleting",
 				));
 			}
-			delete_deployment_for_current_org::mutation()(deployment_id).await
+			delete_deployment_for_current_org::mutation()(deployment_id.clone()).await?;
+			Ok(deployment_id)
 		}
 	})
-	.on_success(move |_| {
-		let deleted_deployment_id = delete_deployment_id_for_callback.get();
+	.on_success(move |deleted_deployment_id| {
 		self::invalidate_deployment_delete_queries(&delete_query_client);
-		delete_deployment_id_for_callback.set(String::new());
-		delete_confirmed_for_callback.set(false);
+		if delete_deployment_id_for_callback.get() == *deleted_deployment_id {
+			delete_deployment_id_for_callback.set(String::new());
+			delete_confirmed_for_callback.set(false);
+		}
 		delete_success_for_callback.set(Some("Deployment deleted.".to_owned()));
-		if log_deployment_id_for_callback.get() == deleted_deployment_id {
+		if log_deployment_id_for_callback.get() == *deleted_deployment_id {
 			let _ = log_router.replace(deployments_href_for_callback.clone());
 		}
 	})
@@ -1168,6 +1172,18 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 		delete_error_for_callback.set(Some(error.user_message().to_owned()));
 	})
 	.build();
+	let delete_selection_changed = use_callback(
+		move |_deployment_id: String| {
+			delete_confirmed.set(false);
+			delete_error.set(None);
+			delete_success.set(None);
+			// Keep an in-flight completion so it can clean up the submitted deployment's logs.
+			if !delete_action.is_pending() {
+				delete_action.reset();
+			}
+		},
+		ExplicitDeps::from_node_ids([]),
+	);
 	let delete_view = self::render_delete_deployment_action(DeleteDeploymentActionView {
 		action: delete_action,
 		error: delete_error,
@@ -1206,6 +1222,7 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 		status_deployment_id,
 		delete_view,
 		delete_deployment_id,
+		delete_selection_changed,
 		log_deployment_id,
 		log_router,
 		deployments_href,
@@ -1482,7 +1499,7 @@ pub fn deployments_list_page(Query(logs): Query<Option<i64>>) -> Page {
 								{
 									let snapshot = props.deployments_for_delete.snapshot();
 									match snapshot.status {
-									QueryStatus::Success => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&snapshot.data.unwrap_or_default()), props.delete_deployment_id, |_value| {}, ),
+									QueryStatus::Success => self::entity_select("Deployment", "Select deployment", self::deployment_select_options(&snapshot.data.unwrap_or_default()), props.delete_deployment_id, move |value| props.delete_selection_changed.call(value), ),
 						QueryStatus::Idle => page!({
 											p {
 													class: STYLES.operation_state() + STYLES.operation_idle(),
