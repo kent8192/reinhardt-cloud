@@ -33,7 +33,10 @@ const SESSION_REVALIDATION_INTERVAL: Duration = Duration::from_secs(60);
 fn dashboard_gate(snapshot: QuerySnapshot<UserInfo, ServerFnError>) -> DashboardGate {
 	if let Some(error) = snapshot.error.or(snapshot.refetch_error) {
 		return match error.status() {
-			Some(401 | 403) => DashboardGate::LoginRequired,
+			Some(401 | 403) => {
+				crate::shared::client::ws::disconnect_notifications();
+				DashboardGate::LoginRequired
+			}
 			_ => DashboardGate::Failed(error.user_message().to_string()),
 		};
 	}
@@ -68,6 +71,12 @@ fn route_is_active(current_path: &str, route_href: &str) -> bool {
 fn dashboard_navigation_decision(
 	result: Result<(), ServerFnError>,
 ) -> Result<NavigationDecision, NavigationGuardError> {
+	if result
+		.as_ref()
+		.is_err_and(|error| matches!(error.status(), Some(401 | 403)))
+	{
+		crate::shared::client::ws::disconnect_notifications();
+	}
 	match result {
 		Ok(()) => Ok(NavigationDecision::Allow),
 		Err(error) => match error.status() {
@@ -122,7 +131,9 @@ pub fn dashboard_layout(outlet: Outlet) -> Page {
 			let request = logout(());
 			async move {
 				let logged_out = request.await?;
+				crate::shared::client::ws::disconnect_notifications();
 				reinhardt::pages::auth::auth_state().logout();
+				// This evicts all query families and cancels in-flight reads before navigation.
 				reinhardt::pages::auth::invalidate_authentication();
 				navigate_or_reload(login_href, NavigationType::Replace).map_err(|error| {
 					ServerFnError::application(format!("Unable to leave dashboard: {error}"))

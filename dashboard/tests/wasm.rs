@@ -26,3 +26,6 @@ mod test_spa_route_paths;
 
 #[path = "wasm/test_frontend_msw_e2e.rs"]
 mod test_frontend_msw_e2e;
+
+#[path = "wasm/test_notification_lifecycle.rs"]
+mod test_notification_lifecycle;

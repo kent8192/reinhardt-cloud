@@ -112,6 +112,11 @@ bytes.
 OAuth links allow only one identity per user and provider, enforced by both the
 linking service and a database unique constraint.
 
+SPA logout and session rejection dispose the notification socket, cancel pending
+reconnects, and clear the previous session's subscriptions before navigation.
+Framework authentication invalidation also evicts cached query data and cancels
+in-flight reads, so a subsequent session cannot reuse another user's results.
+
 ### Database
 
 ```bash

@@ -376,6 +376,112 @@ async fn clusters_page_loads_and_submits_with_msw() {
 
 #[rstest::rstest]
 #[test_attr(wasm_bindgen_test)]
+async fn logout_clears_session_resources_before_spa_login() {
+	use reinhardt::pages::prelude::{QueryOptions, queries};
+	use reinhardt_cloud_dashboard::apps::github::server_fn::list_github_repositories_for_current_org;
+
+	// Arrange
+	let _env = wasm_test_env();
+	let _sockets = super::test_notification_lifecycle::NotificationSocketFixture::new();
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<list_oauth_providers::marker>(|_| Ok(vec![]));
+	worker.handle_server_fn::<me::marker>(|_| {
+		Ok(UserInfo {
+			id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+			username: "alice".to_owned(),
+			email: "alice@example.com".to_owned(),
+		})
+	});
+	worker.handle_server_fn::<list_clusters_for_current_org::marker>(|_| Ok(vec![]));
+	worker.handle_server_fn::<list_deployments_for_current_org::marker>(|_| Ok(vec![]));
+	worker.handle_server_fn::<list_github_repositories_for_current_org::marker>(|_| Ok(vec![]));
+	worker
+		.handle_server_fn::<reinhardt_cloud_dashboard::apps::auth::server_fn::logout::logout::marker>(
+			|_| Ok(true),
+		);
+	launch_dashboard_at("/");
+	let screen = screen();
+	let screen_for_wait = screen.clone();
+	wait_for(move || {
+		screen_for_wait
+			.get_by_role_with_name("button", "Logout")
+			.query()
+			.is_some()
+	})
+	.await
+	.expect("authenticated dashboard");
+	reinhardt_cloud_dashboard::shared::client::ws::ensure_notifications_connected();
+	let query_client = queries();
+	let clusters =
+		query_client.observe_for_test(list_clusters_for_current_org::query(), QueryOptions::new());
+	let deployments = query_client.observe_for_test(
+		list_deployments_for_current_org::query(),
+		QueryOptions::new(),
+	);
+	let repositories = query_client.observe_for_test(
+		list_github_repositories_for_current_org::query(),
+		QueryOptions::new(),
+	);
+	let cached = (clusters.clone(), deployments.clone(), repositories.clone());
+	wait_for(move || {
+		cached.0.data().is_some() && cached.1.data().is_some() && cached.2.data().is_some()
+	})
+	.await
+	.expect("all tenant query families cached before logout");
+
+	// Act
+	UserEvent::click(&screen.get_by_role_with_name("button", "Logout").get());
+	let screen_for_wait = screen.clone();
+	wait_for(move || {
+		screen_for_wait
+			.get_by_role_with_name("button", "Sign in")
+			.query()
+			.is_some()
+	})
+	.await
+	.expect("SPA login after logout");
+
+	// Assert
+	assert_eq!(
+		super::test_notification_lifecycle::notificationSocketDisposed(),
+		true
+	);
+	assert_eq!(
+		(
+			clusters.data().is_some(),
+			deployments.data().is_some(),
+			repositories.data().is_some()
+		),
+		(false, false, false),
+	);
+	let next_clusters = query_client.observe_for_test(
+		list_clusters_for_current_org::query(),
+		QueryOptions::new().enabled(false),
+	);
+	let next_deployments = query_client.observe_for_test(
+		list_deployments_for_current_org::query(),
+		QueryOptions::new().enabled(false),
+	);
+	let next_repositories = query_client.observe_for_test(
+		list_github_repositories_for_current_org::query(),
+		QueryOptions::new().enabled(false),
+	);
+	assert_eq!(
+		(
+			next_clusters.data().is_some(),
+			next_deployments.data().is_some(),
+			next_repositories.data().is_some()
+		),
+		(false, false, false),
+	);
+	assert_eq!(
+		web_sys::window().unwrap().location().pathname().unwrap(),
+		"/login"
+	);
+}
+
+#[rstest::rstest]
+#[test_attr(wasm_bindgen_test)]
 async fn registration_submits_normalized_text_without_changing_the_password() {
 	// Arrange
 	let _env = wasm_test_env();

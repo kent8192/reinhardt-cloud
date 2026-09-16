@@ -155,6 +155,7 @@ pub fn login_page() -> Page {
 	let submit_home_href = home_href.clone();
 	let login_runtime = use_form(&login_form)
 		.on_submit_success(move |runtime| {
+			crate::shared::client::ws::disconnect_notifications();
 			reinhardt::pages::auth::invalidate_authentication();
 			if let Err(error) =
 				navigate_or_reload(submit_home_href.clone(), NavigationType::Replace)
