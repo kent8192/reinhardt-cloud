@@ -42,7 +42,7 @@ use crate::apps::auth::services::oauth::token_crypto::{
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
 	SocialAccount {
 		id: orm.id,
-		user_id: *orm.user_id(),
+		user_id: orm.user_id(),
 		provider: orm.provider,
 		provider_user_id: orm.provider_user_id,
 		email: None,
@@ -86,7 +86,7 @@ impl OrmSocialAccountStorage {
 		token: &OAuthToken,
 	) -> Result<(), SocialAuthError> {
 		let mut row = OrmSocialAccount::objects()
-			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
+			.filter(OrmSocialAccount::field_user_id().eq(user_id))
 			.filter(OrmSocialAccount::field_provider().eq(provider.to_string()))
 			.filter(OrmSocialAccount::field_provider_user_id().eq(provider_user_id.to_string()))
 			.first()
@@ -117,7 +117,7 @@ impl OrmSocialAccountStorage {
 		provider: &str,
 	) -> Result<Option<String>, SocialAuthError> {
 		let row = OrmSocialAccount::objects()
-			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
+			.filter(OrmSocialAccount::field_user_id().eq(user_id))
 			.filter(OrmSocialAccount::field_provider().eq(provider.to_string()))
 			.first()
 			.await
@@ -162,7 +162,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 
 	async fn find_by_user(&self, user_id: Uuid) -> Result<Vec<SocialAccount>, SocialAuthError> {
 		let rows = OrmSocialAccount::objects()
-			.filter(OrmSocialAccount::field_user_id().eq(user_id.to_string()))
+			.filter(OrmSocialAccount::field_user_id().eq(user_id))
 			.all()
 			.await
 			.map_err(|e| map_orm_err("find_by_user", e))?;
@@ -194,7 +194,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 		// picture fields are intentionally not written back. Mirror the
 		// framework In-memory impl by treating "row missing" as an error.
 		let exists = OrmSocialAccount::objects()
-			.filter(OrmSocialAccount::field_id().eq(account.id.to_string()))
+			.filter(OrmSocialAccount::field_id().eq(account.id))
 			.first()
 			.await
 			.map_err(|e| map_orm_err("update.lookup", e))?;

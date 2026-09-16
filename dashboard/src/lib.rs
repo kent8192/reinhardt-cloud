@@ -3,8 +3,9 @@
 //! This is the reinhardt startproject application crate. It re-exports
 //! library crates from `crates/` for centralized access and contains
 //! Django-style apps (auth, clusters, deployments) in `src/apps/`.
-//! On WASM, only the auth module is available (for server function stubs
-//! and client pages). Other app modules are server-only.
+//! Client pages, server-function stubs, and generated form contracts compile
+//! on native and WASM; persistence and service implementations are native-only.
+//! The browser launcher guards authenticated routes before mounting them.
 
 // Re-export library crates for centralized access.
 #[cfg(native)]
@@ -16,10 +17,9 @@ pub use reinhardt_cloud_types;
 
 // Application modules — available on both platforms with conditional submodules.
 pub mod apps;
-// `client` is intentionally cross-target. WASM consumes it as the SPA;
-// native needs the page constructors for `UnifiedRouter::client(...)`
-// to register names for server-side reverse URL resolution
-// (kent8192/reinhardt-web#4068).
+// `client` is cross-target so native compilation checks route declarations.
+// ClientLauncher constructs the active SPA tree on WASM; native tests create
+// explicit ClientRouter instances inside a ReactiveScope.
 pub mod client;
 pub mod config;
 #[cfg(native)]

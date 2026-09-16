@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reinhardt::{Argon2Hasher, Model, PasswordHasher};
 
-use reinhardt::di::{FactoryOutput, InjectionContext};
+use reinhardt::di::{Depends, InjectionContext, injectable};
 use reinhardt_cloud_core::mocks::MockBuildService;
 use reinhardt_cloud_grpc::config::GrpcServerConfig;
 use reinhardt_cloud_grpc::health;
@@ -26,7 +26,7 @@ use tonic::transport::Server;
 use tracing::info;
 
 use crate::apps::clusters::models::Cluster;
-use crate::apps::clusters::services::{JwtSecret, JwtSecretKey};
+use crate::apps::clusters::services::JwtSecret;
 use crate::config::settings::{LogBackend, get_log_backend, get_loki_endpoint};
 
 fn cluster_pk_from_agent_claim(claim: &str) -> Option<i64> {
@@ -84,22 +84,15 @@ fn verify_persisted_agent_token_blocking(
 #[derive(Clone)]
 pub struct AgentRegistrySingleton(pub Arc<AgentRegistry>);
 
-#[reinhardt::di::injectable_key]
-pub struct AgentRegistrySingletonKey;
-
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_agent_registry_singleton()
--> FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton> {
-	FactoryOutput::new(AgentRegistrySingleton(Arc::new(AgentRegistry::new())))
+#[injectable(scope = "singleton")]
+async fn create_agent_registry_singleton() -> AgentRegistrySingleton {
+	AgentRegistrySingleton(Arc::new(AgentRegistry::new()))
 }
 
 /// Wrapper holding the resolved log backend (`Arc<dyn LogService>`) injected
 /// into the gRPC `LogServiceServer`.
 #[derive(Clone)]
 pub struct LogServiceSingleton(pub Arc<dyn reinhardt_cloud_core::traits::LogService>);
-
-#[reinhardt::di::injectable_key]
-pub struct LogServiceSingletonKey;
 
 /// Build the configured log backend from settings.
 ///
@@ -117,10 +110,9 @@ fn build_log_service() -> Arc<dyn reinhardt_cloud_core::traits::LogService> {
 	}
 }
 
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_log_service_singleton() -> FactoryOutput<LogServiceSingletonKey, LogServiceSingleton>
-{
-	FactoryOutput::new(LogServiceSingleton(build_log_service()))
+#[injectable(scope = "singleton")]
+async fn create_log_service_singleton() -> LogServiceSingleton {
+	LogServiceSingleton(build_log_service())
 }
 
 /// Mark a gRPC service as SERVING in the health reporter.
@@ -154,8 +146,8 @@ pub async fn start_grpc_server(
 	// Resolve the JWT secret once at startup so a missing
 	// `REINHARDT_CLOUD_JWT_SECRET` fails fast instead of letting
 	// agents connect to an unauthenticated server.
-	let jwt_secret = di_context
-		.resolve::<FactoryOutput<JwtSecretKey, JwtSecret>>()
+	let jwt_secret = Depends::<JwtSecret>::builder()
+		.resolve(&di_context)
 		.await
 		.expect("Cannot start gRPC server without REINHARDT_CLOUD_JWT_SECRET");
 	let user_interceptor = JwtInterceptor::new(jwt_secret.0.as_bytes());
@@ -177,8 +169,8 @@ pub async fn start_grpc_server(
 	// Deploy/Rollback/Scale/Restart commands route to the right
 	// agent by cluster_id.
 	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
-	let agent_registry = di_context
-		.resolve::<FactoryOutput<AgentRegistrySingletonKey, AgentRegistrySingleton>>()
+	let agent_registry = Depends::<AgentRegistrySingleton>::builder()
+		.resolve(&di_context)
 		.await
 		.expect("Cannot start gRPC server without AgentRegistrySingleton")
 		.0
@@ -189,8 +181,8 @@ pub async fn start_grpc_server(
 	// Resolve the configured log backend (in-memory or Loki) and wrap it in the
 	// gRPC LogService. The dashboard server functions and the WebSocket
 	// consumer both call this server.
-	let log_service = di_context
-		.resolve::<FactoryOutput<LogServiceSingletonKey, LogServiceSingleton>>()
+	let log_service = Depends::<LogServiceSingleton>::builder()
+		.resolve(&di_context)
 		.await
 		.expect("Cannot start gRPC server without LogServiceSingleton")
 		.0

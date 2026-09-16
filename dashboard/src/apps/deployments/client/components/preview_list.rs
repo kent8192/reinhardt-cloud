@@ -3,12 +3,14 @@
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
 
+use crate::apps::deployments::client::style::STYLES;
 use crate::apps::deployments::server_fn::{
 	PreviewSummary, ProjectPreviewSummary, ProjectSourceKind,
 };
 
 /// Renders the primary and secondary project identity used by preview surfaces.
 pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
+	let display_name = summary.display_name.clone();
 	let secondary = match summary.source_kind {
 		ProjectSourceKind::GitHub => summary
 			.production_branch
@@ -17,83 +19,88 @@ pub fn render_project_identity(summary: &ProjectPreviewSummary) -> Page {
 			.unwrap_or_else(|| format!("Project: {}", summary.project_name)),
 		ProjectSourceKind::Manual => "Manual Project".to_string(),
 	};
-	page!(|display_name: String, secondary: String| {
+	page!({
 		div {
-			class: "min-w-0 space-y-1",
+			class: STYLES.preview_identity(),
 			div {
-				class: "truncate font-semibold text-ink-950",
+				class: STYLES.preview_name(),
 				{ display_name }
 			}
 			div {
-				class: "truncate text-xs font-medium text-ink-600",
+				class: STYLES.preview_meta(),
 				{ secondary }
 			}
 		}
-	})(summary.display_name.clone(), secondary)
+	})
 }
 
 /// Renders preview state for one parent Project.
 pub fn render_preview_list(summary: &ProjectPreviewSummary) -> Page {
 	if let Some(error) = summary.preview_error.as_ref() {
-		return page!(|error: String| {
+		let error = error.clone();
+		return page!({
 			div {
-				class: "mt-2 text-xs font-medium text-amber-700",
+				class: STYLES.preview_error(),
 				{ error }
 			}
-		})(error.clone());
+		});
 	}
 	if summary.previews.is_empty() {
-		return page!(|| {
+		return page!({
 			div {
-				class: "mt-2 text-xs font-medium text-cloud-500",
+				class: STYLES.preview_empty(),
 				"No active previews"
 			}
-		})();
+		});
 	}
-	page!(|previews: Vec<PreviewSummary>| {
+	let previews = summary.previews.clone();
+	page!({
 		ul {
-			class: "mt-2 space-y-1 text-xs",
+			class: STYLES.preview_list(),
 			{ previews
 			.iter()
 			.map(self::render_preview_item)
 			.collect::<Vec<_>>() }
 		}
-	})(summary.previews.clone())
+	})
 }
 
 fn render_preview_item(preview: &PreviewSummary) -> Page {
 	let label = format!("#{} {}", preview.pr_number, preview.name);
 	let meta = preview_meta(preview);
 	match preview.url.as_ref() {
-		Some(url) => page!(|url: String, label: String, meta: String| {
+		Some(url) => {
+			let url = url.clone();
+			page!({
+				li {
+					class: STYLES.preview_item(),
+					a {
+						class: STYLES.preview_link(),
+						href: url,
+						target: "_blank",
+						rel: "noreferrer",
+						{ label }
+					}
+					span {
+						class: STYLES.preview_meta(),
+						{ meta }
+					}
+				}
+			})
+		}
+		None => page!({
 			li {
-				class: "flex flex-wrap items-center gap-x-2 gap-y-1",
-				a {
-					class: "font-semibold text-control-700 underline underline-offset-2 hover:text-control-900",
-					href: url,
-					target: "_blank",
-					rel: "noreferrer",
+				class: STYLES.preview_item(),
+				span {
+					class: STYLES.preview_name(),
 					{ label }
 				}
 				span {
-					class: "text-cloud-500",
+					class: STYLES.preview_meta(),
 					{ meta }
 				}
 			}
-		})(url.clone(), label, meta),
-		None => page!(|label: String, meta: String| {
-			li {
-				class: "flex flex-wrap items-center gap-x-2 gap-y-1",
-				span {
-					class: "font-semibold text-ink-950",
-					{ label }
-				}
-				span {
-					class: "text-cloud-500",
-					{ meta }
-				}
-			}
-		})(label, meta),
+		}),
 	}
 }
 

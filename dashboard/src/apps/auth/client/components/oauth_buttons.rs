@@ -2,75 +2,109 @@
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::page;
-use reinhardt::pages::prelude::{Resource, ResourceState, use_resource};
+use reinhardt::pages::prelude::{QueryHandle, QueryOptions, QueryStatus, use_query};
+use reinhardt::pages::server_fn::ServerFnError;
 
-use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
-#[cfg(wasm)]
-use crate::apps::auth::server_fn::oauth_providers::list_oauth_providers;
-
-#[cfg(wasm)]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	list_oauth_providers().await.map_err(|err| err.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_oauth_providers() -> Result<Vec<OAuthProviderInfo>, String> {
-	Ok(Vec::new())
-}
+use crate::apps::auth::client::style::STYLES;
+use crate::apps::auth::server_fn::oauth_providers::{OAuthProviderInfo, list_oauth_providers};
+use crate::shared::client::style::STYLES as SHARED_STYLES;
 
 fn render_provider_buttons(providers: Vec<OAuthProviderInfo>) -> Page {
 	if providers.is_empty() {
 		return Page::Empty;
 	}
 
-	page!(|providers: Vec<OAuthProviderInfo>| {
+	page!({
 		div {
-			class: "mt-6 space-y-4",
+			class: STYLES.oauth_section(),
 			div {
-				class: "relative",
+				class: STYLES.oauth_divider(),
 				div {
-					class: "absolute inset-0 flex items-center",
-					div {
-						class: "w-full border-t border-cloud-200",
-					}
+					class: STYLES.oauth_divider_line(),
 				}
+				span { "Or continue with" }
 				div {
-					class: "relative flex justify-center text-sm",
-					span {
-						class: "bg-white px-2 text-ink-500",
-						"Or continue with"
-					}
+					class: STYLES.oauth_divider_line(),
 				}
 			}
 			div {
-				class: "grid gap-2",
-				{ providers.clone().into_iter().map(|provider| {
-					page!(|href: String, label: String| {
+				class: STYLES.oauth_options(),
+				{ providers
+				.clone()
+				.into_iter()
+				.map(|provider| {
+					page!({
 						a {
-							href: href,
+							href: provider.start_url,
 							rel: "external",
-							class: "inline-flex w-full items-center justify-center rounded-md border border-cloud-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-800 shadow-sm transition hover:bg-cloud-50 focus:outline-none focus:ring-2 focus:ring-control-500 focus:ring-offset-2",
-							{ label }
+							class: SHARED_STYLES.button_secondary() + STYLES.oauth_button(),
+							{ provider.label }
 						}
-					})(provider.start_url, provider.label)
-				}).collect::<Vec<_>>() }
+					})
+				})
+				.collect::<Vec<_>>() }
 			}
 		}
-	})(providers)
+	})
 }
 
 /// Render OAuth provider buttons when providers are configured.
 pub fn oauth_buttons() -> Page {
-	let providers = use_resource(|| async move { self::load_oauth_providers().await }, ());
+	let providers = use_query(
+		list_oauth_providers::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
+	);
+	Page::reactive(move || render_provider_query(&providers))
+}
 
-	page!(|providers: Resource<Vec<OAuthProviderInfo>, String>| {
-		{
-			match providers.get() {
-				ResourceState::Loading | ResourceState::Error(_) => Page::Empty,
-				ResourceState::Success(items) => self::render_provider_buttons(items),
+fn render_provider_query(providers: &QueryHandle<Vec<OAuthProviderInfo>, ServerFnError>) -> Page {
+	let snapshot = providers.snapshot();
+	match snapshot.status {
+		QueryStatus::Idle => Page::Empty,
+		QueryStatus::Pending => page!({
+			p {
+				class: STYLES.oauth_status(),
+				"Loading sign-in options..."
 			}
+		}),
+		QueryStatus::Error => {
+			let message = snapshot
+				.error
+				.map(|error| error.user_message().to_string())
+				.unwrap_or_else(|| "OAuth sign-in is unavailable.".to_string());
+			page!({
+				p {
+					class: STYLES.oauth_status() + STYLES.oauth_error(),
+					{ message }
+				}
+			})
 		}
-	})(providers)
+		QueryStatus::Success => {
+			let buttons = render_provider_buttons(snapshot.data.unwrap_or_default());
+			let notice = if let Some(error) = snapshot.refetch_error {
+				let message = format!(
+					"Showing cached sign-in options; refresh failed: {}",
+					error.user_message()
+				);
+				page!({
+					p {
+						class: STYLES.oauth_status() + STYLES.oauth_warning(),
+						{ message }
+					}
+				})
+			} else if snapshot.is_fetching {
+				page!({
+					p {
+						class: STYLES.oauth_status(),
+						"Refreshing sign-in options..."
+					}
+				})
+			} else {
+				Page::Empty
+			};
+			Page::fragment([notice, buttons])
+		}
+	}
 }
 
 #[cfg(test)]

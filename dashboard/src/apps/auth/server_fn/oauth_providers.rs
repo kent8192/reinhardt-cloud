@@ -1,7 +1,12 @@
 //! OAuth provider discovery server function for frontend rendering.
 
+#[cfg(native)]
+use reinhardt::di::Depends;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 use serde::{Deserialize, Serialize};
+
+#[cfg(native)]
+use crate::apps::auth::services::oauth::OAuthSettings;
 
 /// Public OAuth provider metadata safe to expose to the browser.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -41,10 +46,7 @@ pub(crate) fn oauth_start_url(provider_id: &str) -> Result<String, ServerFnError
 /// Return the currently enabled OAuth providers.
 #[server_fn]
 pub async fn list_oauth_providers(
-	#[inject] settings: reinhardt::di::Depends<
-		crate::apps::auth::services::oauth::OAuthSettingsKey,
-		crate::apps::auth::services::oauth::OAuthSettings,
-	>,
+	#[inject] settings: Depends<OAuthSettings>,
 ) -> Result<Vec<OAuthProviderInfo>, ServerFnError> {
 	settings
 		.enabled_provider_ids()

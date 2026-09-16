@@ -4,3 +4,4 @@
 //! route, which is the primary entry point for the SPA.
 
 pub mod layout;
+pub mod style;

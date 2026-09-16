@@ -3,3 +3,6 @@
 
 #[path = "unit/test_routes_configuration.rs"]
 mod test_routes_configuration;
+
+#[path = "unit/test_component_style_contract.rs"]
+mod test_component_style_contract;

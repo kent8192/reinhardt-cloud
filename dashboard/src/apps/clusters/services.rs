@@ -2,4 +2,4 @@
 
 pub mod token_issuance;
 
-pub use token_issuance::{AgentTokenService, AgentTokenServiceKey, JwtSecret, JwtSecretKey};
+pub use token_issuance::{AgentTokenService, JwtSecret};

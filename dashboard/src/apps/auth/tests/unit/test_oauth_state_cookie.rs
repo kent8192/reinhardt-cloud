@@ -1,63 +1,50 @@
-//! Tests for OAuth state cookie binding.
+//! Tests for browser/session bindings and server-owned OAuth link context.
 
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
+	use uuid::Uuid;
 
-	use crate::apps::auth::server_urls::{
-		OAUTH_STATE_COOKIE_NAME, cookie_value_from_header, expired_oauth_state_cookie_header,
-		oauth_state_cookie_header, oauth_state_cookie_signature,
+	use crate::apps::auth::server_urls::oauth::{
+		expired_oauth_state_cookie_header, oauth_account_link_user, oauth_state_binding,
+		oauth_state_cookie_header,
 	};
 
 	#[rstest]
-	fn test_cookie_value_from_header_selects_named_cookie() {
+	fn oauth_binding_preserves_browser_and_session_boundaries() {
 		// Arrange
-		let header = "sessionid=session-1; oauth_state_sig=signature-1; theme=dark";
+		let binding = oauth_state_binding("link.browser-a", Some("session-a")).unwrap();
 
 		// Act
-		let value = cookie_value_from_header(header, OAUTH_STATE_COOKIE_NAME);
+		let swapped_browser = oauth_state_binding("link.browser-b", Some("session-a")).unwrap();
+		let swapped_session = oauth_state_binding("link.browser-a", Some("session-b")).unwrap();
+		let missing_session = oauth_state_binding("link.browser-a", None).unwrap();
 
 		// Assert
-		assert_eq!(value.as_deref(), Some("signature-1"));
+		assert_eq!(binding, br#"["link.browser-a","session-a"]"#);
+		assert_ne!(binding, swapped_browser);
+		assert_ne!(binding, swapped_session);
+		assert_ne!(binding, missing_session);
+		assert_eq!(oauth_state_binding("", None).is_err(), true);
 	}
 
 	#[rstest]
-	fn test_oauth_state_cookie_signature_is_bound_to_provider_and_state() {
+	fn oauth_state_cookie_is_http_only_short_lived_and_contains_only_the_nonce() {
 		// Arrange
-		let secret = "test-secret";
-		let signature = oauth_state_cookie_signature("github", "state-a", secret);
+		let nonce = "link.browser-a";
 
 		// Act
-		let other_provider = oauth_state_cookie_signature("gitlab", "state-a", secret);
-		let other_state = oauth_state_cookie_signature("github", "state-b", secret);
-
-		// Assert
-		assert_ne!(signature, other_provider);
-		assert_ne!(signature, other_state);
-	}
-
-	#[rstest]
-	fn test_oauth_state_cookie_header_is_browser_bound_and_short_lived() {
-		// Arrange
-		let provider_id = "github";
-		let state = "state-1";
-		let secret = "test-secret";
-
-		// Act
-		let header = oauth_state_cookie_header(provider_id, state, secret, false);
+		let header = oauth_state_cookie_header("github", nonce, false);
 
 		// Assert
 		assert_eq!(
 			header,
-			format!(
-				"oauth_state_sig={}; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Secure; Max-Age=600",
-				oauth_state_cookie_signature(provider_id, state, secret)
-			)
+			"oauth_state_sig=link.browser-a; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Secure; Max-Age=600"
 		);
 	}
 
 	#[rstest]
-	fn test_expired_oauth_state_cookie_header_clears_matching_path() {
+	fn expired_oauth_cookie_clears_the_matching_path() {
 		// Arrange
 		let debug = true;
 
@@ -69,5 +56,26 @@ mod tests {
 			header,
 			"oauth_state_sig=; HttpOnly; SameSite=Lax; Path=/api/auth/oauth/github/callback/; Max-Age=0"
 		);
+	}
+
+	#[rstest]
+	fn account_link_ownership_requires_matching_server_context_and_active_session_user() {
+		// Arrange
+		let user = Uuid::new_v4();
+		let context = serde_json::to_vec(&Some(user)).unwrap();
+
+		// Act
+		let matching = oauth_account_link_user(&context, Some(user));
+		let swapped = oauth_account_link_user(&context, Some(Uuid::new_v4()));
+		let missing = oauth_account_link_user(&context, None);
+		let ambient_login = oauth_account_link_user(b"null", Some(user));
+
+		// Assert
+		assert_eq!(matching.unwrap(), Some(user));
+		assert_eq!(swapped.is_err(), true);
+		assert_eq!(missing.is_err(), true);
+		assert_eq!(ambient_login.is_err(), true);
+		assert_eq!(oauth_account_link_user(b"null", None).unwrap(), None);
+		assert_eq!(oauth_account_link_user(b"invalid", None).is_err(), true);
 	}
 }

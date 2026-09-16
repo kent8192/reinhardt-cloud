@@ -15,7 +15,7 @@
 
 use std::env;
 
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::injectable;
 
 use crate::apps::auth::services::oauth::token_crypto::token_encryption_key_is_configured;
 /// Credentials for a single OAuth provider, populated from env vars.
@@ -35,9 +35,6 @@ pub struct ProviderCredentials {
 pub struct OAuthSettings {
 	pub github: Option<ProviderCredentials>,
 }
-
-#[reinhardt::di::injectable_key]
-pub struct OAuthSettingsKey;
 
 impl OAuthSettings {
 	/// Reads provider credentials from the process environment.
@@ -76,11 +73,10 @@ impl OAuthSettings {
 /// across all handlers and the OAuth backend factory.
 ///
 /// Tests should construct [`OAuthSettings`] directly and override the
-/// scope entry with `FactoryOutput<OAuthSettingsKey, OAuthSettings>` rather
-/// than going through this factory.
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_oauth_settings() -> FactoryOutput<OAuthSettingsKey, OAuthSettings> {
-	FactoryOutput::new(OAuthSettings::from_env())
+/// scope entry with `OAuthSettings` rather than going through this factory.
+#[injectable(scope = "singleton")]
+async fn create_oauth_settings() -> OAuthSettings {
+	OAuthSettings::from_env()
 }
 
 fn read_provider(suffix: &str) -> Option<ProviderCredentials> {
@@ -101,9 +97,9 @@ fn non_empty_env(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 	use rstest::rstest;
-	use std::sync::Arc;
 
 	#[rstest]
 	#[tokio::test]
@@ -118,19 +114,17 @@ mod tests {
 			}),
 		};
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				expected.clone(),
-			));
+			set_provider_value(scope, expected.clone());
 		});
 
 		// Act
-		let resolved: Arc<FactoryOutput<OAuthSettingsKey, OAuthSettings>> = ctx
-			.resolve::<FactoryOutput<OAuthSettingsKey, OAuthSettings>>()
+		let resolved = Depends::<OAuthSettings>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("OAuthSettings factory should resolve when value is registered");
 
 		// Assert
-		assert_eq!(**resolved, expected);
+		assert_eq!(*resolved, expected);
 		assert_eq!(resolved.enabled_provider_ids(), vec!["github"]);
 	}
 }

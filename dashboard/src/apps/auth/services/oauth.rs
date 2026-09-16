@@ -23,6 +23,6 @@ pub mod storage;
 pub mod token_crypto;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use backend::{OAuthBackendBox, OAuthBackendBoxKey};
+pub use backend::OAuthBackendBox;
 #[cfg(not(target_arch = "wasm32"))]
-pub use config::{OAuthSettings, OAuthSettingsKey, ProviderCredentials};
+pub use config::{OAuthSettings, ProviderCredentials};

@@ -6,7 +6,7 @@
 //! cookies sent automatically with the WebSocket handshake.
 
 #[cfg(wasm)]
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 #[cfg(wasm)]
 use std::collections::HashSet;
 
@@ -28,6 +28,8 @@ use super::components::status_badge;
 #[cfg(wasm)]
 use super::components::toast::show_toast;
 #[cfg(wasm)]
+use super::style::STYLES;
+#[cfg(wasm)]
 use crate::apps::deployments::client::components::{cluster_health, log_viewer};
 
 #[cfg(wasm)]
@@ -35,9 +37,28 @@ thread_local! {
 	static SUBSCRIBED_IDS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 	static APP_LOG_DEPLOYMENT_ID: RefCell<Option<String>> = const { RefCell::new(None) };
 	static RECONNECT_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
-	/// Holds the current WebSocket so it can be explicitly closed on reconnect,
-	/// preventing leaked Closures from accumulating across connection cycles.
-	static CURRENT_WS: RefCell<Option<WebSocket>> = const { RefCell::new(None) };
+	static CURRENT_WS: RefCell<Option<NotificationConnection>> = const { RefCell::new(None) };
+	static RECONNECT_TIMEOUT: RefCell<Option<gloo_timers::callback::Timeout>> = const { RefCell::new(None) };
+	static NOTIFICATIONS_ENABLED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Owns the socket and its callbacks for exactly one authenticated connection.
+#[cfg(wasm)]
+struct NotificationConnection {
+	socket: WebSocket,
+	_on_open: Closure<dyn FnMut(web_sys::Event)>,
+	_on_message: Closure<dyn FnMut(MessageEvent)>,
+	_on_close: Closure<dyn FnMut(web_sys::Event)>,
+}
+
+#[cfg(wasm)]
+impl Drop for NotificationConnection {
+	fn drop(&mut self) {
+		self.socket.set_onopen(None);
+		self.socket.set_onmessage(None);
+		self.socket.set_onclose(None);
+		let _ = self.socket.close();
+	}
 }
 
 #[cfg(wasm)]
@@ -61,15 +82,11 @@ pub fn should_connect_notifications_for_path(path: &str) -> bool {
 /// times with a fixed 3-second delay.
 #[cfg(wasm)]
 pub fn connect_notifications() {
-	// Close the previous WebSocket (if any) to prevent handler accumulation
-	CURRENT_WS.with(|prev| {
-		if let Some(old_ws) = prev.borrow_mut().take() {
-			old_ws.set_onopen(None);
-			old_ws.set_onmessage(None);
-			old_ws.set_onclose(None);
-			let _ = old_ws.close();
-		}
-	});
+	if !NOTIFICATIONS_ENABLED.with(Cell::get) {
+		return;
+	}
+	RECONNECT_TIMEOUT.with(|timer| timer.borrow_mut().take());
+	CURRENT_WS.with(|current| current.borrow_mut().take());
 
 	let window = web_sys::window().unwrap();
 	let location = window.location();
@@ -83,11 +100,6 @@ pub fn connect_notifications() {
 	let Ok(ws) = WebSocket::new(&url) else {
 		return;
 	};
-
-	// Store the new WebSocket for future cleanup
-	CURRENT_WS.with(|prev| {
-		*prev.borrow_mut() = Some(ws.clone());
-	});
 
 	// On open: reset reconnect counter, re-subscribe to tracked deployments
 	let ws_for_open = ws.clone();
@@ -116,7 +128,6 @@ pub fn connect_notifications() {
 		});
 	}) as Box<dyn FnMut(_)>);
 	ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-	on_open.forget();
 
 	// On message: deserialize and dispatch
 	let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
@@ -129,7 +140,6 @@ pub fn connect_notifications() {
 		handle_ws_message(msg);
 	}) as Box<dyn FnMut(_)>);
 	ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-	on_message.forget();
 
 	// On close: auto-reconnect with attempt limit
 	let on_close = Closure::wrap(Box::new(move |_: web_sys::Event| {
@@ -138,20 +148,30 @@ pub fn connect_notifications() {
 			*count += 1;
 			*count <= MAX_RECONNECT_ATTEMPTS
 		});
-		if should_reconnect {
-			gloo_timers::callback::Timeout::new(3_000, || {
-				connect_notifications();
-			})
-			.forget();
+		if should_reconnect && NOTIFICATIONS_ENABLED.with(Cell::get) {
+			RECONNECT_TIMEOUT.with(|timer| {
+				*timer.borrow_mut() = Some(gloo_timers::callback::Timeout::new(
+					3_000,
+					connect_notifications,
+				));
+			});
 		}
 	}) as Box<dyn FnMut(_)>);
 	ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-	on_close.forget();
+	CURRENT_WS.with(|current| {
+		*current.borrow_mut() = Some(NotificationConnection {
+			socket: ws,
+			_on_open: on_open,
+			_on_message: on_message,
+			_on_close: on_close,
+		});
+	});
 }
 
 /// Ensure the notification WebSocket exists without forcing a reconnect.
 #[cfg(wasm)]
 pub fn ensure_notifications_connected() {
+	NOTIFICATIONS_ENABLED.with(|enabled| enabled.set(true));
 	let connected = CURRENT_WS.with(|prev| prev.borrow().is_some());
 	if !connected {
 		connect_notifications();
@@ -161,6 +181,24 @@ pub fn ensure_notifications_connected() {
 /// Native builds render server-side HTML and do not open browser WebSockets.
 #[cfg(not(wasm))]
 pub fn ensure_notifications_connected() {}
+
+/// End the authenticated connection and discard its reconnect and subscription state.
+///
+/// Call before leaving an authenticated session so a later login cannot inherit
+/// the previous user's socket or queued subscriptions.
+#[cfg(wasm)]
+pub fn disconnect_notifications() {
+	NOTIFICATIONS_ENABLED.with(|enabled| enabled.set(false));
+	RECONNECT_TIMEOUT.with(|timer| timer.borrow_mut().take());
+	CURRENT_WS.with(|current| current.borrow_mut().take());
+	SUBSCRIBED_IDS.with(|ids| ids.borrow_mut().clear());
+	APP_LOG_DEPLOYMENT_ID.with(|id| id.borrow_mut().take());
+	RECONNECT_ATTEMPTS.with(|attempts| *attempts.borrow_mut() = 0);
+}
+
+/// Native rendering does not own a browser notification connection.
+#[cfg(not(wasm))]
+pub fn disconnect_notifications() {}
 
 /// Record deployment IDs that should be re-subscribed after reconnect.
 #[cfg(wasm)]
@@ -187,11 +225,11 @@ pub fn subscribe_app_logs(deployment_id: &str) {
 	});
 	ensure_notifications_connected();
 	CURRENT_WS.with(|current| {
-		if let Some(ws) = current.borrow().as_ref()
-			&& ws.ready_state() == WebSocket::OPEN
+		if let Some(connection) = current.borrow().as_ref()
+			&& connection.socket.ready_state() == WebSocket::OPEN
 		{
 			send_client_message(
-				ws,
+				&connection.socket,
 				&WsClientMessage::SubscribeAppLogs {
 					deployment_id: deployment_id.to_string(),
 				},
@@ -210,10 +248,10 @@ pub fn unsubscribe_logs() {
 		*current.borrow_mut() = None;
 	});
 	CURRENT_WS.with(|current| {
-		if let Some(ws) = current.borrow().as_ref()
-			&& ws.ready_state() == WebSocket::OPEN
+		if let Some(connection) = current.borrow().as_ref()
+			&& connection.socket.ready_state() == WebSocket::OPEN
 		{
-			send_client_message(ws, &WsClientMessage::UnsubscribeLogs);
+			send_client_message(&connection.socket, &WsClientMessage::UnsubscribeLogs);
 		}
 	});
 }
@@ -266,8 +304,9 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 		return;
 	};
 	let selector = format!(
-		"[data-deployment-id='{}'] .status-badge",
-		payload.deployment_id
+		"[data-deployment-id='{}'] .{}",
+		payload.deployment_id,
+		STYLES.status_badge().as_str(),
 	);
 	let Ok(Some(badge)) = document.query_selector(&selector) else {
 		return;
@@ -277,9 +316,7 @@ fn update_deployment_badge(payload: &DeploymentStatusPayload) {
 	badge
 		.set_attribute(
 			"class",
-			&format!(
-				"status-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {color}"
-			),
+			&format!("{} {color}", STYLES.status_badge().as_str()),
 		)
 		.unwrap();
 	badge.set_text_content(Some(label));

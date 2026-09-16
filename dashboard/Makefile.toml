@@ -82,6 +82,11 @@ description = "Run integration tests only"
 command = "cargo"
 args = ["nextest", "run", "--test", "*", "--all-features"]
 
+[tasks.browser-e2e]
+description = "Run ignored Dashboard route checks against a live browser environment"
+command = "cargo"
+args = ["test", "--locked", "--features", "browser-e2e", "--test", "browser", "--", "--ignored", "--nocapture"]
+
 [tasks.test-watch]
 description = "Run tests with auto-reload (requires bacon)"
 command = "bacon"
@@ -185,7 +190,7 @@ args = ["run", "--bin", "manage", "runserver", "-vvv"]
 description = "Install WASM build tools (wasm-bindgen-cli pinned to match Cargo.lock)"
 script = '''
 # Keep this version in sync with the wasm-bindgen crate in Cargo.lock
-cargo install wasm-bindgen-cli --version "0.2.118" --locked 2>/dev/null || true
+cargo install wasm-bindgen-cli --version "0.2.126" --locked 2>/dev/null || true
 '''
 
 [tasks.wasm-install-test-tools]

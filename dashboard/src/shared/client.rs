@@ -12,4 +12,8 @@ pub mod components;
 pub mod pages;
 pub mod routes;
 pub mod state;
+pub mod style;
 pub mod ws;
+
+#[cfg(all(test, native))]
+mod form_normalization_tests;

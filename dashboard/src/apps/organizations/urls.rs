@@ -4,16 +4,14 @@
 //! (`GET /api/orgs/`, `POST /api/orgs/`, etc.) are introduced by
 //! sub-issue #418 as part of the broader URL reshape.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
 /// Returns the unified URL patterns for the organizations app.
 ///
-/// No endpoints exist yet — the app's data layer landed in #415 but
-/// HTTP endpoints will be introduced in #418. The empty `.server` and
-/// `.client` blocks keep the file aligned with the per-app
-/// `mount_unified` composition pattern.
+/// The app participates in `mount_unified` composition without HTTP endpoints.
 pub fn url_patterns() -> UnifiedRouter {
-	UnifiedRouter::new().server(|s| s).client(|c| c)
+	UnifiedRouter::new()
 }

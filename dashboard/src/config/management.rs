@@ -206,7 +206,7 @@ async fn upsert_active_user(username: &str, password: &str, email: &str) -> Comm
 
 async fn ensure_membership(user: &User) -> CommandResult<()> {
 	let membership = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user.id))
 		.first()
 		.await
 		.map_err(|e| {

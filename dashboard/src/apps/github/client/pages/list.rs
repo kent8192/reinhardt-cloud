@@ -1,133 +1,130 @@
 //! GitHub repository import page.
 
-use reinhardt::pages::component::Page;
-use reinhardt::pages::form;
-use reinhardt::pages::page;
-use reinhardt::pages::prelude::{Resource, ResourceState, Signal, use_form, use_resource};
+use std::collections::HashMap;
 
-use crate::apps::clusters::server_fn::ClusterInfo;
-#[cfg(wasm)]
-use crate::apps::clusters::server_fn::list_clusters_for_current_org;
-use crate::apps::dashboard::client::layout::dashboard_app_shell;
+use reinhardt::pages::component;
+use reinhardt::pages::component::Page;
+use reinhardt::pages::event::SubmitEvent;
+use reinhardt::pages::page;
+use reinhardt::pages::prelude::{
+	Callback, FieldError, QueryHandle, QueryOptions, QueryStatus, Signal, queries, use_form,
+	use_query,
+};
+use reinhardt::pages::server_fn::ServerFnError;
+
+use crate::apps::clusters::server_fn::{ClusterInfo, list_clusters_for_current_org};
 use crate::apps::deployments::client::components::preview_list::{
 	render_preview_list, render_project_identity,
 };
 use crate::apps::deployments::server_fn::ProjectPreviewSummary;
-use crate::apps::github::server_fn::{
-	GitHubOnboardingInfo, GitHubRepositoryInfo, import_github_repository_for_current_org,
+use crate::apps::deployments::server_fn::{
+	list_deployment_previews_for_current_org, list_deployments_for_current_org,
 };
-#[cfg(wasm)]
+use crate::apps::github::client::style::STYLES;
+use crate::apps::github::server_fn::list_github_repositories_for_installation;
 use crate::apps::github::server_fn::{
+	GitHubOnboardingInfo, GitHubRepositoryImportRequestClientForm,
+	GitHubRepositoryImportRequestClientFormField, GitHubRepositoryInfo,
 	get_github_onboarding_for_current_org, list_github_project_previews_for_current_org,
 	list_github_repositories_for_current_org,
 };
 use crate::shared::client::components::entity_select::{EntitySelectOption, entity_select};
-use crate::shared::client::routes::route_href;
-
-fn format_server_error(raw: &str) -> String {
-	let json_start = raw.find('{').unwrap_or(0);
-	let candidate = &raw[json_start..];
-	if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate)
-		&& let Some(obj) = value.as_object()
-		&& let Some((_, payload)) = obj.iter().next()
-	{
-		if let Some(s) = payload.as_str() {
-			if s.starts_with("CurrentUser:") {
-				return "Sign in to continue.".to_string();
-			}
-			return s.to_string();
-		}
-		if let Some(msg) = payload.get("message").and_then(|v| v.as_str()) {
-			if msg.starts_with("CurrentUser:") {
-				return "Sign in to continue.".to_string();
-			}
-			return msg.to_string();
-		}
-	}
-	raw.to_string()
-}
+use crate::shared::client::style::STYLES as SHARED_STYLES;
 
 fn alert(error: Signal<Option<String>>) -> Page {
-	page!(|error: Signal<Option<String>>| {
+	page!({
 		{
 			error
-	.get()
-	.map(|message| {
-		page!(|message: String| {
-			div {
-				class: "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700",
-				{
-					self::format_server_error(&message)
-				}
-			}
-		})(message)
-	})
-	.unwrap_or(Page::Empty)
+				.get()
+				.map(|message| {
+					page!({
+						div {
+							class: STYLES.alert(),
+							{ message }
+						}
+					})
+				})
+				.unwrap_or(Page::Empty)
 		}
-	})(error)
-}
-
-#[cfg(wasm)]
-async fn load_repositories() -> Result<Vec<GitHubRepositoryInfo>, String> {
-	list_github_repositories_for_current_org()
-		.await
-		.map_err(|e| e.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_repositories() -> Result<Vec<GitHubRepositoryInfo>, String> {
-	Ok(Vec::new())
-}
-
-#[cfg(wasm)]
-async fn load_onboarding() -> Result<GitHubOnboardingInfo, String> {
-	get_github_onboarding_for_current_org()
-		.await
-		.map_err(|e| e.to_string())
-}
-
-#[cfg(not(wasm))]
-async fn load_onboarding() -> Result<GitHubOnboardingInfo, String> {
-	Ok(GitHubOnboardingInfo {
-		github_account_linked: true,
-		install_url: None,
 	})
 }
 
-#[cfg(wasm)]
-async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
-	list_clusters_for_current_org()
-		.await
-		.map_err(|e| e.to_string())
+fn refetch_notice(is_fetching: bool, error: Option<ServerFnError>, label: &'static str) -> Page {
+	if let Some(error) = error {
+		let message = format!("Refresh failed: {}", error.user_message());
+		return page!({
+			div {
+				class: STYLES.refetch_notice() + STYLES.refetch_warning(),
+				{ message }
+			}
+		});
+	}
+	if is_fetching {
+		return page!({
+			div {
+				class: STYLES.refetch_notice() + STYLES.refetch_pending(),
+				"Refreshing " { label }"..."
+			}
+		});
+	}
+	Page::Empty
 }
 
-#[cfg(not(wasm))]
-async fn load_clusters() -> Result<Vec<ClusterInfo>, String> {
-	Ok(Vec::new())
+fn query_error_message(error: Option<ServerFnError>) -> String {
+	error.map_or_else(String::new, |error| error.user_message().to_owned())
 }
 
-#[cfg(wasm)]
-async fn load_imported_project_previews() -> Result<Vec<ProjectPreviewSummary>, String> {
-	list_github_project_previews_for_current_org()
-		.await
-		.map_err(|e| e.to_string())
+fn render_imported_projects_initial_state(status: QueryStatus) -> Option<Page> {
+	match status {
+		QueryStatus::Idle | QueryStatus::Pending => Some(page!({
+			div {
+				class: SHARED_STYLES.empty(),
+				"Loading imported projects..."
+			}
+		})),
+		QueryStatus::Error => Some(page!({
+			div {
+				class: STYLES.query_notice() + STYLES.query_warning(),
+				"Imported projects are temporarily unavailable"
+			}
+		})),
+		QueryStatus::Success => None,
+	}
 }
 
-#[cfg(not(wasm))]
-async fn load_imported_project_previews() -> Result<Vec<ProjectPreviewSummary>, String> {
-	Ok(Vec::new())
+fn import_field_error(
+	field_errors: Signal<HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>>,
+	field: GitHubRepositoryImportRequestClientFormField,
+) -> Page {
+	page!({
+		{
+			field_errors
+				.get()
+				.get(&field)
+				.map(|error| {
+					let message = error.message().to_owned();
+					page!({
+						p {
+							class: STYLES.field_error(),
+							{ message }
+						}
+					})
+				})
+				.unwrap_or(Page::Empty)
+		}
+	})
 }
 
 pub(crate) fn render_imported_project_card(summary: &ProjectPreviewSummary) -> Page {
 	let identity = render_project_identity(summary);
 	let previews = render_preview_list(summary);
-	page!(|identity: Page, previews: Page| {
+	page!({
 		article {
-			class: "rounded-md border border-cloud-200 bg-white p-4 shadow-[0_1px_0_rgba(17,16,19,0.03)]",
+			class: STYLES.project_card(),
 			{ identity }
 			{ previews }
 		}
-	})(identity, previews)
+	})
 }
 
 fn repository_select_options(items: &[GitHubRepositoryInfo]) -> Vec<EntitySelectOption> {
@@ -161,15 +158,17 @@ fn cluster_select_options(items: &[ClusterInfo]) -> Vec<EntitySelectOption> {
 		.collect()
 }
 
+#[derive(Clone)]
 struct GitHubRepositoriesPageViewProps {
-	repositories_for_inventory: Resource<Vec<GitHubRepositoryInfo>, String>,
-	repositories_for_import: Resource<Vec<GitHubRepositoryInfo>, String>,
-	imported_project_previews_for_list: Resource<Vec<ProjectPreviewSummary>, String>,
-	onboarding: Resource<GitHubOnboardingInfo, String>,
-	clusters_for_import: Resource<Vec<ClusterInfo>, String>,
-	clusters_for_inventory: Resource<Vec<ClusterInfo>, String>,
+	repositories_for_inventory: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
+	repositories_for_import: QueryHandle<Vec<GitHubRepositoryInfo>, ServerFnError>,
+	imported_project_previews_for_list: QueryHandle<Vec<ProjectPreviewSummary>, ServerFnError>,
+	onboarding: QueryHandle<GitHubOnboardingInfo, ServerFnError>,
+	clusters_for_import: QueryHandle<Vec<ClusterInfo>, ServerFnError>,
+	clusters_for_inventory: QueryHandle<Vec<ClusterInfo>, ServerFnError>,
 	import_view: Page,
 	import_error: Signal<Option<String>>,
+	import_field_errors: Signal<HashMap<GitHubRepositoryImportRequestClientFormField, FieldError>>,
 	import_submitting: Signal<bool>,
 	import_repository_id: Signal<String>,
 	import_cluster_id: Signal<String>,
@@ -180,52 +179,26 @@ struct GitHubRepositoriesPageViewProps {
 }
 
 /// Render the GitHub repository import page.
-#[reinhardt::pages::component("/github", "github:repositories")]
+#[component("github", name = "github:repositories")]
 pub fn github_repositories_page() -> Page {
-	let repositories = use_resource(|| async move { self::load_repositories().await }, ());
-	let onboarding = use_resource(|| async move { self::load_onboarding().await }, ());
-	let imported_project_previews = use_resource(
-		|| async move { self::load_imported_project_previews().await },
-		(),
+	let repositories = use_query(
+		list_github_repositories_for_current_org::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
 	);
-	let clusters = use_resource(|| async move { self::load_clusters().await }, ());
+	let onboarding = use_query(
+		get_github_onboarding_for_current_org::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
+	);
+	let imported_project_previews = use_query(
+		list_github_project_previews_for_current_org::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
+	);
+	let clusters = use_query(
+		list_clusters_for_current_org::query(),
+		QueryOptions::new().enabled(cfg!(wasm)),
+	);
 
-	let import_form = form! {
-		name: ImportGitHubRepositoryForm,
-		server_fn: import_github_repository_for_current_org,
-		method: Post,
-		success_url: |_form| route_href("github:repositories", "/github"),
-		class: "rc-form-stack",
-		fields: {
-			repository_id: HiddenField {
-				initial: String::new(),
-			}
-			cluster_id: HiddenField {
-				initial: String::new(),
-			}
-			project_name: CharField {
-				max_length: 63,
-				label: "Project name",
-				wrapper_class: "rc-field",
-				label_class: "rc-label",
-				placeholder: "leave blank to derive from repository",
-				class: "rc-input",
-			}
-			registry: CharField {
-				required,
-				max_length: 512,
-				label: "Registry Image Prefix",
-				wrapper_class: "rc-field",
-				label_class: "rc-label",
-				placeholder: "ghcr.io/kent8192/my-app",
-				class: "rc-input",
-			}
-			submit: SubmitButton {
-				label: "Import repository",
-				class: "btn-primary min-h-11 w-full md:w-auto md:justify-self-start"
-			}
-		}
-	};
+	let import_form = GitHubRepositoryImportRequestClientForm::new();
 	let import_runtime = use_form(&import_form).build();
 	let import_state = import_runtime.form_state();
 	let import_repository_id =
@@ -233,17 +206,102 @@ pub fn github_repositories_page() -> Page {
 	let import_cluster_id = import_runtime.watch_field::<String>(import_form.cluster_id_field());
 	let import_project_name =
 		import_runtime.watch_field::<String>(import_form.project_name_field());
-	let import_error = import_form.error().clone();
-	let import_view = import_form.into_page();
+	let import_field_errors = import_state.field_errors;
+	let query_client = queries();
+	let import_action = import_form
+		.server_mutation(&import_runtime)
+		.invalidate_family(
+			query_client.clone(),
+			list_github_repositories_for_current_org::family(),
+		)
+		.invalidate_family(
+			query_client.clone(),
+			list_github_repositories_for_installation::family(),
+		)
+		.invalidate_family(
+			query_client.clone(),
+			list_github_project_previews_for_current_org::family(),
+		)
+		.invalidate_family(
+			query_client.clone(),
+			list_deployments_for_current_org::family(),
+		)
+		.invalidate_family(
+			query_client,
+			list_deployment_previews_for_current_org::family(),
+		)
+		.build();
+	let submit_import = Callback::new(move |event: SubmitEvent| {
+		event.prevent_default();
+		GitHubRepositoryImportRequestClientForm::normalize_values(&import_action.form());
+		import_action.dispatch();
+	});
+	let import_view = page!({
+		form {
+			class: SHARED_STYLES.form_stack(),
+			@submit: submit_import,
+			div {
+				class: SHARED_STYLES.field(),
+				label {
+					class: SHARED_STYLES.label(),
+					"Project name"
+				}
+				input {
+					aria_label: "Project name",
+					class: SHARED_STYLES.input(),
+					type: "text",
+					placeholder: "leave blank to derive from repository",
+					bind: import_runtime.field(GitHubRepositoryImportRequestClientFormField::ProjectName),
+				}
+				{ self::import_field_error(
+					import_field_errors,
+					GitHubRepositoryImportRequestClientFormField::ProjectName,
+				) }
+			}
+			div {
+				class: SHARED_STYLES.field(),
+				label {
+					class: SHARED_STYLES.label(),
+					"Registry Image Prefix"
+				}
+				input {
+					aria_label: "Registry Image Prefix",
+					class: SHARED_STYLES.input(),
+					type: "text",
+					placeholder: "ghcr.io/kent8192/my-app",
+					bind: import_runtime.field(GitHubRepositoryImportRequestClientFormField::Registry),
+				}
+				{ self::import_field_error(
+					import_field_errors,
+					GitHubRepositoryImportRequestClientFormField::Registry,
+				) }
+			}
+			button {
+				type: "submit",
+				class: SHARED_STYLES.button_primary() + STYLES.form_submit(),
+				disabled: import_state.is_submitting.get(),
+				{
+					if import_state.is_submitting.get() { "Importing..." } else { "Import repository" }
+				}
+			}
+		}
+	});
+	let import_error = import_state.form_error;
 	let repositories_for_inventory = repositories.clone();
 	let repositories_for_import = repositories.clone();
 	let imported_project_previews_for_list = imported_project_previews.clone();
 	let clusters_for_import = clusters.clone();
 	let clusters_for_inventory = clusters.clone();
+	let imported_project_previews_for_refetch = imported_project_previews.clone();
+	let repositories_for_inventory_refetch = repositories.clone();
+	let onboarding_for_refetch = onboarding.clone();
+	let repositories_for_import_refetch = repositories.clone();
+	let clusters_for_import_refetch = clusters.clone();
+	let clusters_for_inventory_refetch = clusters.clone();
 
-	let selected_repository_id = import_repository_id.clone();
-	let selected_cluster_id = import_cluster_id.clone();
-	let selected_project_name = import_project_name.clone();
+	let selected_repository_id = import_repository_id;
+	let selected_cluster_id = import_cluster_id;
+	let selected_project_name = import_project_name;
 	let props = GitHubRepositoriesPageViewProps {
 		repositories_for_inventory,
 		repositories_for_import,
@@ -253,6 +311,7 @@ pub fn github_repositories_page() -> Page {
 		clusters_for_inventory,
 		import_view,
 		import_error,
+		import_field_errors,
 		import_submitting: import_state.is_submitting,
 		import_repository_id,
 		import_cluster_id,
@@ -262,216 +321,244 @@ pub fn github_repositories_page() -> Page {
 		selected_project_name,
 	};
 
-	let content = page!(|props: GitHubRepositoriesPageViewProps| {
+	page!({
 		div {
-			class: "rc-shell",
+			class: SHARED_STYLES.shell(),
 			div {
-				class: "space-y-0",
 				div {
-					class: "rc-topline",
+					class: SHARED_STYLES.topline(),
 					div {
 						p {
-							class: "rc-kicker",
+							class: SHARED_STYLES.kicker(),
 							"Source Control"
 						}
 						h1 {
-							class: "rc-title",
+							class: SHARED_STYLES.title(),
 							"GitHub Repositories"
 						}
 						p {
-							class: "rc-muted mt-1",
+							class: SHARED_STYLES.muted() + STYLES.page_intro(),
 							"Import GitHub App repositories into Reinhardt Cloud deployments."
 						}
 					}
 				}
 				div {
-					class: "grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]",
+					class: STYLES.page_layout(),
 					section {
-						class: "space-y-6",
+						class: STYLES.content_stack(),
 						section {
-							class: "rc-panel",
+							class: SHARED_STYLES.panel(),
 							div {
-								class: "rc-panel-head",
+								class: SHARED_STYLES.panel_head(),
 								"Imported Projects"
 							}
 							div {
-								class: "p-4",
+								class: STYLES.panel_body(),
+									{
+										let snapshot = imported_project_previews_for_refetch.snapshot();
+										self::refetch_notice(
+											snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+											snapshot.refetch_error,
+											"imported projects",
+										)
+									}
 								{
-									match props.imported_project_previews_for_list.get() {
-										ResourceState::Loading => page!(|| {
-											div {
-												class: "rc-empty",
-												"Loading imported projects..."
-											}
-										})(),
-										ResourceState::Error(_) => page!(|| {
-											div {
-												class: "px-4 py-8 text-sm font-medium text-amber-700",
-												"Imported projects are temporarily unavailable"
-											}
-										})(),
-										ResourceState::Success(items) if items.is_empty() => page!(|| {
-											div {
-												class: "rc-empty",
-												"No imported projects yet"
-											}
-											})(),
-											ResourceState::Success(items) => {
-												page!(|items: Vec<ProjectPreviewSummary>| {
+									let snapshot = props.imported_project_previews_for_list.snapshot();
+									match render_imported_projects_initial_state(snapshot.status) {
+										Some(initial_state) => initial_state,
+										None => match snapshot.data {
+											Some(items) if items.is_empty() => page!({
 												div {
-													class: "grid gap-3 xl:grid-cols-2",
+													class: SHARED_STYLES.empty(),
+													"No imported projects yet"
+												}
+											}),
+											Some(items) => page!({
+											div {
+												class: STYLES.project_grid(),
 													{ items.iter().map(self::render_imported_project_card).collect::<Vec<_>>() }
 												}
-											})(items)
+											}),
+											None => Page::Empty,
 										},
 									}
 								}
 							}
 						}
 						section {
-							class: "rc-panel",
+							class: SHARED_STYLES.panel(),
 							div {
-								class: "rc-panel-head flex items-center justify-between gap-3",
+								class: SHARED_STYLES.panel_head() + STYLES.inventory_head(),
 								span { "Repository Inventory" }
 								span {
-									class: "rounded-full bg-control-500/10 px-2.5 py-1 text-[11px] font-bold text-control-700",
+									class: STYLES.github_badge(),
 									"GitHub App"
 								}
 							}
+							{
+								let snapshot = repositories_for_inventory_refetch.snapshot();
+								self::refetch_notice(
+									snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+									snapshot.refetch_error,
+									"repositories",
+								)
+							}
+							{
+								let snapshot = onboarding_for_refetch.snapshot();
+								self::refetch_notice(
+									snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+									snapshot.refetch_error,
+									"GitHub App status",
+								)
+							}
 							div {
-								class: "overflow-x-auto",
+								class: STYLES.inventory_scroll(),
 								table {
-									class: "rc-table",
+									class: SHARED_STYLES.table(),
 									thead {
-										class: "bg-cloud-50",
+										class: STYLES.inventory_header(),
 										tr {
 											th {
-												class: "rc-th",
+												class: SHARED_STYLES.table_header(),
 												"ID"
 											}
 											th {
-												class: "rc-th",
+												class: SHARED_STYLES.table_header(),
 												"Repository"
 											}
 											th {
-												class: "rc-th",
+												class: SHARED_STYLES.table_header(),
 												"Branch"
 											}
 											th {
-												class: "rc-th",
+												class: SHARED_STYLES.table_header(),
 												"State"
 											}
 										}
 									}
 									tbody {
-										class: "divide-y divide-cloud-100 bg-white",
+										class: STYLES.inventory_body(),
 										{
-											match props.repositories_for_inventory.get() {
-											ResourceState::Loading => page!(|| {
+											let snapshot = props.repositories_for_inventory.snapshot();
+											match snapshot.status {
+											QueryStatus::Idle | QueryStatus::Pending => page!({
 												tr {
 													td {
-														class: "rc-empty",
+														class: SHARED_STYLES.empty(),
 														colspan: 4,
 														"Loading repositories..."
 													}
 												}
-											})(),
-											ResourceState::Error(err) => page!(|err: String| {
+											}),
+											QueryStatus::Error => {
+												let err = self::query_error_message(snapshot.error);
+												page!({
 												tr {
 													td {
-														class: "px-4 py-8 text-sm font-medium text-red-700",
+														class: STYLES.query_notice() + STYLES.query_error(),
 														colspan: 4,
-														{
-															self::format_server_error(&err)
-														}
+														{ err }
 													}
 												}
-											})(err),
-											ResourceState::Success(items)if items.is_empty() => page!(|onboarding: Resource<GitHubOnboardingInfo, String>| {
+												})
+											},
+											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => {
+												let onboarding = props.onboarding.clone();
+												page!({
 												tr {
 													td {
-														class: "rc-empty",
+														class: SHARED_STYLES.empty(),
 														colspan: 4,
 														{
-															match onboarding.get() {
-																ResourceState::Success(info)if !info.github_account_linked => page!(|| {
+															let snapshot = onboarding.snapshot();
+															match snapshot.status {
+																QueryStatus::Success if snapshot.data.as_ref().is_some_and(|info| !info.github_account_linked) => page!({
 																	div {
-																		class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+																		class: STYLES.onboarding_action(),
 																		span { "Link your GitHub account before installing the GitHub App." }
 																		a {
-																			class: "btn-secondary text-xs",
-																			href: "/api/auth/oauth/github/start/",
+																			class: SHARED_STYLES.button_secondary() + STYLES.onboarding_button(),
+														href: "/api/auth/oauth/github/start/?intent=link",
 																			"Link GitHub account"
 																		}
 																	}
-																})(),
-																ResourceState::Success(info) => {
-																	if let Some(url) = info.install_url {
-																		page!(|url: String| {
-																			div {
-																				class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+																}),
+																QueryStatus::Success => {
+																	if let Some(url) = snapshot.data.and_then(|info| info.install_url) {
+																		page!({
+																	div {
+																		class: STYLES.onboarding_action(),
 																				span { "No GitHub App repositories are available." }
-																				a {
-																					class: "btn-secondary text-xs",
+																		a {
+																			class: SHARED_STYLES.button_secondary() + STYLES.onboarding_button(),
 																					href: url,
 																					"Connect GitHub repositories"
 																				}
 																			}
-																		})(url)
+																		})
 																	} else {
-																		page!(|| { "No GitHub App repositories are available." })()
+																		page!({ "No GitHub App repositories are available." })
 																	}
 																}
-																_ => page!(|| { "No GitHub App repositories are available." })(),
+																_ => page!({ "No GitHub App repositories are available." }),
 															}
 														}
 													}
 												}
-											})(props.onboarding.clone()),
-											ResourceState::Success(items) => page!(|items: Vec<GitHubRepositoryInfo>| { {
+												})
+											},
+											QueryStatus::Success => {
+												let items = snapshot.data.unwrap_or_default();
+												page!({ {
 												items.clone().into_iter().map(|repo| {
-													page!(|repo: GitHubRepositoryInfo| {
+													page!({
 														tr {
+															class: STYLES.inventory_row(),
 															td {
-																class: "px-4 py-3 font-mono text-xs text-ink-600",
+																class: SHARED_STYLES.table_cell() + STYLES.inventory_id(),
 																{
 																	repo.id.to_string()
 																}
 															}
 															td {
-																class: "px-4 py-3",
+																class: SHARED_STYLES.table_cell(),
 																div {
-																	class: "font-semibold text-ink-950",
+																	class: STYLES.repository_name(),
 																	{
 																		repo.full_name.clone()
 																	}
 																}
 																div {
-																	class: "mt-0.5 text-xs font-medium text-ink-600",
+																	class: STYLES.repository_visibility(),
 																	{
 																		if repo.private { "private" } else { "public" }
 																	}
 																}
 															}
 															td {
-																class: "px-4 py-3 font-mono text-xs text-ink-600",
+																class: SHARED_STYLES.table_cell() + STYLES.inventory_id(),
 																{
 																	repo.default_branch.clone()
 																}
 															}
 															td {
-																class: "px-4 py-3",
+																class: SHARED_STYLES.table_cell(),
 																span {
-																	class: if repo.selected { "rounded-full bg-control-500/10 px-2.5 py-0.5 text-xs font-semibold text-control-700" } else { "rounded-full bg-cloud-100 px-2.5 py-0.5 text-xs font-semibold text-ink-600" },
+																	class: if repo.selected {
+																		STYLES.repository_state() + STYLES.repository_state_imported()
+																	} else {
+																		STYLES.repository_state() + STYLES.repository_state_available()
+																	},
 																	{
 																		if repo.selected { "imported" } else { "available" }
 																	}
 																}
 															}
 														}
-													})(repo)
+													})
 												}).collect::<Vec<_>>()
-											} })(items),
+												} })
+											},
 											}
 										}
 									}
@@ -480,23 +567,23 @@ pub fn github_repositories_page() -> Page {
 						}
 					}
 					aside {
-						class: "rc-stack",
+						class: SHARED_STYLES.stack(),
 						section {
-							class: "rc-panel-pad",
+							class: SHARED_STYLES.panel_pad(),
 							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
+								class: STYLES.aside_title(),
 								"Import"
 							}
 							div {
-								class: "mb-4 grid gap-2 rounded-md border border-control-500/20 bg-control-500/5 p-3 text-sm",
+								class: STYLES.import_selection(),
 								div {
-									class: "flex items-center justify-between gap-3",
+									class: STYLES.import_selection_row(),
 									span {
-										class: "text-xs font-bold uppercase text-ink-600",
+										class: STYLES.import_selection_label(),
 										"Repository"
 									}
 									span {
-										class: "font-mono text-xs font-semibold text-ink-950",
+										class: STYLES.import_selection_value(),
 										{
 											let value = props.selected_repository_id.get();
 											if value.trim().is_empty() {
@@ -508,13 +595,13 @@ pub fn github_repositories_page() -> Page {
 									}
 								}
 								div {
-									class: "flex items-center justify-between gap-3",
+									class: STYLES.import_selection_row(),
 									span {
-										class: "text-xs font-bold uppercase text-ink-600",
+										class: STYLES.import_selection_label(),
 										"Cluster"
 									}
 									span {
-										class: "font-mono text-xs font-semibold text-ink-950",
+										class: STYLES.import_selection_value(),
 										{
 											let value = props.selected_cluster_id.get();
 											if value.trim().is_empty() {
@@ -526,13 +613,13 @@ pub fn github_repositories_page() -> Page {
 									}
 								}
 								div {
-									class: "flex items-center justify-between gap-3",
+									class: STYLES.import_selection_row(),
 									span {
-										class: "text-xs font-bold uppercase text-ink-600",
+										class: STYLES.import_selection_label(),
 										"App"
 									}
 									span {
-										class: "truncate text-xs font-semibold text-ink-950",
+										class: STYLES.import_selection_name(),
 										{
 											let value = props.selected_project_name.get();
 											if value.trim().is_empty() {
@@ -543,52 +630,86 @@ pub fn github_repositories_page() -> Page {
 								}
 							}
 							{
-								self::alert(props.import_error.clone())
+								self::alert(props.import_error)
 							}
 							{
-								match props.repositories_for_import.get() {
-									ResourceState::Success(items) => {
+								let snapshot = repositories_for_import_refetch.snapshot();
+								self::refetch_notice(
+									snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+									snapshot.refetch_error,
+									"repositories",
+								)
+							}
+							{
+								let snapshot = props.repositories_for_import.snapshot();
+								match snapshot.status {
+									QueryStatus::Success => {
+										let items = snapshot.data.unwrap_or_default();
 										let repositories_for_change = items.clone();
-										let project_name_signal = props.import_project_name.clone();
-										self::entity_select("Repository", "Select repository", self::repository_select_options(&items), props.import_repository_id.clone(), move |value| {
-											if let Some(repository) = repositories_for_change.iter().find(|repository| repository.id.to_string() == value) {
-												project_name_signal.set(repository.name.clone());
-											}
-										}, )
+										let project_name_signal = props.import_project_name;
+										let repository_select = self::entity_select("Repository", "Select repository", self::repository_select_options(&items), props.import_repository_id, move |value| {
+												if let Some(repository) = repositories_for_change.iter().find(|repository| repository.id.to_string() == value) {
+													project_name_signal.set(repository.name.clone());
+												}
+											}, )
+											;
+											let import_field_errors = props.import_field_errors;
+										page!({
+											{ repository_select }
+											{ self::import_field_error(import_field_errors, GitHubRepositoryImportRequestClientFormField::RepositoryId) }
+										})
 									}
-									ResourceState::Loading => page!(|| {
-										p {
-											class: "mb-3 text-xs text-cloud-500",
+									QueryStatus::Idle | QueryStatus::Pending => page!({
+									p {
+										class: STYLES.import_pending(),
 											"Loading repositories..."
 										}
-									})(),
-									ResourceState::Error(err) => page!(|err: String| {
-										p {
-											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&err)
-											}
+									}),
+									QueryStatus::Error => {
+										let error = self::query_error_message(snapshot.error);
+										page!({
+									p {
+										class: STYLES.import_error(),
+											{ error }
 										}
-									})(err),
+										})
+									},
 								}
 							}
 							{
-								match props.clusters_for_import.get() {
-									ResourceState::Success(items) => self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&items), props.import_cluster_id.clone(), |_value| {}, ),
-									ResourceState::Loading => page!(|| {
-										p {
-											class: "mb-3 text-xs text-cloud-500",
+								let snapshot = clusters_for_import_refetch.snapshot();
+								self::refetch_notice(
+									snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+									snapshot.refetch_error,
+									"clusters",
+								)
+							}
+							{
+								let snapshot = props.clusters_for_import.snapshot();
+								match snapshot.status {
+									QueryStatus::Success => {
+										let cluster_select = self::entity_select("Cluster", "Select target cluster", self::cluster_select_options(&snapshot.data.unwrap_or_default()), props.import_cluster_id, |_value| {}, );
+										let import_field_errors = props.import_field_errors;
+										page!({
+											{ cluster_select }
+											{ self::import_field_error(import_field_errors, GitHubRepositoryImportRequestClientFormField::ClusterId) }
+										})
+									}
+									QueryStatus::Idle | QueryStatus::Pending => page!({
+									p {
+										class: STYLES.import_pending(),
 											"Loading clusters..."
 										}
-									})(),
-									ResourceState::Error(err) => page!(|err: String| {
-										p {
-											class: "mb-3 text-xs font-medium text-red-700",
-											{
-												self::format_server_error(&err)
-											}
+									}),
+									QueryStatus::Error => {
+										let error = self::query_error_message(snapshot.error);
+										page!({
+									p {
+										class: STYLES.import_error(),
+											{ error }
 										}
-									})(err),
+										})
+									},
 								}
 							}
 							{
@@ -596,58 +717,70 @@ pub fn github_repositories_page() -> Page {
 							}
 							if props.import_submitting.get() {
 								p {
-									class: "mt-2 text-sm text-cloud-500",
+									class: STYLES.action_status(),
 									"Importing..."
 								}
 							}
 						}
 						section {
-							class: "rc-panel-pad",
-							h2 {
-								class: "mb-3 text-sm font-semibold text-ink-950",
-								"Active Clusters"
-							}
-							div {
-								class: "space-y-2 text-sm",
+							class: SHARED_STYLES.panel_pad(),
+								h2 {
+									class: STYLES.aside_title(),
+									"Active Clusters"
+								}
 								{
-									match props.clusters_for_inventory.get() {
-										ResourceState::Loading => page!(|| {
+									let snapshot = clusters_for_inventory_refetch.snapshot();
+									self::refetch_notice(
+										snapshot.status == QueryStatus::Success && snapshot.is_fetching,
+										snapshot.refetch_error,
+										"clusters",
+									)
+								}
+								div {
+									class: STYLES.cluster_list(),
+									{
+										let snapshot = props.clusters_for_inventory.snapshot();
+										match snapshot.status {
+										QueryStatus::Idle | QueryStatus::Pending => page!({
 											p {
-												class: "text-cloud-500",
+												class: STYLES.cluster_empty(),
 												"Loading clusters..."
 											}
-										})(),
-										ResourceState::Error(err) => page!(|err: String| {
+										}),
+										QueryStatus::Error => {
+											let err = self::query_error_message(snapshot.error);
+											page!({
 											p {
-												class: "text-red-700",
-												{
-													self::format_server_error(&err)
-												}
+												class: STYLES.cluster_error(),
+												{ err }
 											}
-										})(err),
-										ResourceState::Success(items)if items.is_empty() => page!(|| {
+											})
+										},
+											QueryStatus::Success if snapshot.data.as_ref().is_some_and(Vec::is_empty) => page!({
 											p {
-												class: "text-cloud-500",
+												class: STYLES.cluster_empty(),
 												"No active clusters."
 											}
-										})(),
-										ResourceState::Success(items) => page!(|items: Vec<ClusterInfo>| { {
+											}),
+											QueryStatus::Success => {
+												let items = snapshot.data.unwrap_or_default();
+												page!({ {
 											items.clone().into_iter().map(|cluster| {
-												page!(|cluster: ClusterInfo| {
+												page!({
 													div {
-														class: "rounded-md border border-cloud-200 bg-white px-3 py-2 shadow-[0_1px_0_rgba(17,16,19,0.03)]",
+														class: STYLES.cluster_card(),
 														div {
-															class: "flex items-start justify-between gap-3",
+															class: STYLES.cluster_card_head(),
 															div {
-																class: "min-w-0",
+																class: STYLES.cluster_card_body(),
 																div {
-																	class: "truncate font-semibold text-ink-950",
+																	class: STYLES.cluster_name(),
 																	{
 																		cluster.name.clone()
 																	}
 																}
 																div {
-																	class: "mt-0.5 font-mono text-xs text-ink-600",
+																	class: STYLES.cluster_id(),
 																	{
 																		format!("id {}", cluster.id)
 																	}
@@ -655,15 +788,16 @@ pub fn github_repositories_page() -> Page {
 															}
 														}
 														div {
-															class: "font-mono text-xs text-cloud-500",
+															class: STYLES.cluster_url(),
 															{
 																cluster.api_url.clone()
 															}
 														}
 													}
-												})(cluster)
+												})
 											}).collect::<Vec<_>>()
-										} })(items),
+												} })
+											},
 									}
 								}
 							}
@@ -672,37 +806,287 @@ pub fn github_repositories_page() -> Page {
 				}
 			}
 		}
-	})(props);
-
-	dashboard_app_shell("github", content)
+	})
 }
 
 #[cfg(test)]
 mod tests {
+	#[cfg(native)]
+	use reinhardt::pages::prelude::UseFormAsyncSubmitOutcome;
+	#[cfg(native)]
+	use std::cell::Cell;
+	#[cfg(native)]
+	use std::rc::Rc;
+
+	use reinhardt::pages::reactive::ReactiveScope;
 	use rstest::rstest;
 
-	use super::format_server_error;
+	use crate::apps::github::server_fn::GitHubRepositoryImportRequest;
+
+	use super::*;
+
+	#[cfg(native)]
+	#[rstest]
+	fn native_import_mutation_preserves_form_values_without_dispatch() {
+		ReactiveScope::run(|| {
+			// Arrange
+			let form = GitHubRepositoryImportRequestClientForm::new();
+			let runtime = use_form(&form).build();
+			runtime.set_value(
+				GitHubRepositoryImportRequestClientFormField::Registry,
+				"ghcr.io/acme".to_owned(),
+			);
+			let mutation = form.server_mutation(&runtime).build();
+
+			// Act
+			let outcome = mutation.dispatch();
+
+			// Assert
+			assert_eq!(
+				outcome,
+				reinhardt::pages::MutationDispatchOutcome::UnsupportedTarget
+			);
+			assert_eq!(mutation.is_pending(), false);
+			assert_eq!(runtime.form_state().is_submitting.get(), false);
+			assert_eq!(runtime.form_state().field_errors.get().len(), 0);
+			assert_eq!(
+				GitHubRepositoryImportRequestClientForm::to_request(&runtime).registry,
+				"ghcr.io/acme"
+			);
+		});
+	}
 
 	#[rstest]
-	#[case(
-		r#"Server error (401): {"Server":{"status":401,"message":"CurrentUser: User is not authenticated"}}"#,
-		"Sign in to continue."
-	)]
-	#[case(
-		r#"{"Server":{"status":500,"message":"Repository import failed"}}"#,
-		"Repository import failed"
-	)]
-	fn server_error_formatter_extracts_actionable_message(
-		#[case] raw: &str,
-		#[case] expected: &str,
-	) {
+	fn github_read_queries_use_generated_server_function_families() {
 		// Arrange
-		let raw_message = raw;
+		let repositories = list_github_repositories_for_current_org::query();
+		let onboarding = get_github_onboarding_for_current_org::query();
+		let previews = list_github_project_previews_for_current_org::query();
 
 		// Act
-		let formatted = format_server_error(raw_message);
+		let repository_family = repositories.key().family_id();
+		let onboarding_family = onboarding.key().family_id();
+		let preview_family = previews.key().family_id();
 
 		// Assert
-		assert_eq!(formatted, expected);
+		assert_eq!(
+			repository_family,
+			list_github_repositories_for_current_org::family().id()
+		);
+		assert_eq!(
+			onboarding_family,
+			get_github_onboarding_for_current_org::family().id()
+		);
+		assert_eq!(
+			preview_family,
+			list_github_project_previews_for_current_org::family().id()
+		);
+		assert_ne!(repository_family, onboarding_family);
+		assert_ne!(repository_family, preview_family);
+	}
+
+	#[rstest]
+	fn refetch_notice_preserves_the_background_failure() {
+		// Arrange
+		let error = ServerFnError::application("GitHub refresh timed out");
+
+		// Act
+		let html = refetch_notice(false, Some(error), "repositories").render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<div class=\"{} {}\">Refresh failed: GitHub refresh timed out</div>",
+				STYLES.refetch_notice().as_str(),
+				STYLES.refetch_warning().as_str(),
+			)
+		);
+	}
+
+	#[rstest]
+	fn refetch_notice_shows_cached_background_refresh() {
+		// Act
+		let html = refetch_notice(true, None, "repositories").render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<div class=\"{} {}\">Refreshing repositories...</div>",
+				STYLES.refetch_notice().as_str(),
+				STYLES.refetch_pending().as_str(),
+			)
+		);
+	}
+
+	#[rstest]
+	#[case::idle(QueryStatus::Idle)]
+	#[case::pending(QueryStatus::Pending)]
+	fn imported_projects_initial_state_renders_loading(#[case] status: QueryStatus) {
+		// Act
+		let html = render_imported_projects_initial_state(status)
+			.expect("initial state should render")
+			.render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<div class=\"{}\">Loading imported projects...</div>",
+				SHARED_STYLES.empty().as_str(),
+			)
+		);
+	}
+
+	#[rstest]
+	fn imported_projects_initial_state_renders_error() {
+		// Act
+		let html = render_imported_projects_initial_state(QueryStatus::Error)
+			.expect("initial state should render")
+			.render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<div class=\"{} {}\">Imported projects are temporarily unavailable</div>",
+				STYLES.query_notice().as_str(),
+				STYLES.query_warning().as_str(),
+			)
+		);
+	}
+
+	#[rstest]
+	fn github_import_client_form_preserves_generated_request_fields() {
+		// Arrange
+		let expected = GitHubRepositoryImportRequest {
+			repository_id: "101".to_string(),
+			cluster_id: "202".to_string(),
+			project_name: "reinhardt-cloud".to_string(),
+			registry: "ghcr.io/kent8192/reinhardt-cloud".to_string(),
+		};
+
+		ReactiveScope::run(|| {
+			let form =
+				GitHubRepositoryImportRequestClientForm::new().with_defaults(expected.clone());
+			let runtime = use_form(&form).build();
+
+			// Act
+			let request = GitHubRepositoryImportRequestClientForm::to_request(&runtime);
+
+			// Assert
+			assert_eq!(request, expected);
+		});
+	}
+
+	#[rstest]
+	fn github_import_client_form_maps_dto_validation_to_fields() {
+		ReactiveScope::run(|| {
+			// Arrange
+			let form = GitHubRepositoryImportRequestClientForm::new();
+			let runtime = use_form(&form).build();
+
+			// Act
+			let _error = runtime
+				.trigger()
+				.expect_err("empty import request must be rejected");
+
+			// Assert
+			assert_eq!(
+				runtime
+					.get_field_state(GitHubRepositoryImportRequestClientFormField::RepositoryId)
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("Custom validation error: Select a repository")
+			);
+			assert_eq!(
+				runtime
+					.get_field_state(GitHubRepositoryImportRequestClientFormField::ClusterId)
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("Custom validation error: Select a cluster")
+			);
+			assert_eq!(
+				runtime
+					.get_field_state(GitHubRepositoryImportRequestClientFormField::Registry)
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("Custom validation error: Registry image prefix must be 1-512 characters")
+			);
+		});
+	}
+
+	#[rstest]
+	fn github_import_client_form_routes_structured_server_errors_to_fields_and_global_error() {
+		ReactiveScope::run(|| {
+			// Arrange
+			let form = GitHubRepositoryImportRequestClientForm::new().with_defaults(
+				GitHubRepositoryImportRequest {
+					repository_id: "101".to_string(),
+					cluster_id: "202".to_string(),
+					project_name: "reinhardt-cloud".to_string(),
+					registry: "ghcr.io/kent8192/reinhardt-cloud".to_string(),
+				},
+			);
+			let runtime = use_form(&form).build();
+			let error = ServerFnError::validation_with_message(
+				"Please correct the submitted values",
+				[
+					("registry", "Registry image prefix is unavailable"),
+					("import_policy", "Organization policy rejected this import"),
+				],
+			);
+
+			// Act
+			runtime.apply_server_error(&error);
+
+			// Assert
+			assert_eq!(
+				runtime
+					.get_field_state(GitHubRepositoryImportRequestClientFormField::Registry)
+					.error
+					.as_ref()
+					.map(FieldError::message),
+				Some("Registry image prefix is unavailable")
+			);
+			assert_eq!(
+				runtime.form_state().form_error.get(),
+				Some(
+					"Please correct the submitted values\nimport_policy: Organization policy rejected this import"
+						.to_string()
+				)
+			);
+		});
+	}
+
+	#[cfg(native)]
+	#[rstest]
+	#[tokio::test]
+	async fn github_import_client_form_blocks_invalid_submission_before_server_dispatch() {
+		// Arrange
+		let scope = ReactiveScope::new();
+		let runtime = scope.enter(|| {
+			let form = GitHubRepositoryImportRequestClientForm::new();
+			use_form(&form).build()
+		});
+		let submit_calls = Rc::new(Cell::new(0));
+		let submit_calls_for_submit = Rc::clone(&submit_calls);
+
+		// Act
+		let outcome = runtime
+			.submit_server_fn(move || {
+				submit_calls_for_submit.set(submit_calls_for_submit.get() + 1);
+				async { Ok::<_, ServerFnError>(()) }
+			})
+			.await
+			.expect("validation rejection is a submit outcome");
+
+		// Assert
+		assert_eq!(outcome, UseFormAsyncSubmitOutcome::ValidationFailed);
+		assert_eq!(submit_calls.get(), 0);
 	}
 }

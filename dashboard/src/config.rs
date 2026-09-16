@@ -20,8 +20,8 @@ pub mod test_helpers;
 pub mod urls;
 
 #[cfg(native)]
-pub use grpc::{AgentRegistrySingleton, AgentRegistrySingletonKey};
+pub use grpc::AgentRegistrySingleton;
 #[cfg(native)]
-pub use grpc_client::{GrpcChannelSingleton, GrpcChannelSingletonKey};
+pub use grpc_client::GrpcChannelSingleton;
 #[cfg(native)]
-pub use settings::{ProjectSettings, ProjectSettingsKey};
+pub use settings::ProjectSettings;

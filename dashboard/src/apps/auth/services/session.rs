@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reinhardt::RedisSessionBackend;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{Depends, injectable};
 use reinhardt::middleware::session::{AsyncSessionBackend, SessionData};
 
 use crate::apps::auth::models::User;
@@ -25,15 +25,13 @@ use crate::config::settings::get_redis_url;
 /// directly. Singleton-scoped so the URL is read once and shared.
 pub struct RedisUrl(pub String);
 
-#[reinhardt::di::injectable_key]
-pub struct RedisUrlKey;
-
 /// DI factory — resolves the Redis URL from settings.
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_redis_url() -> FactoryOutput<RedisUrlKey, RedisUrl> {
-	FactoryOutput::new(RedisUrl(get_redis_url().expect(
-		"Redis URL not configured: set redis_url in TOML or REDIS_URL env var",
-	)))
+#[injectable(scope = "singleton")]
+async fn create_redis_url() -> RedisUrl {
+	RedisUrl(
+		get_redis_url()
+			.expect("Redis URL not configured: set redis_url in TOML or REDIS_URL env var"),
+	)
 }
 
 /// Session lifecycle service backed by a Redis [`AsyncSessionBackend`].
@@ -46,20 +44,15 @@ pub struct SessionService {
 	backend: Arc<dyn AsyncSessionBackend>,
 }
 
-#[reinhardt::di::injectable_key]
-pub struct SessionServiceKey;
-
 /// DI factory — `singleton` because the Redis-backed session store is
 /// reusable across requests and connection setup is expensive.
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_session_service(
-	#[inject] redis_url: Depends<RedisUrlKey, RedisUrl>,
-) -> FactoryOutput<SessionServiceKey, SessionService> {
+#[injectable(scope = "singleton")]
+async fn create_session_service(#[inject] redis_url: Depends<RedisUrl>) -> SessionService {
 	let backend = RedisSessionBackend::new_from_url(&redis_url.0)
 		.expect("Failed to construct Redis session backend");
-	FactoryOutput::new(SessionService {
+	SessionService {
 		backend: Arc::new(backend),
-	})
+	}
 }
 
 impl SessionService {
@@ -160,7 +153,8 @@ fn get_session_backend() -> Result<RedisSessionBackend, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 	use rstest::rstest;
 
 	#[rstest]
@@ -171,14 +165,12 @@ mod tests {
 		// only parses the URL during construction; it does not
 		// require a live Redis until an actual session operation runs.
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<RedisUrlKey, RedisUrl>::new(RedisUrl(
-				"redis://127.0.0.1:6379".into(),
-			)));
+			set_provider_value(scope, RedisUrl("redis://127.0.0.1:6379".into()));
 		});
 
 		// Act
-		let svc: Arc<FactoryOutput<SessionServiceKey, SessionService>> = ctx
-			.resolve::<FactoryOutput<SessionServiceKey, SessionService>>()
+		let svc = Depends::<SessionService>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("SessionService factory should resolve when RedisUrl is registered");
 

@@ -2,22 +2,24 @@
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-use crate::apps::github::client::pages::github_repositories_page;
-#[cfg(native)]
+#[cfg(server)]
 use crate::apps::github::server_urls;
 
+#[cfg(server)]
 pub fn url_patterns() -> UnifiedRouter {
-	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::github_setup)
-				.endpoint(server_urls::github_webhook);
-			s
-		})
-		.client(|c| c.component(github_repositories_page))
+	UnifiedRouter::new().server(|server| {
+		server
+			.endpoint(server_urls::github_setup)
+			.endpoint(server_urls::github_webhook)
+	})
 }
 
-#[cfg(all(test, native))]
+#[cfg(not(server))]
+pub fn url_patterns() -> UnifiedRouter {
+	UnifiedRouter::new()
+}
+
+#[cfg(all(test, server))]
 mod tests {
 	use reinhardt::urls::prelude::UnifiedRouter;
 	use rstest::rstest;
@@ -50,19 +52,5 @@ mod tests {
 
 		// Assert
 		assert_eq!(url, Some("/api/github/setup/".to_string()));
-	}
-
-	#[rstest]
-	fn github_repositories_page_route_is_registered_from_component_metadata() {
-		// Arrange
-		let router = UnifiedRouter::new()
-			.mount_unified("/", super::url_patterns())
-			.into_client();
-
-		// Act
-		let route = router.reverse("github:repositories", &[]);
-
-		// Assert
-		assert_eq!(route, Ok("/github".to_string()));
 	}
 }

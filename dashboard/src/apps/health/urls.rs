@@ -1,23 +1,22 @@
 //! URL configuration for the health app.
 
+#[cfg(server)]
 pub mod ws_urls;
 
 use reinhardt::urls::prelude::UnifiedRouter;
 
-#[cfg(native)]
+#[cfg(server)]
 use crate::apps::health::server_urls;
 
 /// Returns the unified URL patterns for the health app.
 ///
-/// The health app currently exposes only a server-side liveness probe;
-/// the empty `.client(|c| c)` block keeps the composition pattern
-/// uniform across all apps.
+/// The health app exposes only a server-side liveness probe.
+#[cfg(server)]
+pub fn url_patterns() -> UnifiedRouter {
+	UnifiedRouter::new().server(|server| server.endpoint(server_urls::healthz))
+}
+
+#[cfg(not(server))]
 pub fn url_patterns() -> UnifiedRouter {
 	UnifiedRouter::new()
-		.server(|s| {
-			#[cfg(native)]
-			let s = s.endpoint(server_urls::healthz);
-			s
-		})
-		.client(|c| c)
 }

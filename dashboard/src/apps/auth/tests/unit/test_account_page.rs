@@ -5,6 +5,7 @@ mod tests {
 	use rstest::rstest;
 
 	use crate::apps::auth::client::pages::account::render_account_content;
+	use crate::apps::auth::client::style::STYLES;
 	use crate::apps::auth::server_fn::linked_accounts::LinkedOAuthAccountInfo;
 	use crate::apps::auth::server_fn::oauth_providers::OAuthProviderInfo;
 	use crate::shared::UserInfo;
@@ -31,7 +32,7 @@ mod tests {
 
 		// Assert
 		assert!(html.contains("Link GitHub"));
-		assert!(html.contains(r#"href="/api/auth/oauth/github/start/""#));
+		assert!(html.contains(r#"href="/api/auth/oauth/github/start/?intent=link""#));
 		assert!(html.contains(r#"rel="external""#));
 	}
 
@@ -51,5 +52,20 @@ mod tests {
 		assert!(html.contains("GitHub account linked"));
 		assert!(html.contains("octocat"));
 		assert!(!html.contains("Link GitHub"));
+	}
+
+	#[rstest]
+	fn account_content_renders_the_typed_grid_token() {
+		// Arrange
+		let user = sample_user();
+
+		// Act
+		let html = render_account_content(user, Vec::new(), Vec::new()).render_to_string();
+
+		// Assert
+		assert!(
+			html.contains(STYLES.account_grid().as_str()),
+			"account content must render the generated account grid token: {html}"
+		);
 	}
 }

@@ -1,64 +1,94 @@
-//! Regression tests for OAuth callback account-linking safety.
+//! Runtime regressions for contextual OAuth callback validation before token exchange.
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+
+	use reinhardt::auth::social::backend::SocialAuthBackend;
+	use reinhardt::auth::social::core::{ProviderConfig, SocialAuthError};
+	use reinhardt::auth::social::flow::{
+		ContextualStateData, InMemoryStateStore, StateData, StateStore,
+	};
+	use reinhardt::auth::social::providers::github::GitHubProvider;
 	use rstest::rstest;
 
-	#[rstest]
-	fn oauth_callback_does_not_link_from_ambient_session_cookie() {
-		// Arrange
-		let source = include_str!("../../server_urls.rs");
+	use crate::apps::auth::server_urls::oauth::oauth_state_binding;
 
-		// Act
-		let reads_ambient_cookie = source.contains("current_user_from_cookie")
-			|| source.contains("session_id_from_cookie_header");
-		let links_from_ambient_user =
-			source.contains("link_or_create_user(&storage, &provider_id, &claims, current_user)");
-
-		// Assert
-		assert_eq!(reads_ambient_cookie, false);
-		assert_eq!(links_from_ambient_user, false);
-		assert!(source.contains("link_or_create_user(&storage, &provider_id, &claims, None)"));
+	async fn backend(store: Arc<InMemoryStateStore>) -> SocialAuthBackend {
+		let mut config = ProviderConfig::github(
+			"test-client".to_owned(),
+			"test-secret".to_owned(),
+			"https://example.test/callback".to_owned(),
+		);
+		// An invalid callback must fail before attempting this local token endpoint.
+		config.oauth2.as_mut().unwrap().token_endpoint = "http://127.0.0.1:9/token".to_owned();
+		let mut backend = SocialAuthBackend::with_state_store(store);
+		backend.register_provider(Arc::new(GitHubProvider::new(config).await.unwrap()));
+		backend
 	}
 
 	#[rstest]
-	fn oauth_start_sets_browser_bound_state_cookie() {
+	#[case::other_browser("link.browser-b", Some("session-a"))]
+	#[case::rotated_session("link.browser-a", Some("session-b"))]
+	#[case::missing_session("link.browser-a", None)]
+	#[case::removed_link_intent("browser-a", None)]
+	#[tokio::test]
+	async fn callback_rejects_swapped_binding_and_consumes_state(
+		#[case] nonce: &str,
+		#[case] session: Option<&str>,
+	) {
 		// Arrange
-		let source = include_str!("../../server_urls.rs");
+		let backend = backend(Arc::new(InMemoryStateStore::new())).await;
+		let binding = oauth_state_binding("link.browser-a", Some("session-a")).unwrap();
+		let authorization = backend
+			.begin_auth_with_context("github", None, None, &binding, b"null".to_vec())
+			.await
+			.unwrap();
+		let swapped_binding = oauth_state_binding(nonce, session).unwrap();
 
 		// Act
-		let starts_backend_flow = source.contains(".begin_auth(&provider_id, None, None)");
-		let sets_signed_state_cookie = source.contains("oauth_state_cookie_header(")
-			&& source.contains("&provider_id,\n\t\t\t\t&auth.state,")
-			&& source.contains("&settings.core.secret_key,");
+		let swapped = backend
+			.handle_callback_with_context("github", "code", &authorization.state, &swapped_binding)
+			.await;
+		let replay = backend
+			.handle_callback_with_context("github", "code", &authorization.state, &binding)
+			.await;
 
 		// Assert
-		assert_eq!(starts_backend_flow, true);
-		assert_eq!(sets_signed_state_cookie, true);
-		assert!(source.contains(
-			"pub(in crate::apps::auth) const OAUTH_STATE_COOKIE_NAME: &str = \"oauth_state_sig\";"
-		));
+		assert_eq!(matches!(swapped, Err(SocialAuthError::InvalidState)), true);
+		assert_eq!(matches!(replay, Err(SocialAuthError::InvalidState)), true);
 	}
 
 	#[rstest]
-	fn oauth_callback_requires_matching_state_cookie_before_backend_callback() {
+	#[case::other_provider("gitlab", false)]
+	#[case::expired("github", true)]
+	#[tokio::test]
+	async fn callback_rejects_provider_swap_and_expired_state(
+		#[case] provider: &str,
+		#[case] expired: bool,
+	) {
 		// Arrange
-		let source = include_str!("../../server_urls.rs");
-		let cookie_check = source
-			.find("validate_oauth_state_cookie(\n\t\t&http_request,")
-			.expect("OAuth callback should validate a browser-bound state cookie");
-		let callback = source
-			.find(".handle_callback(&provider_id, &query.code, &query.state)")
-			.expect("OAuth callback should still validate provider state through backend");
+		let store = Arc::new(InMemoryStateStore::new());
+		let backend = backend(Arc::clone(&store)).await;
+		let binding = oauth_state_binding("browser-a", None).unwrap();
+		let mut state = StateData::new("state-a".to_owned(), None, None);
+		if expired {
+			state.expires_at = chrono::Utc::now() - chrono::Duration::seconds(1);
+		}
+		store
+			.store_contextual(
+				ContextualStateData::new(state, provider.to_owned(), &binding, b"null".to_vec())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
 
 		// Act
-		let checks_before_backend_callback = cookie_check < callback;
-		let rejects_mismatch = source.contains("OAuth state mismatch");
-		let clears_state_cookie = source.contains("expired_oauth_state_cookie_header(");
+		let result = backend
+			.handle_callback_with_context("github", "code", "state-a", &binding)
+			.await;
 
 		// Assert
-		assert_eq!(checks_before_backend_callback, true);
-		assert_eq!(rejects_mismatch, true);
-		assert_eq!(clears_state_cookie, true);
+		assert_eq!(matches!(result, Err(SocialAuthError::InvalidState)), true);
 	}
 }

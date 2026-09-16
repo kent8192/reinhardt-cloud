@@ -7,6 +7,7 @@ mod tests {
 	use crate::apps::deployments::client::components::preview_list::{
 		render_preview_list, render_project_identity,
 	};
+	use crate::apps::deployments::client::style::STYLES;
 	use crate::apps::deployments::server_fn::{
 		PreviewSummary, ProjectPreviewSummary, ProjectSourceKind,
 	};
@@ -22,7 +23,12 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">kent8192/reinhardt-cloud</div><div class=\"truncate text-xs font-medium text-ink-600\">Project: reinhardt-cloud / production: main</div></div>"
+			format!(
+				"<div class=\"{}\"><div class=\"{}\">kent8192/reinhardt-cloud</div><div class=\"{}\">Project: reinhardt-cloud / production: main</div></div>",
+				STYLES.preview_identity().as_str(),
+				STYLES.preview_name().as_str(),
+				STYLES.preview_meta().as_str(),
+			)
 		);
 	}
 
@@ -37,7 +43,12 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"min-w-0 space-y-1\"><div class=\"truncate font-semibold text-ink-950\">api</div><div class=\"truncate text-xs font-medium text-ink-600\">Manual Project</div></div>"
+			format!(
+				"<div class=\"{}\"><div class=\"{}\">api</div><div class=\"{}\">Manual Project</div></div>",
+				STYLES.preview_identity().as_str(),
+				STYLES.preview_name().as_str(),
+				STYLES.preview_meta().as_str(),
+			)
 		);
 	}
 
@@ -52,7 +63,13 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<ul class=\"mt-2 space-y-1 text-xs\"><li class=\"flex flex-wrap items-center gap-x-2 gap-y-1\"><a class=\"font-semibold text-control-700 underline underline-offset-2 hover:text-control-900\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"text-cloud-500\">running / 1 ready</span></li></ul>"
+			format!(
+				"<ul class=\"{}\"><li class=\"{}\"><a class=\"{}\" href=\"https://preview.example.com/pr-42\" target=\"_blank\" rel=\"noreferrer\">#42 reinhardt-cloud-pr-42</a><span class=\"{}\">running / 1 ready</span></li></ul>",
+				STYLES.preview_list().as_str(),
+				STYLES.preview_item().as_str(),
+				STYLES.preview_link().as_str(),
+				STYLES.preview_meta().as_str(),
+			)
 		);
 	}
 
@@ -67,7 +84,10 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"mt-2 text-xs font-medium text-cloud-500\">No active previews</div>"
+			format!(
+				"<div class=\"{}\">No active previews</div>",
+				STYLES.preview_empty().as_str(),
+			)
 		);
 	}
 
@@ -83,7 +103,10 @@ mod tests {
 		// Assert
 		assert_eq!(
 			html,
-			"<div class=\"mt-2 text-xs font-medium text-amber-700\">Project manifest is not available</div>"
+			format!(
+				"<div class=\"{}\">Project manifest is not available</div>",
+				STYLES.preview_error().as_str(),
+			)
 		);
 	}
 
