@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the policy for Claude Code to participate in GitHub discussions on existing pull requests and issues in the Reinhardt Cloud project. These rules ensure appropriate authorization, consistent formatting, and useful technical context when commenting on PRs and Issues.
+This file defines the policy for coding agents to participate in GitHub discussions on existing pull requests and issues in the Reinhardt Cloud project. These rules ensure appropriate authorization, consistent formatting, and useful technical context when commenting on PRs and Issues.
 
 ---
 
@@ -25,15 +25,21 @@ This file defines the policy for Claude Code to participate in GitHub discussion
 
 ### PP-1 (MUST): Posting Authorization Flow
 
-Claude Code MUST follow this authorization model before posting any comment:
+Coding agents MUST follow this authorization model before posting any comment:
 
 | Authorization Source | Action |
 |---------------------|--------|
 | Explicit user instruction | Post directly |
-| Plan Mode approval | Post directly |
+| Plan approval explicitly covering the comment/reply/review workflow | Post directly within that scope |
 | Self-initiated (no instruction) | MUST preview and get user confirmation |
 
 **Scope clarification (Reinhardt family Autonomous Operation Policy):** The Autonomous Operation Policy defined in `CLAUDE.md` / `AGENTS.md` does not authorize PR creation, Issue creation, comments, replies, or reviews without explicit user instruction. Posting comments, replies, or reviews on PRs/Issues still requires explicit user instruction or Plan Mode approval, even in the four repos covered by the autonomous policy.
+
+Existing task authorization persists; do not request it again for the same scope.
+PR creation alone does not authorize comments or thread resolution. If posting is
+not authorized, finish independent local fixes and prepare concrete replies before
+requesting the missing action. Approval of unrelated implementation work does not
+authorize sending messages.
 
 **Self-Initiated Comment Flow:**
 
@@ -48,7 +54,7 @@ The following diagram summarizes the comment authorization decision flow:
 flowchart TD
     A[Want to post GitHub comment] --> B{Explicit user instruction?}
     B -->|Yes| C[Post comment with attribution footer]
-    B -->|No| D{Plan Mode approved?}
+    B -->|No| D{Posting included in approved plan?}
     D -->|Yes| C
     D -->|No| E[Self-initiated comment]
     E --> F[Draft comment]
@@ -79,22 +85,20 @@ Thread: crates/reinhardt-cloud-operator/src/reconciler.rs line 15
 Shall I post this comment?
 ```
 
-### PP-3 (MUST): Use GitHub MCP or CLI for Posting
+### PP-3 (MUST): Use GitHub CLI for Posting
 
-- **MUST** prefer GitHub MCP tools for posting comments when available
-- **Fallback**: Use GitHub CLI (`gh`) when GitHub MCP is not available
-- **NEVER** use raw `curl` or web browser for posting comments
+Use `gh` for GitHub operations. If a previously selected GitHub MCP call fails,
+switch to `gh` instead of repeatedly retrying it. Do not use browser automation or
+raw HTTP as a substitute when the CLI is available.
 
-**GitHub CLI Fallback:**
+Prepare multiline text in an owned temporary file and use `--body-file`; avoid
+shell-interpolated comment bodies. Remove the file after it is no longer needed.
+
 ```bash
-# Comment on a PR
-gh pr comment <number> --body "Comment text"
-
-# Comment on an issue
-gh issue comment <number> --body "Comment text"
-
-# Review a PR
-gh pr review <number> --comment --body "Review comment"
+# After the corresponding posting action is authorized:
+gh pr comment <number> --body-file /tmp/reinhardt-cloud-comment.md
+gh issue comment <number> --body-file /tmp/reinhardt-cloud-comment.md
+gh pr review <number> --comment --body-file /tmp/reinhardt-cloud-comment.md
 ```
 
 ---
@@ -201,72 +205,85 @@ When changes affect multiple crates or modules, provide impact analysis:
 
 ## Copilot Review Handling
 
-### CR-1 (MUST): Post-PR Copilot Review Workflow
+### CR-1 (MUST): Authorized Review Workflow
 
-After creating a PR, Claude Code MUST handle GitHub Copilot's automated review comments as part of the PR workflow when authorized by PP-1 (explicit user instruction or Plan Mode approval).
+1. Collect the complete live inventory for the named PR and reviewer scope.
+2. Evaluate each finding against the current code and project contracts.
+3. Repair valid findings and run relevant checks in the authoritative worktree.
+4. Commit and push only within existing authorization. Verify the local, upstream,
+   remote branch, and PR head agree before describing a code fix as delivered.
+5. Post an English reply with evidence before resolving each addressed thread,
+   when both actions are authorized. Explain false positives or existing fixes.
+6. After every push, collect a fresh full inventory. New actionable findings remain
+   in scope; report the actual remaining count and CI state for the current head.
 
-**Workflow:**
+Do not resolve code findings whose fix is only local. Keep incomplete findings
+open and identify the missing delivery or validation. Human feedback is not a bot
+finding unless explicitly included in the task's review scope.
 
-```mermaid
-flowchart TD
-    A[PR created] --> B[Fetch review threads via GraphQL]
-    B --> C{Copilot review exists?}
-    C -->|No| D[Report to user and wait]
-    C -->|Yes| E[Filter unresolved Copilot threads]
-    E --> F[Evaluate each thread]
-    F --> G{Valid concern?}
-    G -->|Yes| H[Fix code + reply + resolve]
-    G -->|False positive| I[Reply with explanation + resolve]
-    G -->|Already addressed| J[Reply with reference + resolve]
-    H --> K[Commit fixes]
-    I --> K
-    J --> K
-    K --> L[Report summary to user]
-```
+### CR-2 (MUST): Complete Review Inventory
 
-**Authorization:**
-- Follows PP-1: requires explicit user instruction or Plan Mode approval
-- When Plan Mode approves a PR creation workflow, Copilot review handling is included in that authorization scope
-- Fix commits follow standard commit policy (CE-1)
+Read inline threads, all comments in each thread, review bodies, and top-level
+conversation comments. Never treat the first page as a complete inventory.
+The installed review skill's inventory helper may provide this collection;
+otherwise use `gh` pagination and retain IDs needed for replies/resolution.
 
-### CR-2 (MUST): Fetching Copilot Review Threads
-
-Use `gh api graphql` to retrieve review threads from a PR:
+This query paginates the outer thread connection:
 
 ```bash
-gh api graphql -f query='
-query($owner: String!, $repo: String!, $pr: Int!) {
+gh api graphql --paginate -f owner='kent8192' -f repo='reinhardt-cloud' \
+  -F pr=<PR_NUMBER> -f query='
+query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
-      reviewThreads(first: 100) {
+      headRefOid
+      reviewThreads(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
-          comments(first: 10) {
-            nodes {
-              author {
-                login
-              }
-              body
-              path
-              line
-              diffHunk
-            }
+          isOutdated
+          comments(first: 100) {
+            pageInfo { hasNextPage endCursor }
+            nodes { id author { login } body path line diffHunk }
           }
         }
       }
     }
   }
-}' -f owner='kent8192' -f repo='reinhardt-cloud' -F pr=<PR_NUMBER>
+}'
 ```
 
-**Filtering Criteria:**
-- Filter by `author.login` matching Copilot bot (e.g., `copilot-pull-request-reviewer[bot]`)
-- Filter by `isResolved == false` to process only unresolved threads
+Outer pagination does **not** paginate nested comments. For every thread whose
+comment `hasNextPage` is true, retrieve that thread separately with the query below.
+It starts from the first comment page; replace that thread's partial comment list
+with the complete result, or deduplicate by comment ID.
 
-**Polling Prohibition:**
-- **NEVER** poll in a loop waiting for Copilot review to appear
-- If no Copilot review exists yet, report to user once and wait for further instruction
+```bash
+gh api graphql --paginate -f threadId='<THREAD_ID>' -f query='
+query($threadId: ID!, $endCursor: String) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id author { login } body path line diffHunk }
+      }
+    }
+  }
+}'
+
+gh api --paginate 'repos/kent8192/reinhardt-cloud/pulls/<PR_NUMBER>/reviews'
+gh api --paginate 'repos/kent8192/reinhardt-cloud/issues/<PR_NUMBER>/comments'
+```
+
+Match verified reviewer identities, such as `copilot-pull-request-reviewer[bot]`,
+and track unresolved threads separately from body-level findings. An outdated
+thread is not necessarily resolved. Reconcile summary/body duplicates with their
+inline finding rather than counting them twice.
+
+If a review has not appeared, report that once and continue independent work.
+Use a persistent monitor only when future monitoring was requested; do not poll an
+unchanged PR in a loop or imply that an absent review passed.
 
 ### CR-3 (MUST): Evaluating and Responding to Comments
 
@@ -274,7 +291,7 @@ Evaluate each Copilot comment against these categories:
 
 | Category | Action | Response |
 |----------|--------|----------|
-| Valid concern | Fix code | Reply with fix description → Resolve |
+| Valid concern | Fix, verify, and deliver when authorized | Reply with delivered fix evidence → Resolve |
 | False positive | No code change | Reply with technical explanation → Resolve |
 | Already addressed | No code change | Reply with reference to existing handling → Resolve |
 
@@ -304,11 +321,15 @@ Reference: `path/to/file.rs:L42` — [Description of existing handling]
 
 **Guidelines:**
 - Follow RR-3 for code reference format (repository-relative paths)
-- Follow FF-1 for Claude Code attribution footer
+- Follow FF-1 for the actual agent attribution footer
 - Follow CG-2 content restrictions (no absolute paths, no user request details)
 - Every thread MUST receive a reply before being resolved (no silent resolves)
 
 ### CR-4 (MUST): Resolving Threads via GraphQL
+
+Confirm reply/resolution authorization and delivered fix evidence first. Prepare
+an English reply file with repository-relative references and actual-agent
+attribution. Delete the owned temporary file after posting.
 
 **Step 1: Reply to the thread**
 
@@ -323,7 +344,7 @@ mutation($threadId: ID!, $body: String!) {
       id
     }
   }
-}' -f threadId='<THREAD_ID>' -f body='<REPLY_BODY>'
+}' -f threadId='<THREAD_ID>' -F body=@/tmp/reinhardt-cloud-review-reply.md
 ```
 
 **Step 2: Resolve the thread**
@@ -344,7 +365,7 @@ mutation($threadId: ID!) {
 **Rules:**
 - **MUST** reply before resolving (CR-3 compliance)
 - **NEVER** resolve a thread without posting a reply first
-- Verify `isResolved: true` in the mutation response
+- Verify `isResolved: true` in the mutation response and re-read the full inventory before reporting completion
 
 ### CR-5 (SHOULD): Completion Summary
 
@@ -442,46 +463,25 @@ When providing context for external coding agents on Issues or PRs, use structur
 
 ### AC-2 (SHOULD): Agent Context Template
 
+Use [TASK_PROMPTS.md](TASK_PROMPTS.md) for full task templates. When authorized to
+provide implementation context on GitHub, include only the information relevant
+to the task; examples are not blanket file restrictions or proof of test results.
+
 ```markdown
 ## Agent Context
 
-### Task
-- **Type:** [Bug Fix | Feature | Refactor | Test | Docs]
-- **Scope:** [Affected crate(s) and module(s)]
-- **Priority:** [Critical | High | Medium | Low]
-
-### Entry Points
-| File | Symbol | Description |
-|------|--------|-------------|
-| `crates/reinhardt-cloud-operator/src/reconciler.rs` | `reconcile` | Primary reconciliation entry point |
-| `crates/reinhardt-cloud-operator/src/crd.rs` | `ProjectSpec` | CRD spec type |
-
-### Reference Implementations
-- Pattern to follow: `crates/reinhardt-cloud-operator/src/existing_controller.rs`
-- Test pattern: `crates/reinhardt-cloud-operator/tests/existing_test.rs`
-
-### Project Constraints
-- **Module system:** Rust 2024 edition (`module.rs` + `module/` directory, NO `mod.rs`)
-- **SQL construction:** SeaQuery v1.0.0-rc (no raw SQL)
-- **Testing:** `rstest` framework with Arrange-Act-Assert pattern
-- **Comments:** English only
-- **Indent:** Tab (not spaces)
-- **Kubernetes:** Use kube-rs operator patterns (see instructions/KUBERNETES_PATTERNS.md)
-
-### Acceptance Criteria
-- [ ] [Criterion 1 — verifiable statement]
-- [ ] [Criterion 2 — verifiable statement]
-- [ ] All existing tests pass (`cargo make test`)
-- [ ] Clippy clean (`cargo make clippy-check`)
-- [ ] Format clean (`cargo make fmt-check`)
-
-### Files NOT to Modify
-- `Cargo.toml` version fields
-- `CHANGELOG.md` files
-- `.github/workflows/` (CI configuration)
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+- Outcome: [observable behavior]
+- Entry points: [repository-relative files and symbols]
+- Constraints: [version, compatibility, ownership, and explicit hard boundaries]
+- Acceptance: [verifiable behavior and failure cases]
+- Verification: [affected tests/targets; broaden only for stated impact]
+- Delivery: [authorized local, push, PR, or review actions]
+- Remaining dependencies: [concrete unresolved prerequisites, if any]
 ```
+
+Keep credentials and local machine paths out of external context. Add the actual
+agent's footer according to FF-1. A request for implementation does not implicitly
+request another agent, publication, merge, or production deployment.
 
 ---
 
@@ -520,18 +520,24 @@ When providing context for external coding agents on Issues or PRs, use structur
 
 ## Footer Format
 
-### FF-1 (MUST): Claude Code Attribution
+### FF-1 (MUST): Actual Agent Attribution
 
-All GitHub comments posted by Claude Code MUST include the following footer:
+For Codex-authored comments, replies, reviews, and PR content:
+
+```markdown
+🤖 Generated with [Codex](https://openai.com/codex)
+```
+
+For Claude Code-authored content, use its own footer instead:
 
 ```markdown
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-**Rules:**
-- Place at the very end of the comment
-- Separate from content with one blank line
-- Do NOT include `Co-Authored-By` in comments (that is for commits only)
+Match the authoring agent even when a template names a different one. Place the
+footer at the end, separated by one blank line. `Co-Authored-By` belongs in commits,
+not comments. Earlier examples illustrate Claude Code content; Codex replaces that
+footer according to this rule.
 
 ---
 
@@ -542,14 +548,14 @@ All GitHub comments posted by Claude Code MUST include the following footer:
 - Get authorization before posting (explicit instruction or Plan Mode approval)
 - Preview self-initiated comments and wait for user confirmation
 - Write ALL comments in English
-- Use GitHub MCP tools or CLI for posting
-- Include Claude Code attribution footer on all comments
+- Use `gh` for authorized posting
+- Include the actual agent attribution footer on all comments
 - Use repository-relative paths for code references
 - Include line numbers when referencing specific code
 - Use markdown code blocks with language specifiers
 - Wrap long output in `<details>` tags
 - Stay on topic and be actionable
-- Wait for Copilot review after PR creation and handle all comments
+- Collect complete review inventories and handle in-scope feedback when authorized
 - Evaluate Copilot suggestions against project conventions before accepting
 - Resolve all Copilot review conversations before considering PR complete
 
@@ -561,20 +567,20 @@ All GitHub comments posted by Claude Code MUST include the following footer:
 - Include user requests or AI interaction details in comments
 - Include sensitive information (credentials, tokens, API keys)
 - Post non-actionable or noise comments ("+1", "same here")
-- Skip Claude Code attribution footer
+- Skip the actual agent attribution footer
 - Post vague comments without code references or technical detail
-- Use raw `curl` for GitHub operations when MCP or CLI is available
+- Use raw `curl` or browser automation for GitHub operations when `gh` is available
 - Reference code without file path and line number
 
 ---
 
 ## Related Documentation
 
-- **Pull Request Guidelines**: instructions/PR_GUIDELINE.md
-- **Issue Guidelines**: instructions/ISSUE_GUIDELINES.md
-- **Commit Guidelines**: instructions/COMMIT_GUIDELINE.md
-- **Documentation Standards**: instructions/DOCUMENTATION_STANDARDS.md
-- **Main Quick Reference**: CLAUDE.md (see Quick Reference section)
+- **Pull Request Guidelines**: [PR_GUIDELINE.md](PR_GUIDELINE.md)
+- **Issue Guidelines**: [ISSUE_GUIDELINES.md](ISSUE_GUIDELINES.md)
+- **Commit Guidelines**: [COMMIT_GUIDELINE.md](COMMIT_GUIDELINE.md)
+- **Documentation Standards**: [DOCUMENTATION_STANDARDS.md](DOCUMENTATION_STANDARDS.md)
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
 
 ---
 
