@@ -1052,6 +1052,10 @@ loop retries every 30 seconds (fixed interval — no exponential backoff; tracke
 **Cause:** `Error::Kube(#[from] kube::Error)` — the API server returned an error (connection
 refused, 401 Unauthorized, 403 Forbidden, 429 Too Many Requests, etc.).
 
+Migration Job API failures retain this `Error::Kube` classification and are retried with the
+configured backoff. Invalid database specifications are reported as `DatabaseProvisioning` and
+remain permanent until the `Project` spec is corrected.
+
 **Diagnose:**
 ```bash
 kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \

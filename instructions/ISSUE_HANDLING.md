@@ -19,7 +19,7 @@ flowchart TD
     E -->|Yes| F["Create preceding PR for shared changes"]
     F --> G["Merge preceding PR first"]
     E -->|No| G
-    G --> H["HA-3: Parallelize independent crate work<br/>via Agent Teams"]
+    G --> H["HA-3: Work in the current agent<br/>Delegate only on explicit user request"]
     H --> I["WU-1: 1 PR = 1 crate x 1 fix pattern"]
 ```
 
@@ -54,24 +54,14 @@ Divide batch work into phases ordered by severity and exploitability, addressing
 | Phase 2 | High | Significant risk but harder to exploit | #107, #102 |
 | Phase 3 | Medium | Important improvements | #104, #105, #106 |
 
-### HA-3 (SHOULD): Agent Team Parallel Work
+### HA-3 (SHOULD): Single-Agent Execution
 
-Use Agent Teams to parallelize work across independent crates within the same phase.
+Work in the current agent by default. Use subagents only when the user explicitly requests delegation for the current task.
 
-**Rationale:** When fixes in different crates are independent (no shared code changes required), they can be implemented simultaneously by different agents, reducing total elapsed time.
-
-**Prerequisites for parallelization:**
-- Fixes are in separate crates with no shared dependencies being modified
-- No cross-crate utility or shared code changes are needed
-- Each agent can complete its work independently
-
-**Example:**
-```
-Phase 1 (parallel work):
-  Agent A → reinhardt-cloud-operator (fix #101)
-  Agent B → reinhardt-cloud-crd (fix #103)
-  Agent C → reinhardt-cloud-webhook (fix #107)
-```
+Keep dependent work and edits to shared files sequential. If delegation is
+requested, give each agent independent file ownership and integrate its result
+before final validation. Separate crates or applications alone do not establish
+independence when a shared dependency or utility must change first (see WU-3).
 
 ### HA-4 (MUST): Branch Organization
 
@@ -191,7 +181,7 @@ Phase 1 requires shared error types → preceding PR needed.
 Commit 1 (preceding): "feat(crd): add structured error types for operator errors"
   → PR #A, merge first
 
-Commits 2-4 (parallel via Agent Team, HA-3):
+Commits 2-4 (sequential by default; delegation requires explicit user request, HA-3):
   "fix(operator): apply structured error handling to reconciler"   → PR #B
   "fix(crd): apply structured error handling to validation"       → PR #C
   "fix(webhook): apply structured error handling to admission"    → PR #D
