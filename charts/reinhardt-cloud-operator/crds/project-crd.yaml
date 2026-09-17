@@ -1066,6 +1066,10 @@ spec:
                 required:
                 - phase
                 type: object
+              redisCredentialsSecretUid:
+                description: API-assigned UID of the operator-created Redis credentials Secret.
+                nullable: true
+                type: string
               conditions:
                 description: Standard Kubernetes condition list
                 items:

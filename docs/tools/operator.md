@@ -210,6 +210,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `build` | `BuildStatus?` | Active or most recent source build status, including `phase`, `target`, `trigger`, `jobName`, `image`, `imageTag`, and preview identifiers (`previewName`, `prNumber`) |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
+| `redisCredentialsSecretUid` | string? | API-assigned UID used to prove the Redis credentials Secret was created or explicitly adopted by the operator |
 | `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
 | `observedGeneration` | int64 | Last generation observed by the controller |
 
@@ -1012,9 +1013,25 @@ No bearer tokens or cloud-provider secrets are mounted into the pod by the chart
 
 Application-level secrets (JWT keys, database credentials, and Redis credentials) are created by
 the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
-written to disk on the operator node. Operator-generated Redis credential Secrets are owned by the
-corresponding `Project`; `deletion_policy: Delete` removes them explicitly, while
-`deletion_policy: Retain` keeps them for manual cleanup with the retained cache/database resources.
+written to disk on the operator node. Redis credential Secrets intentionally do not use a
+controller owner reference: `deletion_policy: Retain` keeps them safe from garbage collection.
+The operator records the API-assigned Secret UID in `status.redisCredentialsSecretUid` and accepts
+only that UID as provenance; labels and owner references alone are not trusted. With
+`deletion_policy: Delete`, the operator deletes the Secret only when its UID matches the recorded
+status value.
+
+Before upgrading from a release that used labels or owner references as Redis Secret ownership,
+or before recreating a Project whose retained Secret should be reused, a platform administrator
+must explicitly adopt the existing Secret through the protected status subresource:
+
+```bash
+SECRET_UID="$(kubectl get secret <project>-redis-credentials -n <namespace> -o jsonpath='{.metadata.uid}')"
+kubectl patch project <project> -n <namespace> --subresource=status --type=merge \
+  -p "{\"status\":{\"redisCredentialsSecretUid\":\"${SECRET_UID}\"}}"
+```
+
+Tenant users must not be granted `projects/status` write permission; the UID adoption step is a
+trusted migration decision by the platform administrator.
 
 ---
 
@@ -1319,6 +1336,7 @@ stateDiagram-v2
 | `readyReplicas` | Number of ready replicas in the Deployment |
 | `database` | Status of the provisioned database sub-resource (phase, endpoint, credentials_secret) |
 | `cache` | Status of the provisioned cache sub-resource (phase, endpoint) |
+| `redisCredentialsSecretUid` | API-assigned UID proving the Redis credentials Secret provenance |
 | `worker` | Status of the worker deployment sub-resource (ready_replicas) |
 
 ---
