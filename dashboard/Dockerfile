@@ -25,11 +25,16 @@ RUN cargo install wasm-bindgen-cli@0.2.118
 WORKDIR /app
 COPY . .
 RUN cargo build --release --target wasm32-unknown-unknown --lib -p reinhardt-cloud-dashboard
-RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm && \
-    asset_hash="$(sha256sum /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm | sha256sum | cut -c1-16)" && \
-    cp /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}.js && \
-    cp /wasm-dist/reinhardt_cloud_dashboard_bg.wasm /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}_bg.wasm && \
-    rm /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm
+RUN wasm-bindgen --out-dir /wasm-dist --target web \
+    target/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm
+
+FROM builder AS assets
+COPY --from=wasm /wasm-dist /build/wasm-dist
+WORKDIR /app/dashboard
+RUN /app/target/release/manage buildstatic \
+    --pages-dir /build/wasm-dist \
+    --pages-entry reinhardt_cloud_dashboard.js \
+    --pages-document index.html
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
@@ -39,8 +44,7 @@ RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/reinhardt-cloud-dashboard /app/
 COPY --from=builder /app/target/release/manage /app/
-COPY --from=wasm /wasm-dist /app/static/wasm/
-COPY --from=builder /app/dashboard/index.html /app/static/wasm/index.html
+COPY --from=assets /app/dashboard/static /app/static
 COPY --from=builder /app/dashboard/settings /app/settings
 COPY --from=builder /app/dashboard/migrations /app/migrations
 RUN chown -R appuser:appuser /app

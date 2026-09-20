@@ -19,11 +19,12 @@ RUN cargo install wasm-bindgen-cli@0.2.100
 WORKDIR /app
 COPY . .
 RUN cargo build --release --target wasm32-unknown-unknown --lib -p my-app
-RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/my_app.wasm && \
-    asset_hash="$(sha256sum /wasm-dist/my_app.js /wasm-dist/my_app_bg.wasm | sha256sum | cut -c1-16)" && \
-    cp /wasm-dist/my_app.js /wasm-dist/my_app.${asset_hash}.js && \
-    cp /wasm-dist/my_app_bg.wasm /wasm-dist/my_app.${asset_hash}_bg.wasm && \
-    rm /wasm-dist/my_app.js /wasm-dist/my_app_bg.wasm
+RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/my_app.wasm
+
+FROM builder AS assets
+COPY --from=wasm /wasm-dist /build/wasm-dist
+WORKDIR /app
+RUN /app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry my_app.js --pages-document index.html
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
@@ -33,8 +34,7 @@ RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/my-app /app/
 COPY --from=builder /app/target/release/manage /app/
-COPY --from=wasm /wasm-dist /app/static/wasm/
-COPY --from=builder /app/index.html /app/static/wasm/index.html
+COPY --from=assets /app/static /app/static
 RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser

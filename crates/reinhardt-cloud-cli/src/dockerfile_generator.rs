@@ -50,7 +50,10 @@ fn locate_workspace_boundary(start_dir: &Path) -> Option<PathBuf> {
 pub(crate) use self::dockerfile::Dockerfile;
 pub(crate) use self::stages::DockerfileSignals;
 
-use self::stages::{build_builder_stage, build_chef_stage, build_runtime_stage, build_wasm_stage};
+use self::stages::{
+	build_assets_stage, build_builder_stage, build_chef_stage, build_runtime_stage,
+	build_wasm_stage,
+};
 
 /// Reason why Dockerfile generation was skipped.
 #[derive(Debug, PartialEq)]
@@ -230,6 +233,7 @@ pub(crate) fn generate(signals: &DockerfileSignals) -> Dockerfile {
 
 	if signals.pages {
 		stages.push(build_wasm_stage(signals));
+		stages.push(build_assets_stage(signals));
 	}
 
 	stages.push(build_runtime_stage(signals));
