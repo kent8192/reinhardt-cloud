@@ -320,6 +320,9 @@ From `charts/reinhardt-cloud-operator/templates/clusterrole.yaml`:
 The operator uses a **ClusterRole** (cluster-scoped) bound to its ServiceAccount. The role is templated
 and expands or contracts based on `platform` and `features.*` values at install time. No wildcard (`*`)
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
+Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
+`false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
+pre-create tenant and preview namespaces when those workflows are used.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -333,7 +336,7 @@ permissions are present; all rules follow the least-privilege principle (project
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 **Feature-conditional rules**:
 
@@ -840,13 +843,13 @@ Writing the annotation back is deferred to avoid patch-loop reconcile storms.
 
 When running with `REINHARDT_LOG_FORMAT=json`, the operator preserves trace context on the active OTel span during reconciliation, but the current JSON log formatter setup does not guarantee that `trace_id` and `span_id` are emitted as top-level log fields. If end-to-end log/trace correlation is required, verify formatter support before relying on filtering logs by `trace_id` in Loki/Grafana.
 
-##### Managed Pod trace propagation
+##### Managed Pod telemetry defaults
 
 The operator injects the following env vars into each managed Pod's container spec:
-- `TRACEPARENT` — W3C trace context header from the active reconcile span.
 - `OTEL_PROPAGATORS=tracecontext` — instructs OTel SDKs to read `TRACEPARENT`.
 - `OTEL_SERVICE_NAME` — the app name.
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — forwarded from the operator's env when set.
+
+The operator does not forward its own `OTEL_EXPORTER_OTLP_ENDPOINT` or per-reconcile `TRACEPARENT` into tenant workloads. Tenant applications that need OTLP export must set a tenant-safe endpoint explicitly through `spec.env`.
 
 #### Scaling
 
@@ -901,7 +904,12 @@ kubectl rollout status deployment/reinhardt-cloud-operator \
 #### RBAC footprint
 
 The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
-values. The base rules (always present, regardless of platform or features) are:
+values. Namespace lifecycle verbs are additionally controlled by
+`rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
+`patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
+workflow. A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
+delete its preview namespace; grant that permission through the lifecycle setting before deleting
+the parent. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -913,7 +921,7 @@ values. The base rules (always present, regardless of platform or features) are:
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
-| `""` (core) | `namespaces` | get, list, watch, create, update, patch (no `delete` — see [Multi-tenancy](#multi-tenancy-spectenant)) |
+| `""` (core) | `namespaces` | get, patch |
 
 Additional rules rendered when specific features or platforms are active:
 
@@ -1002,9 +1010,11 @@ The operator does not consume long-lived static credentials. Cloud API access is
 node's workload identity (IRSA on AWS, Workload Identity on GCP) via `serviceAccount.annotations`.
 No bearer tokens or cloud-provider secrets are mounted into the pod by the chart.
 
-Application-level secrets (JWT keys, database credentials) are created by the reconciler as
-Kubernetes `Secret` objects within the application's namespace and are never written to disk on the
-operator node.
+Application-level secrets (JWT keys, database credentials, and Redis credentials) are created by
+the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
+written to disk on the operator node. Operator-generated Redis credential Secrets are owned by the
+corresponding `Project`; `deletion_policy: Delete` removes them explicitly, while
+`deletion_policy: Retain` keeps them for manual cleanup with the retained cache/database resources.
 
 ---
 
@@ -1041,6 +1051,10 @@ loop retries every 30 seconds (fixed interval — no exponential backoff; tracke
 
 **Cause:** `Error::Kube(#[from] kube::Error)` — the API server returned an error (connection
 refused, 401 Unauthorized, 403 Forbidden, 429 Too Many Requests, etc.).
+
+Migration Job API failures retain this `Error::Kube` classification and are retried with the
+configured backoff. Invalid database specifications are reported as `DatabaseProvisioning` and
+remain permanent until the `Project` spec is corrected.
 
 **Diagnose:**
 ```bash
@@ -1164,7 +1178,9 @@ has permission to create `Secret` objects in the target namespace (see RBAC foot
 `paas.reinhardt-cloud.dev/cleanup` is not removed.
 
 **Cause:** `Error::Finalizer(Box<dyn Error + Send + Sync>)` — the cleanup path in the finalizer
-returned an error, or the operator is not running.
+returned an error, or the operator is not running. For preview-enabled projects, cleanup keeps the
+finalizer in place when preview namespace deletion is forbidden so that preview workloads are not
+orphaned.
 
 **Diagnose:**
 ```bash

@@ -31,6 +31,7 @@ pub enum IsolationLevel {
 /// - `block_metadata_service`: true (IMDS blocked)
 /// - `allow_egress`: true (external traffic allowed)
 /// - `egress_allow_cidrs`: empty (all non-IMDS CIDRs allowed)
+/// - `dns_allow_cidrs`: empty (only the standard kube-dns pod selector is allowed)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct NetworkIsolationSpec {
 	/// Block access to cloud metadata service (169.254.169.254).
@@ -44,6 +45,12 @@ pub struct NetworkIsolationSpec {
 	/// Allowed egress CIDR blocks (only effective when `allow_egress` is true).
 	#[serde(default)]
 	pub egress_allow_cidrs: Vec<String>,
+	/// Additional DNS resolver CIDR blocks allowed on TCP/UDP port 53.
+	///
+	/// Use this for NodeLocal DNSCache or custom resolver service IPs that do
+	/// not match the standard kube-system/kube-dns pod selector.
+	#[serde(default)]
+	pub dns_allow_cidrs: Vec<String>,
 }
 
 impl Default for NetworkIsolationSpec {
@@ -52,6 +59,7 @@ impl Default for NetworkIsolationSpec {
 			block_metadata_service: true,
 			allow_egress: true,
 			egress_allow_cidrs: Vec::new(),
+			dns_allow_cidrs: Vec::new(),
 		}
 	}
 }
@@ -68,6 +76,13 @@ impl NetworkIsolationSpec {
 			if !Self::is_valid_cidr(cidr) {
 				errors.push(ValidationError::new(format!(
 					"isolation.network.egress_allow_cidrs[{i}] is not valid CIDR: {cidr}"
+				)));
+			}
+		}
+		for (i, cidr) in self.dns_allow_cidrs.iter().enumerate() {
+			if !Self::is_valid_cidr(cidr) {
+				errors.push(ValidationError::new(format!(
+					"isolation.network.dns_allow_cidrs[{i}] is not valid CIDR: {cidr}"
 				)));
 			}
 		}
@@ -183,6 +198,7 @@ mod tests {
 		assert!(spec.block_metadata_service);
 		assert!(spec.allow_egress);
 		assert!(spec.egress_allow_cidrs.is_empty());
+		assert!(spec.dns_allow_cidrs.is_empty());
 	}
 
 	#[rstest]
@@ -201,6 +217,7 @@ mod tests {
 		// Arrange
 		let spec = NetworkIsolationSpec {
 			egress_allow_cidrs: vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()],
+			dns_allow_cidrs: vec!["169.254.20.10/32".to_string()],
 			..Default::default()
 		};
 
@@ -216,6 +233,7 @@ mod tests {
 		// Arrange
 		let spec = NetworkIsolationSpec {
 			egress_allow_cidrs: vec!["10.0.0.0/8".to_string(), "not-a-cidr".to_string()],
+			dns_allow_cidrs: vec!["169.254.20.10/32".to_string(), "bad-dns".to_string()],
 			..Default::default()
 		};
 
@@ -224,8 +242,9 @@ mod tests {
 
 		// Assert
 		let errors = result.unwrap_err();
-		assert_eq!(errors.len(), 1);
+		assert_eq!(errors.len(), 2);
 		assert!(errors[0].message.contains("not-a-cidr"));
+		assert!(errors[1].message.contains("bad-dns"));
 	}
 
 	#[rstest]
@@ -349,6 +368,7 @@ mod tests {
 				block_metadata_service: true,
 				allow_egress: true,
 				egress_allow_cidrs: vec!["10.0.0.0/8".to_string()],
+				dns_allow_cidrs: vec!["169.254.20.10/32".to_string()],
 			}),
 			runtime_class_override: None,
 		};

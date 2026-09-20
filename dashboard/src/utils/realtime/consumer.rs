@@ -2,21 +2,26 @@
 //!
 //! `NotificationConsumer` implements the `WebSocketConsumer` trait from
 //! reinhardt-websockets, bridging incoming WebSocket connections to the
-//! `WsBroadcaster` event distribution system and the gRPC build log stream.
+//! `WsBroadcaster` event distribution system and the gRPC log stream.
 
+use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use reinhardt::{
-	ConsumerContext, Message, Model, WebSocketConsumer, WebSocketError, WebSocketResult,
+	ConsumerBuildError, ConsumerBuildFuture, ConsumerContext, ConsumerPreflightFuture, Depends,
+	InjectionContext, KeyedFactoryOutput, Message, Model, SelfKey, WebSocketConsumer,
+	WebSocketConsumerKey, WebSocketConsumerRegistration, WebSocketEndpointInfo, WebSocketError,
+	WebSocketResult,
 };
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use reinhardt_cloud_proto::build as pb;
 use reinhardt_cloud_proto::log as log_pb;
 use reinhardt_cloud_types::crd::tenant::TenantRef;
 
+use crate::apps::auth::models::User;
 use crate::apps::auth::services::session::validate_session;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::organizations::models::Organization;
@@ -24,9 +29,10 @@ use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
 use crate::config::settings::get_settings;
 use crate::shared::ws_messages::{
-	AppLogPayload, BuildLogPayload, LogStreamAckPayload, NotificationLevel,
+	AppLogPayload, LogStreamAckPayload, MAX_SUBSCRIPTIONS_PER_USER, NotificationLevel,
 	SystemNotificationPayload, WsClientMessage, WsMessage,
 };
+use crate::utils::grpc::dashboard_grpc_auth_interceptor;
 use crate::utils::realtime::broadcaster::WsBroadcaster;
 
 /// Metadata key for the connection UUID assigned during `on_connect`.
@@ -39,6 +45,7 @@ const META_USER_ID: &str = "user_id";
 const DEFAULT_GRPC_ENDPOINT: &str = "http://127.0.0.1:50051";
 
 /// Generic client-facing failure for unavailable build-log streams.
+#[cfg(test)]
 const BUILD_LOG_STREAM_UNAVAILABLE: &str = "Build log stream is currently unavailable";
 
 /// Generic client-facing failure for unavailable application-log streams.
@@ -55,7 +62,9 @@ pub(crate) enum ParsedAction {
 	Unsubscribe { deployment_ids: Vec<String> },
 	/// Unauthenticated request attempt — send error response.
 	Rejected { response: WsMessage },
-	/// Subscribe to build log events via the gRPC bridge.
+	/// Build-log execution path retained while build ownership is unavailable;
+	/// the parser currently rejects client requests before constructing this variant.
+	#[allow(dead_code)]
 	SubscribeBuildLogs { build_id: String },
 	/// Subscribe to application log events via the gRPC `LogService` bridge.
 	SubscribeAppLogs { deployment_id: String },
@@ -70,6 +79,38 @@ pub(crate) enum ParsedAction {
 /// Resolve the gRPC endpoint from the environment or fall back to the default.
 fn grpc_endpoint() -> String {
 	std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| DEFAULT_GRPC_ENDPOINT.to_string())
+}
+
+async fn connect_grpc_channel(
+	endpoint: &str,
+) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+	tonic::transport::Endpoint::from_shared(endpoint.to_string())?
+		.connect()
+		.await
+}
+
+async fn dashboard_grpc_user_token(user_id: &str) -> Result<String, WsMessage> {
+	let user_id =
+		Uuid::parse_str(user_id).map_err(|_| log_stream_rejected("Authentication required"))?;
+	let user = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.first()
+		.await
+		.map_err(|e| {
+			tracing::error!(error = %e, "Failed to load user for gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		})?
+		.ok_or_else(|| log_stream_rejected("Authentication required"))?;
+	let secret = crate::config::settings::get_jwt_secret().ok_or_else(|| {
+		tracing::error!("JWT secret is not configured for dashboard gRPC log client");
+		log_stream_rejected("Log streaming is not configured")
+	})?;
+	reinhardt_cloud_core::auth::create_token(user.id, &user.username, secret.as_bytes(), 1).map_err(
+		|e| {
+			tracing::error!(error = %e, "Failed to mint dashboard gRPC log token");
+			log_stream_rejected("Failed to authorize log stream")
+		},
+	)
 }
 
 /// Convert a proto `LogLevel` enum value to its lowercase string form.
@@ -113,15 +154,47 @@ fn proto_entry_to_app_log(entry: &log_pb::LogEntry) -> AppLogPayload {
 	}
 }
 
+enum BroadcasterHandle {
+	Direct(Arc<WsBroadcaster>),
+	Injected(Arc<KeyedFactoryOutput<SelfKey<WsBroadcaster>, WsBroadcaster>>),
+}
+
+impl Deref for BroadcasterHandle {
+	type Target = WsBroadcaster;
+
+	fn deref(&self) -> &Self::Target {
+		match self {
+			Self::Direct(broadcaster) => broadcaster,
+			Self::Injected(broadcaster) => broadcaster,
+		}
+	}
+}
+
+/// Structural endpoint marker used by the unified WebSocket router.
+pub struct NotificationConsumerEndpoint;
+
+/// Stable key shared by the structural route and executable registration.
+pub const NOTIFICATION_CONSUMER_KEY: WebSocketConsumerKey =
+	WebSocketConsumerKey::new("dashboard.notifications");
+
+impl WebSocketEndpointInfo for NotificationConsumerEndpoint {
+	fn path() -> &'static str {
+		"/ws/notifications"
+	}
+
+	fn name() -> Option<&'static str> {
+		Some("notifications")
+	}
+
+	fn consumer_key() -> WebSocketConsumerKey {
+		NOTIFICATION_CONSUMER_KEY
+	}
+}
+
 /// WebSocket consumer that authenticates users, manages deployment
-/// subscriptions, and forwards broadcaster events to individual connections.
-///
-/// Unlike the previous `ConnectionHandle`-based approach, connections are
-/// registered directly with the [`WsBroadcaster`] rooms. This eliminates
-/// the per-connection mpsc channel and forwarding task — the Room broadcasts
-/// to `Arc<WebSocketConnection>` instances directly.
+/// subscriptions, and forwards broadcaster events to individual clients.
 pub struct NotificationConsumer {
-	broadcaster: Arc<WsBroadcaster>,
+	broadcaster: BroadcasterHandle,
 	/// Active log streaming task handle. Protected by a `Mutex` so that only
 	/// one log stream is active per consumer at a time. Subscribing to a new
 	/// stream automatically cancels the previous one. Wrapped in `Arc` so
@@ -134,7 +207,14 @@ impl NotificationConsumer {
 	/// Create a new consumer backed by the given broadcaster.
 	pub fn new(broadcaster: Arc<WsBroadcaster>) -> Self {
 		Self {
-			broadcaster,
+			broadcaster: BroadcasterHandle::Direct(broadcaster),
+			log_stream_handle: Arc::new(Mutex::new(None)),
+		}
+	}
+
+	fn from_injected(broadcaster: Depends<WsBroadcaster>) -> Self {
+		Self {
+			broadcaster: BroadcasterHandle::Injected(Arc::clone(broadcaster.as_arc())),
 			log_stream_handle: Arc::new(Mutex::new(None)),
 		}
 	}
@@ -158,6 +238,13 @@ impl NotificationConsumer {
 							message: "You must be authenticated to subscribe".to_string(),
 							timestamp: String::new(),
 						}),
+					};
+				}
+				if deployment_ids.len() > MAX_SUBSCRIPTIONS_PER_USER {
+					return ParsedAction::Rejected {
+						response: log_stream_rejected(
+							"Too many deployment subscriptions requested",
+						),
 					};
 				}
 				ParsedAction::Subscribe { deployment_ids }
@@ -237,6 +324,60 @@ fn log_stream_rejected(message: impl Into<String>) -> WsMessage {
 	})
 }
 
+async fn authorize_deployment_subscriptions(
+	user_id: &str,
+	deployment_ids: &[String],
+) -> Result<Vec<String>, WsMessage> {
+	let user_id = Uuid::parse_str(user_id)
+		.map_err(|_| log_stream_rejected("Authentication required for deployment updates"))?;
+	let organization_id = require_permission(user_id, Action::DeploymentRead)
+		.await
+		.map_err(|_| log_stream_rejected("Not authorized to subscribe to deployment updates"))?;
+	let parsed_ids = deployment_ids
+		.iter()
+		.filter_map(|deployment_id| match deployment_id.parse::<i64>() {
+			Ok(deployment_id_i64) => Some(deployment_id_i64),
+			Err(_) => {
+				tracing::debug!(
+					deployment_id,
+					"Skipping invalid WebSocket deployment subscription id"
+				);
+				None
+			}
+		})
+		.collect::<Vec<_>>();
+	if parsed_ids.is_empty() {
+		return Ok(Vec::new());
+	}
+
+	let deployments = Deployment::objects()
+		.filter(Deployment::field_id().is_in(parsed_ids.iter().copied()))
+		.filter(Deployment::field_organization_id().eq(organization_id))
+		.all()
+		.await
+		.map_err(|e| {
+			tracing::error!(
+				error = %e,
+				"Failed to load deployments for WebSocket subscription"
+			);
+			log_stream_rejected("Failed to authorize deployment subscription")
+		})?;
+	let authorized_ids: HashSet<i64> = deployments
+		.into_iter()
+		.filter_map(|deployment| deployment.id)
+		.collect();
+	Ok(parsed_ids
+		.into_iter()
+		.filter(|id| authorized_ids.contains(id))
+		.map(|id| id.to_string())
+		.collect())
+}
+
+fn build_log_rejected() -> WsMessage {
+	log_stream_rejected("Build log streaming requires an authorized deployment-scoped identifier")
+}
+
+#[cfg(test)]
 fn build_log_stream_unavailable() -> WsMessage {
 	log_stream_rejected(BUILD_LOG_STREAM_UNAVAILABLE)
 }
@@ -350,6 +491,45 @@ fn extract_cookie_value(cookie_header: &str, name: &str) -> Option<String> {
 	})
 }
 
+fn notification_consumer_preflight(context: Arc<InjectionContext>) -> ConsumerPreflightFuture {
+	Box::pin(async move {
+		Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map(|_| ())
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})
+	})
+}
+
+fn build_notification_consumer(context: Arc<InjectionContext>) -> ConsumerBuildFuture {
+	Box::pin(async move {
+		let broadcaster = Depends::<WsBroadcaster>::resolve_from_registry(&context, true)
+			.await
+			.map_err(|error| {
+				ConsumerBuildError::new(
+					module_path!(),
+					std::any::type_name::<Depends<WsBroadcaster>>(),
+					error,
+				)
+			})?;
+		Ok(Box::new(NotificationConsumer::from_injected(broadcaster)) as _)
+	})
+}
+
+inventory::submit! {
+	WebSocketConsumerRegistration::new(
+		NOTIFICATION_CONSUMER_KEY,
+		module_path!(),
+		notification_consumer_preflight,
+		build_notification_consumer,
+	)
+}
+
 #[async_trait::async_trait]
 impl WebSocketConsumer for NotificationConsumer {
 	async fn on_connect(&self, context: &mut ConsumerContext) -> WebSocketResult<()> {
@@ -371,6 +551,10 @@ impl WebSocketConsumer for NotificationConsumer {
 			self.broadcaster
 				.register_connection(&connection_id, &user_id, Arc::clone(&context.connection))
 				.await;
+		} else {
+			return Err(WebSocketError::Connection(
+				"Authentication required for notifications websocket".to_string(),
+			));
 		}
 
 		Ok(())
@@ -405,10 +589,18 @@ impl WebSocketConsumer for NotificationConsumer {
 				let _ = context.connection.send_json(&response).await;
 			}
 			ParsedAction::Subscribe { deployment_ids } => {
-				if let Some(uid) = user_id {
-					for dep_id in &deployment_ids {
+				if let Some(uid) = user_id.as_deref() {
+					let authorized_ids =
+						match authorize_deployment_subscriptions(uid, &deployment_ids).await {
+							Ok(ids) => ids,
+							Err(response) => {
+								let _ = context.connection.send_json(&response).await;
+								return Ok(());
+							}
+						};
+					for dep_id in &authorized_ids {
 						self.broadcaster
-							.try_subscribe(&connection_id, &uid, dep_id)
+							.try_subscribe(&connection_id, uid, dep_id)
 							.await;
 					}
 				}
@@ -419,137 +611,11 @@ impl WebSocketConsumer for NotificationConsumer {
 				}
 			}
 			ParsedAction::SubscribeBuildLogs { build_id } => {
-				// Cancel any previous log stream before starting a new one.
-				self.cancel_log_stream().await;
-
-				// Spawn a background task that connects to the gRPC
-				// BuildService and forwards log entries as WebSocket messages.
-				// The positive acknowledgement is sent only after the gRPC
-				// connection is established, so the client is not misled when
-				// the connection subsequently fails.
-				let conn = Arc::clone(&context.connection);
-				let bid = build_id.clone();
-				let endpoint = grpc_endpoint();
-
-				let handle_ref = Arc::clone(&self.log_stream_handle);
-
-				// Acquire the lock before spawning so that the task cannot
-				// clear the handle before we store it (fixes the race where a
-				// very fast task completion sets handle_ref to None before
-				// the outer code sets it to Some(handle)).
-				let mut handle_guard = self.log_stream_handle.lock().await;
-
-				let handle = tokio::spawn(async move {
-					let mut client =
-						match pb::build_service_client::BuildServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Failed to connect to gRPC BuildService for log streaming",
-								);
-								// Notify client that the stream could not be established.
-								let err_msg = build_log_stream_unavailable();
-								let _ = conn.send_json(&err_msg).await;
-								// Clear handle on exit.
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
-
-					// Send positive acknowledgement only after a successful
-					// gRPC connection — avoids a contradictory ack/nack pair.
-					let ack = WsMessage::LogStreamAck(LogStreamAckPayload {
-						acknowledged: true,
-						message: format!("Subscribed to build logs for {bid}"),
-					});
-					let _ = conn.send_json(&ack).await;
-
-					let request = pb::StreamBuildLogsRequest {
-						build_id: bid.clone(),
-						follow: true,
-					};
-
-					let response = match client.stream_build_logs(request).await {
-						Ok(r) => r,
-						Err(e) => {
-							tracing::warn!(
-								build_id = %bid,
-								error = %e,
-								"gRPC StreamBuildLogs call failed",
-							);
-							// Notify client that the stream call failed.
-							let err_msg = build_log_stream_unavailable();
-							let _ = conn.send_json(&err_msg).await;
-							// Clear handle on exit.
-							*handle_ref.lock().await = None;
-							return;
-						}
-					};
-
-					let mut stream = response.into_inner();
-
-					loop {
-						match stream.message().await {
-							Ok(Some(log)) => {
-								let ts = log
-									.timestamp
-									.map(|t| {
-										// Validate nanos is within the valid range
-										// (0..=999_999_999). Out-of-range values
-										// (including negatives from prost_types)
-										// are clamped to 0.
-										let nanos = if (0..=999_999_999).contains(&t.nanos) {
-											t.nanos as u32
-										} else {
-											0
-										};
-										chrono::DateTime::<chrono::Utc>::from_timestamp(
-											t.seconds, nanos,
-										)
-										.map(|dt| dt.to_rfc3339())
-										.unwrap_or_default()
-									})
-									.unwrap_or_default();
-
-								let ws_msg = WsMessage::BuildLog(BuildLogPayload {
-									build_id: bid.clone(),
-									event_type: "log".to_string(),
-									message: log.message,
-									timestamp: ts,
-								});
-
-								if conn.send_json(&ws_msg).await.is_err() {
-									// Connection closed — stop streaming.
-									break;
-								}
-							}
-							Ok(None) => {
-								// Stream ended normally.
-								break;
-							}
-							Err(e) => {
-								tracing::warn!(
-									build_id = %bid,
-									error = %e,
-									"Error receiving build log from gRPC stream",
-								);
-								break;
-							}
-						}
-					}
-
-					// Clear the stale handle when the stream exits normally.
-					*handle_ref.lock().await = None;
-				});
-
-				// Store the handle while still holding the lock so that a
-				// fast-finishing task cannot set the handle to None before
-				// we write Some(handle).
-				*handle_guard = Some(handle);
-				drop(handle_guard);
+				tracing::warn!(
+					build_id = %build_id,
+					"Rejected build log WebSocket subscription without deployment authorization"
+				);
+				let _ = context.connection.send_json(&build_log_rejected()).await;
 			}
 			ParsedAction::SubscribeAppLogs { deployment_id } => {
 				let Some(uid) = user_id.as_deref() else {
@@ -561,6 +627,13 @@ impl WebSocketConsumer for NotificationConsumer {
 				};
 				let subscription = match authorize_app_log_subscription(uid, &deployment_id).await {
 					Ok(subscription) => subscription,
+					Err(response) => {
+						let _ = context.connection.send_json(&response).await;
+						return Ok(());
+					}
+				};
+				let grpc_token = match dashboard_grpc_user_token(uid).await {
+					Ok(token) => token,
 					Err(response) => {
 						let _ = context.connection.send_json(&response).await;
 						return Ok(());
@@ -586,22 +659,38 @@ impl WebSocketConsumer for NotificationConsumer {
 				let mut handle_guard = self.log_stream_handle.lock().await;
 
 				let handle = tokio::spawn(async move {
-					let mut client =
-						match log_pb::log_service_client::LogServiceClient::connect(endpoint).await
-						{
-							Ok(c) => c,
-							Err(e) => {
-								tracing::warn!(
-									project_name = %project,
-									error = %e,
-									"Failed to connect to gRPC LogService for app log streaming",
-								);
-								let err_msg = app_log_stream_unavailable();
-								let _ = conn.send_json(&err_msg).await;
-								*handle_ref.lock().await = None;
-								return;
-							}
-						};
+					let channel = match connect_grpc_channel(&endpoint).await {
+						Ok(channel) => channel,
+						Err(e) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %e,
+								"Failed to connect to gRPC LogService for app log streaming",
+							);
+							let err_msg = app_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let interceptor = match dashboard_grpc_auth_interceptor(&grpc_token) {
+						Ok(interceptor) => interceptor,
+						Err(_error) => {
+							tracing::warn!(
+								project_name = %project,
+								error = %_error,
+								"Failed to encode dashboard gRPC auth metadata for app log streaming",
+							);
+							let err_msg = app_log_stream_unavailable();
+							let _ = conn.send_json(&err_msg).await;
+							*handle_ref.lock().await = None;
+							return;
+						}
+					};
+					let mut client = log_pb::log_service_client::LogServiceClient::with_interceptor(
+						channel,
+						interceptor,
+					);
 
 					let request = log_pb::TailLogsRequest {
 						filter: Some(log_pb::LogFilter {
@@ -697,11 +786,12 @@ impl WebSocketConsumer for NotificationConsumer {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::env;
+
 	use crate::shared::ws_messages::WsClientMessage;
 	use chrono::Utc;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::fixtures::{
-		ContainerAsync, GenericImage, postgres_with_migrations_from_dir,
+		ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
 	};
 	use rstest::fixture;
 	use rstest::rstest;
@@ -712,18 +802,53 @@ mod tests {
 	use crate::apps::organizations::models::{Organization, OrganizationMembership};
 	use crate::apps::organizations::roles::MembershipRole;
 
+	struct EnvGuard {
+		saved: Vec<(&'static str, Option<String>)>,
+	}
+
+	impl EnvGuard {
+		fn set(values: Vec<(&'static str, &'static str)>) -> Self {
+			let saved = values
+				.iter()
+				.map(|(key, _)| (*key, env::var(key).ok()))
+				.collect();
+			for (key, value) in values {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					env::set_var(key, value);
+				}
+			}
+			Self { saved }
+		}
+	}
+
+	impl Drop for EnvGuard {
+		fn drop(&mut self) {
+			for (key, value) in self.saved.drain(..) {
+				// SAFETY: These tests use #[serial(env)] before mutating process-wide env.
+				unsafe {
+					match value {
+						Some(value) => env::set_var(key, value),
+						None => env::remove_var(key),
+					}
+				}
+			}
+		}
+	}
+
 	#[fixture]
-	async fn db() -> (ContainerAsync<GenericImage>, Arc<DatabaseConnection>) {
+	async fn db() -> (ContainerAsync<GenericImage>, MigrationDatabase) {
 		let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
 		postgres_with_migrations_from_dir(&migrations_dir)
 			.await
 			.expect("Failed to start PostgreSQL with migrations")
 	}
 
-	async fn create_user(conn: &Arc<DatabaseConnection>, username: &str) -> User {
+	async fn create_user(conn: &MigrationDatabase, username: &str) -> User {
+		let mut conn_handle = **conn;
 		User::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&User::build()
 					.username(username.to_string())
 					.email(format!("{username}@example.com"))
@@ -739,15 +864,12 @@ mod tests {
 			.expect("create user")
 	}
 
-	async fn create_org(
-		conn: &Arc<DatabaseConnection>,
-		creator: &User,
-		slug: &str,
-	) -> Organization {
+	async fn create_org(conn: &MigrationDatabase, creator: &User, slug: &str) -> Organization {
 		let now = Utc::now();
+		let mut conn_handle = **conn;
 		Organization::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Organization {
 					id: None,
 					slug: slug.to_string(),
@@ -761,10 +883,11 @@ mod tests {
 			.expect("create org")
 	}
 
-	async fn add_membership(conn: &Arc<DatabaseConnection>, user: &User, org: &Organization) {
+	async fn add_membership(conn: &MigrationDatabase, user: &User, org: &Organization) {
+		let mut conn_handle = **conn;
 		OrganizationMembership::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&OrganizationMembership::build()
 					.organization(org.id.expect("created org has id"))
 					.user(user.id)
@@ -776,13 +899,14 @@ mod tests {
 	}
 
 	async fn create_deployment(
-		conn: &Arc<DatabaseConnection>,
+		conn: &MigrationDatabase,
 		org: &Organization,
 		project_name: &str,
 	) -> Deployment {
+		let mut conn_handle = **conn;
 		let cluster = Cluster::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Cluster::build()
 					.organization(org.id.expect("created org has id"))
 					.name(format!("{project_name}-cluster"))
@@ -796,7 +920,7 @@ mod tests {
 			.expect("create cluster");
 		Deployment::objects()
 			.create_with_conn(
-				conn,
+				&mut conn_handle,
 				&Deployment::build()
 					.organization(org.id.expect("created org has id"))
 					.project_name(project_name.to_string())
@@ -849,6 +973,32 @@ mod tests {
 				assert_eq!(deployment_ids, vec!["dep-1", "dep-2"]);
 			}
 			_ => panic!("expected Subscribe action"),
+		}
+	}
+
+	#[rstest]
+	fn test_parse_subscribe_rejects_oversized_batch() {
+		// Arrange
+		let msg = WsClientMessage::Subscribe {
+			deployment_ids: vec!["1".to_string(); MAX_SUBSCRIPTIONS_PER_USER + 1],
+		};
+
+		// Act
+		let action = NotificationConsumer::parse_client_message(Some("user-1"), msg);
+
+		// Assert
+		match action {
+			ParsedAction::Rejected { response } => match response {
+				WsMessage::LogStreamAck(payload) => {
+					assert_eq!(payload.acknowledged, false);
+					assert_eq!(
+						payload.message,
+						"Too many deployment subscriptions requested"
+					);
+				}
+				_ => panic!("expected LogStreamAck rejection"),
+			},
+			_ => panic!("expected Rejected action"),
 		}
 	}
 
@@ -939,8 +1089,17 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial(env)]
 	fn test_validate_websocket_origin_allows_configured_origin() {
 		// Arrange
+		let _env = EnvGuard::set(vec![
+			("REINHARDT_CORE__SECRET_KEY", "test-core-secret-key"),
+			(
+				"REINHARDT_CLOUD_JWT_SECRET",
+				"test-jwt-secret-key-with-at-least-32-bytes",
+			),
+			("REINHARDT_DATABASE_PASSWORD", "test-db-password"),
+		]);
 		let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 		let conn = Arc::new(reinhardt::WebSocketConnection::new(
 			"conn-1".to_string(),
@@ -1136,8 +1295,84 @@ mod tests {
 	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
+	async fn authorize_deployment_subscriptions_allows_current_org_deployments(
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "sub-allowed").await;
+		let org = create_org(&conn, &user, "sub-allowed").await;
+		add_membership(&conn, &user, &org).await;
+		let deployment = create_deployment(&conn, &org, "sub-project").await;
+
+		// Act
+		let subscriptions = authorize_deployment_subscriptions(
+			&user.id.to_string(),
+			&[deployment.id.unwrap().to_string()],
+		)
+		.await
+		.expect("authorized subscriptions");
+
+		// Assert
+		assert_eq!(subscriptions, vec![deployment.id.unwrap().to_string()]);
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn authorize_deployment_subscriptions_skips_cross_org_deployment_guess(
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
+	) {
+		// Arrange
+		let (_container, conn) = db.await;
+		let user = create_user(&conn, "sub-user").await;
+		let other_user = create_user(&conn, "sub-other").await;
+		let own_org = create_org(&conn, &user, "sub-user").await;
+		let other_org = create_org(&conn, &other_user, "sub-other").await;
+		add_membership(&conn, &user, &own_org).await;
+		add_membership(&conn, &other_user, &other_org).await;
+		let own_deployment = create_deployment(&conn, &own_org, "own-sub-project").await;
+		let other_deployment = create_deployment(&conn, &other_org, "other-sub-project").await;
+
+		// Act
+		let subscriptions = authorize_deployment_subscriptions(
+			&user.id.to_string(),
+			&[
+				own_deployment.id.unwrap().to_string(),
+				other_deployment.id.unwrap().to_string(),
+				"not-a-deployment-id".to_string(),
+			],
+		)
+		.await
+		.expect("stale subscription ids should not abort the batch");
+
+		// Assert
+		assert_eq!(subscriptions, vec![own_deployment.id.unwrap().to_string()]);
+	}
+
+	#[rstest]
+	fn build_log_rejection_explains_deployment_scoped_requirement() {
+		// Act
+		let response = build_log_rejected();
+
+		// Assert
+		match response {
+			WsMessage::LogStreamAck(payload) => {
+				assert_eq!(payload.acknowledged, false);
+				assert_eq!(
+					payload.message,
+					"Build log streaming requires an authorized deployment-scoped identifier"
+				);
+			}
+			_ => panic!("expected rejected LogStreamAck"),
+		}
+	}
+
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
 	async fn authorize_app_log_subscription_allows_deployment_in_current_org(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1164,7 +1399,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_user_without_membership(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;
@@ -1194,7 +1429,7 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn authorize_app_log_subscription_rejects_cross_org_deployment_guess(
-		#[future] db: (ContainerAsync<GenericImage>, Arc<DatabaseConnection>),
+		#[future] db: (ContainerAsync<GenericImage>, MigrationDatabase),
 	) {
 		// Arrange
 		let (_container, conn) = db.await;

@@ -112,8 +112,9 @@ Useful overrides:
 | `DASHBOARD_SELF_DEPLOY_KUBECTL_CONTEXT` | current context | Kubernetes context for `kubectl`. |
 | `DASHBOARD_SELF_DEPLOY_KIND_CLUSTER` | inferred from `kind-*` context, otherwise `reinhardt-dashboard-e2e` when kind is created | Explicit `kind` cluster target for creation and `kind load docker-image`. |
 | `DASHBOARD_SELF_DEPLOY_E2E_USERNAME` | `e2e-user` | Username seeded inside the deployed Dashboard Pod for authenticated flow checks. |
-| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | `e2e-password-123456` | Password assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_E2E_PASSWORD` | random per run | Password assigned to the seeded Dashboard user. Empty values and the former public fixture password are rejected. |
 | `DASHBOARD_SELF_DEPLOY_E2E_EMAIL` | `e2e@example.test` | Email assigned to the seeded Dashboard user. |
+| `DASHBOARD_SELF_DEPLOY_ALLOW_SEED_USER` | set internally | Explicit marker required by `seed-self-deploy-user`; the harness sets it only for the seed command. |
 | `DASHBOARD_SELF_DEPLOY_PORT_FORWARD_PORT` | `18080` | Local port used for Dashboard health, login, and authenticated page checks. |
 | `DASHBOARD_SELF_DEPLOY_ORIGIN` | `http://127.0.0.1:8000` | Origin/Referer used for server function POSTs. The default matches the CI `OriginGuardMiddleware` allow-list. |
 
@@ -272,8 +273,8 @@ Required / useful environment variables:
 
 The notification WebSocket route is registered by `WebSocketRunserverHook`.
 The gRPC server is spawned alongside HTTP by `GrpcRunserverHook`
-(`dashboard/src/config/hooks.rs`) and binds to `127.0.0.1:50051` using
-`GrpcServerConfig::default()` (`crates/reinhardt-cloud-grpc/src/config.rs`).
+(`dashboard/src/config/hooks.rs`) and binds to `127.0.0.1:50051` through the
+local profile's `[grpc].bind_host` override (`dashboard/settings/local.toml`).
 
 ## 5. Run the Operator
 

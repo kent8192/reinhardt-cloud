@@ -6,9 +6,10 @@ This document defines the module system standards for the Reinhardt Cloud projec
 
 ## Core Principle
 
-**MUST USE `module.rs` + `module/` directory structure (Rust 2024 Edition)**
+**MUST USE `module.rs` + `module/` directory structure in this Rust 2024 workspace.**
 
-**NEVER USE `mod.rs` files** (Rust 2015/2018 deprecated pattern)
+**Do not add `mod.rs` files.** This is the repository's layout convention, not a
+claim that the Rust edition removes support for that layout.
 
 ---
 
@@ -202,6 +203,6 @@ use reinhardt_cloud::controller::app::InternalState;           // ❌ Error - no
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Main standards**: @CLAUDE.md
-- **Project structure**: @README.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Main Standards**: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
+- **Project structure**: [README.md](../README.md)

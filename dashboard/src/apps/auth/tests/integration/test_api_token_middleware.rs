@@ -8,10 +8,9 @@ mod tests {
 	use reinhardt::UrlReverser;
 	use reinhardt::db::orm::Model;
 	use reinhardt::pages::server_fn::ServerFnMetadata;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::{fixture, rstest};
 	use serial_test::serial;
 	use std::sync::Arc;
@@ -25,7 +24,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -61,7 +60,7 @@ mod tests {
 	async fn test_resolve_valid_token_authenticated(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -91,7 +90,7 @@ mod tests {
 	async fn test_resolve_invalid_token_anonymous(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -118,7 +117,7 @@ mod tests {
 	async fn test_server_fn_accepts_bearer_token(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),

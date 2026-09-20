@@ -40,6 +40,8 @@ const QUOTA_NAME: &str = "preview-default-quota";
 const LIMIT_RANGE_NAME: &str = "preview-default-limits";
 const DEFAULT_DENY_NAME: &str = "preview-default-deny";
 const ALLOW_INGRESS_NAME: &str = "preview-allow-ingress-and-dns";
+const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
+const KUBE_DNS_APP_LABEL: &str = "kube-dns";
 /// Name of the cert-manager `Issuer` emitted into each preview namespace.
 /// Referenced by the preview Ingress TLS annotation, so it is `pub(crate)`.
 pub(crate) const ISSUER_NAME: &str = "preview-issuer";
@@ -122,6 +124,40 @@ pub(crate) fn preview_namespace_name(parent_namespace: &str, parent_name: &str) 
 	let prefix_len = DNS_1123_LABEL_MAX_LENGTH - suffix_len;
 	let prefix = trim_dns_label_prefix(&identity, prefix_len);
 	format!("{prefix}-{hash}-{PREVIEW_NAMESPACE_SUFFIX}")
+}
+
+pub(crate) fn legacy_preview_namespace_matches(preview_namespace: &str, parent_name: &str) -> bool {
+	let safe_parent_name = sanitize_dns_label_component(parent_name);
+	if safe_parent_name.is_empty() {
+		return false;
+	}
+	let Some((identity_prefix, _hash)) = legacy_preview_namespace_parts(preview_namespace) else {
+		return false;
+	};
+
+	let parent_suffix = format!("-{safe_parent_name}");
+	if let Some(parent_namespace) = identity_prefix.strip_suffix(&parent_suffix)
+		&& !parent_namespace.is_empty()
+	{
+		return preview_namespace_name(parent_namespace, parent_name) == preview_namespace;
+	}
+
+	false
+}
+
+fn legacy_preview_namespace_parts(preview_namespace: &str) -> Option<(&str, &str)> {
+	let namespace_without_suffix =
+		preview_namespace.strip_suffix(&format!("-{PREVIEW_NAMESPACE_SUFFIX}"))?;
+	let (identity_prefix, hash) = namespace_without_suffix.rsplit_once('-')?;
+	if hash.len() != IDENTITY_HASH_LENGTH
+		|| !hash
+			.chars()
+			.all(|character| matches!(character, '0'..='9' | 'a'..='f'))
+	{
+		return None;
+	}
+
+	Some((identity_prefix, hash))
 }
 
 /// Standard labels applied to every resource in the preview namespace so
@@ -304,6 +340,24 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 	parent_namespace: &str,
 	parent_name: &str,
 ) -> NetworkPolicy {
+	let kube_dns_peer = NetworkPolicyPeer {
+		namespace_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"kubernetes.io/metadata.name".to_string(),
+				KUBE_DNS_NAMESPACE_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		pod_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"k8s-app".to_string(),
+				KUBE_DNS_APP_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		..Default::default()
+	};
+
 	NetworkPolicy {
 		metadata: ObjectMeta {
 			name: Some(ALLOW_INGRESS_NAME.to_string()),
@@ -328,6 +382,7 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 				..Default::default()
 			}]),
 			egress: Some(vec![NetworkPolicyEgressRule {
+				to: Some(vec![kube_dns_peer]),
 				ports: Some(vec![
 					NetworkPolicyPort {
 						port: Some(IntOrString::Int(53)),
@@ -340,7 +395,6 @@ pub(crate) fn build_allow_ingress_and_dns_policy(
 						..Default::default()
 					},
 				]),
-				..Default::default()
 			}]),
 		}),
 	}
@@ -412,6 +466,55 @@ mod tests {
 		assert!(dotted_name.ends_with("-preview"));
 		assert!(dotted_name.len() <= DNS_1123_LABEL_MAX_LENGTH);
 		assert_ne!(dotted_name, dashed_name);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_recovers_parent_namespace() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app");
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(matches);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_rejects_truncated_identity_prefix() {
+		// Arrange
+		let namespace = preview_namespace_name(
+			"tenant-with-a-very-long-namespace-name-that-truncates-the-preview-prefix",
+			"my-app",
+		);
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(!matches);
+	}
+
+	#[rstest]
+	fn legacy_preview_namespace_matches_rejects_hash_mismatch() {
+		// Arrange
+		let namespace = preview_namespace_name("tenant-a", "my-app");
+		let suffix = format!("-{PREVIEW_NAMESPACE_SUFFIX}");
+		let namespace_without_suffix = namespace.strip_suffix(&suffix).expect("preview suffix");
+		let (identity_prefix, hash) = namespace_without_suffix
+			.rsplit_once('-')
+			.expect("hash segment");
+		let replacement = if hash.starts_with('0') { "1" } else { "0" };
+		let namespace = format!(
+			"{identity_prefix}-{replacement}{}-{PREVIEW_NAMESPACE_SUFFIX}",
+			&hash[1..]
+		);
+
+		// Act
+		let matches = legacy_preview_namespace_matches(&namespace, "my-app");
+
+		// Assert
+		assert!(!matches);
 	}
 
 	#[rstest]
@@ -549,13 +652,30 @@ mod tests {
 		);
 		// Assert — DNS egress on port 53 (UDP + TCP).
 		let egress = spec.egress.expect("egress");
-		let has_dns = egress.iter().any(|rule| {
-			rule.ports
-				.as_ref()
-				.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
-				.unwrap_or(false)
-		});
-		assert!(has_dns, "expected DNS egress rule, got {egress:?}");
+		let dns_rule = egress
+			.iter()
+			.find(|rule| {
+				rule.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule");
+		let to = dns_rule.to.as_ref().expect("DNS destination peer");
+		assert_eq!(to.len(), 1);
+		let dns_namespace_labels = to[0]
+			.namespace_selector
+			.as_ref()
+			.expect("DNS namespace selector")
+			.match_labels
+			.as_ref()
+			.expect("DNS namespace labels");
+		assert_eq!(
+			dns_namespace_labels
+				.get("kubernetes.io/metadata.name")
+				.map(String::as_str),
+			Some(KUBE_DNS_NAMESPACE_LABEL)
+		);
 	}
 
 	#[rstest]

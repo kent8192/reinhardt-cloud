@@ -44,7 +44,7 @@ pub async fn resolve_membership_role(
 	organization_id: i64,
 ) -> Result<Option<MembershipRole>, AppError> {
 	let membership = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user_id))
 		.filter(OrganizationMembership::field_organization_id().eq(organization_id))
 		.first()
 		.await

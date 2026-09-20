@@ -180,15 +180,22 @@ spec:
 
 ### RBAC
 
-No packaged RBAC manifest exists for the agent. The agent uses in-cluster credentials (`kube::Client::try_default()`) to apply `apps/v1 Deployments` and read `apps/v1 ReplicaSets` in the `default` namespace.
+No packaged RBAC manifest exists for the agent. The agent uses in-cluster credentials (`kube::Client::try_default()`) to apply `apps/v1 Deployments` and read `apps/v1 ReplicaSets` in the namespace where it runs, which defaults to `default` when Kubernetes does not provide an in-cluster namespace.
 
-Recommended `ClusterRole` (least-privilege based on `main.rs` usage):
+Recommended `Role` and `RoleBinding` (least-privilege based on `main.rs` usage):
 
 ```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+apiVersion: v1
+kind: ServiceAccount
 metadata:
   name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -196,34 +203,33 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list"]
+  - apiGroups: ["paas.reinhardt-cloud.dev"]
+    resources: ["projects"]
+    verbs: ["get", "patch", "create"]
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
+    resources: ["secrets"]
+    verbs: ["get", "patch", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: reinhardt-cloud-agent
+  namespace: reinhardt-cloud-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: reinhardt-cloud-agent
 subjects:
   - kind: ServiceAccount
     name: reinhardt-cloud-agent
     namespace: reinhardt-cloud-system
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: reinhardt-cloud-agent
-  namespace: reinhardt-cloud-system
 ```
 
-> The agent must **not** be granted `cluster-admin` or any `create`/`update` permissions on Project CRDs — those are the operator's domain.
+Set the `metadata.namespace` values to the namespace where the agent Pod runs. The legacy deploy, rollback, scale, and restart commands use the agent Pod's in-cluster namespace through `Api::default_namespaced`, so a Role in any other namespace will not authorize those commands.
+
+`ApplyProject` and `ApplyGitCredentialsSecret` commands target the namespace carried by the command payload. If the Dashboard sends those commands to a namespace different from the agent Pod namespace, create the same namespaced `Role` and a `RoleBinding` in that target namespace, with the binding subject still pointing at the agent ServiceAccount namespace. Do not use a `ClusterRoleBinding` unless the agent implementation is changed to intentionally manage resources across namespaces.
+
+> The agent must **not** be granted `cluster-admin`. Project CRD writes should stay limited to namespaced `get`, `patch`, and `create` for agent-routed apply commands.
 
 ### Multi-cluster enrollment
 
@@ -294,7 +300,7 @@ The agent and control plane share proto definitions from `reinhardt-cloud-proto`
 
 ## Security
 
-**Least privilege**: the agent's `ClusterRole` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`. It must never be granted `cluster-admin` or write access to Project CRDs.
+**Least privilege**: the agent's namespaced `Role` grants only the permissions required for deploy, rollback, scale, and restart operations on `Deployments` and `ReplicaSets`, plus agent-routed `Project` and Git credential `Secret` apply commands in explicitly bound namespaces. It must never be granted `cluster-admin`, a cross-namespace `ClusterRoleBinding`, pod read permissions, or pod-log read permissions.
 
 **Secret rotation**: to rotate the `AUTH_TOKEN` without downtime:
 1. Issue a new token in the Dashboard for the cluster (old token remains valid until revoked).

@@ -1,10 +1,19 @@
 //! Login server function for frontend authentication.
 
+#[cfg(native)]
+use reinhardt::di::Depends;
+#[cfg(native)]
+use reinhardt::pages::server_fn::ServerFnRequest;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
 
 #[cfg(native)]
 use reinhardt::core::exception::Error as AppError;
 
+use crate::apps::auth::serializers::LoginRequest;
+#[cfg(native)]
+use crate::apps::auth::services::SessionService;
+#[cfg(native)]
+use crate::config::ProjectSettings;
 use crate::shared::AuthResponse;
 
 /// Authenticate user with credentials and set session cookie.
@@ -13,26 +22,19 @@ use crate::shared::AuthResponse;
 /// the database, creates a Redis session, and sets an HTTP-only
 /// `sessionid` cookie. The browser automatically sends this cookie
 /// on subsequent requests.
-#[server_fn]
+#[server_fn(pre_validate = true)]
 pub async fn login(
-	username: String,
-	password: String,
-	#[inject] http_request: reinhardt::pages::server_fn::ServerFnRequest,
-	#[inject] settings: reinhardt::di::Depends<
-		crate::config::ProjectSettingsKey,
-		crate::config::ProjectSettings,
-	>,
-	#[inject] session_service: reinhardt::di::Depends<
-		crate::apps::auth::services::SessionServiceKey,
-		crate::apps::auth::services::SessionService,
-	>,
+	request: LoginRequest,
+	#[inject] http_request: ServerFnRequest,
+	#[inject] settings: Depends<ProjectSettings>,
+	#[inject] session_service: Depends<SessionService>,
 ) -> Result<AuthResponse, ServerFnError> {
 	use tracing::error;
 
 	use crate::apps::auth::services;
 	use crate::shared::UserInfo;
 
-	let user = services::verify_credentials(&username, &password)
+	let user = services::verify_credentials(&request.username, &request.password)
 		.await
 		.map_err(server_fn_error_from_app_error)?;
 
@@ -69,7 +71,9 @@ fn server_fn_error_from_app_error(err: AppError) -> ServerFnError {
 
 #[cfg(all(test, native))]
 mod tests {
-	use reinhardt::pages::server_fn::ServerFnError;
+	use std::collections::BTreeSet;
+
+	use reinhardt::pages::server_fn::ServerFnErrorKind;
 	use rstest::rstest;
 
 	use super::*;
@@ -84,10 +88,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Invalid credentials");
-		assert!(matches!(
-			server_fn_error,
-			ServerFnError::Server { status: 401, .. }
-		));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Server);
+		assert_eq!(server_fn_error.status(), Some(401));
 	}
 
 	#[rstest]
@@ -100,10 +102,8 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Email verification required");
-		assert!(matches!(
-			server_fn_error,
-			ServerFnError::Server { status: 403, .. }
-		));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Server);
+		assert_eq!(server_fn_error.status(), Some(403));
 	}
 
 	#[rstest]
@@ -116,6 +116,32 @@ mod tests {
 
 		// Assert
 		assert_eq!(server_fn_error.message(), "Internal server error");
-		assert!(matches!(server_fn_error, ServerFnError::Application(_)));
+		assert_eq!(server_fn_error.kind(), ServerFnErrorKind::Application);
+		assert_eq!(server_fn_error.status(), None);
+	}
+
+	#[rstest]
+	fn login_request_validation_preserves_structured_field_errors() {
+		// Arrange
+		let request = LoginRequest {
+			username: String::new(),
+			password: String::new(),
+		};
+
+		// Act
+		let error = reinhardt::Validate::validate(&request)
+			.map_err(ServerFnError::from)
+			.expect_err("invalid login request should not reach credential verification");
+
+		// Assert
+		assert_eq!(error.kind(), ServerFnErrorKind::Validation);
+		assert_eq!(
+			error
+				.field_errors()
+				.iter()
+				.map(|field| field.field())
+				.collect::<BTreeSet<_>>(),
+			BTreeSet::from(["password", "username"])
+		);
 	}
 }

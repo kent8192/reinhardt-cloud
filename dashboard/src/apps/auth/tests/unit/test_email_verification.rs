@@ -149,7 +149,7 @@ mod tests {
 		let token = valid_token(owner_id);
 
 		// Act
-		let matches = *token.user_id() == attacker_id;
+		let matches = token.user_id() == attacker_id;
 
 		// Assert: a different user_id must not match the token's owner.
 		assert!(
@@ -170,7 +170,7 @@ mod tests {
 		// Act
 		let not_expired = token.expires_at > now;
 		let not_consumed = token.consumed_at.is_none();
-		let user_matches = *token.user_id() == user_id;
+		let user_matches = token.user_id() == user_id;
 
 		// Assert
 		assert!(not_expired, "token must not be expired");

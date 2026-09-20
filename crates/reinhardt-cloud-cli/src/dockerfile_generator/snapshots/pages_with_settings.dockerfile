@@ -41,6 +41,7 @@ RUN chown -R appuser:appuser /app
 # Run as non-root
 USER appuser
 ENV RUST_LOG=info \
-    PATH=/app:$PATH
+    PATH=/app:$PATH \
+    REINHARDT_ENV=production
 EXPOSE 8000
 ENTRYPOINT ["tini", "--", "/app/my-app"]

@@ -6,10 +6,10 @@ use crate::shared::UserInfo;
 
 /// Return the currently authenticated user's information.
 ///
-/// Authentication is handled by the cookie session middleware which
-/// validates the `sessionid` cookie and sets `AuthState` in request
-/// extensions. `CurrentUser<User>` resolves the full user model from
-/// the database via dependency injection.
+/// Cookie restoration is followed by dashboard account validation, which
+/// reloads the active user and sets `AuthState` in request extensions.
+/// `CurrentUser<User>` then resolves the full user model through dependency
+/// injection.
 #[server_fn]
 pub async fn me(
 	#[inject] reinhardt::CurrentUser(user): reinhardt::CurrentUser<crate::apps::auth::models::User>,

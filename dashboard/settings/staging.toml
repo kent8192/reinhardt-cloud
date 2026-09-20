@@ -93,6 +93,10 @@ root = "${REINHARDT_MEDIA__ROOT:-media}"
 [cors]
 allow_origins = ["https://staging.reinhardt-cloud.dev"]
 
+[ws_origin]
+policy = { mode = "allow_list", origins = ["https://staging.reinhardt-cloud.dev"] }
+reject_missing_origin = true
+
 # Staging email delivery — point at a real provider (Resend/SES/etc.) via env
 # overrides (REINHARDT_EMAIL__HOST, REINHARDT_EMAIL__PORT, REINHARDT_EMAIL__USERNAME,
 # REINHARDT_EMAIL__PASSWORD). Defaults below assume STARTTLS on 587.

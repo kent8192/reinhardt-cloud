@@ -1,13 +1,12 @@
 //! WebSocket URL configuration for the dashboard app.
 //!
-//! Currently empty — the dashboard app exposes only client-side SPA
-//! routes. The module is required by the `#[routes]` macro to generate
-//! the `urls.ws().dashboard()` accessor and its underlying
-//! `ws_url_resolvers` sub-module.
+//! Registers the dashboard notification consumer used by the SPA.
 
 use reinhardt::WebSocketRouter;
 
-/// Returns the WebSocket URL patterns for dashboard endpoints (none today).
+use crate::utils::realtime::consumer::NotificationConsumerEndpoint;
+
+/// Returns the WebSocket URL patterns for dashboard endpoints.
 pub fn ws_url_patterns() -> WebSocketRouter {
-	WebSocketRouter::new()
+	WebSocketRouter::new().consumer(|| NotificationConsumerEndpoint)
 }

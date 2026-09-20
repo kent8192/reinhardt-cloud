@@ -27,6 +27,9 @@ jwt_secret = "${REINHARDT_CLOUD_JWT_SECRET:?must be set to >= 32 bytes of random
 # leak into the merged settings as unknown top-level keys.
 redis_url = "redis://${RC_REDIS_HOST:-localhost}:6379/1"
 
+[grpc]
+bind_host = "127.0.0.1"
+
 [core]
 debug = true
 secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
@@ -66,6 +69,10 @@ options = {}
 # Allowed origins for OriginGuardMiddleware (exact match, no wildcards).
 # OriginGuard filters out "*" — use explicit URLs.
 allow_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+[ws_origin]
+policy = { mode = "allow_list", origins = ["http://localhost:8000", "http://127.0.0.1:8000"] }
+reject_missing_origin = true
 
 [email]
 # Local development prints verification/reset messages to stdout instead of

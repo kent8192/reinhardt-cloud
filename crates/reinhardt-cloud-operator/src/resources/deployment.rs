@@ -84,7 +84,7 @@ pub(crate) fn build_deployment(
 	// `production.toml` (made self-contained via ${VAR} interpolation in
 	// #588), so the application reads settings from its compile-time
 	// `CARGO_MANIFEST_DIR/settings` path.
-	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
+	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app)?;
 	let mut volumes: Vec<Volume> = plugin_volumes;
 	let volume_mounts: Vec<VolumeMount> = plugin_mounts;
 
