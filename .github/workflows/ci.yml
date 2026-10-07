@@ -149,6 +149,26 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
+  dashboard-wasm:
+    name: Dashboard WASM
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    runs-on: ${{ fromJSON(needs.determine-runner.outputs.runner) }}
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: dashboard-wasm
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Check browser library
+        run: cargo check --locked -p cloud_dashboard --lib --target wasm32-unknown-unknown
+
   unit-test:
     name: Unit Tests
     needs: [fmt, clippy, determine-runner, check-branch-status]
@@ -234,6 +254,7 @@ jobs:
       - determine-runner
       - fmt
       - clippy
+      - dashboard-wasm
       - unit-test
       - intra-crate-integration-test
       - cross-crate-integration-test
@@ -249,6 +270,7 @@ jobs:
           HAS_CONFLICTS: ${{ needs.check-branch-status.outputs.has-conflicts }}
           FMT_RESULT: ${{ needs.fmt.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
+          DASHBOARD_WASM_RESULT: ${{ needs.dashboard-wasm.result }}
           UNIT_TEST_RESULT: ${{ needs.unit-test.result }}
           INTRA_CRATE_RESULT: ${{ needs.intra-crate-integration-test.result }}
           CROSS_CRATE_RESULT: ${{ needs.cross-crate-integration-test.result }}
@@ -270,6 +292,7 @@ jobs:
           always_required=(
             "fmt:$FMT_RESULT"
             "clippy:$CLIPPY_RESULT"
+            "dashboard-wasm:$DASHBOARD_WASM_RESULT"
             "unit-test:$UNIT_TEST_RESULT"
             "intra-crate-integration-test:$INTRA_CRATE_RESULT"
             "cross-crate-integration-test:$CROSS_CRATE_RESULT"
