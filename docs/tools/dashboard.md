@@ -218,13 +218,22 @@ Settings that require typed values or external services need a custom Dockerfile
 `Project.spec.pages`. This keeps the Pages sidecar and ingress aligned with the
 runtime copy and generated links, including non-default roots and URL prefixes.
 `sync` preserves existing Pages options and source build arguments; a custom
-Dockerfile retains its explicit `[pages]` settings.
+Dockerfile retains its explicit `[pages]` settings. Existing default Dockerfiles also
+retain their publication settings unless `--force` regenerates the image. When
+regenerating an image without the Pages feature, `sync` removes its Pages section.
+The buildstatic version check follows the selected application’s locked dependency
+graph; unrelated workspace applications can use different framework versions.
 Generated Dockerfiles require the workspace root build context (`.`). For a
 member-only context such as `dashboard`, set a custom `[source.build].dockerfile`
 path and supply a Dockerfile designed for that context. Static URL interpolation
 must use an `_URL` variable with an explicit build argument or literal default;
 generation pins that public prefix for asset publication and runtime routing.
 Other dynamic settings require a custom Dockerfile and explicit Pages settings.
+The operator seeds the static sidecar’s shared volume from the image publication
+through a sibling mount, preserving its manifest, JS, WASM and generation paths.
+It runs legacy `collectstatic` only when no baked manifest exists. Pages images
+must provide `/bin/sh` and `cp`; static roots must be absolute directories without
+parent traversal. Existing isolation security contexts and volume ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses

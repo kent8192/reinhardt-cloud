@@ -101,8 +101,9 @@ pub(crate) fn configure_pages(
 	project_dir: &Path,
 	metadata: &crate::feature_detector::ProjectMetadata,
 	config: &mut ReinhardtCloudToml,
+	force: bool,
 ) -> Result<(), String> {
-	if should_skip_dockerfile(project_dir, config, true) == SkipReason::CustomDockerfile {
+	if should_skip_dockerfile(project_dir, config, force) != SkipReason::None {
 		return Ok(());
 	}
 	validate_build_context(config)?;
@@ -111,6 +112,8 @@ pub(crate) fn configure_pages(
 		let pages = config.pages.get_or_insert_default();
 		pages.static_root = Some(root.runtime_path());
 		pages.static_url = Some(root.url);
+	} else {
+		config.pages = None;
 	}
 	Ok(())
 }
@@ -186,7 +189,11 @@ pub(crate) fn collect_signals(
 
 	// Publication must use an available command and the declared production root.
 	let static_root = if signals.pages {
-		cargo_lock_reader::require_buildstatic(cargo_lock_content.as_deref())?;
+		cargo_lock_reader::require_buildstatic(
+			cargo_lock_content.as_deref(),
+			&metadata.name,
+			&metadata.version,
+		)?;
 		Some(static_root_reader::read_static_root(
 			project_dir,
 			toml_config,
@@ -362,7 +369,7 @@ mod tests {
 		let mut config = ReinhardtCloudToml::default();
 
 		// Act
-		configure_pages(dir.path(), &metadata, &mut config).unwrap();
+		configure_pages(dir.path(), &metadata, &mut config, true).unwrap();
 
 		// Assert
 		let pages = config.pages.unwrap();
@@ -396,12 +403,68 @@ mod tests {
 		}));
 
 		// Act
-		let result = configure_pages(dir.path(), &metadata, &mut config);
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
 
 		// Assert
 		assert_eq!(result.is_ok(), accepted, "{result:?}");
 		if !accepted {
 			assert!(result.unwrap_err().contains("custom Dockerfile"));
+		}
+	}
+
+	#[rstest]
+	#[case(true, false, false, true, Some("/app/old"))]
+	#[case(true, false, false, false, Some("/app/old"))]
+	#[case(true, false, true, false, None)]
+	#[case(false, false, false, false, None)]
+	#[case(false, true, true, false, Some("/app/old"))]
+	#[case(true, false, true, true, Some("/app/dist"))]
+	fn pages_settings_follow_image_regeneration(
+		#[case] existing_image: bool,
+		#[case] custom_image: bool,
+		#[case] force: bool,
+		#[case] pages_enabled: bool,
+		#[case] expected_root: Option<&str>,
+	) {
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		if existing_image {
+			std::fs::write(dir.path().join("Dockerfile"), "FROM existing").unwrap();
+		}
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages: pages_enabled,
+				..Default::default()
+			},
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			dockerfile: custom_image.then(|| "Containerfile".into()),
+			..Default::default()
+		}));
+		config.pages = Some(reinhardt_cloud_types::crd::pages::PagesSpec {
+			static_root: Some("/app/old".into()),
+			static_url: Some("/old/".into()),
+			..Default::default()
+		});
+		let should_generate =
+			should_skip_dockerfile(dir.path(), &config, force) == SkipReason::None;
+
+		configure_pages(dir.path(), &metadata, &mut config, force).unwrap();
+
+		assert_eq!(
+			config
+				.pages
+				.as_ref()
+				.and_then(|pages| pages.static_root.as_deref()),
+			expected_root,
+			"generate={should_generate}"
+		);
+		if !should_generate {
+			assert_eq!(config.pages.unwrap().static_url.as_deref(), Some("/old/"));
 		}
 	}
 

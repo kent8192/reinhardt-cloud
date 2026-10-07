@@ -57,6 +57,12 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// A static output path cannot be safely mounted beside its image source.
+	#[error(
+		"invalid Pages static root '{0}': require an absolute directory without parent traversal"
+	)]
+	InvalidStaticRoot(String),
+
 	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
 	#[error(
 		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
@@ -188,6 +194,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidStaticRoot(_)
 		| Error::InvalidPluginSpec(_)
 		| Error::DatabaseProvisioning(_)
 		| Error::ServiceAccountOwnership { .. }

@@ -47,7 +47,7 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	// Build arguments and custom Dockerfile paths affect publication selection.
 	config.source = existing_config.source.clone();
 	config.pages = existing_config.pages.clone();
-	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config)?;
+	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config, args.force)?;
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
@@ -400,14 +400,17 @@ public = false
 	}
 
 	#[rstest]
-	#[case("dist", "/app/dist", false)]
-	#[case("${ASSET_ROOT:-fallback}", "/app/public/assets", false)]
-	#[case("dist", "/custom/assets", true)]
+	#[case("dist", "/custom/assets", false, false)]
+	#[case("${ASSET_ROOT:-fallback}", "/custom/assets", false, false)]
+	#[case("dist", "/custom/assets", true, true)]
+	#[case("dist", "/app/dist", false, true)]
+	#[case("${ASSET_ROOT:-fallback}", "/app/public/assets", false, true)]
 	#[tokio::test]
 	async fn execute_preserves_publication_contract(
 		#[case] root: &str,
 		#[case] expected: &str,
 		#[case] custom: bool,
+		#[case] force: bool,
 	) {
 		// Arrange
 		let dir = tempfile::tempdir().unwrap();
@@ -420,6 +423,27 @@ version="0.1.0"
 edition="2024"
 [dependencies]
 reinhardt-web={version="0.4.0-alpha.20",features=["pages"]}
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			"[toolchain]\nchannel='1.96.0'",
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name="pages-app"
+version="0.1.0"
+dependencies=["reinhardt-commands", "wasm-bindgen"]
+[[package]]
+name="reinhardt-commands"
+version="0.4.0-alpha.20"
+[[package]]
+name="wasm-bindgen"
+version="0.2.114"
 "#,
 		)
 		.unwrap();
@@ -459,7 +483,7 @@ brotli=false
 		// Act
 		execute(&SyncArgs {
 			dir: Some(dir.path().to_path_buf()),
-			force: false,
+			force,
 		})
 		.await
 		.unwrap();
