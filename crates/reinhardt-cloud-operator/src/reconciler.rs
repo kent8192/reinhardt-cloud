@@ -654,17 +654,9 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		MigrationGateState::Running | MigrationGateState::Failed
 	) {
 		let ready_replicas = observed_ready_replicas(&deployments, &name).await?;
-		update_status(
-			&app,
-			ctx,
-			namespace,
-			false,
-			ready_replicas,
-			migration_state,
-			Vec::new(),
-			redis_credentials_secret_uid,
-		)
-		.await?;
+		let mut status = build_status(&app, false, ready_replicas, migration_state, Vec::new());
+		status.redis_credentials_secret_uid = redis_credentials_secret_uid;
+		update_status(&app, ctx, namespace, status).await?;
 		update_replica_gauges(
 			ctx,
 			namespace,
@@ -854,17 +846,15 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	// Update status sub-resource
-	update_status(
+	let mut status = build_status(
 		&app,
-		ctx,
-		namespace,
 		ready,
 		ready_replicas,
 		migration_state,
 		child_conditions,
-		redis_credentials_secret_uid,
-	)
-	.await?;
+	);
+	status.redis_credentials_secret_uid = redis_credentials_secret_uid;
+	update_status(&app, ctx, namespace, status).await?;
 	if previews_enabled {
 		reconcile_preview_status(&app, &ctx.client, namespace, &preview_namespace).await?;
 	}
@@ -945,6 +935,8 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 
 	match app.spec.deletion_policy {
 		DeletionPolicy::Retain => {
+			let secret_api: Api<Secret> = Api::namespaced(ctx.client.clone(), namespace);
+			retain_redis_credentials_secret(&secret_api, &app, &name).await?;
 			// Deployment and Service are cleaned up via ownerReferences GC.
 			// Secrets and StatefulSets are retained for manual cleanup.
 			info!(
@@ -1658,6 +1650,12 @@ async fn reconcile_redis_credentials_secret(
 		.map_err(Error::Kube)?
 	{
 		if redis_credentials_secret_is_managed_by_project(&existing.metadata, app) {
+			detach_redis_project_owner_references(&secret_api, app, &existing).await?;
+			if existing.immutable != Some(true) {
+				return Err(Error::SecretGeneration(format!(
+					"Redis credentials Secret {namespace}/{secret_name} is mutable; a platform administrator must verify and freeze it before adoption"
+				)));
+			}
 			info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
 			return existing.metadata.uid.clone().ok_or_else(|| {
 				Error::SecretGeneration("Redis credentials Secret has no UID".to_string())
@@ -1693,7 +1691,69 @@ async fn reconcile_redis_credentials_secret(
 }
 
 fn build_managed_redis_credentials_secret(app: &Project, namespace: &str) -> Secret {
-	build_redis_credentials_secret(&app.name_any(), namespace)
+	let mut secret = build_redis_credentials_secret(&app.name_any(), namespace);
+	secret.immutable = Some(true);
+	secret
+}
+
+/// Removes only this Project's legacy GC references from a status-approved Secret.
+async fn detach_redis_project_owner_references(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	secret: &Secret,
+) -> Result<(), Error> {
+	if !redis_credentials_secret_is_managed_by_project(&secret.metadata, app) {
+		return Ok(());
+	}
+	let Some(project_uid) = app.metadata.uid.as_deref() else {
+		return Ok(());
+	};
+	let owners = secret
+		.metadata
+		.owner_references
+		.as_deref()
+		.unwrap_or_default();
+	let retained: Vec<_> = owners
+		.iter()
+		.filter(|owner| owner.uid != project_uid)
+		.collect();
+	if retained.len() == owners.len() {
+		return Ok(());
+	}
+	let resource_version = secret.metadata.resource_version.as_deref().ok_or_else(|| {
+		Error::SecretGeneration("Redis credentials Secret has no resourceVersion".to_string())
+	})?;
+	let patch = serde_json::json!({
+		"metadata": {
+			"uid": secret.metadata.uid,
+			"resourceVersion": resource_version,
+			"ownerReferences": retained,
+		}
+	});
+	secret_api
+		.patch(
+			&secret.name_any(),
+			&PatchParams::default(),
+			&Patch::Merge(&patch),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	Ok(())
+}
+
+async fn retain_redis_credentials_secret(
+	secret_api: &Api<Secret>,
+	app: &Project,
+	name: &str,
+) -> Result<(), Error> {
+	if let Some(existing) = secret_api
+		.get_opt(&format!("{name}-redis-credentials"))
+		.await
+		.map_err(Error::Kube)?
+	{
+		detach_redis_project_owner_references(secret_api, app, &existing).await?;
+	}
+	Ok(())
 }
 
 fn redis_credentials_secret_is_managed_by_project(metadata: &ObjectMeta, app: &Project) -> bool {
@@ -2854,21 +2914,9 @@ async fn update_status(
 	app: &Project,
 	ctx: &Context,
 	namespace: &str,
-	ready: bool,
-	ready_replicas: i32,
-	migration_state: MigrationGateState,
-	child_conditions: Vec<ProjectCondition>,
-	redis_credentials_secret_uid: Option<String>,
+	typed_status: ProjectStatus,
 ) -> Result<(), Error> {
 	let api: Api<Project> = Api::namespaced(ctx.client.clone(), namespace);
-	let mut typed_status = build_status(
-		app,
-		ready,
-		ready_replicas,
-		migration_state,
-		child_conditions,
-	);
-	typed_status.redis_credentials_secret_uid = redis_credentials_secret_uid;
 
 	let phase_label_for_gauge = typed_status.phase.as_ref().map(phase_label);
 	let status = serde_json::json!({ "status": typed_status });
@@ -3295,6 +3343,151 @@ mod tests {
 	}
 
 	#[rstest]
+	#[case(true, true, true, true)]
+	#[case(true, true, false, true)]
+	#[case(true, false, false, false)]
+	#[case(false, true, true, false)]
+	#[tokio::test]
+	async fn redis_reconciliation_requires_immutable_provenance_and_detaches_legacy_owner(
+		#[case] trusted_uid: bool,
+		#[case] immutable: bool,
+		#[case] project_owner: bool,
+		#[case] expected_success: bool,
+	) {
+		// Arrange
+		use http_body_util::BodyExt;
+		use std::sync::Mutex;
+		let mut app = make_test_app("payments");
+		app.status = Some(ProjectStatus {
+			redis_credentials_secret_uid: trusted_uid.then(|| "secret-uid".to_string()),
+			..Default::default()
+		});
+		let mut secret = build_managed_redis_credentials_secret(&app, "default");
+		secret.metadata.uid = Some("secret-uid".to_string());
+		secret.metadata.resource_version = Some("17".to_string());
+		secret.immutable = Some(immutable);
+		let mut unrelated_owner = crate::resources::labels::owner_reference(&app).unwrap();
+		unrelated_owner.uid = "unrelated-owner-uid".to_string();
+		unrelated_owner.name = "other".to_string();
+		unrelated_owner.controller = Some(false);
+		let mut owners = vec![unrelated_owner.clone()];
+		if project_owner {
+			owners.push(crate::resources::labels::owner_reference(&app).unwrap());
+		}
+		secret.metadata.owner_references = Some(owners);
+		let reply = serde_json::to_vec(&secret).unwrap();
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let captured = Arc::clone(&requests);
+		let service = tower::service_fn(move |request: http::Request<kube::client::Body>| {
+			let reply = reply.clone();
+			let captured = Arc::clone(&captured);
+			async move {
+				let (parts, body) = request.into_parts();
+				let bytes = body.collect().await.unwrap().to_bytes();
+				let body = if bytes.is_empty() {
+					serde_json::Value::Null
+				} else {
+					serde_json::from_slice(&bytes).unwrap()
+				};
+				captured
+					.lock()
+					.unwrap()
+					.push((parts.method, parts.uri.path().to_string(), body));
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(reply))
+						.unwrap(),
+				)
+			}
+		});
+		let client = Client::new(service, "default");
+
+		// Act
+		let result = reconcile_redis_credentials_secret(&app, &client, "default").await;
+
+		// Assert
+		assert_eq!(result.is_ok(), expected_success, "{result:?}");
+		if expected_success {
+			assert_eq!(result.unwrap(), "secret-uid");
+		}
+		let recorded = requests.lock().unwrap();
+		assert_eq!(recorded[0].0, http::Method::GET);
+		assert_eq!(
+			recorded[0].1,
+			"/api/v1/namespaces/default/secrets/payments-redis-credentials"
+		);
+		if trusted_uid && project_owner {
+			assert_eq!(recorded.len(), 2);
+			assert_eq!(recorded[1].0, http::Method::PATCH);
+			assert_eq!(
+				recorded[1].2,
+				serde_json::json!({
+					"metadata": {
+						"uid": "secret-uid", "resourceVersion": "17",
+						"ownerReferences": [unrelated_owner]
+					}
+				})
+			);
+		} else {
+			assert_eq!(recorded.len(), 1);
+		}
+	}
+
+	#[rstest]
+	#[case(true, true, 2)]
+	#[case(true, false, 1)]
+	#[case(false, true, 1)]
+	#[tokio::test]
+	async fn redis_retention_detaches_only_status_approved_legacy_secrets(
+		#[case] trusted_uid: bool,
+		#[case] project_owner: bool,
+		#[case] expected_requests: usize,
+	) {
+		// Arrange
+		let mut app = make_test_app("payments");
+		app.status = Some(ProjectStatus {
+			redis_credentials_secret_uid: trusted_uid.then(|| "secret-uid".to_string()),
+			..Default::default()
+		});
+		let mut secret = build_managed_redis_credentials_secret(&app, "default");
+		secret.metadata.uid = Some("secret-uid".to_string());
+		secret.metadata.resource_version = Some("17".to_string());
+		if project_owner {
+			secret.metadata.owner_references = Some(vec![
+				crate::resources::labels::owner_reference(&app).unwrap(),
+			]);
+		}
+		let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+		let observed = Arc::clone(&count);
+		let reply = serde_json::to_vec(&secret).unwrap();
+		let service = tower::service_fn(move |_: http::Request<kube::client::Body>| {
+			observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+			let reply = reply.clone();
+			async move {
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(200)
+						.body(kube::client::Body::from(reply))
+						.unwrap(),
+				)
+			}
+		});
+		let api: Api<Secret> = Api::namespaced(Client::new(service, "default"), "default");
+
+		// Act
+		retain_redis_credentials_secret(&api, &app, "payments")
+			.await
+			.unwrap();
+
+		// Assert
+		assert_eq!(
+			count.load(std::sync::atomic::Ordering::SeqCst),
+			expected_requests
+		);
+	}
+
+	#[rstest]
 	fn build_managed_redis_credentials_secret_has_no_owner_reference() {
 		// Arrange
 		let app = make_test_app("payments");
@@ -3308,6 +3501,7 @@ mod tests {
 			Some("payments-redis-credentials")
 		);
 		assert!(secret.metadata.owner_references.is_none());
+		assert_eq!(secret.immutable, Some(true));
 		let labels = secret.metadata.labels.expect("standard labels");
 		assert_eq!(
 			labels.get("app.kubernetes.io/name").map(String::as_str),

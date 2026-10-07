@@ -1014,22 +1014,37 @@ the reconciler as Kubernetes `Secret` objects within the application's namespace
 written to disk on the operator node. Redis credential Secrets intentionally do not use a
 controller owner reference: `deletion_policy: Retain` keeps them safe from garbage collection.
 The operator records the API-assigned Secret UID in `status.redisCredentialsSecretUid` and accepts
-only that UID as provenance; labels and owner references alone are not trusted. With
+only that UID as provenance; labels and owner references alone are not trusted. Newly created
+Redis credential Secrets are immutable, and reconciliation refuses a mutable adopted Secret.
+For a status-approved legacy Secret, the operator removes this Project's owner references using
+the observed resourceVersion, both during reconciliation and before Retain finalization. Other
+owners are preserved, and the patch does not modify credential data. With
 `deletion_policy: Delete`, the operator deletes the Secret only when its UID matches the recorded
 status value.
 
 Before upgrading from a release that used labels or owner references as Redis Secret ownership,
 or before recreating a Project whose retained Secret should be reused, a platform administrator
-must explicitly adopt the existing Secret through the protected status subresource:
+must first independently verify the retained password against the running Redis instance,
+freeze the exact inspected Secret using its resourceVersion, and then explicitly adopt its UID
+through the protected status subresource. Freezing an unchecked value is not provenance.
+The following commands illustrate the operation; execute them only after that verification:
 
 ```bash
 SECRET_UID="$(kubectl get secret <project>-redis-credentials -n <namespace> -o jsonpath='{.metadata.uid}')"
+SECRET_RV="$(kubectl get secret <project>-redis-credentials -n <namespace> -o jsonpath='{.metadata.resourceVersion}')"
+kubectl patch secret <project>-redis-credentials -n <namespace> --type=merge \
+  -p "{\"metadata\":{\"uid\":\"${SECRET_UID}\",\"resourceVersion\":\"${SECRET_RV}\"},\"immutable\":true}"
 kubectl patch project <project> -n <namespace> --subresource=status --type=merge \
   -p "{\"status\":{\"redisCredentialsSecretUid\":\"${SECRET_UID}\"}}"
 ```
 
 Tenant users must not be granted `projects/status` write permission; the UID adoption step is a
-trusted migration decision by the platform administrator.
+trusted migration decision by the platform administrator. If the operator stops after Secret
+creation but before the status UID patch succeeds, it deliberately refuses automatic adoption
+on restart. Labels, owner references, and tenant-readable metadata cannot distinguish that Secret
+from a tenant-created replacement. Recovery currently requires the same independently verified
+administrator adoption; automatic crash recovery needs a protected provenance record and is not
+implemented by this UID-only design.
 
 ---
 
