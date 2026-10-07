@@ -96,6 +96,21 @@ pub(crate) fn should_skip_dockerfile(
 	SkipReason::None
 }
 
+/// Keep the deployment sidecar's root consistent with the generated publication.
+pub(crate) fn configure_pages(
+	project_dir: &Path,
+	metadata: &crate::feature_detector::ProjectMetadata,
+	config: &mut ReinhardtCloudToml,
+) -> Result<(), String> {
+	if metadata.signals.pages
+		&& should_skip_dockerfile(project_dir, config, true) != SkipReason::CustomDockerfile
+	{
+		let root = static_root_reader::read_static_root(project_dir, config)?;
+		config.pages.get_or_insert_default().static_root = Some(root.runtime_path());
+	}
+	Ok(())
+}
+
 /// Collect all signals needed for Dockerfile generation.
 pub(crate) fn collect_signals(
 	project_dir: &Path,

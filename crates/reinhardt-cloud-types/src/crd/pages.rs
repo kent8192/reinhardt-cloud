@@ -12,7 +12,7 @@ use crate::validation::ValidationError;
 /// Presence of `Some(PagesSpec)` in `ProjectSpec.pages` implicitly enables
 /// pages deployment. There is no separate `enabled` field --- use `None` to disable.
 /// This matches the pattern of `DatabaseSpec`, `CacheSpec`, etc.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Default)]
 pub struct PagesSpec {
 	/// Path inside the container where collectstatic outputs files.
 	/// Defaults to `/app/staticfiles` (standard STATIC_ROOT).

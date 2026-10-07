@@ -233,6 +233,11 @@ pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
 		.static_root
 		.as_ref()
 		.expect("static root is required for Pages");
+	let ephemeral_env = root
+		.build_env
+		.iter()
+		.map(|name| format!("{name}=\"$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\" "))
+		.collect::<String>();
 	let mut instructions = vec![];
 	if let Some(binding) = &root.env_binding {
 		instructions.push(Instruction::Env(vec![binding.clone()]));
@@ -246,7 +251,7 @@ pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
 		Instruction::Workdir(workdir),
 		Instruction::Env(vec![("REINHARDT_ENV".to_owned(), "production".to_owned())]),
 		Instruction::Run(format!(
-			"/app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry {project_name_underscored}.js --pages-document index.html"
+			"{ephemeral_env}/app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry {project_name_underscored}.js --pages-document index.html"
 		)),
 	]);
 	Stage {
@@ -408,6 +413,48 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 mod tests {
 	use super::*;
 	use rstest::*;
+
+	#[rstest]
+	fn asset_build_scopes_ephemeral_values_to_publication(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.pages = true;
+		let mut root = StaticRoot::relative("dist");
+		root.build_env = vec!["SECRET".to_owned(), "DB_PASSWORD".to_owned()];
+		minimal_signals.static_root = Some(root);
+		// Act
+		let assets = build_assets_stage(&minimal_signals);
+		let runtime = build_runtime_stage(&minimal_signals);
+		// Assert
+		let command = assets
+			.instructions
+			.iter()
+			.find_map(|instruction| match instruction {
+				Instruction::Run(command) => Some(command),
+				_ => None,
+			})
+			.unwrap();
+		assert!(command.starts_with(
+			"SECRET=\"$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\" DB_PASSWORD="
+		));
+		assert!(command.contains("/app/target/release/manage buildstatic"));
+		for stage in [&assets, &runtime] {
+			assert!(stage.instructions.iter().all(|instruction| {
+				match instruction {
+					Instruction::Env(values) => values
+						.iter()
+						.all(|(name, _)| name != "SECRET" && name != "DB_PASSWORD"),
+					Instruction::Arg { name, .. } => name != "SECRET" && name != "DB_PASSWORD",
+					_ => true,
+				}
+			}));
+		}
+		assert!(stage_contains_copy(
+			&runtime,
+			"assets",
+			"/app/dist",
+			"/app/dist"
+		));
+	}
 
 	#[fixture]
 	fn minimal_signals() -> DockerfileSignals {

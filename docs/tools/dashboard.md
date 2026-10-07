@@ -68,7 +68,7 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The v0.4.0-alpha.14 WASM client (`dashboard/src/client/router.rs`) defines one
+The v0.4.0-alpha.20 WASM client (`dashboard/src/client/router.rs`) defines one
 `ClientRouter` tree. `/login` and `/register` are public root routes. The
 authenticated `#[layout]` Dashboard shell renders `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` as child routes through `Outlet`. The HTTP server
@@ -208,6 +208,16 @@ The image also:
 4. Exposes port 8000 for the HTTP API
 
 The dashboard image pins Reinhardt `0.4.0-alpha.20` for `manage buildstatic`.
+Generated Pages Dockerfiles supply random, command-scoped values for required
+TOML environment references during asset publication. These values are not
+deployment credentials and are not persisted as runtime `ENV` or build arguments.
+Settings that require typed values or external services need a custom Dockerfile.
+
+`init` and `sync` record the selected container path in `[pages].static_root`,
+and deployment preserves it in `Project.spec.pages.static_root`. This keeps
+the Pages sidecar aligned with the runtime copy, including non-default roots.
+`sync` preserves existing Pages options and source build arguments; a custom
+Dockerfile retains its explicit `[pages]` settings.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses
@@ -243,9 +253,9 @@ for release scope and application changes.
 
 > **Breaking v0.4.0-alpha.11 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
 
-### v0.4.0-alpha.14 PR review checklist
+### v0.4.0-alpha.20 PR review checklist
 
-- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.14`. The official, transitive `reinhardt-event-catalog 0.4.0-alpha.1` remains the published framework's lockfile exception. Use Rust 1.96.0 from `rust-toolchain.toml` and pin `reinhardt-admin-cli` and `reinhardt-formatter` to `0.4.0-alpha.14`. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
+- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.20`. The official, transitive `reinhardt-event-catalog 0.4.0-alpha.1` remains the published framework's lockfile exception. Use Rust 1.96.0 from `rust-toolchain.toml` and pin `reinhardt-admin-cli` and `reinhardt-formatter` to `0.4.0-alpha.20`. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
 - **Configuration, architecture, migration** (`configuration`, `architecture`, `migration`): verify the single client route tree, server configuration boundaries, generated migration history, and the empty-PostgreSQL-only upgrade contract.
 - **Pages, macros, signals** (`pages`, `macros`, `signals`): verify public versus authenticated layout placement, `Outlet` nesting, typed event handlers, and reactive query/form state.
 - **API, auth, authorization, dependency injection, modeling, admin** (`api-development`, `authentication`, `authorization`, `dependency-injection`, `modeling`, `admin`): verify server-function input ownership, session revalidation, organization scoping, injected services, database constraints, and admin registrations.
@@ -253,7 +263,7 @@ for release scope and application changes.
 
 ### Component styles and stylesheet extraction
 
-The v0.4.0-alpha.14 Dashboard follows the Reinhardt Pages Project Template for
+The v0.4.0-alpha.20 Dashboard follows the Reinhardt Pages Project Template for
 component styles. Each application owns `dashboard/src/apps/<app>/client/style.rs`
 and exports it from its `client.rs` with `pub mod style;`. Shared primitives
 that are intentionally cross-app belong in `dashboard/src/shared/client/style.rs`.

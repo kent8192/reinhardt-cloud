@@ -44,6 +44,10 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 		existing_config.infrastructure.as_ref(),
 	)?;
 	merge_existing_infrastructure(&existing_config, &mut config)?;
+	// Build arguments and custom Dockerfile paths affect publication selection.
+	config.source = existing_config.source.clone();
+	config.pages = existing_config.pages.clone();
+	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config)?;
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
@@ -392,6 +396,86 @@ public = false
 		assert!(
 			error.contains("infrastructure.buckets[].name must contain only"),
 			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
+	#[case("dist", "/app/dist", false)]
+	#[case("${ASSET_ROOT:-fallback}", "/app/public/assets", false)]
+	#[case("dist", "/custom/assets", true)]
+	#[tokio::test]
+	async fn execute_preserves_publication_contract(
+		#[case] root: &str,
+		#[case] expected: &str,
+		#[case] custom: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name="pages-app"
+version="0.1.0"
+edition="2024"
+[dependencies]
+reinhardt-web={version="0.4.0-alpha.20",features=["pages"]}
+"#,
+		)
+		.unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot={root:?}"),
+		)
+		.unwrap();
+		let dockerfile = if custom {
+			"custom.Dockerfile"
+		} else {
+			"Dockerfile"
+		};
+		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n").unwrap();
+		std::fs::write(
+			dir.path().join("reinhardt-cloud.toml"),
+			format!(
+				r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[source]
+repository="https://example.com/pages-app.git"
+[source.build]
+dockerfile="{dockerfile}"
+[source.build.build_args]
+ASSET_ROOT="public/assets"
+[pages]
+static_root="/custom/assets"
+cache_max_age=60
+brotli=false
+"#
+			),
+		)
+		.unwrap();
+		// Act
+		execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: false,
+		})
+		.await
+		.unwrap();
+		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml")).unwrap();
+		let config: ReinhardtCloudToml = toml::from_str(&written).unwrap();
+		let spec = config.to_project_spec();
+		// Assert
+		let pages = spec.pages.unwrap();
+		assert_eq!(pages.static_root.as_deref(), Some(expected));
+		assert_eq!(pages.cache_max_age, Some(60));
+		assert_eq!(pages.brotli, Some(false));
+		let build = config.source.unwrap().build.unwrap();
+		assert_eq!(build.dockerfile.as_deref(), Some(dockerfile));
+		assert_eq!(
+			build.build_args.get("ASSET_ROOT").map(String::as_str),
+			Some("public/assets")
 		);
 	}
 }

@@ -1668,4 +1668,39 @@ features:
 		// Assert
 		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
 	}
+
+	#[rstest]
+	fn deployment_manifest_preserves_publication_root() {
+		// Arrange
+		let config: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[pages]
+static_root="/app/dist"
+"#,
+		)
+		.unwrap();
+		// Act
+		let spec = build_project_spec(
+			Some(&config),
+			"pages-app",
+			"pages-app:v1".to_owned(),
+			1,
+			None,
+		)
+		.unwrap();
+		let crd = build_project_crd(
+			"pages-app",
+			"tenant",
+			&spec,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
+		// Assert
+		assert_eq!(
+			crd["spec"]["pages"]["static_root"].as_str(),
+			Some("/app/dist")
+		);
+	}
 }

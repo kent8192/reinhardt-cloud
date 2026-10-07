@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::crd::InfrastructureSpec;
 use crate::crd::{
 	AuthSpec, BuildSpec as CrdBuildSpec, CacheBackend, CacheSpec, DatabaseEngine, DatabaseSpec,
-	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PreviewBudget, PreviewOverrides,
+	DeletionPolicy, GitProvider, HealthSpec, MailSpec, PagesSpec, PreviewBudget, PreviewOverrides,
 	PreviewSpec, ProjectSpec, ScaleMetric, ScaleSpec, ServiceTlsSpec, ServicesSpec, SourceSpec,
 	StorageBackend, StorageSpec, WebhookEvent, WebhookSpec, WorkerSpec,
 };
@@ -56,6 +56,9 @@ pub struct ReinhardtCloudToml {
 	/// Git source and CI/CD pipeline configuration
 	#[serde(default)]
 	pub source: Option<SourceSection>,
+	/// Static publication configuration passed to the Pages sidecar.
+	#[serde(default)]
+	pub pages: Option<PagesSpec>,
 	/// Environment variables as key-value pairs
 	#[serde(default)]
 	pub env: BTreeMap<String, String>,
@@ -361,7 +364,7 @@ impl ReinhardtCloudToml {
 				smtp_port: m.smtp_port,
 				credentials_secret: None,
 			}),
-			pages: None,
+			pages: self.pages.clone(),
 			deletion_policy: DeletionPolicy::default(),
 			features: Vec::new(),
 			introspect: None,
@@ -989,5 +992,33 @@ public = false
 		let spec = config.to_project_spec();
 		// Assert
 		assert!(spec.source.is_none());
+	}
+
+	#[rstest]
+	fn pages_survives_toml_roundtrip_and_project_conversion() {
+		// Arrange
+		let config: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[pages]
+static_root="/app/dist"
+static_url="/assets/"
+cache_max_age=300
+brotli=false
+"#,
+		)
+		.unwrap();
+		// Act
+		let encoded = toml::to_string(&config).unwrap();
+		let decoded: ReinhardtCloudToml = toml::from_str(&encoded).unwrap();
+		let spec = decoded.to_project_spec();
+		// Assert
+		assert_eq!(spec.pages, config.pages);
+		assert_eq!(
+			spec.pages.unwrap().static_root.as_deref(),
+			Some("/app/dist")
+		);
 	}
 }
