@@ -4,6 +4,7 @@ mod cargo_lock_reader;
 mod dockerfile;
 mod rust_toolchain_reader;
 mod stages;
+mod static_root_reader;
 
 use std::path::{Path, PathBuf};
 
@@ -147,6 +148,17 @@ pub(crate) fn collect_signals(
 		None
 	};
 
+	// Publication must use an available command and the declared production root.
+	let static_root = if signals.pages {
+		cargo_lock_reader::require_buildstatic(cargo_lock_content.as_deref())?;
+		Some(static_root_reader::read_static_root(
+			project_dir,
+			toml_config,
+		)?)
+	} else {
+		None
+	};
+
 	// protoc requirement: detected from Cargo.lock so that transitive
 	// prost/tonic dependencies (e.g., reinhardt-cloud-grpc pulling in
 	// tonic-build) trigger installation even when the consumer crate does
@@ -182,6 +194,7 @@ pub(crate) fn collect_signals(
 		grpc: signals.grpc,
 		graphql: signals.graphql,
 		wasm_bindgen_version,
+		static_root,
 		database: signals.database.clone(),
 		cache: signals.cache.clone(),
 		session_backend: None, // Only available via introspect at deploy time
@@ -258,6 +271,7 @@ mod tests {
 			grpc: false,
 			graphql: false,
 			wasm_bindgen_version: None,
+			static_root: Some(static_root_reader::StaticRoot::relative("static")),
 			database: None,
 			cache: None,
 			session_backend: None,

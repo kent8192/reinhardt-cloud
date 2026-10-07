@@ -30,6 +30,7 @@ RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown
 FROM builder AS assets
 COPY --from=wasm /wasm-dist /build/wasm-dist
 WORKDIR /app
+ENV REINHARDT_ENV=production
 RUN /app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry my_app.js --pages-document index.html
 
 FROM debian:bookworm-slim AS runtime

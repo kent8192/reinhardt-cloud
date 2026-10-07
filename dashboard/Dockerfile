@@ -18,15 +18,6 @@ COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release -p reinhardt-cloud-dashboard
-# Collection reads settings but does not connect to PostgreSQL or Redis.
-# These ephemeral values are scoped to this build command, never the runtime.
-RUN cd /app/dashboard && \
-    build_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" && \
-    REINHARDT_ENV=ci \
-    REINHARDT_CORE__SECRET_KEY="$build_secret" \
-    REINHARDT_CLOUD_JWT_SECRET="$build_secret" \
-    REINHARDT_DATABASE_PASSWORD="$build_secret" \
-    /app/target/release/manage collectstatic --no-input --package reinhardt-cloud-dashboard --all-features
 
 FROM rust:1.96.0-bookworm AS wasm
 RUN rustup target add wasm32-unknown-unknown
@@ -40,10 +31,17 @@ RUN wasm-bindgen --out-dir /wasm-dist --target web \
 FROM builder AS assets
 COPY --from=wasm /wasm-dist /build/wasm-dist
 WORKDIR /app/dashboard
-RUN /app/target/release/manage buildstatic \
+# buildstatic uses the same full settings loader as collectstatic.
+RUN build_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" && \
+    REINHARDT_ENV=ci \
+    REINHARDT_CORE__SECRET_KEY="$build_secret" \
+    REINHARDT_CLOUD_JWT_SECRET="$build_secret" \
+    REINHARDT_DATABASE_PASSWORD="$build_secret" \
+    /app/target/release/manage buildstatic \
     --pages-dir /build/wasm-dist \
     --pages-entry reinhardt_cloud_dashboard.js \
-    --pages-document index.html
+    --pages-document index.html \
+    --package reinhardt-cloud-dashboard --all-features
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \

@@ -235,7 +235,7 @@ mod tests {
 			Some(user_id)
 		);
 		assert_eq!(completed.callback.claims.unwrap().sub, "42");
-		assert_eq!(matches!(replay, Err(SocialAuthError::InvalidState)), true);
+		assert!(matches!(replay, Err(SocialAuthError::InvalidState)));
 		provider.verify().await;
 	}
 

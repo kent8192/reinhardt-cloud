@@ -1257,7 +1257,7 @@ mod tests {
 				outcome,
 				reinhardt::pages::prelude::MutationDispatchOutcome::UnsupportedTarget
 			);
-			assert_eq!(mutation.is_pending(), false);
+			assert!(!mutation.is_pending());
 			assert_eq!(mutation.result(), None);
 			assert_eq!(mutation.error(), None);
 			assert_eq!(callbacks.get(), 0);

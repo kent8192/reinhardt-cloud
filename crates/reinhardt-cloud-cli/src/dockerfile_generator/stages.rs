@@ -1,4 +1,5 @@
 use super::dockerfile::{Instruction, Stage};
+use super::static_root_reader::StaticRoot;
 
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
@@ -9,6 +10,7 @@ pub(crate) struct DockerfileSignals {
 	pub(crate) grpc: bool,
 	pub(crate) graphql: bool,
 	pub(crate) wasm_bindgen_version: Option<String>,
+	pub(crate) static_root: Option<StaticRoot>,
 	pub(crate) database: Option<String>,
 	pub(crate) cache: Option<String>,
 	pub(crate) session_backend: Option<String>,
@@ -227,22 +229,31 @@ pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
 		.map_or_else(|| "/app".to_string(), |rel| format!("/app/{rel}"));
 	let project_name_underscored = signals.project_name.replace('-', "_");
 
+	let root = signals
+		.static_root
+		.as_ref()
+		.expect("static root is required for Pages");
+	let mut instructions = vec![];
+	if let Some(binding) = &root.env_binding {
+		instructions.push(Instruction::Env(vec![binding.clone()]));
+	}
+	instructions.extend([
+		Instruction::Copy {
+			from: Some("wasm".to_owned()),
+			src: "/wasm-dist".to_owned(),
+			dst: "/build/wasm-dist".to_owned(),
+		},
+		Instruction::Workdir(workdir),
+		Instruction::Env(vec![("REINHARDT_ENV".to_owned(), "production".to_owned())]),
+		Instruction::Run(format!(
+			"/app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry {project_name_underscored}.js --pages-document index.html"
+		)),
+	]);
 	Stage {
 		base_image: "builder".to_string(),
 		name: Some("assets".to_string()),
 		platform: None,
-		instructions: vec![
-			Instruction::Copy {
-				from: Some("wasm".to_string()),
-				src: "/wasm-dist".to_string(),
-				dst: "/build/wasm-dist".to_string(),
-			},
-			Instruction::Workdir(workdir),
-			Instruction::Run(format!(
-				"/app/target/release/manage buildstatic --pages-dir /build/wasm-dist \
-                 --pages-entry {project_name_underscored}.js --pages-document index.html"
-			)),
-		],
+		instructions,
 	}
 }
 
@@ -292,14 +303,15 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	}
 
 	if signals.pages {
-		let static_source = signals.project_relative_path.as_deref().map_or_else(
-			|| "/app/static".to_string(),
-			|rel| format!("/app/{rel}/static"),
-		);
+		let root = signals
+			.static_root
+			.as_ref()
+			.expect("static root is required for Pages");
+		let static_source = root.build_path(signals.project_relative_path.as_deref());
 		instructions.push(Instruction::Copy {
-			from: Some("assets".to_string()),
+			from: Some("assets".to_owned()),
 			src: static_source,
-			dst: "/app/static".to_string(),
+			dst: root.runtime_path(),
 		});
 	}
 
@@ -333,6 +345,14 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		("PATH".to_string(), "/app:$PATH".to_string()),
 		("REINHARDT_ENV".to_string(), "production".to_string()),
 	];
+	if signals.pages
+		&& let Some(binding) = signals
+			.static_root
+			.as_ref()
+			.and_then(|root| root.env_binding.clone())
+	{
+		env_pairs.push(binding);
+	}
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
 	}
@@ -398,6 +418,7 @@ mod tests {
 			grpc: false,
 			graphql: false,
 			wasm_bindgen_version: None,
+			static_root: Some(StaticRoot::relative("static")),
 			database: None,
 			cache: None,
 			session_backend: None,

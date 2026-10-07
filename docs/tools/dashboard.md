@@ -207,6 +207,13 @@ The image also:
 3. Sets `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` and defaults `REINHARDT_ENV=production` so direct container launches use the hardened production profile unless operators explicitly override the profile
 4. Exposes port 8000 for the HTTP API
 
+The dashboard image pins Reinhardt `0.4.0-alpha.20` for `manage buildstatic`.
+Its asset stage publishes Pages, the entry document, and generated component
+styles together. Build-only random settings values are supplied in that stage;
+production credentials are supplied at deployment time. The asset stage uses
+the CI profile's inherited `static` output root and copies only that publication
+to the runtime image. A separate legacy `collectstatic` publication is not needed.
+
 ### Database requirements
 
 - **ORM**: reinhardt::db (built-in ORM from the `reinhardt` crate)

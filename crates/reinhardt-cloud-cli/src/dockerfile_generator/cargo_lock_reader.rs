@@ -86,10 +86,57 @@ pub(super) fn detect_protoc_requirement(cargo_lock_content: &str) -> bool {
 	false
 }
 
+/// Reject generated Pages images when the resolved framework lacks buildstatic.
+pub(super) fn require_buildstatic(content: Option<&str>) -> Result<(), String> {
+	let content = content.ok_or(
+		"Pages Dockerfile generation requires Cargo.lock with reinhardt-commands >=0.4.0-alpha.20",
+	)?;
+	let parsed: toml::Value =
+		toml::from_str(content).map_err(|error| format!("failed to parse Cargo.lock: {error}"))?;
+	let versions: Vec<_> = parsed
+		.get("package")
+		.and_then(toml::Value::as_array)
+		.into_iter()
+		.flatten()
+		.filter(|package| {
+			package.get("name").and_then(toml::Value::as_str) == Some("reinhardt-commands")
+		})
+		.map(|package| {
+			package
+				.get("version")
+				.and_then(toml::Value::as_str)
+				.and_then(|version| semver::Version::parse(version).ok())
+		})
+		.collect();
+	let minimum =
+		semver::Version::parse("0.4.0-alpha.20").expect("valid minimum framework version");
+	if versions.len() != 1
+		|| versions[0]
+			.as_ref()
+			.is_none_or(|version| version < &minimum)
+	{
+		return Err("Pages buildstatic requires one resolved reinhardt-commands version >=0.4.0-alpha.20; update and lock the framework, or provide a custom Dockerfile".to_owned());
+	}
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use rstest::*;
+
+	#[rstest]
+	#[case("0.4.0-alpha.14", false)]
+	#[case("0.4.0-alpha.19", false)]
+	#[case("0.4.0-alpha.20", true)]
+	#[case("0.4.0", true)]
+	fn buildstatic_requires_a_capable_resolved_framework(
+		#[case] version: &str,
+		#[case] available: bool,
+	) {
+		let content = format!("[[package]]\nname='reinhardt-commands'\nversion='{version}'");
+		assert_eq!(require_buildstatic(Some(&content)).is_ok(), available);
+	}
 
 	// C1: Standard Cargo.lock with wasm-bindgen 0.2.100
 	#[rstest]
