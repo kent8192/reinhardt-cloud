@@ -18,6 +18,7 @@ pub mod unit {
 	pub mod test_user_model;
 }
 pub mod integration {
+	pub mod test_local_auth_service;
 	pub mod test_api_key_service;
 	pub mod test_api_token_middleware;
 	pub mod test_credential_service;

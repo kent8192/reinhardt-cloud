@@ -110,11 +110,11 @@ impl AuthService for LocalAuthService {
 
 	async fn get_user_info(&self, user_id: &str) -> Result<DomainUser, ApiError> {
 		// Validate UUID format
-		let _uid = Uuid::parse_str(user_id)
+		let uid = Uuid::parse_str(user_id)
 			.map_err(|e| ApiError::BadRequest(format!("Invalid user ID: {e}")))?;
 
 		let user = User::objects()
-			.filter(User::field_id().eq(user_id))
+			.filter(User::field_id().eq(uid))
 			.first()
 			.await
 			.map_err(|e| {
