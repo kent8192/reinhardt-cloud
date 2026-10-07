@@ -2026,10 +2026,18 @@ async fn patch_or_create_namespace(
 	{
 		Ok(_) => Ok(()),
 		Err(kube::Error::Api(status)) if status.code == 404 => {
-			namespaces
-				.create(&PostParams::default(), desired)
-				.await
-				.map_err(Error::Kube)?;
+			match namespaces.create(&PostParams::default(), desired).await {
+				Ok(_) => {}
+				Err(kube::Error::Api(status)) if status.code == 409 => {
+					// A sibling Project created the shared namespace after our 404.
+					// Merge its desired labels without claiming lifecycle ownership.
+					namespaces
+						.patch(name, &PatchParams::default(), &Patch::Merge(desired))
+						.await
+						.map_err(Error::Kube)?;
+				}
+				Err(error) => return Err(Error::Kube(error)),
+			}
 			Ok(())
 		}
 		Err(err) => Err(Error::Kube(err)),
@@ -3089,6 +3097,93 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 
 #[cfg(test)]
 mod tests {
+	#[rstest::rstest]
+	#[case(&[200], None, &["PATCH"])]
+	#[case(&[404, 201], None, &["PATCH", "POST"])]
+	#[case(&[404, 409, 200], None, &["PATCH", "POST", "PATCH"])]
+	#[case(&[404, 403], Some(403), &["PATCH", "POST"])]
+	#[case(&[404, 409, 403], Some(403), &["PATCH", "POST", "PATCH"])]
+	#[tokio::test]
+	async fn namespace_creation_handles_concurrent_creation(
+		#[case] response_codes: &[u16],
+		#[case] expected_error: Option<u16>,
+		#[case] expected_methods: &[&str],
+	) {
+		// Arrange
+		use http_body_util::BodyExt;
+		use std::collections::VecDeque;
+		use std::sync::Mutex;
+		let desired = Namespace {
+			metadata: ObjectMeta {
+				name: Some("tenant-acme".to_owned()),
+				labels: Some(BTreeMap::from([("tenant".to_owned(), "acme".to_owned())])),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let expected_body = serde_json::to_value(&desired).unwrap();
+		let codes = Arc::new(Mutex::new(VecDeque::from(response_codes.to_vec())));
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let recorded = Arc::clone(&requests);
+		let reply = expected_body.clone();
+		let service = tower::service_fn(move |request: http::Request<kube::client::Body>| {
+			let recorded = Arc::clone(&recorded);
+			let codes = Arc::clone(&codes);
+			let reply = reply.clone();
+			async move {
+				let (parts, body) = request.into_parts();
+				let body = body.collect().await.unwrap().to_bytes();
+				recorded.lock().unwrap().push((
+					parts.method.to_string(),
+					parts.uri.path().to_owned(),
+					serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+				));
+				let code = codes.lock().unwrap().pop_front().unwrap();
+				let body = if code < 400 {
+					reply
+				} else {
+					serde_json::json!({
+						"apiVersion": "v1", "kind": "Status", "status": "Failure",
+						"code": code, "reason": "test", "message": "test response"
+					})
+				};
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(code)
+						.body(kube::client::Body::from(serde_json::to_vec(&body).unwrap()))
+						.unwrap(),
+				)
+			}
+		});
+		let namespaces: Api<Namespace> = Api::all(Client::new(service, "default"));
+
+		// Act
+		let result = patch_or_create_namespace(&namespaces, "tenant-acme", &desired).await;
+		let outcome = match result {
+			Ok(()) => Ok(()),
+			Err(Error::Kube(kube::Error::Api(status))) => Err(status.code),
+			Err(error) => panic!("unexpected error: {error}"),
+		};
+
+		// Assert
+		assert_eq!(outcome, expected_error.map_or(Ok(()), Err));
+		let expected_requests: Vec<_> = expected_methods
+			.iter()
+			.map(|method| {
+				(
+					(*method).to_owned(),
+					if *method == "POST" {
+						"/api/v1/namespaces"
+					} else {
+						"/api/v1/namespaces/tenant-acme"
+					}
+					.to_owned(),
+					expected_body.clone(),
+				)
+			})
+			.collect();
+		assert_eq!(*requests.lock().unwrap(), expected_requests);
+	}
 	use super::*;
 	use crate::source_build::{BuildCompletion, BuildFailure};
 	use reinhardt_cloud_types::crd::database::{DatabaseEngine, DatabaseSpec};

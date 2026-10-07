@@ -912,7 +912,10 @@ values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
 workflow. The operator uses merge patches for namespace labels in this mode, so a missing namespace
-cannot be created by a patch request. The base rules (always present, regardless of platform or
+cannot be created by a patch request. If lifecycle creation is authorized and a sibling Project
+creates the namespace after an initial 404, the operator handles the create conflict by retrying
+the label merge patch. Permission errors from either operation still fail reconciliation.
+The base rules (always present, regardless of platform or
 features) are:
 
 | apiGroups | resources | verbs |
