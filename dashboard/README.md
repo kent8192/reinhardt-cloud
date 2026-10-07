@@ -108,7 +108,9 @@ Native integration tests start disposable PostgreSQL, load copied settings,
 apply all twelve migrations twice, and check the persisted ledger. HTTP tests
 exercise administrator bootstrap, CSRF and Origin rejection, organization
 isolation, live permission changes, expired and inactive sessions, and logout
-revocation. Containers, servers, connections, and settings directories are owned
+revocation. Explicit session-expiry fixtures use microsecond precision so they
+can be encoded as PostgreSQL timestamp parameters. Containers, servers,
+connections, and settings directories are owned
 by guards and dropped after testing. Operation tests cover concurrent replay,
 version conflicts, production grants, capability and replica admission, correlated
 receipt and result handling, uncertainty, and rollback when audit persistence fails.

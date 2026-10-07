@@ -2,6 +2,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use crate::fixture::CloudFixture;
+use chrono::SubsecRound;
 use cloud_dashboard::apps::identity::models::Session;
 use cloud_dashboard::apps::identity::models::UserAccount;
 use cloud_dashboard::apps::identity::persistence::token_hash;
@@ -259,14 +260,13 @@ async fn native_identity_reloads_membership_and_revokes_sessions() {
 		.update_fields_with_conn(&mut connection, [UserAccount::field_active().assign(true)])
 		.await
 		.unwrap();
+	// PostgreSQL timestamp parameters cannot represent sub-microsecond precision.
+	let now = chrono::Utc::now().trunc_subsecs(6);
 	Session::objects()
 		.filter(Session::field_id().eq(stored_sessions[0].id))
 		.update_fields_with_conn(
 			&mut connection,
-			[
-				Session::field_expires_at()
-					.assign(chrono::Utc::now() - chrono::Duration::seconds(1)),
-			],
+			[Session::field_expires_at().assign(now - chrono::Duration::seconds(1))],
 		)
 		.await
 		.unwrap();
@@ -275,10 +275,7 @@ async fn native_identity_reloads_membership_and_revokes_sessions() {
 		.filter(Session::field_id().eq(stored_sessions[0].id))
 		.update_fields_with_conn(
 			&mut connection,
-			[
-				Session::field_expires_at()
-					.assign(chrono::Utc::now() + chrono::Duration::hours(24)),
-			],
+			[Session::field_expires_at().assign(now + chrono::Duration::hours(24))],
 		)
 		.await
 		.unwrap();
