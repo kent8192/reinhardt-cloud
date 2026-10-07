@@ -1,15 +1,15 @@
 {
   "repo_notes": [
     {
-      "content": "Reinhardt Cloud is a Kubernetes-native PaaS for deploying Reinhardt web applications with zero infrastructure configuration. It follows a three-plane architecture: CLI Plane (reinhardt-cloud-cli analyzes Reinhardt projects and generates CRDs), Control Plane (dashboard REST API built on reinhardt-web for project management), and Operator Plane (reinhardt-cloud-operator reconciles ReinhardtApp CRDs into Kubernetes resources; reinhardt-cloud-agent maintains bidirectional gRPC streaming with the control plane).",
+      "content": "Reinhardt Cloud is a Kubernetes-native PaaS for Reinhardt applications. The workspace contains the CLI, Kubernetes operator, cluster agent, and shared libraries. No dashboard application is included. The CLI generates Project CRDs and can apply them directly; the operator reconciles those CRDs into Kubernetes resources.",
       "author": "Maintainer"
     },
     {
-      "content": "Key architectural layers: 1) CLI Plane (reinhardt-cloud-cli): runs `manage introspect` to detect project features, generates reinhardt-cloud.toml and ReinhardtApp CRDs, communicates with control plane or deploys directly to Kubernetes. 2) Control Plane (dashboard): Reinhardt-web REST API, user auth, project/deployment management, PostgreSQL backend. 3) Operator Plane (reinhardt-cloud-operator + reinhardt-cloud-agent): operator reconciles CRDs into Deployments/Services/StatefulSets/HPA; agent relays commands and streams logs via gRPC.",
+      "content": "The CLI analyzes Reinhardt features and manage introspect output to generate deployment configuration. The operator reconciles Project CRDs into workloads and infrastructure. The cluster agent and gRPC components integrate with an external compatible control plane.",
       "author": "Architect"
     },
     {
-      "content": "The crates/ directory contains 8 workspace members: reinhardt-cloud-types (shared domain types and CRD definitions), reinhardt-cloud-core (business logic, plugin system, auth), reinhardt-cloud-proto (protobuf definitions for 4 gRPC services), reinhardt-cloud-k8s (Kubernetes client helpers), reinhardt-cloud-grpc (gRPC server/client implementations), reinhardt-cloud-operator (Kubernetes controller binary), reinhardt-cloud-cli (developer CLI binary), reinhardt-cloud-agent (cluster agent binary). The dashboard/ directory contains the control plane web application.",
+      "content": "The crates/ directory contains shared libraries, the facade, and the CLI/operator/agent binaries. Cross-crate integration tests live in tests/. The workspace does not include a dashboard/ crate.",
       "author": "Maintainer"
     },
     {
@@ -26,11 +26,6 @@
     {
       "title": "CLI Plane",
       "purpose": "Document reinhardt-cloud-cli: the init/sync/deploy/status/login commands, how `manage introspect` detects Reinhardt project features, the TOML-to-CRD generation workflow, --dry-run and --direct flags, and credential storage.",
-      "parent": "Architecture Overview"
-    },
-    {
-      "title": "Control Plane",
-      "purpose": "Document the dashboard application: REST API endpoints, user authentication flow, project and deployment management, PostgreSQL schema, gRPC relay to cluster agents, and how the control plane orchestrates multi-cluster deployments.",
       "parent": "Architecture Overview"
     },
     {

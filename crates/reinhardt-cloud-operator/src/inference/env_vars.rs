@@ -854,7 +854,7 @@ mod tests {
 
 	#[rstest]
 	fn merge_env_vars_resolves_secret_ref_to_value_from() {
-		// Arrange — `manifests/dashboard-project.yaml` uses this exact form.
+		// Arrange — explicit secret references override inferred JWT settings.
 		let auto_vars: Vec<EnvVar> = vec![];
 		let user_vars = BTreeMap::from([(
 			"REINHARDT_CLOUD_JWT_SECRET".to_string(),

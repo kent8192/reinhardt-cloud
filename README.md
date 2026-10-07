@@ -34,7 +34,6 @@
 - [Workspace Crates](#workspace-crates)
 - [Development](#development)
 - [API Stability](#api-stability)
-- [Self-hosting](#self-hosting)
 
 ## Who is Reinhardt Cloud For?
 
@@ -52,7 +51,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0-alpha.1 pre-release. CLI commands are functional but under active development.
+> **Status:** v0.1.0-alpha.1 pre-release. The dashboard application is not included in this workspace. Use `deploy --direct` or generated `Project` manifests with the operator. CLI commands that require a control-plane API, including `login` and deployment without `--direct`, require a separately provided compatible server.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -98,8 +97,7 @@ target_value = 70
 
 ```bash
 reinhardt-cloud deploy --dry-run   # Preview the generated Project CRD as YAML
-reinhardt-cloud login --token rct_example
-reinhardt-cloud deploy --cluster production  # Submit through the Dashboard
+reinhardt-cloud deploy --direct --cluster production  # Apply through the kubeconfig context
 ```
 
 ### 3. Check status
@@ -125,52 +123,28 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 
 ## Architecture
 
-Three-plane architecture inspired by Vercel:
+The workspace ships the CLI, Kubernetes operator, cluster agent, and shared libraries.
 
 ```mermaid
-C4Container
-    title Reinhardt Cloud - Three-Plane Architecture
-
-    Person(dev, "Developer", "Builds Reinhardt web applications")
-
-    Container_Boundary(cli_plane, "CLI Plane") {
-        Container(cli, "reinhardt-cloud CLI", "Rust, clap", "Analyzes projects via manage introspect and generates Project CRDs")
-    }
-
-    Container_Boundary(cp_plane, "Control Plane") {
-        Container(dashboard, "Dashboard", "Rust, reinhardt-web", "Pages UI, server functions, authentication, project management")
-        ContainerDb(pg, "PostgreSQL", "", "Users, projects, deployments")
-    }
-
-    Container_Boundary(k8s_plane, "Kubernetes Cluster") {
-        Container(operator, "Operator", "Rust, kube-rs", "Reconciles Project CRDs into Deployments, Services, StatefulSets, Ingress, HPA")
-        Container(agent, "Agent", "Rust, tonic", "Bidirectional gRPC streaming with control plane")
-        ContainerDb(crd, "Project CRD", "v1alpha2", "Desired application state")
-    }
-
-    Rel(dev, cli, "Uses")
-    Rel(cli, dashboard, "deploy", "HTTPS")
-    Rel(cli, crd, "dry-run / direct", "kubectl apply")
-    Rel(dashboard, pg, "Reads/Writes", "SQL")
-    Rel(dashboard, agent, "Commands", "gRPC")
-    Rel(agent, operator, "Reports status", "gRPC streaming")
-    Rel(operator, crd, "Watches and reconciles")
-
-    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+flowchart LR
+    Developer --> CLI[reinhardt-cloud CLI]
+    CLI -->|introspect and generate| Manifest[Project manifest]
+    Manifest -->|kubectl apply / GitOps| API[Kubernetes API]
+    API -->|watch Project CRDs| Operator
+    Operator --> Workloads[Deployments, Services, databases, ingress]
+    Operator -->|status conditions| API
+    Agent[Cluster agent] <-->|gRPC| ControlPlane[External compatible control plane]
+    Agent -->|ApplyProject| API
 ```
 
-| Plane | Crate | Role |
+| Component | Crate | Role |
 |---|---|---|
-| **CLI** | `reinhardt-cloud-cli` | Developer-facing tool. Analyzes projects via `manage introspect`, generates CRDs, communicates with the control plane. |
-| **Control Plane** | `dashboard` | A [reinhardt-web](https://github.com/kent8192/reinhardt-web) application providing a Pages UI, server functions, authentication, and project management. |
-| **Operator** | `reinhardt-cloud-operator` | Kubernetes controller that watches `Project` CRDs and reconciles them into infrastructure resources. |
+| **CLI** | `reinhardt-cloud-cli` | Analyzes projects via `manage introspect` and generates deployment configuration and Project CRDs. |
+| **Operator** | `reinhardt-cloud-operator` | Watches `Project` CRDs and reconciles Kubernetes infrastructure. |
+| **Agent** | `reinhardt-cloud-agent` | Relays commands and telemetry between a compatible external control plane and clusters. |
+| **gRPC layer** | `reinhardt-cloud-proto`, `reinhardt-cloud-grpc` | Build, log, agent, and plugin protocols and implementations. |
 
-**Supporting services:**
-
-- **Agent** (`reinhardt-cloud-agent`) — Bidirectional gRPC communication between control plane and clusters.
-- **gRPC layer** (`reinhardt-cloud-proto`, `reinhardt-cloud-grpc`) — Four gRPC services across five proto files: Agent, Build, Log, Plugin (plus Common shared types).
-
-For the end-to-end deployment flow — CLI branches, dashboard relay, agent behaviour, and reconciler output — see [`docs/architecture/deployment-flow.md`](docs/architecture/deployment-flow.md).
+See [`docs/architecture/deployment-flow.md`](docs/architecture/deployment-flow.md) for deployment entry points and the operator reconciliation flow.
 
 ## Key Features
 
@@ -180,7 +154,6 @@ For the end-to-end deployment flow — CLI branches, dashboard relay, agent beha
 - **Autoscaling** — HPA-based scaling on CPU, memory, or requests-per-second with configurable thresholds
 - **Workload Isolation** — gVisor, Kata Containers, network policies (Cilium), seccomp profiles, Pod Security Standards
 - **Multi-Tenant Namespacing** — `TenantRef` on the CRD maps each app to an Organization/Team and enforces a deterministic, isolated namespace with per-tenant `ResourceQuota` and `NetworkPolicy`
-- **Dashboard Authentication** — Local credentials plus GitHub OAuth, verified-email association, logout, and email-verification flow
 - **Preview Environments** — Per-PR ephemeral deployments with TTL, templated ingress hostnames, and override-able replica/database/cache settings
 - **Crossplane-style Plugins** — `PluginSpec` extension points reconciled via the gRPC Plugin service (Composition Functions pattern)
 - **Private Registry & Workload Identity** — `image_pull_secrets` and per-app `ServiceAccount` for IRSA / Workload Identity Federation
@@ -205,9 +178,9 @@ reinhardt-cloud [--server <URL>] <command>
 |---|---|
 | `init` | Generate `reinhardt-cloud.toml` from project analysis |
 | `sync` | Re-synchronize `reinhardt-cloud.toml` with current project state |
-| `deploy` | Build the `Project` CRD and submit it through the Dashboard, or apply it directly with `--direct` |
+| `deploy` | Build the `Project` CRD and apply it with `--direct`; standard mode requires an external compatible control plane |
 | `status` | Check deployment status |
-| `login` | Verify and persist a Dashboard API token |
+| `login` | Verify and persist an API token against an external compatible control plane |
 | `credentials` | Manage Git and container-registry credentials |
 | `crd` | Generate CRD manifests for GitOps workflows |
 
@@ -480,7 +453,6 @@ CUSTOM_VAR = "custom_value"
 | `reinhardt-cloud-operator` | Binary | Kubernetes operator (reconciler, resource management) |
 | `reinhardt-cloud-cli` | Binary | `reinhardt-cloud` command-line tool |
 | `reinhardt-cloud-agent` | Binary | Cluster agent for bidirectional control plane communication |
-| `dashboard` | Application | Control Plane web app ([reinhardt-web](https://github.com/kent8192/reinhardt-web)) |
 | `tests` | Integration Tests | Cross-crate integration test suite |
 
 ### gRPC services
@@ -501,7 +473,7 @@ CUSTOM_VAR = "custom_value"
 - Docker (required for TestContainers — not Podman)
 - cargo-make, cargo-nextest
 
-For a step-by-step local stack bootstrap (cluster + Dashboard + Operator + Agent + end-to-end deploy), see [`docs/development/LOCAL_E2E_TESTING.md`](docs/development/LOCAL_E2E_TESTING.md).
+For cluster setup, see [`docs/tools/operator.md`](docs/tools/operator.md). Source-build and preview E2E tests use `cargo make source-pipeline-e2e` against a local Kubernetes cluster.
 
 ### Commands
 
@@ -511,7 +483,7 @@ cargo check --workspace --all-features
 cargo build --workspace --all-features
 
 # Test
-cargo make test                                 # all tests, including dashboard WASM browser E2E
+cargo make test                                # native workspace tests
 cargo nextest run --workspace --all-features    # with nextest
 
 # Code quality
@@ -521,9 +493,6 @@ cargo make clippy-todo-check    # detect TODO/FIXME
 
 # Full pre-PR check
 cargo make pre-pr
-
-# Run the dashboard (Control Plane)
-cargo make runserver
 
 # Run the operator locally
 cargo run --bin reinhardt-cloud-operator
@@ -542,17 +511,6 @@ cargo run --bin reinhardt-cloud-operator
 | `reinhardt-cloud.toml` | Alpha | Keys and format may change |
 
 Breaking changes will be documented in release notes.
-
-## Self-hosting
-
-The Reinhardt Cloud Dashboard can be self-hosted through its own operator
-as a `Project`. A canonical manifest (`manifests/dashboard-project.yaml`)
-and a release-triggered deploy workflow
-(`.github/workflows/deploy-dashboard.yml`) implement this GitOps-driven
-dogfooding flow. See [docs/self-hosting.md](docs/self-hosting.md) for
-bootstrap, upgrade, rollback, and observability instructions.
-For private registry access and cloud workload identity, see
-[docs/registry-and-identity.md](docs/registry-and-identity.md).
 
 ## Getting Help
 

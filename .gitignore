@@ -126,7 +126,6 @@ repos/
 # Examples-specific
 */settings/*.local.toml
 db.sqlite3
-dashboard/.reinhardt/local-infra.json
 
 # Git worktrees
 .worktrees/

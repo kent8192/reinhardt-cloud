@@ -1,5 +1,7 @@
 # reinhardt-cloud-agent (Cluster Agent)
 
+> **Workspace status:** A dashboard application is not included. References to Dashboard APIs describe the existing client protocol and require a separately provided compatible control plane.
+
 > **Last verified**: commit `84d08ad` on 2026-04-18
 > **Source of truth**: this file. `crates/reinhardt-cloud-agent/README.md` is a summary (added in a later task).
 > **Audience**: primarily Platform Operators; App-Developer notes near the bottom explain when to engage platform ops.

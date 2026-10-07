@@ -998,12 +998,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cast"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
-
-[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1227,16 +1221,6 @@ dependencies = [
  "libc",
  "unicode-width",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "console_error_panic_hook"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
-dependencies = [
- "cfg-if",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1472,22 +1456,12 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "424e0138278faeb2b401f174ad17e715c829512d74f3d1e81eb43365c2e0590e"
-dependencies = [
- "ctor-proc-macro",
- "dtor 0.1.1",
-]
-
-[[package]]
-name = "ctor"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
- "dtor 0.3.0",
+ "dtor",
 ]
 
 [[package]]
@@ -1851,15 +1825,6 @@ name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
-
-[[package]]
-name = "dtor"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "404d02eeb088a82cfd873006cb713fe411306c7d182c344905e101fb1167d301"
-dependencies = [
- "dtor-proc-macro",
-]
 
 [[package]]
 name = "dtor"
@@ -3506,13 +3471,10 @@ dependencies = [
  "nom 8.0.0",
  "percent-encoding",
  "quoted_printable",
- "rustls",
  "socket2 0.6.4",
  "tokio",
  "tokio-native-tls",
- "tokio-rustls",
  "url",
- "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -3695,16 +3657,6 @@ checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
 dependencies = [
  "mime",
  "unicase",
-]
-
-[[package]]
-name = "minicov"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
-dependencies = [
- "cc",
- "walkdir",
 ]
 
 [[package]]
@@ -4008,12 +3960,6 @@ name = "oncemutex"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44d11de466f4a3006fe8a5e7ec84e93b79c70cb992ae0aa0eb631ad2df8abfe2"
-
-[[package]]
-name = "oorandom"
-version = "11.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "opaque-debug"
@@ -5575,7 +5521,7 @@ dependencies = [
  "chrono",
  "clap",
  "console",
- "ctor 0.8.0",
+ "ctor",
  "data-encoding",
  "dialoguer",
  "hex",
@@ -5712,62 +5658,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reinhardt-cloud-dashboard"
-version = "0.1.0-alpha.1"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-trait",
- "base64",
- "cfg_aliases",
- "chrono",
- "console_error_panic_hook",
- "ctor 0.6.3",
- "gloo-timers",
- "hex",
- "hmac 0.12.1",
- "indexmap 2.14.0",
- "inventory",
- "js-sys",
- "jsonwebtoken 9.3.1",
- "lettre",
- "linkme",
- "percent-encoding",
- "proptest",
- "prost-types 0.13.5",
- "rand 0.9.4",
- "reinhardt-cloud-core",
- "reinhardt-cloud-grpc",
- "reinhardt-cloud-k8s",
- "reinhardt-cloud-proto",
- "reinhardt-cloud-telemetry",
- "reinhardt-cloud-types",
- "reinhardt-web",
- "reqwest 0.12.28",
- "rstest",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "sha2 0.10.9",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "tonic 0.13.1",
- "tonic-health",
- "tonic-reflection",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "wiremock",
-]
-
-[[package]]
 name = "reinhardt-cloud-grpc"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -5807,7 +5697,6 @@ dependencies = [
  "kube",
  "prost-types 0.13.5",
  "reinhardt-cloud-core",
- "reinhardt-cloud-dashboard",
  "reinhardt-cloud-grpc",
  "reinhardt-cloud-proto",
  "reinhardt-cloud-types",
@@ -6209,7 +6098,7 @@ version = "0.3.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fb56cbf7529b12ccd53d51b4913dd399999f39c4f8a7ad172bb73fc81947df8"
 dependencies = [
- "ctor 0.8.0",
+ "ctor",
  "inventory",
  "nom 8.0.0",
  "proc-macro-crate",
@@ -6527,14 +6416,7 @@ version = "0.3.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9a8398715349daae0ef112f6ad09c4d3072f13da913de456c95c795da4d749f"
 dependencies = [
- "bytes",
  "cfg_aliases",
- "gloo-timers",
- "http-body-util",
- "hyper",
- "hyper-util",
- "js-sys",
- "regex",
  "reinhardt-auth",
  "reinhardt-conf",
  "reinhardt-core",
@@ -6547,10 +6429,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
 ]
 
 [[package]]
@@ -6751,7 +6629,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "cfg_aliases",
- "ctor 0.8.0",
+ "ctor",
  "hyper",
  "inventory",
  "linkme",
@@ -9255,45 +9133,6 @@ checksum = "23939e44bb9a5d7576fa2b563dc2e136628f1224e88a8deed09e04858b77871f"
 dependencies = [
  "unicode-ident",
 ]
-
-[[package]]
-name = "wasm-bindgen-test"
-version = "0.3.75"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d16931d57bcdd6a0dcc11254bdd1388827690c1b6807f0d2836f59a4f9eb30ac"
-dependencies = [
- "async-trait",
- "cast",
- "js-sys",
- "libm",
- "minicov",
- "nu-ansi-term",
- "num-traits",
- "oorandom",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test-macro",
- "wasm-bindgen-test-shared",
-]
-
-[[package]]
-name = "wasm-bindgen-test-macro"
-version = "0.3.75"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fccaddcb2cd722baa7453b4c3d2cb2a3071597bb91f7a4373e8775bdb151778c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
-]
-
-[[package]]
-name = "wasm-bindgen-test-shared"
-version = "0.2.125"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3746ad029217960123cf2ebf939dda51eb931ba9f8f09c117e39c820b96aa794"
 
 [[package]]
 name = "web-sys"

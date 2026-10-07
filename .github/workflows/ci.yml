@@ -149,15 +149,6 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
-  wasm-build:
-    name: WASM Build
-    needs: [determine-runner, check-branch-status]
-    if: needs.check-branch-status.outputs.has-conflicts != 'true'
-    uses: ./.github/workflows/wasm-build.yml
-    with:
-      runner: ${{ needs.determine-runner.outputs.runner }}
-      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
-
   unit-test:
     name: Unit Tests
     needs: [fmt, clippy, determine-runner, check-branch-status]
@@ -223,16 +214,6 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
-  bruno-tests:
-    name: Bruno API Tests
-    needs: [fmt, clippy, determine-runner, check-branch-status]
-    if: needs.check-branch-status.outputs.has-conflicts != 'true'
-    uses: ./.github/workflows/bruno-tests.yml
-    secrets: inherit
-    with:
-      runner: ${{ needs.determine-runner.outputs.runner }}
-      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
-
   terraform-check:
     name: Terraform Check
     needs: [check-branch-status]
@@ -253,11 +234,9 @@ jobs:
       - determine-runner
       - fmt
       - clippy
-      - wasm-build
       - unit-test
       - intra-crate-integration-test
       - cross-crate-integration-test
-      - bruno-tests
       - security-audit
       - todo-check
       - terraform-check
@@ -270,11 +249,9 @@ jobs:
           HAS_CONFLICTS: ${{ needs.check-branch-status.outputs.has-conflicts }}
           FMT_RESULT: ${{ needs.fmt.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
-          WASM_BUILD_RESULT: ${{ needs.wasm-build.result }}
           UNIT_TEST_RESULT: ${{ needs.unit-test.result }}
           INTRA_CRATE_RESULT: ${{ needs.intra-crate-integration-test.result }}
           CROSS_CRATE_RESULT: ${{ needs.cross-crate-integration-test.result }}
-          BRUNO_TESTS_RESULT: ${{ needs.bruno-tests.result }}
           SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
           TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
           TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
@@ -293,11 +270,9 @@ jobs:
           always_required=(
             "fmt:$FMT_RESULT"
             "clippy:$CLIPPY_RESULT"
-            "wasm-build:$WASM_BUILD_RESULT"
             "unit-test:$UNIT_TEST_RESULT"
             "intra-crate-integration-test:$INTRA_CRATE_RESULT"
             "cross-crate-integration-test:$CROSS_CRATE_RESULT"
-            "bruno-tests:$BRUNO_TESTS_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
             "publish-check:$PUBLISH_CHECK_RESULT"

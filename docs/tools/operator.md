@@ -25,16 +25,15 @@ tuning is done through Helm values at deploy time.
 ```mermaid
 flowchart LR
     CLI[reinhardt-cloud CLI] --> API[Platform API / kube-apiserver]
-    Dashboard --> API
     API -->|Project CRD| Operator
     Operator -->|Deployment, Service, Ingress, ...| Workloads
     Operator -->|status updates| API
 ```
 
-The CLI and Dashboard submit `Project` objects (either directly via `kubectl apply` or via the
-Dashboard's API layer) to the kube-apiserver. The operator's controller loop watches these objects
+The CLI submits `Project` objects via `kubectl apply`, and GitOps tools can apply generated
+Project manifests to the kube-apiserver. The operator's controller loop watches these objects
 and reconciles the desired state into concrete Kubernetes resources. Status fields and conditions are
-written back to the `Project` object so the CLI and Dashboard can surface current state to users.
+written back to the `Project` object so the CLI and other Kubernetes clients can surface current state to users.
 
 For the primary app `Deployment` and `Service`, reconciliation is intentionally non-adopting:
 if an object with the target name already exists, it must already have a controller owner reference

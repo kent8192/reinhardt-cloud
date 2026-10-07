@@ -1,5 +1,7 @@
 # reinhardt-cloud CLI
 
+> **Workspace status:** A dashboard application is not included. References to Dashboard APIs describe the existing client protocol and require a separately provided compatible control plane.
+
 > **Last verified**: 2026-06-19
 > **Source of truth**: this file. `crates/reinhardt-cloud-cli/README.md` is a summary.
 > **Audience**: persona notes appear as callouts inside each command section.
@@ -18,7 +20,7 @@ Developer machine
         └── (--dry-run) ────────────────────────────► stdout
 ```
 
-The CLI does not watch resources after submitting them — use `status` or the [Dashboard](dashboard.md) for ongoing visibility.
+The CLI does not watch resources after submitting them — use `status` with a configured kubeconfig for ongoing visibility.
 
 ### Install methods
 

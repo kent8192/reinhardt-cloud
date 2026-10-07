@@ -26,11 +26,6 @@ operator:
       - any-glob-to-any-file:
           - crates/reinhardt-cloud-operator/**
 
-dashboard:
-  - changed-files:
-      - any-glob-to-any-file:
-          - dashboard/**
-
 ci-cd:
   - changed-files:
       - any-glob-to-any-file:

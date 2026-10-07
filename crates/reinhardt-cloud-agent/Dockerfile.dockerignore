@@ -46,11 +46,6 @@ tests/fixtures/**/target
 .cargo/registry
 .cargo/git
 
-# Node / dashboard assets not needed for the Rust binary build
-dashboard/node_modules
-dashboard/**/dist
-dashboard/**/build
-
 # Helm/Terraform/infra (not required by the agent binary)
 charts
 infra
