@@ -568,7 +568,15 @@ upgrades are performed by pulling the latest source and re-running `helm upgrade
    kubectl apply -f charts/reinhardt-cloud-operator/crds/
    ```
 
-4. **Run `helm upgrade`** with the same overlay used at install time. Substitute the correct
+4. **Migrate legacy Redis credentials before rolling out the new operator.** When upgrading
+   from a release that trusted labels or owner references, keep the old operator running
+   after the new CRD schema has been applied. Follow the [Redis Secret adoption procedure](#secrets)
+   to verify, freeze, and adopt the credentials Secret for every Project using Redis cache
+   or Redis-backed sessions. Confirm that each Project's `status.redisCredentialsSecretUid`
+   contains the verified UID. The old CRD schema prunes this new status field, so adoption
+   cannot be completed before step 3. Stop the upgrade if any required adoption fails.
+
+5. **Run `helm upgrade`** with the same overlay used at install time. Substitute the correct
    `-f` flag for your platform:
 
    ```bash
@@ -588,7 +596,7 @@ upgrades are performed by pulling the latest source and re-running `helm upgrade
      -f charts/reinhardt-cloud-operator/values-gcp.yaml
    ```
 
-5. **Watch the rollout:**
+6. **Watch the rollout:**
 
    ```bash
    kubectl rollout status deployment/reinhardt-cloud-operator \
@@ -1022,8 +1030,11 @@ owners are preserved, and the patch does not modify credential data. With
 `deletion_policy: Delete`, the operator deletes the Secret only when its UID matches the recorded
 status value.
 
-Before upgrading from a release that used labels or owner references as Redis Secret ownership,
-or before recreating a Project whose retained Secret should be reused, a platform administrator
+When upgrading from a release that used labels or owner references as Redis Secret ownership,
+first apply the new CRD schema, perform this adoption while the old operator remains running,
+and only then roll out the new operator, as described in the upgrade sequence above. Also
+perform adoption after recreating a Project whose retained Secret should be reused, before
+allowing its workloads to reconcile. A platform administrator
 must capture one Secret JSON snapshot containing its UID, resourceVersion, and credential data,
 independently verify the password **from that snapshot** against the trusted running Redis
 instance, and freeze using **that same snapshot's** UID and resourceVersion. Do not fetch the

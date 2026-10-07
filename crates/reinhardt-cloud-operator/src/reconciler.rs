@@ -442,6 +442,23 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		}
 	}
 
+	// Validate Redis provenance before any workload or migration Job can
+	// resolve the predictable Secret name into its process environment.
+	let needs_redis_sessions = app
+		.spec
+		.introspect
+		.as_ref()
+		.map(|i| {
+			reinhardt_cloud_core::inference::requires_redis_sessions(
+				&i.features.infrastructure_signals,
+			)
+		})
+		.unwrap_or(false);
+	if should_provision_cache(&app) || needs_redis_sessions {
+		redis_credentials_secret_uid =
+			Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?);
+	}
+
 	// Create the per-app `core.secret_key` Secret unconditionally, so every
 	// reinhardt-web app reconciled by this operator can resolve
 	// `core.secret_key` from `production.toml` via Secret-backed env-var
@@ -757,8 +774,6 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
-		redis_credentials_secret_uid =
-			Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?);
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
@@ -804,19 +819,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	// Session backend: ensure Redis when session_backend=redis (Phase 4)
-	let needs_redis_sessions = app
-		.spec
-		.introspect
-		.as_ref()
-		.map(|i| {
-			reinhardt_cloud_core::inference::requires_redis_sessions(
-				&i.features.infrastructure_signals,
-			)
-		})
-		.unwrap_or(false);
 	if needs_redis_sessions && !should_provision_cache(&app) {
-		redis_credentials_secret_uid =
-			Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?);
 		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
@@ -3175,6 +3178,102 @@ mod tests {
 			},
 			status: None,
 		}
+	}
+
+	#[rstest]
+	#[case(false, false)]
+	#[case(true, false)]
+	#[case(false, true)]
+	#[case(true, true)]
+	#[tokio::test]
+	async fn apply_rejects_untrusted_redis_before_any_consumer(
+		#[case] sessions_only: bool,
+		#[case] database: bool,
+	) {
+		use std::sync::Mutex;
+
+		// Arrange: the tenant pre-created the predictable Secret name.
+		let mut value = serde_json::json!({
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
+			"kind": "Project",
+			"metadata": {"name": "myapp", "namespace": "default", "uid": "project-uid"},
+			"spec": {"image": "myapp:latest"}
+		});
+		if sessions_only {
+			value["spec"]["introspect"] = serde_json::json!({
+				"features": {"infrastructure_signals": {"session_backend": "redis"}}
+			});
+		} else {
+			value["spec"]["cache"] = serde_json::json!({"backend": "redis"});
+		}
+		if database {
+			value["spec"]["database"] = serde_json::json!({"engine": "postgresql"});
+		}
+		let app: Project = serde_json::from_value(value).unwrap();
+		let mut secret = build_managed_redis_credentials_secret(&app, "default");
+		secret.metadata.uid = Some("tenant-forged-uid".to_owned());
+		let reply = serde_json::to_vec(&secret).unwrap();
+		let requests = Arc::new(Mutex::new(Vec::new()));
+		let captured = Arc::clone(&requests);
+		let service = tower::service_fn(move |request: http::Request<kube::client::Body>| {
+			let reply = reply.clone();
+			let captured = Arc::clone(&captured);
+			async move {
+				let path = request.uri().path().to_owned();
+				let method = request.method().clone();
+				let is_secret_get = method == http::Method::GET
+					&& path.starts_with("/api/v1/namespaces/default/secrets/");
+				captured.lock().unwrap().push((method, path));
+				let (status, body) = if is_secret_get {
+					(200, reply)
+				} else {
+					(
+						404,
+						serde_json::to_vec(&serde_json::json!({
+							"apiVersion": "v1", "kind": "Status", "status": "Failure",
+							"reason": "NotFound", "message": "resource not found", "code": 404
+						}))
+						.unwrap(),
+					)
+				};
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(status)
+						.body(kube::client::Body::from(body))
+						.unwrap(),
+				)
+			}
+		});
+		let mut ctx = Arc::try_unwrap(test_context()).ok().unwrap();
+		ctx.client = Client::new(service, "default");
+
+		// Act: run the actual orchestration, including the migration gate.
+		let result = apply(Arc::new(app), &ctx, "default").await;
+
+		// Assert: no application, worker, preview, or migration consumer was applied.
+		match result {
+			Err(Error::ResourceOwnershipConflict {
+				kind,
+				namespace,
+				name,
+				project_namespace,
+				project_name,
+			}) => {
+				assert_eq!(kind, "Secret");
+				assert_eq!(namespace, "default");
+				assert_eq!(name, "myapp-redis-credentials");
+				assert_eq!(project_namespace, "default");
+				assert_eq!(project_name, "myapp");
+			}
+			_ => panic!("expected rejection of the untrusted Redis credentials"),
+		}
+		assert_eq!(
+			*requests.lock().unwrap(),
+			vec![(
+				http::Method::GET,
+				"/api/v1/namespaces/default/secrets/myapp-redis-credentials".to_owned()
+			)]
+		);
 	}
 
 	fn service_account_with_owner(uid: Option<&str>) -> ServiceAccount {
