@@ -7,6 +7,8 @@ use reinhardt_cloud_types::reinhardt_cloud_toml::ReinhardtCloudToml;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StaticRoot {
 	path: String,
+	pub(super) url: String,
+	pub(super) url_env_binding: Option<(String, String)>,
 	pub(super) env_binding: Option<(String, String)>,
 	pub(super) build_env: Vec<String>,
 }
@@ -16,6 +18,8 @@ impl StaticRoot {
 	pub(super) fn relative(path: &str) -> Self {
 		Self {
 			path: path.to_owned(),
+			url: "/static/".to_owned(),
+			url_env_binding: None,
 			env_binding: None,
 			build_env: Vec::new(),
 		}
@@ -46,6 +50,7 @@ pub(super) fn read_static_root(
 	config: &ReinhardtCloudToml,
 ) -> Result<StaticRoot, String> {
 	let mut selected: [Option<toml::Value>; 3] = [None, None, None];
+	let mut selected_urls: [Option<toml::Value>; 3] = [None, None, None];
 	let mut base_dirs: [Option<toml::Value>; 2] = [None, None];
 	let mut build_env = BTreeSet::new();
 	for profile in ["base", "production"] {
@@ -81,6 +86,59 @@ pub(super) fn read_static_root(
 				selected[index] = Some(candidate.clone());
 			}
 		}
+		for (index, candidate) in [
+			value.get("static_files").and_then(|v| v.get("url")),
+			value.get("static").and_then(|v| v.get("url")),
+			value.get("static_url"),
+		]
+		.into_iter()
+		.enumerate()
+		{
+			if let Some(candidate) = candidate {
+				selected_urls[index] = Some(candidate.clone());
+			}
+		}
+	}
+	let url = selected_urls.into_iter().flatten().next();
+	let url = match &url {
+		Some(value) => value.as_str().ok_or("static URL must be a string")?,
+		None => "/static/",
+	};
+	let (url, url_env_binding) = if let Some(expression) =
+		url.strip_prefix("${").and_then(|v| v.strip_suffix('}'))
+	{
+		let (name, fallback) = expression
+			.split_once(":-")
+			.map_or((expression, None), |(name, value)| (name, Some(value)));
+		insert_build_variable(name, &mut BTreeSet::new())?;
+		if !name.ends_with("_URL") {
+			return Err("static URL interpolation must reference a variable ending in _URL; provide a custom Dockerfile for other settings".to_owned());
+		}
+		let value = config
+			.source
+			.as_ref()
+			.and_then(|source| source.build.as_ref())
+			.and_then(|build| build.build_args.get(name))
+			.map(String::as_str)
+			.or(fallback)
+			.ok_or(
+				"static URL variable requires a source.build.build_args value or a literal default",
+			)?
+			.to_owned();
+		(value.clone(), Some((name.to_owned(), value)))
+	} else {
+		(url.to_owned(), None)
+	};
+	if !url.starts_with('/')
+		|| !url.ends_with('/')
+		|| !url
+			.chars()
+			.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '-' | '_'))
+		|| Path::new(&url)
+			.components()
+			.any(|part| matches!(part, Component::ParentDir))
+	{
+		return Err("generated Pages require a Dockerfile-safe static URL starting and ending with '/'; provide a custom Dockerfile for other settings".to_owned());
 	}
 	// Validate the effective value after production has overridden base settings.
 	if let Some(base) = base_dirs.into_iter().flatten().next()
@@ -163,8 +221,13 @@ pub(super) fn read_static_root(
 	if let Some((name, _)) = &env_binding {
 		build_env.remove(name);
 	}
+	if let Some((name, _)) = &url_env_binding {
+		build_env.remove(name);
+	}
 	Ok(StaticRoot {
 		path,
+		url,
+		url_env_binding,
 		env_binding,
 		build_env: build_env.into_iter().collect(),
 	})
@@ -309,6 +372,77 @@ mod tests {
 			root.env_binding,
 			Some(("REINHARDT_STATIC_FILES__ROOT".to_owned(), "dist".to_owned()))
 		);
+	}
+
+	#[rstest]
+	#[case("${REINHARDT_STATIC_FILES__URL:-/assets/}", None)]
+	#[case("${REINHARDT_STATIC_FILES__URL}", Some("/assets/"))]
+	fn pins_static_url_without_reading_the_environment(
+		#[case] value: &str,
+		#[case] argument: Option<&str>,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot='dist'\nurl='{value}'"),
+		)
+		.unwrap();
+		let mut config = ReinhardtCloudToml::default();
+		if let Some(argument) = argument {
+			config.source = Some(reinhardt_cloud_types::reinhardt_cloud_toml::SourceSection {
+				build: Some(reinhardt_cloud_types::reinhardt_cloud_toml::BuildSection {
+					build_args: std::collections::BTreeMap::from([(
+						"REINHARDT_STATIC_FILES__URL".to_owned(),
+						argument.to_owned(),
+					)]),
+					..Default::default()
+				}),
+				..Default::default()
+			});
+		}
+
+		// Act
+		let root = read_static_root(dir.path(), &config).unwrap();
+
+		// Assert
+		assert_eq!(root.url, "/assets/");
+		assert_eq!(
+			root.url_env_binding,
+			Some((
+				"REINHARDT_STATIC_FILES__URL".to_owned(),
+				"/assets/".to_owned()
+			))
+		);
+		assert!(
+			!root
+				.build_env
+				.iter()
+				.any(|name| name == "REINHARDT_STATIC_FILES__URL")
+		);
+	}
+
+	#[rstest]
+	#[case("assets/")]
+	#[case("/assets")]
+	#[case("/assets/../private/")]
+	#[case("/assets;echo injected/")]
+	fn rejects_unsafe_static_urls(#[case] value: &str) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot='dist'\nurl='{value}'"),
+		)
+		.unwrap();
+
+		// Act
+		let result = read_static_root(dir.path(), &ReinhardtCloudToml::default());
+
+		// Assert
+		assert!(result.unwrap_err().contains("custom Dockerfile"));
 	}
 
 	#[rstest]

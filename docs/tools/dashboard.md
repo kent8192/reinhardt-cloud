@@ -213,11 +213,18 @@ TOML environment references during asset publication. These values are not
 deployment credentials and are not persisted as runtime `ENV` or build arguments.
 Settings that require typed values or external services need a custom Dockerfile.
 
-`init` and `sync` record the selected container path in `[pages].static_root`,
-and deployment preserves it in `Project.spec.pages.static_root`. This keeps
-the Pages sidecar aligned with the runtime copy, including non-default roots.
+`init` and `sync` record the effective production root and URL in
+`[pages].static_root` and `[pages].static_url`; deployment preserves both in
+`Project.spec.pages`. This keeps the Pages sidecar and ingress aligned with the
+runtime copy and generated links, including non-default roots and URL prefixes.
 `sync` preserves existing Pages options and source build arguments; a custom
 Dockerfile retains its explicit `[pages]` settings.
+Generated Dockerfiles require the workspace root build context (`.`). For a
+member-only context such as `dashboard`, set a custom `[source.build].dockerfile`
+path and supply a Dockerfile designed for that context. Static URL interpolation
+must use an `_URL` variable with an explicit build argument or literal default;
+generation pins that public prefix for asset publication and runtime routing.
+Other dynamic settings require a custom Dockerfile and explicit Pages settings.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses

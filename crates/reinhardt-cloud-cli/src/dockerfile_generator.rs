@@ -102,11 +102,31 @@ pub(crate) fn configure_pages(
 	metadata: &crate::feature_detector::ProjectMetadata,
 	config: &mut ReinhardtCloudToml,
 ) -> Result<(), String> {
-	if metadata.signals.pages
-		&& should_skip_dockerfile(project_dir, config, true) != SkipReason::CustomDockerfile
-	{
+	if should_skip_dockerfile(project_dir, config, true) == SkipReason::CustomDockerfile {
+		return Ok(());
+	}
+	validate_build_context(config)?;
+	if metadata.signals.pages {
 		let root = static_root_reader::read_static_root(project_dir, config)?;
-		config.pages.get_or_insert_default().static_root = Some(root.runtime_path());
+		let pages = config.pages.get_or_insert_default();
+		pages.static_root = Some(root.runtime_path());
+		pages.static_url = Some(root.url);
+	}
+	Ok(())
+}
+
+fn validate_build_context(config: &ReinhardtCloudToml) -> Result<(), String> {
+	if let Some(context) = config
+		.source
+		.as_ref()
+		.and_then(|source| source.build.as_ref())
+		.and_then(|build| build.context.as_deref())
+		&& (context.is_empty()
+			|| !Path::new(context)
+				.components()
+				.all(|part| matches!(part, std::path::Component::CurDir)))
+	{
+		return Err("generated Dockerfiles require the workspace root build context ('.'); provide a custom Dockerfile for a different source.build.context".to_owned());
 	}
 	Ok(())
 }
@@ -117,6 +137,7 @@ pub(crate) fn collect_signals(
 	metadata: &crate::feature_detector::ProjectMetadata,
 	toml_config: &ReinhardtCloudToml,
 ) -> Result<DockerfileSignals, String> {
+	validate_build_context(toml_config)?;
 	let rust_version = rust_toolchain_reader::read_rust_version(project_dir)?;
 
 	let signals = &metadata.signals;
@@ -307,6 +328,80 @@ mod tests {
 				..Default::default()
 			}),
 			..Default::default()
+		}
+	}
+
+	#[rstest]
+	#[case("", "", "/static/")]
+	#[case("[static_files]\nurl='/assets/'", "", "/assets/")]
+	#[case("[static_files]\nurl='/old/'", "[static_files]\nurl='/new/'", "/new/")]
+	#[case("static_url='/top/'", "", "/top/")]
+	fn pages_url_matches_effective_publication(
+		#[case] base: &str,
+		#[case] production: &str,
+		#[case] expected: &str,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("static_root='dist'\n{base}"),
+		)
+		.unwrap();
+		std::fs::write(dir.path().join("settings/production.toml"), production).unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages: true,
+				..Default::default()
+			},
+		};
+		let mut config = ReinhardtCloudToml::default();
+
+		// Act
+		configure_pages(dir.path(), &metadata, &mut config).unwrap();
+
+		// Assert
+		let pages = config.pages.unwrap();
+		assert_eq!(pages.static_root.as_deref(), Some("/app/dist"));
+		assert_eq!(pages.static_url.as_deref(), Some(expected));
+	}
+
+	#[rstest]
+	#[case(".", None, true)]
+	#[case("./", None, true)]
+	#[case("dashboard", None, false)]
+	#[case("dashboard", Some("Dockerfile"), false)]
+	#[case("dashboard", Some("Containerfile"), true)]
+	fn non_root_context_requires_a_custom_dockerfile(
+		#[case] context: &str,
+		#[case] dockerfile: Option<&str>,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "workspace-member".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: Default::default(),
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			context: Some(context.into()),
+			dockerfile: dockerfile.map(str::to_owned),
+			..Default::default()
+		}));
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if !accepted {
+			assert!(result.unwrap_err().contains("custom Dockerfile"));
 		}
 	}
 

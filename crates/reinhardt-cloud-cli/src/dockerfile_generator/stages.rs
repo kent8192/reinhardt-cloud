@@ -242,6 +242,9 @@ pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
 	if let Some(binding) = &root.env_binding {
 		instructions.push(Instruction::Env(vec![binding.clone()]));
 	}
+	if let Some(binding) = &root.url_env_binding {
+		instructions.push(Instruction::Env(vec![binding.clone()]));
+	}
 	instructions.extend([
 		Instruction::Copy {
 			from: Some("wasm".to_owned()),
@@ -355,6 +358,13 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 			.static_root
 			.as_ref()
 			.and_then(|root| root.env_binding.clone())
+	{
+		env_pairs.push(binding);
+	}
+	if let Some(binding) = signals
+		.static_root
+		.as_ref()
+		.and_then(|root| root.url_env_binding.clone())
 	{
 		env_pairs.push(binding);
 	}
