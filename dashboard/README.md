@@ -8,7 +8,10 @@ The application contains eight Apps generated with `startapp`: `identity`,
 `organization`, `project`, `source`, `deployment`, `cluster`, `secret`, and
 `observability`. Each owns its persistence and policy services; the root router
 only composes their routes. PostgreSQL ORM models register with the framework's
-migration system. Eight initial and four incremental migrations are included.
+migration system. Model aggregators re-export one definition per file. Cross-App
+test implementations live under scoped `tests/integration/` and `tests/e2e/`
+directories with stable root Cargo targets. Eight initial and four incremental
+migrations are included.
 
 The current application provides the project-list presentation, English and
 Japanese catalogs, responsive light and dark styles, and domain rules for
@@ -66,7 +69,7 @@ cargo run --bin manage -- makemigrations --state-source files
 cargo run --bin manage -- migrate
 cargo run --bin manage -- createplatformadmin admin@example.com
 cargo make publish-pages
-cargo run --bin manage -- runserver --with-pages --no-spa --noreload --no-wasm
+cargo run --bin manage -- runserver --with-pages --asset-manifest dist/manifest.json --no-spa --noreload --no-wasm
 ```
 
 The bootstrap command reads `CLOUD_BOOTSTRAP_PASSWORD` from its environment;
@@ -81,7 +84,8 @@ or cluster readiness.
 `GET /` renders the access state on the server before the WASM client starts.
 Hydration preserves the server-rendered DOM and activates catalog-backed language
 controls. Documents without SSR state mount registered client routes instead.
-The document uses one verified asset generation, including generated component
+The explicit asset manifest selects the published generation when settings are
+mounted outside the project directory. The document uses one verified asset generation, including generated component
 styles and the Pages loader. Republish assets and restart the server after
 frontend changes. `publish-pages-release` uses an optimized WASM build before
 publication; published files must not be modified after their hashes are recorded.

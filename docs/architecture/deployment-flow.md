@@ -3,7 +3,9 @@
 ## Workspace Components
 
 The workspace contains the CLI, Kubernetes operator, cluster agent, shared
-libraries, and integration tests. A dashboard application is not included.
+libraries, integration tests, and the Pages Dashboard. The Dashboard provides
+organization-scoped reads and persists runtime intents, but Agent delivery and
+deployment execution are not connected.
 The `Project` CRD (`paas.reinhardt-cloud.dev/v1alpha2`) declares the desired
 application state and is the operator's reconciliation input.
 
@@ -18,7 +20,7 @@ arguments, and optional `manage introspect` output before rendering a
   selects a kubeconfig context in this mode.
 - Deployment without either flag still targets the control-plane HTTP API.
   This requires a separately provided compatible server and API token;
-  this repository does not ship that server.
+  the Dashboard does not yet expose this deployment contract.
 
 Generated manifests can also be applied through GitOps tooling.
 
@@ -52,4 +54,4 @@ command implementations live in
 `crates/reinhardt-cloud-agent/src/main.rs`.
 
 The protocol definitions, server/client components, and cross-crate gRPC
-tests remain available independently of a dashboard application.
+tests remain available independently of the Dashboard delivery integration.

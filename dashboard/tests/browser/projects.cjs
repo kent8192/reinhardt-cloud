@@ -18,7 +18,16 @@ const assert = require('node:assert/strict');
     await page.route('**/*.wasm', async route => { await gate; await route.continue(); });
     const response = await page.goto(process.env.CLOUD_BROWSER_URL, { waitUntil: 'commit' });
     assert.equal(response.status(), 200);
-    await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible();
+    try {
+      await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible();
+    } catch (error) {
+      console.error(JSON.stringify({
+        initialText: await page.locator('body').innerText(),
+        initialRenderMode: await page.locator('#root').getAttribute('data-render-mode'),
+        headings: await page.locator('h1').allTextContents()
+      }));
+      throw error;
+    }
     await page.evaluate(() => { window.serverHeading = document.querySelector('h1'); });
     release();
     await expect(page.locator('#root')).toHaveAttribute('data-render-mode', 'hydrated', { timeout: 30000 });

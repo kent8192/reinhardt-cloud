@@ -161,8 +161,13 @@ pub static STYLES: ShellStyles = style! {
 			display: grid;
 			grid-template-columns: (1fr, 1fr);
 			gap: 8px;
-			dt { color: #64748b; }
-			dd { margin: 0; font-weight: 600; }
+			dt {
+				color: #64748b;
+			}
+			dd {
+				margin: 0;
+				font-weight: 600;
+			}
 		}
 		.operation_title {
 			margin: (20px, 0, 8px);
@@ -226,9 +231,17 @@ pub static STYLES: ShellStyles = style! {
 			.link {
 				color: #82b1ff;
 			}
-			.environment_card { border-color: #334155; }
-			.identity { color: #a5b4c9; }
-			.facts { dt { color: #a5b4c9; } }
+			.environment_card {
+				border-color: #334155;
+			}
+			.identity {
+				color: #a5b4c9;
+			}
+			.facts {
+				dt {
+					color: #a5b4c9;
+				}
+			}
 		}
 	}
 };

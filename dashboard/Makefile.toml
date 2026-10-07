@@ -21,7 +21,7 @@ dependencies = ["wasm-build-release"]
 
 [tasks.runserver]
 command = "cargo"
-args = ["run", "-p", "cloud_dashboard", "--bin", "manage", "--", "runserver", "--with-pages", "--no-spa", "--noreload", "--no-wasm"]
+args = ["run", "-p", "cloud_dashboard", "--bin", "manage", "--", "runserver", "--with-pages", "--asset-manifest", "dist/manifest.json", "--no-spa", "--noreload", "--no-wasm"]
 dependencies = ["publish-pages"]
 
 [tasks.makemigrations]

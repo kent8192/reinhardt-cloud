@@ -1,8 +1,10 @@
 # Tool Usage Guides
 
 The workspace ships the CLI, Kubernetes operator, cluster agent, and shared
-libraries. A dashboard application is not included. Commands that need a
-control-plane API require a separately provided compatible server.
+libraries, plus a Pages Dashboard described in the repository README with PostgreSQL
+sessions, organization-scoped project reads, and transactional runtime intent
+storage. Agent delivery and deployment mutation APIs are not connected; CLI
+commands that need those APIs require a separately provided compatible server.
 
 ## App Developers
 

@@ -1,0 +1,25 @@
+//! Environment persistence for the project App.
+
+use super::Project;
+use crate::apps::organization::models::Organization;
+use reinhardt::db::associations::ForeignKeyField;
+use reinhardt::model;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[model(app_label = "project", table_name = "cloud_environment", info = false)]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Environment {
+	#[field(primary_key = true)]
+	pub id: Uuid,
+	#[rel(foreign_key, on_delete = Restrict)]
+	pub organization: ForeignKeyField<Organization>,
+	#[rel(foreign_key, on_delete = Restrict)]
+	pub project: ForeignKeyField<Project>,
+	#[field(max_length = 32)]
+	pub kind: String,
+	#[field(default = 0)]
+	pub version: i64,
+	#[field(field_type = "text", default = "{}")]
+	pub desired_runtime: String,
+}

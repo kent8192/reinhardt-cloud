@@ -327,6 +327,7 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	let mut env_pairs = vec![
 		("RUST_LOG".to_string(), "info".to_string()),
 		("PATH".to_string(), "/app:$PATH".to_string()),
+		("REINHARDT_ENV".to_string(), "production".to_string()),
 	];
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
@@ -785,6 +786,18 @@ mod tests {
 			Some("/app:$PATH"),
 			"runtime stage must add /app to PATH so bare `manage` resolves; \
 			 see kent8192/reinhardt-cloud#637"
+		);
+	}
+
+	#[rstest]
+	fn runtime_stage_defaults_to_production_settings(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert_eq!(
+			stage_env_value(&stage, "REINHARDT_ENV").as_deref(),
+			Some("production")
 		);
 	}
 

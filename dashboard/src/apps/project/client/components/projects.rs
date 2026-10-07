@@ -69,9 +69,19 @@ pub fn project_surface(state: ProjectListState, context: I18nContext, csrf: Stri
 	let heading = match &state {
 		ProjectListState::Detail(detail) => {
 			let name = detail.name.clone();
-			page!({ h1 { class: STYLES.title(), { name } } })
+			page!({
+				h1 {
+					class: STYLES.title(),
+					{ name }
+				}
+			})
 		}
-		_ => page!({ h1 { class: STYLES.title(), { context.translate("Projects") } } }),
+		_ => page!({
+			h1 {
+				class: STYLES.title(),
+				{ context.translate("Projects") }
+			}
+		}),
 	};
 	let login_csrf = csrf.clone();
 	let content = match state {
@@ -211,9 +221,12 @@ pub fn project_surface(state: ProjectListState, context: I18nContext, csrf: Stri
 							td {
 								a {
 									class: STYLES.link(),
-									href: format!("/?organization={}&project={}", item.organization_id, item.id),
+									href: format!(
+										"/?organization={}&project={}",
+										item.organization_id, item.id
+									),
 									{ item.name }
-									}
+								}
 							}
 							td { { item.repository } }
 							td { { format!("{}", item.environments) } }
@@ -285,17 +298,27 @@ fn project_detail_view(detail: ProjectDetail, context: I18nContext) -> Page {
 				{ context.translate("All projects") }
 			}
 		}
-		p { class: STYLES.copy(), { repository } }
-		h2 { class: STYLES.panel_title(), { context.translate("Environments") } }
-		p { class: STYLES.copy(), { context.translate("Desired inputs. Readiness is reported separately.") } }
+		p {
+			class: STYLES.copy(),
+			{ repository }
+		}
+		h2 {
+			class: STYLES.panel_title(),
+			{ context.translate("Environments") }
+		}
+		p {
+			class: STYLES.copy(),
+			{ context.translate("Desired inputs. Readiness is reported separately.") }
+		}
 		if empty {
-			p { class: STYLES.copy(), { context.translate("No environments yet") } }
+			p {
+				class: STYLES.copy(),
+				{ context.translate("No environments yet") }
+			}
 		}
 		div {
 			class: STYLES.environment_grid(),
-			for environment in environments @key(environment.0) {
-				{ environment.1 }
-			}
+			for environment in environments @key(environment.0) { { environment.1 } }
 		}
 	})
 }
@@ -314,7 +337,12 @@ fn environment_card(environment: EnvironmentSummary, context: I18nContext) -> Pa
 		EnvironmentKind::Preview => "Preview",
 	};
 	let operation = match latest_operation {
-		None => page!({ p { class: STYLES.copy(), { context.translate("No operations yet") } } }),
+		None => page!({
+			p {
+				class: STYLES.copy(),
+				{ context.translate("No operations yet") }
+			}
+		}),
 		Some(snapshot) => {
 			let state = match snapshot.progress.state {
 				OperationState::Queued => "Queued",
@@ -334,12 +362,28 @@ fn environment_card(environment: EnvironmentSummary, context: I18nContext) -> Pa
 				_ => "Operation",
 			};
 			page!({
-				h4 { class: STYLES.operation_title(), { context.translate("Latest operation") } }
-				p { class: STYLES.status(), { context.translate(kind) } ": " { context.translate(state) } }
-				p { class: STYLES.identity(), { format!("{}", snapshot.progress.id) } }
-				time { datetime: snapshot.created_at.to_rfc3339(), { snapshot.created_at.format("%Y-%m-%d %H:%M UTC").to_string() } }
+				h4 {
+					class: STYLES.operation_title(),
+					{ context.translate("Latest operation") }
+				}
+				p {
+					class: STYLES.status(),
+					{ context.translate(kind) }": " { context.translate(state) }
+				}
+				p {
+					class: STYLES.identity(),
+					{ format!("{}", snapshot.progress.id) }
+				}
+				time {
+					datetime: snapshot.created_at.to_rfc3339(),
+					{ snapshot.created_at.format("%Y-%m-%d %H:%M UTC").to_string() }
+				}
 				if snapshot.progress.state == OperationState::Uncertain {
-					p { role: "status", class: STYLES.copy(), { context.translate("Further changes wait for cluster reconciliation.") } }
+					p {
+						role: "status",
+						class: STYLES.copy(),
+						{ context.translate("Further changes wait for cluster reconciliation.") }
+					}
 				}
 			})
 		}
@@ -361,8 +405,14 @@ fn environment_card(environment: EnvironmentSummary, context: I18nContext) -> Pa
 	page!({
 		article {
 			class: STYLES.environment_card(),
-			h3 { class: STYLES.panel_title(), { context.translate(kind) } }
-			p { class: STYLES.identity(), { format!("{}", id) } }
+			h3 {
+				class: STYLES.panel_title(),
+				{ context.translate(kind) }
+			}
+			p {
+				class: STYLES.identity(),
+				{ format!("{}", id) }
+			}
 			dl {
 				class: STYLES.facts(),
 				dt { { context.translate("Configuration version") } }

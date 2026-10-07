@@ -86,7 +86,7 @@ pub(crate) fn build_migration_job(
 		revision_key.to_string(),
 	)]);
 	let isolated = app.spec.isolation.is_some();
-	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app);
+	let (plugin_volumes, plugin_mounts) = build_plugin_volumes(app)?;
 	let resources = ResourceRequirements {
 		requests: Some(BTreeMap::from([
 			(
@@ -470,7 +470,7 @@ mod tests {
 		let mut app = test_app("my-app", "my-app:v1");
 		app.spec.plugins = Some(vec![PluginSpec {
 			name: "auth-filter".to_string(),
-			wasm_dir: "/plugins/auth".to_string(),
+			wasm_dir: "/var/lib/dentdelion/auth".to_string(),
 			plugin_type: PluginType::HttpMiddleware,
 			memory_limit_mb: None,
 			timeout_ms: None,
@@ -490,7 +490,7 @@ mod tests {
 			.expect("plugin volume mounts should be set");
 		assert_eq!(volumes.len(), 2);
 		assert_eq!(mounts.len(), 2);
-		assert_eq!(mounts[1].mount_path, "/plugins/auth");
+		assert_eq!(mounts[1].mount_path, "/var/lib/dentdelion/auth");
 	}
 
 	#[rstest]

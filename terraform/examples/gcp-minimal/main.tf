@@ -16,6 +16,7 @@ module "gke" {
   subnet_id           = module.network.subnet_id
   pods_range_name     = module.network.pods_range_name
   services_range_name = module.network.services_range_name
+  enable_dataplane_v2 = var.enable_dataplane_v2
   labels              = var.labels
 }
 

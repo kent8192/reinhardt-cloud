@@ -20,6 +20,59 @@ use reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec;
 use crate::error::Error;
 use crate::resources::labels::owner_reference;
 
+const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
+const KUBE_DNS_APP_LABEL: &str = "kube-dns";
+
+fn kube_dns_peer() -> NetworkPolicyPeer {
+	NetworkPolicyPeer {
+		namespace_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"kubernetes.io/metadata.name".to_string(),
+				KUBE_DNS_NAMESPACE_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		pod_selector: Some(LabelSelector {
+			match_labels: Some(BTreeMap::from([(
+				"k8s-app".to_string(),
+				KUBE_DNS_APP_LABEL.to_string(),
+			)])),
+			..Default::default()
+		}),
+		..Default::default()
+	}
+}
+
+fn dns_ports() -> Vec<NetworkPolicyPort> {
+	vec![
+		NetworkPolicyPort {
+			port: Some(IntOrString::Int(53)),
+			protocol: Some("UDP".to_string()),
+			..Default::default()
+		},
+		NetworkPolicyPort {
+			port: Some(IntOrString::Int(53)),
+			protocol: Some("TCP".to_string()),
+			..Default::default()
+		},
+	]
+}
+
+fn dns_egress_rule(dns_allow_cidrs: &[String]) -> NetworkPolicyEgressRule {
+	let mut peers = vec![kube_dns_peer()];
+	peers.extend(dns_allow_cidrs.iter().map(|cidr| NetworkPolicyPeer {
+		ip_block: Some(IPBlock {
+			cidr: cidr.clone(),
+			except: None,
+		}),
+		..Default::default()
+	}));
+	NetworkPolicyEgressRule {
+		to: Some(peers),
+		ports: Some(dns_ports()),
+	}
+}
+
 /// Builds a default-deny NetworkPolicy for all traffic to/from the app's pods.
 pub(crate) fn build_default_deny_policy(app: &Project) -> Result<NetworkPolicy, Error> {
 	let name = format!("{}-deny-all", app.name_any());
@@ -122,21 +175,7 @@ pub(crate) fn build_managed_service_egress_policy(
 	let namespace = super::super::require_namespace(app)?;
 	let owner_ref = owner_reference(app)?;
 
-	let mut egress_rules = vec![NetworkPolicyEgressRule {
-		ports: Some(vec![
-			NetworkPolicyPort {
-				port: Some(IntOrString::Int(53)),
-				protocol: Some("UDP".to_string()),
-				..Default::default()
-			},
-			NetworkPolicyPort {
-				port: Some(IntOrString::Int(53)),
-				protocol: Some("TCP".to_string()),
-				..Default::default()
-			},
-		]),
-		..Default::default()
-	}];
+	let mut egress_rules = vec![dns_egress_rule(&network.dns_allow_cidrs)];
 
 	if network.allow_egress {
 		let metadata_except = if network.block_metadata_service {
@@ -343,6 +382,80 @@ mod tests {
 				.unwrap_or(false)
 		});
 		assert!(dns_rule.is_some());
+	}
+
+	#[rstest]
+	fn egress_policy_restricts_dns_to_kube_dns() {
+		// Arrange
+		let app = test_app();
+		let network = NetworkIsolationSpec::default();
+
+		// Act
+		let policy = build_managed_service_egress_policy(&app, &network).unwrap();
+
+		// Assert
+		let spec = policy.spec.unwrap();
+		let egress_rules = spec.egress.unwrap();
+		let dns_rule = egress_rules
+			.iter()
+			.find(|r| {
+				r.ports
+					.as_ref()
+					.map(|ports| ports.iter().any(|p| p.port == Some(IntOrString::Int(53))))
+					.unwrap_or(false)
+			})
+			.expect("DNS egress rule should exist");
+		let to = dns_rule.to.as_ref().expect("DNS destination peers");
+		assert_eq!(to.len(), 1);
+		let peer = &to[0];
+		let namespace_labels = peer
+			.namespace_selector
+			.as_ref()
+			.expect("namespace selector")
+			.match_labels
+			.as_ref()
+			.expect("namespace match labels");
+		assert_eq!(
+			namespace_labels
+				.get("kubernetes.io/metadata.name")
+				.map(String::as_str),
+			Some(KUBE_DNS_NAMESPACE_LABEL),
+		);
+		let pod_labels = peer
+			.pod_selector
+			.as_ref()
+			.expect("pod selector")
+			.match_labels
+			.as_ref()
+			.expect("pod match labels");
+		assert_eq!(
+			pod_labels.get("k8s-app").map(String::as_str),
+			Some(KUBE_DNS_APP_LABEL),
+		);
+	}
+
+	#[rstest]
+	fn egress_policy_allows_configured_dns_cidr() {
+		// Arrange
+		let app = test_app();
+		let network = NetworkIsolationSpec {
+			dns_allow_cidrs: vec!["169.254.20.10/32".to_string()],
+			..Default::default()
+		};
+
+		// Act
+		let policy = build_managed_service_egress_policy(&app, &network).unwrap();
+
+		// Assert
+		let spec = policy.spec.unwrap();
+		let dns_rule = &spec.egress.unwrap()[0];
+		let peers = dns_rule.to.as_ref().expect("DNS peers");
+		assert!(peers.iter().any(|peer| {
+			peer.ip_block
+				.as_ref()
+				.map(|block| block.cidr.as_str() == "169.254.20.10/32")
+				.unwrap_or(false)
+		}));
 	}
 
 	#[rstest]

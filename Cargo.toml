@@ -13,13 +13,14 @@ members = [
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
 	"crates/reinhardt-cloud-agent",
+	# Reinhardt startproject application (Control Plane)
 	"dashboard",
 	# Integration tests
 	"tests",
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2024"
 license = "BUSL-1.1"
 repository = "https://github.com/kent8192/reinhardt-cloud"
@@ -37,7 +38,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Reinhardt — umbrella crate providing: HTTP server, auth (JWT + Argon2), database (SeaQuery),
 # configuration, DI container, middleware, OpenAPI, and management commands.
 # Direct hyper/jsonwebtoken/argon2/sea-query deps are NOT needed — reinhardt provides them.
-reinhardt = { package = "reinhardt-web", version = "=0.4.0-alpha.20", features = ["database", "db-postgres", "auth", "auth-jwt", "auth-social", "argon2-hasher", "core", "conf", "server", "di", "middleware", "middleware-security", "middleware-auth-jwt", "rest", "openapi", "openapi-router", "commands-server", "introspect", "test", "testcontainers", "pages", "websockets", "admin", "sessions", "session-redis", "mail", "static-files", "client-router"] }
+reinhardt = { package = "reinhardt-web", version = "=0.4.0-alpha.20", features = ["database", "db-postgres", "auth", "auth-jwt", "auth-social", "social-auth", "argon2-hasher", "core", "conf", "server", "di", "middleware", "middleware-security", "middleware-auth-jwt", "rest", "openapi", "openapi-router", "commands-server", "introspect", "test", "testcontainers", "pages", "forms", "websockets", "admin", "sessions", "session-redis", "mail", "static-files", "client-router"] }
 
 # PostgreSQL driver (sea-query is available via reinhardt::prelude — no direct dep needed)
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
@@ -91,13 +92,13 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 async-stream = "0.3"
 
 # Internal workspace crates
-reinhardt-cloud = { path = "crates/reinhardt-cloud", version = "0.1.0-alpha.1" }
-reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types", version = "0.1.0-alpha.1" }
-reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core", version = "0.1.0-alpha.1" }
-reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s", version = "0.1.0-alpha.1" }
-reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto", version = "0.1.0-alpha.1" }
-reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc", version = "0.1.0-alpha.1" }
-reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry", version = "0.1.0-alpha.1" }
+reinhardt-cloud = { path = "crates/reinhardt-cloud", version = "0.1.0-alpha.2" }
+reinhardt-cloud-types = { path = "crates/reinhardt-cloud-types", version = "0.1.0-alpha.2" }
+reinhardt-cloud-core = { path = "crates/reinhardt-cloud-core", version = "0.1.0-alpha.2" }
+reinhardt-cloud-k8s = { path = "crates/reinhardt-cloud-k8s", version = "0.1.0-alpha.2" }
+reinhardt-cloud-proto = { path = "crates/reinhardt-cloud-proto", version = "0.1.0-alpha.2" }
+reinhardt-cloud-grpc = { path = "crates/reinhardt-cloud-grpc", version = "0.1.0-alpha.2" }
+reinhardt-cloud-telemetry = { path = "crates/reinhardt-cloud-telemetry", version = "0.1.0-alpha.2" }
 
 # Cryptography / encoding
 rand = "0.9"

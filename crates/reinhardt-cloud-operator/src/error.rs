@@ -113,6 +113,10 @@ pub(crate) enum Error {
 	#[error("dentdelion plugin config render failed: {0}")]
 	PluginConfigRender(String),
 
+	/// A dentdelion plugin specification is invalid.
+	#[error("invalid plugin spec: {0}")]
+	InvalidPluginSpec(String),
+
 	/// `metadata.namespace` does not match the namespace computed from
 	/// `spec.tenant`. Set `metadata.namespace` to the value in `expected`,
 	/// or update `spec.tenant` so the computed namespace matches the
@@ -174,6 +178,8 @@ impl BackoffClass {
 /// - `MissingField`, `InvalidPort`, probe periods: permanent — user must fix the spec.
 /// - `Kube` with HTTP 404/409: dependency not ready (object missing or
 ///   write conflicts) — wait a bit longer before retrying.
+/// - Finalizer errors inherit the classification of an embedded reconciliation
+///   error so wrapping does not turn invalid specifications into retryable failures.
 /// - All other errors: transient — short backoff.
 pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 	match error {
@@ -182,6 +188,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidPluginSpec(_)
+		| Error::DatabaseProvisioning(_)
 		| Error::ServiceAccountOwnership { .. }
 		| Error::InvalidImagePullSecret { .. }
 		| Error::TenantMismatch { .. }
@@ -191,7 +199,20 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
+		Error::Finalizer(source) => nested_backoff_class(source.as_ref()),
 		_ => BackoffClass::Transient,
+	}
+}
+
+fn nested_backoff_class(mut source: &(dyn std::error::Error + 'static)) -> BackoffClass {
+	loop {
+		if let Some(error) = source.downcast_ref::<Error>() {
+			return backoff_class(error);
+		}
+		let Some(next) = source.source() else {
+			return BackoffClass::Transient;
+		};
+		source = next;
 	}
 }
 
@@ -284,6 +305,45 @@ mod tests {
 	fn invalid_budget_is_permanent() {
 		// Arrange
 		let err = Error::InvalidBudget("max_cpu is not a valid quantity".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn invalid_plugin_spec_is_permanent() {
+		// Arrange
+		let err = Error::InvalidPluginSpec("plugins[0]: invalid wasm_dir".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn database_provisioning_is_permanent() {
+		// Arrange
+		let err = Error::DatabaseProvisioning("invalid database spec".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn finalizer_wrapped_database_provisioning_is_permanent() {
+		// Arrange
+		let apply_error = kube::runtime::finalizer::Error::ApplyFailed(
+			Error::DatabaseProvisioning("invalid database spec".to_string()),
+		);
+		let err = Error::Finalizer(Box::new(apply_error));
 
 		// Act
 		let class = backoff_class(&err);

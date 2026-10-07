@@ -21,6 +21,12 @@ variable "name_prefix" {
   default     = "reinhardt"
 }
 
+variable "enable_dataplane_v2" {
+  description = "Enable GKE Dataplane V2 for NetworkPolicy enforcement in the example cluster."
+  type        = bool
+  default     = true
+}
+
 variable "labels" {
   description = "Labels applied to all resources."
   type        = map(string)

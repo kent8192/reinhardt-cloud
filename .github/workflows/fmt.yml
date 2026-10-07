@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Rust with rustfmt
         uses: ./.github/actions/setup-rust
@@ -32,5 +34,20 @@ jobs:
         with:
           tool: cargo-make
 
+      - name: Install Reinhardt formatting tools
+        # Keep formatter package versions in sync with the reinhardt-web version
+        # pinned in Cargo.toml so the page!/form! DSL formatter matches the macro
+        # syntax the dashboard targets. Use immutable crates.io version pins here;
+        # mutable Git branches are not safe for CI install-time code execution.
+        run: |
+          cargo install reinhardt-admin-cli --version "=0.4.0-alpha.20" --locked
+          cargo install reinhardt-formatter --version "=0.4.0-alpha.20" --locked
+
       - name: Check code formatting
         run: cargo make fmt-check
+
+      - name: Check Pages DSL formatting
+        run: reinhardt-admin fmt dashboard --check
+
+      - name: Check migration source version
+        run: reinhardt-admin migrations upgrade-source dashboard/migrations --check

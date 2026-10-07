@@ -637,7 +637,7 @@ mod tests {
 		let result = locate_workspace_file(&member_dir, "Cargo.lock");
 
 		// Assert
-		assert_eq!(result, Some(lock_path));
+		assert_eq!(result, Some(lock_path.canonicalize().unwrap()));
 	}
 
 	/// Integration test (Refs #477): a Cargo.lock that pulls in `prost-build`
