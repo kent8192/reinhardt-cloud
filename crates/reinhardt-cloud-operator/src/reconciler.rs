@@ -3407,7 +3407,11 @@ mod tests {
 		let result = reconcile_redis_credentials_secret(&app, &client, "default").await;
 
 		// Assert
-		assert_eq!(result.is_ok(), expected_success, "{result:?}");
+		assert_eq!(
+			result.is_ok(),
+			expected_success,
+			"Redis credential reconciliation returned an unexpected success state"
+		);
 		if expected_success {
 			assert_eq!(result.unwrap(), "secret-uid");
 		}
