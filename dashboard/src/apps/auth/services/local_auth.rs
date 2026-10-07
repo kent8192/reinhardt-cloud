@@ -114,7 +114,7 @@ impl AuthService for LocalAuthService {
 			.map_err(|e| ApiError::BadRequest(format!("Invalid user ID: {e}")))?;
 
 		let user = User::objects()
-			.filter(User::field_id().eq(user_id.to_string()))
+			.filter(User::field_id().eq(user_id))
 			.first()
 			.await
 			.map_err(|e| {

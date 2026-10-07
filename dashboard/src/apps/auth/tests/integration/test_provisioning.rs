@@ -101,7 +101,7 @@ mod tests {
 
 		// Assert -- exactly one Owner membership wiring user to org
 		let membership = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.first()
 			.await
 			.expect("query membership")
@@ -162,7 +162,7 @@ mod tests {
 		// Assert -- the new user's Organization exists with a uuid-suffixed slug
 		// and records `new_user.id` as creator (NOT `squatter.id`)
 		let new_org = Organization::objects()
-			.filter(Organization::field_created_by().eq(new_user.id.to_string()))
+			.filter(Organization::field_created_by().eq(new_user.id))
 			.first()
 			.await
 			.expect("query Organization by created_by")
@@ -214,7 +214,7 @@ mod tests {
 
 		// Assert
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.all()
 			.await
 			.expect("query memberships");
@@ -266,14 +266,14 @@ mod tests {
 
 		// Assert
 		let personal_org = Organization::objects()
-			.filter(Organization::field_created_by().eq(member.id.to_string()))
+			.filter(Organization::field_created_by().eq(member.id))
 			.first()
 			.await
 			.expect("query member Personal Org")
 			.expect("member Personal Org should exist");
 		assert_eq!(personal_org.created_by, member.id);
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(member.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(member.id))
 			.all()
 			.await
 			.expect("query member memberships");
@@ -305,13 +305,13 @@ mod tests {
 
 		// Assert
 		let personal_orgs = Organization::objects()
-			.filter(Organization::field_created_by().eq(user.id.to_string()))
+			.filter(Organization::field_created_by().eq(user.id))
 			.all()
 			.await
 			.expect("query Personal Orgs");
 		assert_eq!(personal_orgs.len(), 1);
 		let memberships = OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user.id))
 			.all()
 			.await
 			.expect("query memberships");

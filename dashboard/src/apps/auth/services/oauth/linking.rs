@@ -166,7 +166,7 @@ async fn ensure_user_personal_organization(user: &User) -> Result<(), LinkError>
 
 async fn load_user_by_id(user_id: Uuid) -> Result<User, LinkError> {
 	User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.map_err(|e| LinkError::Database(e.to_string()))?

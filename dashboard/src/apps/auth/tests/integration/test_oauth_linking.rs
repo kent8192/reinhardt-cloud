@@ -87,7 +87,7 @@ mod tests {
 
 	async fn membership_count(user_id: uuid::Uuid) -> usize {
 		OrganizationMembership::objects()
-			.filter(OrganizationMembership::field_user_id().eq(user_id.to_string()))
+			.filter(OrganizationMembership::field_user_id().eq(user_id))
 			.all()
 			.await
 			.expect("query memberships")
@@ -142,7 +142,7 @@ mod tests {
 		let (_c, _conn, _cli, _urls) = db.await;
 		let user_id = seed_user("link_authed", "authed@example.com").await;
 		let current = User::objects()
-			.filter(User::field_id().eq(user_id.to_string()))
+			.filter(User::field_id().eq(user_id))
 			.first()
 			.await
 			.unwrap()

@@ -257,7 +257,7 @@ pub async fn verify_email(
 	})?;
 
 	let user = User::objects()
-		.filter(User::field_id().eq(user_id.to_string()))
+		.filter(User::field_id().eq(user_id))
 		.first()
 		.await
 		.map_err(|e| {

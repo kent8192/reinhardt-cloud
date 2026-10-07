@@ -73,7 +73,7 @@ async fn github_account_linked(
 	use crate::apps::auth::models::SocialAccount;
 
 	SocialAccount::objects()
-		.filter(SocialAccount::field_user_id().eq(user.id.to_string()))
+		.filter(SocialAccount::field_user_id().eq(user.id))
 		.filter(SocialAccount::field_provider().eq("github"))
 		.exists()
 		.await

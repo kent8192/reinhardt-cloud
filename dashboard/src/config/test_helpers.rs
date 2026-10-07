@@ -323,7 +323,7 @@ pub async fn set_membership_role(
 	use reinhardt::db::orm::Model;
 
 	let mut membership = OrganizationMembership::objects()
-		.filter(OrganizationMembership::field_user_id().eq(user.id.to_string()))
+		.filter(OrganizationMembership::field_user_id().eq(user.id))
 		.first()
 		.await
 		.expect("Failed to look up membership for set_membership_role")

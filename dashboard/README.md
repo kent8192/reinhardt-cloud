@@ -68,6 +68,10 @@ cargo make makemigrations   # Create new migrations
 cargo make migrate          # Apply migrations
 ```
 
+Pass UUID values directly to ORM filters for user IDs, social-account IDs, and
+organization ownership. Converting these values to strings binds PostgreSQL text
+parameters, which cannot be compared to UUID columns.
+
 ### Testing
 
 ```bash
