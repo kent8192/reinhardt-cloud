@@ -1,0 +1,37 @@
+# Shared non-secret settings for the Control Plane.
+[core]
+installed_apps = ["identity", "organization", "project", "source", "deployment", "cluster", "secret", "observability"]
+debug = false
+secret_key = "${CLOUD_SECRET_KEY:?Set CLOUD_SECRET_KEY}"
+allowed_hosts = ["localhost", "127.0.0.1"]
+language_code = "en"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+middleware = []
+root_urlconf = ""
+
+[core.security]
+session_cookie_secure = true
+csrf_cookie_secure = true
+secure_ssl_redirect = false
+append_slash = true
+
+[core.databases.default]
+engine = "postgresql"
+host = "${CLOUD_DB_HOST:-127.0.0.1}"
+port = "${CLOUD_DB_PORT:-5432}"
+name = "${CLOUD_DB_NAME:-reinhardt_cloud}"
+user = "${CLOUD_DB_USER:-reinhardt_cloud}"
+password = "${CLOUD_DB_PASSWORD:?Set CLOUD_DB_PASSWORD}"
+
+[static]
+url = "/static/"
+root = "dist"
+
+[contacts]
+admins = []
+managers = []
+
+[identity]
+public_origin = "${CLOUD_PUBLIC_ORIGIN:-http://localhost:8000}"

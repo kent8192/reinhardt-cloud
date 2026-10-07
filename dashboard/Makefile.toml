@@ -1,0 +1,45 @@
+# Dashboard tasks run from this Reinhardt project inside the Cargo workspace.
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[tasks.wasm-build-dev]
+command = "wasm-pack"
+args = ["build", "--target", "web", "--out-dir", "dist-wasm", "--dev", "--no-typescript"]
+
+[tasks.wasm-build-release]
+command = "wasm-pack"
+args = ["build", "--target", "web", "--out-dir", "dist-wasm", "--release", "--no-typescript"]
+
+[tasks.publish-pages]
+script = { file = "scripts/publish-pages.sh" }
+dependencies = ["wasm-build-dev"]
+
+[tasks.publish-pages-release]
+script = { file = "scripts/publish-pages.sh" }
+dependencies = ["wasm-build-release"]
+
+[tasks.runserver]
+command = "cargo"
+args = ["run", "-p", "cloud_dashboard", "--bin", "manage", "--", "runserver", "--with-pages", "--no-spa", "--noreload", "--no-wasm"]
+dependencies = ["publish-pages"]
+
+[tasks.makemigrations]
+command = "cargo"
+args = ["run", "-p", "cloud_dashboard", "--bin", "manage", "--", "makemigrations", "--state-source", "files"]
+
+[tasks.migrate]
+command = "cargo"
+args = ["run", "-p", "cloud_dashboard", "--bin", "manage", "--", "migrate"]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "-p", "cloud_dashboard"]
+
+[tasks.fmt-check]
+command = "reinhardt-admin"
+args = ["fmt", ".", "--check"]
+
+[tasks.clippy-check]
+command = "cargo"
+args = ["clippy", "-p", "cloud_dashboard", "--all-targets", "--all-features", "--", "-D", "warnings"]

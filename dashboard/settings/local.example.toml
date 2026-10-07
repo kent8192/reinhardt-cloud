@@ -1,0 +1,7 @@
+# Profile overrides; credentials come from environment variables.
+[core]
+debug = true
+
+[core.security]
+session_cookie_secure = false
+csrf_cookie_secure = false

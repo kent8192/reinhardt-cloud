@@ -78,6 +78,12 @@ version_group = "reinhardt-cloud"
 name = "reinhardt-cloud-types"
 version_group = "reinhardt-cloud"
 
+# The Dashboard is deployed as an application rather than a crates.io library.
+[[package]]
+name = "cloud_dashboard"
+release = false
+publish = false
+
 # Non-published test package.
 [[package]]
 name = "reinhardt-cloud-integration-tests"
