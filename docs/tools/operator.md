@@ -1024,18 +1024,36 @@ status value.
 
 Before upgrading from a release that used labels or owner references as Redis Secret ownership,
 or before recreating a Project whose retained Secret should be reused, a platform administrator
-must first independently verify the retained password against the running Redis instance,
-freeze the exact inspected Secret using its resourceVersion, and then explicitly adopt its UID
-through the protected status subresource. Freezing an unchecked value is not provenance.
-The following commands illustrate the operation; execute them only after that verification:
+must capture one Secret JSON snapshot containing its UID, resourceVersion, and credential data,
+independently verify the password **from that snapshot** against the trusted running Redis
+instance, and freeze using **that same snapshot's** UID and resourceVersion. Do not fetch the
+Secret again between verification and freezing. A concurrent change causes the conditional
+patch to fail; in that case discard the snapshot and repeat verification from the beginning.
+Only after the freeze succeeds may the administrator adopt that UID through the protected
+status subresource. Freezing an unchecked value is not provenance.
 
 ```bash
-SECRET_UID="$(kubectl get secret <project>-redis-credentials -n <namespace> -o jsonpath='{.metadata.uid}')"
-SECRET_RV="$(kubectl get secret <project>-redis-credentials -n <namespace> -o jsonpath='{.metadata.resourceVersion}')"
+set -euo pipefail
+umask 077
+SECRET_SNAPSHOT="$(mktemp)"
+trap 'rm -f "$SECRET_SNAPSHOT"' EXIT
+kubectl get secret <project>-redis-credentials -n <namespace> -o json > "$SECRET_SNAPSHOT"
+SECRET_UID="$(jq -er '.metadata.uid' "$SECRET_SNAPSHOT")"
+SECRET_RV="$(jq -er '.metadata.resourceVersion' "$SECRET_SNAPSHOT")"
+
+# Independently verify the password in SECRET_SNAPSHOT against the trusted running Redis.
+# Do not print credential data, use a second Secret GET, or continue if verification fails.
+# The verification method depends on the administrator's trusted Redis access path.
+read -r -p "Snapshot password verified against running Redis? Type VERIFIED: " CONFIRM
+[ "$CONFIRM" = VERIFIED ] || exit 1
+
+FREEZE_PATCH="$(jq -cn --arg uid "$SECRET_UID" --arg rv "$SECRET_RV" \
+  '{metadata:{uid:$uid,resourceVersion:$rv},immutable:true}')"
 kubectl patch secret <project>-redis-credentials -n <namespace> --type=merge \
-  -p "{\"metadata\":{\"uid\":\"${SECRET_UID}\",\"resourceVersion\":\"${SECRET_RV}\"},\"immutable\":true}"
+  -p "$FREEZE_PATCH"
+# A failed freeze exits above: never adopt a newly fetched or unverified revision.
 kubectl patch project <project> -n <namespace> --subresource=status --type=merge \
-  -p "{\"status\":{\"redisCredentialsSecretUid\":\"${SECRET_UID}\"}}"
+  -p "$(jq -cn --arg uid "$SECRET_UID" '{status:{redisCredentialsSecretUid:$uid}}')"
 ```
 
 Tenant users must not be granted `projects/status` write permission; the UID adoption step is a
