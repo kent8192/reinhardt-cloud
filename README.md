@@ -51,7 +51,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0-alpha.1 pre-release. The dashboard application is not included in this workspace. Use `deploy --direct` or generated `Project` manifests with the operator. CLI commands that require a control-plane API, including `login` and deployment without `--direct`, require a separately provided compatible server.
+> **Status:** v0.1.0-alpha.1 pre-release. The `dashboard/` application provides Pages SSR, password sessions, organization-scoped project and Environment reads, and transactional runtime operation storage across eight Reinhardt Apps. Agent delivery and deployment API integration are not yet connected. Use `deploy --direct` or generated `Project` manifests with the operator; API-dependent CLI commands still require a separately provided compatible server.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -123,7 +123,7 @@ Reinhardt Cloud takes a different approach: **convention-driven deployment**. Th
 
 ## Architecture
 
-The workspace ships the CLI, Kubernetes operator, cluster agent, and shared libraries.
+The workspace ships the CLI, Kubernetes operator, cluster agent, shared libraries, and the Dashboard foundation built with Reinhardt Web 0.4.0-alpha.20.
 
 ```mermaid
 flowchart LR
@@ -453,6 +453,7 @@ CUSTOM_VAR = "custom_value"
 | `reinhardt-cloud-operator` | Binary | Kubernetes operator (reconciler, resource management) |
 | `reinhardt-cloud-cli` | Binary | `reinhardt-cloud` command-line tool |
 | `reinhardt-cloud-agent` | Binary | Cluster agent for bidirectional control plane communication |
+| `cloud_dashboard` | Application | Pages SSR, PostgreSQL sessions, organization-scoped reads, and transactional runtime intents across eight Reinhardt Apps |
 | `tests` | Integration Tests | Cross-crate integration test suite |
 
 ### gRPC services
