@@ -13,6 +13,8 @@ pub mod urls;
 pub mod models;
 pub mod services;
 
+#[cfg(server)]
+pub mod persistence;
 
 #[cfg(server)]
 pub(crate) mod read;
