@@ -80,6 +80,11 @@ its Personal Organization, verifies login through the deployed frontend server
 function, checks authenticated Dashboard route shells, then removes the temporary
 namespace.
 
+When either automated harness starts a local Operator, it explicitly enables
+`REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE=1` for operator-owned test namespaces,
+including preview namespace cleanup. Existing in-cluster Operators retain their
+configured lifecycle policy.
+
 By default, the harness first uses the configured Kubernetes context when it is
 reachable. If the current context is stopped or missing and `kind` is installed,
 it creates or reuses a local `reinhardt-dashboard-e2e` kind cluster and loads the
@@ -281,12 +286,16 @@ local profile's `[grpc].bind_host` override (`dashboard/settings/local.toml`).
 In another terminal:
 
 ```bash
-cargo run -p reinhardt-cloud-operator
+REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE=1 cargo run -p reinhardt-cloud-operator
 ```
 
 The Operator uses the host's `KUBECONFIG` to reach the cluster started in
 step 1. `rustls` `CryptoProvider` is installed explicitly at startup
 (kent8192/reinhardt-cloud#314) — no TLS panic on Kubernetes 1.31+.
+
+This local command enables tenant and preview namespace lifecycle management,
+so deleting a parent Project also removes its operator-owned preview namespace.
+Leave the setting unset or set it to `false` for platform-managed namespaces.
 
 ## 6. Run the Agent
 

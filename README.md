@@ -530,9 +530,13 @@ cargo make pre-pr
 # Run the dashboard (Control Plane)
 cargo make runserver
 
-# Run the operator locally
-cargo run --bin reinhardt-cloud-operator
+# Run the operator locally for operator-managed development namespaces
+REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE=1 cargo run --bin reinhardt-cloud-operator
 ```
+
+The local command enables creation and cleanup of operator-owned tenant and
+preview namespaces. Leave `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE` unset or
+set it to `false` when namespace lifecycle is managed by the platform.
 
 ## API Stability
 
