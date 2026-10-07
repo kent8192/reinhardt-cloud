@@ -32,7 +32,7 @@ pub async fn login(request: Request) -> reinhardt::http::Result<Response> {
 				})?;
 			}
 			Ok(Response::new(http::StatusCode::SEE_OTHER)
-				.with_header("Location", "/")
+				.with_header("Location", "/organizations/")
 				.with_header("Cache-Control", "no-store")
 				.append_header(
 					"Set-Cookie",
@@ -40,7 +40,7 @@ pub async fn login(request: Request) -> reinhardt::http::Result<Response> {
 				))
 		}
 		Err(IdentityError::InvalidCredentials) => Ok(Response::new(http::StatusCode::SEE_OTHER)
-			.with_header("Location", "/?signin=failed")
+			.with_header("Location", "/login/?signin=failed")
 			.with_header("Cache-Control", "no-store")),
 		Err(_) => Ok(Response::new(http::StatusCode::SERVICE_UNAVAILABLE)
 			.with_body("Sign-in is unavailable. Try again later.")),
@@ -58,10 +58,40 @@ pub async fn logout(request: Request) -> reinhardt::http::Result<Response> {
 		})?;
 	}
 	Ok(Response::new(http::StatusCode::SEE_OTHER)
-		.with_header("Location", "/")
+		.with_header("Location", "/login/")
 		.with_header("Cache-Control", "no-store")
 		.append_header(
 			"Set-Cookie",
 			&settings.cookie(settings.session_cookie_name(), "", 0),
 		))
+}
+
+#[reinhardt::get("/login/", name = "sign-in-page")]
+pub async fn sign_in_page(request: Request) -> reinhardt::http::Result<Response> {
+	if request
+		.extensions
+		.get::<super::persistence::Actor>()
+		.is_some()
+	{
+		return Ok(
+			Response::new(http::StatusCode::SEE_OTHER).with_header("Location", "/organizations/")
+		);
+	}
+	#[derive(Deserialize)]
+	struct Query {
+		signin: Option<String>,
+	}
+	let failed = request
+		.query_as::<Query>()
+		.ok()
+		.is_some_and(|q| q.signin.as_deref() == Some("failed"));
+	crate::client::document::respond(
+		request,
+		if failed {
+			crate::client::screens::DashboardState::SignInFailed
+		} else {
+			crate::client::screens::DashboardState::AuthenticationRequired
+		},
+	)
+	.await
 }

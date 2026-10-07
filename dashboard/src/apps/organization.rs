@@ -17,3 +17,6 @@ pub mod services;
 pub mod persistence;
 #[cfg(server)]
 pub mod server;
+
+pub mod client;
+pub mod functions;

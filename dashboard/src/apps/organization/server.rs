@@ -17,3 +17,18 @@ pub async fn list(request: Request) -> reinhardt::http::Result<Response> {
 		Err(_) => Ok(Response::new(http::StatusCode::SERVICE_UNAVAILABLE)),
 	}
 }
+
+#[reinhardt::get("/organizations/", name = "organization-chooser-page")]
+pub async fn chooser_page(request: Request) -> reinhardt::http::Result<Response> {
+	let Some(actor) = request
+		.extensions
+		.get::<crate::apps::identity::persistence::Actor>()
+	else {
+		return Ok(Response::new(http::StatusCode::SEE_OTHER).with_header("Location", "/login/"));
+	};
+	let state = match super::persistence::organizations_for(actor.id).await {
+		Ok(items) => crate::client::screens::DashboardState::OrganizationRequired(items),
+		Err(_) => crate::client::screens::DashboardState::Unavailable,
+	};
+	crate::client::document::respond(request, state).await
+}

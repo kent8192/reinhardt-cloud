@@ -222,6 +222,110 @@ async fn native_identity_reloads_membership_and_revokes_sessions() {
 		.send()
 		.await
 		.unwrap();
+	// Typed Pages endpoints use the same live identity, origin and ownership checks.
+	let functions_cookie = format!("{first_session}; {csrf_cookie}");
+	let projects_function = |organization, origin: &str, token: &str| {
+		client
+			.post(format!("{}/api/server_fn/projects/", fixture.origin))
+			.header(header::ORIGIN, origin)
+			.header(header::COOKIE, &functions_cookie)
+			.header("X-CSRFToken", token)
+			.json(&serde_json::json!({"organization_id":organization}))
+	};
+	let typed_projects = projects_function(first_orgs[0].id, &fixture.origin, csrf)
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_projects.status(), StatusCode::OK);
+	assert_eq!(
+		typed_projects.json::<Vec<ProjectSummary>>().await.unwrap(),
+		own_projects
+	);
+	let typed_other = projects_function(second_orgs[0].id, &fixture.origin, csrf)
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_other.status(), StatusCode::FORBIDDEN);
+	let typed_detail = client
+		.post(format!("{}/api/server_fn/project/", fixture.origin))
+		.header(header::ORIGIN, &fixture.origin)
+		.header(header::COOKIE, &functions_cookie)
+		.header("X-CSRFToken", csrf)
+		.json(&serde_json::json!({"organization_id":first_orgs[0].id,"project_id":project.id}))
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_detail.status(), StatusCode::OK);
+	assert_eq!(
+		typed_detail.json::<ProjectDetail>().await.unwrap(),
+		own_detail
+	);
+	let typed_organizations = client
+		.post(format!("{}/api/server_fn/organizations/", fixture.origin))
+		.header(header::ORIGIN, &fixture.origin)
+		.header(header::COOKIE, &functions_cookie)
+		.header("X-CSRFToken", csrf)
+		.json(&serde_json::json!({}))
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_organizations.status(), StatusCode::OK);
+	assert_eq!(
+		typed_organizations
+			.json::<Vec<OrganizationSummary>>()
+			.await
+			.unwrap(),
+		first_orgs
+	);
+	let typed_missing_identity = client
+		.post(format!("{}/api/server_fn/projects/", fixture.origin))
+		.header(header::ORIGIN, &fixture.origin)
+		.header(header::COOKIE, &csrf_cookie)
+		.header("X-CSRFToken", csrf)
+		.json(&serde_json::json!({"organization_id":first_orgs[0].id}))
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_missing_identity.status(), StatusCode::UNAUTHORIZED);
+	let typed_bad_origin =
+		projects_function(first_orgs[0].id, "https://unrelated.example.test", csrf)
+			.send()
+			.await
+			.unwrap();
+	assert_eq!(typed_bad_origin.status(), StatusCode::FORBIDDEN);
+	let typed_bad_csrf = projects_function(first_orgs[0].id, &fixture.origin, "invalid")
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(typed_bad_csrf.status(), StatusCode::FORBIDDEN);
+	let runtime_input = cloud_dashboard::apps::deployment::services::OperationRequest {
+		organization_id: first_orgs[0].id,
+		environment_id: environment.id,
+		expected_version: 0,
+		idempotency_key: "typed-restart".into(),
+		change: cloud_dashboard::apps::deployment::services::RuntimeChange::Restart,
+	};
+	let typed_runtime = |session: &str| {
+		client
+			.post(format!("{}/api/server_fn/runtime/", fixture.origin))
+			.header(header::ORIGIN, &fixture.origin)
+			.header(header::COOKIE, format!("{session}; {csrf_cookie}"))
+			.header("X-CSRFToken", csrf)
+			.json(&serde_json::json!({"input":runtime_input}))
+	};
+	assert_eq!(
+		typed_runtime(&second_session)
+			.send()
+			.await
+			.unwrap()
+			.status(),
+		StatusCode::FORBIDDEN
+	);
+	assert_eq!(
+		typed_runtime(&first_session).send().await.unwrap().status(),
+		StatusCode::CONFLICT
+	);
+
 	let raw_token = first_session.split_once('=').unwrap().1;
 	let stored_sessions = Session::objects()
 		.filter(Session::field_token_hash().eq(token_hash(raw_token)))

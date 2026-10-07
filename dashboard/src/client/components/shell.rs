@@ -306,6 +306,17 @@ pub fn translations(locale: &str) -> I18nContext {
 			"現在の権限では、この組織にアクセスできません。",
 		),
 		("Unable to load projects", "プロジェクトを読み込めません"),
+		("Loading…", "読み込み中…"),
+		(
+			"Enter a replica count between 1 and 1000.",
+			"レプリカ数は1〜1000の整数を入力してください。",
+		),
+		("Runtime controls", "実行設定"),
+		("Submitting…", "送信中…"),
+		(
+			"Operation queued. Readiness is reported separately.",
+			"操作を受け付けました。稼働状態は別途報告されます。",
+		),
 		("Email", "メールアドレス"),
 		("Password", "パスワード"),
 		("Sign in", "サインイン"),

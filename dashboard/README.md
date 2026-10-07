@@ -36,8 +36,24 @@ Pending envelopes remain in PostgreSQL across connection or process replacement;
 delivery receipt is distinct from execution success. A ten-minute runtime deadline
 records uncertainty even when a receipt is missing.
 
-Operation mutations, Agent delivery transports, and deployment execution are not
-yet exposed to browser or machine clients.
+Pages routes have dedicated App components: `/login/`, `/organizations/`,
+`/organizations/{organization_id}/projects/`, and
+`/organizations/{organization_id}/projects/{project_id}/`. The Project routes share
+an organization layout with an `Outlet`; links reverse registered route names.
+Direct navigation renders authenticated SSR and hydrates the existing DOM. The
+first internal link activates `ClientLauncher`, which owns subsequent client
+transitions and browser history without replacing the document.
+
+Organization and Project reads use typed `server_fn` query descriptors. Environment
+controls submit typed runtime mutations with pending guards, idempotency keys and
+expected versions, then invalidate the Project detail query. An unfinished operation
+disables further controls. Native sign-in/out forms work before WASM loads.
+The generated `X-CSRFToken` header is verified against the signed HttpOnly cookie
+and exact Origin; the initial document supplies the token through framework metadata.
+Authentication and organization authorization are resolved from the session on every
+function call, including after query invalidation.
+
+Agent delivery transports and deployment execution remain planned integrations.
 
 ## Development
 
@@ -128,7 +144,9 @@ cargo test -p cloud_dashboard --test browser -- --ignored
 
 It starts its own PostgreSQL and Control Plane, seeds a real uncertain operation
 through the shared acceptance service, and checks SSR DOM preservation, hydration,
-authentication, organization isolation, project navigation, locale persistence,
+authentication, organization isolation, typed query requests, client navigation and
+browser history, runtime mutation acceptance/replay/conflict, query invalidation,
+locale persistence,
 keyboard controls, mobile width, dark styles, and browser exceptions.
 Set `CLOUD_BROWSER_EXPORT_SCREENSHOT` to an absolute output path to export the
 verified project-detail view for documentation. The temporary browser artifacts

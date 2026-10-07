@@ -1,14 +1,13 @@
 use cloud_dashboard::apps::deployment::services::{
 	OperationProgress, OperationSnapshot, OperationState,
 };
-use cloud_dashboard::apps::project::client::components::projects::{
-	ProjectListState, project_list,
-};
-use cloud_dashboard::apps::project::server::render_document;
 use cloud_dashboard::apps::project::services::ProjectSummary;
 use cloud_dashboard::apps::project::services::{
 	DesiredRuntime, EnvironmentKind, EnvironmentSummary, ProjectDetail,
 };
+use cloud_dashboard::client::components::shell::translations;
+use cloud_dashboard::client::document::render_document;
+use cloud_dashboard::client::screens::{DashboardState, surface};
 use cloud_dashboard::config::apps::InstalledApp;
 use reinhardt::pages::reactive::ReactiveScope;
 use reinhardt::pages::ssr::SsrRenderer;
@@ -17,16 +16,16 @@ use scraper::{Html, Selector};
 use uuid::Uuid;
 
 #[rstest]
-#[case(ProjectListState::Forbidden, "Access denied")]
-#[case(ProjectListState::Unavailable, "Unable to load projects")]
-#[case(ProjectListState::Ready(Vec::new()), "No projects yet")]
+#[case(DashboardState::Forbidden, "Access denied")]
+#[case(DashboardState::Unavailable, "Unable to load projects")]
+#[case(DashboardState::Ready(Vec::new()), "No projects yet")]
 #[tokio::test]
 async fn document_serving_preserves_the_explicit_page_state(
-	#[case] state: ProjectListState,
+	#[case] state: DashboardState,
 	#[case] expected: &str,
 ) {
 	// Arrange
-	let template = "<html><body><div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state--></body></html>";
+	let template = "<html><head><!--cloud-dashboard-head--></head><body><div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state--></body></html>";
 	// Act
 	let output = render_document(template, state, "en").await.unwrap();
 	let html = Html::parse_document(&output);
@@ -46,13 +45,18 @@ async fn document_serving_preserves_the_explicit_page_state(
 		expected
 	);
 	assert!(snapshot.is_object());
+	assert_eq!(
+		html.select(&Selector::parse("meta[name=csrf-token]").unwrap())
+			.count(),
+		1
+	);
 }
 
 #[rstest]
 #[tokio::test]
 async fn project_fields_are_escaped_in_the_published_document() {
 	// Arrange
-	let template = "<div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state-->";
+	let template = "<!--cloud-dashboard-head--><div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state-->";
 	let project = ProjectSummary {
 		id: Uuid::from_u128(1),
 		organization_id: Uuid::from_u128(2),
@@ -61,13 +65,9 @@ async fn project_fields_are_escaped_in_the_published_document() {
 		environments: 2,
 	};
 	// Act
-	let output = render_document(
-		template,
-		ProjectListState::Ready(vec![project.clone()]),
-		"ja",
-	)
-	.await
-	.unwrap();
+	let output = render_document(template, DashboardState::Ready(vec![project.clone()]), "ja")
+		.await
+		.unwrap();
 	let html = Html::parse_fragment(&output);
 	let cells = html
 		.select(&Selector::parse("tbody td").unwrap())
@@ -129,9 +129,9 @@ async fn project_detail_renders_uncertain_operation_without_claiming_readiness(
 			}),
 		}],
 	};
-	let template = "<div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state-->";
+	let template = "<!--cloud-dashboard-head--><div id=\"root\"><!--cloud-dashboard-body--></div><!--cloud-dashboard-state-->";
 	// Act
-	let output = render_document(template, ProjectListState::Detail(Box::new(detail)), locale)
+	let output = render_document(template, DashboardState::Detail(Box::new(detail)), locale)
 		.await
 		.unwrap();
 	let html = Html::parse_fragment(&output);
@@ -171,7 +171,13 @@ async fn ssr_renders_catalog_backed_access_state(
 ) {
 	// Arrange
 	let scope = ReactiveScope::new();
-	let page = scope.enter(|| project_list(ProjectListState::AuthenticationRequired, locale));
+	let page = scope.enter(|| {
+		surface(
+			DashboardState::AuthenticationRequired,
+			translations(locale),
+			String::new(),
+		)
+	});
 	let mut renderer = SsrRenderer::new();
 	// Act
 	let html = renderer.render_view(&page).await;

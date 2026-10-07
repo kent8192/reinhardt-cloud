@@ -18,3 +18,6 @@ pub mod persistence;
 
 #[cfg(server)]
 pub(crate) mod read;
+
+pub mod client;
+pub mod functions;

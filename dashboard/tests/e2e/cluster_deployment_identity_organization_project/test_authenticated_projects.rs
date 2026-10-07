@@ -82,6 +82,27 @@ async fn browser_hydrates_authenticated_project_detail_and_preserves_language() 
 		.create_with_conn(&mut connection, &allocation)
 		.await
 		.unwrap();
+	let preview = Environment::new()
+		.organization(member.organization_id())
+		.project(project.id)
+		.kind("preview")
+		.version(0)
+		.desired_runtime("{}")
+		.finish();
+	let preview = Environment::objects()
+		.create_with_conn(&mut connection, &preview)
+		.await
+		.unwrap();
+	let preview_allocation = EnvironmentAllocation::new()
+		.environment(preview.id)
+		.cluster(cluster.id)
+		.replica_limit(3)
+		.finish();
+	EnvironmentAllocation::objects()
+		.create_with_conn(&mut connection, &preview_allocation)
+		.await
+		.unwrap();
+
 	let request = OperationRequest {
 		organization_id: member.organization_id(),
 		environment_id: environment.id,

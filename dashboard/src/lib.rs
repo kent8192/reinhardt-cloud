@@ -5,9 +5,12 @@
 //!
 //! Password sessions and organization-scoped project reads are connected.
 //! Runtime operation acceptance atomically persists configuration, identity,
-//! audit, and correlated delivery intent. Read-only Pages show Environment inputs
+//! audit, and correlated delivery intent. Typed Pages queries show Environment inputs
 //! and their latest operation without treating desired state as observed readiness.
-//! Planned integration includes OIDC, authenticated project mutations, GitHub
+//! Typed server functions expose authenticated organization and project reads
+//! and runtime operation acceptance. App-owned client routes and components
+//! handle navigation and query invalidation.
+//! Planned integration includes OIDC, project creation, GitHub
 //! connections, Agent delivery transports, secret delivery, and live logs.
 
 #[cfg(server)]

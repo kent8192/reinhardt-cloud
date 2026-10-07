@@ -14,7 +14,7 @@ struct DashboardRoot;
 
 impl Component for DashboardRoot {
 	fn render(&self) -> Page {
-		crate::apps::project::client::components::projects::initial_project_page()
+		crate::client::screens::initial_page()
 	}
 
 	fn name() -> &'static str {

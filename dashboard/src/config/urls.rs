@@ -17,3 +17,11 @@ pub fn routes() -> UnifiedRouter {
 	let router = router.with_middleware(crate::apps::identity::middleware::IdentityMiddleware);
 	router
 }
+
+/// Canonical named client routes, also used for target-neutral URL reversal.
+pub fn client_routes() -> reinhardt::ClientRouter {
+	reinhardt::ClientRouter::new()
+		.merge(crate::apps::identity::urls::client_url_patterns())
+		.merge(crate::apps::organization::urls::client_url_patterns())
+		.merge(crate::apps::project::urls::client_url_patterns())
+}

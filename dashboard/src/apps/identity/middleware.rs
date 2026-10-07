@@ -154,7 +154,8 @@ impl Middleware for IdentityMiddleware {
 			}
 			let submitted = request
 				.headers
-				.get("X-CSRF-Token")
+				.get("X-CSRFToken")
+				.or_else(|| request.headers.get("X-CSRF-Token"))
 				.and_then(|value| value.to_str().ok())
 				.map(str::to_owned)
 				.or_else(|| {

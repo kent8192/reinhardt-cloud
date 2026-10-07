@@ -51,7 +51,7 @@
 
 ## Quick Start
 
-> **Status:** v0.1.0-alpha.2 pre-release. The `dashboard/` application provides Pages SSR, password sessions, organization-scoped project and Environment reads, and transactional runtime operation storage across eight Reinhardt Apps. Agent delivery and deployment API integration are not yet connected. Use `deploy --direct` or generated `Project` manifests with the operator; API-dependent CLI commands still require a separately provided compatible server.
+> **Status:** v0.1.0-alpha.2 pre-release. The `dashboard/` application provides Pages SSR, password sessions, organization-scoped Project routes with typed server functions, Environment controls, and transactional runtime operation storage across eight Reinhardt Apps. Agent delivery and deployment API integration are not yet connected. Use `deploy --direct` or generated `Project` manifests with the operator; API-dependent CLI commands still require a separately provided compatible server.
 
 ### 1. Initialize from an existing Reinhardt project
 
@@ -458,7 +458,7 @@ CUSTOM_VAR = "custom_value"
 | `reinhardt-cloud-operator` | Binary | Kubernetes operator (reconciler, resource management) |
 | `reinhardt-cloud-cli` | Binary | `reinhardt-cloud` command-line tool |
 | `reinhardt-cloud-agent` | Binary | Cluster agent for bidirectional control plane communication |
-| `cloud_dashboard` | Application | Pages SSR, PostgreSQL sessions, organization-scoped reads, and transactional runtime intents across eight Reinhardt Apps |
+| `cloud_dashboard` | Application | Pages SSR, PostgreSQL sessions, App-owned client routes, typed queries, and runtime mutations across eight Reinhardt Apps |
 | `tests` | Integration Tests | Cross-crate integration test suite |
 
 ### gRPC services
