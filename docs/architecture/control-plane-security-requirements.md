@@ -308,7 +308,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Threat:** Database driver text, constraint names, backend URLs, and stack details help an attacker map the system.
 - **Requirement:** Responses to failures the caller cannot act on MUST be generic. Validation and conflict messages that are meant for the caller MAY be specific, but MUST NOT contain driver text, SQL, constraint names, internal hostnames, or upstream error bodies. Details go to server logs only.
 - **Source:** #806 (aba7887e7).
-- **Old tests:** `deployments/server_urls.rs::test_deployment_error_response_hides_internal_errors`, `auth/server_fn/login.rs::test_internal_error_uses_generic_application_error`, `auth/server_fn/register.rs::registration_keeps_unmapped_database_errors_private`, `auth/server_fn/register.rs::registration_maps_known_unique_fields_without_driver_text`.
+- **Old tests:** `deployments/server_urls.rs::test_deployment_error_response_hides_internal_errors`, `auth/server_fn/login.rs::test_internal_error_uses_generic_application_error`, `auth/server_fn/register.rs::registration_keeps_unmapped_database_errors_private`, `auth/server_fn/register.rs::registration_maps_known_unique_fields_without_driver_text`. The `login.rs` and `register.rs` tests are not portable: their subjects (password sign-in and registration) are removed (SR-21, SR-24). Only `deployments/server_urls.rs::test_deployment_error_response_hides_internal_errors` ports directly; the other two serve as models for the rebuilt sign-in error tests.
 
 ### SR-15 The health endpoint is cheap and exposes only coarse status
 
