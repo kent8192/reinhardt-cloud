@@ -1281,12 +1281,10 @@ samp {
 .signin {
 	position: relative;
 	display: grid;
-	grid-template-columns: minmax(0, 28rem) minmax(0, 1fr);
+	grid-template-columns: minmax(0, 36rem) minmax(0, 1fr);
 	align-items: center;
 	min-height: 100vh;
-	padding: var(--space-7);
 	overflow: hidden;
-	gap: var(--space-8);
 }
 
 .signin-main {
@@ -1295,19 +1293,25 @@ samp {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-5);
+	padding: var(--space-9) var(--space-7);
 }
 
 .signin-brand {
-	font-size: var(--text-md);
-	font-weight: var(--weight-semibold);
-	color: var(--ink-muted);
+	position: absolute;
+	z-index: 2;
+	top: var(--space-6);
+	left: var(--space-7);
 	display: flex;
 	align-items: center;
-	gap: var(--space-2);
+	gap: var(--space-3);
+	color: var(--ink-strong);
+	font-size: var(--text-lg);
+	font-weight: var(--weight-semibold);
+	letter-spacing: -0.01em;
 }
 
 .signin-brand img {
-	width: 1.75rem;
+	width: 2.75rem;
 	height: auto;
 }
 
@@ -1320,11 +1324,128 @@ samp {
 	color: var(--ink-strong);
 }
 
-.signin-mark {
-	justify-self: end;
-	width: min(46vw, 40rem);
+/* Variant A: decorative product preview built from the prototype's own
+ * components. Anchored to the right edge so the viewport always crops it. */
+.signin-preview {
+	position: relative;
+	align-self: stretch;
+	min-height: 100vh;
+	overflow: hidden;
+	pointer-events: none;
+	user-select: none;
+}
+
+.preview-card {
+	position: absolute;
+	background: var(--surface-raised);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--elevation-2);
+}
+
+.preview-deploy {
+	top: calc(50% - 13rem);
+	right: -7rem;
+	width: 42rem;
+	padding: var(--space-5);
+}
+
+.preview-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-4);
+	margin-bottom: var(--space-5);
+}
+
+.preview-title {
+	color: var(--ink-strong);
+	font-family: var(--font-display);
+	font-size: var(--text-xl);
+	letter-spacing: -0.01em;
+}
+
+.preview-sub {
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+}
+
+.preview-facts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-5);
+	margin-top: var(--space-5);
+	padding-top: var(--space-4);
+	border-top: 1px solid var(--border-subtle);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+}
+
+.preview-facts strong {
+	color: var(--ink-strong);
+	font-weight: var(--weight-medium);
+}
+
+.preview-log {
+	right: 3rem;
+	bottom: -3rem;
+	width: 38rem;
+	height: 22rem;
+	overflow: hidden;
+	background: var(--log-bg);
+}
+
+.preview-log .log-body {
 	height: auto;
-	opacity: 0.95;
+	overflow: hidden;
+	padding-bottom: var(--space-4);
+}
+
+.preview-chip {
+	position: absolute;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-2) var(--space-4);
+	background: var(--surface-raised);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-full);
+	box-shadow: var(--elevation-1);
+	color: var(--ink-strong);
+	font-weight: var(--weight-medium);
+}
+
+.preview-chip-project {
+	top: calc(50% - 17rem);
+	right: 18rem;
+}
+
+.preview-chip-cluster {
+	top: calc(50% + 2.25rem);
+	right: -1rem;
+}
+
+.signin-preview .phase-current,
+.signin-preview .badge-progress::before {
+	animation: none;
+}
+
+/* Variant B: thin gold line art as background texture. */
+.signin-art {
+	position: absolute;
+	z-index: 0;
+	top: 0;
+	right: 0;
+	width: 62%;
+	height: 100%;
+	color: var(--accent-fill);
+	pointer-events: none;
+	-webkit-mask-image: radial-gradient(ellipse 60% 62% at 58% 50%, var(--mask-opaque) 25%, transparent 100%);
+	mask-image: radial-gradient(ellipse 60% 62% at 58% 50%, var(--mask-opaque) 25%, transparent 100%);
+}
+
+.signin-art * {
+	vector-effect: non-scaling-stroke;
 }
 
 .signin-foot {
@@ -1431,15 +1552,25 @@ samp {
 
 	.signin {
 		grid-template-columns: minmax(0, 1fr);
-		padding: var(--space-5);
 	}
 
-	.signin-mark {
-		position: absolute;
-		right: -18%;
-		bottom: -6%;
-		width: 80vw;
-		opacity: 0.18;
+	.signin-main {
+		padding: var(--space-9) var(--space-5) var(--space-7);
+	}
+
+	.signin-brand {
+		top: var(--space-5);
+		left: var(--space-5);
+	}
+
+	.signin-preview {
+		display: none;
+	}
+
+	.signin-art {
+		width: 150%;
+		right: -50%;
+		opacity: 0.35;
 	}
 
 	.phases {

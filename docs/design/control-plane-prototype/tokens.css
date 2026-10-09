@@ -83,6 +83,9 @@
 	--log-line-hover: rgb(255 255 255 / 0.05);
 	--log-focus: #f2f4f7;
 
+	/* Opaque stop for alpha masks (the color itself is never painted). */
+	--mask-opaque: #000;
+
 	/* Hover wash for quiet controls on the inverse toast surface. */
 	--toast-control-hover: rgb(127 127 127 / 0.25);
 
