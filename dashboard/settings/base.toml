@@ -1,0 +1,53 @@
+# Base Settings for the Control Plane
+#
+# Common configuration for every environment. Profile files (`local.toml`,
+# `staging.toml`, `production.toml`) override individual keys; process
+# environment variables with the `REINHARDT_` prefix override both.
+#
+# This file is tracked and must never contain literal secrets. Secrets and
+# deployment-specific values arrive through the environment, using the names
+# the operator injects:
+#   REINHARDT_CORE__SECRET_KEY        required
+#   REINHARDT_DATABASE_PASSWORD       required
+#   REINHARDT_DATABASE_{HOST,PORT,NAME,USER}   optional, local defaults below
+
+[core]
+debug = false
+secret_key = "${REINHARDT_CORE__SECRET_KEY:?must be set to a unique cryptographically random value}"
+allowed_hosts = []
+language_code = "en-us"
+time_zone = "UTC"
+use_i18n = true
+use_tz = true
+default_auto_field = "BigAutoField"
+middleware = []
+root_urlconf = ""
+
+[core.security]
+session_cookie_secure = false
+csrf_cookie_secure = false
+secure_ssl_redirect = false
+secure_hsts_seconds = 0
+secure_hsts_include_subdomains = false
+secure_hsts_preload = false
+append_slash = true
+
+[core.databases.default]
+engine = "postgresql"
+host = "${REINHARDT_DATABASE_HOST:-localhost}"
+port = "${REINHARDT_DATABASE_PORT:-5432}"
+name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
+user = "${REINHARDT_DATABASE_USER:-postgres}"
+password = "${REINHARDT_DATABASE_PASSWORD:?must be set to the database password}"
+
+[static]
+url = "/static/"
+root = "dist"
+
+[ws_origin]
+policy = { mode = "allow_list", origins = ["http://127.0.0.1:8000", "http://localhost:8000"] }
+reject_missing_origin = true
+
+[contacts]
+admins = []
+managers = []

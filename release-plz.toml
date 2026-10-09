@@ -3,6 +3,7 @@
 #
 # Crate structure:
 #   Published crates: library crates plus CLI/operator/agent binaries.
+#   Dashboard: versioned and released through GitHub/Docker assets, but not published to crates.io.
 
 [workspace]
 # Changelog settings
@@ -76,6 +77,14 @@ version_group = "reinhardt-cloud"
 
 [[package]]
 name = "reinhardt-cloud-types"
+version_group = "reinhardt-cloud"
+
+# Dashboard remains an application release artifact, not a crates.io crate.
+
+[[package]]
+name = "reinhardt-cloud-dashboard"
+publish = false
+git_release_enable = true
 version_group = "reinhardt-cloud"
 
 # Non-published test package.
