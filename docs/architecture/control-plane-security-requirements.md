@@ -80,7 +80,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-03 | One GitHub identity maps to exactly one User | `carried` | M1 |
 | SR-04 | Sign-in flow state is single-use, expiring, provider-bound, and browser-bound | `carried` | M1 |
 | SR-05 | Account linking and unlinking | `obsolete` | M1 |
-| SR-107 | Moving a User to another GitHub account is a Staff operation, restricted to the host and audited | `new` | M1 |
+| SR-107 | Moving a User to another GitHub account is a host-operator `manage` operation, restricted to the host and audited | `new` | M1 |
 | SR-06 | Provider access tokens are encrypted at rest | `carried` | M1 |
 | SR-07 | Sessions are revalidated against the current User | `carried` | M1 |
 | SR-08 | Session cookies are hardened, bounded in lifetime, and destroyed on sign-out | `carried` | M1 |
@@ -235,19 +235,19 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 
 - **Status:** `obsolete`
 - **Milestone:** M1
-- **Reason:** No account-linking flow exists (#915, #917). A User is the GitHub identity (SR-02, SR-03), so there is nothing to link, and sign-in has no side effect on the User of any existing session. The only way to move a User to another GitHub account is a Staff operation through host operator access, which is audited (SR-107).
+- **Reason:** No account-linking flow exists (#915, #917). A User is the GitHub identity (SR-02, SR-03), so there is nothing to link, and sign-in has no side effect on the User of any existing session. The only way to move a User to another GitHub account is a host-operator `manage` operation, which is audited (SR-107).
 - **Threat (historic):** If a callback can attach a GitHub identity to whichever User holds a session in the browser ("ambient" linking), an attacker can bind their identity to a victim's User or take the victim's User over.
 - **Source:** #769 (duplicate #770), 2412efa6b and 7aad3f8df (inside #879).
 - **Old tests (to be removed with the code):** `auth/tests/unit/test_oauth_state_cookie.rs::account_link_ownership_requires_matching_server_context_and_active_session_user`, `auth/tests/integration/test_oauth_linking.rs::test_authenticated_link_attaches_to_current_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_rejects_provider_owned_by_another_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_leaves_no_provider_link_for_revoked_membership`.
 - **Carry-over:** The browser binding of the sign-in attempt (SR-04) and the one-identity-per-User invariant (SR-03) cover what remains of these tests' intent.
 
-### SR-107 Moving a User to another GitHub account is a Staff operation, restricted to the host and audited
+### SR-107 Moving a User to another GitHub account is a host-operator `manage` operation, restricted to the host and audited
 
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** A User who loses their GitHub account, or a request to re-point a User at a different GitHub account, is an account-takeover vector if it can be performed through any network path or without a trace.
 - **Requirement:** Re-pointing an existing User at a different numeric GitHub user ID MUST be possible only through the host-level management command, and MUST NOT be reachable through any HTTP, WebSocket, or gRPC endpoint, by any User including Staff acting in the Dashboard. The operation MUST keep the User's Memberships and Roles, MUST end every session and revoke every CLI Session of that User, MUST refuse a target ID that already belongs to another User (SR-03), and MUST emit a structured audit event that names the operator-supplied identifiers and omits secrets.
-- **Source:** #915 and #917: no account-linking flow exists; moving a User to another GitHub account is a Staff operation through `manage`.
+- **Source:** #915 and #917: no account-linking flow exists; moving a User to another GitHub account is an operation through `manage`, available only with host operator access.
 - **Old tests:** none (new behavior).
 
 ### SR-06 Provider access tokens are encrypted at rest
@@ -463,7 +463,7 @@ A CLI Session is a short-lived grant, approved by a User in the browser, that le
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** Interception of an authorization code (a malicious local program, a browser extension, a leaked redirect) yields a session; flows that accept passwords or place credentials in URLs widen the exposure.
-- **Requirement:** The Control Plane MUST act as an OAuth 2.0 authorization server for the CLI, which is a public client without a client secret. The only way to obtain a CLI Session MUST be the authorization code grant with PKCE using the `S256` method; a missing challenge or the `plain` method MUST be rejected, and the implicit, password, and client-credentials grants MUST NOT be able to issue one. An authorization code MUST be unguessable, single-use, valid for a few minutes at most (proposed ceiling: 10 minutes), and bound to the client, the redirect URI, the PKCE challenge, the approving User, and the Organization chosen at approval. The code verifier MUST be required at redemption and compared exactly. Presenting a code a second time MUST fail and MUST revoke the access token already issued from it.
+- **Requirement:** The Control Plane MUST act as an OAuth 2.0 authorization server for the CLI, which is a public client without a client secret. The only way to obtain a CLI Session MUST be the authorization code grant with PKCE using the `S256` method; a missing challenge or the `plain` method MUST be rejected, and the implicit, password, and client-credentials grants MUST NOT be able to issue one. An authorization code MUST be unguessable, single-use, valid for a few minutes at most (proposed ceiling: 10 minutes; M1 may change it with a recorded rationale), and bound to the client, the redirect URI, the PKCE challenge, the approving User, and the Organization chosen at approval. The code verifier MUST be required at redemption and compared exactly. Presenting a code a second time MUST fail and MUST revoke the access token already issued from it.
 - **Source:** #915 and #917: the Control Plane is an OAuth 2.0 authorization server for the CLI.
 - **Old tests:** none (new behavior).
 
@@ -499,7 +499,7 @@ A CLI Session is a short-lived grant, approved by a User in the browser, that le
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** A database read yields working credentials; a leaked log line, URL, or screen yields a live session; a long lifetime turns any leak into a standing credential.
-- **Requirement:** The access token of a CLI Session MUST be opaque, contain at least 256 bits from a cryptographically secure source, be stored only as a one-way hash, and be valid for at most one hour. It SHOULD carry a fixed, recognizable prefix so secret scanners can detect it. It MUST be accepted only in the `Authorization` header, never in a URL, and MUST NOT be written to logs, traces, audit events, or error messages, or rendered in the Dashboard after it is issued. Responses that carry it MUST forbid caching. Failure of the randomness source MUST fail issuance.
+- **Requirement:** The access token of a CLI Session MUST be opaque, contain at least 256 bits (proposed; M1 may change it with a recorded rationale) from a cryptographically secure source, be stored only as a one-way hash, and be valid for at most one hour. It SHOULD carry a fixed, recognizable prefix so secret scanners can detect it (proposed; M1 may change it with a recorded rationale). It MUST be accepted only in the `Authorization` header, never in a URL, and MUST NOT be written to logs, traces, audit events, or error messages, or rendered in the Dashboard after it is issued. Responses that carry it MUST forbid caching. Failure of the randomness source MUST fail issuance.
 - **Source:** #915 and #917. Supersedes SR-27 and SR-28.
 - **Old tests:** none (new behavior). The assertion shapes of the API Key tests listed under SR-27 and SR-28 serve as models.
 
@@ -549,7 +549,7 @@ API Keys are abolished product-wide (#915, #917); CLI Sessions replace them (SR-
 - **Milestone:** M1
 - **Replaced by:** SR-113.
 - **Threat:** A database read yields working credentials; short or predictable keys are guessable; unrecognizable keys evade secret scanners when committed by mistake.
-- **Requirement:** An API Key MUST contain at least 256 bits from a cryptographically secure source, MUST begin with the fixed `rct_` prefix so secret scanners can detect it, and MUST be stored only as a one-way hash. The plaintext MUST be shown to its owner exactly once, at creation. Listings MUST show only a short non-secret prefix, a label, and timestamps. The failure of the entropy source MUST fail issuance.
+- **Requirement:** An API Key MUST contain at least 256 bits (proposed; M1 may change it with a recorded rationale) from a cryptographically secure source, MUST begin with the fixed `rct_` prefix so secret scanners can detect it, and MUST be stored only as a one-way hash. The plaintext MUST be shown to its owner exactly once, at creation. Listings MUST show only a short non-secret prefix, a label, and timestamps. The failure of the entropy source MUST fail issuance.
 - **Source:** a64960fb0 (inside #720).
 - **Old tests (not portable: the subject is removed; models for the replacement):** `auth/tests/integration/test_api_key_service.rs::test_generate_then_verify_roundtrip`, `auth/tests/integration/test_api_key_service.rs::test_list_api_keys_for_user_returns_keys`.
 
