@@ -773,15 +773,11 @@ fn sr_102_settings_debug_output_redacts_secrets() {
 		"test-redis-password",
 		"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
 	] {
-		assert!(
-			!rendered.contains(secret),
-			"Debug output leaked a secret: {rendered}"
-		);
+		// No message: formatting the rendered settings into a failure message
+		// would write them to the test log.
+		assert!(!rendered.contains(secret));
 	}
-	assert!(
-		!database.contains("test-only-database-password"),
-		"{database}"
-	);
+	assert!(!database.contains("test-only-database-password"));
 	assert!(rendered.contains("SecretString([REDACTED])"));
 }
 
