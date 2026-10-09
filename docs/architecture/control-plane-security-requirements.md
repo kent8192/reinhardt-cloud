@@ -102,7 +102,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-24 | Registration gating and unverified-account state | `obsolete` | M1 |
 | SR-25 | Seeded default password | `obsolete` | M1 |
 | SR-26 | Merging Users by verified email | `superseded` | M1 |
-| SR-105 | The first User of a new deployment is created through host operator access only | `needs decision` | M1 |
+| SR-105 | The first User of a new deployment is pre-provisioned through host operator access | `new` | M1 |
 | SR-109 | CLI Sessions are issued only through the authorization code grant with PKCE | `new` | M1 |
 | SR-110 | The redirect goes only to a loopback address with an exactly matching path | `new` | M1 |
 | SR-111 | The request is bound by `state` and confirmed by a one-time comparison code | `new` | M1 |
@@ -133,6 +133,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-45 | An Invitation is bound to a GitHub user ID | `new` | M2 |
 | SR-46 | Invitation lifecycle | `new` | M2 |
 | SR-47 | Staff authority and Organization data | `needs decision` | M2 |
+| SR-108 | Any signed-in User may create an Organization and becomes its owner | `new` | M2 |
 | SR-48 | Cluster client credentials are shown once and stored hashed | `new` | M3 |
 | SR-49 | Agent access tokens are short-lived | `new` | M3 |
 | SR-50 | Revocation and rotation take effect through the OAuth store | `new` | M3 |
@@ -371,7 +372,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** Anyone with a GitHub account becomes a User of a self-hosted Control Plane that was meant to be private.
-- **Requirement:** The first sign-in of an unknown GitHub identity MUST be evaluated against the configured policy before any User, Organization, session, or stored token is created:
+- **Requirement:** The first sign-in of an unknown GitHub identity MUST be evaluated against the configured policy (except an identity pre-provisioned under SR-105) before any User, Organization, session, or stored token is created:
   - `open`: any identity may sign up.
   - `allowlist`: only identities that are listed, or that are members of a listed GitHub organization, may sign up. Membership MUST be verified against GitHub on the server, not taken from the browser, and MUST be evaluated on the numeric IDs of the User and the organization.
   - `invite_only` (the default): only an identity with a pending Invitation (SR-45) may sign up.
@@ -385,7 +386,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** Staff can read and change every Organization's data through the admin site. A network-reachable path to Staff is a path to full compromise.
-- **Requirement:** Staff status MUST be grantable and revocable only through the host-level management command (`manage grant-staff --github-user-id <id>`), addressed by numeric GitHub user ID. No endpoint, form, Invitation, CLI Session, or Login Link may grant it. The admin site MUST be reachable only by Staff.
+- **Requirement:** Staff status MUST be grantable and revocable only through the host-level management command (`manage grant-staff --github-user-id <id>`), addressed by numeric GitHub user ID. No endpoint, form, Invitation, CLI Session, or Login Link may grant it. Every grant and revocation MUST emit a structured audit event that names the numeric GitHub user ID and the time and omits secrets. The admin site MUST be reachable only by Staff.
 - **Source:** #915 and #917: Staff is granted with `manage grant-staff --github-user-id <id>`.
 - **Old tests:** `auth/tests/integration/test_validated_session_middleware.rs::active_cookie_session_uses_current_database_privileges` covers revalidation of Staff status only (SR-07). The grant path: none (new behavior).
 
@@ -444,15 +445,14 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Source:** d3a3909da (inside #446), 1b8154299 (inside #446).
 - **Old tests (to be removed with the code):** `auth/tests/integration/test_oauth_linking.rs::test_email_verified_match_links_existing_user`, `::test_email_unverified_collision_returns_email_conflict`, `::test_new_user_created_with_no_password`, `::test_username_collision_appends_suffix`, `::test_email_verified_true_but_no_email_creates_new_user`, `::test_username_falls_back_to_sub_when_no_login_or_name`, `auth/tests/unit/test_oauth_linking_validation.rs::test_email_conflict_display_includes_email_and_provider`. The empty-subject rejection (`::test_empty_sub_returns_missing_claim_error`) carries over to SR-02: a sign-in without a numeric ID MUST fail.
 
-### SR-105 The first User of a new deployment is created through host operator access only
+### SR-105 The first User of a new deployment is pre-provisioned through host operator access
 
-- **Status:** `needs decision`
+- **Status:** `new`
 - **Milestone:** M1
-- **Threat:** With `invite_only` as the default sign-up policy (SR-19) and Login Links unable to create Users (SR-18), a fresh deployment has no User and no stated path to its first one. The obvious fixes are an unauthenticated first-come claim ("the first sign-in becomes Staff") or a built-in account; either lets whoever reaches a new deployment first own it. The old self-deploy path seeded a User with a public default password (SR-25).
-- **Requirement (floor):** Creating the first User and granting the first Staff status MUST require host operator access. No unauthenticated request, and no first-come sign-in, may become Staff or create the first Organization. Bootstrap MUST NOT rely on a built-in or default credential, MUST NOT be usable to take over a running deployment, and MUST be recorded in an audit log that omits secrets.
-- **Question:** May `manage grant-staff --github-user-id <id>` pre-provision a Staff User, identified by numeric GitHub user ID (SR-02), who can then sign in regardless of the sign-up policy? If so, does that User also create the first Organization, or is it created some other way? If not, what is the bootstrap path (a separate `manage` command, or a one-time bootstrap Invitation)?
-- **Source:** #915 and #917: interaction of the sign-up policy, Login Links, and Staff grant; #842 (the old seeded account).
-- **Old tests:** none.
+- **Threat:** With `invite_only` as the default sign-up policy (SR-19) and Login Links unable to create Users (SR-18), a fresh deployment needs a stated path to its first User. The obvious shortcuts are an unauthenticated first-come claim ("the first sign-in becomes Staff") or a built-in account; either lets whoever reaches a new deployment first own it. The old self-deploy path seeded a User with a public default password (SR-25).
+- **Requirement:** `manage grant-staff --github-user-id <id>` MUST be able to pre-provision a Staff User for a numeric GitHub user ID (SR-02) that has not signed in yet. That identity MUST be allowed to sign in regardless of the sign-up policy (SR-19); the exemption applies only to the exact ID the operator named and MUST NOT turn the ID into a general allowlist entry for others. No unauthenticated request, and no first-come sign-in, may become Staff, and no built-in or default credential may exist. Any signed-in User may then create an Organization and becomes its owner (SR-108); no Organization is created automatically. Bootstrap and every Staff grant or revocation MUST emit a structured audit event that names the numeric GitHub user ID and the time and omits secrets. No audit UI is required yet; the events go to the structured log.
+- **Source:** #915 and #917 (decision); #842 (the old seeded account).
+- **Old tests:** none (new behavior).
 
 ## CLI Sessions
 
@@ -753,6 +753,15 @@ API Keys are abolished product-wide (#915, #917); CLI Sessions replace them (SR-
 - **Question:** The rebuild plan (#915) keeps the reinhardt admin registrations for every model, which gives Staff read and write access to all rows. Is that intentional for production, or should admin access to Organization-owned data and credential-bearing models (API Keys, Cluster credentials, stored provider tokens) be read-only or hidden? How are Staff actions audited?
 - **Source:** #915: staff-only admin registrations are kept for every model; old `is_staff` handling in #248.
 - **Old tests:** `gap`.
+
+### SR-108 Any signed-in User may create an Organization and becomes its owner
+
+- **Status:** `new`
+- **Milestone:** M2
+- **Threat:** Without an explicit rule, Users either cannot obtain an Organization or receive one implicitly with state nobody reviewed; an Organization created without an owner cannot be administered; unbounded creation is an abuse vector.
+- **Requirement:** Any signed-in User MAY create an Organization from an interactive browser session and MUST become its owner in the same atomic step; an Organization without an owner MUST never exist (SR-43). No Organization MUST be created automatically at sign-in. The slug rules of SR-39 apply, and a slug already in use MUST be refused without revealing who holds it. A CLI Session MUST NOT create Organizations (SR-115). Creation MUST be rate-limited per User. A User with no Membership MUST have access to no Organization data (SR-36).
+- **Source:** #915 and #917 (decision: any signed-in User may create an Organization; there is no automatic personal Organization); #918.
+- **Old tests:** none (new behavior). The old Control Plane created a personal Organization at registration (`auth/tests/integration/test_provisioning.rs`); those tests are not portable.
 
 ## Agent Gateway and Clusters
 
