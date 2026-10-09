@@ -432,7 +432,7 @@ The Dashboard is multi-tenant at the application layer: every Cluster and Deploy
 
 **Fix**:
 1. Verify the agent is running and connected: see [agent.md troubleshooting](agent.md#troubleshooting).
-2. Confirm the gRPC server is listening on port 50051 inside the Dashboard pod.
+2. Confirm the gRPC server is listening on port 50051 inside the Dashboard pod, and that `GRPC_ENDPOINT` points at the pod's own loopback address (`http://127.0.0.1:50051`, as set in `manifests/dashboard-project.yaml`). The Dashboard connects to its own gRPC server for the `/api/healthz/` probe and the log streaming bridge; the Service exposes only port 80, so a Service or operator URL on 50051 is unreachable.
 3. Confirm your ingress/load balancer allows WebSocket upgrades (`Connection: Upgrade`, `Upgrade: websocket` headers must be forwarded).
 
 ### Dashboard returns 500 on every request (DB migration not applied)
