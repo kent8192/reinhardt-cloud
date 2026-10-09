@@ -27,3 +27,6 @@ pub mod urls;
 #[cfg(server)]
 #[app_config(name = "accounts", label = "accounts")]
 pub struct AccountsConfig;
+
+#[cfg(all(test, server))]
+mod tests;
