@@ -44,7 +44,7 @@ The Dashboard is a place where people watch Deployments land on their own Cluste
 
 ## Tokens
 
-`tokens.css` is the only place visual values are declared. Components read custom properties and never hard-code colors.
+`tokens.css` is the only place visual values are declared. Components read custom properties and never hard-code colors. Small text meets WCAG AA (4.5:1) on every surface it is used on, in both themes.
 
 | Group | Tokens |
 |-------|--------|
@@ -54,7 +54,8 @@ The Dashboard is a place where people watch Deployments land on their own Cluste
 | Ink | `--ink-strong`, `--ink-default`, `--ink-muted`, `--ink-subtle`, `--ink-inverse` |
 | Accent | `--accent-fill`, `--accent-fill-hover`, `--accent-on-fill`, `--accent-text`, `--accent-wash`, `--focus-ring` |
 | Status | `--status-{success,progress,warning,danger,neutral}-{fg,bg}` |
-| Log viewer | `--log-bg`, `--log-ink`, `--log-muted`, `--log-info`, `--log-warn`, `--log-error` |
+| Log viewer | `--log-bg`, `--log-ink`, `--log-muted`, `--log-info`, `--log-warn`, `--log-error`, `--log-border`, `--log-control-*`, `--log-line-hover`, `--log-focus` |
+| Other | `--toast-control-hover` |
 | Type | `--font-sans`, `--font-display`, `--font-mono`; sizes `--text-xs` to `--text-3xl` (1.2 ratio from a 14px base); `--leading-*`; `--weight-*`; `--measure-prose`, `--measure-page` |
 | Spacing | `--space-1` to `--space-9` on a 4px base |
 | Radius | `--radius-sm` (4px), `--radius-md` (6px, controls), `--radius-lg` (10px, containers), `--radius-xl` (16px, dialogs), `--radius-full` |
@@ -70,7 +71,7 @@ Styles live in `components.css`. Selectors are single classes so one component c
 | Component | Classes | Notes |
 |-----------|---------|-------|
 | App shell | `.app`, `.sidebar`, `.main`, `.page`, `.page-head` | Sidebar collapses above the content below 62rem |
-| Organization switcher, account menu | `.switcher`, `.user-menu`, `.menu-item` | Built on `<details>`; closes on Escape or outside click |
+| Organization switcher, User menu | `.switcher`, `.user-menu`, `.menu-item` | Built on `<details>`; closes on Escape or outside click |
 | Navigation | `.nav`, `.nav-link`, `.breadcrumb` | Current page uses `aria-current="page"` |
 | Buttons | `.btn`, `.btn-primary`, `.btn-quiet`, `.btn-danger`, `.btn-github`, `.btn-sm` | Buttons use visible text; row actions in tables add an `aria-label` that names the target |
 | Fields | `.field`, `.label`, `.input`, `.select`, `.check`, `.hint`, `.field-error` | Labels are always associated; errors use `aria-invalid` and `aria-describedby` |
@@ -103,6 +104,7 @@ Styles live in `components.css`. Selectors are single classes so one component c
 - Deployment statuses shown here (Submitted, Applying, Running, Failed, Superseded) and the phase names are placeholders to be settled with the Deployment model in the projects and deployments milestone. Keep one vocabulary across badges, tables, and detail pages.
 - Agent install commands and chart values are illustrative; the Cluster registration milestone defines the final shape.
 - UI text should go through the i18n catalog. The copy in these pages is the English source text and follows the terms defined in `CONTEXT.md`.
+- Every Deployment link opens the single Deployment detail screen (Deployment 148); the prototype has one detail page per entity type.
 - Controls are plain buttons, inputs, selects, tables, badges, and dialogs on purpose, so each can be a small composable component.
 
 ## Assets
