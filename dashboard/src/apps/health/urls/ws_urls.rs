@@ -1,7 +1,7 @@
 //! WebSocket routes for the health application.
 //!
-//! Register handlers with their final absolute paths, such as
-//! `#[websocket("/ws/chat/")]`; the app router is mounted at `/`.
+//! WebSocket handlers register with their final absolute paths; the app router
+//! is mounted at `/`.
 
 use reinhardt::WebSocketRouter;
 
