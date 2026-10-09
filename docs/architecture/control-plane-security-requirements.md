@@ -86,7 +86,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-08 | Session cookies are hardened, bounded in lifetime, and destroyed on sign-out | `carried` | M1 |
 | SR-09 | Private pages and server endpoints require an authenticated session | `carried` | M1 |
 | SR-10 | The unauthenticated surface is enumerated | `carried` | M1 |
-| SR-11 | API documentation exposure in deployed profiles | `needs decision` | M1 |
+| SR-11 | API documentation is served only in the local and CI profiles | `new` | M1 |
 | SR-12 | Cross-site request protection for cookie-authenticated requests | `carried` | M1 |
 | SR-13 | Security response headers | `carried` | M1 |
 | SR-14 | Internal errors do not reach clients | `carried` | M1 |
@@ -281,19 +281,18 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M1
 - **Threat:** A route added without an authentication decision is public by accident.
-- **Requirement:** The set of endpoints reachable without a session or API Key MUST be a short, explicit list, and every other endpoint MUST deny anonymous callers. The old list was: sign-in start and callback, the health endpoint (SR-15), GitHub webhooks (authenticated by signature, SR-88), static assets, and API documentation (SR-11). An acceptance test MUST enumerate the registered routes and fail when one outside the list answers an anonymous request with success.
+- **Requirement:** The set of endpoints reachable without a session or API Key MUST be a short, explicit list, and every other endpoint MUST deny anonymous callers. The old list was: sign-in start and callback, the health endpoint (SR-15), GitHub webhooks (authenticated by signature, SR-88), static assets, and, in the `local` and `ci` profiles only, API documentation (SR-11). An acceptance test MUST enumerate the registered routes and fail when one outside the list answers an anonymous request with success.
 - **Source:** `config/urls.rs` (session skip list); #408.
 - **Old tests:** `gap`.
 
-### SR-11 API documentation exposure in deployed profiles
+### SR-11 API documentation is served only in the local and CI profiles
 
-- **Status:** `needs decision`
+- **Status:** `new`
 - **Milestone:** M1
 - **Threat:** Public OpenAPI, Swagger UI, and ReDoc pages disclose the full API surface to anonymous callers and ease reconnaissance.
-- **Requirement (if served):** API documentation MUST NOT include secrets or example credentials, and MUST NOT make the endpoints it documents callable without authentication.
-- **Question:** The old Control Plane served `/api/openapi.json`, `/api/docs`, and `/api/redoc` to anonymous callers in every profile and tested them in the Bruno suite. Should deployed profiles keep serving them anonymously, restrict them to signed-in Users, or disable them?
-- **Source:** `config/urls.rs` (session skip list).
-- **Old tests:** `dashboard/tests/bruno/scenarios/01 OpenAPI JSON.bru`, `02 Swagger UI.bru`, `03 ReDoc.bru`, `dashboard/tests/openapi_test.rs`.
+- **Requirement:** The OpenAPI document, Swagger UI, and ReDoc MUST be served only in the `local` and `ci` profiles. In the `staging` and `production` profiles they MUST NOT be registered at all, so their paths answer exactly like any unknown path. The documents MUST NOT contain secrets or example credentials. The Bruno suite MUST run against the `ci` profile, and an acceptance test MUST assert the documentation paths are absent in `staging` and `production`.
+- **Source:** #915 and #917 (decision). This tightens the old behavior, which served the documentation anonymously in every profile (`config/urls.rs` session skip list).
+- **Old tests:** `dashboard/tests/bruno/scenarios/01 OpenAPI JSON.bru`, `02 Swagger UI.bru`, `03 ReDoc.bru`, `dashboard/tests/openapi_test.rs`. They port to the `ci` profile; absence in `staging` and `production`: `gap`.
 
 ### SR-12 Cross-site request protection for cookie-authenticated requests
 
