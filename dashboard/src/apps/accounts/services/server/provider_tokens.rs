@@ -12,6 +12,17 @@
 //! - Passing a tokenless record back to `update` therefore keeps the stored
 //!   tokens instead of erasing them.
 //!
+//! # Which API to use
+//!
+//! The sign-in and token-refresh flows should call
+//! [`OrmSocialAccountStorage::store_tokens`] and
+//! [`OrmSocialAccountStorage::load_tokens`]. Their [`ProviderTokens`] carries
+//! the refresh-token expiry that GitHub reports (`refresh_token_expires_in`),
+//! which the upstream `SocialAccount` record cannot. The trait methods exist
+//! for callers written against the upstream contract; through them the refresh
+//! expiry cannot be set, so `update` keeps the stored one while the refresh
+//! token it belongs to stays, and `create` records none.
+//!
 //! The GitHub identity (numeric user ID, login, name, avatar, email) is read
 //! from the owning `User`; this storage never writes it.
 
@@ -203,6 +214,21 @@ impl OrmSocialAccountStorage {
 		}))
 	}
 
+	/// The User an upstream record claims to belong to, after checking that the
+	/// record is for GitHub and that its `provider_user_id` is that User's
+	/// GitHub ID. A mismatch means the caller built the record for another
+	/// identity, so it is rejected before anything is written.
+	async fn verified_owner(&self, account: &SocialAccount) -> Result<User, SocialAuthError> {
+		ensure_github(&account.provider)?;
+		let user = self.find_user(account.user_id).await?;
+		if user.github_user_id.to_string() != account.provider_user_id {
+			return Err(SocialAuthError::Storage(
+				"provider user id does not match the user's GitHub identity".to_owned(),
+			));
+		}
+		Ok(user)
+	}
+
 	async fn find_user(&self, user_id: Uuid) -> Result<User, ProviderTokenError> {
 		User::objects()
 			.filter(User::field_id().eq(user_id))
@@ -309,13 +335,7 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 	}
 
 	async fn create(&self, account: SocialAccount) -> Result<SocialAccount, SocialAuthError> {
-		ensure_github(&account.provider)?;
-		let user = self.find_user(account.user_id).await?;
-		if user.github_user_id.to_string() != account.provider_user_id {
-			return Err(SocialAuthError::Storage(
-				"provider user id does not match the user's GitHub identity".to_owned(),
-			));
-		}
+		let user = self.verified_owner(&account).await?;
 		if find_row_by_user(user.id).await?.is_some() {
 			return Err(SocialAuthError::Storage(
 				"a social account already exists for this user".to_owned(),
@@ -326,7 +346,8 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 				"a new social account requires an access token".to_owned(),
 			));
 		}
-		self.store_tokens(user.id, &tokens_of(&account)).await?;
+		self.store_tokens(user.id, &tokens_of(&account, None))
+			.await?;
 		let row = find_row_by_user(user.id)
 			.await?
 			.ok_or_else(|| SocialAuthError::Storage("social account vanished".to_owned()))?;
@@ -334,27 +355,23 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 	}
 
 	async fn update(&self, account: SocialAccount) -> Result<SocialAccount, SocialAuthError> {
-		ensure_github(&account.provider)?;
-		let row = SocialAccountRow::objects()
-			.filter(SocialAccountRow::field_id().eq(account.id))
-			.first()
-			.await
-			.map_err(ProviderTokenError::storage)?
+		let user = self.verified_owner(&account).await?;
+		let row = find_row_by_user(user.id)
+			.await?
+			.filter(|row| row.id == account.id)
 			.ok_or_else(|| {
 				SocialAuthError::Storage(format!("Social account not found: {}", account.id))
 			})?;
-		if !account.access_token.is_empty() {
-			self.store_tokens(row.user_id(), &tokens_of(&account))
-				.await?;
+		if account.access_token.is_empty() {
+			return Ok(self.to_record(row).await?);
 		}
-		let row = SocialAccountRow::objects()
-			.filter(SocialAccountRow::field_id().eq(account.id))
-			.first()
-			.await
-			.map_err(ProviderTokenError::storage)?
-			.ok_or_else(|| {
-				SocialAuthError::Storage(format!("Social account not found: {}", account.id))
-			})?;
+		// The upstream record cannot carry the refresh-token expiry, so the
+		// stored one stays with the refresh token it was reported for.
+		let tokens = tokens_of(&account, row.refresh_token_expires_at);
+		self.store_tokens(user.id, &tokens).await?;
+		let row = find_row_by_user(user.id)
+			.await?
+			.ok_or_else(|| SocialAuthError::Storage("social account vanished".to_owned()))?;
 		Ok(self.to_record(row).await?)
 	}
 
@@ -380,11 +397,17 @@ impl SocialAccountStorage for OrmSocialAccountStorage {
 /// Convert the plaintext of an upstream record into the storage shape. The
 /// upstream record is consumed by its caller right after, so the plaintext does
 /// not outlive the call.
-fn tokens_of(account: &SocialAccount) -> ProviderTokens {
+///
+/// `stored_refresh_expiry` is the refresh-token expiry already on record. It is
+/// kept only when the record carries a refresh token for it to describe.
+fn tokens_of(
+	account: &SocialAccount,
+	stored_refresh_expiry: Option<DateTime<Utc>>,
+) -> ProviderTokens {
 	ProviderTokens {
 		access_token: SecretString::new(account.access_token.clone()),
 		refresh_token: account.refresh_token.clone().map(SecretString::new),
 		access_token_expires_at: account.token_expires_at,
-		refresh_token_expires_at: None,
+		refresh_token_expires_at: account.refresh_token.as_ref().and(stored_refresh_expiry),
 	}
 }

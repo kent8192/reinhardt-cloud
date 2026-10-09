@@ -405,7 +405,8 @@ async fn sr_06_delete_removes_the_tokens_and_a_missing_account_is_an_error(
 	let again = storage.delete(created.id).await;
 
 	// Assert
-	assert!(again.is_err());
+	assert!(matches!(&again, Err(SocialAuthError::Storage(message))
+			if *message == format!("Social account not found: {}", created.id)));
 	assert!(storage.load_tokens(user.id).await.unwrap().is_none());
 	assert!(storage.find_by_user(user.id).await.unwrap().is_empty());
 }
@@ -431,4 +432,132 @@ async fn sr_03_deleting_a_user_removes_the_tokens(#[future] database: TestDataba
 
 	// Assert
 	assert_eq!(StoredAccount::objects().all().all().await.unwrap().len(), 0);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_03_trait_update_rejects_an_identity_that_is_not_the_users(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(114, "update-owner", false).await;
+	let storage = storage();
+	let created = storage
+		.create(upstream_account(user.id, 114, "ghu_original"))
+		.await
+		.unwrap();
+	let mut forged = upstream_account(user.id, 999, "ghu_forged");
+	forged.id = created.id;
+
+	// Act
+	let result = storage.update(forged).await;
+
+	// Assert
+	assert!(matches!(
+		&result,
+		Err(SocialAuthError::Storage(message))
+			if message == "provider user id does not match the user's GitHub identity"
+	));
+	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
+	assert_eq!(loaded.access_token.expose_secret(), "ghu_original");
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_03_trait_update_rejects_a_record_that_belongs_to_another_user(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let owner = insert_user(115, "row-owner", false).await;
+	let other = insert_user(116, "other-user", false).await;
+	let storage = storage();
+	let owners_account = storage
+		.create(upstream_account(owner.id, 115, "ghu_owner"))
+		.await
+		.unwrap();
+	storage
+		.create(upstream_account(other.id, 116, "ghu_other"))
+		.await
+		.unwrap();
+	// A consistent identity for `other`, but the id of the owner's row.
+	let mut crossed = upstream_account(other.id, 116, "ghu_crossed");
+	crossed.id = owners_account.id;
+
+	// Act
+	let result = storage.update(crossed).await;
+
+	// Assert
+	assert!(matches!(
+		&result,
+		Err(SocialAuthError::Storage(message))
+			if *message == format!("Social account not found: {}", owners_account.id)
+	));
+	let owner_tokens = storage.load_tokens(owner.id).await.unwrap().unwrap();
+	let other_tokens = storage.load_tokens(other.id).await.unwrap().unwrap();
+	assert_eq!(owner_tokens.access_token.expose_secret(), "ghu_owner");
+	assert_eq!(other_tokens.access_token.expose_secret(), "ghu_other");
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_06_trait_update_keeps_the_stored_refresh_expiry_for_a_refresh_token(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(117, "expiry", false).await;
+	let storage = storage();
+	let stored = tokens("ghu_old", Some("ghr_old"));
+	storage.store_tokens(user.id, &stored).await.unwrap();
+	let row_id = storage.find_by_user(user.id).await.unwrap().remove(0).id;
+	let mut refreshed = upstream_account(user.id, 117, "ghu_new");
+	refreshed.id = row_id;
+
+	// Act
+	storage.update(refreshed).await.unwrap();
+
+	// Assert
+	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
+	assert_eq!(loaded.access_token.expose_secret(), "ghu_new");
+	assert_eq!(
+		loaded.refresh_token.unwrap().expose_secret(),
+		"ghr_upstream_refresh"
+	);
+	assert_eq!(
+		loaded.refresh_token_expires_at.map(millis),
+		stored.refresh_token_expires_at.map(millis)
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_06_trait_update_without_a_refresh_token_clears_the_refresh_expiry(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(118, "no-refresh", false).await;
+	let storage = storage();
+	storage
+		.store_tokens(user.id, &tokens("ghu_old", Some("ghr_old")))
+		.await
+		.unwrap();
+	let row_id = storage.find_by_user(user.id).await.unwrap().remove(0).id;
+	let mut without_refresh = upstream_account(user.id, 118, "ghu_new");
+	without_refresh.id = row_id;
+	without_refresh.refresh_token = None;
+
+	// Act
+	storage.update(without_refresh).await.unwrap();
+
+	// Assert
+	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
+	assert!(loaded.refresh_token.is_none());
+	assert_eq!(loaded.refresh_token_expires_at, None);
 }
