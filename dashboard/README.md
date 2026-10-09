@@ -121,8 +121,8 @@ cargo run --bin manage contract export --format json
 
 ### Rust management shell (opt-in)
 
-The generated `commands-shell` feature is intentionally not part of the
-default Pages features. Enable it explicitly:
+The `commands-shell` feature is not enabled by default. Enable it explicitly to
+get an interactive Rust shell with the settings, ORM handle, and DI context bound:
 
 ```bash
 cargo run --bin manage --features commands-shell -- shell
@@ -130,31 +130,7 @@ cargo run --bin manage --features commands-shell -- shell -c \
   'println!("{}", settings.core.debug)'
 ```
 
-`src/config/shell.rs` supplies `get_shell_config()`. The outer native `main`
-calls `shell_runtime_hook()` before the Tokio-backed `native::main`, and the
-feature selects `execute_from_command_line_with_resolved_settings_and_shell`. Without
-the feature, the resolved-settings dispatcher remains active for
-non-shell commands.
-
-The Rust evaluator binds `settings`, the ORM `db` handle, the application `di`
-context, and a stable `framework` alias. Unique installed model names are
-imported; collisions emit deterministic warnings with their concrete registered
-crate paths, and the evaluator's `project_crate` alias can reference those same
-types. A project can append Rust with `ShellConfig::with_prelude(...)`.
-
-Interactive input is stateful, supports top-level `.await`, and uses `>>> ` /
-`... ` prompts. A panic, evaluator exit, or Ctrl+C during evaluation resets
-user state and reloads the project prelude and standard bindings. `shell -c`
-evaluates once, exits zero only on success, and Reinhardt's own diagnostics do
-not repeat the raw source. Arbitrary Rust, compiler output, panics, and user
-code can still print literals; the shell is not a sandbox. History is loaded
-and saved best-effort at
-`<platform local data directory>/reinhardt/shell/<package-name>.history`.
-A missing file is a silent first run; directory-resolution, read, or write
-failures warn without preventing startup.
-
-`shell-rhai` was removed; `shell` now means the Rust evaluator and does not
-accept old Rhai syntax.
+`src/config/shell.rs` supplies the shell configuration. The shell is not a sandbox.
 
 ## WASM Build Commands
 
@@ -170,6 +146,6 @@ cargo make wasm-clean          # Clean WASM build artifacts
 - [Generated `page!` Macro Guide](instructions/PAGE_MACRO.md)
 - [Generated Reactive Hooks Guide](instructions/REACTIVE_HOOKS.md)
 - [Generated ORM and Migration Guide](instructions/ORM_GUIDANCE.md)
-- [Reinhardt Documentation](https://github.com/kent8192/reinhardt-rs)
-- [Reinhardt Pages Guide](https://github.com/kent8192/reinhardt-rs/tree/main/docs)
+- [Reinhardt Documentation](https://github.com/kent8192/reinhardt-web)
+- [Reinhardt Pages Guide](https://github.com/kent8192/reinhardt-web/tree/main/docs)
 - [wasm-pack Documentation](https://rustwasm.github.io/wasm-pack/)

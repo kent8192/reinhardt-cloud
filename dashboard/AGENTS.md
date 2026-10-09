@@ -26,7 +26,7 @@ name is the one `reinhardt-admin startproject` generated; do not rename either.
 - `src/server.rs` production HTTP server bootstrap used by the server binary.
 - `src/main.rs` server binary (`reinhardt-cloud-dashboard`), a thin launcher.
 - `src/bin/manage.rs` management binary (`manage`).
-- `src/client/` browser-only launcher and shared UI shell.
+- `src/client/` browser-only WASM launcher.
 - `src/apps/` one module per application (below).
 - `src/config/` settings, installed apps, and project route aggregation.
 - `settings/` TOML profiles; `migrations/` database migrations; `index.html` SPA shell.
@@ -101,6 +101,11 @@ Read the relevant instruction before changing the matching surface:
 - Define HTTP handlers in an application's `server/views.rs` and `#[server_fn]`
   functions in its `server_fn/` modules; register routes in its `urls/` modules.
 - Use `module.rs` plus a sibling `module/` directory. Never create `mod.rs`.
+- `reinhardt-admin startapp` emits `use reinhardt::prelude::*;` in each
+  application's `urls.rs`, plus a placeholder route-backed component and a
+  placeholder `#[server_fn]`. After generating an application, replace the
+  prelude glob with explicit imports (for example `use reinhardt::UnifiedRouter;`)
+  and delete the placeholders; keep the emptied directories with `.gitkeep`.
 - Put route-backed `#[component]` wrappers under `src/apps/<app>/client/components/`.
 - Keep simple `Model::objects()` CRUD visible inside the endpoint. Extract a
   service only when it has a narrower contract, a reusable consumer, or an
@@ -114,6 +119,11 @@ routers, or settings fragments in a binary crate: registrations made there are
 invisible to the other binary and to tests. Put them in the library crate
 (`src/apps/<app>/...` or `src/config/...`) and call into the library from the
 binary.
+
+The one exception is `ProjectProvider` in `src/bin/manage.rs`: the
+`CapabilityProvider` adapter that hands the library's settings to the command
+framework. It is not injectable, registers nothing, and holds no state, so it
+is the only non-DI type allowed in a binary.
 
 ### Pages and UI
 
