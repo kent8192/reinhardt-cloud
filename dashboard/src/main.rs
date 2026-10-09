@@ -6,9 +6,10 @@
 //! `0.0.0.0:8000`, the port the image layout and Kubernetes Service expect.
 
 #[cfg(not(target_arch = "wasm32"))]
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	// SAFETY: called at program start before any task reads the environment.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// SAFETY: this is the first statement of `main`, before the Tokio runtime
+	// (and therefore any other thread) exists, so nothing can read or write the
+	// process environment concurrently.
 	unsafe {
 		std::env::set_var(
 			"REINHARDT_SETTINGS_MODULE",
@@ -16,6 +17,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		);
 	}
 
+	run()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::main]
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
 	cloud_control_plane::server::run("0.0.0.0:8000").await
 }
 

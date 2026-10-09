@@ -56,15 +56,6 @@ mod native {
 
 	#[tokio::main]
 	pub(super) async fn main() {
-		// Set settings module environment variable
-		// SAFETY: Called at program start before any spawned tasks.
-		unsafe {
-			std::env::set_var(
-				"REINHARDT_SETTINGS_MODULE",
-				"cloud_control_plane.config.settings",
-			);
-		}
-
 		// The command is selected before either settings provider runs.
 		// Static commands resolve selected asset inputs; runtime commands
 		// retain the full composed-settings validation path.
@@ -99,6 +90,15 @@ mod native {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+	// SAFETY: first statement of `main`, before the shell runtime hook and the
+	// Tokio runtime exist, so no other thread can access the process environment.
+	unsafe {
+		std::env::set_var(
+			"REINHARDT_SETTINGS_MODULE",
+			"cloud_control_plane.config.settings",
+		);
+	}
+
 	reinhardt::commands::shell_runtime_hook();
 	native::main();
 }
