@@ -53,6 +53,7 @@ use reinhardt::conf::settings::scoped::ScopedSettings;
 use reinhardt::conf::settings::sources::{DefaultSource, HighPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
 use std::env;
+use std::path::{Path, PathBuf};
 
 // Add fragments to extend settings: e.g. `#[settings(core: CoreSettings | cache: CacheSettings)]`
 #[settings(core: CoreSettings | contacts: ContactSettings | migrations: MigrationSettings)]
@@ -83,6 +84,14 @@ pub fn get_scoped_settings() -> Result<ScopedSettings, BuildError> {
 	settings_builder().build_scoped()
 }
 
+/// Resolve the settings directory: `REINHARDT_CLOUD_CONFIG_DIR` when set,
+/// otherwise `settings/` under `base_dir`.
+fn resolve_settings_dir(base_dir: &Path) -> PathBuf {
+	env::var_os("REINHARDT_CLOUD_CONFIG_DIR")
+		.map(PathBuf::from)
+		.unwrap_or_else(|| base_dir.join("settings"))
+}
+
 fn settings_builder() -> SettingsBuilder {
 	let profile_str = env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string());
 	let profile = Profile::parse(&profile_str);
@@ -91,9 +100,7 @@ fn settings_builder() -> SettingsBuilder {
 	let base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 	// Deployed images relocate `settings/`; the operator points the process at it
 	// through `REINHARDT_CLOUD_CONFIG_DIR` (for example `/app/settings`).
-	let settings_dir = env::var_os("REINHARDT_CLOUD_CONFIG_DIR")
-		.map(std::path::PathBuf::from)
-		.unwrap_or_else(|| base_dir.join("settings"));
+	let settings_dir = resolve_settings_dir(&base_dir);
 
 	// Build settings by merging sources in priority order.
 	// The composed and scoped paths use deep merging, so a
@@ -130,11 +137,14 @@ pub fn get_shell_settings() -> ProjectSettings {
 #[cfg(test)]
 mod tests {
 	use std::env;
+	use std::ffi::OsString;
+	use std::fs;
+	use std::path::{Path, PathBuf};
 
 	use rstest::rstest;
 	use serial_test::serial;
 
-	use crate::config::settings::get_settings;
+	use crate::config::settings::{get_settings, resolve_settings_dir};
 
 	/// Process environment variables the committed settings require.
 	const REQUIRED_ENV: [(&str, &str); 2] = [
@@ -147,18 +157,24 @@ mod tests {
 
 	/// Restores the previous value of every variable it overrides when dropped.
 	struct EnvGuard {
-		previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+		previous: Vec<(&'static str, Option<OsString>)>,
 	}
 
 	impl EnvGuard {
-		fn set(vars: &[(&'static str, &str)]) -> Self {
+		/// Set or unset (`None`) each variable, remembering the prior values.
+		fn apply(vars: &[(&'static str, Option<&str>)]) -> Self {
 			let previous = vars
 				.iter()
 				.map(|(name, value)| {
 					let old = env::var_os(name);
 					// SAFETY: callers are marked `#[serial(env_settings_load)]`, so no
 					// other test reads or writes the process environment concurrently.
-					unsafe { env::set_var(name, value) };
+					unsafe {
+						match value {
+							Some(value) => env::set_var(name, value),
+							None => env::remove_var(name),
+						}
+					}
 					(*name, old)
 				})
 				.collect();
@@ -169,7 +185,7 @@ mod tests {
 	impl Drop for EnvGuard {
 		fn drop(&mut self) {
 			for (name, old) in self.previous.drain(..) {
-				// SAFETY: see `EnvGuard::set`.
+				// SAFETY: see `EnvGuard::apply`.
 				unsafe {
 					match old {
 						Some(value) => env::set_var(name, value),
@@ -180,13 +196,39 @@ mod tests {
 		}
 	}
 
+	/// Temporary directory removed on drop.
+	struct TempDir(PathBuf);
+
+	impl TempDir {
+		fn new(label: &str) -> Self {
+			let path = env::temp_dir().join(format!("{label}-{}", std::process::id()));
+			fs::create_dir_all(&path).expect("temp dir should be created");
+			Self(path)
+		}
+
+		fn path(&self) -> &Path {
+			&self.0
+		}
+	}
+
+	impl Drop for TempDir {
+		fn drop(&mut self) {
+			let _ = fs::remove_dir_all(&self.0);
+		}
+	}
+
+	fn required_env(profile: &'static str) -> Vec<(&'static str, Option<&'static str>)> {
+		let mut vars: Vec<_> = REQUIRED_ENV.iter().map(|(k, v)| (*k, Some(*v))).collect();
+		vars.push(("REINHARDT_ENV", Some(profile)));
+		vars.push(("REINHARDT_CLOUD_CONFIG_DIR", None));
+		vars
+	}
+
 	#[rstest]
 	#[serial(env_settings_load)]
 	fn base_settings_load_secrets_from_the_environment() {
 		// Arrange
-		let mut vars = REQUIRED_ENV.to_vec();
-		vars.push(("REINHARDT_ENV", "staging"));
-		let _env = EnvGuard::set(&vars);
+		let _env = EnvGuard::apply(&required_env("staging"));
 
 		// Act
 		let settings = get_settings()
@@ -199,5 +241,81 @@ mod tests {
 			settings.settings().core.secret_key,
 			"test-only-secret-key-not-for-deployment"
 		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn settings_fail_fast_when_the_secret_key_is_missing() {
+		// Arrange
+		let mut vars = required_env("staging");
+		vars.push(("REINHARDT_CORE__SECRET_KEY", None));
+		let _env = EnvGuard::apply(&vars);
+
+		// Act
+		let result = get_settings().and_then(|pending| {
+			pending
+				.resolve()
+				.map(|_| ())
+				.map_err(|error| reinhardt::conf::settings::builder::BuildError::from(error))
+		});
+
+		// Assert
+		let message = result
+			.expect_err("a missing secret key must fail")
+			.to_string();
+		assert!(
+			message.contains("REINHARDT_CORE__SECRET_KEY"),
+			"error should name the missing variable: {message}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn settings_directory_override_replaces_the_default_directory() {
+		// Arrange
+		let override_dir = TempDir::new("cloud-control-plane-settings");
+		let base =
+			fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/base.toml"))
+				.expect("base.toml should be readable");
+		fs::write(override_dir.path().join("base.toml"), base).expect("base.toml should be copied");
+		fs::write(
+			override_dir.path().join("staging.toml"),
+			"[core]\nallowed_hosts = [\"override.example\"]\n",
+		)
+		.expect("staging.toml should be written");
+		let override_path = override_dir
+			.path()
+			.to_str()
+			.expect("temp path is UTF-8")
+			.to_owned();
+		let mut vars = required_env("staging");
+		vars.push(("REINHARDT_CLOUD_CONFIG_DIR", Some(&override_path)));
+		let _env = EnvGuard::apply(&vars);
+
+		// Act
+		let settings = get_settings()
+			.expect("settings sources should load")
+			.resolve()
+			.expect("settings should resolve");
+
+		// Assert
+		assert_eq!(
+			settings.settings().core.allowed_hosts,
+			vec!["override.example"]
+		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn settings_directory_defaults_to_the_manifest_settings_directory() {
+		// Arrange
+		let _env = EnvGuard::apply(&[("REINHARDT_CLOUD_CONFIG_DIR", None)]);
+		let base_dir = Path::new("/manifest");
+
+		// Act
+		let resolved = resolve_settings_dir(base_dir);
+
+		// Assert
+		assert_eq!(resolved, base_dir.join("settings"));
 	}
 }
