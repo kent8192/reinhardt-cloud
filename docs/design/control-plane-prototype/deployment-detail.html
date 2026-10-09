@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Deployment 148 - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html" aria-current="page">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">Account menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="api-keys.html">API Keys</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<nav class="breadcrumb" aria-label="Breadcrumb">
+							<ol>
+								<li><a href="organization.html">Acme Robotics</a></li>
+								<li><a href="projects.html">Projects</a></li>
+								<li><a href="project-detail.html">storefront-api</a></li>
+								<li aria-current="page">Deployment 148</li>
+							</ol>
+						</nav>
+						<div class="cluster-row">
+							<h1 class="page-title">Deployment 148</h1>
+							<span class="badge badge-progress">Applying</span>
+						</div>
+						<p class="page-lede">Submitted <time datetime="2026-10-09T14:28:02Z">4 minutes ago</time> by priya-raman from a push to <code>main</code>. A Deployment never changes after it is submitted; only its status advances.</p>
+					</div>
+					<div class="actions">
+						<button class="btn" type="button">Redeploy</button>
+					</div>
+				</header>
+
+				<div class="stack">
+					<section aria-labelledby="progress-title">
+						<h2 class="visually-hidden" id="progress-title">Progress</h2>
+						<ol class="phases" aria-labelledby="progress-title">
+							<li class="phase phase-done">
+								<span class="phase-name">Submitted</span>
+								<time class="phase-time" datetime="2026-10-09T14:28:02Z">14:28:02</time>
+							</li>
+							<li class="phase phase-done">
+								<span class="phase-name">Sent to Agent</span>
+								<time class="phase-time" datetime="2026-10-09T14:28:03Z">14:28:03</time>
+							</li>
+							<li class="phase phase-current" aria-current="step">
+								<span class="phase-name">Applying</span>
+								<span class="phase-time">2 of 3 replicas ready</span>
+							</li>
+							<li class="phase">
+								<span class="phase-name">Running</span>
+								<span class="phase-time">Waiting</span>
+							</li>
+						</ol>
+					</section>
+
+					<section aria-labelledby="facts-title">
+						<h2 class="section-title" id="facts-title" style="margin-bottom: var(--space-3)">Details</h2>
+						<dl class="dl dl-panel">
+							<dt>Project</dt>
+							<dd><a href="project-detail.html">storefront-api</a></dd>
+							<dt>Cluster</dt>
+							<dd><a href="cluster-detail.html">prod-tokyo</a></dd>
+							<dt>Commit</dt>
+							<dd><span class="sha">a3f91c2</span> Fix cart rounding for JPY</dd>
+							<dt>Image</dt>
+							<dd><code>ghcr.io/acme-robotics/storefront-api:a3f91c2</code></dd>
+							<dt>Replaces</dt>
+							<dd><a href="deployment-detail.html">Deployment 147</a>, which keeps running until this one is ready.</dd>
+						</dl>
+					</section>
+
+					<section aria-labelledby="logs-title">
+						<div class="section-head">
+							<h2 class="section-title" id="logs-title">Logs</h2>
+						</div>
+						<div class="log">
+							<div class="log-bar">
+								<span class="log-live" role="status">Live</span>
+								<div class="actions">
+									<label class="visually-hidden" for="log-level">Minimum level</label>
+									<select class="select select-inline" id="log-level">
+										<option>All levels</option>
+										<option>Warnings and errors</option>
+										<option>Errors only</option>
+									</select>
+									<button class="btn btn-sm" type="button" aria-pressed="true" data-pressed-toggle>Follow</button>
+									<button class="btn btn-sm" type="button">Download</button>
+								</div>
+							</div>
+							<div class="log-body" role="log" aria-label="Deployment 148 logs" tabindex="0">
+										<div class="log-line"><span class="log-ts">14:28:02</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">deployment 148 accepted for storefront-api</span></div>
+										<div class="log-line"><span class="log-ts">14:28:03</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">agent prod-tokyo received command apply</span></div>
+										<div class="log-line"><span class="log-ts">14:28:09</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">applying Project storefront-api generation 148</span></div>
+										<div class="log-line"><span class="log-ts">14:28:10</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">image ghcr.io/acme-robotics/storefront-api:a3f91c2 pulled in 4.1s</span></div>
+										<div class="log-line"><span class="log-ts">14:28:12</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: 2 pending migrations (carts.0007, carts.0008)</span></div>
+										<div class="log-line"><span class="log-ts">14:28:13</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: applying carts.0007_add_currency_scale</span></div>
+										<div class="log-line"><span class="log-ts">14:28:14</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: applying carts.0008_backfill_minor_units</span></div>
+										<div class="log-line"><span class="log-ts">14:28:16</span><span class="log-lvl log-lvl-warn">WARN</span><span class="log-msg">migrate: carts.0008 took 2.3s, table lock held on carts_cart</span></div>
+										<div class="log-line"><span class="log-ts">14:28:17</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: done</span></div>
+										<div class="log-line"><span class="log-ts">14:28:19</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: starting 3 replicas</span></div>
+										<div class="log-line"><span class="log-ts">14:28:24</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-x2k4q listening on 0.0.0.0:8000</span></div>
+										<div class="log-line"><span class="log-ts">14:28:25</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-x2k4q readiness probe passed</span></div>
+										<div class="log-line"><span class="log-ts">14:28:31</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-m8t7w listening on 0.0.0.0:8000</span></div>
+										<div class="log-line"><span class="log-ts">14:28:32</span><span class="log-lvl log-lvl-warn">WARN</span><span class="log-msg">storefront-api-6f9c7b5d8-m8t7w readiness probe failed: connection refused (attempt 1 of 3)</span></div>
+										<div class="log-line"><span class="log-ts">14:28:36</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-m8t7w readiness probe passed</span></div>
+										<div class="log-line"><span class="log-ts">14:28:41</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: 2 of 3 replicas ready</span></div>
+										<div class="log-line"><span class="log-ts">14:28:47</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-q5r2d listening on 0.0.0.0:8000</span></div>
+										<div class="log-line"><span class="log-ts">14:28:48</span><span class="log-lvl log-lvl-error">ERROR</span><span class="log-msg">storefront-api-6f9c7b5d8-q5r2d cache warm-up: redis timeout after 2000ms, retrying</span></div>
+										<div class="log-line"><span class="log-ts">14:28:51</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">storefront-api-6f9c7b5d8-q5r2d cache warm-up: ok</span></div>
+										<div class="log-line"><span class="log-ts">14:28:52</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: waiting for storefront-api-6f9c7b5d8-q5r2d to become ready</span></div>
+							</div>
+						</div>
+					</section>
+
+					<section aria-labelledby="config-title">
+						<details class="disclosure">
+							<summary id="config-title">Submitted configuration</summary>
+							<div class="disclosure-body stack-sm">
+								<p class="prose">Read-only. This is exactly what the Agent received for this Deployment.</p>
+								<div class="code">
+									<pre><code>[project]
+name = "storefront-api"
+
+[runtime]
+image = "ghcr.io/acme-robotics/storefront-api:a3f91c2"
+replicas = 3
+port = 8000
+
+[database]
+migrate_on_start = true</code></pre>
+								</div>
+							</div>
+						</details>
+					</section>
+				</div>
+			</div>
+		</main>
+	</div>
+</body>
+</html>

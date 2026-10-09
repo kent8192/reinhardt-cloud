@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Projects - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html" aria-current="page">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">Account menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="api-keys.html">API Keys</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<nav class="breadcrumb" aria-label="Breadcrumb">
+							<ol>
+								<li><a href="organization.html">Acme Robotics</a></li>
+								<li aria-current="page">Projects</li>
+							</ol>
+						</nav>
+						<h1 class="page-title">Projects</h1>
+						<p class="page-lede">Each Project is a Reinhardt codebase with a stable name and one source: a GitHub repository or manual submission from the CLI.</p>
+					</div>
+					<div class="actions">
+						<button class="btn btn-primary" type="button">Import from GitHub</button>
+					</div>
+				</header>
+
+				<div class="stack-sm">
+					<div class="field search">
+						<label class="label visually-hidden" for="project-search">Filter Projects</label>
+						<input class="input" id="project-search" type="search" placeholder="Filter Projects by name" autocomplete="off">
+					</div>
+					<div class="table-wrap">
+						<table class="table">
+							<caption class="visually-hidden">Projects owned by Acme Robotics</caption>
+							<thead>
+								<tr>
+									<th scope="col">Project</th>
+									<th scope="col">Source</th>
+									<th scope="col">Latest Deployment</th>
+									<th scope="col">Previews</th>
+									<th scope="col">Updated</th>
+								</tr>
+							</thead>
+							<tbody>
+										<tr>
+											<td><a class="cell-primary" href="project-detail.html">storefront-api</a></td>
+											<td><span class="chip">GitHub</span> <span class="cell-meta cell-inline">acme-robotics/storefront-api</span></td>
+											<td><span class="badge badge-progress">Applying</span> <span class="cell-meta cell-inline">Deployment 148 on prod-tokyo</span></td>
+											<td>2</td>
+											<td>4 min ago</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="project-detail.html">fleet-dashboard</a></td>
+											<td><span class="chip">GitHub</span> <span class="cell-meta cell-inline">acme-robotics/fleet-dashboard</span></td>
+											<td><span class="badge badge-success">Running</span> <span class="cell-meta cell-inline">Deployment 92 on staging-frankfurt</span></td>
+											<td>0</td>
+											<td>1 hour ago</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="project-detail.html">telemetry-ingest</a></td>
+											<td><span class="chip">GitHub</span> <span class="cell-meta cell-inline">acme-robotics/telemetry-ingest</span></td>
+											<td><span class="badge badge-danger">Failed</span> <span class="cell-meta cell-inline">Deployment 147 on edge-osaka</span></td>
+											<td>0</td>
+											<td>22 min ago</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="project-detail.html">billing-worker</a></td>
+											<td><span class="chip">GitHub</span> <span class="cell-meta cell-inline">acme-robotics/billing-worker</span></td>
+											<td><span class="badge badge-success">Running</span> <span class="cell-meta cell-inline">Deployment 61 on prod-tokyo</span></td>
+											<td>0</td>
+											<td>3 hours ago</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="project-detail.html">docs-site</a></td>
+											<td><span class="chip">Manual</span> <span class="cell-meta cell-inline">Submitted from the CLI</span></td>
+											<td><span class="badge badge-success">Running</span> <span class="cell-meta cell-inline">Deployment 17 on prod-tokyo</span></td>
+											<td>0</td>
+											<td>6 days ago</td>
+										</tr>
+							</tbody>
+						</table>
+					</div>
+					<p class="section-note">Deploying from the CLI with a new Project name creates a Project with a manual source.</p>
+				</div>
+			</div>
+		</main>
+	</div>
+</body>
+</html>
