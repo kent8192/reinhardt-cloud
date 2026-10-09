@@ -1,9 +1,11 @@
 //! Integration tests that exercise the JWT interceptors through a real tonic
 //! server.
 //!
-//! The interceptors read the `tonic::GrpcMethod` request extension to decide
-//! which credential check applies. Unit tests insert that extension by hand,
-//! so they cannot prove that tonic populates it before the interceptor runs.
+//! The interceptors decide which credential check applies from the request
+//! path. tonic does not expose the path to a server-side `Interceptor` (the
+//! `tonic::GrpcMethod` extension exists on clients only), so the path is
+//! recorded by `GrpcPathService` ahead of `InterceptedService`. Unit tests
+//! insert the path by hand, so only a real server proves the whole chain.
 //! These tests wire the interceptors exactly as the dashboard does (user
 //! interceptor on `BuildService`, method-aware interceptor on `LogService`,
 //! agent interceptor on `AgentService`) and drive them with a real client.
@@ -16,7 +18,7 @@ use reinhardt_cloud_core::mocks::{MockBuildService, MockClusterAgentService};
 use reinhardt_cloud_core::services::log::{LocalLogService, LogBuffer};
 use reinhardt_cloud_grpc::agent_claims::create_agent_token;
 use reinhardt_cloud_grpc::interceptor::{
-	AgentJwtInterceptor, JwtInterceptor, LogServiceJwtInterceptor,
+	AgentJwtInterceptor, JwtInterceptor, LogServiceJwtInterceptor, intercepted,
 };
 use reinhardt_cloud_grpc::services::build::BuildServiceGrpc;
 use reinhardt_cloud_grpc::services::cluster_agent::AgentServiceGrpc;
@@ -106,16 +108,16 @@ async fn server() -> TestServer {
 
 	let handle = tokio::spawn(async move {
 		Server::builder()
-			.add_service(BuildServiceServer::with_interceptor(
-				build_grpc,
+			.add_service(intercepted(
+				BuildServiceServer::new(build_grpc),
 				user_interceptor,
 			))
-			.add_service(LogServiceServer::with_interceptor(
-				log_grpc,
+			.add_service(intercepted(
+				LogServiceServer::new(log_grpc),
 				log_interceptor,
 			))
-			.add_service(AgentServiceServer::with_interceptor(
-				agent_grpc,
+			.add_service(intercepted(
+				AgentServiceServer::new(agent_grpc),
 				agent_interceptor,
 			))
 			.serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
@@ -366,4 +368,40 @@ async fn missing_credential_is_reported_as_missing_credential(
 	// Assert
 	assert_eq!(status.code(), Code::Unauthenticated);
 	assert_eq!(status.message(), expected_message);
+}
+
+// Wiring an interceptor without `intercepted` leaves the path unknown; the
+// guarded service must then fail closed instead of letting calls through.
+#[rstest]
+#[tokio::test]
+async fn interceptor_without_path_service_fails_closed() {
+	// Arrange
+	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+		.await
+		.expect("bind ephemeral port");
+	let addr = listener.local_addr().expect("local addr");
+	let handle = tokio::spawn(async move {
+		Server::builder()
+			.add_service(AgentServiceServer::with_interceptor(
+				agent_grpc,
+				AgentJwtInterceptor::new(JWT_SECRET),
+			))
+			.serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+			.await
+			.expect("test gRPC server failed");
+	});
+	let server = TestServer { addr, handle };
+
+	// Act
+	let status = call_status(&server, Rpc::AgentReportHealth, Credential::ValidAgent)
+		.await
+		.expect_err("a call without a known path must be rejected");
+
+	// Assert
+	assert_eq!(status.code(), Code::Unauthenticated);
+	assert_eq!(
+		status.message(),
+		"Missing gRPC path; cannot authorize agent request"
+	);
 }
