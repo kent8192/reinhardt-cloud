@@ -19,7 +19,8 @@ The theme follows the system setting. The "Switch to dark theme" button override
 | File | Screen |
 |------|--------|
 | `index.html` | Entry page that links every screen |
-| `sign-in.html` | GitHub-only sign-in; `#not-invited` shows the state for a GitHub account without an Invitation |
+| `sign-in.html` | Variant A (recommended): GitHub-only sign-in beside a decorative product preview (Deployment progress, live logs, Project and Cluster chips) built from the prototype's own components; `#not-invited` shows the state for a GitHub account without an Invitation |
+| `sign-in-alt.html` | Variant B: the same sign-in copy and action over thin gold line art of Clusters connected to the Control Plane, with no product UI |
 | `organization.html` | Organization overview with the Organization switcher open |
 | `clusters.html` | Clusters list; "Register Cluster" opens a dialog |
 | `cluster-register.html` | Client ID and client secret shown once, then Agent install steps |
@@ -33,7 +34,7 @@ The theme follows the system setting. The "Switch to dark theme" button override
 
 ## Design direction
 
-The Dashboard is a place where people watch Deployments land on their own Clusters, so the design is quiet, operation-focused, and spends its single bold gesture on the sign-in page.
+The Dashboard is a place where people watch Deployments land on their own Clusters, so the design is quiet, operation-focused, and spends its single bold gesture on the sign-in page. Two sign-in variants are provided so the owner can choose; both show the logo mark small beside the product name rather than enlarging it.
 
 - **One accent, from the logo.** The lion mark's gold (`--gold-500`) is the only accent. It fills primary actions, marks the live Deployment on the ledger, and highlights one-time secrets. Gold used as text is the deeper ochre (`--accent-text`) so it meets contrast requirements. Everything else is a cool neutral so status colors stay legible.
 - **The ledger.** A Deployment never changes after submission, so Deployments are shown as a chronological rail rather than an editable list. A gold marker shows what is running now.
@@ -94,7 +95,7 @@ Styles live in `components.css`. Selectors are single classes so one component c
 
 - Skip link, landmarks, one `<h1>` per page, labelled navigation regions.
 - Visible `:focus-visible` ring in both themes (`--focus-ring`).
-- Every control has an accessible name; the logo beside the product name has an empty `alt` because the text already names it, and the large sign-in mark has descriptive alt text.
+- Every control has an accessible name; the logo beside the product name has an empty `alt` because the text already names it, and the decorative sign-in preview and line art are `aria-hidden`.
 - Status never relies on color alone.
 - Motion is limited to the spinning Applying badge, the pulsing Live indicator, the sweeping current phase, and dialog entry. All of it stops under `prefers-reduced-motion`.
 
@@ -109,11 +110,13 @@ Styles live in `components.css`. Selectors are single classes so one component c
 
 ## Assets
 
-`assets/logo-mark.png` is `branding/logo.png` cropped to the mark, downscaled, and converted to a transparent background so it works on both themes. The color is unchanged.
+`assets/logo-mark.png` is `branding/logo.png` cropped to the mark, downscaled, and converted to a transparent background so it works on both themes. The color is unchanged. `assets/logo-mark-small.png` is the same mark area-averaged to 142x98 px for the 44px-wide sign-in brand line, so it is never upscaled.
 
-`screenshots/` holds small previews of the sign-in page (both themes), the Project detail page, and the Deployment detail page in dark theme.
+`screenshots/` holds small previews of both sign-in variants (both themes), the Project detail page, and the Deployment detail page in dark theme.
 
 ![Sign-in, light](screenshots/sign-in-light.png)
 ![Sign-in, dark](screenshots/sign-in-dark.png)
+![Sign-in Variant B, light](screenshots/sign-in-alt-light.png)
+![Sign-in Variant B, dark](screenshots/sign-in-alt-dark.png)
 ![Project detail, light](screenshots/project-detail-light.png)
 ![Deployment detail, dark](screenshots/deployment-detail-dark.png)
