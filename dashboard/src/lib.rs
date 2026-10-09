@@ -1,7 +1,6 @@
 //! cloud_control_plane library
 //!
-//! Top-level crate for cloud_control_plane. The module layout follows the
-//! Reinhardt basics tutorial:
+//! Library crate of the Control Plane application. Module layout:
 //! - `apps`         — application code (each app has server-side routes and client-side pages)
 //! - `client`       — WASM-only frontend (mounted by `bin/manage.rs`)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
@@ -11,18 +10,18 @@
 //
 // Server-side macros (`#[routes]`, `#[server_fn]`, etc.) reference framework
 // crates by their internal paths (`reinhardt_apps`, `reinhardt_core`, ...).
-// Re-export them under `crate::*` so the generated code resolves regardless
+// Re-export them from the crate root so the generated code resolves regardless
 // of feature combination.
 #[cfg(server)]
-mod server_only {
-	pub use reinhardt::core::async_trait;
-	pub use reinhardt::reinhardt_apps;
-	pub use reinhardt::reinhardt_core;
-	pub use reinhardt::reinhardt_di::params;
-	pub use reinhardt::reinhardt_http;
-}
+pub use reinhardt::core::async_trait;
 #[cfg(server)]
-pub use server_only::*;
+pub use reinhardt::reinhardt_apps;
+#[cfg(server)]
+pub use reinhardt::reinhardt_core;
+#[cfg(server)]
+pub use reinhardt::reinhardt_di::params;
+#[cfg(server)]
+pub use reinhardt::reinhardt_http;
 
 // Application modules
 pub mod apps;

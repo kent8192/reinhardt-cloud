@@ -7,7 +7,7 @@
 //! client route aggregation.
 
 use reinhardt::pages::ClientLauncher;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsValue, prelude::wasm_bindgen};
 
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {

@@ -1,11 +1,11 @@
-//! Installed app registry for cloud_control_plane.
+//! Installed application registry for the Control Plane.
 //!
-//! `reinhardt-admin startapp` automatically appends new apps here.
+//! Each entry maps an application module to its label. `reinhardt-admin startapp`
+//! appends new entries.
 
 use reinhardt::installed_apps;
 
 installed_apps! {
-	// Apps will be added here by `reinhardt-admin startapp`.
 	accounts: "accounts",
 	organizations: "organizations",
 	clusters: "clusters",

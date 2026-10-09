@@ -18,7 +18,7 @@ pub use client_router::{client_url_patterns, reverse};
 #[cfg(server)]
 pub use server_router::server_url_patterns;
 
-use reinhardt::prelude::*;
+use reinhardt::UnifiedRouter;
 use reinhardt::url_patterns;
 
 // Keep the HTTP/server chain in the macro-compatible direct builder function.

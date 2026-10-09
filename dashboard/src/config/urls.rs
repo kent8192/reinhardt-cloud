@@ -1,18 +1,10 @@
-//! URL configuration for cloud_control_plane project (Pages).
+//! URL configuration for the Control Plane.
 //!
-//! The routes function is the single project-level registration. Each
-//! application exposes one url_patterns() aggregate for HTTP, WebSocket, gRPC,
-//! and client routes; merge those values explicitly below.
-//!
-//! Module application example:
-//!     let router = router.merge(crate::apps::chat::urls::url_patterns());
-//!     let router = router.merge(crate::apps::accounts::urls::url_patterns());
-//!
-//! Workspace application example:
-//!     let router = router.merge(chat::urls::url_patterns());
-//!     let router = router.merge(accounts::urls::url_patterns());
+//! `routes` is the single project-level registration. Each application exposes
+//! one `url_patterns()` aggregate for HTTP, WebSocket, gRPC, and client routes;
+//! merge them explicitly below, one `merge` per installed application.
 
-use reinhardt::prelude::*;
+use reinhardt::UnifiedRouter;
 use reinhardt::routes;
 
 #[routes]
