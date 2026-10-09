@@ -74,6 +74,18 @@
 	/* ---- Layout ------------------------------------------------------------ */
 	--sidebar-width: 15.5rem;
 	--control-height: 2.25rem;
+	/* Log viewer chrome: theme-independent, because the viewer is always dark. */
+	--log-border: rgb(255 255 255 / 0.1);
+	--log-control-border: rgb(255 255 255 / 0.25);
+	--log-control-hover: rgb(255 255 255 / 0.08);
+	--log-control-pressed: rgb(255 255 255 / 0.14);
+	--log-control-pressed-border: rgb(255 255 255 / 0.5);
+	--log-line-hover: rgb(255 255 255 / 0.05);
+	--log-focus: #f2f4f7;
+
+	/* Hover wash for quiet controls on the inverse toast surface. */
+	--toast-control-hover: rgb(127 127 127 / 0.25);
+
 	--focus-width: 2px;
 	--focus-offset: 2px;
 }
@@ -96,7 +108,7 @@
 	--ink-strong: #14181f;
 	--ink-default: #2a303a;
 	--ink-muted: #596170;
-	--ink-subtle: #6b7380;
+	--ink-subtle: #606774;
 	--ink-inverse: #f4f5f7;
 
 	--accent-fill: var(--gold-500);

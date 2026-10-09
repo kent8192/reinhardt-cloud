@@ -1071,27 +1071,27 @@ samp {
 	justify-content: space-between;
 	gap: var(--space-3);
 	padding: var(--space-2) var(--space-3);
-	border-bottom: 1px solid rgb(255 255 255 / 0.1);
+	border-bottom: 1px solid var(--log-border);
 }
 
 .log-bar .btn {
 	background: transparent;
-	border-color: rgb(255 255 255 / 0.25);
+	border-color: var(--log-control-border);
 	color: var(--log-ink);
 }
 
 .log-bar .btn:hover {
-	background: rgb(255 255 255 / 0.08);
+	background: var(--log-control-hover);
 }
 
 .log-bar .btn[aria-pressed="true"] {
-	background: rgb(255 255 255 / 0.14);
-	border-color: rgb(255 255 255 / 0.5);
+	background: var(--log-control-pressed);
+	border-color: var(--log-control-pressed-border);
 }
 
 .log-bar .select {
 	background-color: transparent;
-	border-color: rgb(255 255 255 / 0.25);
+	border-color: var(--log-control-border);
 	color: var(--log-ink);
 	background-image: linear-gradient(45deg, transparent 50%, var(--log-ink) 50%), linear-gradient(135deg, var(--log-ink) 50%, transparent 50%);
 }
@@ -1102,7 +1102,7 @@ samp {
 }
 
 .log-bar :focus-visible {
-	outline-color: #f2f4f7;
+	outline-color: var(--log-focus);
 }
 
 .log-live {
@@ -1147,7 +1147,7 @@ samp {
 }
 
 .log-line:hover {
-	background: rgb(255 255 255 / 0.05);
+	background: var(--log-line-hover);
 }
 
 .log-ts {
@@ -1261,7 +1261,7 @@ samp {
 }
 
 .toast .btn-quiet:hover {
-	background: rgb(127 127 127 / 0.25);
+	background: var(--toast-control-hover);
 	color: var(--ink-inverse);
 	opacity: 1;
 }
