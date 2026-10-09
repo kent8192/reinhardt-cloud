@@ -2,7 +2,7 @@
 
 This document restates every security property the previous Control Plane enforced as an implementation-neutral requirement, and adds the requirements introduced by the rebuild. It exists so that the properties survive the rebuild without inheriting the code that enforced them.
 
-Vocabulary follows [`CONTEXT.md`](../../CONTEXT.md): Control Plane, Dashboard, Agent Gateway, User, Member, Invitation, Staff, API Key, Login Link, Organization, Cluster, Agent, Project, Deployment, and Preview are used exactly as defined there. The rebuild itself is described in [`docs/plans/control-plane-rebuild.md`](../plans/control-plane-rebuild.md).
+Vocabulary follows [`CONTEXT.md`](../../CONTEXT.md): Control Plane, Dashboard, Agent Gateway, User, Member, Invitation, Staff, API Key, Login Link, Organization, Cluster, Agent, Project, Deployment, and Preview are used exactly as defined there. The rebuild itself is described by the Control Plane rebuild plan tracked in #915, with one issue per milestone (#916 to #923).
 
 ## Scope
 
@@ -32,7 +32,7 @@ Each requirement is a record with these fields:
 | Milestone | The milestone that owns the acceptance test (M1 to M7). |
 | Threat | What an attacker gains if the property does not hold. |
 | Requirement | What must hold, stated without naming a mechanism. |
-| Source | Pull requests and commits where the property was introduced or fixed. For `new` requirements, the spec decision that introduces it. |
+| Source | Pull requests and commits where the property was introduced or fixed. For `new` requirements, the rebuild decision that introduces it, cited by epic or milestone issue. |
 | Old tests | Tests on `origin/main` that proved the property. `gap` means no test proved it. |
 
 ### Status values
@@ -40,10 +40,10 @@ Each requirement is a record with these fields:
 | Status | Meaning |
 |--------|---------|
 | `carried` | The old Control Plane enforced this property and the rebuilt one must too. |
-| `new` | Introduced by the rebuild spec; no old behavior to port. |
+| `new` | Introduced by the rebuild plan (#915); no old behavior to port. |
 | `superseded` | The old mechanism is replaced; the record names the replacing requirement. |
 | `obsolete` | The surface the property protected no longer exists; the record says why. |
-| `needs decision` | The status cannot be determined from the spec and the old code; the record states the question. |
+| `needs decision` | The status cannot be determined from the rebuild plan (#915) and the old code; the record states the question. |
 
 A `carried` requirement whose enforcing code lives in a crate the rebuild does not touch (for example the CLI) is marked `carried (code unchanged)`. The owning milestone then re-verifies it rather than re-implementing it.
 
@@ -188,7 +188,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** Every additional credential type (passwords, reset links, emailed verification tokens) is another path to account takeover and another secret store to protect.
 - **Requirement:** The Dashboard MUST authenticate people only through GitHub, using the same GitHub App that backs repository integration. The Control Plane MUST NOT store, accept, or verify passwords, and MUST NOT expose password reset or email verification flows.
-- **Source:** Spec, "Changed on purpose: Browser sign-in".
+- **Source:** #915 and #917: browser sign-in is GitHub only, through the same GitHub App used for repository integration.
 - **Old tests:** none (new behavior). Negative acceptance test: the route inventory (SR-10) contains no credential-submission endpoint.
 
 ### SR-02 A User is identified by the numeric GitHub user ID
@@ -197,7 +197,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** GitHub logins can be renamed and later claimed by someone else, and email addresses can be unverified or reassigned. Matching Users by either lets a different person inherit an existing User's access.
 - **Requirement:** The identity key of a User MUST be the numeric GitHub user ID. Login names and email addresses MUST NOT be used to find, merge, or authorize Users. A changed GitHub login MUST update the displayed name of the same User without creating a second User or changing any access.
-- **Source:** Spec, "Cross-cutting decisions" (Invitations resolve to the numeric GitHub user ID; Staff is granted by GitHub user ID).
+- **Source:** #915, #917, #918: Invitations resolve to the numeric GitHub user ID and Staff is granted by GitHub user ID.
 - **Old tests:** none (new behavior). Replaces the email-based matching tests listed under SR-26.
 
 ### SR-03 One GitHub identity maps to exactly one User
@@ -325,7 +325,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** A Login Link that survives its first use turns a leaked URL (browser history, proxy log, chat message) into a standing credential.
 - **Requirement:** A Login Link MUST be consumable exactly once. Consumption MUST be atomic so that two concurrent requests with the same link cannot both succeed. A used, expired, revoked, or unknown link MUST be rejected with the same response, and the response MUST NOT reveal which of those conditions applied.
-- **Source:** Spec, glossary entry "Login Link" and "Changed on purpose: Self-deploy E2E".
+- **Source:** #915 and #917: definition of Login Link; #923: the self-deploy end-to-end test signs in with a Login Link.
 - **Old tests:** none (new behavior).
 
 ### SR-17 A Login Link has a short lifetime
@@ -334,7 +334,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** An unused Login Link left in a shell history, CI log, or ticket is a valid credential for as long as it lives.
 - **Requirement:** A Login Link MUST expire within a bounded period set at issuance, with a hard ceiling that configuration cannot exceed. The proposed ceiling is 15 minutes; M1 may change it with a recorded rationale. Expiry MUST be evaluated on the server's clock at consumption time.
-- **Source:** Spec, glossary entry "Login Link".
+- **Source:** #915 and #917: definition of Login Link.
 - **Old tests:** none (new behavior).
 
 ### SR-18 Login Links are issued only by someone with host operator access and are stored hashed
@@ -343,7 +343,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** If a Login Link can be requested over the network, it is a password-less backdoor. If it is stored in clear, a database read yields working sign-ins.
 - **Requirement:** Login Links MUST be issuable only through the host-level management command (`manage create-login-link`); no HTTP, WebSocket, or gRPC endpoint may create one. The link MUST be generated from a cryptographically secure source with at least 128 bits of entropy, shown once to the issuer, and stored only as a one-way hash. The issuance MUST name the target User, who MUST be an existing, active User; a Login Link MUST NOT create a User. Issuance and consumption MUST be recorded in a log that omits the secret.
-- **Source:** Spec, glossary entry "Login Link"; replaces the seeded default password (SR-25).
+- **Source:** #915 and #917: definition of Login Link; replaces the seeded default password (SR-25).
 - **Old tests:** none (new behavior).
 
 ### SR-19 The sign-up policy is enforced at first sign-in
@@ -357,7 +357,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
   - `invite_only` (the default): only an identity with a pending Invitation (SR-45) may sign up.
 
   An identity that fails the policy MUST leave no persistent trace beyond an audit log entry, and MUST see a response that does not reveal the policy contents. An unrecognized or missing policy value MUST resolve to `invite_only`. A User that already exists MUST NOT be affected by later tightening of the policy except where the operator deactivates them explicitly.
-- **Source:** Spec, "Cross-cutting decisions: Sign-up policy".
+- **Source:** #915 and #917: the sign-up policy is configurable (`open`, `allowlist`, `invite_only` by default).
 - **Old tests:** none (new behavior).
 
 ### SR-20 Staff is granted only by host operator access
@@ -366,7 +366,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** Staff can read and change every Organization's data through the admin site. A network-reachable path to Staff is a path to full compromise.
 - **Requirement:** Staff status MUST be grantable and revocable only through the host-level management command (`manage grant-staff --github-user-id <id>`), addressed by numeric GitHub user ID. No endpoint, form, Invitation, API Key, or Login Link may grant it. The admin site MUST be reachable only by Staff.
-- **Source:** Spec, "Cross-cutting decisions: Invitations... Staff is granted with `manage grant-staff`".
+- **Source:** #915 and #917: Staff is granted with `manage grant-staff --github-user-id <id>`.
 - **Old tests:** `auth/tests/integration/test_validated_session_middleware.rs::active_cookie_session_uses_current_database_privileges` covers revalidation of Staff status only (SR-07). The grant path: none (new behavior).
 
 ### SR-21 Password credential handling
@@ -468,7 +468,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M1
 - **Threat:** Without a self-service path, operators mint keys by hand and keys are never rotated; with a careless one, a stolen browser tab or a stolen key mints more keys.
 - **Requirement:** An authenticated User MUST be able to create, list, and revoke their own API Keys from the Dashboard. Creation MUST require an interactive session (SR-33 decides whether an API Key may also create keys), accept a label and an optional expiry, and display the plaintext once with a clear statement that it cannot be shown again. A User MUST see and revoke only their own keys. Revocation MUST take effect on the next request that presents the key. Creating and revoking a key MUST be recorded with the User, the key's non-secret prefix, and the time.
-- **Source:** Spec, M1 exit criteria ("API Keys (UI and `manage`)").
+- **Source:** #917: M1 exit criteria include API Keys through the Dashboard and `manage`.
 - **Old tests:** none (new behavior). The old Control Plane issued keys only through `manage`.
 
 ### SR-32 Operator commands manage API Keys
@@ -590,7 +590,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M2
 - **Threat:** An admin demotes or removes an owner, promotes themselves to owner, or invites a new owner; the last owner is removed and nobody can administer the Organization.
 - **Requirement:** An admin MUST NOT change, remove, or promote an owner, and MUST NOT grant any Role above admin (by role change or by Invitation). Only an owner may grant or revoke the owner Role. An Organization MUST always retain at least one owner; removing or demoting the last owner MUST be refused. A Member MUST NOT be able to grant a Role higher than their own.
-- **Source:** Spec, glossary entry "Member"; the old permission table deferred the owner-change rule to the member-management view, which did not exist (`organizations/permissions/table.rs`).
+- **Source:** #915 and #918: definition of Member; the old permission table deferred the owner-change rule to the member-management view, which did not exist (`organizations/permissions/table.rs`).
 - **Old tests:** none (new behavior).
 
 ### SR-44 Project permissions
@@ -599,7 +599,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M4
 - **Threat:** Project is now a first-class entity; without its own actions, Project creation and deletion would borrow Deployment permissions or have none.
 - **Requirement:** Project create, read, update, and delete MUST be distinct actions in the Role matrix (SR-34). Developers and above may create, read, update, and delete Projects; viewers may read. Submitting a Deployment (SR-63) requires Deployment create permission and, when the submission creates the Project (SR-67), Project create permission as well.
-- **Source:** Spec, "Applications: `projects`"; the old matrix has no Project action.
+- **Source:** #915 and #920: Project becomes a first-class entity; the old matrix has no Project action.
 - **Old tests:** none (new behavior).
 
 ### SR-45 An Invitation is bound to a GitHub user ID
@@ -608,7 +608,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M2
 - **Threat:** An Invitation addressed to a GitHub login can be captured by whoever later owns that login (renamed, deleted, or transferred), or by anyone who obtains the email it was announced in.
 - **Requirement:** Creating an Invitation MUST resolve the given GitHub login to its numeric GitHub user ID through GitHub at creation time, and the Invitation MUST be stored and matched on that ID. A login that does not resolve MUST be refused. The Invitation MUST be fulfilled only when the identity with that numeric ID signs in; no token in an email, no email address, and no login name may substitute for it. The invitation email, when sent, MUST carry no credential and MUST only point at the sign-in page.
-- **Source:** Spec, "Cross-cutting decisions: Invitations address a GitHub login, resolved to the numeric GitHub user ID when created".
+- **Source:** #915 and #918: Invitations address a GitHub login, resolved to the numeric GitHub user ID when created.
 - **Old tests:** none (new behavior).
 
 ### SR-46 Invitation lifecycle
@@ -617,7 +617,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M2
 - **Threat:** Stale, reused, or half-applied Invitations grant access that nobody intended; failures after partial work leave orphaned state.
 - **Requirement:** An Invitation MUST carry the Role it grants (bounded by SR-43) and an expiry. It MUST be fulfilled at most once, atomically with the creation of the Member. A revoked, expired, or already-fulfilled Invitation MUST grant nothing. Fulfillment MUST NOT restore a Member who was removed after the Invitation was issued. Fulfillment MUST be idempotent under concurrent sign-ins, and a failure to deliver the invitation email MUST NOT leave the Organization in a half-created state.
-- **Source:** Spec, glossary entry "Invitation". Carries the intent of the old provisioning tests: `auth/tests/integration/test_provisioning.rs::test_ensure_personal_organization_is_idempotent`, `::test_ensure_personal_organization_does_not_restore_revoked_membership`, `::test_ensure_personal_organization_is_concurrency_safe`; and of #795 (roll back on email failure).
+- **Source:** #915 and #918: definition of Invitation. Carries the intent of the old provisioning tests: `auth/tests/integration/test_provisioning.rs::test_ensure_personal_organization_is_idempotent`, `::test_ensure_personal_organization_does_not_restore_revoked_membership`, `::test_ensure_personal_organization_is_concurrency_safe`; and of #795 (roll back on email failure).
 - **Old tests:** the three provisioning tests above are the models for the rebuilt acceptance tests.
 
 ### SR-47 Staff authority and Organization data
@@ -626,8 +626,8 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M2
 - **Threat:** Staff reaches every Organization through the admin site; if the product APIs also treat Staff as an implicit owner of every Organization, a compromised Staff session reads every tenant's logs and credentials.
 - **Requirement (floor):** Staff status MUST NOT by itself grant access through Dashboard, CLI, or realtime APIs; access to an Organization's data through those APIs follows Membership and Role only.
-- **Question:** The spec keeps the reinhardt admin registrations for every model, which gives Staff read and write access to all rows. Is that intentional for production, or should admin access to Organization-owned data and credential-bearing models (API Keys, Cluster credentials, stored provider tokens) be read-only or hidden? How are Staff actions audited?
-- **Source:** Spec, "Applications" (staff-only admin registrations); old `is_staff` handling in #248.
+- **Question:** The rebuild plan (#915) keeps the reinhardt admin registrations for every model, which gives Staff read and write access to all rows. Is that intentional for production, or should admin access to Organization-owned data and credential-bearing models (API Keys, Cluster credentials, stored provider tokens) be read-only or hidden? How are Staff actions audited?
+- **Source:** #915: staff-only admin registrations are kept for every model; old `is_staff` handling in #248.
 - **Old tests:** `gap`.
 
 ## Agent Gateway and Clusters
@@ -638,7 +638,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M3
 - **Threat:** A database read or a screen share yields the credential that lets anyone impersonate a Cluster's Agent and receive its commands.
 - **Requirement:** Registering a Cluster MUST create exactly one OAuth client for it. The client secret MUST be generated from a cryptographically secure source with at least 256 bits, shown to the registering Member once, and stored only as a one-way hash. The client secret MUST NOT appear in listings, logs, audit records, or error messages. Registering a Cluster requires the Cluster create permission (SR-34), and the secret is visible only to the Member who performed the registration or rotation.
-- **Source:** Spec, "Changed on purpose: Agent authentication". The old equivalent returned the token once and stored an Argon2 hash (#409).
+- **Source:** #915 and #919: Agent authentication moves to OAuth `client_credentials`. The old equivalent returned the token once and stored an Argon2 hash (#409).
 - **Old tests:** `clusters/services/token_issuance.rs::test_agent_token_service_issued_token_contains_cluster_id_claim` covered issuance only. Display-once and hash-at-rest: `gap`.
 
 ### SR-49 Agent access tokens are short-lived
@@ -647,7 +647,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M3
 - **Threat:** A stolen Agent credential used for 30 days (the old lifetime) gives an attacker a month of command access.
 - **Requirement:** An Agent MUST obtain access tokens through the OAuth 2.0 `client_credentials` grant. An access token MUST be valid for at most one hour and MUST identify exactly one Cluster. The Agent Gateway MUST reject an expired token, including on an already established stream once the stream next needs authorization (SR-51 states the bound). No access token may be issued without presenting a current client secret.
-- **Source:** Spec, "Changed on purpose: Agent authentication" (one-hour tokens).
+- **Source:** #915 and #919: Agents fetch one-hour tokens through OAuth `client_credentials`.
 - **Old tests:** none (new behavior). The old lifetime was `AGENT_TOKEN_EXPIRY_HOURS = 24 * 30`.
 
 ### SR-50 Revocation and rotation take effect through the OAuth store
@@ -656,7 +656,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M3
 - **Threat:** A rotated or revoked Cluster credential keeps working. The old Control Plane shipped exactly this defect: rotation stored a new hash but the gRPC verifier was stateless, so rotated tokens stayed valid until expiry (#757).
 - **Requirement:** Rotating a Cluster's client secret MUST invalidate the previous secret immediately. Deactivating or deleting a Cluster MUST revoke its client and every outstanding access token. Revocation state MUST be consulted on token issuance and on every Agent Gateway authorization; it MUST NOT rely on expiry alone. A rotation or revocation MUST be recorded with the Member who performed it.
-- **Source:** Spec, "Changed on purpose: Agent authentication" ("revocation and secret rotation use the OAuth store"); lesson of #757 (d99202832).
+- **Source:** #915 and #919: revocation and secret rotation use the OAuth store; lesson of #757 (d99202832).
 - **Old tests:** none for the OAuth store (new behavior). The old stateful check is covered by SR-52.
 
 ### SR-51 Revocation latency is bounded
@@ -665,8 +665,8 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M3
 - **Threat:** Between revocation and the next authorization, a revoked Agent keeps its stream and its pending commands.
 - **Requirement (floor):** A revoked Cluster MUST be unable to open a new stream or obtain a new token immediately, and MUST lose any established stream within the bound chosen below.
-- **Question:** What is the maximum time a revoked Agent may keep an established stream? The spec fixes one-hour access tokens but a stream is long-lived. Options: close streams when the Cluster is revoked (immediate); re-check revocation on every command delivery; or accept up to one hour. The old design checked persisted state on every call, which was immediate.
-- **Source:** #757; spec, "Agent authentication".
+- **Question:** What is the maximum time a revoked Agent may keep an established stream? The rebuild plan (#915) fixes one-hour access tokens but a stream is long-lived. Options: close streams when the Cluster is revoked (immediate); re-check revocation on every command delivery; or accept up to one hour. The old design checked persisted state on every call, which was immediate.
+- **Source:** #757; #915 and #919: Agent authentication.
 - **Old tests:** `gap` for the new design.
 
 ### SR-52 Stateful credential revocation for the old per-Cluster JWT
@@ -711,7 +711,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Milestone:** M3
 - **Threat:** The token endpoint is reachable over the same port as the Dashboard and accepts a secret; guessing or credential stuffing against it, and distinguishing "unknown client" from "wrong secret", reveal which Clusters exist.
 - **Requirement:** Failed client authentication MUST return one uniform error that does not reveal whether the client exists, MUST be rate-limited per client and per source, and MUST be recorded. The endpoint MUST accept the client secret only in the request body or an `Authorization` header, never in a URL, and MUST be reachable only over TLS in deployed profiles.
-- **Source:** Spec, "Agent network reach" (HTTP token endpoint on 8000).
+- **Source:** #915 and #919: Agents reach the Control Plane through an HTTP token endpoint (port 8000) in addition to gRPC.
 - **Old tests:** none (new behavior).
 
 ### SR-57 Exposure of the Agent Gateway listener and its unauthenticated surface
@@ -756,16 +756,16 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 
 - **Status:** `new`
 - **Milestone:** M3
-- **Threat:** The spec stores commands in a database outbox so they survive disconnects. Without scoping, a queued command is delivered to the wrong Agent, or a revoked Agent drains commands queued before revocation.
+- **Threat:** The rebuild stores commands in a database outbox so they survive disconnects. Without scoping, a queued command is delivered to the wrong Agent, or a revoked Agent drains commands queued before revocation.
 - **Requirement:** Each outbox entry MUST belong to exactly one Cluster and be delivered only on a stream authenticated for that Cluster (SR-55). Revoking or deleting a Cluster MUST stop delivery of its pending entries. Entries MUST NOT contain credentials beyond what the Project apply needs, and delivered Secrets MUST be removed from the outbox once acknowledged. An entry MUST NOT be redelivered after acknowledgment. Any replica may enqueue, but only the replica holding the Agent's stream may deliver.
-- **Source:** Spec, "Cross-cutting decisions: Agent commands are written to a Postgres outbox".
+- **Source:** #915 and #919: Agent commands are written to a database outbox.
 - **Old tests:** none (new behavior).
 
 ### SR-62 Mock build and unserved plugin gRPC services
 
 - **Status:** `obsolete`
 - **Milestone:** M3
-- **Reason:** The mock `BuildService` and the unserved `PluginService` descriptors are dropped (spec, "Dropped from the old implementation"). No listener serves them, so nothing remains to authenticate.
+- **Reason:** The mock `BuildService` and the unserved `PluginService` descriptors are dropped (dropped by the rebuild decision in #915). No listener serves them, so nothing remains to authenticate.
 - **Threat (historic):** Build control APIs reachable from the network without credentials (#810).
 - **Source:** #810.
 - **Old tests (to be removed with the code):** `tests/integration/tests/build_grpc_integration.rs` and the build-service unit tests; the authentication assertions for non-build services carry over to SR-54.
@@ -816,7 +816,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Milestone:** M4
 - **Threat:** The preserved contract creates a Project with a manual source when `project_name` is unknown. If the name lookup is not scoped to the Organization, a submission can attach to, overwrite, or reveal the existence of another Organization's Project of the same name.
 - **Requirement:** A submission MUST resolve `project_name` within the Organization that owns the target Cluster. If no such Project exists there, the Control Plane MUST create one with a manual source in that Organization, which requires the Project create permission (SR-44). If the Project exists in another Organization, the submission MUST NOT touch it and MUST NOT reveal that it exists.
-- **Source:** Spec, "Preserved unchanged".
+- **Source:** #915 and #920: the CLI contract is preserved, including creating a Project with a manual source when `project_name` is unknown.
 - **Old tests:** none (new behavior).
 
 ### SR-68 A Deployment's content never changes after submission
@@ -825,7 +825,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Milestone:** M4
 - **Threat:** If the manifest or image of a recorded Deployment can be edited, the audit trail no longer shows what was applied and a rollback restores something else.
 - **Requirement:** The manifest, image, target Cluster, submitter, and submission time of a Deployment MUST be immutable after submission; only its status may advance. Staff edits through the admin site MUST NOT bypass this (SR-47).
-- **Source:** Spec, glossary entry "Deployment".
+- **Source:** #915 and #920: definition of Deployment.
 - **Old tests:** none (new behavior). The old API allowed updating a Deployment's configuration (`DeploymentUpdate`).
 
 ### SR-69 The CLI stores credentials in owner-only files
@@ -1087,7 +1087,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Requirement:** The Control Plane image MUST select the hardened (production) profile by default. Settings files bundled in an image MUST contain only placeholders that resolve from the environment at startup, never credential values; local, CI, and test profiles MUST NOT ship in the runtime image. Images generated by the CLI for other Projects MUST NOT copy the Project's settings directory.
 - **Source:** #834 (51e2bb1f5), #763 (350430feb).
 - **Old tests:** `crates/reinhardt-cloud-cli/src/dockerfile_generator/stages.rs::runtime_stage_defaults_to_production_settings`, `::runtime_stage_omits_settings_when_dir_present`, `::runtime_stage_omits_settings_when_dir_absent`, `::runtime_stage_copies_manage_binary`, `crates/reinhardt-cloud-cli/src/dockerfile_generator.rs::snapshot_pages_with_settings`.
-- **Note for M0 reviewers:** the spec preserves `settings/` and `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` in the Control Plane image layout, while the generic generator deliberately omits both for other Projects. The Control Plane image bundles its own placeholder-only settings; the generator behavior stays as it is.
+- **Note for M0 reviewers:** the rebuild plan (#915) preserves `settings/` and `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` in the Control Plane image layout, while the generic generator deliberately omits both for other Projects. The Control Plane image bundles its own placeholder-only settings; the generator behavior stays as it is.
 
 ### SR-97 Inputs to Control Plane deployment workflows are validated before use
 
@@ -1160,7 +1160,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Milestone:** M2
 - **Threat:** SMTP credentials or Invitation emails sent over plaintext; emails that act as credentials.
 - **Requirement:** Outbound email MUST use implicit TLS to the configured provider (Cloudflare Email Service in deployed profiles, a local mail catcher in development), with credentials supplied through SR-101. All sending MUST go through one backend interface so the provider can be swapped without changing callers. Email content MUST NOT contain a token that grants access (SR-45), and failure to send MUST NOT be reported to the recipient or caller with provider detail (SR-14).
-- **Source:** Spec, "Cross-cutting decisions: Outbound email".
+- **Source:** #915 and #918: outbound email uses the built-in SMTP backend with a swappable provider.
 - **Old tests:** `auth/services/email.rs::test_email_service_uses_configured_from_email`, `::test_email_service_factory_honors_console_backend` cover configuration only. Transport security: none (new behavior).
 
 ## Appendix A: Sources mined
