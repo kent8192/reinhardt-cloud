@@ -143,10 +143,10 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-66 | Error responses carry user-facing messages only | `carried` | M4 |
 | SR-67 | An unknown Project name creates a Project in the caller's Organization only | `new` | M4 |
 | SR-68 | A Deployment's content never changes after submission | `new` | M4 |
-| SR-69 | The CLI stores credentials in owner-only files | `carried (code unchanged)` | M7 (re-verify) |
-| SR-70 | A stored CLI token is sent only to the API it was issued for | `carried (code unchanged)` | M7 (re-verify) |
-| SR-71 | The CLI accepts secrets from files, not command-line arguments | `carried (code unchanged)` | M7 (re-verify) |
-| SR-72 | The CLI executes no project-controlled code and validates what it renders | `carried (code unchanged)` | M7 (re-verify) |
+| SR-69 | The CLI stores credentials in owner-only files | `carried (code unchanged)` | M4 (re-verify) |
+| SR-70 | A stored CLI token is sent only to the API it was issued for | `carried (code unchanged)` | M4 (re-verify) |
+| SR-71 | The CLI accepts secrets from files, not command-line arguments | `carried (code unchanged)` | M4 (re-verify) |
+| SR-72 | The CLI executes no project-controlled code and validates what it renders | `carried (code unchanged)` | M4 (re-verify) |
 | SR-73 | Log reads require the logs-read permission in the owning Organization | `carried` | M5 |
 | SR-74 | Log queries are always scoped to one authorized Deployment and its tenant namespace | `carried` | M5 |
 | SR-75 | User-supplied filter text cannot alter the log query | `carried` | M5 |
