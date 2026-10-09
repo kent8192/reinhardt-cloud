@@ -144,6 +144,8 @@ mod tests {
 	use rstest::rstest;
 	use serial_test::serial;
 
+	use reinhardt::conf::settings::builder::BuildError;
+
 	use crate::config::settings::{get_settings, resolve_settings_dir};
 
 	/// Process environment variables the committed settings require.
@@ -184,7 +186,8 @@ mod tests {
 
 	impl Drop for EnvGuard {
 		fn drop(&mut self) {
-			for (name, old) in self.previous.drain(..) {
+			// Reverse order: a variable applied twice must end at its original value.
+			for (name, old) in self.previous.drain(..).rev() {
 				// SAFETY: see `EnvGuard::apply`.
 				unsafe {
 					match old {
@@ -252,21 +255,38 @@ mod tests {
 		let _env = EnvGuard::apply(&vars);
 
 		// Act
-		let result = get_settings().and_then(|pending| {
-			pending
-				.resolve()
-				.map(|_| ())
-				.map_err(|error| reinhardt::conf::settings::builder::BuildError::from(error))
-		});
+		let result = get_settings()
+			.and_then(|pending| pending.resolve().map(|_| ()).map_err(BuildError::from));
 
 		// Assert
-		let message = result
-			.expect_err("a missing secret key must fail")
-			.to_string();
+		let error = result.expect_err("a missing secret key must fail");
 		assert!(
-			message.contains("REINHARDT_CORE__SECRET_KEY"),
-			"error should name the missing variable: {message}"
+			matches!(error, BuildError::Source { .. }),
+			"expected a source error, got: {error}"
 		);
+		// `contains` instead of `assert_eq!`: the message embeds the absolute path of the
+		// checkout's `base.toml`, so only the variable name is stable across machines.
+		assert!(
+			error.to_string().contains("REINHARDT_CORE__SECRET_KEY"),
+			"error should name the missing variable: {error}"
+		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn env_guard_restores_the_original_value_of_a_variable_applied_twice() {
+		// Arrange
+		const NAME: &str = "REINHARDT_ENV_GUARD_TEST_VARIABLE";
+		let _outer = EnvGuard::apply(&[(NAME, Some("original"))]);
+
+		// Act
+		{
+			let _inner = EnvGuard::apply(&[(NAME, Some("first")), (NAME, Some("second"))]);
+			assert_eq!(env::var(NAME).as_deref(), Ok("second"));
+		}
+
+		// Assert
+		assert_eq!(env::var(NAME).as_deref(), Ok("original"));
 	}
 
 	#[rstest]
