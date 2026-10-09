@@ -1,0 +1,51 @@
+name: WASM Check
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'Runner label JSON. Use "\"ubuntu-latest\"" for GitHub-hosted or "[\"self-hosted\",\"linux\",\"arm64\",\"reinhardt-cloud-ci\"]" for self-hosted.'
+        type: string
+        default: '"ubuntu-latest"'
+      cargo-build-jobs:
+        description: "Parallel cargo build jobs (1=GitHub-hosted OOM safe, 8=self-hosted)"
+        type: string
+        default: "1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_TARGET_DIR: /tmp/cargo_target
+  CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: ${{ inputs.cargo-build-jobs || '1' }}
+
+jobs:
+  wasm-check:
+    name: Control Plane WASM Check
+    runs-on: ${{ fromJSON(inputs.runner || '"ubuntu-latest"') }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          # Separate cache entry: the wasm32 build graph shares nothing with the native jobs.
+          cache-key: wasm32
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Run from the repository root so rustup resolves `rust-toolchain.toml` and
+      # adds the target to the pinned toolchain that cargo will actually use.
+      - name: Add wasm32-unknown-unknown target
+        run: rustup target add wasm32-unknown-unknown
+
+      # Compile-only gate: the client half of the Control Plane (the cdylib that
+      # `wasm_bindgen(start)` boots) must stay cfg-clean on wasm32.
+      - name: Check Control Plane library for wasm32
+        run: cargo check --locked -p reinhardt-cloud-dashboard --lib --target wasm32-unknown-unknown
