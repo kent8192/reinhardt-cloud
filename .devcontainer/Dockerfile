@@ -51,5 +51,5 @@ RUN cargo install wasm-bindgen-cli --locked --version 0.2.126
 
 # `reinhardt-admin` provides the `fmt-all` subcommand used by `cargo make fmt-check`.
 # Keep both tools aligned with the Reinhardt version pinned in Cargo.toml.
-RUN cargo install reinhardt-admin-cli --locked --version "=0.4.0-alpha.14"
-RUN cargo install reinhardt-formatter --locked --version "=0.4.0-alpha.14"
+RUN cargo install reinhardt-admin-cli --locked --version "=0.4.0-alpha.20"
+RUN cargo install reinhardt-formatter --locked --version "=0.4.0-alpha.20"
