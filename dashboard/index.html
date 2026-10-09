@@ -5,31 +5,39 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>cloud_control_plane - Reinhardt Pages</title>
+	<title>Reinhardt Cloud</title>
 	<link rel="stylesheet" href='{{ static_url("__reinhardt__/components.css") }}'>
-	<link
-		href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
-		rel="stylesheet"
-		integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
-		crossorigin="anonymous">
 	<style>
-		body {
-			background-color: #f8f9fa;
-		}
 		.loading {
 			display: flex;
 			justify-content: center;
 			align-items: center;
 			height: 100vh;
 		}
+		.spinner {
+			width: 2rem;
+			height: 2rem;
+			border: 0.25rem solid #d0d7de;
+			border-top-color: #4b5563;
+			border-radius: 50%;
+			animation: spin 0.8s linear infinite;
+		}
+		@keyframes spin {
+			to {
+				transform: rotate(360deg);
+			}
+		}
+		@media (prefers-reduced-motion: reduce) {
+			.spinner {
+				animation-duration: 4s;
+			}
+		}
 	</style>
 </head>
 <body>
 	<div id="root">
 		<div class="loading">
-			<div class="spinner-border text-primary" role="status">
-				<span class="visually-hidden">Loading...</span>
-			</div>
+			<div class="spinner" role="status" aria-label="Loading"></div>
 		</div>
 	</div>
 </body>
