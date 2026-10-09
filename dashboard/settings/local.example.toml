@@ -4,8 +4,13 @@
 # local development. Keep real secrets out of this file: export
 # REINHARDT_CORE__SECRET_KEY and REINHARDT_DATABASE_PASSWORD in your shell
 # instead, and point REINHARDT_DATABASE_HOST/PORT at your local PostgreSQL.
-# REINHARDT_CLOUD_REDIS_URL defaults to a local Redis; export it to override.
+# The Redis URL below has no credentials; a local Redis needs none.
 
 [core]
 debug = true
 allowed_hosts = ["localhost", "127.0.0.1"]
+
+# The dev container reaches Redis by its service name (`RC_REDIS_HOST=redis`);
+# host-native development falls back to localhost.
+[redis]
+url = "redis://${RC_REDIS_HOST:-localhost}:6379/0"
