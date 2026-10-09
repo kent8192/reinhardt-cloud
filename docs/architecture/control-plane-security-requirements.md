@@ -79,7 +79,8 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-02 | A User is identified by the numeric GitHub user ID | `new` | M1 |
 | SR-03 | One GitHub identity maps to exactly one User | `carried` | M1 |
 | SR-04 | Sign-in flow state is single-use, expiring, provider-bound, and browser-bound | `carried` | M1 |
-| SR-05 | Sign-in never attaches an identity to a session it did not start | `needs decision` | M1 |
+| SR-05 | Account linking and unlinking | `obsolete` | M1 |
+| SR-107 | Moving a User to another GitHub account is a Staff operation, restricted to the host and audited | `new` | M1 |
 | SR-06 | Provider access tokens are encrypted at rest | `carried` | M1 |
 | SR-07 | Sessions are revalidated against the current User | `carried` | M1 |
 | SR-08 | Session cookies are hardened, bounded in lifetime, and destroyed on sign-out | `carried` | M1 |
@@ -220,15 +221,24 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Source:** #788, #816, #839, fae332194; 6602fee86 (inside #879).
 - **Old tests:** `auth/tests/unit/test_oauth_callback_security.rs::callback_rejects_swapped_binding_and_consumes_state`, `auth/tests/unit/test_oauth_callback_security.rs::callback_rejects_provider_swap_and_expired_state`, `auth/tests/unit/test_oauth_state_cookie.rs::oauth_binding_preserves_browser_and_session_boundaries`, `auth/tests/unit/test_oauth_state_cookie.rs::oauth_state_cookie_is_http_only_short_lived_and_contains_only_the_nonce`, `auth/tests/unit/test_oauth_state_cookie.rs::expired_oauth_cookie_clears_the_matching_path`, `auth/tests/integration/test_oauth_storage.rs::contextual_oauth_state_is_shared_and_consumed_once`.
 
-### SR-05 Sign-in never attaches an identity to a session it did not start
+### SR-05 Account linking and unlinking
 
-- **Status:** `needs decision`
+- **Status:** `obsolete`
 - **Milestone:** M1
-- **Threat:** If a callback can attach a GitHub identity to whichever User happens to hold a session in the browser ("ambient" linking), an attacker can bind their identity to a victim's User, or take over a victim's User by luring them through the attacker's callback.
-- **Requirement (conditional):** If any flow exists that attaches an additional or replacement GitHub identity to an existing User, it MUST be initiated from an authenticated session, its ownership MUST be kept on the server side (not in the browser), and it MUST fail if the session ends, rotates, or changes User before the callback completes. The target User MUST be active. Such a flow MUST NOT exist as a side effect of ordinary sign-in.
-- **Question:** SR-02 and SR-03 make the GitHub identity the User. Is there still any link or unlink flow (for example moving a User to a new GitHub account)? If not, this record becomes `obsolete` and the invariant is covered by SR-03. If yes, the requirement above applies unchanged.
+- **Reason:** No account-linking flow exists (#915, #917). A User is the GitHub identity (SR-02, SR-03), so there is nothing to link, and sign-in has no side effect on the User of any existing session. The only way to move a User to another GitHub account is a Staff operation through host operator access, which is audited (SR-107).
+- **Threat (historic):** If a callback can attach a GitHub identity to whichever User holds a session in the browser ("ambient" linking), an attacker can bind their identity to a victim's User or take the victim's User over.
 - **Source:** #769 (duplicate #770), 2412efa6b and 7aad3f8df (inside #879).
-- **Old tests:** `auth/tests/unit/test_oauth_state_cookie.rs::account_link_ownership_requires_matching_server_context_and_active_session_user`, `auth/tests/integration/test_oauth_linking.rs::test_authenticated_link_attaches_to_current_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_rejects_provider_owned_by_another_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_leaves_no_provider_link_for_revoked_membership`.
+- **Old tests (to be removed with the code):** `auth/tests/unit/test_oauth_state_cookie.rs::account_link_ownership_requires_matching_server_context_and_active_session_user`, `auth/tests/integration/test_oauth_linking.rs::test_authenticated_link_attaches_to_current_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_rejects_provider_owned_by_another_user`, `auth/tests/integration/test_oauth_linking.rs::test_target_only_link_leaves_no_provider_link_for_revoked_membership`.
+- **Carry-over:** The browser binding of the sign-in attempt (SR-04) and the one-identity-per-User invariant (SR-03) cover what remains of these tests' intent.
+
+### SR-107 Moving a User to another GitHub account is a Staff operation, restricted to the host and audited
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** A User who loses their GitHub account, or a request to re-point a User at a different GitHub account, is an account-takeover vector if it can be performed through any network path or without a trace.
+- **Requirement:** Re-pointing an existing User at a different numeric GitHub user ID MUST be possible only through the host-level management command, and MUST NOT be reachable through any HTTP, WebSocket, or gRPC endpoint, by any User including Staff acting in the Dashboard. The operation MUST keep the User's Memberships and Roles, MUST end every session and revoke every CLI Session of that User, MUST refuse a target ID that already belongs to another User (SR-03), and MUST emit a structured audit event that names the operator-supplied identifiers and omits secrets.
+- **Source:** #915 and #917: no account-linking flow exists; moving a User to another GitHub account is a Staff operation through `manage`.
+- **Old tests:** none (new behavior).
 
 ### SR-06 Provider access tokens are encrypted at rest
 
