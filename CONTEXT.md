@@ -36,9 +36,9 @@ _Avoid_: invite (as a noun), request
 A User trusted to operate the Control Plane itself, across all Organizations.
 _Avoid_: admin (which is an Organization role), operator, superuser (in prose)
 
-**API Key**:
-A long-lived credential a User issues for the CLI or CI to act on their behalf.
-_Avoid_: token, personal access token, PAT
+**CLI Session**:
+A short-lived grant, approved by a User in the browser, that lets the CLI act for that User within one Organization.
+_Avoid_: API key, token, personal access token, PAT, CLI login
 
 **Login Link**:
 A single-use, short-lived sign-in URL that only someone with operator access to the Control Plane's host can issue, used for automation and break-glass access.
