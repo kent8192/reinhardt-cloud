@@ -1,7 +1,6 @@
 //! Tests of settings loading and validation.
 
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,90 +9,8 @@ use serial_test::serial;
 
 use reinhardt::conf::settings::builder::BuildError;
 
+use crate::config::settings::test_support::{EnvGuard, TempDir, required_env};
 use crate::config::settings::{get_settings, resolve_settings_dir};
-
-/// Process environment variables the committed settings require.
-const REQUIRED_ENV: [(&str, &str); 3] = [
-	(
-		"REINHARDT_CORE__SECRET_KEY",
-		"test-only-secret-key-not-for-deployment",
-	),
-	("REINHARDT_DATABASE_PASSWORD", "test-only-database-password"),
-	(
-		"REINHARDT_CLOUD_REDIS_URL",
-		"redis://:test-redis-password@redis.test:6379/0",
-	),
-];
-
-/// Restores the previous value of every variable it overrides when dropped.
-struct EnvGuard {
-	previous: Vec<(&'static str, Option<OsString>)>,
-}
-
-impl EnvGuard {
-	/// Set or unset (`None`) each variable, remembering the prior values.
-	fn apply(vars: &[(&'static str, Option<&str>)]) -> Self {
-		let previous = vars
-			.iter()
-			.map(|(name, value)| {
-				let old = env::var_os(name);
-				// SAFETY: callers are marked `#[serial(env_settings_load)]`, so no
-				// other test reads or writes the process environment concurrently.
-				unsafe {
-					match value {
-						Some(value) => env::set_var(name, value),
-						None => env::remove_var(name),
-					}
-				}
-				(*name, old)
-			})
-			.collect();
-		Self { previous }
-	}
-}
-
-impl Drop for EnvGuard {
-	fn drop(&mut self) {
-		// Reverse order: a variable applied twice must end at its original value.
-		for (name, old) in self.previous.drain(..).rev() {
-			// SAFETY: see `EnvGuard::apply`.
-			unsafe {
-				match old {
-					Some(value) => env::set_var(name, value),
-					None => env::remove_var(name),
-				}
-			}
-		}
-	}
-}
-
-/// Temporary directory removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-	fn new(label: &str) -> Self {
-		let path = env::temp_dir().join(format!("{label}-{}", std::process::id()));
-		fs::create_dir_all(&path).expect("temp dir should be created");
-		Self(path)
-	}
-
-	fn path(&self) -> &Path {
-		&self.0
-	}
-}
-
-impl Drop for TempDir {
-	fn drop(&mut self) {
-		let _ = fs::remove_dir_all(&self.0);
-	}
-}
-
-fn required_env(profile: &'static str) -> Vec<(&'static str, Option<&'static str>)> {
-	let mut vars: Vec<_> = REQUIRED_ENV.iter().map(|(k, v)| (*k, Some(*v))).collect();
-	vars.push(("REINHARDT_ENV", Some(profile)));
-	vars.push(("REINHARDT_CLOUD_CONFIG_DIR", None));
-	vars
-}
 
 #[rstest]
 #[serial(env_settings_load)]
@@ -250,16 +167,12 @@ fn env_for(
 	profile: &'static str,
 	dir: &TempDir,
 	extra: &[(&'static str, Option<&str>)],
-) -> (EnvGuard, String) {
+) -> EnvGuard {
 	let path = dir.path().to_str().expect("temp path is UTF-8").to_owned();
 	let mut vars = required_env(profile);
-	vars.push(("REINHARDT_CLOUD_CONFIG_DIR", Some("")));
-	let mut guard_vars: Vec<(&'static str, Option<&str>)> = vars;
-	guard_vars.extend_from_slice(extra);
-	let guard = EnvGuard::apply(&guard_vars);
-	// SAFETY: callers are marked `#[serial(env_settings_load)]`.
-	unsafe { env::set_var("REINHARDT_CLOUD_CONFIG_DIR", &path) };
-	(guard, path)
+	vars.push(("REINHARDT_CLOUD_CONFIG_DIR", Some(&path)));
+	vars.extend_from_slice(extra);
+	EnvGuard::apply(&vars)
 }
 
 fn load_error(
@@ -267,7 +180,7 @@ fn load_error(
 	dir: &TempDir,
 	extra: &[(&'static str, Option<&str>)],
 ) -> String {
-	let (_env, _path) = env_for(profile, dir, extra);
+	let _env = env_for(profile, dir, extra);
 	match get_settings() {
 		Ok(_) => panic!("settings for `{profile}` should have been rejected"),
 		Err(error) => error.to_string(),
@@ -283,7 +196,7 @@ fn sr_99_deployed_profiles_are_self_contained_without_a_local_profile(
 ) {
 	// Arrange
 	let dir = isolated_settings("sr99-self-contained", &["base", profile]);
-	let (_env, _path) = env_for(profile, &dir, &[]);
+	let _env = env_for(profile, &dir, &[]);
 
 	// Act
 	let settings = get_settings()
@@ -314,6 +227,8 @@ fn sr_99_deployed_profile_fails_fast_when_a_required_secret_is_missing(
 	let message = load_error("production", &dir, &[(variable, None)]);
 
 	// Assert
+	// `contains`: the message also embeds the path of the checkout's
+	// `base.toml`, so only the variable name is stable across machines.
 	assert!(
 		message.contains(variable),
 		"the error should name the missing variable `{variable}`: {message}"
@@ -336,9 +251,9 @@ fn sr_99_empty_secret_is_rejected_and_named_without_its_value(
 	let message = load_error("production", &dir, &[(variable, Some("   "))]);
 
 	// Assert
-	assert!(
-		message.contains(&format!("required secret `{setting}` is empty")),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		format!("Validation error: required secret `{setting}` is empty")
 	);
 }
 
@@ -371,11 +286,11 @@ fn sr_99_unexpanded_placeholder_is_never_used_as_a_secret(
 	let message = load_error("production", &dir, &[(variable, Some(placeholder))]);
 
 	// Assert
-	assert!(
-		message.contains(&format!(
-			"required secret `{setting}` still holds an unexpanded placeholder"
-		)),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		format!(
+			"Validation error: required secret `{setting}` still holds an unexpanded placeholder"
+		)
 	);
 	assert!(
 		!message.contains(placeholder),
@@ -388,7 +303,7 @@ fn sr_99_unexpanded_placeholder_is_never_used_as_a_secret(
 fn sr_99_numeric_setting_cannot_carry_a_placeholder_through_to_use() {
 	// Arrange
 	let dir = isolated_settings("sr99-numeric", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[(
@@ -424,9 +339,9 @@ fn sr_99_deployed_profile_rejects_a_short_secret_key() {
 	);
 
 	// Assert
-	assert!(
-		message.contains("core.secret_key must be at least 32 bytes"),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		"Validation error: profile is not hardened: core.secret_key must be at least 32 bytes"
 	);
 }
 
@@ -447,9 +362,9 @@ fn sr_06_malformed_token_encryption_key_stops_startup() {
 	);
 
 	// Assert
-	assert!(
-		message.contains("token encryption key must be base64 of exactly 32 bytes"),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		"Validation error: accounts.token_encryption_*: token encryption key must be base64 of exactly 32 bytes"
 	);
 }
 
@@ -470,11 +385,9 @@ fn sr_06_token_key_placeholder_is_rejected() {
 	);
 
 	// Assert
-	assert!(
-		message.contains(
-			"required secret `accounts.token_encryption_key` still holds an unexpanded placeholder"
-		),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		"Validation error: required secret `accounts.token_encryption_key` still holds an unexpanded placeholder"
 	);
 }
 
@@ -483,7 +396,7 @@ fn sr_06_token_key_placeholder_is_rejected() {
 fn sr_06_token_key_falls_back_to_a_key_derived_from_the_secret_key() {
 	// Arrange
 	let dir = isolated_settings("sr06-derived", &["base", "production"]);
-	let (_env, _path) = env_for("production", &dir, &[]);
+	let _env = env_for("production", &dir, &[]);
 
 	// Act
 	let settings = get_settings().unwrap().resolve().unwrap();
@@ -502,7 +415,7 @@ fn sr_06_token_key_falls_back_to_a_key_derived_from_the_secret_key() {
 fn sr_06_dedicated_token_key_from_the_environment_is_used() {
 	// Arrange
 	let dir = isolated_settings("sr06-dedicated", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[
@@ -531,7 +444,7 @@ fn sr_06_dedicated_token_key_from_the_environment_is_used() {
 fn sr_100_production_profile_is_hardened_by_default() {
 	// Arrange
 	let dir = isolated_settings("sr100-hardened", &["base", "production"]);
-	let (_env, _path) = env_for("production", &dir, &[]);
+	let _env = env_for("production", &dir, &[]);
 
 	// Act
 	let pending = get_settings().expect("production should load");
@@ -619,9 +532,9 @@ fn sr_100_an_unhardened_deployed_profile_refuses_to_start(
 	let message = load_error("staging", &dir, &[]);
 
 	// Assert
-	assert!(
-		message.contains(expected),
-		"expected `{expected}` in: {message}"
+	assert_eq!(
+		message,
+		format!("Validation error: profile is not hardened: {expected}")
 	);
 }
 
@@ -655,9 +568,9 @@ fn sr_100_production_refuses_to_start_in_debug_mode() {
 	let message = load_error("production", &dir, &[]);
 
 	// Assert
-	assert!(
-		message.contains("debug must be false"),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		"Validation error: Security error: debug must be false in production"
 	);
 }
 
@@ -666,7 +579,7 @@ fn sr_100_production_refuses_to_start_in_debug_mode() {
 fn sr_100_staging_profile_is_hardened_too() {
 	// Arrange
 	let dir = isolated_settings("sr100-staging", &["base", "staging"]);
-	let (_env, _path) = env_for("staging", &dir, &[]);
+	let _env = env_for("staging", &dir, &[]);
 
 	// Act
 	let settings = get_settings()
@@ -728,10 +641,10 @@ fn collect_literal_secrets(path: &str, value: &toml::Value, found: &mut Vec<Stri
 				let child_path = format!("{path}.{key}");
 				if let (true, toml::Value::String(text)) = (is_secret_key_name(key), child) {
 					// A reference (`${VAR...}`) or an empty value is allowed; a
-					// literal is not. Plain-URL settings such as `[static] url`
-					// are not secrets.
+					// literal is not. A URL without credentials (`[static] url`,
+					// a local Redis URL) is not a secret.
 					let is_reference = text.is_empty() || text.starts_with("${");
-					let is_public_url = key == "url" && !text.contains("://");
+					let is_public_url = key == "url" && !text.contains('@');
 					if !is_reference && !is_public_url {
 						found.push(child_path.clone());
 					}
@@ -790,7 +703,7 @@ fn sr_101_devcontainer_compose_file_holds_no_literal_password() {
 fn sr_101_operator_injected_environment_feeds_the_settings() {
 	// Arrange
 	let dir = isolated_settings("sr101-operator", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[
@@ -837,7 +750,7 @@ fn sr_101_operator_injected_environment_feeds_the_settings() {
 fn sr_102_settings_debug_output_redacts_secrets() {
 	// Arrange
 	let dir = isolated_settings("sr102-debug", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[(
@@ -877,7 +790,7 @@ fn sr_102_settings_debug_output_redacts_secrets() {
 fn sr_19_sign_up_policy_defaults_to_invite_only() {
 	// Arrange
 	let dir = isolated_settings("sr19-default", &["base", "production"]);
-	let (_env, _path) = env_for("production", &dir, &[]);
+	let _env = env_for("production", &dir, &[]);
 
 	// Act
 	let settings = get_settings().unwrap().resolve().unwrap();
@@ -895,7 +808,7 @@ fn sr_19_sign_up_policy_defaults_to_invite_only() {
 fn sr_19_sign_up_policy_is_read_from_the_environment() {
 	// Arrange
 	let dir = isolated_settings("sr19-env", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[
@@ -930,7 +843,7 @@ fn sr_19_sign_up_policy_is_read_from_the_environment() {
 fn sr_19_an_unrecognized_sign_up_policy_resolves_to_invite_only() {
 	// Arrange
 	let dir = isolated_settings("sr19-unknown", &["base", "production"]);
-	let (_env, _path) = env_for(
+	let _env = env_for(
 		"production",
 		&dir,
 		&[("REINHARDT_CLOUD_SIGN_UP_POLICY", Some("anybody-at-all"))],
@@ -964,8 +877,8 @@ fn sr_19_a_malformed_allowlist_entry_stops_startup() {
 	);
 
 	// Assert
-	assert!(
-		message.contains("is not a numeric GitHub ID"),
-		"unexpected error: {message}"
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.sign_up_allowed_*': sign-up allowlist entry \"my-org\" is not a numeric GitHub ID"
 	);
 }

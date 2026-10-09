@@ -51,8 +51,13 @@
 //!
 //! ## Startup validation
 //!
-//! [`get_settings`] validates the merged settings before returning them, so
-//! every entry point (the server, `manage`, tests) fails fast:
+//! [`get_settings`] and [`get_resolved_settings`] validate the merged settings
+//! before returning them. The container server entry
+//! (`crate::server::run`) loads its settings through [`get_resolved_settings`]
+//! and hands them to `runserver`, and the runtime `manage` commands load them
+//! through [`get_settings`], so both fail fast. Static `manage` commands that
+//! use [`get_scoped_settings`] (for example `collectstatic`) resolve only the
+//! settings they need and skip this validation by design. The checks are:
 //!
 //! - fragment validation for the active profile (`CoreSettings` requires a
 //!   secret key, and a hardened production profile);
@@ -66,6 +71,7 @@
 use reinhardt::conf::settings::PendingSettings;
 use reinhardt::conf::settings::builder::{BuildError, SettingsBuilder};
 use reinhardt::conf::settings::composed::ComposedSettings;
+use reinhardt::conf::settings::composed::ResolvedSettings;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::scoped::ScopedSettings;
 use reinhardt::conf::settings::secret_types::SecretString;
@@ -106,6 +112,11 @@ pub struct ProjectSettings;
 /// profile, stops the process with an error that names the offending setting
 /// (never its value).
 ///
+/// The caller still has to `resolve()` the returned value, because the
+/// `manage` capability provider consumes the pending form; code that needs the
+/// resolved settings itself should call [`get_resolved_settings`], which
+/// resolves once.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -120,15 +131,30 @@ pub struct ProjectSettings;
 /// validation fails.
 pub fn get_settings() -> Result<PendingSettings<ProjectSettings>, BuildError> {
 	let pending = settings_builder().build_pending_composed::<ProjectSettings>()?;
-	validate_pending(&pending)?;
+	resolve_validated(&pending)?;
 	Ok(pending)
+}
+
+/// Load, validate, and resolve the settings once.
+///
+/// Applies the same validation as [`get_settings`].
+///
+/// # Errors
+///
+/// Returns an error when a settings source cannot be loaded or parsed, or when
+/// validation fails.
+pub fn get_resolved_settings() -> Result<ResolvedSettings<ProjectSettings>, BuildError> {
+	let pending = settings_builder().build_pending_composed::<ProjectSettings>()?;
+	resolve_validated(&pending)
 }
 
 fn active_profile() -> Profile {
 	Profile::parse(&env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string()))
 }
 
-fn validate_pending(pending: &PendingSettings<ProjectSettings>) -> Result<(), BuildError> {
+fn resolve_validated(
+	pending: &PendingSettings<ProjectSettings>,
+) -> Result<ResolvedSettings<ProjectSettings>, BuildError> {
 	let resolved = pending.resolve()?;
 	let profile = active_profile();
 	resolved
@@ -142,7 +168,7 @@ fn validate_pending(pending: &PendingSettings<ProjectSettings>) -> Result<(), Bu
 			.map(|section| section.policy.origins)?;
 		validate_hardened_profile(resolved.settings(), &origins)?;
 	}
-	Ok(())
+	Ok(resolved)
 }
 
 /// The part of the `[ws_origin]` table the hardening check inspects.
@@ -322,13 +348,13 @@ fn settings_builder() -> SettingsBuilder {
 
 /// Return plain project settings for consumers whose evaluator type is `ProjectSettings`.
 pub fn get_shell_settings() -> ProjectSettings {
-	get_settings()
+	get_resolved_settings()
 		.expect("Failed to build settings")
-		.resolve()
-		.expect("Failed to resolve settings")
 		.into_parts()
 		.0
 }
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
