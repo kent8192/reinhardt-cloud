@@ -45,25 +45,77 @@
 //!
 //! Interpolated strings are typed-coerced at deserialization time, so
 //! `pool_size = "${DB_POOL_SIZE:-10}"` resolves directly to the field's
-//! declared Rust type (e.g. `u16`) without manual parsing.
+//! declared Rust type (e.g. `u16`) without manual parsing. A value that still
+//! holds an unexpanded placeholder cannot be coerced into a number or boolean,
+//! so such a setting fails to load instead of being used (SR-99).
+//!
+//! ## Startup validation
+//!
+//! [`get_settings`] and [`get_resolved_settings`] validate the merged settings
+//! before returning them. The container server entry
+//! (`crate::server::run`) loads its settings through [`get_resolved_settings`]
+//! and hands them to `runserver`, and the runtime `manage` commands load them
+//! through [`get_settings`], so both fail fast. Static `manage` commands that
+//! use [`get_scoped_settings`] (for example `collectstatic`) resolve only the
+//! settings they need and skip this validation by design. The checks are:
+//!
+//! - fragment validation for the active profile (`CoreSettings` requires a
+//!   secret key, and a hardened production profile);
+//! - required secrets (the application secret key, the database password, the
+//!   Redis URL, and any configured token encryption key) must be non-empty and
+//!   must not hold an unexpanded `${...}` or `$(...)` placeholder (SR-99);
+//! - the `staging` and `production` profiles must be hardened: debug off,
+//!   secure cookies, HTTPS redirect with HSTS, explicit allowed hosts, and no
+//!   wildcard or localhost hosts and origins (SR-100).
 
 use reinhardt::conf::settings::PendingSettings;
 use reinhardt::conf::settings::builder::{BuildError, SettingsBuilder};
+use reinhardt::conf::settings::composed::ComposedSettings;
+use reinhardt::conf::settings::composed::ResolvedSettings;
 use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::scoped::ScopedSettings;
+use reinhardt::conf::settings::secret_types::SecretString;
 use reinhardt::conf::settings::sources::{DefaultSource, HighPriorityEnvSource, TomlFileSource};
 use reinhardt::settings;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
 
+use crate::apps::accounts::server::settings::AccountsSettings;
+
+/// Connection settings of the Redis instance backing sessions and short-lived
+/// sign-in state.
+///
+/// The URL carries the Redis credentials (the operator composes it from
+/// `REINHARDT_CLOUD_REDIS_PASSWORD`), so it is a secret and redacts itself in
+/// `Debug` output.
+#[settings(fragment = true, section = "redis")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RedisSettings {
+	/// Redis URL, including credentials in deployed profiles. Required: a
+	/// profile that omits `[redis]` fails at startup.
+	#[setting(required)]
+	pub url: SecretString,
+}
+
 // Add fragments to extend settings: e.g. `#[settings(core: CoreSettings | cache: CacheSettings)]`
-#[settings(core: CoreSettings | contacts: ContactSettings | migrations: MigrationSettings)]
+#[settings(core: CoreSettings | contacts: ContactSettings | migrations: MigrationSettings | accounts: AccountsSettings | redis: RedisSettings)]
 pub struct ProjectSettings;
 
 /// Get settings based on environment variable
 ///
 /// Reads the REINHARDT_ENV environment variable to determine which settings to load.
 /// Defaults to "local" if not set.
+///
+/// Validation runs here, before the settings are handed out: a missing,
+/// empty, or placeholder secret, or an unhardened `staging`/`production`
+/// profile, stops the process with an error that names the offending setting
+/// (never its value).
+///
+/// The caller still has to `resolve()` the returned value, because the
+/// `manage` capability provider consumes the pending form; code that needs the
+/// resolved settings itself should call [`get_resolved_settings`], which
+/// resolves once.
 ///
 /// # Examples
 ///
@@ -75,9 +127,177 @@ pub struct ProjectSettings;
 ///
 /// # Errors
 ///
-/// Returns an error when a settings source cannot be loaded or parsed.
+/// Returns an error when a settings source cannot be loaded or parsed, or when
+/// validation fails.
 pub fn get_settings() -> Result<PendingSettings<ProjectSettings>, BuildError> {
-	settings_builder().build_pending_composed::<ProjectSettings>()
+	let pending = settings_builder().build_pending_composed::<ProjectSettings>()?;
+	resolve_validated(&pending)?;
+	Ok(pending)
+}
+
+/// Load, validate, and resolve the settings once.
+///
+/// Applies the same validation as [`get_settings`].
+///
+/// # Errors
+///
+/// Returns an error when a settings source cannot be loaded or parsed, or when
+/// validation fails.
+pub fn get_resolved_settings() -> Result<ResolvedSettings<ProjectSettings>, BuildError> {
+	let pending = settings_builder().build_pending_composed::<ProjectSettings>()?;
+	resolve_validated(&pending)
+}
+
+fn active_profile() -> Profile {
+	Profile::parse(&env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string()))
+}
+
+fn resolve_validated(
+	pending: &PendingSettings<ProjectSettings>,
+) -> Result<ResolvedSettings<ProjectSettings>, BuildError> {
+	let resolved = pending.resolve()?;
+	let profile = active_profile();
+	resolved
+		.settings()
+		.validate_fragments(&profile)
+		.map_err(|error| BuildError::Validation(error.to_string()))?;
+	validate_secrets(resolved.settings())?;
+	if matches!(profile, Profile::Staging | Profile::Production) {
+		let origins = pending
+			.deserialize_section::<WebSocketOriginSettings>("ws_origin")
+			.map(|section| section.policy.origins)?;
+		validate_hardened_profile(resolved.settings(), &origins)?;
+	}
+	Ok(resolved)
+}
+
+/// The part of the `[ws_origin]` table the hardening check inspects.
+#[derive(Deserialize)]
+struct WebSocketOriginSettings {
+	policy: WebSocketOriginPolicy,
+}
+
+#[derive(Deserialize)]
+struct WebSocketOriginPolicy {
+	#[serde(default)]
+	origins: Vec<String>,
+}
+
+/// The smallest `core.secret_key` accepted by the hardened profiles.
+const MIN_DEPLOYED_SECRET_KEY_LEN: usize = 32;
+
+/// Reject a secret that is empty or still holds a placeholder (SR-99).
+///
+/// The error names the setting, never the value.
+fn reject_unusable_secret(setting: &str, value: &str) -> Result<(), BuildError> {
+	if value.trim().is_empty() {
+		return Err(BuildError::Validation(format!(
+			"required secret `{setting}` is empty"
+		)));
+	}
+	if value.contains("${") || value.contains("$(") {
+		return Err(BuildError::Validation(format!(
+			"required secret `{setting}` still holds an unexpanded placeholder"
+		)));
+	}
+	Ok(())
+}
+
+fn validate_secrets(settings: &ProjectSettings) -> Result<(), BuildError> {
+	reject_unusable_secret("core.secret_key", &settings.core.secret_key)?;
+	for (name, database) in &settings.core.databases {
+		let password = database
+			.password
+			.as_ref()
+			.map_or("", SecretString::expose_secret);
+		reject_unusable_secret(&format!("core.databases.{name}.password"), password)?;
+	}
+	reject_unusable_secret("redis.url", settings.redis.url.expose_secret())?;
+	for (setting, secret) in [
+		(
+			"accounts.token_encryption_key",
+			settings.accounts.token_encryption_key.as_ref(),
+		),
+		(
+			"accounts.token_encryption_retired_keys",
+			settings.accounts.token_encryption_retired_keys.as_ref(),
+		),
+	] {
+		if let Some(secret) = secret.filter(|secret| !secret.is_empty()) {
+			reject_unusable_secret(setting, secret.expose_secret())?;
+		}
+	}
+	// Sign-in must not start without a usable provider-token key (SR-06).
+	settings
+		.accounts
+		.token_keyring(&settings.core.secret_key)
+		.map_err(|error| BuildError::Validation(format!("accounts.token_encryption_*: {error}")))?;
+	Ok(())
+}
+
+fn is_local_host(host: &str) -> bool {
+	let host = host
+		.trim_start_matches("http://")
+		.trim_start_matches("https://");
+	let host = host.split(['/', ':']).next().unwrap_or(host);
+	matches!(
+		host,
+		"localhost" | "127.0.0.1" | "::1" | "[::1]" | "0.0.0.0"
+	)
+}
+
+/// Enforce the production defaults on the `staging` and `production` profiles
+/// (SR-100).
+fn validate_hardened_profile(
+	settings: &ProjectSettings,
+	websocket_origins: &[String],
+) -> Result<(), BuildError> {
+	let core = &settings.core;
+	let security = &core.security;
+	let mut problems = Vec::new();
+	if core.debug {
+		problems.push("core.debug must be false");
+	}
+	if core.secret_key.len() < MIN_DEPLOYED_SECRET_KEY_LEN {
+		problems.push("core.secret_key must be at least 32 bytes");
+	}
+	if !security.session_cookie_secure {
+		problems.push("core.security.session_cookie_secure must be true");
+	}
+	if !security.csrf_cookie_secure {
+		problems.push("core.security.csrf_cookie_secure must be true");
+	}
+	if !security.secure_ssl_redirect {
+		problems.push("core.security.secure_ssl_redirect must be true");
+	}
+	if security.secure_hsts_seconds.unwrap_or(0) == 0 {
+		problems.push("core.security.secure_hsts_seconds must be greater than zero");
+	}
+	if core.allowed_hosts.is_empty() {
+		problems.push("core.allowed_hosts must list hosts explicitly");
+	}
+	if core
+		.allowed_hosts
+		.iter()
+		.any(|host| host.contains('*') || host.starts_with('.') || is_local_host(host))
+	{
+		problems.push("core.allowed_hosts must not contain wildcard or localhost entries");
+	}
+	if websocket_origins.iter().any(|origin| {
+		origin.contains('*') || is_local_host(origin) || !origin.starts_with("https://")
+	}) {
+		problems.push(
+			"ws_origin.policy.origins must be https origins without wildcard or localhost entries",
+		);
+	}
+	if problems.is_empty() {
+		Ok(())
+	} else {
+		Err(BuildError::Validation(format!(
+			"profile is not hardened: {}",
+			problems.join("; ")
+		)))
+	}
 }
 
 /// Merge settings without expanding unselected runtime secrets.
@@ -113,7 +333,8 @@ fn settings_builder() -> SettingsBuilder {
         .add_source(
             DefaultSource::new()
                 .with_value("core", serde_json::json!({ "base_dir": base_dir }))
-                .with_value("migrations", serde_json::json!({})),
+                .with_value("migrations", serde_json::json!({}))
+                .with_value("accounts", serde_json::json!({})),
         )
         // Medium priority: Base TOML file
         .add_source(TomlFileSource::new(settings_dir.join("base.toml")))
@@ -127,235 +348,13 @@ fn settings_builder() -> SettingsBuilder {
 
 /// Return plain project settings for consumers whose evaluator type is `ProjectSettings`.
 pub fn get_shell_settings() -> ProjectSettings {
-	get_settings()
+	get_resolved_settings()
 		.expect("Failed to build settings")
-		.resolve()
-		.expect("Failed to resolve settings")
 		.into_parts()
 		.0
 }
 
 #[cfg(test)]
-mod tests {
-	use std::env;
-	use std::ffi::OsString;
-	use std::fs;
-	use std::path::{Path, PathBuf};
-
-	use rstest::rstest;
-	use serial_test::serial;
-
-	use reinhardt::conf::settings::builder::BuildError;
-
-	use crate::config::settings::{get_settings, resolve_settings_dir};
-
-	/// Process environment variables the committed settings require.
-	const REQUIRED_ENV: [(&str, &str); 2] = [
-		(
-			"REINHARDT_CORE__SECRET_KEY",
-			"test-only-secret-key-not-for-deployment",
-		),
-		("REINHARDT_DATABASE_PASSWORD", "test-only-database-password"),
-	];
-
-	/// Restores the previous value of every variable it overrides when dropped.
-	struct EnvGuard {
-		previous: Vec<(&'static str, Option<OsString>)>,
-	}
-
-	impl EnvGuard {
-		/// Set or unset (`None`) each variable, remembering the prior values.
-		fn apply(vars: &[(&'static str, Option<&str>)]) -> Self {
-			let previous = vars
-				.iter()
-				.map(|(name, value)| {
-					let old = env::var_os(name);
-					// SAFETY: callers are marked `#[serial(env_settings_load)]`, so no
-					// other test reads or writes the process environment concurrently.
-					unsafe {
-						match value {
-							Some(value) => env::set_var(name, value),
-							None => env::remove_var(name),
-						}
-					}
-					(*name, old)
-				})
-				.collect();
-			Self { previous }
-		}
-	}
-
-	impl Drop for EnvGuard {
-		fn drop(&mut self) {
-			// Reverse order: a variable applied twice must end at its original value.
-			for (name, old) in self.previous.drain(..).rev() {
-				// SAFETY: see `EnvGuard::apply`.
-				unsafe {
-					match old {
-						Some(value) => env::set_var(name, value),
-						None => env::remove_var(name),
-					}
-				}
-			}
-		}
-	}
-
-	/// Temporary directory removed on drop.
-	struct TempDir(PathBuf);
-
-	impl TempDir {
-		fn new(label: &str) -> Self {
-			let path = env::temp_dir().join(format!("{label}-{}", std::process::id()));
-			fs::create_dir_all(&path).expect("temp dir should be created");
-			Self(path)
-		}
-
-		fn path(&self) -> &Path {
-			&self.0
-		}
-	}
-
-	impl Drop for TempDir {
-		fn drop(&mut self) {
-			let _ = fs::remove_dir_all(&self.0);
-		}
-	}
-
-	fn required_env(profile: &'static str) -> Vec<(&'static str, Option<&'static str>)> {
-		let mut vars: Vec<_> = REQUIRED_ENV.iter().map(|(k, v)| (*k, Some(*v))).collect();
-		vars.push(("REINHARDT_ENV", Some(profile)));
-		vars.push(("REINHARDT_CLOUD_CONFIG_DIR", None));
-		vars
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn base_settings_load_secrets_from_the_environment() {
-		// Arrange
-		let _env = EnvGuard::apply(&required_env("staging"));
-
-		// Act
-		let settings = get_settings()
-			.expect("settings sources should load")
-			.resolve()
-			.expect("settings should resolve");
-
-		// Assert
-		assert_eq!(
-			settings.settings().core.secret_key,
-			"test-only-secret-key-not-for-deployment"
-		);
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn ci_profile_loads_the_tracked_ci_settings() {
-		// Arrange
-		let _env = EnvGuard::apply(&required_env("ci"));
-
-		// Act
-		let settings = get_settings()
-			.expect("settings sources should load")
-			.resolve()
-			.expect("settings should resolve");
-
-		// Assert
-		assert_eq!(
-			settings.settings().core.allowed_hosts,
-			vec!["localhost", "127.0.0.1"]
-		);
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn settings_fail_fast_when_the_secret_key_is_missing() {
-		// Arrange
-		let mut vars = required_env("staging");
-		vars.push(("REINHARDT_CORE__SECRET_KEY", None));
-		let _env = EnvGuard::apply(&vars);
-
-		// Act
-		let result = get_settings()
-			.and_then(|pending| pending.resolve().map(|_| ()).map_err(BuildError::from));
-
-		// Assert
-		let error = result.expect_err("a missing secret key must fail");
-		assert!(
-			matches!(error, BuildError::Source { .. }),
-			"expected a source error, got: {error}"
-		);
-		// `contains` instead of `assert_eq!`: the message embeds the absolute path of the
-		// checkout's `base.toml`, so only the variable name is stable across machines.
-		assert!(
-			error.to_string().contains("REINHARDT_CORE__SECRET_KEY"),
-			"error should name the missing variable: {error}"
-		);
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn env_guard_restores_the_original_value_of_a_variable_applied_twice() {
-		// Arrange
-		const NAME: &str = "REINHARDT_ENV_GUARD_TEST_VARIABLE";
-		let _outer = EnvGuard::apply(&[(NAME, Some("original"))]);
-
-		// Act
-		{
-			let _inner = EnvGuard::apply(&[(NAME, Some("first")), (NAME, Some("second"))]);
-			assert_eq!(env::var(NAME).as_deref(), Ok("second"));
-		}
-
-		// Assert
-		assert_eq!(env::var(NAME).as_deref(), Ok("original"));
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn settings_directory_override_replaces_the_default_directory() {
-		// Arrange
-		let override_dir = TempDir::new("cloud-control-plane-settings");
-		let base =
-			fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/base.toml"))
-				.expect("base.toml should be readable");
-		fs::write(override_dir.path().join("base.toml"), base).expect("base.toml should be copied");
-		fs::write(
-			override_dir.path().join("staging.toml"),
-			"[core]\nallowed_hosts = [\"override.example\"]\n",
-		)
-		.expect("staging.toml should be written");
-		let override_path = override_dir
-			.path()
-			.to_str()
-			.expect("temp path is UTF-8")
-			.to_owned();
-		let mut vars = required_env("staging");
-		vars.push(("REINHARDT_CLOUD_CONFIG_DIR", Some(&override_path)));
-		let _env = EnvGuard::apply(&vars);
-
-		// Act
-		let settings = get_settings()
-			.expect("settings sources should load")
-			.resolve()
-			.expect("settings should resolve");
-
-		// Assert
-		assert_eq!(
-			settings.settings().core.allowed_hosts,
-			vec!["override.example"]
-		);
-	}
-
-	#[rstest]
-	#[serial(env_settings_load)]
-	fn settings_directory_defaults_to_the_manifest_settings_directory() {
-		// Arrange
-		let _env = EnvGuard::apply(&[("REINHARDT_CLOUD_CONFIG_DIR", None)]);
-		let base_dir = Path::new("/manifest");
-
-		// Act
-		let resolved = resolve_settings_dir(base_dir);
-
-		// Assert
-		assert_eq!(resolved, base_dir.join("settings"));
-	}
-}
+pub(crate) mod test_support;
+#[cfg(test)]
+mod tests;

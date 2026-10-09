@@ -10,6 +10,20 @@
 #   REINHARDT_CORE__SECRET_KEY        required
 #   REINHARDT_DATABASE_PASSWORD       required
 #   REINHARDT_DATABASE_{HOST,PORT,NAME,USER}   optional, local defaults below
+#   REINHARDT_CLOUD_REDIS_URL         required in staging and production; the
+#                                     operator injects it with the Redis
+#                                     password already expanded
+#   REINHARDT_CLOUD_SIGN_UP_POLICY    optional: open | allowlist | invite_only
+#                                     (default; anything else means invite_only)
+#   REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_USER_IDS
+#   REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_ORGANIZATION_IDS
+#                                     optional comma-separated numeric GitHub IDs
+#   REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY
+#                                     optional base64 of 32 random bytes; without
+#                                     it the provider-token key is derived from
+#                                     REINHARDT_CORE__SECRET_KEY
+#   REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID, REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS
+#                                     optional, for key rotation
 
 [core]
 debug = false
@@ -39,6 +53,17 @@ port = "${REINHARDT_DATABASE_PORT:-5432}"
 name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud}"
 user = "${REINHARDT_DATABASE_USER:-postgres}"
 password = "${REINHARDT_DATABASE_PASSWORD:?must be set to the database password}"
+
+[accounts]
+sign_up_policy = "${REINHARDT_CLOUD_SIGN_UP_POLICY:-invite_only}"
+sign_up_allowed_github_user_ids = "${REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_USER_IDS:-}"
+sign_up_allowed_github_organization_ids = "${REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_ORGANIZATION_IDS:-}"
+token_encryption_key = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY:-}"
+token_encryption_key_id = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID:-}"
+token_encryption_retired_keys = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS:-}"
+
+[redis]
+url = "${REINHARDT_CLOUD_REDIS_URL:-redis://127.0.0.1:6379/0}"
 
 [static]
 url = "/static/"

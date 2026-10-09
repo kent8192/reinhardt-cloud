@@ -71,6 +71,14 @@ cargo make runserver        # start the dashboard on http://localhost:8000
 `/var/run/docker.sock` is bind-mounted so TestContainers can launch sibling
 containers via the host's Docker daemon (docker-outside-of-docker).
 
+## Required environment
+
+Export `REINHARDT_DATABASE_PASSWORD` and `REINHARDT_CORE__SECRET_KEY` on the
+host before starting the container. `docker-compose.yml` reads them to set the
+PostgreSQL password and to pass both values to the dev container, and it
+refuses to start when either is missing. No password is committed to the
+repository.
+
 ## Settings layering
 
 The container starts with `REINHARDT_ENV=local` and the env vars

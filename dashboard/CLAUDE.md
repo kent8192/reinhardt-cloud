@@ -149,7 +149,14 @@ is the only non-DI type allowed in a binary.
   hold no literal secrets; they read them with `${VAR:?message}`. `local.toml`
   is ignored by git; start from `settings/local.example.toml`.
 - Export `REINHARDT_CORE__SECRET_KEY` and `REINHARDT_DATABASE_PASSWORD` for any
-  command that loads settings.
+  command that loads settings. The server entry and the runtime `manage`
+  commands validate them: an empty value or an unexpanded `${...}` / `$(...)`
+  placeholder fails startup, and the `staging` and `production` profiles must
+  stay hardened (see `src/config/settings.rs`). Load settings through
+  `get_resolved_settings` or `get_settings`, never by building them directly.
+- Emit audit events only through `crate::audit::AuditEvent` (tracing target
+  `audit`); never put tokens, codes, cookies, secrets, or email addresses in
+  an audit field.
 - Never commit credentials, private hostnames, or personal environment values.
   Never hardcode configuration that belongs in settings.
 
