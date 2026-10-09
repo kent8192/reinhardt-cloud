@@ -1190,6 +1190,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - Merged pull requests whose head branch starts with `codex/` (107 pull requests), all of which were read for motivation, changed files, and added tests. The `vulnerability in:title` search returns only the disclosure-policy pull request (#86).
 - Merged pull requests that carried security fixes inside larger changes: #248, #257, #283, #286, #287, #294, #295, #331, #383, #408, #409, #434, #446, #451, #453, #464, #495, #523, #560, #667, #686, #691, #693, #718, #720, #729, #879.
 - Existing tests under `dashboard/src/**`, `dashboard/tests/**`, `crates/reinhardt-cloud-grpc/**`, `crates/reinhardt-cloud-core/**`, `crates/reinhardt-cloud-telemetry/**`, `crates/reinhardt-cloud-cli/**`, `crates/reinhardt-cloud-agent/**`, `tests/e2e/**`, and `tests/integration/**`.
+- Issue #929 and pull request #931 (a real-server test of the gRPC credential checks), consulted for SR-54 and SR-76.
 - `docs/tools/dashboard.md`, `docs/tools/agent.md`, `docs/tools/cli.md`, `SECURITY.md`, and `dashboard/settings/production.toml`.
 
 Pull requests read and judged not security-relevant: #847 (lint fix).
