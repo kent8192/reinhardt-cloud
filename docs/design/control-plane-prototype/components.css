@@ -1324,7 +1324,7 @@ samp {
 	color: var(--ink-strong);
 }
 
-/* Variant A: decorative product preview built from the prototype's own
+/* Decorative product preview built from the prototype's own
  * components. Anchored to the right edge so the viewport always crops it. */
 .signin-preview {
 	position: relative;
@@ -1428,24 +1428,6 @@ samp {
 .signin-preview .phase-current,
 .signin-preview .badge-progress::before {
 	animation: none;
-}
-
-/* Variant B: thin gold line art as background texture. */
-.signin-art {
-	position: absolute;
-	z-index: 0;
-	top: 0;
-	right: 0;
-	width: 62%;
-	height: 100%;
-	color: var(--accent-fill);
-	pointer-events: none;
-	-webkit-mask-image: radial-gradient(ellipse 60% 62% at 58% 50%, var(--mask-opaque) 25%, transparent 100%);
-	mask-image: radial-gradient(ellipse 60% 62% at 58% 50%, var(--mask-opaque) 25%, transparent 100%);
-}
-
-.signin-art * {
-	vector-effect: non-scaling-stroke;
 }
 
 .signin-foot {
@@ -1565,12 +1547,6 @@ samp {
 
 	.signin-preview {
 		display: none;
-	}
-
-	.signin-art {
-		width: 150%;
-		right: -50%;
-		opacity: 0.35;
 	}
 
 	.phases {
