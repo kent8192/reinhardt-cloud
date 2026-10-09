@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>storefront-api - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html" aria-current="page">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">User menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="cli-sessions.html">CLI Sessions</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<nav class="breadcrumb" aria-label="Breadcrumb">
+							<ol>
+								<li><a href="organization.html">Acme Robotics</a></li>
+								<li><a href="projects.html">Projects</a></li>
+								<li aria-current="page">storefront-api</li>
+							</ol>
+						</nav>
+						<div class="cluster-row">
+							<h1 class="page-title">storefront-api</h1>
+							<span class="chip">GitHub</span>
+						</div>
+						<p class="page-lede">Source: <a href="https://github.com/acme-robotics/storefront-api">acme-robotics/storefront-api</a>, branch <code>main</code>. Pushes to <code>main</code> create a Deployment on prod-tokyo.</p>
+					</div>
+					<div class="actions">
+						<a class="btn" href="https://github.com/acme-robotics/storefront-api">Open on GitHub</a>
+					</div>
+				</header>
+
+				<div class="stack">
+					<section aria-labelledby="dep-title">
+						<div class="section-head">
+							<h2 class="section-title" id="dep-title">Deployments</h2>
+							<p class="section-note">Newest first. A gold marker shows what is running now.</p>
+						</div>
+						<div class="table-wrap">
+							<table class="table ledger">
+								<caption class="visually-hidden">Deployments of storefront-api</caption>
+								<thead>
+									<tr>
+										<th scope="col"><span class="visually-hidden">Timeline</span></th>
+										<th scope="col">Deployment</th>
+										<th scope="col">Cluster</th>
+										<th scope="col">Status</th>
+										<th scope="col">Submitted by</th>
+										<th scope="col">When</th>
+									</tr>
+								</thead>
+								<tbody>
+											<tr class="">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 148</a>
+													<span class="cell-meta"><span class="sha">a3f91c2</span> Fix cart rounding for JPY</span>
+												</td>
+												<td>prod-tokyo</td>
+												<td><span class="badge badge-progress">Applying</span></td>
+												<td>priya-raman</td>
+												<td>4 min ago</td>
+											</tr>
+											<tr class="ledger-live">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 147</a>
+													<span class="cell-meta"><span class="sha">e2d7a10</span> Add order lookup endpoint</span>
+												</td>
+												<td>prod-tokyo</td>
+												<td><span class="badge badge-success">Running</span></td>
+												<td>priya-raman</td>
+												<td>yesterday</td>
+											</tr>
+											<tr class="ledger-live">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 146</a>
+													<span class="cell-meta"><span class="sha">e2d7a10</span> Add order lookup endpoint</span>
+												</td>
+												<td>staging-frankfurt</td>
+												<td><span class="badge badge-success">Running</span></td>
+												<td>priya-raman</td>
+												<td>yesterday</td>
+											</tr>
+											<tr class="">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 145</a>
+													<span class="cell-meta"><span class="sha">7c3b5f9</span> Pin currency table version</span>
+												</td>
+												<td>prod-tokyo</td>
+												<td><span class="badge badge-neutral">Superseded</span></td>
+												<td>jonas-weber</td>
+												<td>3 days ago</td>
+											</tr>
+											<tr class="ledger-failed">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 144</a>
+													<span class="cell-meta"><span class="sha">19ae6d3</span> Migrate carts to new schema</span>
+												</td>
+												<td>prod-tokyo</td>
+												<td><span class="badge badge-danger">Failed</span></td>
+												<td>jonas-weber</td>
+												<td>4 days ago</td>
+											</tr>
+											<tr class="">
+												<td class="ledger-mark"></td>
+												<td>
+													<a class="cell-primary" href="deployment-detail.html">Deployment 143</a>
+													<span class="cell-meta"><span class="sha">b04f8e1</span> Raise request timeout to 30s</span>
+												</td>
+												<td>prod-tokyo</td>
+												<td><span class="badge badge-neutral">Superseded</span></td>
+												<td>mokafor</td>
+												<td>6 days ago</td>
+											</tr>
+								</tbody>
+							</table>
+						</div>
+					</section>
+
+					<section aria-labelledby="prev-title">
+						<div class="section-head">
+							<h2 class="section-title" id="prev-title">Previews</h2>
+							<p class="section-note">Created by the Agent for open pull requests. The Control Plane only observes them.</p>
+						</div>
+						<div class="table-wrap">
+							<table class="table">
+								<caption class="visually-hidden">Previews of storefront-api</caption>
+								<thead>
+									<tr>
+										<th scope="col">Pull request</th>
+										<th scope="col">Cluster</th>
+										<th scope="col">Status</th>
+										<th scope="col">Address</th>
+										<th scope="col">Updated</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr>
+										<td>
+											<a class="cell-primary" href="https://github.com/acme-robotics/storefront-api/pull/482">#482</a>
+											<span class="cell-meta">Add JPY rounding tests</span>
+										</td>
+										<td class="nowrap">staging-frankfurt</td>
+										<td><span class="badge badge-success">Running</span></td>
+										<td><a href="https://pr-482.preview.acme-robotics.example">pr-482.preview.acme-robotics.example</a></td>
+										<td class="nowrap">12 min ago</td>
+									</tr>
+									<tr>
+										<td>
+											<a class="cell-primary" href="https://github.com/acme-robotics/storefront-api/pull/479">#479</a>
+											<span class="cell-meta">Replace session cookie middleware</span>
+										</td>
+										<td class="nowrap">staging-frankfurt</td>
+										<td><span class="badge badge-progress">Applying</span></td>
+										<td><span class="cell-meta">Not ready yet</span></td>
+										<td class="nowrap">1 min ago</td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					</section>
+				</div>
+			</div>
+		</main>
+	</div>
+</body>
+</html>

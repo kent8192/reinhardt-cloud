@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Sign in - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<div class="signin">
+		<p class="signin-brand">
+			<img src="assets/logo-mark-small.png" alt="" width="142" height="98">
+			Reinhardt Cloud
+		</p>
+		<main class="signin-main" id="main">
+			<h1 class="signin-title">Run your Reinhardt Projects on your own Clusters.</h1>
+			<p class="prose">Register a Kubernetes Cluster, connect a GitHub repository, and every push becomes a Deployment you can watch.</p>
+			<div>
+				<a class="btn btn-github" href="organization.html">Continue with GitHub</a>
+			</div>
+			<div class="alert alert-warning alert-hidden" id="not-invited" role="alert">
+				<p class="alert-title">No Invitation found for @riley-chen</p>
+				<p class="prose">This Control Plane accepts new Users by Invitation only. Ask an owner of your Organization to send an Invitation to your GitHub account, then sign in again.</p>
+			</div>
+			<p class="signin-foot">GitHub is the only way to sign in. There are no passwords to set or reset.</p>
+		</main>
+		<div class="signin-preview" aria-hidden="true" inert>
+			<div class="preview-chip preview-chip-project">
+				<span>storefront-api</span>
+				<span class="badge badge-success">Running</span>
+			</div>
+			<div class="preview-card preview-deploy">
+				<div class="preview-head">
+					<div>
+						<p class="preview-title">Deployment 148</p>
+						<p class="preview-sub">storefront-api, submitted 4 minutes ago by priya-raman</p>
+					</div>
+					<span class="badge badge-progress">Applying</span>
+				</div>
+				<ol class="phases">
+					<li class="phase phase-done">
+						<span class="phase-name">Submitted</span>
+						<span class="phase-time">14:28:02</span>
+					</li>
+					<li class="phase phase-done">
+						<span class="phase-name">Sent to Agent</span>
+						<span class="phase-time">14:28:03</span>
+					</li>
+					<li class="phase phase-current">
+						<span class="phase-name">Applying</span>
+						<span class="phase-time">2 of 3 replicas ready</span>
+					</li>
+					<li class="phase">
+						<span class="phase-name">Running</span>
+						<span class="phase-time">Waiting</span>
+					</li>
+				</ol>
+				<div class="preview-facts">
+					<span>Cluster <strong>prod-tokyo</strong></span>
+					<span>Commit <strong class="sha">a3f91c2</strong></span>
+					<span>Fix cart rounding for JPY</span>
+				</div>
+			</div>
+			<div class="preview-card preview-log log">
+				<div class="log-bar">
+					<span class="log-live">Live</span>
+					<span class="log-ts">Deployment 148</span>
+				</div>
+				<div class="log-body">
+					<div class="log-line"><span class="log-ts">14:28:09</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">applying Project storefront-api generation 148</span></div>
+					<div class="log-line"><span class="log-ts">14:28:12</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: 2 pending migrations</span></div>
+					<div class="log-line"><span class="log-ts">14:28:17</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">migrate: done</span></div>
+					<div class="log-line"><span class="log-ts">14:28:19</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: starting 3 replicas</span></div>
+					<div class="log-line"><span class="log-ts">14:28:24</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">x2k4q listening on 0.0.0.0:8000</span></div>
+					<div class="log-line"><span class="log-ts">14:28:25</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">x2k4q readiness probe passed</span></div>
+					<div class="log-line"><span class="log-ts">14:28:31</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">m8t7w listening on 0.0.0.0:8000</span></div>
+					<div class="log-line"><span class="log-ts">14:28:32</span><span class="log-lvl log-lvl-warn">WARN</span><span class="log-msg">m8t7w readiness probe failed (attempt 1 of 3)</span></div>
+					<div class="log-line"><span class="log-ts">14:28:36</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">m8t7w readiness probe passed</span></div>
+					<div class="log-line"><span class="log-ts">14:28:41</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: 2 of 3 replicas ready</span></div>
+					<div class="log-line"><span class="log-ts">14:28:47</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">q5r2d listening on 0.0.0.0:8000</span></div>
+					<div class="log-line"><span class="log-ts">14:28:51</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">q5r2d cache warm-up: ok</span></div>
+				</div>
+			</div>
+			<div class="preview-chip preview-chip-cluster">
+				<span>prod-tokyo</span>
+				<span class="badge badge-success">Connected</span>
+			</div>
+		</div>
+	</div>
+</body>
+</html>

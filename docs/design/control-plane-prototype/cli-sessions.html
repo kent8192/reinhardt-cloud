@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>CLI Sessions - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">User menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="cli-sessions.html" aria-current="page">CLI Sessions</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<h1 class="page-title">CLI Sessions</h1>
+						<p class="page-lede">A CLI Session lets the Reinhardt Cloud CLI act for you within one Organization. You approve each one in the browser, and it ends on its own.</p>
+					</div>
+					<div class="actions">
+						<button class="btn" type="button" data-dialog-open="signout-all-dialog">Sign out all CLI Sessions</button>
+					</div>
+				</header>
+
+				<div class="stack state-stack">
+					<section class="state-main" aria-labelledby="sessions-title">
+						<div class="section-head">
+							<h2 class="section-title" id="sessions-title">Active CLI Sessions</h2>
+							<p class="section-note">CLI Sessions currently last at most one hour.</p>
+						</div>
+						<div class="table-wrap">
+							<table class="table">
+								<caption class="visually-hidden">Active CLI Sessions for Mina Okafor</caption>
+								<thead>
+									<tr>
+										<th scope="col">Device</th>
+										<th scope="col">Organization</th>
+										<th scope="col">Approved</th>
+										<th scope="col">Expires</th>
+										<th scope="col"><span class="visually-hidden">Actions</span></th>
+									</tr>
+								</thead>
+								<tbody>
+							<tr>
+								<td>
+									<span class="cell-primary">Mina's MacBook (reinhardt-cloud 0.1)</span>
+								</td>
+								<td>Acme Robotics</td>
+								<td><time datetime="2026-10-09T14:14:00Z">14 minutes ago</time></td>
+								<td class="nowrap">In 46 minutes</td>
+								<td class="cell-end"><button class="btn btn-quiet btn-quiet-danger btn-sm" type="button" aria-label="Revoke the CLI Session for Mina's MacBook (reinhardt-cloud 0.1) in Acme Robotics">Revoke</button></td>
+							</tr>
+							<tr>
+								<td>
+									<span class="cell-primary">mina-workstation (reinhardt-cloud 0.1)</span>
+								</td>
+								<td>Northwind Labs</td>
+								<td><time datetime="2026-10-09T13:40:00Z">48 minutes ago</time></td>
+								<td class="nowrap">In 12 minutes</td>
+								<td class="cell-end"><button class="btn btn-quiet btn-quiet-danger btn-sm" type="button" aria-label="Revoke the CLI Session for mina-workstation (reinhardt-cloud 0.1) in Northwind Labs">Revoke</button></td>
+							</tr>
+								</tbody>
+							</table>
+						</div>
+						<p class="section-note" style="margin-top: var(--space-2)">Revoking a CLI Session stops that CLI at once. Run <code>reinhardt-cloud login</code> to approve a new one.</p>
+					</section>
+
+					<section class="state-alt" id="none" aria-labelledby="none-title">
+						<div class="section-head">
+							<h2 class="section-title" id="none-title">Active CLI Sessions</h2>
+							<p class="section-note">CLI Sessions currently last at most one hour.</p>
+						</div>
+						<div class="empty">
+							<p class="empty-title">No active CLI Sessions</p>
+							<p>Run this command in your terminal. The CLI opens your browser, and you approve the CLI Session for one Organization.</p>
+							<div class="code" style="width: min(100%, 28rem)">
+								<div class="code-bar">
+									<span>Shell</span>
+									<button class="btn btn-quiet btn-sm" type="button" data-copy-target="cmd-login" aria-label="Copy the sign-in command">Copy</button>
+								</div>
+								<pre><code id="cmd-login">reinhardt-cloud login</code></pre>
+							</div>
+						</div>
+					</section>
+				</div>
+			</div>
+		</main>
+	</div>
+
+	<dialog class="dialog" id="signout-all-dialog" aria-labelledby="signout-all-title">
+		<form method="dialog">
+			<h2 class="dialog-title" id="signout-all-title">Sign out all CLI Sessions?</h2>
+			<p class="dialog-body">Every CLI Session you approved ends immediately, in every Organization. Run <code>reinhardt-cloud login</code> to approve a new one.</p>
+			<div class="dialog-actions">
+				<button class="btn" type="button" data-dialog-close>Cancel</button>
+				<button class="btn btn-primary" type="submit">Sign out all CLI Sessions</button>
+			</div>
+		</form>
+	</dialog>
+</body>
+</html>

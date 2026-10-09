@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Clusters - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html" aria-current="page">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">User menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="cli-sessions.html">CLI Sessions</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<nav class="breadcrumb" aria-label="Breadcrumb">
+							<ol>
+								<li><a href="organization.html">Acme Robotics</a></li>
+								<li aria-current="page">Clusters</li>
+							</ol>
+						</nav>
+						<h1 class="page-title">Clusters</h1>
+						<p class="page-lede">A Cluster is a Kubernetes cluster registered to Acme Robotics. The Control Plane reaches it only through its Agent.</p>
+					</div>
+					<div class="actions">
+						<button class="btn btn-primary" type="button" data-dialog-open="register-dialog">Register Cluster</button>
+					</div>
+				</header>
+
+				<div class="table-wrap">
+					<table class="table">
+						<caption class="visually-hidden">Clusters registered to Acme Robotics</caption>
+						<thead>
+							<tr>
+								<th scope="col">Cluster</th>
+								<th scope="col">Agent</th>
+								<th scope="col">Kubernetes</th>
+								<th scope="col">Projects</th>
+								<th scope="col">Previews</th>
+								<th scope="col">Last seen</th>
+							</tr>
+						</thead>
+						<tbody>
+										<tr>
+											<td><a class="cell-primary" href="cluster-detail.html">prod-tokyo</a></td>
+											<td><span class="badge badge-success">Connected</span></td>
+											<td>v1.31.4</td>
+											<td>3</td>
+											<td>0</td>
+											<td>Just now</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="cluster-detail.html">staging-frankfurt</a></td>
+											<td><span class="badge badge-success">Connected</span></td>
+											<td>v1.30.8</td>
+											<td>2</td>
+											<td>2</td>
+											<td>Just now</td>
+										</tr>
+										<tr>
+											<td><a class="cell-primary" href="cluster-detail.html">edge-osaka</a></td>
+											<td><span class="badge badge-warning">Disconnected</span></td>
+											<td>v1.29.11</td>
+											<td>1</td>
+											<td>0</td>
+											<td>14 minutes ago</td>
+										</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</main>
+	</div>
+	<dialog class="dialog" id="register-dialog" aria-labelledby="register-title">
+		<form method="get" action="cluster-register.html">
+			<h2 class="dialog-title" id="register-title">Register a Cluster</h2>
+			<p class="dialog-body">Name the Cluster. Reinhardt Cloud then creates the client credentials its Agent uses to connect.</p>
+			<div class="field">
+				<label class="label" for="cluster-name">Cluster name</label>
+				<input class="input" id="cluster-name" name="name" value="prod-singapore" autocomplete="off" spellcheck="false" aria-describedby="cluster-name-hint">
+				<p class="hint" id="cluster-name-hint">Lowercase letters, numbers, and hyphens. You can't rename a Cluster later.</p>
+			</div>
+			<div class="dialog-actions" style="margin-top: var(--space-5)">
+				<button class="btn" type="button" data-dialog-close>Cancel</button>
+				<button class="btn btn-primary" type="submit">Register Cluster</button>
+			</div>
+		</form>
+	</dialog>
+</body>
+</html>

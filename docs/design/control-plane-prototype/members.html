@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Members - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher">
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html" aria-current="page">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">User menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="cli-sessions.html">CLI Sessions</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<nav class="breadcrumb" aria-label="Breadcrumb">
+							<ol>
+								<li><a href="organization.html">Acme Robotics</a></li>
+								<li aria-current="page">Members</li>
+							</ol>
+						</nav>
+						<h1 class="page-title">Members</h1>
+						<p class="page-lede">Members hold exactly one role in Acme Robotics. Invitations are sent to GitHub accounts and are fulfilled the first time that account signs in.</p>
+					</div>
+				</header>
+
+				<div class="stack">
+					<section aria-labelledby="members-title">
+						<div class="section-head">
+							<h2 class="section-title" id="members-title">Members</h2>
+							<p class="section-note">5 Members</p>
+						</div>
+						<div class="table-wrap">
+							<table class="table">
+								<caption class="visually-hidden">Members of Acme Robotics</caption>
+								<thead>
+									<tr>
+										<th scope="col">Member</th>
+										<th scope="col">Role</th>
+										<th scope="col">Joined</th>
+										<th scope="col"><span class="visually-hidden">Actions</span></th>
+									</tr>
+								</thead>
+								<tbody>
+										<tr>
+											<td>
+												<div class="person">
+													<span class="avatar" aria-hidden="true">MO</span>
+													<div>
+														<span class="cell-primary">Mina Okafor (you)</span>
+														<span class="cell-meta">@mokafor</span>
+													</div>
+												</div>
+											</td>
+											<td>
+													<label class="visually-hidden" for="role-mina">Role for Mina Okafor</label>
+													<select class="select select-inline" id="role-mina" disabled><option selected>owner</option><option>admin</option><option>developer</option><option>viewer</option></select>
+											</td>
+											<td>March 2026</td>
+											<td class="cell-end"><span class="cell-meta">Only owner</span></td>
+										</tr>
+										<tr>
+											<td>
+												<div class="person">
+													<span class="avatar" aria-hidden="true">TH</span>
+													<div>
+														<span class="cell-primary">Tomás Herrera</span>
+														<span class="cell-meta">@tomas-herrera</span>
+													</div>
+												</div>
+											</td>
+											<td>
+													<label class="visually-hidden" for="role-tomás">Role for Tomás Herrera</label>
+													<select class="select select-inline" id="role-tomás"><option>owner</option><option selected>admin</option><option>developer</option><option>viewer</option></select>
+											</td>
+											<td>April 2026</td>
+											<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Remove Tomás Herrera from Acme Robotics">Remove</button></td>
+										</tr>
+										<tr>
+											<td>
+												<div class="person">
+													<span class="avatar" aria-hidden="true">PR</span>
+													<div>
+														<span class="cell-primary">Priya Raman</span>
+														<span class="cell-meta">@priya-raman</span>
+													</div>
+												</div>
+											</td>
+											<td>
+													<label class="visually-hidden" for="role-priya">Role for Priya Raman</label>
+													<select class="select select-inline" id="role-priya"><option>owner</option><option>admin</option><option selected>developer</option><option>viewer</option></select>
+											</td>
+											<td>April 2026</td>
+											<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Remove Priya Raman from Acme Robotics">Remove</button></td>
+										</tr>
+										<tr>
+											<td>
+												<div class="person">
+													<span class="avatar" aria-hidden="true">JW</span>
+													<div>
+														<span class="cell-primary">Jonas Weber</span>
+														<span class="cell-meta">@jonas-weber</span>
+													</div>
+												</div>
+											</td>
+											<td>
+													<label class="visually-hidden" for="role-jonas">Role for Jonas Weber</label>
+													<select class="select select-inline" id="role-jonas"><option>owner</option><option>admin</option><option selected>developer</option><option>viewer</option></select>
+											</td>
+											<td>June 2026</td>
+											<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Remove Jonas Weber from Acme Robotics">Remove</button></td>
+										</tr>
+										<tr>
+											<td>
+												<div class="person">
+													<span class="avatar" aria-hidden="true">AT</span>
+													<div>
+														<span class="cell-primary">Aiko Tanaka</span>
+														<span class="cell-meta">@aiko-tanaka</span>
+													</div>
+												</div>
+											</td>
+											<td>
+													<label class="visually-hidden" for="role-aiko">Role for Aiko Tanaka</label>
+													<select class="select select-inline" id="role-aiko"><option>owner</option><option>admin</option><option>developer</option><option selected>viewer</option></select>
+											</td>
+											<td>September 2026</td>
+											<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Remove Aiko Tanaka from Acme Robotics">Remove</button></td>
+										</tr>
+								</tbody>
+							</table>
+						</div>
+						<p class="section-note" style="margin-top: var(--space-2)">An Organization always keeps at least one owner. Promote another Member to owner before changing your own role.</p>
+					</section>
+
+					<section aria-labelledby="invite-title">
+						<div class="section-head">
+							<h2 class="section-title" id="invite-title">Invitations</h2>
+						</div>
+						<form class="form-panel stack-sm" data-prototype>
+							<div class="form-grid">
+								<div class="field">
+									<label class="label" for="inv-login">GitHub username</label>
+									<input class="input" id="inv-login" name="login" placeholder="octocat" autocomplete="off" spellcheck="false">
+								</div>
+								<div class="field">
+									<label class="label" for="inv-role">Role</label>
+									<select class="select" id="inv-role" name="role">
+										<option>admin</option>
+										<option selected>developer</option>
+										<option>viewer</option>
+									</select>
+								</div>
+								<div class="field">
+									<label class="label" for="inv-email">Email (optional)</label>
+									<input class="input" id="inv-email" name="email" type="email" placeholder="name@example.com" autocomplete="off">
+								</div>
+							</div>
+							<p class="hint">The Invitation belongs to the GitHub account, not the email address. We email it only so they know to sign in.</p>
+							<div class="actions">
+								<button class="btn btn-primary" type="submit">Send Invitation</button>
+							</div>
+						</form>
+
+						<div class="table-wrap" style="margin-top: var(--space-4)">
+							<table class="table">
+								<caption class="visually-hidden">Pending Invitations</caption>
+								<thead>
+									<tr>
+										<th scope="col">GitHub account</th>
+										<th scope="col">Role</th>
+										<th scope="col">Sent by</th>
+										<th scope="col">Status</th>
+										<th scope="col"><span class="visually-hidden">Actions</span></th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr>
+										<td><span class="cell-primary">@lena-sorensen</span></td>
+										<td><span class="chip">developer</span></td>
+										<td>Mina Okafor, 2 days ago</td>
+										<td><span class="badge badge-neutral">Waiting for first sign-in</span></td>
+										<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Revoke Invitation for lena-sorensen">Revoke</button></td>
+									</tr>
+									<tr>
+										<td><span class="cell-primary">@devon-ng</span></td>
+										<td><span class="chip">viewer</span></td>
+										<td>Tomás Herrera, 6 days ago</td>
+										<td><span class="badge badge-neutral">Waiting for first sign-in</span></td>
+										<td class="cell-end"><button class="btn btn-quiet btn-sm" type="button" aria-label="Revoke Invitation for devon-ng">Revoke</button></td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					</section>
+
+					<section aria-labelledby="roles-title">
+						<h2 class="section-title" id="roles-title" style="margin-bottom: var(--space-3)">What each role can do</h2>
+						<dl class="dl dl-panel">
+							<dt>owner</dt>
+							<dd>Everything an admin can do, plus manage owners and delete the Organization.</dd>
+							<dt>admin</dt>
+							<dd>Manage Members, Invitations, Clusters, and Projects.</dd>
+							<dt>developer</dt>
+							<dd>Create Deployments and read everything in the Organization.</dd>
+							<dt>viewer</dt>
+							<dd>Read Projects, Deployments, logs, and Previews.</dd>
+						</dl>
+					</section>
+				</div>
+			</div>
+		</main>
+	</div>
+</body>
+</html>

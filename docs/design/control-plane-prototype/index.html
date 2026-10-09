@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Prototype - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<main class="main" id="main">
+		<div class="page">
+			<header class="page-head">
+				<div>
+					<h1 class="page-title">Control Plane Dashboard prototype</h1>
+					<p class="page-lede">Static HTML and CSS for the key Dashboard screens. It carries sample data only and exists to be approved before any Pages implementation starts.</p>
+				</div>
+				<div class="actions"><button class="btn btn-quiet btn-sm" type="button" data-theme-toggle>Switch to dark theme</button></div>
+			</header>
+
+			<div class="stack">
+				<section aria-labelledby="screens-title">
+					<h2 class="section-title" id="screens-title" style="margin-bottom: var(--space-3)">Screens</h2>
+					<nav class="screen-list" aria-label="Prototype screens">
+						<a href="sign-in.html">
+							<span class="cell-primary">Sign in</span>
+							<span class="cell-meta">GitHub is the only way in. Add #not-invited to the address to see the state for a GitHub account without an Invitation.</span>
+						</a>
+						<a href="organization.html">
+							<span class="cell-primary">Organization overview</span>
+							<span class="cell-meta">What needs attention, recent Deployments, Clusters. The Organization switcher is open.</span>
+						</a>
+						<a href="clusters.html">
+							<span class="cell-primary">Clusters</span>
+							<span class="cell-meta">List with Agent state; registration opens as a dialog.</span>
+						</a>
+						<a href="cluster-register.html">
+							<span class="cell-primary">Register Cluster</span>
+							<span class="cell-meta">Client ID and client secret shown once, then the Agent install steps.</span>
+						</a>
+						<a href="cluster-detail.html">
+							<span class="cell-primary">Cluster detail</span>
+							<span class="cell-meta">A disconnected Agent, its Projects, and an empty Previews list.</span>
+						</a>
+						<a href="projects.html">
+							<span class="cell-primary">Projects</span>
+							<span class="cell-meta">GitHub and manual sources side by side.</span>
+						</a>
+						<a href="project-detail.html">
+							<span class="cell-primary">Project detail</span>
+							<span class="cell-meta">The Deployment ledger and observed Previews.</span>
+						</a>
+						<a href="deployment-detail.html">
+							<span class="cell-primary">Deployment detail</span>
+							<span class="cell-meta">Progress, immutable configuration, and live logs.</span>
+						</a>
+						<a href="members.html">
+							<span class="cell-primary">Members and Invitations</span>
+							<span class="cell-meta">Roles, the last-owner rule, and pending Invitations.</span>
+						</a>
+						<a href="cli-sessions.html">
+							<span class="cell-primary">CLI Sessions</span>
+							<span class="cell-meta">Active CLI Sessions per User, revoke or sign out all. Add #none to the address for the empty state.</span>
+						</a>
+						<a href="cli-authorize.html">
+							<span class="cell-primary">Authorize the CLI</span>
+							<span class="cell-meta">The browser approval screen the CLI opens. Add #approved or #denied to the address for the result states.</span>
+						</a>
+						<a href="components.html">
+							<span class="cell-primary">Component inventory</span>
+							<span class="cell-meta">Colors, type, buttons, forms, badges, empty state, toast, dialog, code block, log viewer.</span>
+						</a>
+					</nav>
+				</section>
+			</div>
+		</div>
+	</main>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Components - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<main class="main" id="main">
+		<div class="page">
+			<header class="page-head">
+				<div>
+					<nav class="breadcrumb" aria-label="Breadcrumb">
+						<ol>
+							<li><a href="index.html">Prototype</a></li>
+							<li aria-current="page">Components</li>
+						</ol>
+					</nav>
+					<h1 class="page-title">Component inventory</h1>
+					<p class="page-lede">Every building block the Pages implementation needs, rendered with the prototype's custom properties. Switch themes to check both.</p>
+				</div>
+				<div class="actions"><button class="btn btn-quiet btn-sm" type="button" data-theme-toggle>Switch to dark theme</button></div>
+			</header>
+
+			<div class="stack">
+				<section aria-labelledby="c-color">
+					<h2 class="section-title" id="c-color" style="margin-bottom: var(--space-3)">Color</h2>
+					<div class="swatches">
+							<div class="swatch"><div class="swatch-chip" style="background: var(--surface-page)"></div><span>Page</span><code>--surface-page</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--surface-raised)"></div><span>Raised</span><code>--surface-raised</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--surface-sunken)"></div><span>Sunken</span><code>--surface-sunken</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--border-default)"></div><span>Border</span><code>--border-default</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--ink-strong)"></div><span>Ink strong</span><code>--ink-strong</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--ink-muted)"></div><span>Ink muted</span><code>--ink-muted</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--accent-fill)"></div><span>Accent fill</span><code>--accent-fill</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--accent-text)"></div><span>Accent text</span><code>--accent-text</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--accent-wash)"></div><span>Accent wash</span><code>--accent-wash</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--status-success-fg)"></div><span>Success</span><code>--status-success-fg</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--status-progress-fg)"></div><span>Progress</span><code>--status-progress-fg</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--status-warning-fg)"></div><span>Warning</span><code>--status-warning-fg</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--status-danger-fg)"></div><span>Danger</span><code>--status-danger-fg</code></div>
+							<div class="swatch"><div class="swatch-chip" style="background: var(--status-neutral-fg)"></div><span>Neutral</span><code>--status-neutral-fg</code></div>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-type">
+					<h2 class="section-title" id="c-type" style="margin-bottom: var(--space-3)">Type</h2>
+					<div class="type-sample form-panel">
+						<p style="font-family: var(--font-display); font-size: var(--text-3xl); line-height: 1.1; letter-spacing: -0.02em; color: var(--ink-strong)">Display, 38px</p>
+						<p style="font-family: var(--font-display); font-size: var(--text-2xl); letter-spacing: -0.015em; color: var(--ink-strong)">Page title, 28px</p>
+						<p style="font-size: var(--text-lg); font-weight: var(--weight-semibold); color: var(--ink-strong)">Section title, 17px semibold</p>
+						<p>Body, 14px. Deployments move from Submitted to Running without anyone editing them.</p>
+						<p class="hint">Hint and metadata, 13px, muted ink.</p>
+						<p><code>ghcr.io/acme-robotics/storefront-api:a3f91c2</code> in the monospace stack, reserved for identifiers, commands, secrets and logs.</p>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-buttons">
+					<h2 class="section-title" id="c-buttons" style="margin-bottom: var(--space-3)">Buttons</h2>
+					<div class="gallery-row">
+						<button class="btn btn-primary" type="button">Primary</button>
+						<button class="btn" type="button">Secondary</button>
+						<button class="btn btn-quiet" type="button">Quiet</button>
+						<button class="btn btn-danger" type="button">Danger</button>
+						<button class="btn" type="button" disabled>Disabled</button>
+						<button class="btn btn-sm" type="button">Small</button>
+						<button class="btn btn-github" type="button">Continue with GitHub</button>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-forms">
+					<h2 class="section-title" id="c-forms" style="margin-bottom: var(--space-3)">Form controls</h2>
+					<form class="form-panel" data-prototype>
+						<div class="form-grid form-grid-start">
+							<div class="field">
+								<label class="label" for="g-text">Project name</label>
+								<input class="input" id="g-text" value="storefront-api" aria-describedby="g-text-hint">
+								<p class="hint" id="g-text-hint">Stable. You can't rename a Project later.</p>
+							</div>
+							<div class="field">
+								<label class="label" for="g-select">Cluster</label>
+								<select class="select" id="g-select">
+									<option>prod-tokyo</option>
+									<option>staging-frankfurt</option>
+								</select>
+							</div>
+							<div class="field">
+								<label class="label" for="g-invalid">GitHub username</label>
+								<input class="input" id="g-invalid" value="not a login" aria-invalid="true" aria-describedby="g-invalid-error">
+								<p class="field-error" id="g-invalid-error">GitHub usernames can't contain spaces.</p>
+							</div>
+						</div>
+						<div class="check" style="margin-top: var(--space-4)">
+							<input type="checkbox" id="g-check" checked>
+							<label for="g-check">Create a Preview for every pull request</label>
+						</div>
+					</form>
+				</section>
+
+				<section aria-labelledby="c-badges">
+					<h2 class="section-title" id="c-badges" style="margin-bottom: var(--space-3)">Badges and chips</h2>
+					<div class="gallery-row">
+						<span class="badge badge-neutral">Submitted</span> <span class="badge badge-progress">Applying</span> <span class="badge badge-success">Running</span> <span class="badge badge-danger">Failed</span> <span class="badge badge-neutral">Superseded</span>
+					</div>
+					<div class="gallery-row" style="margin-top: var(--space-3)">
+						<span class="badge badge-success">Connected</span> <span class="badge badge-warning">Disconnected</span> <span class="badge badge-neutral">Waiting for Agent</span>
+						<span class="chip">GitHub</span> <span class="chip">Manual</span> <span class="chip">developer</span>
+					</div>
+					<p class="hint" style="margin-top: var(--space-2)">Each status pairs a colour with its own shape and a text label.</p>
+				</section>
+
+				<section aria-labelledby="c-phases">
+					<h2 class="section-title" id="c-phases" style="margin-bottom: var(--space-3)">Deployment progress</h2>
+					<ol class="phases" aria-label="Example: a failed Deployment">
+						<li class="phase phase-done"><span class="phase-name">Submitted</span><span class="phase-time">14:02:11</span></li>
+						<li class="phase phase-done"><span class="phase-name">Sent to Agent</span><span class="phase-time">14:02:12</span></li>
+						<li class="phase phase-failed" aria-current="step"><span class="phase-name">Applying</span><span class="phase-time">Image pull failed</span></li>
+						<li class="phase"><span class="phase-name">Running</span><span class="phase-time">Not reached</span></li>
+					</ol>
+				</section>
+
+				<section aria-labelledby="c-empty">
+					<h2 class="section-title" id="c-empty" style="margin-bottom: var(--space-3)">Empty state</h2>
+					<div class="empty">
+						<p class="empty-title">No Projects yet</p>
+						<p>Import a repository from GitHub, or run <code>reinhardt-cloud deploy</code> in a Reinhardt codebase to create a Project from the CLI.</p>
+						<button class="btn btn-primary" type="button">Import from GitHub</button>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-secret">
+					<h2 class="section-title" id="c-secret" style="margin-bottom: var(--space-3)">Code block and one-time secret</h2>
+					<div class="secret">
+						<h3 class="secret-title">Save the client secret now</h3>
+						<p class="secret-note">Reinhardt Cloud shows the client secret once.</p>
+						<div class="code">
+							<div class="code-bar"><span>prod-singapore client secret</span><button class="btn btn-quiet btn-sm" type="button" data-copy-target="g-key" aria-label="Copy client secret">Copy</button></div>
+							<pre><code id="g-key">rcs_9Tz4cVm2NwXq7HbLd5KsEa8RyJf3UgP6</code></pre>
+						</div>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-toast">
+					<h2 class="section-title" id="c-toast" style="margin-bottom: var(--space-3)">Toast</h2>
+					<div class="toast" role="status" style="max-width: 24rem">
+						<p class="toast-text">Invitation sent to @lena-sorensen.</p>
+						<button class="btn btn-quiet btn-sm" type="button" data-toast-dismiss aria-label="Dismiss notification">Dismiss</button>
+					</div>
+				</section>
+
+				<section aria-labelledby="c-dialog">
+					<h2 class="section-title" id="c-dialog" style="margin-bottom: var(--space-3)">Dialog</h2>
+					<dialog class="dialog dialog-static" open aria-labelledby="g-dialog-title">
+						<form method="dialog">
+							<h3 class="dialog-title" id="g-dialog-title">Remove Aiko Tanaka?</h3>
+							<p class="dialog-body">Aiko Tanaka loses access to Acme Robotics immediately. Their CLI Sessions for this Organization end immediately.</p>
+							<div class="dialog-actions">
+								<button class="btn" type="button">Cancel</button>
+								<button class="btn btn-danger" type="submit">Remove Member</button>
+							</div>
+						</form>
+					</dialog>
+					<div style="margin-top: var(--space-3)">
+						<button class="btn" type="button" data-dialog-open="g-modal">Open as modal</button>
+					</div>
+					<dialog class="dialog" id="g-modal" aria-labelledby="g-modal-title">
+						<form method="dialog">
+							<h3 class="dialog-title" id="g-modal-title">Revoke the CLI Session for Mina&#39;s MacBook?</h3>
+							<p class="dialog-body">That CLI stops working for you in Acme Robotics at once.</p>
+							<div class="dialog-actions">
+								<button class="btn" type="button" data-dialog-close>Cancel</button>
+								<button class="btn btn-danger" type="submit">Revoke CLI Session</button>
+							</div>
+						</form>
+					</dialog>
+				</section>
+
+				<section aria-labelledby="c-log">
+					<h2 class="section-title" id="c-log" style="margin-bottom: var(--space-3)">Log viewer</h2>
+					<div class="log">
+						<div class="log-bar"><span class="log-live" role="status">Live</span><button class="btn btn-sm" type="button" aria-pressed="true" data-pressed-toggle>Follow</button></div>
+						<div class="log-body" style="height: 8rem" role="log" aria-label="Example logs" tabindex="0">
+							<div class="log-line"><span class="log-ts">14:02:11</span><span class="log-lvl log-lvl-info">INFO</span><span class="log-msg">replicas: starting 3 replicas</span></div>
+							<div class="log-line"><span class="log-ts">14:02:14</span><span class="log-lvl log-lvl-warn">WARN</span><span class="log-msg">readiness probe failed: connection refused</span></div>
+							<div class="log-line"><span class="log-ts">14:02:19</span><span class="log-lvl log-lvl-error">ERROR</span><span class="log-msg">image pull failed: manifest unknown</span></div>
+						</div>
+					</div>
+				</section>
+			</div>
+		</div>
+	</main>
+</body>
+</html>

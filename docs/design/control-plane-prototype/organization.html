@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Acme Robotics - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div class="app">
+		<aside class="sidebar" aria-label="Organization navigation">
+			<a class="brand" href="organization.html">
+				<img src="assets/logo-mark.png" alt="" width="570" height="392">
+				Reinhardt Cloud
+			</a>
+			<details class="switcher" open>
+				<summary class="switcher-toggle">
+					<span>
+						<span class="visually-hidden">Switch Organization. Current: </span>
+						<span class="switcher-name">Acme Robotics</span>
+						<span class="switcher-sub">Your role: owner</span>
+					</span>
+				</summary>
+				<div class="switcher-menu">
+					<p class="menu-label">Switch Organization</p>
+					<a class="menu-item" href="organization.html" aria-current="true">Acme Robotics</a>
+					<a class="menu-item" href="organization.html">Northwind Labs</a>
+					<a class="menu-item" href="organization.html">Harbor &amp; Finch</a>
+					<div class="menu-rule"></div>
+					<a class="menu-item" href="organization.html">Create Organization</a>
+				</div>
+			</details>
+			<nav class="nav" aria-label="Organization">
+				<a class="nav-link" href="organization.html" aria-current="page">
+					Overview
+				</a>
+				<a class="nav-link" href="projects.html">
+					Projects
+					<span class="nav-count">5</span>
+				</a>
+				<a class="nav-link" href="clusters.html">
+					Clusters
+					<span class="nav-count">3</span>
+				</a>
+				<a class="nav-link" href="members.html">
+					Members
+					<span class="nav-count">5</span>
+				</a>
+			</nav>
+			<div class="sidebar-foot">
+				<details class="user-menu">
+					<summary class="switcher-toggle">
+						<span class="person">
+							<span class="avatar" aria-hidden="true">MO</span>
+							<span>
+								<span class="visually-hidden">User menu: </span>
+								<span class="switcher-name">Mina Okafor</span>
+								<span class="switcher-sub">@mokafor</span>
+							</span>
+						</span>
+					</summary>
+					<div class="user-menu-menu">
+						<a class="menu-item" href="cli-sessions.html">CLI Sessions</a>
+						<a class="menu-item" href="sign-in.html">Sign out</a>
+					</div>
+				</details>
+				<button class="btn btn-quiet btn-sm theme-toggle" type="button" data-theme-toggle>Switch to dark theme</button>
+			</div>
+		</aside>
+		<main class="main" id="main">
+			<div class="page">
+				<header class="page-head">
+					<div>
+						<h1 class="page-title">Acme Robotics</h1>
+						<p class="page-lede">Everything this Organization runs. Its Clusters use the namespace <code>tenant-acme-robotics</code>.</p>
+					</div>
+				</header>
+
+				<div class="stack">
+					<section aria-labelledby="attention-title">
+						<div class="section-head">
+							<h2 class="section-title" id="attention-title">Needs attention</h2>
+							<p class="section-note">2 items</p>
+						</div>
+						<ul class="notice-list">
+							<li class="notice notice-danger">
+								<div class="notice-body">
+									<p class="notice-title">telemetry-ingest Deployment 147 failed on edge-osaka</p>
+									<p class="notice-detail">The Agent could not pull the image: manifest unknown. 22 minutes ago.</p>
+								</div>
+								<a class="btn btn-sm" href="project-detail.html">Review Project</a>
+							</li>
+							<li class="notice notice-warning">
+								<div class="notice-body">
+									<p class="notice-title">The Agent on edge-osaka is disconnected</p>
+									<p class="notice-detail">Last seen 14 minutes ago. Commands for this Cluster wait until the Agent reconnects.</p>
+								</div>
+								<a class="btn btn-sm" href="cluster-detail.html">View Cluster</a>
+							</li>
+						</ul>
+					</section>
+
+					<section aria-labelledby="recent-title">
+						<div class="section-head">
+							<h2 class="section-title" id="recent-title">Recent Deployments</h2>
+							<a href="projects.html">All Projects</a>
+						</div>
+						<div class="table-wrap">
+							<table class="table">
+								<caption class="visually-hidden">Recent Deployments across all Projects</caption>
+								<thead>
+									<tr>
+										<th scope="col">Deployment</th>
+										<th scope="col">Cluster</th>
+										<th scope="col">Status</th>
+										<th scope="col">Submitted by</th>
+										<th scope="col">When</th>
+									</tr>
+								</thead>
+								<tbody>
+										<tr>
+											<td>
+												<a class="cell-primary" href="deployment-detail.html">storefront-api Deployment 148</a>
+												<span class="cell-meta"><span class="sha">a3f91c2</span> Fix cart rounding for JPY</span>
+											</td>
+											<td>prod-tokyo</td>
+											<td><span class="badge badge-progress">Applying</span></td>
+											<td>priya-raman</td>
+											<td><time datetime="2026-10-09T14:28:00Z">4 min ago</time></td>
+										</tr>
+										<tr>
+											<td>
+												<a class="cell-primary" href="project-detail.html">fleet-dashboard Deployment 92</a>
+												<span class="cell-meta"><span class="sha">5be07d4</span> Add battery health chart</span>
+											</td>
+											<td>staging-frankfurt</td>
+											<td><span class="badge badge-success">Running</span></td>
+											<td>jonas-weber</td>
+											<td><time datetime="2026-10-09T13:31:00Z">1 hour ago</time></td>
+										</tr>
+										<tr>
+											<td>
+												<a class="cell-primary" href="project-detail.html">telemetry-ingest Deployment 147</a>
+												<span class="cell-meta"><span class="sha">c81d2ee</span> Bump rdkafka to 0.37</span>
+											</td>
+											<td>edge-osaka</td>
+											<td><span class="badge badge-danger">Failed</span></td>
+											<td>tomas-herrera</td>
+											<td><time datetime="2026-10-09T14:10:00Z">22 min ago</time></td>
+										</tr>
+										<tr>
+											<td>
+												<a class="cell-primary" href="project-detail.html">billing-worker Deployment 61</a>
+												<span class="cell-meta"><span class="sha">0f4a9b8</span> Retry failed invoice exports</span>
+											</td>
+											<td>prod-tokyo</td>
+											<td><span class="badge badge-success">Running</span></td>
+											<td>mokafor</td>
+											<td><time datetime="2026-10-09T11:40:00Z">3 hours ago</time></td>
+										</tr>
+										<tr>
+											<td>
+												<a class="cell-primary" href="project-detail.html">storefront-api Deployment 147</a>
+												<span class="cell-meta"><span class="sha">e2d7a10</span> Add order lookup endpoint</span>
+											</td>
+											<td>prod-tokyo</td>
+											<td><span class="badge badge-success">Running</span></td>
+											<td>priya-raman</td>
+											<td><time datetime="2026-10-08T16:02:00Z">yesterday</time></td>
+										</tr>
+								</tbody>
+							</table>
+						</div>
+					</section>
+
+					<section aria-labelledby="clusters-title">
+						<div class="section-head">
+							<h2 class="section-title" id="clusters-title">Clusters</h2>
+							<a href="clusters.html">All Clusters</a>
+						</div>
+						<div class="table-wrap">
+							<table class="table">
+								<caption class="visually-hidden">Clusters registered to Acme Robotics</caption>
+								<thead>
+									<tr>
+										<th scope="col">Cluster</th>
+										<th scope="col">Agent</th>
+										<th scope="col">Kubernetes</th>
+										<th scope="col">Projects</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr>
+										<td><a class="cell-primary" href="cluster-detail.html">prod-tokyo</a></td>
+										<td><span class="badge badge-success">Connected</span></td>
+										<td>v1.31.4</td>
+										<td>3</td>
+									</tr>
+									<tr>
+										<td><a class="cell-primary" href="cluster-detail.html">staging-frankfurt</a></td>
+										<td><span class="badge badge-success">Connected</span></td>
+										<td>v1.30.8</td>
+										<td>2</td>
+									</tr>
+									<tr>
+										<td><a class="cell-primary" href="cluster-detail.html">edge-osaka</a></td>
+										<td><span class="badge badge-warning">Disconnected</span></td>
+										<td>v1.29.11</td>
+										<td>1</td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					</section>
+				</div>
+			</div>
+		</main>
+	</div>
+</body>
+</html>
