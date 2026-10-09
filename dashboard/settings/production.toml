@@ -2,6 +2,7 @@
 #
 # Loaded when REINHARDT_ENV=production. Overrides `base.toml` key by key.
 # Secrets come from the environment; see `base.toml` for the variable names.
+# Startup fails unless the profile is hardened (see `config::settings`).
 
 [core]
 debug = false
@@ -14,6 +15,9 @@ secure_ssl_redirect = true
 secure_hsts_seconds = 31536000
 secure_hsts_include_subdomains = true
 secure_hsts_preload = true
+
+[redis]
+url = "${REINHARDT_CLOUD_REDIS_URL:?must be set to the Redis URL, including credentials}"
 
 [ws_origin]
 policy = { mode = "allow_list", origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"] }
