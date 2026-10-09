@@ -7,6 +7,7 @@
 use reinhardt::db::orm::Model;
 
 use crate::audit::{ActorKind, AuditEvent, Outcome};
+use crate::persisted_time::persisted_now;
 
 use crate::apps::accounts::models::User;
 use crate::apps::accounts::services::server::sign_up_policy::{
@@ -244,7 +245,7 @@ pub async fn sync_profile(user: User, profile: &GithubProfile) -> Result<User, U
 			User::field_display_name().assign(display_name.to_owned()),
 			User::field_avatar_url().assign(profile.avatar_url.clone()),
 			User::field_email().assign(profile.verified_email.clone()),
-			User::field_updated_at().assign(chrono::Utc::now()),
+			User::field_updated_at().assign(persisted_now()),
 		])
 		.await
 		.map_err(UserError::storage)?;

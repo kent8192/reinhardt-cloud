@@ -3,6 +3,7 @@
 //! Library crate of the Control Plane application. Module layout:
 //! - `apps`         — application code (each app has server-side routes and client-side pages)
 //! - `audit`        — the shared audit-event helper (server only)
+//! - `persisted_time` — microsecond-truncated timestamps for persistence
 //! - `client`       — WASM-only frontend (booted by its `wasm_bindgen(start)` entry point)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
 //! - `server`       — production HTTP server bootstrap used by the server binary
@@ -29,6 +30,7 @@ pub mod apps;
 #[cfg(server)]
 pub mod audit;
 pub mod config;
+pub mod persisted_time;
 #[cfg(server)]
 pub mod server;
 

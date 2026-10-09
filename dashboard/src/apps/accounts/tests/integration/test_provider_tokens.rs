@@ -1,6 +1,6 @@
 //! Integration tests of provider token storage (SR-06, SR-03).
 
-use chrono::{DateTime, Duration, SubsecRound, Utc};
+use chrono::{DateTime, Duration, SubsecRound, Timelike, Utc};
 use reinhardt::auth::social::core::SocialAuthError;
 use reinhardt::auth::social::storage::{SocialAccount as UpstreamAccount, SocialAccountStorage};
 use reinhardt::conf::settings::secret_types::SecretString;
@@ -560,4 +560,76 @@ async fn sr_06_trait_update_without_a_refresh_token_clears_the_refresh_expiry(
 	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
 	assert!(loaded.refresh_token.is_none());
 	assert_eq!(loaded.refresh_token_expires_at, None);
+}
+
+/// A timestamp whose sub-second part is not a whole number of microseconds,
+/// as Linux clocks produce. Built explicitly so macOS exercises the same path.
+fn nanosecond_timestamp(seconds_from_now: i64) -> DateTime<Utc> {
+	let base = (Utc::now() + Duration::seconds(seconds_from_now)).timestamp();
+	DateTime::<Utc>::from_timestamp(base, 123_456_789).unwrap()
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_06_store_tokens_accepts_nanosecond_precision_expiries(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(119, "nanos", false).await;
+	let storage = storage();
+	let access_expiry = nanosecond_timestamp(8 * 3600);
+	let refresh_expiry = nanosecond_timestamp(180 * 24 * 3600);
+	let tokens = ProviderTokens {
+		access_token: SecretString::new("ghu_nanos"),
+		refresh_token: Some(SecretString::new("ghr_nanos")),
+		access_token_expires_at: access_expiry,
+		refresh_token_expires_at: Some(refresh_expiry),
+	};
+
+	// Act
+	storage.store_tokens(user.id, &tokens).await.unwrap();
+	storage.store_tokens(user.id, &tokens).await.unwrap();
+	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
+
+	// Assert
+	assert_eq!(
+		loaded.access_token_expires_at,
+		access_expiry.with_nanosecond(123_456_000).unwrap()
+	);
+	assert_eq!(
+		loaded.refresh_token_expires_at,
+		Some(refresh_expiry.with_nanosecond(123_456_000).unwrap())
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_06_trait_create_and_update_accept_nanosecond_precision_expiries(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(120, "nanos-trait", false).await;
+	let storage = storage();
+	let mut account = upstream_account(user.id, 120, "ghu_first");
+	account.token_expires_at = nanosecond_timestamp(8 * 3600);
+	let created = storage.create(account).await.unwrap();
+	let mut refreshed = upstream_account(user.id, 120, "ghu_second");
+	refreshed.id = created.id;
+	refreshed.token_expires_at = nanosecond_timestamp(16 * 3600);
+
+	// Act
+	let updated = storage.update(refreshed.clone()).await.unwrap();
+
+	// Assert
+	assert_eq!(
+		updated.token_expires_at,
+		refreshed
+			.token_expires_at
+			.with_nanosecond(123_456_000)
+			.unwrap()
+	);
 }

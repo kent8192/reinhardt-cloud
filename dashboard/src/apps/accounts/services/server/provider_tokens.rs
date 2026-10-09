@@ -40,6 +40,7 @@ use crate::apps::accounts::models::{SocialAccount as SocialAccountRow, User};
 use crate::apps::accounts::services::server::token_crypto::{
 	TokenContext, TokenCryptoError, TokenKeyring, TokenPurpose,
 };
+use crate::persisted_time::{persisted_now, to_persisted};
 
 /// The provider name this storage serves.
 pub const GITHUB_PROVIDER: &str = "github";
@@ -56,6 +57,18 @@ pub struct ProviderTokens {
 	pub access_token_expires_at: DateTime<Utc>,
 	/// When the refresh token expires, when GitHub reports it.
 	pub refresh_token_expires_at: Option<DateTime<Utc>>,
+}
+
+impl ProviderTokens {
+	/// A copy whose expiries are truncated to the precision the database stores,
+	/// so a caller may pass `now + expires_in` unmodified.
+	fn persisted(&self) -> Self {
+		Self {
+			access_token_expires_at: to_persisted(self.access_token_expires_at),
+			refresh_token_expires_at: self.refresh_token_expires_at.map(to_persisted),
+			..self.clone()
+		}
+	}
 }
 
 /// Failures of token storage.
@@ -100,7 +113,8 @@ impl OrmSocialAccountStorage {
 	/// Store the tokens of `user_id`, replacing any previous ones.
 	///
 	/// Both tokens and both expiries are written in one statement, so a
-	/// rotated GitHub App refresh token is never persisted half-way.
+	/// rotated GitHub App refresh token is never persisted half-way. The
+	/// expiries are truncated to microseconds (see `crate::persisted_time`).
 	///
 	/// # Errors
 	///
@@ -111,6 +125,7 @@ impl OrmSocialAccountStorage {
 		user_id: Uuid,
 		tokens: &ProviderTokens,
 	) -> Result<(), ProviderTokenError> {
+		let tokens = &tokens.persisted();
 		self.find_user(user_id).await?;
 		let encrypted_access_token = self.keyring.encrypt(
 			&tokens.access_token,
@@ -284,7 +299,7 @@ async fn update_row_tokens(
 				.assign(tokens.access_token_expires_at),
 			SocialAccountRow::field_refresh_token_expires_at()
 				.assign(tokens.refresh_token_expires_at),
-			SocialAccountRow::field_updated_at().assign(Utc::now()),
+			SocialAccountRow::field_updated_at().assign(persisted_now()),
 		])
 		.await
 		.map(|_| ())
