@@ -126,7 +126,7 @@ impl AuditEvent {
 		// `Option<String>` records nothing for `None`, so absent fields are
 		// omitted rather than written as empty values.
 		tracing::info!(
-			target: "audit",
+			target: AUDIT_TARGET,
 			event = self.event,
 			actor_kind = self.actor_kind.as_str(),
 			actor_user_id = self.actor_user_id.map(|id| id.to_string()),
