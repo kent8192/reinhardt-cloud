@@ -28,7 +28,8 @@ The theme follows the system setting. The "Switch to dark theme" button override
 | `project-detail.html` | Deployment ledger and observed Previews |
 | `deployment-detail.html` | Progress, Deployment details, live log viewer, read-only submitted configuration |
 | `members.html` | Members, roles, and Invitations |
-| `api-keys.html` | API Keys, with a newly created key shown once |
+| `cli-sessions.html` | CLI Sessions of the signed-in User (reached from the User menu); `#none` shows the empty state with `reinhardt-cloud login` |
+| `cli-authorize.html` | Browser approval screen opened by the CLI: confirmation code, Organization, what the CLI Session can and cannot do; `#approved` and `#denied` show the result states |
 | `components.html` | Component inventory (colors, type, controls, badges, empty state, toast, dialog, code block, log viewer) |
 
 ## Design direction
@@ -82,10 +83,13 @@ Styles live in `components.css`. Selectors are single classes so one component c
 | Notices and alerts | `.notice-list`, `.notice`, `.alert` | "Needs attention" list and inline alerts |
 | Empty state | `.empty`, `.empty-title` | Says what appears here and what to do next |
 | Code block | `.code`, `.code-bar` | Optional Copy button |
-| One-time secret | `.secret`, `.secret-title`, `.secret-note` | Used for client secrets and API Keys |
+| One-time secret | `.secret`, `.secret-title`, `.secret-note` | Used for Cluster client secrets |
 | Log viewer | `.log`, `.log-bar`, `.log-body`, `.log-line` | `role="log"`, focusable for keyboard scrolling, Follow toggle uses `aria-pressed` |
 | Dialog | `.dialog`, `.dialog-actions` | Native `<dialog>`; focus is trapped by the browser |
 | Toast | `.toast-region`, `.toast` | `role="status"`, with a dismiss button |
+| Confirmation code | `.otp` | Short code the User compares with the terminal |
+| Page states | `.state-stack`, `.state-main`, `.state-alt` | Alternate state shown through a URL fragment such as `#none` |
+| Permission list | `.can-list`, `.can-not` | Circle for allowed, square for not allowed, each with text |
 | Steps | `.steps` | Numbered only where the content is a real sequence (Agent install) |
 | Definition list | `.dl`, `.dl-panel` | Facts about one Cluster or Deployment |
 | Disclosure | `.disclosure` | Read-only technical detail |
@@ -111,9 +115,10 @@ Styles live in `components.css`. Selectors are single classes so one component c
 
 `assets/logo-mark.png` is `branding/logo.png` cropped to the mark, downscaled, and converted to a transparent background so it works on both themes. The color is unchanged. `assets/logo-mark-small.png` is the same mark area-averaged to 142x98 px for the 44px-wide sign-in brand line, so it is never upscaled.
 
-`screenshots/` holds small previews of the sign-in page (both themes), the Project detail page, and the Deployment detail page in dark theme.
+`screenshots/` holds small previews of the sign-in page (both themes), the Project detail page, the Deployment detail page in dark theme, and the CLI authorization screen.
 
 ![Sign-in, light](screenshots/sign-in-light.png)
 ![Sign-in, dark](screenshots/sign-in-dark.png)
 ![Project detail, light](screenshots/project-detail-light.png)
 ![Deployment detail, dark](screenshots/deployment-detail-dark.png)
+![CLI authorization, light](screenshots/cli-authorize-light.png)
