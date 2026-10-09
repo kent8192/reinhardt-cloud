@@ -939,6 +939,10 @@ samp {
 	font-weight: var(--weight-semibold);
 }
 
+.empty .empty-title {
+	color: var(--ink-strong);
+}
+
 .empty p {
 	max-width: 46ch;
 	color: var(--ink-muted);
@@ -1430,6 +1434,101 @@ samp {
 	animation: none;
 }
 
+/* =========================================================================
+ * CLI authorization
+ * ========================================================================= */
+
+.authorize {
+	position: relative;
+	display: grid;
+	place-items: center;
+	min-height: 100vh;
+	padding: var(--space-8) var(--space-4) var(--space-6);
+}
+
+.authorize-main {
+	width: min(34rem, 100%);
+}
+
+.authorize-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+	padding: var(--space-6);
+	background: var(--surface-raised);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--elevation-1);
+}
+
+.authorize-panel.state-alt:target {
+	display: flex;
+}
+
+.authorize-title {
+	color: var(--ink-strong);
+	font-family: var(--font-display);
+	font-size: var(--text-2xl);
+	font-weight: var(--weight-regular);
+	letter-spacing: -0.015em;
+	line-height: var(--leading-tight);
+}
+
+.otp {
+	margin-top: var(--space-1);
+	padding: var(--space-3) var(--space-4);
+	background: var(--surface-sunken);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-md);
+	color: var(--ink-strong);
+	font-family: var(--font-mono);
+	font-size: var(--text-2xl);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.18em;
+	text-align: center;
+}
+
+.authorize-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+}
+
+.authorize-facts {
+	padding-top: var(--space-4);
+	border-top: 1px solid var(--border-subtle);
+}
+
+.can-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}
+
+.can-list li {
+	position: relative;
+	padding-left: var(--space-5);
+	color: var(--ink-default);
+}
+
+/* Each item carries its own shape so permission is not shown by color alone. */
+.can-list li::before {
+	content: "";
+	position: absolute;
+	left: 0.1rem;
+	top: 0.4em;
+	width: 0.65rem;
+	height: 0.65rem;
+	background: var(--status-success-fg);
+	border-radius: var(--radius-full);
+}
+
+.can-list .can-not::before {
+	background: var(--status-danger-fg);
+	border-radius: 1px;
+}
+
 .signin-foot {
 	color: var(--ink-subtle);
 	font-size: var(--text-sm);
@@ -1441,6 +1540,20 @@ samp {
 
 .alert-hidden:target {
 	display: block;
+}
+
+/* Alternate page state, shown through its fragment (for example
+ * `cli-sessions.html#none`). The main state is hidden while it is targeted. */
+.state-alt {
+	display: none;
+}
+
+.state-alt:target {
+	display: block;
+}
+
+.state-stack:has(.state-alt:target) > .state-main {
+	display: none;
 }
 
 /* =========================================================================

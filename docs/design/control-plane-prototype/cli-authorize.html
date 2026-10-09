@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Authorize the CLI - Reinhardt Cloud</title>
+	<link rel="stylesheet" href="tokens.css">
+	<link rel="stylesheet" href="components.css">
+	<script src="prototype.js"></script>
+</head>
+<body>
+	<div class="authorize">
+		<p class="signin-brand">
+			<img src="assets/logo-mark-small.png" alt="" width="142" height="98">
+			Reinhardt Cloud
+		</p>
+		<main class="authorize-main" id="main">
+			<div class="state-stack">
+				<section class="authorize-panel state-main" aria-labelledby="authorize-title">
+					<h1 class="authorize-title" id="authorize-title">Authorize the Reinhardt Cloud CLI</h1>
+					<p class="prose">A program on another device is asking to act for you. Check that the code below matches your terminal before you approve.</p>
+
+					<div class="authorize-code">
+						<p class="hint" id="code-label">Confirmation code</p>
+						<p class="otp" aria-labelledby="code-label">QXTR-7M2K</p>
+					</div>
+
+					<dl class="dl authorize-facts">
+						<dt>Device</dt>
+						<dd>Mina's MacBook (reinhardt-cloud 0.1)</dd>
+						<dt>Signed in as</dt>
+						<dd>Mina Okafor (@mokafor)</dd>
+					</dl>
+
+					<form class="authorize-form" data-prototype>
+						<div class="field">
+							<label class="label" for="authorize-org">Organization</label>
+							<select class="select" id="authorize-org" aria-describedby="authorize-org-hint">
+								<option selected>Acme Robotics</option>
+								<option>Northwind Labs</option>
+								<option>Harbor &amp; Finch</option>
+							</select>
+							<p class="hint" id="authorize-org-hint">The CLI Session is bound to this one Organization.</p>
+						</div>
+
+						<div>
+							<h2 class="section-title" id="can-title">What this CLI Session can do</h2>
+							<ul class="can-list" aria-labelledby="can-title">
+								<li>Act with your current role in Acme Robotics.</li>
+								<li>End on its own within one hour.</li>
+								<li class="can-not">Cannot use Staff authority.</li>
+								<li class="can-not">Cannot create other CLI Sessions.</li>
+							</ul>
+						</div>
+
+						<div class="actions">
+							<a class="btn btn-primary" href="#approved">Approve</a>
+							<a class="btn" href="#denied">Deny</a>
+						</div>
+					</form>
+				</section>
+
+				<section class="authorize-panel state-alt" id="approved" aria-labelledby="approved-title">
+					<h1 class="authorize-title" id="approved-title">CLI Session approved</h1>
+					<p class="prose">You can return to your terminal. The CLI Session for Acme Robotics ends within one hour.</p>
+					<div class="actions">
+						<a class="btn" href="cli-sessions.html">View CLI Sessions</a>
+					</div>
+				</section>
+
+				<section class="authorize-panel state-alt" id="denied" aria-labelledby="denied-title">
+					<h1 class="authorize-title" id="denied-title">CLI Session denied</h1>
+					<p class="prose">The CLI was not given access. You can close this tab.</p>
+				</section>
+			</div>
+		</main>
+	</div>
+</body>
+</html>
