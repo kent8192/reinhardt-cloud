@@ -40,7 +40,7 @@ see only explicit serializable contracts.
 
 | App | Owns |
 |-----|------|
-| `accounts` | Users, GitHub sign-in, sessions, sign-up policy, Staff grants, Login Links, API Keys |
+| `accounts` | Users, GitHub sign-in, sessions, sign-up policy, Staff grants, Login Links, CLI Sessions (OAuth authorization server for the CLI) |
 | `organizations` | Organizations, Members, roles, Invitations, tenant namespace rule |
 | `clusters` | Cluster registration and the Cluster's OAuth client |
 | `agents` | Agent Gateway, command outbox, Agent connection state |
