@@ -112,13 +112,13 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-115 | A CLI Session has the authority of one Member in one Organization, never more | `new` | M1 (rule), M4 (use by the submission endpoint) |
 | SR-116 | The authorization server resists abuse and records what it does | `new` | M1 |
 | SR-117 | Refresh tokens and the device authorization grant are adopted with rotation and reuse detection | `new` | M1 |
-| SR-27 | API Keys are unguessable, recognizable, and never stored in clear | `carried` | M1 |
-| SR-28 | API Key verification rejects every invalid state | `carried` | M1 |
-| SR-29 | Bearer authentication never erases or elevates a session | `carried` | M1 |
-| SR-30 | Usage bookkeeping cannot revive or delay anything | `carried` | M1 |
-| SR-31 | Users issue and revoke their own API Keys from the Dashboard | `new` | M1 |
-| SR-32 | Operator commands manage API Keys | `carried` | M1 |
-| SR-33 | Authority carried by an API Key | `needs decision` | M1 |
+| SR-27 | API Keys are unguessable, recognizable, and never stored in clear | `superseded` | M1 |
+| SR-28 | API Key verification rejects every invalid state | `superseded` | M1 |
+| SR-29 | Bearer authentication never erases or elevates a session | `superseded` | M1 |
+| SR-30 | Usage bookkeeping cannot revive or delay anything | `superseded` | M1 |
+| SR-31 | Users issue and revoke their own API Keys from the Dashboard | `superseded` | M1 |
+| SR-32 | Operator commands manage API Keys | `superseded` | M1 |
+| SR-33 | Authority carried by an API Key | `superseded` | M1 |
 | SR-34 | Every action is explicitly allowed or denied for every Role | `carried` | M2 |
 | SR-35 | Mutations authorize by Role, in the Organization that owns the target | `carried` | M2 (rule), M3, M4, M6 (enforcement in `clusters`, `deployments`/`projects`, `github`) |
 | SR-36 | Organization-owned data is isolated | `carried` | M2 (rule), M3, M4, M5, M6 (per application) |
@@ -539,71 +539,80 @@ A CLI Session is a short-lived grant, approved by a User in the browser, that le
 - **Source:** #915 and #917; upstream reinhardt-web#6708 (refresh tokens, tracked in #926) and reinhardt-web#6707 (device authorization grant, tracked in #925).
 - **Old tests:** none (new behavior).
 
-## API Keys
+## API Keys (abolished)
+
+API Keys are abolished product-wide (#915, #917); CLI Sessions replace them (SR-109 to SR-117). Every record in this section is superseded. Their old tests are not portable because their subject is removed, but their assertion shapes serve as models for the replacement acceptance tests.
 
 ### SR-27 API Keys are unguessable, recognizable, and never stored in clear
 
-- **Status:** `carried`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-113.
 - **Threat:** A database read yields working credentials; short or predictable keys are guessable; unrecognizable keys evade secret scanners when committed by mistake.
 - **Requirement:** An API Key MUST contain at least 256 bits from a cryptographically secure source, MUST begin with the fixed `rct_` prefix so secret scanners can detect it, and MUST be stored only as a one-way hash. The plaintext MUST be shown to its owner exactly once, at creation. Listings MUST show only a short non-secret prefix, a label, and timestamps. The failure of the entropy source MUST fail issuance.
 - **Source:** a64960fb0 (inside #720).
-- **Old tests:** `auth/tests/integration/test_api_key_service.rs::test_generate_then_verify_roundtrip`, `auth/tests/integration/test_api_key_service.rs::test_list_api_keys_for_user_returns_keys`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** `auth/tests/integration/test_api_key_service.rs::test_generate_then_verify_roundtrip`, `auth/tests/integration/test_api_key_service.rs::test_list_api_keys_for_user_returns_keys`.
 
 ### SR-28 API Key verification rejects every invalid state
 
-- **Status:** `carried`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-113 and SR-114.
 - **Threat:** A revoked, expired, unknown, or deactivated-User key continues to authenticate.
 - **Requirement:** A bearer credential MUST authenticate only when it matches a stored key that is not revoked, not expired, and belongs to an active User. All rejections MUST be indistinguishable to the caller and MUST yield an anonymous request. The submitted value MUST NOT be accepted from a URL query string.
 - **Source:** a64960fb0, d95d2017b (inside #720).
-- **Old tests:** `auth/tests/integration/test_api_key_service.rs::test_verify_rejects_revoked_token`, `auth/tests/integration/test_api_key_service.rs::test_verify_rejects_expired_token`, `auth/tests/integration/test_api_token_middleware.rs::test_resolve_valid_token_authenticated`, `auth/tests/integration/test_api_token_middleware.rs::test_resolve_invalid_token_anonymous`, `tests/e2e/cli_auth.rs::api_me_accepts_valid_bearer_token`, `tests/e2e/cli_auth.rs::api_me_rejects_missing_token`, `tests/e2e/cli_auth.rs::api_me_rejects_unknown_token`, `tests/e2e/cli_auth.rs::api_me_rejects_revoked_token`. Deactivated-User rejection: `gap`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** `auth/tests/integration/test_api_key_service.rs::test_verify_rejects_revoked_token`, `auth/tests/integration/test_api_key_service.rs::test_verify_rejects_expired_token`, `auth/tests/integration/test_api_token_middleware.rs::test_resolve_valid_token_authenticated`, `auth/tests/integration/test_api_token_middleware.rs::test_resolve_invalid_token_anonymous`, `tests/e2e/cli_auth.rs::api_me_accepts_valid_bearer_token`, `tests/e2e/cli_auth.rs::api_me_rejects_missing_token`, `tests/e2e/cli_auth.rs::api_me_rejects_unknown_token`, `tests/e2e/cli_auth.rs::api_me_rejects_revoked_token`. Deactivated-User rejection: `gap`.
 
 ### SR-29 Bearer authentication never erases or elevates a session
 
-- **Status:** `carried`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-115.
 - **Threat:** An invalid `Authorization` header wipes a valid session (denial of service), or ordering of the authentication layers lets stale session state overwrite a valid key (wrong principal).
 - **Requirement:** A valid API Key MUST establish the request's principal regardless of any session present. An invalid or malformed bearer value MUST leave the existing session state untouched. A request MUST have exactly one principal.
 - **Source:** 56d0f4cfd (inside #720).
-- **Old tests:** `auth/tests/integration/test_validated_session_middleware.rs::valid_bearer_token_replaces_validated_cookie_session`, `auth/tests/integration/test_api_token_middleware.rs::test_server_fn_accepts_bearer_token`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** `auth/tests/integration/test_validated_session_middleware.rs::valid_bearer_token_replaces_validated_cookie_session`, `auth/tests/integration/test_api_token_middleware.rs::test_server_fn_accepts_bearer_token`.
 
 ### SR-30 Usage bookkeeping cannot revive or delay anything
 
-- **Status:** `carried`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-114.
 - **Threat:** A last-used update that races with revocation reactivates the key, or a synchronous write on every request becomes a load amplifier.
 - **Requirement:** Recording that a key was used MUST NOT alter a revoked key, and the success, failure, or slowness of that recording MUST NOT affect the outcome or latency of the request that presented the key.
 - **Source:** a64960fb0 (inside #720).
-- **Old tests:** `auth/tests/integration/test_api_key_service.rs::test_touch_last_used_skips_revoked_token`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** `auth/tests/integration/test_api_key_service.rs::test_touch_last_used_skips_revoked_token`.
 
 ### SR-31 Users issue and revoke their own API Keys from the Dashboard
 
-- **Status:** `new`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-112 and SR-114.
 - **Threat:** Without a self-service path, operators mint keys by hand and keys are never rotated; with a careless one, a stolen browser tab or a stolen key mints more keys.
 - **Requirement:** An authenticated User MUST be able to create, list, and revoke their own API Keys from the Dashboard. Creation MUST require an interactive session (SR-33 decides whether an API Key may also create keys), accept a label and an optional expiry, and display the plaintext once with a clear statement that it cannot be shown again. A User MUST see and revoke only their own keys. Revocation MUST take effect on the next request that presents the key. Creating and revoking a key MUST be recorded with the User, the key's non-secret prefix, and the time.
 - **Source:** #917: M1 exit criteria include API Keys through the Dashboard and `manage`.
-- **Old tests:** none (new behavior). The old Control Plane issued keys only through `manage`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** none (new behavior). The old Control Plane issued keys only through `manage`.
 
 ### SR-32 Operator commands manage API Keys
 
-- **Status:** `carried`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-114.
 - **Threat:** Break-glass key management must exist without opening a network path to it.
 - **Requirement:** `manage create-api-token`, `manage list-api-tokens`, and `manage revoke-api-token` MUST exist, be usable only with host operator access, and observe SR-27: the plaintext is printed once and listings never print it.
 - **Source:** caf900f30 (inside #720).
-- **Old tests:** `gap` (commands were exercised through the end-to-end suite only).
+- **Old tests (not portable: the subject is removed; models for the replacement):** `gap` (commands were exercised through the end-to-end suite only).
 
 ### SR-33 Authority carried by an API Key
 
-- **Status:** `needs decision`
+- **Status:** `superseded`
 - **Milestone:** M1
+- **Replaced by:** SR-115.
 - **Threat:** A key that inherits everything its owner can do widens the blast radius of a leaked CI credential: Staff powers, key creation, and every Organization the owner belongs to.
 - **Requirement (floor):** An API Key MUST NOT confer more authority than its owner holds at the time of the request (never a snapshot taken at issuance), and a deactivated owner's keys MUST stop working (SR-28).
-- **Question:** (a) Does a key inherit Staff status? The old Control Plane did (`is_staff` or `is_superuser` flowed into the key's principal). (b) May a key create or revoke other keys, or only a session? (c) A User may belong to several Organizations: how does a key select the Organization for a CLI submission (SR-63) when the target is identified only by Cluster and Project name? (d) Do keys need a scope narrower than "everything the owner can do"?
+- **Former question (answered by SR-115):** (a) Does a key inherit Staff status? The old Control Plane did (`is_staff` or `is_superuser` flowed into the key's principal). (b) May a key create or revoke other keys, or only a session? (c) A User may belong to several Organizations: how does a key select the Organization for a CLI submission (SR-63) when the target is identified only by Cluster and Project name? (d) Do keys need a scope narrower than "everything the owner can do"?
 - **Source:** a64960fb0, d95d2017b (inside #720).
-- **Old tests:** `gap`.
+- **Old tests (not portable: the subject is removed; models for the replacement):** `gap`.
 
 ## Roles, Organization isolation, and tenancy
 
