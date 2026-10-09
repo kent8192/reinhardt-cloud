@@ -146,4 +146,4 @@ Do NOT modify the checkbox text — CI parses it by exact pattern match. -->
 
 -
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+<!-- AI-assisted PRs: end with "🤖 Generated with [<Agent Name>](<Agent URL>)", naming the agent tool that wrote the PR. -->

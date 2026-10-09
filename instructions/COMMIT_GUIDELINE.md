@@ -323,23 +323,21 @@ Footers follow the [git trailer convention](https://git-scm.com/docs/git-interpr
 | `Closes` | Closes related issues | `Closes #123` |
 | `Fixes` | Fixes related issues | `Fixes #789` |
 
-**Agent attribution:** Use the actual authoring agent, not a copied template's
-identity. For Codex-assisted commits:
+**Agent attribution:** Attribute AI-assisted commits to the agent tool and model that
+actually wrote them. Fill in both names from your own knowledge; never copy them from
+examples, earlier commits, or another agent's message.
 
 ```text
-🤖 Generated with [Codex](https://openai.com/codex)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 
-Co-Authored-By: Codex <noreply@openai.com>
+Co-Authored-By: <Model Name> <noreply@model-provider.example>
 ```
-
-For Claude Code-assisted commits, retain the Claude Code attribution and
-`Co-Authored-By: Claude <noreply@anthropic.com>`.
 
 **Requirements:**
 
 - Separate the body and attribution with one blank line.
 - Footer tokens use `-` in place of whitespace, except `BREAKING CHANGE`.
-- Include the actual agent's attribution and co-author trailer when AI-assisted.
+- Include the authoring agent's attribution and a co-author trailer naming the authoring model when AI-assisted; do not use a fixed model name.
 
 ---
 

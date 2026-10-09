@@ -214,7 +214,7 @@ PR descriptions MUST follow the structure defined in `.github/PULL_REQUEST_TEMPL
 
 **Optional Sections:** Performance Impact, Breaking Changes, Screenshots, Related Issues, Additional Context
 
-**Footer:** Attribute the actual authoring agent using [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md#footer-format); replace a template's Claude Code footer with Codex attribution for Codex-authored PRs.
+**Footer:** Attribute the actual authoring agent using [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md#footer-format); fill in the agent tool from your own knowledge rather than from a template or example.
 
 ### DF-2 (MUST): Linking PRs to Issues
 
