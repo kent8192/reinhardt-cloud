@@ -160,6 +160,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-83 | Updates reach only the subscribers they belong to | `carried` | M5 |
 | SR-84 | Malformed frames cannot crash or stall the realtime endpoint | `carried` | M5 |
 | SR-85 | Log content masking | `needs decision` | M5 |
+| SR-106 | A realtime connection requires a valid session at the handshake | `carried` | M5 |
 | SR-86 | App installation setup requires signed state, the right Role, and a visible installation | `carried` | M6 |
 | SR-87 | An installation belongs to at most one Organization | `carried` | M6 |
 | SR-88 | Webhooks are authenticated by signature before they are parsed or acted on | `carried` | M6 |
@@ -907,9 +908,9 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M5
 - **Threat:** Cross-site WebSocket hijacking: a malicious page opens a socket to the Control Plane and the browser attaches the victim's session cookie.
-- **Requirement:** The realtime handshake MUST require an `Origin` header that matches an explicit allow-list, normalized for case and trailing slash, and MUST do so before reading or accepting the session cookie. A missing `Origin` MUST be refused, and a connection without a valid session MUST be refused at the handshake instead of being accepted as anonymous. The allow-list MUST be explicit configuration; a wildcard MUST be ignored.
+- **Requirement:** The realtime handshake MUST require an `Origin` header that matches an explicit allow-list, normalized for case and trailing slash, and MUST do so before reading or accepting the session cookie. A missing `Origin` MUST be refused. The allow-list MUST be explicit configuration; a wildcard MUST be ignored.
 - **Source:** #835 (duplicate #843); d8e3c5150 (inside #294).
-- **Old tests:** `utils/realtime/consumer.rs::test_validate_websocket_origin_rejects_missing_origin`, `::test_validate_websocket_origin_allows_configured_origin`, `::test_normalize_origin_trims_trailing_slash_and_case`, `::test_extract_cookie_value_single`, `::test_extract_cookie_value_multiple`, `::test_extract_cookie_value_missing`. Rejection of a non-listed origin: `gap`.
+- **Old tests:** `utils/realtime/consumer.rs::test_validate_websocket_origin_rejects_missing_origin`, `::test_validate_websocket_origin_allows_configured_origin`, `::test_normalize_origin_trims_trailing_slash_and_case`, `::test_extract_cookie_value_single`, `::test_extract_cookie_value_multiple`, `::test_extract_cookie_value_missing`. Rejection of a non-listed origin: `gap`. Handshake refusal without a session is SR-106.
 
 ### SR-78 Subscriptions are authorized per resource, and unauthenticated clients cannot subscribe
 
@@ -983,6 +984,15 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Question:** The old Control Plane streamed logs without server-side masking and documented the limitation (`docs/tools/dashboard.md`). Should the rebuild mask well-known secret patterns, restrict logs-read to roles above viewer, or keep the documented limitation?
 - **Source:** `docs/tools/dashboard.md`, "Security note".
 - **Old tests:** none.
+
+### SR-106 A realtime connection requires a valid session at the handshake
+
+- **Status:** `carried`
+- **Milestone:** M5
+- **Threat:** A connection accepted as anonymous and authenticated later, or never, leaves a window in which unauthenticated clients hold open sockets and can probe the protocol.
+- **Requirement:** The realtime handshake MUST be refused for a request without a valid session, after the origin check of SR-77. An anonymous connection MUST NOT be accepted.
+- **Source:** #841 (the handshake previously accepted unauthenticated connections). This was split out of SR-77, whose original text combined it with the origin check.
+- **Old tests:** `utils/realtime/consumer.rs::test_parse_subscribe_without_auth_rejected` covers the message layer only. Refusal at the handshake: `gap`.
 
 ## GitHub integration
 
