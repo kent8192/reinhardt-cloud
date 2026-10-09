@@ -4,9 +4,14 @@ use std::sync::Arc;
 
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use reinhardt_cloud_core::auth::Claims;
-use tonic::codegen::{Context, InterceptedService, Poll, Service, http};
+use std::task::{Context, Poll};
+
 use tonic::server::NamedService;
+use tonic::service::interceptor::InterceptedService;
 use tonic::{Request, Status};
+// `Service` and `http` are taken from `tonic::codegen` because importing them
+// directly would require new `tower-service` and `http` dependencies.
+use tonic::codegen::{Service, http};
 
 use crate::agent_claims::{AgentClaims, verify_agent_token};
 
