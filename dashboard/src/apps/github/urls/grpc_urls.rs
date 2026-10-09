@@ -1,0 +1,8 @@
+//! gRPC services for the github application.
+
+use reinhardt::grpc::GrpcRouter;
+
+/// Return the gRPC services contributed by this application.
+pub fn grpc_services() -> GrpcRouter {
+	GrpcRouter::new()
+}

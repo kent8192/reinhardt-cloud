@@ -6,4 +6,13 @@ use reinhardt::installed_apps;
 
 installed_apps! {
 	// Apps will be added here by `reinhardt-admin startapp`.
+	accounts: "accounts",
+	organizations: "organizations",
+	clusters: "clusters",
+	agents: "agents",
+	projects: "projects",
+	deployments: "deployments",
+	logs: "logs",
+	github: "github",
+	health: "health",
 }

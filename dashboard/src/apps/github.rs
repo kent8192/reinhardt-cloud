@@ -1,0 +1,29 @@
+//! github application module
+//!
+//! A Reinhardt Pages app whose server-side and client-side code both live
+//! under this directory:
+//!
+//! - `models` — shared model definitions and generated info DTOs
+//! - `server` — native-only implementation details
+//! - `client` — WASM-only UI modules and client services
+//! - `serializers` / `server_fn` / `services` / `urls` — cross-target
+//!   module surfaces that gate client/server internals explicitly
+
+#[cfg(server)]
+use reinhardt::app_config;
+
+#[cfg(client)]
+pub mod client;
+
+#[cfg(server)]
+pub mod server;
+
+pub mod models;
+pub mod serializers;
+pub mod server_fn;
+pub mod services;
+pub mod urls;
+
+#[cfg(server)]
+#[app_config(name = "github", label = "github")]
+pub struct GithubConfig;

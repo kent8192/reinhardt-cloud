@@ -17,18 +17,16 @@ use reinhardt::routes;
 
 #[routes]
 pub fn routes() -> UnifiedRouter {
-	let router = UnifiedRouter::new();
-
-	// Add each module app explicitly (one merge per app):
-	// `url_patterns()` is target-neutral; no server/client cfg branch is needed here.
-	// let router = router
-	//     .merge(crate::apps::notes::urls::url_patterns())
-	//     .merge(crate::apps::accounts::urls::url_patterns());
-	//
-	// Add each workspace app explicitly (one merge per app):
-	// let router = router
-	//     .merge(notes::urls::url_patterns())
-	//     .merge(accounts::urls::url_patterns());
-
-	router
+	// One merge per installed app. `url_patterns()` is target-neutral; no
+	// server/client cfg branch is needed here.
+	UnifiedRouter::new()
+		.merge(crate::apps::accounts::urls::url_patterns())
+		.merge(crate::apps::organizations::urls::url_patterns())
+		.merge(crate::apps::clusters::urls::url_patterns())
+		.merge(crate::apps::agents::urls::url_patterns())
+		.merge(crate::apps::projects::urls::url_patterns())
+		.merge(crate::apps::deployments::urls::url_patterns())
+		.merge(crate::apps::logs::urls::url_patterns())
+		.merge(crate::apps::github::urls::url_patterns())
+		.merge(crate::apps::health::urls::url_patterns())
 }
