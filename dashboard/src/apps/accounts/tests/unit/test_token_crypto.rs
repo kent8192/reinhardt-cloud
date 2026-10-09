@@ -137,6 +137,9 @@ fn sr_06_tampered_envelope_is_rejected(context: TokenContext) {
 #[case::extra_parts("v1.primary.AAAA.AAAA")]
 #[case::not_base64("v1.primary.!!!")]
 #[case::too_short("v1.primary.AAAA")]
+#[case::key_id_with_forbidden_characters("v1.bad key!.AAAAAAAAAAAAAAAAAAAAAAAA")]
+#[case::key_id_too_long("v1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.AAAAAAAAAAAAAAAAAAAAAAAA")]
+#[case::empty_key_id("v1..AAAAAAAAAAAAAAAAAAAAAAAA")]
 fn sr_06_malformed_envelopes_are_rejected(context: TokenContext, #[case] envelope: &str) {
 	// Arrange
 	let keyring = keyring_with(Some(KEY_A), "", None).unwrap();

@@ -272,7 +272,9 @@ impl TokenKeyring {
 		else {
 			return Err(TokenCryptoError::MalformedEnvelope);
 		};
-		if version != ENVELOPE_VERSION {
+		// The key id is copied into `UnknownKey` and from there into error text,
+		// so it must have the shape of a key id before it is used for anything.
+		if version != ENVELOPE_VERSION || validate_key_id(key_id).is_err() {
 			return Err(TokenCryptoError::MalformedEnvelope);
 		}
 		let key = std::iter::once(&self.active)
