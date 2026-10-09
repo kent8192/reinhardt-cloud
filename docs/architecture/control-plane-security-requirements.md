@@ -970,8 +970,8 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M5
 - **Threat:** A single crafted frame terminates the connection handler or the process.
-- **Requirement:** Frames that are not valid messages MUST produce a protocol error and MUST NOT panic or leak state. Message parsing MUST be fuzzed.
-- **Source:** #257 (b70832b54).
+- **Requirement:** Frames that are not valid messages MUST produce a protocol error and MUST NOT panic, stall, or leak state. Message handling MUST be robust against arbitrary input.
+- **Source:** `gap`: no hardening change was identified. The property was only asserted by tests added with the broad coverage work in #257.
 - **Old tests:** `shared/ws_messages.rs::test_ws_client_message_fuzz_no_panic`, `::test_invalid_json_returns_error`.
 
 ### SR-85 Log content masking
