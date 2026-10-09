@@ -691,10 +691,10 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 
 - **Status:** `carried`
 - **Milestone:** M3
-- **Threat:** Unauthenticated network clients invoking Agent RPCs can open streams, report fake state, or push commands. Two defects shipped before this was enforced: services registered without authentication (#810) and an authentication layer matching a stale service path so it never ran for the real service (#887).
-- **Requirement:** Every Agent Gateway RPC other than the standard health check MUST reject a call that has no credential, a malformed credential, an expired or revoked credential, or a credential of the wrong kind (a User session or User credential is not an Agent credential, and an Agent credential is not a User credential). The check MUST be bound to the service paths that the generated server actually exposes. Acceptance tests MUST call every RPC through a real listener, so a mismatched path fails the test.
-- **Source:** #810 (duplicate #830), #887, #736.
-- **Old tests:** `crates/reinhardt-cloud-grpc/src/interceptor.rs::test_agent_interceptor_validates_agent_token`, `::test_agent_interceptor_rejects_user_token`, `::test_agent_interceptor_rejects_invalid_token`, `::test_agent_interceptor_call_missing_auth_on_agent_path`, `::test_agent_interceptor_accepts_valid_agent_call`, `::test_interceptor_call_missing_auth_header`, `::test_interceptor_call_malformed_bearer`, `::test_interceptor_call_empty_bearer`, `::test_validate_expired_token`. These insert the method identifier into the request by hand; no old test proved the identifier is present when the server runs. A real-listener suite is the replacement.
+- **Threat:** Unauthenticated network clients invoking Agent RPCs can open streams, report fake state, or push commands. Two defects shipped before this was enforced: services registered without authentication (#810) an authentication layer matching a stale service path so it never ran for the real service (#887), and path-dependent checks keyed on request metadata that a real server never provides, which rejected every Agent call and applied the User check to log ingestion (#929).
+- **Requirement:** Every Agent Gateway RPC other than the standard health check MUST reject a call that has no credential, a malformed credential, an expired or revoked credential, or a credential of the wrong kind (a User session or User credential is not an Agent credential, and an Agent credential is not a User credential). The credential check that applies to a call MUST be selected from the route the server actually received, as the server itself sees it when it authorizes the call; it MUST NOT depend on client-supplied metadata or on information a framework may not populate. A call whose route is not recognized MUST be rejected. The route-to-check mapping MUST cover the paths the generated server exposes. Acceptance tests MUST call every RPC through a real listener with a real client, so a mismatched or unrecognized route fails the test.
+- **Source:** #810 (duplicate #830), #887, #736; #929 and #931 (a real-server test showed that, on the server side, the method identifier is never available to credential checks, so they rejected every Agent call and applied the User check to `LogService/PushLogs`).
+- **Old tests:** `crates/reinhardt-cloud-grpc/src/interceptor.rs::test_agent_interceptor_validates_agent_token`, `::test_agent_interceptor_rejects_user_token`, `::test_agent_interceptor_rejects_invalid_token`, `::test_agent_interceptor_call_missing_auth_on_agent_path`, `::test_agent_interceptor_accepts_valid_agent_call`, `::test_interceptor_call_missing_auth_header`, `::test_interceptor_call_malformed_bearer`, `::test_interceptor_call_empty_bearer`, `::test_validate_expired_token`. These insert the method identifier into the request by hand; #929 showed it is never present when a real server runs, so none of them proved enforcement. The real-listener suite proposed in #931 is the replacement.
 
 ### SR-55 An Agent acts only for the Cluster its credential was issued for
 
@@ -899,8 +899,8 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Milestone:** M5
 - **Threat:** Anyone who can reach the log write path injects forged entries into another tenant's logs.
 - **Requirement:** Log ingestion MUST accept only an Agent credential (SR-54) and MUST attribute entries to that credential's Cluster (SR-55). A User credential MUST NOT be accepted for ingestion, and an Agent credential MUST NOT be accepted for reads.
-- **Source:** #736.
-- **Old tests:** the interceptor tests listed under SR-73. Attribution to the credential's Cluster: `gap`.
+- **Source:** #736; #929 and #931 (the old selection of the ingestion check was never exercised on a real server).
+- **Old tests:** the interceptor tests listed under SR-73, which have the same limitation as those under SR-54. Attribution to the credential's Cluster: `gap`.
 
 ### SR-77 The WebSocket origin is validated before any cookie is used
 
