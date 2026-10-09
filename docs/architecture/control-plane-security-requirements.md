@@ -2,14 +2,14 @@
 
 This document restates every security property the previous Control Plane enforced as an implementation-neutral requirement, and adds the requirements introduced by the rebuild. It exists so that the properties survive the rebuild without inheriting the code that enforced them.
 
-Vocabulary follows [`CONTEXT.md`](../../CONTEXT.md): Control Plane, Dashboard, Agent Gateway, User, Member, Invitation, Staff, API Key, Login Link, Organization, Cluster, Agent, Project, Deployment, and Preview are used exactly as defined there. The rebuild itself is described by the Control Plane rebuild plan tracked in #915, with one issue per milestone (#916 to #923).
+Vocabulary follows [`CONTEXT.md`](../../CONTEXT.md): Control Plane, Dashboard, Agent Gateway, User, Member, Invitation, Staff, CLI Session, Login Link, Organization, Cluster, Agent, Project, Deployment, and Preview are used exactly as defined there. The rebuild itself is described by the Control Plane rebuild plan tracked in #915, with one issue per milestone (#916 to #923).
 
 ## Scope
 
 The requirements cover what the Control Plane (the `dashboard/` crate and the Agent Gateway it hosts) must guarantee, plus the client-side and agent-side behavior it depends on:
 
 - Browser sign-in, sessions, and the web surface (headers, origins, errors, health).
-- API Keys and the CLI submission path, including the CLI's own credential handling.
+- CLI Sessions and the CLI submission path, including the CLI's own credential handling.
 - Role-based access, Organization isolation, and the tenant namespace rule.
 - The Agent Gateway and Cluster credentials, including the Agent's side of the contract.
 - Logs and realtime delivery.
@@ -154,8 +154,8 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-66 | Error responses carry user-facing messages only | `carried` | M4 |
 | SR-67 | An unknown Project name creates a Project in the caller's Organization only | `new` | M4 |
 | SR-68 | A Deployment's content never changes after submission | `new` | M4 |
-| SR-69 | The CLI stores credentials in owner-only files | `carried (code unchanged)` | M4 (re-verify) |
-| SR-70 | A stored CLI token is sent only to the API it was issued for | `carried (code unchanged)` | M4 (re-verify) |
+| SR-69 | The CLI stores credentials in owner-only files | `carried` | M4 |
+| SR-70 | A stored CLI token is sent only to the API it was issued for | `carried` | M4 |
 | SR-71 | The CLI accepts secrets from files, not command-line arguments | `carried (code unchanged)` | M4 (re-verify) |
 | SR-72 | The CLI executes no project-controlled code and validates what it renders | `carried (code unchanged)` | M4 (re-verify) |
 | SR-73 | Log reads require the logs-read permission in the owning Organization | `carried` | M5 |
@@ -290,7 +290,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M1
 - **Threat:** A route added without an authentication decision is public by accident.
-- **Requirement:** The set of endpoints reachable without a session or API Key MUST be a short, explicit list, and every other endpoint MUST deny anonymous callers. The old list was: sign-in start and callback, the health endpoint (SR-15), GitHub webhooks (authenticated by signature, SR-88), static assets, and, in the `local` and `ci` profiles only, API documentation (SR-11). An acceptance test MUST enumerate the registered routes and fail when one outside the list answers an anonymous request with success.
+- **Requirement:** The set of endpoints reachable without a session or CLI Session MUST be a short, explicit list, and every other endpoint MUST deny anonymous callers. The old list was: sign-in start and callback, the health endpoint (SR-15), GitHub webhooks (authenticated by signature, SR-88), static assets, and, in the `local` and `ci` profiles only, API documentation (SR-11). An acceptance test MUST enumerate the registered routes and fail when one outside the list answers an anonymous request with success.
 - **Source:** `config/urls.rs` (session skip list); #408.
 - **Old tests:** `gap`.
 
@@ -308,7 +308,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M1
 - **Threat:** Cross-site request forgery against state-changing endpoints authenticated by the browser's cookie.
-- **Requirement:** State-changing requests authenticated by a session cookie MUST be rejected unless the request proves same-origin intent, either through an `Origin` header that matches an explicit allow-list or through a request token. The allow-list MUST be explicit configuration; a wildcard MUST be ignored. Localhost origins MAY be added only in debug profiles. Requests authenticated by an API Key (an `Authorization` header) are not subject to this rule because the browser never attaches that header on its own.
+- **Requirement:** State-changing requests authenticated by a session cookie MUST be rejected unless the request proves same-origin intent, either through an `Origin` header that matches an explicit allow-list or through a request token. The allow-list MUST be explicit configuration; a wildcard MUST be ignored. Localhost origins MAY be added only in debug profiles. Requests authenticated by the access token of a CLI Session (an `Authorization` header) are not subject to this rule because the browser never attaches that header on its own.
 - **Source:** #294 (94f4deb73, a68d282e6, ca956db5b); #451 (5a80858e5, explicit form token).
 - **Old tests:** `config/urls.rs::debug_allowed_origins_include_configured_and_active_port`, `config/urls.rs::debug_allowed_origins_fall_back_when_configured_only_wildcard`, `config/urls.rs::production_allowed_origins_do_not_add_localhost_fallbacks`. Rejection of a cross-origin state-changing request: `gap`.
 
@@ -385,7 +385,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `new`
 - **Milestone:** M1
 - **Threat:** Staff can read and change every Organization's data through the admin site. A network-reachable path to Staff is a path to full compromise.
-- **Requirement:** Staff status MUST be grantable and revocable only through the host-level management command (`manage grant-staff --github-user-id <id>`), addressed by numeric GitHub user ID. No endpoint, form, Invitation, API Key, or Login Link may grant it. The admin site MUST be reachable only by Staff.
+- **Requirement:** Staff status MUST be grantable and revocable only through the host-level management command (`manage grant-staff --github-user-id <id>`), addressed by numeric GitHub user ID. No endpoint, form, Invitation, CLI Session, or Login Link may grant it. The admin site MUST be reachable only by Staff.
 - **Source:** #915 and #917: Staff is granted with `manage grant-staff --github-user-id <id>`.
 - **Old tests:** `auth/tests/integration/test_validated_session_middleware.rs::active_cookie_session_uses_current_database_privileges` covers revalidation of Staff status only (SR-07). The grant path: none (new behavior).
 
@@ -896,14 +896,14 @@ API Keys are abolished product-wide (#915, #917); CLI Sessions replace them (SR-
 
 ## CLI submission
 
-The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer `rct_` API Keys, error body `{ "error": "..." }`) is preserved unchanged.
+The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, error body `{ "error": "..." }`) is preserved. One decision changes it: the bearer credential is the access token of a CLI Session (SR-109 to SR-117), not an API Key.
 
 ### SR-63 A submission is authorized by Role before anything else is looked up
 
 - **Status:** `carried`
 - **Milestone:** M4
 - **Threat:** A viewer, or a member of another Organization, submits a Deployment. The CLI path once checked only that the caller was authenticated (#767).
-- **Requirement:** `POST /api/deployments/cli/` MUST require an authenticated principal and MUST check that the principal's Role in the Organization that owns the target Cluster allows creating a Deployment, before loading the Cluster, validating the manifest against it, or queueing any Agent command. Malformed JSON and failed validation MAY be answered before authorization only if the response is identical for every caller.
+- **Requirement:** `POST /api/deployments/cli/` MUST require an authenticated principal and MUST check that the principal's Role in the Organization that owns the target Cluster allows creating a Deployment. A CLI Session is bound to exactly one Organization (SR-115), so the target Cluster MUST belong to that Organization and the check uses the Role there. The check happens before loading the Cluster, validating the manifest against it, or queueing any Agent command. Malformed JSON and failed validation MAY be answered before authorization only if the response is identical for every caller.
 - **Source:** #767 (6f1f38055), #729 (a00e9dfcb), #760.
 - **Old tests:** `gap` for the endpoint. The error-body tests are listed under SR-66.
 
@@ -912,7 +912,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M4
 - **Threat:** Naming another Organization's Cluster, which may share a name with the caller's, applies a Project to it.
-- **Requirement:** The Cluster named in a submission MUST be looked up within the Organization determined by SR-33 and SR-63. A Cluster in any other Organization MUST produce the same "not found" response as a nonexistent one. An inactive Cluster, or one without an API URL, MUST be refused.
+- **Requirement:** The Cluster named in a submission MUST be looked up within the Organization the CLI Session is bound to (SR-115). A Cluster in any other Organization MUST produce the same "not found" response as a nonexistent one. An inactive Cluster, or one without an API URL, MUST be refused.
 - **Source:** #767.
 - **Old tests:** `gap`. The inactive-Cluster conflict is covered by `deployments/server_urls.rs::test_deployment_error_response_exposes_user_facing_errors`.
 
@@ -939,7 +939,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `new`
 - **Milestone:** M4
 - **Threat:** The preserved contract creates a Project with a manual source when `project_name` is unknown. If the name lookup is not scoped to the Organization, a submission can attach to, overwrite, or reveal the existence of another Organization's Project of the same name.
-- **Requirement:** A submission MUST resolve `project_name` within the Organization that owns the target Cluster. If no such Project exists there, the Control Plane MUST create one with a manual source in that Organization, which requires the Project create permission (SR-44). If the Project exists in another Organization, the submission MUST NOT touch it and MUST NOT reveal that it exists.
+- **Requirement:** A submission MUST resolve `project_name` within the Organization the CLI Session is bound to, which is also the Organization that must own the target Cluster (SR-64). If no such Project exists there, the Control Plane MUST create one with a manual source in that Organization, which requires the Project create permission (SR-44). If the Project exists in another Organization, the submission MUST NOT touch it and MUST NOT reveal that it exists.
 - **Source:** #915 and #920: the CLI contract is preserved, including creating a Project with a manual source when `project_name` is unknown.
 - **Old tests:** none (new behavior).
 
@@ -954,21 +954,23 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 
 ### SR-69 The CLI stores credentials in owner-only files
 
-- **Status:** `carried (code unchanged)`
-- **Milestone:** M4 (re-verify)
-- **Threat:** Another local User reads the stored API Key.
+- **Status:** `carried`
+- **Milestone:** M4
+- **Threat:** Another local User reads the stored CLI Session access token.
 - **Requirement:** The CLI MUST create its credentials directory with owner-only permissions and its credentials file with owner-only permissions applied atomically at creation, and MUST repair a pre-existing permissive file when it next writes the credentials.
 - **Source:** #732, #750.
 - **Old tests:** `crates/reinhardt-cloud-cli/src/config.rs::test_save_token_sets_restrictive_permissions`, `::test_save_token_repairs_existing_permissive_file`, `::test_save_token_creates_parent_directory`, `::test_save_and_load_token_roundtrip`.
+- **Note:** The CLI's sign-in changes to the browser flow of SR-109 to SR-111; the storage rules above are unchanged.
 
 ### SR-70 A stored CLI token is sent only to the API it was issued for
 
-- **Status:** `carried (code unchanged)`
-- **Milestone:** M4 (re-verify)
+- **Status:** `carried`
+- **Milestone:** M4
 - **Threat:** A saved token is replayed to a different (possibly attacker-controlled) API URL chosen through a flag or config file.
 - **Requirement:** A saved token MUST record the API URL that issued it and MUST be used only when the selected API URL is the same (ignoring a trailing slash). A token saved without an API URL MUST NOT be used. An explicit flag or environment variable takes precedence over saved credentials.
 - **Source:** #754.
 - **Old tests:** `crates/reinhardt-cloud-cli/src/config.rs::test_credentials_without_api_url_are_not_scoped`, `::test_credentials_scope_ignores_trailing_slash`, `::test_resolve_token_ignores_unscoped_file_credentials`, `::test_resolve_token_ignores_mismatched_file_credentials`, `::test_resolve_token_uses_matching_file_credentials`, `::test_resolve_token_priority_flag_over_env_over_file`.
+- **Note:** The CLI's sign-in changes to the browser flow of SR-109 to SR-111; the storage rules above are unchanged.
 
 ### SR-71 The CLI accepts secrets from files, not command-line arguments
 
