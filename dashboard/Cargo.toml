@@ -30,10 +30,7 @@ path = "src/main.rs"
 [dependencies]
 reinhardt = { workspace = true }
 chrono = { workspace = true }
-rust_decimal = "1"
 uuid = { workspace = true }
-ctor = "0.6"
-linkme = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 inventory = "0.3"
@@ -59,7 +56,7 @@ wasm-bindgen-futures = "0.4"
 # Keep the facade dependency after the native-only commands dependency so
 # procedural macros resolve application paths through the cross-target
 # `reinhardt` crate name.
-reinhardt-commands = { version = "=0.4.0-alpha.20", default-features = false, features = ["shell", "server", "autoreload", "grpc", "websockets"], optional = true }
+reinhardt-commands = { workspace = true, optional = true }
 clap = { workspace = true }
 console = "0.16.1"
 tokio = { workspace = true }
