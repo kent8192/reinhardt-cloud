@@ -58,6 +58,7 @@ impl Drop for TestServer {
 impl TestServer {
 	async fn channel(&self) -> Channel {
 		let endpoint = format!("http://{}", self.addr);
+		// The listener is bound already; retry only covers the serving task not having polled yet.
 		for _ in 0..40 {
 			if let Ok(channel) = Channel::from_shared(endpoint.clone())
 				.expect("valid endpoint")
@@ -370,19 +371,57 @@ async fn missing_credential_is_reported_as_missing_credential(
 	assert_eq!(status.message(), expected_message);
 }
 
-// Wiring an interceptor without `intercepted` leaves the path unknown; the
-// guarded service must then fail closed instead of letting calls through.
+// Wiring an interceptor with `with_interceptor` alone (no `intercepted`)
+// leaves the path unknown. The path-dependent interceptors must then fail
+// closed, while the user check, which needs no path, keeps enforcing tokens.
 #[rstest]
+#[case::agent_service(
+	Rpc::AgentReportHealth,
+	Credential::ValidAgent,
+	Some("Missing gRPC path; cannot authorize agent request")
+)]
+#[case::log_list(
+	Rpc::LogListLogs,
+	Credential::ValidUser,
+	Some("Missing gRPC path; cannot authorize log service request")
+)]
+#[case::log_push(
+	Rpc::LogPushLogs,
+	Credential::ValidAgent,
+	Some("Missing gRPC path; cannot authorize log service request")
+)]
+#[case::build_missing_token(
+	Rpc::BuildGetStatus,
+	Credential::Missing,
+	Some("Missing authorization token")
+)]
+#[case::build_valid_user(Rpc::BuildGetStatus, Credential::ValidUser, None)]
 #[tokio::test]
-async fn interceptor_without_path_service_fails_closed() {
+async fn interceptor_without_path_service_fails_closed(
+	#[case] rpc: Rpc,
+	#[case] credential: Credential,
+	#[case] expected_rejection: Option<&str>,
+) {
 	// Arrange
+	let build_grpc = BuildServiceGrpc::new(Arc::new(MockBuildService::new()));
 	let agent_grpc = AgentServiceGrpc::new(Arc::new(MockClusterAgentService::new()));
+	let log_grpc = LogServiceGrpc::new(Arc::new(LocalLogService::new(Arc::new(LogBuffer::new(
+		100,
+	)))));
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
 		.await
 		.expect("bind ephemeral port");
 	let addr = listener.local_addr().expect("local addr");
 	let handle = tokio::spawn(async move {
 		Server::builder()
+			.add_service(BuildServiceServer::with_interceptor(
+				build_grpc,
+				JwtInterceptor::new(JWT_SECRET),
+			))
+			.add_service(LogServiceServer::with_interceptor(
+				log_grpc,
+				LogServiceJwtInterceptor::new(JWT_SECRET),
+			))
 			.add_service(AgentServiceServer::with_interceptor(
 				agent_grpc,
 				AgentJwtInterceptor::new(JWT_SECRET),
@@ -394,14 +433,15 @@ async fn interceptor_without_path_service_fails_closed() {
 	let server = TestServer { addr, handle };
 
 	// Act
-	let status = call_status(&server, Rpc::AgentReportHealth, Credential::ValidAgent)
-		.await
-		.expect_err("a call without a known path must be rejected");
+	let outcome = call_status(&server, rpc, credential).await;
 
 	// Assert
-	assert_eq!(status.code(), Code::Unauthenticated);
-	assert_eq!(
-		status.message(),
-		"Missing gRPC path; cannot authorize agent request"
-	);
+	match (outcome, expected_rejection) {
+		(Ok(()), None) => {}
+		(Err(status), Some(message)) => {
+			assert_eq!(status.code(), Code::Unauthenticated);
+			assert_eq!(status.message(), message);
+		}
+		(outcome, expected) => panic!("unexpected outcome {outcome:?}, expected {expected:?}"),
+	}
 }
