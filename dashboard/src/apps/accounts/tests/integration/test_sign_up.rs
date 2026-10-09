@@ -128,17 +128,17 @@ async fn sr_19_open_policy_creates_a_user_with_profile_data(#[future] database: 
 }
 
 #[rstest]
-#[case::listed_user(7, Ok(vec![]), Some(()))]
-#[case::member_of_listed_org(8, Ok(vec![100]), Some(()))]
-#[case::unrelated_user(9, Ok(vec![200]), None)]
-#[case::membership_unavailable(9, Err(MembershipError), None)]
+#[case::listed_user(7, Ok(vec![]), None)]
+#[case::member_of_listed_org(8, Ok(vec![100]), None)]
+#[case::unrelated_user(9, Ok(vec![200]), Some(DenyReason::NotAllowlisted))]
+#[case::membership_unavailable(9, Err(MembershipError), Some(DenyReason::MembershipUnverified))]
 #[tokio::test]
 #[serial(database)]
 async fn sr_19_allowlist_admits_only_listed_identities(
 	#[future] database: TestDatabase,
 	#[case] github_user_id: i64,
 	#[case] organizations: Result<Vec<i64>, MembershipError>,
-	#[case] admitted: Option<()>,
+	#[case] denial: Option<DenyReason>,
 ) {
 	// Arrange
 	let _db = database.await;
@@ -153,8 +153,13 @@ async fn sr_19_allowlist_admits_only_listed_identities(
 	.await;
 
 	// Assert
-	assert_eq!(result.is_ok(), admitted.is_some());
-	assert_eq!(user_count().await, usize::from(admitted.is_some()));
+	match denial {
+		None => assert!(matches!(result, Ok(ResolvedUser::Created(_)))),
+		Some(expected) => {
+			assert!(matches!(result, Err(FirstSignInError::Denied(reason)) if reason == expected))
+		}
+	}
+	assert_eq!(user_count().await, usize::from(denial.is_none()));
 }
 
 #[rstest]

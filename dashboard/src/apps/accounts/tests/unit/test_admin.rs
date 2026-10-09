@@ -2,6 +2,7 @@
 
 use rstest::rstest;
 
+use reinhardt::admin::core::AdminError;
 use reinhardt::admin::{AdminSite, AdminUser, ModelAdmin};
 
 use crate::apps::accounts::models::User;
@@ -142,5 +143,6 @@ fn sr_20_registering_twice_is_rejected() {
 	let second = register_model_admins(&site);
 
 	// Assert
-	assert!(second.is_err());
+	assert!(matches!(&second, Err(AdminError::ValidationError(message))
+		if message == "Model 'User' is already registered (as 'User')"));
 }

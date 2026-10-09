@@ -1,5 +1,6 @@
 //! Integration tests of User identity (SR-02, SR-03).
 
+use reinhardt::core::exception::DatabaseErrorKind;
 use reinhardt::db::orm::Model;
 use rstest::rstest;
 use serial_test::serial;
@@ -8,10 +9,11 @@ use crate::apps::accounts::models::{SocialAccount, User};
 use crate::apps::accounts::services::server::provider_tokens::ProviderTokens;
 use crate::apps::accounts::services::server::sign_up_policy::SignUpPolicy;
 use crate::apps::accounts::services::server::users::{
-	ResolvedUser, find_by_github_user_id, resolve_first_sign_in, sync_profile,
+	ResolvedUser, UserError, find_by_github_user_id, resolve_first_sign_in, sync_profile,
 };
 use crate::apps::accounts::tests::support::{
-	FixedMembership, TestDatabase, database, insert_user, profile, storage, user_count,
+	FixedMembership, TestDatabase, database, database_violation, insert_user, profile, storage,
+	user_count,
 };
 use chrono::{Duration, Utc};
 use reinhardt::conf::settings::secret_types::SecretString;
@@ -105,7 +107,7 @@ async fn sr_02_profile_of_another_identity_is_not_applied(#[future] database: Te
 	let result = sync_profile(user, &profile(2, "mallory")).await;
 
 	// Assert
-	assert!(result.is_err());
+	assert!(matches!(result, Err(UserError::InvalidProfile)));
 	let stored = find_by_github_user_id(1).await.unwrap().unwrap();
 	assert_eq!(stored.github_login, "alice");
 }
@@ -133,7 +135,14 @@ async fn sr_03_storage_rejects_a_second_user_for_one_github_identity(
 	let result = User::objects().create(&duplicate).await;
 
 	// Assert
-	assert!(result.is_err());
+	let error = result.unwrap_err();
+	assert_eq!(
+		database_violation(&error),
+		Some((
+			DatabaseErrorKind::UniqueViolation,
+			Some("accounts_users_github_user_id_uniq".to_owned())
+		))
+	);
 	assert_eq!(user_count().await, 1);
 }
 
@@ -241,6 +250,10 @@ async fn sr_03_the_database_rejects_a_second_social_account_row_for_one_user(
 	let second = SocialAccount::objects().create(&row()).await;
 
 	// Assert
-	assert!(second.is_err());
+	let error = second.unwrap_err();
+	assert_eq!(
+		database_violation(&error).map(|(kind, _constraint)| kind),
+		Some(DatabaseErrorKind::UniqueViolation)
+	);
 	assert_eq!(SocialAccount::objects().all().all().await.unwrap().len(), 1);
 }

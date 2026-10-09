@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use reinhardt::conf::settings::secret_types::SecretString;
+use reinhardt::core::exception::{DatabaseErrorKind, Error};
 use reinhardt::db::orm::Model;
 use reinhardt::test::fixtures::{
 	ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
@@ -104,4 +105,11 @@ impl OrganizationMembership for FixedMembership {
 	async fn organization_ids(&self, _github_user_id: i64) -> Result<Vec<i64>, MembershipError> {
 		self.0.clone()
 	}
+}
+
+/// The kind and constraint name of the database error inside `error`.
+pub(crate) fn database_violation(error: &Error) -> Option<(DatabaseErrorKind, Option<String>)> {
+	error
+		.database_error()
+		.map(|database| (database.kind(), database.constraint().map(str::to_owned)))
 }
