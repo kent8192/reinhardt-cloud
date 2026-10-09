@@ -1,0 +1,10 @@
+# Local Development Settings
+#
+# Copy this file to `local.toml` (ignored by git) to override `base.toml` for
+# local development. Keep real secrets out of this file: export
+# REINHARDT_CORE__SECRET_KEY and REINHARDT_DATABASE_PASSWORD in your shell
+# instead, and point REINHARDT_DATABASE_HOST/PORT at your local PostgreSQL.
+
+[core]
+debug = true
+allowed_hosts = ["localhost", "127.0.0.1"]

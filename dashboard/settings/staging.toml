@@ -1,0 +1,20 @@
+# Staging Environment Settings
+#
+# Loaded when REINHARDT_ENV=staging. Overrides `base.toml` key by key.
+# Secrets come from the environment; see `base.toml` for the variable names.
+
+[core]
+debug = false
+allowed_hosts = ["staging.reinhardt-cloud.dev"]
+
+[core.security]
+session_cookie_secure = true
+csrf_cookie_secure = true
+secure_ssl_redirect = true
+secure_hsts_seconds = 3600
+secure_hsts_include_subdomains = true
+secure_hsts_preload = false
+
+[ws_origin]
+policy = { mode = "allow_list", origins = ["https://staging.reinhardt-cloud.dev"] }
+reject_missing_origin = true
