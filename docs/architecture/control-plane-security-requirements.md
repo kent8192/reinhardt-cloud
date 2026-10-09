@@ -103,6 +103,15 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-25 | Seeded default password | `obsolete` | M1 |
 | SR-26 | Merging Users by verified email | `superseded` | M1 |
 | SR-105 | The first User of a new deployment is created through host operator access only | `needs decision` | M1 |
+| SR-109 | CLI Sessions are issued only through the authorization code grant with PKCE | `new` | M1 |
+| SR-110 | The redirect goes only to a loopback address with an exactly matching path | `new` | M1 |
+| SR-111 | The request is bound by `state` and confirmed by a one-time comparison code | `new` | M1 |
+| SR-112 | A CLI Session exists only after the User approves it in an interactive browser session | `new` | M1 |
+| SR-113 | CLI Session access tokens are opaque, short-lived, hashed, and never logged or rendered | `new` | M1 |
+| SR-114 | CLI Sessions are listed and revoked by the User and by Staff, and die with their basis | `new` | M1 |
+| SR-115 | A CLI Session has the authority of one Member in one Organization, never more | `new` | M1 (rule), M4 (use by the submission endpoint) |
+| SR-116 | The authorization server resists abuse and records what it does | `new` | M1 |
+| SR-117 | Refresh tokens and the device authorization grant are adopted with rotation and reuse detection | `new` | M1 |
 | SR-27 | API Keys are unguessable, recognizable, and never stored in clear | `carried` | M1 |
 | SR-28 | API Key verification rejects every invalid state | `carried` | M1 |
 | SR-29 | Bearer authentication never erases or elevates a session | `carried` | M1 |
@@ -444,6 +453,91 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Question:** May `manage grant-staff --github-user-id <id>` pre-provision a Staff User, identified by numeric GitHub user ID (SR-02), who can then sign in regardless of the sign-up policy? If so, does that User also create the first Organization, or is it created some other way? If not, what is the bootstrap path (a separate `manage` command, or a one-time bootstrap Invitation)?
 - **Source:** #915 and #917: interaction of the sign-up policy, Login Links, and Staff grant; #842 (the old seeded account).
 - **Old tests:** none.
+
+## CLI Sessions
+
+A CLI Session is a short-lived grant, approved by a User in the browser, that lets the CLI act for that User within one Organization. CLI Sessions replace API Keys, which are abolished product-wide (#915, #917). The records below are the replacement for SR-27 to SR-33.
+
+### SR-109 CLI Sessions are issued only through the authorization code grant with PKCE
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** Interception of an authorization code (a malicious local program, a browser extension, a leaked redirect) yields a session; flows that accept passwords or place credentials in URLs widen the exposure.
+- **Requirement:** The Control Plane MUST act as an OAuth 2.0 authorization server for the CLI, which is a public client without a client secret. The only way to obtain a CLI Session MUST be the authorization code grant with PKCE using the `S256` method; a missing challenge or the `plain` method MUST be rejected, and the implicit, password, and client-credentials grants MUST NOT be able to issue one. An authorization code MUST be unguessable, single-use, valid for a few minutes at most (proposed ceiling: 10 minutes), and bound to the client, the redirect URI, the PKCE challenge, the approving User, and the Organization chosen at approval. The code verifier MUST be required at redemption and compared exactly. Presenting a code a second time MUST fail and MUST revoke the access token already issued from it.
+- **Source:** #915 and #917: the Control Plane is an OAuth 2.0 authorization server for the CLI.
+- **Old tests:** none (new behavior).
+
+### SR-110 The redirect goes only to a loopback address with an exactly matching path
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** An open or loosely matched redirect delivers the authorization code to an attacker's server or to a web page the attacker controls.
+- **Requirement:** The redirect URI MUST use the `http` scheme with the host `127.0.0.1` or `[::1]`. `localhost`, any other host, and any other scheme MUST be rejected. Scheme, host, and path MUST match the registered values exactly, with no prefix, wildcard, case-folding, or path-normalization matching, and no query or fragment; only the port may vary because the CLI binds a free one. The response MUST be sent only to the redirect URI validated at the start of the request; an invalid redirect URI MUST NOT cause any redirect, and the error MUST be shown in the browser instead. The CLI MUST listen only on the loopback interface, accept exactly one callback, and then close the listener.
+- **Source:** #915 and #917.
+- **Old tests:** none (new behavior).
+
+### SR-111 The request is bound by `state` and confirmed by a one-time comparison code
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** An attacker starts a CLI authorization on their own machine and sends the approval link to a victim; if the victim approves, the attacker holds a CLI Session for the victim.
+- **Requirement:** Each request MUST carry an unguessable `state` value chosen by the CLI. The Control Plane MUST return it unchanged and the CLI MUST reject a callback whose value differs. The approval page MUST display a short one-time comparison code tied to that request, and the CLI MUST display the same code in the terminal, so the User can confirm the browser page and the terminal belong to the same attempt before approving. The comparison code is not a credential: it MUST NOT be accepted as input anywhere and MUST be valid only for its own request.
+- **Source:** #915 and #917.
+- **Old tests:** none (new behavior).
+
+### SR-112 A CLI Session exists only after the User approves it in an interactive browser session
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** Approval without the User's informed, deliberate action (a forged request, a stolen credential of a different kind, a silent redirect) creates a session the User did not intend.
+- **Requirement:** A CLI Session MUST be created only when a User with a valid browser session explicitly approves the request on the Dashboard. The approval page MUST show the client, the comparison code (SR-111), the Organizations the User belongs to, and the User's Role in the one they choose; the User chooses exactly one Organization of which they are a Member. Approval and denial MUST be protected against cross-site request forgery (SR-12). An anonymous visitor MUST be sent to sign-in and returned to the same request afterward with its bindings intact. No credential other than the browser session may approve a request (SR-115).
+- **Source:** #915 and #917.
+- **Old tests:** none (new behavior).
+
+### SR-113 CLI Session access tokens are opaque, short-lived, hashed, and never logged or rendered
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** A database read yields working credentials; a leaked log line, URL, or screen yields a live session; a long lifetime turns any leak into a standing credential.
+- **Requirement:** The access token of a CLI Session MUST be opaque, contain at least 256 bits from a cryptographically secure source, be stored only as a one-way hash, and be valid for at most one hour. It SHOULD carry a fixed, recognizable prefix so secret scanners can detect it. It MUST be accepted only in the `Authorization` header, never in a URL, and MUST NOT be written to logs, traces, audit events, or error messages, or rendered in the Dashboard after it is issued. Responses that carry it MUST forbid caching. Failure of the randomness source MUST fail issuance.
+- **Source:** #915 and #917. Supersedes SR-27 and SR-28.
+- **Old tests:** none (new behavior). The assertion shapes of the API Key tests listed under SR-27 and SR-28 serve as models.
+
+### SR-114 CLI Sessions are listed and revoked by the User and by Staff, and die with their basis
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** A lost laptop or leaked session cannot be cut off; a session outlives the Membership or the User that justified it.
+- **Requirement:** A User MUST be able to list their CLI Sessions (client, Organization, creation time, last use, never a secret) and to revoke any one of them or all of them at once. Staff MUST be able to do the same for any User's CLI Sessions, and doing so MUST emit a structured audit event. Revocation MUST take effect on the next request that presents the token. A CLI Session MUST stop working when its User is deactivated or deleted, loses Membership in the bound Organization, or is re-pointed to another GitHub account (SR-107). Recording last use MUST NOT alter a revoked session, and the success or failure of that recording MUST NOT affect the request.
+- **Source:** #915 and #917. Supersedes SR-30, SR-31, and SR-32.
+- **Old tests:** none (new behavior). Revocation and expiry assertions of `tests/e2e/cli_auth.rs::api_me_rejects_revoked_token` and `auth/tests/integration/test_api_key_service.rs::test_touch_last_used_skips_revoked_token` serve as models.
+
+### SR-115 A CLI Session has the authority of one Member in one Organization, never more
+
+- **Status:** `new`
+- **Milestone:** M1 (rule), M4 (use by the submission endpoint)
+- **Threat:** A leaked CLI credential that inherits Staff powers, every Organization of its owner, or the ability to mint further credentials has a blast radius far beyond what the User approved.
+- **Requirement:** A CLI Session MUST be bound to exactly one Organization, chosen at approval, and MUST act with the User's current Role in that Organization, evaluated on every request and never as a snapshot, so Role changes and removal apply immediately. It MUST NOT carry Staff authority, even when its User is Staff, and MUST NOT reach the admin site. It MUST NOT be able to create, approve, or extend any CLI Session. Identifiers of other Organizations MUST behave as nonexistent (SR-36). A request MUST have exactly one principal: a valid CLI Session credential establishes it, and an invalid or malformed bearer value MUST leave any existing browser session untouched.
+- **Source:** #915 and #917. Supersedes SR-29 and SR-33, whose questions it answers: a CLI Session never inherits Staff, cannot create other CLI Sessions, is bound to one Organization chosen at approval, and has no narrower scope than that Member's Role.
+- **Old tests:** none (new behavior). `auth/tests/integration/test_validated_session_middleware.rs::valid_bearer_token_replaces_validated_cookie_session` serves as a model for the single-principal rule.
+
+### SR-116 The authorization server resists abuse and records what it does
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** Guessing or replaying codes, spamming approval prompts at a User, and silent approvals that leave no trace.
+- **Requirement:** Failed code redemption and malformed requests MUST return uniform errors that do not reveal whether a code exists or why it failed. Authorization requests, redemption attempts, and approval attempts MUST be rate-limited per source and per User. The endpoints MUST be reachable only over TLS in deployed profiles. Authorization requests, approvals, denials, redemptions, and revocations MUST be recorded in structured audit events that omit secrets.
+- **Source:** #915 and #917.
+- **Old tests:** none (new behavior).
+
+### SR-117 Refresh tokens and the device authorization grant are adopted with rotation and reuse detection
+
+- **Status:** `new`
+- **Milestone:** M1
+- **Threat:** Without refresh tokens the CLI re-approves every hour; once refresh tokens exist, a stolen one lives as long as it is accepted, and a replayed rotated one is the only sign of theft.
+- **Requirement:** Until upstream support lands, a CLI Session has no refresh token and no device grant; the CLI asks the User to approve again after expiry. When refresh tokens are adopted they MUST be opaque, stored only as one-way hashes, bound to the same client and Organization, bounded by an absolute lifetime, rotated on every use, and covered by every revocation in SR-114; presenting a refresh token that was already rotated MUST revoke the whole grant (reuse detection). When the device authorization grant is adopted, device codes MUST be single-use and short-lived, polling MUST be rate-limited, and the user code MUST be verified through an interactive browser session under the approval rules of SR-112, with an explicit choice of one Organization.
+- **Source:** #915 and #917; upstream reinhardt-web#6708 (refresh tokens, tracked in #926) and reinhardt-web#6707 (device authorization grant, tracked in #925).
+- **Old tests:** none (new behavior).
 
 ## API Keys
 
