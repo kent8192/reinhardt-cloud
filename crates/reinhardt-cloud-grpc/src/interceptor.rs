@@ -366,7 +366,7 @@ mod tests {
 		let mut interceptor = JwtInterceptor::new(TEST_SECRET);
 		let mut req = Request::new(());
 		req.extensions_mut()
-			.insert(GrpcPath::new("/reinhardt.paas.v1.LogService/ListLogs"));
+			.insert(GrpcPath::new("/reinhardt.cloud.log.LogService/ListLogs"));
 
 		// Act
 		let result = interceptor.call(req);
@@ -384,7 +384,7 @@ mod tests {
 		let token = auth::create_token(user_id, "log-reader", TEST_SECRET, 24).unwrap();
 		let mut req = Request::new(());
 		req.extensions_mut()
-			.insert(GrpcPath::new("/reinhardt.paas.v1.LogService/ListLogs"));
+			.insert(GrpcPath::new("/reinhardt.cloud.log.LogService/ListLogs"));
 		req.metadata_mut()
 			.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
