@@ -47,10 +47,6 @@ component_management:
       - type: project
         target: auto
   individual_components:
-    - component_id: dashboard
-      name: Dashboard
-      paths:
-        - "dashboard/src/**"
     - component_id: operator
       name: Kubernetes Operator
       paths:

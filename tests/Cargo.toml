@@ -6,7 +6,6 @@ publish = false
 
 [dev-dependencies]
 reinhardt-cloud-core = { workspace = true }
-reinhardt-cloud-dashboard = { path = "../dashboard" }
 reinhardt-cloud-grpc = { workspace = true }
 reinhardt-cloud-types = { workspace = true }
 reinhardt-cloud-proto = { workspace = true }
@@ -46,10 +45,6 @@ path = "integration/tests/agent_grpc_integration.rs"
 [[test]]
 name = "source_pipeline_e2e"
 path = "e2e/source_pipeline.rs"
-
-[[test]]
-name = "cli_auth_e2e"
-path = "e2e/cli_auth.rs"
 
 [lints]
 workspace = true
