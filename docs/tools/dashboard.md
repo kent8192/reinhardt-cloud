@@ -1,3 +1,5 @@
+> **Superseded:** this page describes the Control Plane before its rebuild (#915) and is rewritten in M7 (#923). For the current application see `dashboard/CLAUDE.md`.
+
 # reinhardt-cloud Dashboard
 
 > **Last verified**: commit `84d08ad` on 2026-04-18

@@ -1,3 +1,5 @@
+> **Superseded:** this page describes the Control Plane before its rebuild (#915) and is rewritten in M7 (#923). For the current application see `dashboard/CLAUDE.md`.
+
 # Local End-to-End Testing Guide
 
 This guide walks a developer from a fresh clone to a locally running Reinhardt
