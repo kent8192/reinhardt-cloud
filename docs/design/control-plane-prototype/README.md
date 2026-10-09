@@ -104,6 +104,7 @@ Styles live in `components.css`. Selectors are single classes so one component c
 
 ## Notes for the Pages implementation
 
+- Approve and Deny on `cli-authorize.html` are links only because the prototype is static; the Pages implementation uses real submit buttons.
 - `prototype.js` exists only so the prototype is reviewable: theme switching, Copy buttons, dialogs, toast dismissal, menu dismissal, and the Follow toggle. It is not part of the design contract; the Pages components own this behavior.
 - Deployment statuses shown here (Submitted, Applying, Running, Failed, Superseded) and the phase names are placeholders to be settled with the Deployment model in the projects and deployments milestone. Keep one vocabulary across badges, tables, and detail pages.
 - Agent install commands and chart values are illustrative; the Cluster registration milestone defines the final shape.
