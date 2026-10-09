@@ -458,7 +458,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M1
 - **Threat:** A last-used update that races with revocation reactivates the key, or a synchronous write on every request becomes a load amplifier.
-- **Requirement:** Recording that a key was used MUST NOT modify a revoked key and MUST NOT be on the request's critical path.
+- **Requirement:** Recording that a key was used MUST NOT alter a revoked key, and the success, failure, or slowness of that recording MUST NOT affect the outcome or latency of the request that presented the key.
 - **Source:** a64960fb0 (inside #720).
 - **Old tests:** `auth/tests/integration/test_api_key_service.rs::test_touch_last_used_skips_revoked_token`.
 
@@ -524,7 +524,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M2 (rule), M3, M4, M5, M6 (per application)
 - **Threat:** Reading or changing another Organization's Clusters, Projects, Deployments, installations, logs, Previews, or realtime updates by guessing identifiers.
-- **Requirement:** Every query and mutation on Organization-owned data MUST be constrained to the Organization the caller is acting in, in the query itself, not only after loading. An identifier that belongs to another Organization MUST behave exactly like one that does not exist. The same holds for batch, list, preview, and realtime paths.
+- **Requirement:** Every query and mutation on Organization-owned data MUST be restricted to the Organization the caller is acting in, so that data belonging to another Organization is never read on the caller's behalf. An identifier that belongs to another Organization MUST behave exactly like one that does not exist. The same holds for batch, list, preview, and realtime paths.
 - **Source:** #434 (b79e913a3), #464 (1dc741590), #286.
 - **Old tests:** `deployments/tests/integration/test_preview_server_fn.rs::deployment_preview_list_scopes_to_current_org_and_reports_row_errors`, `utils/realtime/consumer.rs::authorize_deployment_subscriptions_skips_cross_org_deployment_guess`, `utils/realtime/consumer.rs::authorize_app_log_subscription_rejects_cross_org_deployment_guess`, `utils/realtime/consumer.rs::authorize_app_log_subscription_rejects_user_without_membership`. HTTP and server-function paths for Clusters, Deployments, and installations: `gap`.
 
@@ -580,7 +580,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Status:** `carried`
 - **Milestone:** M2
 - **Threat:** Corrupted or hand-edited Role data is interpreted as a permissive Role.
-- **Requirement:** The stored Role value MUST be constrained to the four defined Roles by the database, and a value that cannot be parsed at authorization time MUST result in denial and an internal error, never in any grant.
+- **Requirement:** The stored Role value MUST be restricted to the four defined Roles by the data store itself, so that out-of-range values cannot be written. A stored value that is nonetheless not a defined Role MUST result in denial and an internal error, never in any grant.
 - **Source:** `organizations/permissions/guard.rs`.
 - **Old tests:** `organizations/tests/integration/test_membership_constraints.rs::membership_role_check_rejects_invalid_database_value`, `organizations/tests/unit/test_role.rs::membership_role_parse_from_db_string`.
 
@@ -916,7 +916,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M5
 - **Threat:** A client subscribes to updates or logs for Deployments it does not own by sending guessed identifiers.
-- **Requirement:** A subscription request MUST be refused for an unauthenticated connection. Each identifier in a request MUST be authorized against the caller's Organization membership and Role; identifiers the caller may not read MUST be skipped or refused without revealing that they exist. Authorization MUST be set-based (one query per batch), not one query per identifier, so that large batches cannot be used as a load amplifier.
+- **Requirement:** A subscription request MUST be refused for an unauthenticated connection. Each identifier in a request MUST be authorized against the caller's Organization membership and Role; identifiers the caller may not read MUST be skipped or refused without revealing that they exist. The cost of authorizing a request MUST NOT grow per identifier in a way that lets a large batch amplify load; the old design authorized a whole batch with a constant number of lookups.
 - **Source:** #841, 1006fe4f1 (inside #888).
 - **Old tests:** `utils/realtime/consumer.rs::test_parse_subscribe_without_auth_rejected`, `::test_parse_subscribe_with_auth_returns_subscribe_action`, `::authorize_deployment_subscriptions_allows_current_org_deployments`, `::authorize_deployment_subscriptions_skips_cross_org_deployment_guess`, `::authorize_app_log_subscription_allows_deployment_in_current_org`, `::authorize_app_log_subscription_rejects_user_without_membership`, `::authorize_app_log_subscription_rejects_cross_org_deployment_guess`, `::test_parse_subscribe_app_logs_with_auth`, `::test_parse_subscribe_app_logs_without_auth_rejected`, `::test_parse_unsubscribe_logs_without_auth_rejected`.
 
@@ -1045,7 +1045,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M6
 - **Threat:** An installation token leaked through a log line, a URL in an error message, or a debug dump gives read access to private repositories.
-- **Requirement:** Repository access MUST use installation tokens minted per use and scoped to the repository. A token embedded in a clone URL MUST be percent-encoded, and the type that holds it MUST redact the token in its textual representation. Private keys and webhook secrets MUST be redacted in debug output (SR-102).
+- **Requirement:** Repository access MUST use installation tokens minted per use and scoped to the repository. A token embedded in a clone URL MUST be percent-encoded, and no textual rendering of that URL or its holder (display, logs, error messages) may reveal the token. Private keys and webhook secrets MUST be redacted in debug output (SR-102).
 - **Source:** 457efaf93 (inside #686); #768.
 - **Old tests:** `github/tests/unit.rs::test_installation_clone_url_percent_encodes_token_and_redacts_display`, `::test_github_app_settings_debug_redacts_secrets`.
 
@@ -1141,7 +1141,7 @@ The CLI HTTP contract (`GET /api/auth/me/`, `POST /api/deployments/cli/`, bearer
 - **Status:** `carried`
 - **Milestone:** M1 (rule), M4 (CLI), M6 (GitHub types)
 - **Threat:** A debug print, a panic message, a log line, or the CLI's status output discloses a key, token, or password.
-- **Requirement:** Types that hold secrets MUST NOT print them through debug or display formatting. Authorization metadata sent over internal calls MUST be marked sensitive so transport logging omits it. Credential-handling commands MUST NOT echo secret values. Request and error logging MUST NOT include `Authorization` headers, cookies, client secrets, Login Links, or webhook payload bodies.
+- **Requirement:** No textual rendering of a value that holds a secret (debug output, display, logs, traces, error messages) may reveal the secret. Credentials sent on internal calls MUST be excluded from transport logging and tracing. Credential-handling commands MUST NOT echo secret values. Request and error logging MUST NOT include `Authorization` headers, cookies, client secrets, Login Links, or webhook payload bodies.
 - **Source:** 687130752 and 2dead60a9 (inside #295); #768.
 - **Old tests:** `github/tests/unit.rs::test_github_app_settings_debug_redacts_secrets`, `::test_installation_clone_url_percent_encodes_token_and_redacts_display`, `utils/grpc.rs::dashboard_grpc_auth_interceptor_marks_authorization_sensitive`, `auth/tests/unit/test_oauth_providers_view.rs::test_providers_response_does_not_contain_secret_keywords`, `::test_provider_entry_serializes_only_public_provider_fields`. Request-log redaction: `gap`.
 
