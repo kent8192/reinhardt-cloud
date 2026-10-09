@@ -143,10 +143,11 @@ is the only non-DI type allowed in a binary.
 ### Settings and secrets
 
 - Settings are composed from `settings/base.toml`, the `REINHARDT_ENV` profile
-  (`local`, `staging`, `production`), and `REINHARDT_*` environment overrides.
-- Tracked profiles (`base.toml`, `staging.toml`, `production.toml`) hold no
-  literal secrets; they read them with `${VAR:?message}`. `local.toml` is
-  ignored by git; start from `settings/local.example.toml`.
+  (`local`, `ci`, `staging`, `production`), and `REINHARDT_*` environment
+  overrides.
+- Tracked profiles (`base.toml`, `ci.toml`, `staging.toml`, `production.toml`)
+  hold no literal secrets; they read them with `${VAR:?message}`. `local.toml`
+  is ignored by git; start from `settings/local.example.toml`.
 - Export `REINHARDT_CORE__SECRET_KEY` and `REINHARDT_DATABASE_PASSWORD` for any
   command that loads settings.
 - Never commit credentials, private hostnames, or personal environment values.

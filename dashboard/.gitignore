@@ -133,5 +133,6 @@ static/*_bg.wasm
 settings/*.toml
 !settings/*.example.toml
 !settings/base.toml
+!settings/ci.toml
 !settings/staging.toml
 !settings/production.toml

@@ -1,0 +1,17 @@
+# CI Environment Settings
+#
+# Loaded when REINHARDT_ENV=ci, the profile the GitHub Actions test jobs select.
+# Overrides `base.toml` key by key. Secrets come from the environment; see
+# `base.toml` for the variable names. The workflows export throwaway values for
+# them, so nothing in this file is a credential.
+
+[core]
+debug = false
+allowed_hosts = ["localhost", "127.0.0.1"]
+
+[core.databases.default]
+name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud_ci}"
+
+[ws_origin]
+policy = { mode = "allow_list", origins = ["http://127.0.0.1:8000", "http://localhost:8000"] }
+reject_missing_origin = true

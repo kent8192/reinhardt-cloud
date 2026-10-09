@@ -88,7 +88,7 @@ dashboard/
 │   │       └── server/        # Native-only models/forms/views/admin wiring
 │   └── config/       # Server configuration
 ├── migrations/       # Database migrations
-├── settings/         # TOML profiles (base, staging, production; local is ignored)
+├── settings/         # TOML profiles (base, ci, staging, production; local is ignored)
 ├── dist/             # WASM build output
 ├── dist-wasm/        # wasm-pack output copied into dist/
 ├── index.html        # WASM entry HTML
