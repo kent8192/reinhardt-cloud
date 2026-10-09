@@ -750,7 +750,7 @@ API Keys are abolished product-wide (#915, #917); CLI Sessions replace them (SR-
 - **Milestone:** M2
 - **Threat:** Staff reaches every Organization through the admin site; if the product APIs also treat Staff as an implicit owner of every Organization, a compromised Staff session reads every tenant's logs and credentials.
 - **Requirement (floor):** Staff status MUST NOT by itself grant access through Dashboard, CLI, or realtime APIs; access to an Organization's data through those APIs follows Membership and Role only.
-- **Question:** The rebuild plan (#915) keeps the reinhardt admin registrations for every model, which gives Staff read and write access to all rows. Is that intentional for production, or should admin access to Organization-owned data and credential-bearing models (API Keys, Cluster credentials, stored provider tokens) be read-only or hidden? How are Staff actions audited?
+- **Question:** The rebuild plan (#915) keeps the reinhardt admin registrations for every model, which gives Staff read and write access to all rows. Is that intentional for production, or should admin access to Organization-owned data and credential-bearing models (CLI Sessions, Cluster credentials, stored provider tokens) be read-only or hidden? How are Staff actions audited?
 - **Source:** #915: staff-only admin registrations are kept for every model; old `is_staff` handling in #248.
 - **Old tests:** `gap`.
 
