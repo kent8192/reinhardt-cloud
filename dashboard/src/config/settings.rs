@@ -27,6 +27,7 @@
 //!
 //! The environment is determined by the `REINHARDT_ENV` environment variable:
 //! - `local` or `development` → loads `local.toml`
+//! - `ci` → loads `ci.toml`
 //! - `staging` → loads `staging.toml`
 //! - `production` → loads `production.toml`
 //!
@@ -243,6 +244,25 @@ mod tests {
 		assert_eq!(
 			settings.settings().core.secret_key,
 			"test-only-secret-key-not-for-deployment"
+		);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	fn ci_profile_loads_the_tracked_ci_settings() {
+		// Arrange
+		let _env = EnvGuard::apply(&required_env("ci"));
+
+		// Act
+		let settings = get_settings()
+			.expect("settings sources should load")
+			.resolve()
+			.expect("settings should resolve");
+
+		// Assert
+		assert_eq!(
+			settings.settings().core.allowed_hosts,
+			vec!["localhost", "127.0.0.1"]
 		);
 	}
 

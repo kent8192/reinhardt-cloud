@@ -1,3 +1,5 @@
+> **Superseded:** this page describes the Control Plane before its rebuild (#915) and is rewritten in M7 (#923). For the current application see `dashboard/CLAUDE.md`.
+
 # Self-Hosting the Reinhardt Cloud Dashboard
 
 ## Overview

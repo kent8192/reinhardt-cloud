@@ -2,7 +2,7 @@
 //!
 //! Library crate of the Control Plane application. Module layout:
 //! - `apps`         — application code (each app has server-side routes and client-side pages)
-//! - `client`       — WASM-only frontend (mounted by `bin/manage.rs`)
+//! - `client`       — WASM-only frontend (booted by its `wasm_bindgen(start)` entry point)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
 //! - `server`       — production HTTP server bootstrap used by the server binary
 

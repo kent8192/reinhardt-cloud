@@ -527,8 +527,8 @@ cargo make clippy-todo-check    # detect TODO/FIXME
 # Full pre-PR check
 cargo make pre-pr
 
-# Run the dashboard (Control Plane)
-cargo make runserver
+# Run the dashboard (Control Plane); tasks live in dashboard/Makefile.toml
+(cd dashboard && cargo make runserver)
 
 # Run the operator locally
 cargo run --bin reinhardt-cloud-operator

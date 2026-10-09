@@ -215,6 +215,15 @@ jobs:
       runner: ${{ needs.determine-runner.outputs.runner }}
       cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
 
+  wasm-check:
+    name: WASM Check
+    needs: [determine-runner, check-branch-status]
+    if: needs.check-branch-status.outputs.has-conflicts != 'true'
+    uses: ./.github/workflows/wasm-check.yml
+    with:
+      runner: ${{ needs.determine-runner.outputs.runner }}
+      cargo-build-jobs: ${{ needs.determine-runner.outputs.cargo-build-jobs }}
+
   terraform-check:
     name: Terraform Check
     needs: [check-branch-status]
@@ -240,6 +249,7 @@ jobs:
       - cross-crate-integration-test
       - security-audit
       - todo-check
+      - wasm-check
       - terraform-check
       - cross-platform-check
       - public-api-diff
@@ -255,6 +265,7 @@ jobs:
           CROSS_CRATE_RESULT: ${{ needs.cross-crate-integration-test.result }}
           SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
           TODO_CHECK_RESULT: ${{ needs.todo-check.result }}
+          WASM_CHECK_RESULT: ${{ needs.wasm-check.result }}
           TERRAFORM_CHECK_RESULT: ${{ needs.terraform-check.result }}
           CROSS_PLATFORM_RESULT: ${{ needs.cross-platform-check.result }}
           PUBLIC_API_DIFF_RESULT: ${{ needs.public-api-diff.result }}
@@ -276,6 +287,7 @@ jobs:
             "cross-crate-integration-test:$CROSS_CRATE_RESULT"
             "security-audit:$SECURITY_AUDIT_RESULT"
             "todo-check:$TODO_CHECK_RESULT"
+            "wasm-check:$WASM_CHECK_RESULT"
             "publish-check:$PUBLISH_CHECK_RESULT"
           )
           for entry in "${always_required[@]}"; do
