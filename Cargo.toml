@@ -13,8 +13,6 @@ members = [
 	"crates/reinhardt-cloud-operator",
 	"crates/reinhardt-cloud-cli",
 	"crates/reinhardt-cloud-agent",
-	# Reinhardt startproject application (Control Plane)
-	"dashboard",
 	# Integration tests
 	"tests",
 ]
