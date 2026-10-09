@@ -166,9 +166,10 @@ impl tonic::service::Interceptor for JwtInterceptor {
 /// JWT authentication interceptor for cluster agent gRPC calls.
 ///
 /// Validates tokens issued to cluster agents (containing a `cluster_id`
-/// claim). Paths not under `AGENT_PATH_PREFIXES` are passed through
-/// unchanged so that the main `JwtInterceptor` can handle them. Wire it with
-/// [`intercepted`]; without a [`GrpcPath`] every call is rejected.
+/// claim). Only agent paths (`AGENT_PATH_PREFIXES` and `LogService/PushLogs`)
+/// can be authorized; every other path, and any call without a [`GrpcPath`],
+/// is rejected with `Unauthenticated`. Wire it with [`intercepted`] on agent
+/// services only.
 #[derive(Clone)]
 pub struct AgentJwtInterceptor {
 	secret: Vec<u8>,
@@ -216,12 +217,15 @@ impl AgentJwtInterceptor {
 
 impl tonic::service::Interceptor for AgentJwtInterceptor {
 	fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-		// Only enforce agent-token validation for the cluster-agent service;
-		// everything else is passed through for the main JwtInterceptor.
+		// Only agent paths may be authorized here. Any other path, or an
+		// unknown one, is refused rather than silently passed through.
 		match request_path(&request) {
-			Some(path) if !Self::is_agent_path(path) => return Ok(request),
-			Some(_) => {}
-			// Without a known path, refuse rather than silently passing.
+			Some(path) if Self::is_agent_path(path) => {}
+			Some(_) => {
+				return Err(Status::unauthenticated(
+					"Not an agent path; cannot authorize request with the agent interceptor",
+				));
+			}
 			None => {
 				return Err(Status::unauthenticated(
 					"Missing gRPC path; cannot authorize agent request",
@@ -618,18 +622,26 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_agent_interceptor_passes_through_non_agent_path() {
-		// Arrange
+	fn test_agent_interceptor_rejects_non_agent_path() {
+		// Arrange — even a valid agent token must not authorize a non-agent path
 		let mut interceptor = AgentJwtInterceptor::new(TEST_SECRET);
+		let token = create_agent_token(Uuid::now_v7(), TEST_SECRET, 24).unwrap();
 		let mut req = Request::new(());
 		req.extensions_mut()
 			.insert(GrpcPath::new("/some.other.Service/Method"));
+		req.metadata_mut()
+			.insert("authorization", format!("Bearer {token}").parse().unwrap());
 
-		// Act — no auth header, but non-agent path should pass through
+		// Act
 		let result = interceptor.call(req);
 
 		// Assert
-		assert!(result.is_ok());
+		let err = result.unwrap_err();
+		assert_eq!(err.code(), tonic::Code::Unauthenticated);
+		assert_eq!(
+			err.message(),
+			"Not an agent path; cannot authorize request with the agent interceptor"
+		);
 	}
 
 	#[rstest]
