@@ -30,12 +30,16 @@ user default to a local PostgreSQL and can be overridden with
 `REINHARDT_DATABASE_{HOST,PORT,NAME,USER}`. Copy `settings/local.example.toml`
 to `settings/local.toml` (ignored by git) for local overrides.
 
-Settings are validated when they are loaded, so the server and every `manage`
-command stop with an error that names the offending setting (never its value)
-when a required secret is empty or still holds an unexpanded `${...}` or
-`$(...)` placeholder, or when the `staging` or `production` profile is not
-hardened (debug off, secure cookies, HTTPS redirect with HSTS, explicit allowed
-hosts and `https` WebSocket origins without wildcards or localhost).
+The server entry (`reinhardt-cloud-dashboard`) and the runtime `manage`
+commands validate settings when they load them and stop with an error that
+names the offending setting (never its value) when a required secret is empty
+or still holds an unexpanded `${...}` or `$(...)` placeholder, when the token
+encryption key or the sign-up allowlists are malformed, or when the `staging`
+or `production` profile is not hardened (debug off, secure cookies, HTTPS
+redirect with HSTS, explicit allowed hosts and `https` WebSocket origins
+without wildcards or localhost). Static `manage` commands that resolve only
+the settings they need, such as `collectstatic`, skip this validation by
+design.
 
 The `staging` and `production` profiles also require
 `REINHARDT_CLOUD_REDIS_URL` (the operator injects it with the Redis password
