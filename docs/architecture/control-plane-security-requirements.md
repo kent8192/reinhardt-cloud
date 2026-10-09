@@ -101,6 +101,7 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 | SR-24 | Registration gating and unverified-account state | `obsolete` | M1 |
 | SR-25 | Seeded default password | `obsolete` | M1 |
 | SR-26 | Merging Users by verified email | `superseded` | M1 |
+| SR-105 | The first User of a new deployment is created through host operator access only | `needs decision` | M1 |
 | SR-27 | API Keys are unguessable, recognizable, and never stored in clear | `carried` | M1 |
 | SR-28 | API Key verification rejects every invalid state | `carried` | M1 |
 | SR-29 | Bearer authentication never erases or elevates a session | `carried` | M1 |
@@ -424,6 +425,16 @@ Paths in "Old tests" are relative to `dashboard/src/apps/` unless they start wit
 - **Threat (historic):** Signing in with a provider identity whose email matched an existing User attached the identity to that User, so an attacker with a provider account holding the victim's (verified or not) email could take the account; refusing on collision avoided a crash and a takeover.
 - **Source:** d3a3909da (inside #446), 1b8154299 (inside #446).
 - **Old tests (to be removed with the code):** `auth/tests/integration/test_oauth_linking.rs::test_email_verified_match_links_existing_user`, `::test_email_unverified_collision_returns_email_conflict`, `::test_new_user_created_with_no_password`, `::test_username_collision_appends_suffix`, `::test_email_verified_true_but_no_email_creates_new_user`, `::test_username_falls_back_to_sub_when_no_login_or_name`, `auth/tests/unit/test_oauth_linking_validation.rs::test_email_conflict_display_includes_email_and_provider`. The empty-subject rejection (`::test_empty_sub_returns_missing_claim_error`) carries over to SR-02: a sign-in without a numeric ID MUST fail.
+
+### SR-105 The first User of a new deployment is created through host operator access only
+
+- **Status:** `needs decision`
+- **Milestone:** M1
+- **Threat:** With `invite_only` as the default sign-up policy (SR-19) and Login Links unable to create Users (SR-18), a fresh deployment has no User and no stated path to its first one. The obvious fixes are an unauthenticated first-come claim ("the first sign-in becomes Staff") or a built-in account; either lets whoever reaches a new deployment first own it. The old self-deploy path seeded a User with a public default password (SR-25).
+- **Requirement (floor):** Creating the first User and granting the first Staff status MUST require host operator access. No unauthenticated request, and no first-come sign-in, may become Staff or create the first Organization. Bootstrap MUST NOT rely on a built-in or default credential, MUST NOT be usable to take over a running deployment, and MUST be recorded in an audit log that omits secrets.
+- **Question:** May `manage grant-staff --github-user-id <id>` pre-provision a Staff User, identified by numeric GitHub user ID (SR-02), who can then sign in regardless of the sign-up policy? If so, does that User also create the first Organization, or is it created some other way? If not, what is the bootstrap path (a separate `manage` command, or a one-time bootstrap Invitation)?
+- **Source:** #915 and #917: interaction of the sign-up policy, Login Links, and Staff grant; #842 (the old seeded account).
+- **Old tests:** none.
 
 ## API Keys
 
