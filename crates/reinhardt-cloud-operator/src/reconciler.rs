@@ -32,6 +32,7 @@ use crate::inference::pages::{ResolvedPagesConfig, resolve_pages_config};
 use crate::inference::platform::{Platform, PlatformConfig, ResourceDefaults};
 use crate::inference::secrets::{
 	build_core_secret_key_secret, build_jwt_secret, build_redis_credentials_secret,
+	standard_secret_labels,
 };
 use crate::metrics::Metrics;
 use crate::resources::credentials;
@@ -1715,7 +1716,7 @@ async fn reconcile_redis_credentials_secret(
 				app,
 			));
 		};
-		detach_redis_project_owner_references(&secret_api, app, &existing).await?;
+		enforce_redis_credentials_metadata(&secret_api, app, &existing).await?;
 		if existing.immutable != Some(true) {
 			return Err(Error::SecretGeneration(format!(
 				"Redis credentials Secret {namespace}/{secret_name} is mutable; a platform administrator must verify and freeze it before adoption"
@@ -1834,8 +1835,15 @@ fn redis_credentials_digest(secret: &Secret) -> String {
 	encoded
 }
 
-/// Removes only this Project's legacy GC references from a status-approved Secret.
-async fn detach_redis_project_owner_references(
+/// Repairs the metadata of a status-approved Redis credentials Secret.
+///
+/// Removes only this Project's legacy GC references, so `Retain` keeps the
+/// Secret, and restores the operator labels the Secret watch selects on, so a
+/// tenant who strips them cannot hide a later deletion or replacement from the
+/// controller. Both changes go into one merge patch conditioned on the observed
+/// UID and resourceVersion; credential data is never touched, so the patch is
+/// accepted for immutable Secrets.
+async fn enforce_redis_credentials_metadata(
 	secret_api: &Api<Secret>,
 	app: &Project,
 	secret: &Secret,
@@ -1843,31 +1851,44 @@ async fn detach_redis_project_owner_references(
 	if redis_credentials_secret_provenance(secret, app).is_none() {
 		return Ok(());
 	}
-	let Some(project_uid) = app.metadata.uid.as_deref() else {
-		return Ok(());
-	};
+	let mut metadata_patch = serde_json::Map::new();
+
 	let owners = secret
 		.metadata
 		.owner_references
 		.as_deref()
 		.unwrap_or_default();
-	let retained: Vec<_> = owners
+	if let Some(project_uid) = app.metadata.uid.as_deref() {
+		let retained: Vec<_> = owners
+			.iter()
+			.filter(|owner| owner.uid != project_uid)
+			.collect();
+		if retained.len() != owners.len() {
+			metadata_patch.insert("ownerReferences".to_string(), serde_json::json!(retained));
+		}
+	}
+
+	let expected_labels = standard_secret_labels(&app.name_any());
+	let current_labels = secret.metadata.labels.as_ref();
+	let labels_intact = expected_labels
 		.iter()
-		.filter(|owner| owner.uid != project_uid)
-		.collect();
-	if retained.len() == owners.len() {
+		.all(|(key, value)| current_labels.and_then(|labels| labels.get(key)) == Some(value));
+	if !labels_intact {
+		metadata_patch.insert("labels".to_string(), serde_json::json!(expected_labels));
+	}
+
+	if metadata_patch.is_empty() {
 		return Ok(());
 	}
 	let resource_version = secret.metadata.resource_version.as_deref().ok_or_else(|| {
 		Error::SecretGeneration("Redis credentials Secret has no resourceVersion".to_string())
 	})?;
-	let patch = serde_json::json!({
-		"metadata": {
-			"uid": secret.metadata.uid,
-			"resourceVersion": resource_version,
-			"ownerReferences": retained,
-		}
-	});
+	metadata_patch.insert("uid".to_string(), serde_json::json!(secret.metadata.uid));
+	metadata_patch.insert(
+		"resourceVersion".to_string(),
+		serde_json::json!(resource_version),
+	);
+	let patch = serde_json::json!({ "metadata": metadata_patch });
 	secret_api
 		.patch(
 			&secret.name_any(),
@@ -1889,7 +1910,7 @@ async fn retain_redis_credentials_secret(
 		.await
 		.map_err(Error::Kube)?
 	{
-		detach_redis_project_owner_references(secret_api, app, &existing).await?;
+		enforce_redis_credentials_metadata(secret_api, app, &existing).await?;
 	}
 	Ok(())
 }
@@ -4003,6 +4024,109 @@ mod tests {
 		assert_eq!(revision(&before).as_deref(), Some("original-secret-uid"));
 		assert_eq!(revision(&after).as_deref(), Some("regenerated-secret-uid"));
 		assert_ne!(before, after);
+	}
+
+	/// Serves `objects` by request path: GET and PATCH return the stored object,
+	/// GET of any other path returns 404. Every request is recorded.
+	fn stub_object_api(objects: Vec<(String, Vec<u8>)>) -> (Client, RecordedRequests) {
+		use http_body_util::BodyExt;
+
+		let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
+		let captured = Arc::clone(&requests);
+		let service = tower::service_fn(move |request: http::Request<kube::client::Body>| {
+			let objects = objects.clone();
+			let captured = Arc::clone(&captured);
+			async move {
+				let (parts, body) = request.into_parts();
+				let bytes = body.collect().await.unwrap().to_bytes();
+				let body: serde_json::Value = if bytes.is_empty() {
+					serde_json::Value::Null
+				} else {
+					serde_json::from_slice(&bytes).unwrap()
+				};
+				let path = parts.uri.path().to_string();
+				let (status, reply) = match objects.iter().find(|(object, _)| *object == path) {
+					Some((_, object)) => (200, object.clone()),
+					None => (
+						404,
+						serde_json::to_vec(&serde_json::json!({
+							"apiVersion": "v1", "kind": "Status", "status": "Failure",
+							"reason": "NotFound", "message": "not found", "code": 404
+						}))
+						.unwrap(),
+					),
+				};
+				captured.lock().push((parts.method, path, body));
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(status)
+						.body(kube::client::Body::from(reply))
+						.unwrap(),
+				)
+			}
+		});
+		(Client::new(service, "default"), requests)
+	}
+
+	#[rstest]
+	#[case::labels_stripped(None, true)]
+	#[case::managed_by_removed(Some("payments"), true)]
+	#[case::labels_intact(Some("both"), false)]
+	#[tokio::test]
+	async fn approved_redis_secret_labels_are_restored(
+		#[case] remaining_labels: Option<&str>,
+		#[case] expect_patch: bool,
+	) {
+		// Arrange: a tenant removed the labels the Secret watch selects on from
+		// the approved, immutable Secret.
+		let mut app = make_test_app("payments");
+		let mut secret = build_managed_redis_credentials_secret(&app, "default");
+		secret.metadata.uid = Some("secret-uid".to_string());
+		secret.metadata.resource_version = Some("17".to_string());
+		app.status = Some(ProjectStatus {
+			redis_credentials_secret_uid: Some("secret-uid".to_string()),
+			redis_credentials_secret_digest: Some(redis_credentials_digest(&secret)),
+			..Default::default()
+		});
+		let labels = standard_secret_labels("payments");
+		secret.metadata.labels = match remaining_labels {
+			None => None,
+			Some("payments") => Some(BTreeMap::from([(
+				"app.kubernetes.io/name".to_string(),
+				"payments".to_string(),
+			)])),
+			Some(_) => Some(labels.clone()),
+		};
+		let (client, requests) = stub_object_api(vec![(
+			"/api/v1/namespaces/default/secrets/payments-redis-credentials".to_string(),
+			serde_json::to_vec(&secret).unwrap(),
+		)]);
+		let secret_api: Api<Secret> = Api::namespaced(client, "default");
+
+		// Act
+		enforce_redis_credentials_metadata(&secret_api, &app, &secret)
+			.await
+			.unwrap();
+
+		// Assert: the restore patch never carries credential data and is
+		// conditioned on the approved Secret's UID and resourceVersion.
+		let recorded = requests.lock();
+		let expected = if expect_patch {
+			vec![(
+				http::Method::PATCH,
+				"/api/v1/namespaces/default/secrets/payments-redis-credentials".to_string(),
+				serde_json::json!({
+					"metadata": {
+						"labels": labels,
+						"uid": "secret-uid",
+						"resourceVersion": "17",
+					}
+				}),
+			)]
+		} else {
+			Vec::new()
+		};
+		assert_eq!(*recorded, expected);
 	}
 
 	#[rstest]

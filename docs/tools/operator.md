@@ -1068,6 +1068,12 @@ survive this rotation, and requests can fail briefly while the Deployments roll.
 operator release that adds this annotation triggers one rollout of each Redis-consuming
 Deployment.
 
+On every reconciliation the operator also restores the `app.kubernetes.io/name` and
+`app.kubernetes.io/managed-by` labels on the approved Secret, using a metadata-only patch
+conditioned on its UID and resourceVersion. Removing these labels takes the Secret out of the watch
+selector, which itself produces a watch event, so the labels are restored immediately and later
+deletion or replacement of the Secret stays visible to the controller.
+
 When upgrading from a release that used labels or owner references as Redis Secret ownership,
 first apply the new CRD schema, perform this adoption while the old operator remains running,
 and only then roll out the new operator, as described in the upgrade sequence above. Also
