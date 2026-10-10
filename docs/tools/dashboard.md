@@ -241,8 +241,10 @@ images must provide `cp` on `PATH`, so generated Pages Dockerfiles reject a
 custom `[source.build].base_image` such as distroless; use a custom Dockerfile
 with an explicit `[pages].prebuilt` setting instead. Static roots must be absolute directories
 without parent traversal. Because a prebuilt root is copied whole into the served
-volume, it must be a dedicated publication directory: the operator rejects
-top-level directories such as `/app` and application directories such as
+volume, the operator only accepts a dedicated directory below the application
+directory, such as `/app/static` or `/app/dashboard/static`. It rejects `/app`
+itself, paths outside `/app` (including system and credential paths such as
+`/var/run/secrets/...`), empty path segments, and application directories such as
 `/app/settings` or `/app/migrations`. Existing isolation security contexts and
 volume ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component

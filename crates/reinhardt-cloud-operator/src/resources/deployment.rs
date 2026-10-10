@@ -116,16 +116,20 @@ pub(crate) fn build_deployment(
 		}
 
 		if config.prebuilt {
-			// The whole root is copied into the publicly served volume, so it must
-			// be a dedicated publication directory rather than a top-level tree
-			// such as the `/app` application root or a known application directory.
-			let segments: Vec<&str> = root.split('/').filter(|part| !part.is_empty()).collect();
-			if segments.len() < 2
-				|| (segments[0] == "app"
-					&& matches!(
-						segments[1],
-						"settings" | "migrations" | "src" | "target" | ".git"
-					)) {
+			// The whole root is copied into the publicly served volume, so only a
+			// dedicated directory below the `/app` application directory is
+			// allowed. Anything else (system or credential paths such as
+			// `/var/run/secrets/...`, the `/app` root itself, or known application
+			// directories) could publish files that are not static assets.
+			let segments: Vec<&str> = root.split('/').skip(1).collect();
+			let allowed = segments.len() >= 2
+				&& segments[0] == "app"
+				&& segments.iter().all(|part| !part.is_empty())
+				&& !matches!(
+					segments[1],
+					"settings" | "migrations" | "src" | "target" | ".git" | ".agents" | ".codex"
+				);
+			if !allowed {
 				return Err(Error::InvalidStaticRoot(config.static_root.clone()));
 			}
 			// Mount the volume at a sibling path so the image publication stays
@@ -1046,8 +1050,14 @@ mod tests {
 	#[rstest]
 	fn prebuilt_image_publication_survives_shared_volume_initialization() {
 		// Arrange
-		let directory = tempfile::tempdir().unwrap();
-		let source = directory.path().join("publication");
+		// The temporary directory stands in for the container filesystem root.
+		let container_root = tempfile::tempdir().unwrap();
+		let in_container = |path: &str| {
+			container_root
+				.path()
+				.join(path.strip_prefix('/').unwrap_or(path))
+		};
+		let source = in_container("/app/static");
 		std::fs::create_dir_all(source.join("builds/generation")).unwrap();
 		let files = [
 			("manifest.json", "{\"version\":\"2.0\"}"),
@@ -1060,7 +1070,7 @@ mod tests {
 			std::fs::write(source.join(name), bytes).unwrap();
 		}
 		let mut pages = make_default_pages_config();
-		pages.static_root = source.to_str().unwrap().into();
+		pages.static_root = "/app/static".into();
 		pages.prebuilt = true;
 		let app = make_test_app("app", "img:v1", None);
 
@@ -1079,18 +1089,23 @@ mod tests {
 			.iter()
 			.find(|mount| mount.name == "static-files")
 			.unwrap();
-		let target = std::path::Path::new(&mount.mount_path);
-		std::fs::create_dir(target).unwrap();
+		let target = in_container(&mount.mount_path);
+		std::fs::create_dir(&target).unwrap();
 		let command = seed.command.as_ref().unwrap();
 		let status = std::process::Command::new(&command[0])
-			.args(&command[1..])
+			.args(command[1..].iter().map(|arg| {
+				if arg.starts_with('/') {
+					in_container(arg).into_os_string()
+				} else {
+					arg.into()
+				}
+			}))
 			.status()
 			.unwrap();
 
 		// Assert
 		assert!(status.success());
-		assert_ne!(mount.mount_path, pages.static_root);
-		assert!(!target.starts_with(&source) && !source.starts_with(target));
+		assert_eq!(mount.mount_path, "/app/static-cloud-volume");
 		for (name, bytes) in files {
 			assert_eq!(std::fs::read(target.join(name)).unwrap(), bytes.as_bytes());
 			assert_eq!(std::fs::read(source.join(name)).unwrap(), bytes.as_bytes());
@@ -1125,11 +1140,16 @@ mod tests {
 	#[case("/app", false, false)]
 	#[case("/app/", false, false)]
 	#[case("/usr", false, false)]
+	#[case("/srv/publication", false, false)]
+	#[case("/var/run/secrets/kubernetes.io/serviceaccount", false, false)]
+	#[case("/app//static", false, false)]
+	#[case("/application/static", false, false)]
 	#[case("/app/settings", false, false)]
 	#[case("/app/migrations/static", false, false)]
 	#[case("/app/static", false, true)]
-	#[case("/srv/publication", false, true)]
-	#[case("/app", true, true)]
+	#[case("/app/static/", false, true)]
+	#[case("/app/dashboard/static", false, true)]
+	#[case("/srv/publication", true, true)]
 	fn prebuilt_roots_must_be_dedicated_publication_directories(
 		#[case] root: &str,
 		#[case] collected: bool,

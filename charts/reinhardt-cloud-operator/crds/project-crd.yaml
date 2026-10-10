@@ -587,8 +587,10 @@ spec:
                       Whether the image already contains a complete `buildstatic` publication
                       at `static_root`. When true, the operator copies that publication into
                       the static-server volume with `cp` instead of running `collectstatic`,
-                      so the image must provide `cp` on `PATH`. `reinhardt-cloud init` and
-                      `sync` set this for generated Pages Dockerfiles. Defaults to false.
+                      so the image must provide `cp` on `PATH`, and `static_root` must be a
+                      dedicated directory below `/app` (for example `/app/static`).
+                      `reinhardt-cloud init` and `sync` set this for generated Pages
+                      Dockerfiles. Defaults to false.
                     nullable: true
                     type: boolean
                   server_image:
