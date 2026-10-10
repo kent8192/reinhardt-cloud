@@ -178,6 +178,8 @@ impl BackoffClass {
 /// - `MissingField`, `InvalidPort`, probe periods: permanent — user must fix the spec.
 /// - `Kube` with HTTP 404/409: dependency not ready (object missing or
 ///   write conflicts) — wait a bit longer before retrying.
+/// - Finalizer errors inherit the classification of an embedded reconciliation
+///   error so wrapping does not turn invalid specifications into retryable failures.
 /// - All other errors: transient — short backoff.
 pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 	match error {
@@ -197,7 +199,20 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
+		Error::Finalizer(source) => nested_backoff_class(source.as_ref()),
 		_ => BackoffClass::Transient,
+	}
+}
+
+fn nested_backoff_class(mut source: &(dyn std::error::Error + 'static)) -> BackoffClass {
+	loop {
+		if let Some(error) = source.downcast_ref::<Error>() {
+			return backoff_class(error);
+		}
+		let Some(next) = source.source() else {
+			return BackoffClass::Transient;
+		};
+		source = next;
 	}
 }
 
@@ -314,6 +329,21 @@ mod tests {
 	fn database_provisioning_is_permanent() {
 		// Arrange
 		let err = Error::DatabaseProvisioning("invalid database spec".to_string());
+
+		// Act
+		let class = backoff_class(&err);
+
+		// Assert
+		assert_eq!(class, BackoffClass::Permanent);
+	}
+
+	#[rstest]
+	fn finalizer_wrapped_database_provisioning_is_permanent() {
+		// Arrange
+		let apply_error = kube::runtime::finalizer::Error::ApplyFailed(
+			Error::DatabaseProvisioning("invalid database spec".to_string()),
+		);
+		let err = Error::Finalizer(Box::new(apply_error));
 
 		// Act
 		let class = backoff_class(&err);

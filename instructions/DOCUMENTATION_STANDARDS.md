@@ -24,19 +24,20 @@ This document defines documentation maintenance standards for the Reinhardt Clou
 4. Submit both code and docs together
 ```
 
-The following diagram summarizes the documentation update workflow:
+Verification follows [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#verification).
+Review changed prose, links, and examples. Run the relevant doc tests and
+`cargo doc --no-deps` when Rustdoc, Rust examples, or API documentation changes;
+standalone Markdown or agent prompts do not automatically require Rust builds.
 
 ```mermaid
 flowchart TD
-    A[Code change made] --> B[Update lib.rs docs]
-    A --> C[Update crate README if exists]
-    A --> D[Update docs/ if relevant]
-    A --> E[Update root README if major change]
-    B & C & D & E --> F[Run doc tests: cargo test --doc]
-    F --> G[Build docs: cargo doc --no-deps]
-    G --> H[Verify examples work]
-    H --> I[Check links are valid]
-    I --> J[Submit code + docs together]
+    A[Behavior or documentation changes] --> B[Update affected documentation]
+    B --> C{Rustdoc or executable Rust examples affected?}
+    C -->|Yes| D[Run relevant doc tests and doc build]
+    C -->|No| E[Check prose and prompt contracts]
+    D --> F[Validate changed links and examples]
+    E --> F
+    F --> G[Deliver code and documentation together]
 ```
 
 ---
@@ -138,7 +139,10 @@ Update documentation for new features, modified features, deprecated features, a
 Ensure high-quality documentation:
 
 #### Examples Must Work
-All code examples in documentation must be tested and working.
+Executable examples must be validated against the relevant version. Label
+illustrative fragments and placeholders as such; do not execute publication or
+live-infrastructure examples without authorization. Instruction and prompt
+examples need structural and policy review, not synthetic Rust tests.
 
 **Use Doc Tests:**
 ```rust
@@ -361,8 +365,8 @@ pub struct AppReconciler { }
 3. ✅ Update README.md if needed
 4. ✅ Update crate README if exists
 5. ✅ Update docs/ files if relevant
-6. ✅ Run doc tests: cargo test --doc
-7. ✅ Build docs: cargo doc --no-deps --open
+6. ✅ Run relevant doc tests when executable Rust examples or Rustdoc changed
+7. ✅ Build affected Rustdoc with cargo doc --no-deps when applicable
 8. ✅ Verify examples work
 9. ✅ Check links are valid
 10. ✅ Submit code + docs together
@@ -381,15 +385,15 @@ Before submitting:
 - [ ] No outdated information
 - [ ] Planned features in lib.rs, not README
 - [ ] Migration guides for breaking changes
-- [ ] Doc tests pass
-- [ ] Rustdoc warnings: zero (see DM-7)
+- [ ] Relevant doc tests pass when applicable; limitations are reported
+- [ ] Affected Rustdoc builds without warnings when applicable (see DM-7)
 
 ---
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Main standards**: @CLAUDE.md
-- **Module system**: @instructions/MODULE_SYSTEM.md
-- **Testing standards**: @instructions/TESTING_STANDARDS.md
-- **Anti-patterns**: @instructions/ANTI_PATTERNS.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Main Standards**: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
+- **Module system**: [MODULE_SYSTEM.md](MODULE_SYSTEM.md)
+- **Testing standards**: [TESTING_STANDARDS.md](TESTING_STANDARDS.md)
+- **Anti-patterns**: [ANTI_PATTERNS.md](ANTI_PATTERNS.md)

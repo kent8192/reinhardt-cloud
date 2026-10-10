@@ -16,20 +16,17 @@
 mod tests {
 	use std::sync::Arc;
 
-	use reinhardt::di::{FactoryOutput, InjectionContext, SingletonScope};
-	use reinhardt::prelude::DatabaseConnection;
+	use reinhardt::di::{Depends, InjectionContext, SingletonScope};
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use reinhardt::{OpenApiRouter, UrlReverser};
 	use rstest::*;
 	use serial_test::serial;
 
-	use crate::config::test_helpers::build_test_app;
-	use crate::config::urls::{
-		AllowedOrigins, AllowedOriginsKey, DashboardRouter, DashboardRouterKey,
-	};
-	use crate::config::{GrpcChannelSingleton, GrpcChannelSingletonKey};
+	use crate::config::GrpcChannelSingleton;
+	use crate::config::test_helpers::{build_test_app, set_provider_value};
+	use crate::config::urls::{AllowedOrigins, RouterInfrastructure, build_dashboard_router};
 
 	/// gRPC endpoint used by test probes.
 	///
@@ -41,7 +38,7 @@ mod tests {
 	#[fixture]
 	async fn db_with_app() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -68,7 +65,7 @@ mod tests {
 	async fn test_healthz_returns_503_when_grpc_unreachable(
 		#[future] db_with_app: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -110,7 +107,7 @@ mod tests {
 	async fn test_healthz_returns_200_when_all_probes_succeed(
 		#[future] db_with_app: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -127,29 +124,25 @@ mod tests {
 		let endpoint = grpc_server.endpoint();
 
 		let scope = Arc::new(SingletonScope::new());
-		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
-			AllowedOrigins(vec!["http://testserver".into()]),
-		));
-		scope.set(
-			FactoryOutput::<GrpcChannelSingletonKey, GrpcChannelSingleton>::new(
-				GrpcChannelSingleton::new(&endpoint)
-					.expect("Failed to build test gRPC channel singleton"),
-			),
+		set_provider_value(&scope, AllowedOrigins(vec!["http://testserver".into()]));
+		set_provider_value(
+			&scope,
+			GrpcChannelSingleton::new(&endpoint)
+				.expect("Failed to build test gRPC channel singleton"),
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
-			tokio::task::block_in_place(|| {
-				tokio::runtime::Handle::current().block_on(
-					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
-				)
-			})
-			.expect("Failed to resolve DashboardRouter");
+		let infra = tokio::task::block_in_place(|| {
+			tokio::runtime::Handle::current()
+				.block_on(Depends::<RouterInfrastructure>::builder().resolve(&di_ctx))
+		})
+		.expect("Failed to resolve RouterInfrastructure");
+		let infra = infra
+			.try_unwrap()
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 		let server_router = Arc::new(
-			Arc::try_unwrap(router)
-				.expect("DashboardRouter has multiple owners after resolve")
-				.into_inner()
-				.0
+			build_dashboard_router(infra)
+				.with_di_context(di_ctx)
 				.into_server(),
 		);
 		let handler =
@@ -190,31 +183,27 @@ mod tests {
 		// Arrange -- build a client without starting postgres.
 		crate::apps::health::server_urls::clear_health_cache_for_test().await;
 		let scope = Arc::new(SingletonScope::new());
-		scope.set(FactoryOutput::<AllowedOriginsKey, AllowedOrigins>::new(
-			AllowedOrigins(vec!["http://testserver".into()]),
-		));
+		set_provider_value(&scope, AllowedOrigins(vec!["http://testserver".into()]));
 		// Pre-register a gRPC singleton pointing at an unroutable endpoint so
 		// the probe fails fast regardless of the ambient `GRPC_ENDPOINT`.
-		scope.set(
-			FactoryOutput::<GrpcChannelSingletonKey, GrpcChannelSingleton>::new(
-				GrpcChannelSingleton::new(TEST_GRPC_ENDPOINT)
-					.expect("Failed to build test gRPC channel singleton"),
-			),
+		set_provider_value(
+			&scope,
+			GrpcChannelSingleton::new(TEST_GRPC_ENDPOINT)
+				.expect("Failed to build test gRPC channel singleton"),
 		);
 		let di_ctx = Arc::new(InjectionContext::builder(scope).build());
 
-		let router: Arc<FactoryOutput<DashboardRouterKey, DashboardRouter>> =
-			tokio::task::block_in_place(|| {
-				tokio::runtime::Handle::current().block_on(
-					di_ctx.resolve::<FactoryOutput<DashboardRouterKey, DashboardRouter>>(),
-				)
-			})
-			.expect("Failed to resolve DashboardRouter");
+		let infra = tokio::task::block_in_place(|| {
+			tokio::runtime::Handle::current()
+				.block_on(Depends::<RouterInfrastructure>::builder().resolve(&di_ctx))
+		})
+		.expect("Failed to resolve RouterInfrastructure");
+		let infra = infra
+			.try_unwrap()
+			.unwrap_or_else(|_| panic!("RouterInfrastructure has multiple owners after resolve"));
 		let server_router = Arc::new(
-			Arc::try_unwrap(router)
-				.expect("DashboardRouter has multiple owners after resolve")
-				.into_inner()
-				.0
+			build_dashboard_router(infra)
+				.with_di_context(di_ctx)
 				.into_server(),
 		);
 		let handler =

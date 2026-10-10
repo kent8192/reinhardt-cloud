@@ -46,10 +46,10 @@ async fn main() {
 	registry.register(Box::new(ListApiTokensCommand));
 	registry.register(Box::new(RevokeApiTokenCommand));
 
-	if let Err(e) =
+	if let Err(error) =
 		execute_from_command_line_with_registry_and_settings(registry, get_settings()).await
 	{
-		eprintln!("Error: {e}");
+		eprintln!("Error: {error}");
 		process::exit(1);
 	}
 }

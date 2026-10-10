@@ -5,9 +5,9 @@
 //! the same injection point `CurrentUser<T>` / `AuthUser<T>` read, so both
 //! session-cookie and bearer-token callers unify behind one injection point.
 //!
-//! The middleware is registered after `CookieSessionAuthMiddleware`: a valid
-//! bearer token replaces the session-derived state, while a missing or invalid
-//! bearer header leaves any existing session state untouched.
+//! The middleware is registered after cookie-session validation: a valid bearer
+//! token replaces the session-derived state, while a missing or invalid bearer
+//! header leaves any existing session state untouched.
 
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ use reinhardt::async_trait::async_trait;
 use reinhardt::http::AuthState;
 use reinhardt::{Handler, Middleware, Request, Response};
 
+use crate::apps::auth::middleware::validated_session::ValidatedSessionAuthMiddleware;
 use crate::apps::auth::services::api_key::{touch_last_used, verify_api_key};
 
 /// Authenticate CLI callers via a long-lived API token.
@@ -32,7 +33,7 @@ impl Middleware for ApiTokenAuthMiddleware {
 		if let Some(token) = bearer_token(&request) {
 			let auth_state = resolve_auth_state_for_bearer(token).await;
 			if auth_state.is_authenticated() {
-				request.extensions.insert(auth_state);
+				ValidatedSessionAuthMiddleware::publish_auth_state(&request, auth_state);
 			}
 		}
 		next.handle(request).await

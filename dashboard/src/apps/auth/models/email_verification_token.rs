@@ -38,7 +38,13 @@ pub struct EmailVerificationToken {
 	pub id: Option<i64>,
 
 	/// User that owns this pending email-change token.
-	#[rel(foreign_key, related_name = "email_verification_tokens")]
+	#[field(index = true, condition = "consumed_at IS NULL")]
+	#[rel(
+		foreign_key,
+		related_name = "email_verification_tokens",
+		db_index = false,
+		on_delete = Cascade
+	)]
 	pub user: ForeignKeyField<User>,
 
 	/// New email that will replace `user.email` upon successful verification.

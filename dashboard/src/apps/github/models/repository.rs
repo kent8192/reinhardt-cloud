@@ -16,7 +16,7 @@ pub struct GitHubRepository {
 	pub id: Option<i64>,
 
 	/// Installation that grants repository access.
-	#[rel(foreign_key, related_name = "repositories")]
+	#[rel(foreign_key, related_name = "repositories", on_delete = Cascade)]
 	pub installation: ForeignKeyField<GitHubInstallation>,
 
 	/// GitHub repository identifier.
@@ -44,6 +44,10 @@ pub struct GitHubRepository {
 
 	/// Whether the repository is selected for Reinhardt Cloud use.
 	pub selected: bool,
+
+	/// Timestamp of the active import lease, if an import is running.
+	#[field(null = true)]
+	pub import_claimed_at: Option<DateTime<Utc>>,
 
 	/// Repository record creation timestamp.
 	#[field(auto_now_add = true)]

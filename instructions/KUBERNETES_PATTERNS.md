@@ -516,9 +516,9 @@ rules:
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Main Standards**: @CLAUDE.md
-- **Anti-Patterns**: @instructions/ANTI_PATTERNS.md
-- **Testing Standards**: @instructions/TESTING_STANDARDS.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Main Standards**: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
+- **Anti-Patterns**: [ANTI_PATTERNS.md](ANTI_PATTERNS.md)
+- **Testing Standards**: [TESTING_STANDARDS.md](TESTING_STANDARDS.md)
 - **kube-rs Documentation**: <https://docs.rs/kube>
 - **Kubernetes Operator Pattern**: <https://kubernetes.io/docs/concepts/extend-kubernetes/operator/>

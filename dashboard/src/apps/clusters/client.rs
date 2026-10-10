@@ -4,3 +4,4 @@
 //! in the browser via the WASM target.
 
 pub mod pages;
+pub mod style;

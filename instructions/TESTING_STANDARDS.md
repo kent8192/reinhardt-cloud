@@ -67,6 +67,16 @@ fn test_crd_validation() {
 
 ---
 
+## Verification Scope
+
+Use [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#verification) to choose checks for the
+changed behavior. Test standards govern tests that are needed; they do not require
+new Rust tests for prose-only edits or assertions that mirror implementation
+structure. Reuse adequate coverage, add meaningful regression tests for defects,
+and expand or repeat checks only when their evidence is insufficient or invalidated.
+Native tests use cargo-nextest. Browser/WASM behavior requires its own relevant
+runner; a native test pass does not establish frontend correctness.
+
 ## Test Organization
 
 ### TO-1 (MUST): Unit vs Integration Tests
@@ -85,29 +95,11 @@ Clear separation based on the nature of what is being tested:
 - Verifies the component's behavior and edge cases
 - Does not test interactions between multiple components
 
-**Structure:**
-```
-crates/reinhardt-cloud-operator/
-├── src/
-│   ├── lib.rs
-│   ├── reconciler.rs
-│   └── crd.rs
-└── tests/
-    └── unit_tests.rs
-
-// Unit tests in the same file
-// src/reconciler.rs
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[rstest]
-    fn test_reconciler_action_requeue() {
-        let action = Action::requeue(Duration::from_secs(30));
-        assert_eq!(action.requeue_after(), Some(Duration::from_secs(30)));
-    }
-}
-```
+**Structure:** Place unit tests beside the owning component or in that crate's
+test modules. Inspect the existing [operator reconciler](../crates/reinhardt-cloud-operator/src/reconciler.rs)
+and its tests before extending coverage. Assert the Cloud component's observable
+behavior rather than merely testing a third-party constructor. Dashboard tests
+follow the more specific layout in [dashboard/AGENTS.md](../dashboard/AGENTS.md).
 
 #### Integration Tests
 **Definition:** Tests that verify the **integration points** (interfaces) between **two or more components**
@@ -211,7 +203,7 @@ fn build_ingress(app: &Project) -> Ingress {
 **Techniques:**
 - Test fixtures with `Drop` implementations
 - `tempfile` crate for temporary files
-- Explicit cleanup in test teardown
+- RAII guards that restore state even on early return or panic; manual teardown alone is insufficient
 
 **Example:**
 ```rust
@@ -276,9 +268,10 @@ Loose assertions are acceptable ONLY when strict assertions are impossible or im
 **Justification Requirement:**
 When using loose assertions, add a comment explaining why strict assertions are not possible.
 
-### TI-6 (SHOULD): Arrange-Act-Assert (AAA) Pattern
+### TI-6 (MUST): Arrange-Act-Assert (AAA) Pattern
 
-All tests SHOULD follow the **Arrange-Act-Assert (AAA)** pattern for clear, consistent structure.
+All tests MUST follow the **Arrange-Act-Assert (AAA)** pattern. Use `// Arrange`,
+`// Act`, and `// Assert` comments, subject to the short-test omission rule below.
 
 **AAA Phases:**
 
@@ -339,6 +332,11 @@ AAA comments MAY be omitted when the test body is **5 lines or fewer** and the p
 
 ### IT-1 (SHOULD): TestContainers for Infrastructure
 
+Use Docker, never Podman. Check the daemon and `DOCKER_HOST` before starting
+containers; use this project's `.testcontainers.properties` when present.
+Keep containers and temporary resources in RAII fixtures. A missing daemon is a
+reported infrastructure prerequisite, not a passing integration test.
+
 Use **TestContainers** for tests requiring actual infrastructure:
 - Databases (PostgreSQL, MySQL)
 - Message queues (Redis, RabbitMQ)
@@ -388,7 +386,7 @@ retries = { backoff = "exponential", max-retries = 2, seed = 12345 }
 **ALL** test cases in this project MUST use **rstest** as the test framework.
 
 **Requirements:**
-- Import `rstest::*` in all test modules
+- Import the needed attributes explicitly, such as `rstest::{fixture, rstest}`
 - Use `#[rstest]` attribute instead of `#[test]`
 - Use `#[rstest]` with `#[tokio::test]` for async tests
 - Leverage fixtures for setup/teardown
@@ -402,9 +400,9 @@ fn test_basic_operation() {
 }
 ```
 
-✅ **GOOD - Using rstest:**
+✅ **GOOD - Using rstest (application fixtures omitted):**
 ```rust
-use rstest::*;
+use rstest::rstest;
 
 #[rstest]
 fn test_basic_operation(reconciler_fixture: AppReconciler) {
@@ -428,7 +426,7 @@ Fixtures serve as the **Arrange** phase in the AAA pattern.
 #### Basic Fixture
 
 ```rust
-use rstest::*;
+use rstest::{fixture, rstest};
 
 #[fixture]
 fn app_spec() -> ProjectSpec {
@@ -534,6 +532,6 @@ async fn test_database_operations(
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Anti-Patterns**: @instructions/ANTI_PATTERNS.md
-- **Module System**: @instructions/MODULE_SYSTEM.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Anti-Patterns**: [ANTI_PATTERNS.md](ANTI_PATTERNS.md)
+- **Module System**: [MODULE_SYSTEM.md](MODULE_SYSTEM.md)

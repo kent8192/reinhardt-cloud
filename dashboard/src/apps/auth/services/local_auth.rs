@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use reinhardt::BaseUser;
 use reinhardt::db::orm::Model;
-use reinhardt::di::FactoryOutput;
+use reinhardt::di::injectable;
 use reinhardt_cloud_core::auth::{self, Claims};
 use reinhardt_cloud_core::error::ApiError;
 use reinhardt_cloud_core::traits::AuthService;
@@ -24,9 +24,6 @@ use crate::config::settings::get_jwt_secret;
 /// the gRPC layer).
 pub struct LocalAuthService;
 
-#[reinhardt::di::injectable_key]
-pub struct LocalAuthServiceKey;
-
 impl LocalAuthService {
 	/// Create a new `LocalAuthService`.
 	pub fn new() -> Self {
@@ -42,9 +39,9 @@ impl Default for LocalAuthService {
 
 /// DI factory — auto-registers `LocalAuthService` as a singleton.
 /// Tests can override via `SingletonScope::set()` before resolution.
-#[reinhardt::di::injectable(scope = "singleton")]
-async fn create_local_auth_service() -> FactoryOutput<LocalAuthServiceKey, LocalAuthService> {
-	FactoryOutput::new(LocalAuthService::new())
+#[injectable(scope = "singleton")]
+async fn create_local_auth_service() -> LocalAuthService {
+	LocalAuthService::new()
 }
 
 impl LocalAuthService {
@@ -110,11 +107,11 @@ impl AuthService for LocalAuthService {
 
 	async fn get_user_info(&self, user_id: &str) -> Result<DomainUser, ApiError> {
 		// Validate UUID format
-		let _uid = Uuid::parse_str(user_id)
+		let uid = Uuid::parse_str(user_id)
 			.map_err(|e| ApiError::BadRequest(format!("Invalid user ID: {e}")))?;
 
 		let user = User::objects()
-			.filter(User::field_id().eq(user_id.to_string()))
+			.filter(User::field_id().eq(uid))
 			.first()
 			.await
 			.map_err(|e| {

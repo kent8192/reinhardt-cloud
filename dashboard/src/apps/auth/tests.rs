@@ -24,4 +24,5 @@ pub mod integration {
 	pub mod test_oauth_linking;
 	pub mod test_oauth_storage;
 	pub mod test_provisioning;
+	pub mod test_validated_session_middleware;
 }
