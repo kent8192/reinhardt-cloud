@@ -25,6 +25,9 @@ async fn signed_in(app: &TestApp, account: &GithubAccount, code: &str) -> Browse
 	browser
 }
 
+/// The admin site's own policy, exactly as `reinhardt-admin` composes it.
+const ADMIN_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
 async fn admin_dashboard(browser: &mut Browser, origin: &str) -> Reply {
 	browser
 		.post_with(
@@ -53,11 +56,13 @@ async fn sr_10_only_the_enumerated_routes_answer_an_anonymous_request() {
 	let mut browser = app.browser();
 	let mut answered = Vec::new();
 	let mut refused = Vec::new();
+	let mut enumerated = 0;
 
 	// Act
 	for (path, _name, _namespace, methods) in router.get_all_routes() {
 		let concrete = path.replace("{*tail}", "x").replace("{*path}", "x/y.css");
 		for method in methods {
+			enumerated += 1;
 			let reply = browser
 				.request(method.as_str(), &concrete, &[("Origin", &app.base_url)])
 				.await;
@@ -94,9 +99,10 @@ async fn sr_10_only_the_enumerated_routes_answer_an_anonymous_request() {
 			.all(|(_, status)| matches!(status, 401 | 403 | 404)),
 		"{refused:?}"
 	);
-	assert!(
-		refused.len() >= 25,
-		"the admin routes were enumerated too: {refused:?}"
+	assert_eq!(
+		refused.len(),
+		enumerated - ANONYMOUS_PATHS.len(),
+		"every other enumerated route, the admin routes included, was refused: {refused:?}"
 	);
 }
 
@@ -214,9 +220,9 @@ async fn sr_20_the_admin_site_is_reachable_only_by_active_staff_and_follows_the_
 		!matches!(staff_api.status, 401 | 403 | 404),
 		"the admin loader accepts active Staff: {staff_api:?}"
 	);
-	assert_ne!(
+	assert_eq!(
 		staff_shell.header("content-security-policy"),
-		Some("default-src 'none'; frame-ancestors 'none'"),
+		Some(ADMIN_CSP),
 		"the admin site keeps its own policy"
 	);
 
