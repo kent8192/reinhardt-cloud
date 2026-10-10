@@ -48,6 +48,14 @@ pub fn login_link_content(token: Option<String>) -> Page {
 		move || {
 			if matches!(action.result(), Some(LoginLinkOutcome::SignedIn)) {
 				// Replace, so the history entry that held the secret is gone.
+				//
+				// Ignoring the `Result` is safe: the User is already signed in
+				// (the session cookie was set by the call that just succeeded), and
+				// `navigate` fails only when no router is installed or the router
+				// rejects the path, both of which leave the page where it is. Nothing
+				// is lost by that; reloading the page, or opening `/`, shows the
+				// signed-in landing. The same pattern ends the sign-out flow in
+				// `home.rs`.
 				let _ = navigate(reverse("home", &[]), NavigationType::Replace);
 			}
 			None::<fn()>
