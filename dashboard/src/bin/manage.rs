@@ -97,6 +97,10 @@ fn main() {
 		);
 	}
 
+	// Every command, `runserver` included, gets the process-wide log output, so
+	// the audit events a command emits are written rather than discarded.
+	cloud_control_plane::logging::init();
+
 	reinhardt::commands::shell_runtime_hook();
 	native::main();
 }

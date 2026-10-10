@@ -119,9 +119,10 @@ deactivated-User link all get the same answer. The session it creates is the
 same one GitHub sign-in creates. The URL needs `REINHARDT_CLOUD_PUBLIC_URL` to be
 an origin; the command refuses otherwise.
 
-The commands write their audit records as JSON lines on standard error, filtered
-by `RUST_LOG` (default `info`); the server does the same. Nothing else installs
-a log output, so without this the audit events would be discarded.
+The audit records are written as JSON lines on standard error, filtered by
+`RUST_LOG` (default `info`), by the server and by every `manage` command
+(`logging::init`, called by `manage` itself). Nothing else installs a log
+output, so without this the audit events would be discarded.
 
 ### Audit events
 

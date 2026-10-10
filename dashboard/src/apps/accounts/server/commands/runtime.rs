@@ -18,15 +18,14 @@ impl CommandRuntime {
 	/// secrets, hardened deployed profiles), then connect the ORM pool.
 	///
 	/// The command driver creates the pool only for built-in commands, so a
-	/// registered command creates it here. This also installs the process-wide
-	/// log output, so the audit events the command emits reach the operator.
+	/// registered command creates it here. The log output is installed earlier,
+	/// by `manage` itself, for every command.
 	///
 	/// # Errors
 	///
 	/// Returns an error when the settings are invalid or the database cannot be
 	/// reached. The message names the failing setting, never a secret value.
 	pub async fn start() -> Result<Self, CommandError> {
-		crate::logging::init();
 		let settings = get_resolved_settings()
 			.map_err(|error| CommandError::ExecutionError(error.to_string()))?
 			.into_parts()
