@@ -1,5 +1,6 @@
 //! Tests of the accounts application.
 
+mod server_support;
 mod support;
 
 mod unit {
@@ -10,6 +11,7 @@ mod unit {
 
 mod integration {
 	mod test_provider_tokens;
+	mod test_sign_in;
 	mod test_sign_up;
 	mod test_users;
 }
