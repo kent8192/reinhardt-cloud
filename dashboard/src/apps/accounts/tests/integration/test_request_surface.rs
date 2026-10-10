@@ -567,8 +567,8 @@ async fn sr_13_the_spa_shell_currently_carries_no_security_headers_upstream_gap(
 }
 
 /// A route-name heuristic, and only a backstop. It catches a handler that is
-/// obviously named like a Staff grant, a Login Link issuance, or a re-pointing,
-/// but a route can be named anything. The guarantee that no request moves a User
+/// obviously named like a Staff grant, a Login Link issuance, a re-pointing, or
+/// one of the recovery tools (`end-sessions`, `reactivate-user`), but a route can be named anything. The guarantee that no request moves a User
 /// to another GitHub account is structural and is tested separately: the admin
 /// site cannot edit `github_user_id` or `is_staff`
 /// (`sr_107_admin_cannot_move_a_user_to_another_github_account`,
@@ -598,8 +598,18 @@ async fn sr_18_20_107_no_route_issues_a_link_grants_staff_or_moves_a_user() {
 
 	// Assert
 	assert!(
-		mentioning(&["staff", "grant", "repoint", "github_user_id", "issue"]).is_empty(),
-		"Staff grants, Login Link issuance, and re-pointing exist only as `manage` commands: {paths:?}"
+		mentioning(&[
+			"staff",
+			"grant",
+			"repoint",
+			"github_user_id",
+			"issue",
+			"reactivate",
+			"end_sessions",
+			"end-sessions",
+		])
+		.is_empty(),
+		"Staff grants, Login Link issuance, re-pointing, and the recovery tools (`end-sessions`, `reactivate-user`) exist only as `manage` commands: {paths:?}"
 	);
 	assert_eq!(
 		mentioning(&["login_link", "login-link", "loginlink"]),
