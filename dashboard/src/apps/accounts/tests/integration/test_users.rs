@@ -212,7 +212,7 @@ async fn sr_03_a_user_holds_exactly_one_set_of_provider_tokens(#[future] databas
 	let tokens = |label: &str| ProviderTokens {
 		access_token: SecretString::new(format!("access-{label}")),
 		refresh_token: Some(SecretString::new(format!("refresh-{label}"))),
-		access_token_expires_at: Utc::now() + Duration::hours(8),
+		access_token_expires_at: Some(Utc::now() + Duration::hours(8)),
 		refresh_token_expires_at: Some(Utc::now() + Duration::days(180)),
 	};
 
@@ -241,7 +241,7 @@ async fn sr_03_the_database_rejects_a_second_social_account_row_for_one_user(
 			.user(user.id)
 			.encrypted_access_token("v1.primary.AAAAAAAAAAAAAAAAAAAA".to_owned())
 			.encrypted_refresh_token(None)
-			.access_token_expires_at(Utc::now() + Duration::hours(8))
+			.access_token_expires_at(Some(Utc::now() + Duration::hours(8)))
 			.refresh_token_expires_at(None)
 			.finish()
 	};

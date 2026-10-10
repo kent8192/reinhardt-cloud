@@ -270,11 +270,14 @@ impl GithubSignIn {
 			.refresh_token
 			.clone()
 			.map(SecretString::new);
-		// Missing `expires_in` means GitHub did not issue an expiring token;
-		// the library's own one-hour default applies, after which the User signs
-		// in again (there is no refresh token to use).
-		let access_token_expires_at = after(now, result.token_response.expires_in.unwrap_or(3600))
-			.ok_or(CompleteError::ExchangeFailed)?;
+		// A missing `expires_in` means GitHub issued a token that does not
+		// expire (the App opted out of user-token expiration); such a token
+		// comes without a refresh token and is stored with no expiry.
+		let access_token_expires_at = result
+			.token_response
+			.expires_in
+			.map(|seconds| after(now, seconds).ok_or(CompleteError::ExchangeFailed))
+			.transpose()?;
 		let refresh_token_expires_at = match refresh_token {
 			Some(_) => Some(
 				after(now, GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS).ok_or(CompleteError::Internal)?,

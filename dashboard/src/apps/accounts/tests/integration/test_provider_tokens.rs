@@ -22,7 +22,7 @@ fn tokens(access: &str, refresh: Option<&str>) -> ProviderTokens {
 	ProviderTokens {
 		access_token: SecretString::new(access),
 		refresh_token: refresh.map(SecretString::new),
-		access_token_expires_at: Utc::now().trunc_subsecs(3) + Duration::hours(8),
+		access_token_expires_at: Some(Utc::now().trunc_subsecs(3) + Duration::hours(8)),
 		refresh_token_expires_at: refresh
 			.map(|_| Utc::now().trunc_subsecs(3) + Duration::days(180)),
 	}
@@ -100,8 +100,8 @@ async fn sr_06_explicit_load_returns_the_stored_tokens_and_expiries(
 	assert_eq!(loaded.access_token.expose_secret(), "ghu_access");
 	assert_eq!(loaded.refresh_token.unwrap().expose_secret(), "ghr_refresh");
 	assert_eq!(
-		millis(loaded.access_token_expires_at),
-		millis(stored.access_token_expires_at)
+		loaded.access_token_expires_at.map(millis),
+		stored.access_token_expires_at.map(millis)
 	);
 	assert_eq!(
 		loaded.refresh_token_expires_at.map(millis),
@@ -234,6 +234,36 @@ async fn sr_06_a_rotated_token_pair_replaces_both_tokens_and_both_expiries(
 	assert_eq!(
 		loaded.refresh_token_expires_at.map(millis),
 		rotated.refresh_token_expires_at.map(millis)
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_06_a_token_without_expiry_is_stored_and_loaded_as_non_expiring(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(121, "forever", false).await;
+	let storage = storage();
+	let mut permanent = tokens("ghu_forever", None);
+	permanent.access_token_expires_at = None;
+
+	// Act
+	storage.store_tokens(user.id, &permanent).await.unwrap();
+	let loaded = storage.load_tokens(user.id).await.unwrap().unwrap();
+	let upstream = storage.find_by_user(user.id).await.unwrap();
+
+	// Assert
+	assert_eq!(loaded.access_token.expose_secret(), "ghu_forever");
+	assert_eq!(loaded.access_token_expires_at, None);
+	assert_eq!(loaded.refresh_token_expires_at, None);
+	assert_eq!(upstream.len(), 1);
+	assert_eq!(
+		upstream[0].token_expires_at,
+		DateTime::<Utc>::MAX_UTC,
+		"the upstream record reports a token that never expires as the latest time"
 	);
 }
 
@@ -584,7 +614,7 @@ async fn sr_06_store_tokens_accepts_nanosecond_precision_expiries(
 	let tokens = ProviderTokens {
 		access_token: SecretString::new("ghu_nanos"),
 		refresh_token: Some(SecretString::new("ghr_nanos")),
-		access_token_expires_at: access_expiry,
+		access_token_expires_at: Some(access_expiry),
 		refresh_token_expires_at: Some(refresh_expiry),
 	};
 
@@ -596,7 +626,7 @@ async fn sr_06_store_tokens_accepts_nanosecond_precision_expiries(
 	// Assert
 	assert_eq!(
 		loaded.access_token_expires_at,
-		access_expiry.with_nanosecond(123_456_000).unwrap()
+		Some(access_expiry.with_nanosecond(123_456_000).unwrap())
 	);
 	assert_eq!(
 		loaded.refresh_token_expires_at,

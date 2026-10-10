@@ -42,6 +42,10 @@ use crate::apps::accounts::services::server::token_crypto::{
 };
 use crate::persisted_time::{persisted_now, to_persisted};
 
+/// What the upstream record, whose expiry cannot be absent, carries for a token
+/// that never expires.
+const NON_EXPIRING: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
+
 /// The provider name this storage serves.
 pub const GITHUB_PROVIDER: &str = "github";
 
@@ -53,8 +57,9 @@ pub struct ProviderTokens {
 	pub access_token: SecretString,
 	/// User refresh token, when GitHub issued one.
 	pub refresh_token: Option<SecretString>,
-	/// When the access token expires.
-	pub access_token_expires_at: DateTime<Utc>,
+	/// When the access token expires; `None` when GitHub issued a token that
+	/// does not expire (a GitHub App that opted out of user-token expiration).
+	pub access_token_expires_at: Option<DateTime<Utc>>,
 	/// When the refresh token expires, when GitHub reports it.
 	pub refresh_token_expires_at: Option<DateTime<Utc>>,
 }
@@ -64,7 +69,7 @@ impl ProviderTokens {
 	/// so a caller may pass `now + expires_in` unmodified.
 	fn persisted(&self) -> Self {
 		Self {
-			access_token_expires_at: to_persisted(self.access_token_expires_at),
+			access_token_expires_at: self.access_token_expires_at.map(to_persisted),
 			refresh_token_expires_at: self.refresh_token_expires_at.map(to_persisted),
 			..self.clone()
 		}
@@ -266,7 +271,7 @@ impl OrmSocialAccountStorage {
 			// Tokenless on purpose (SR-06); see the module documentation.
 			access_token: String::new(),
 			refresh_token: None,
-			token_expires_at: row.access_token_expires_at,
+			token_expires_at: row.access_token_expires_at.unwrap_or(NON_EXPIRING),
 			scopes: Vec::new(),
 			created_at: row.created_at,
 			updated_at: row.updated_at,
@@ -422,7 +427,7 @@ fn tokens_of(
 	ProviderTokens {
 		access_token: SecretString::new(account.access_token.clone()),
 		refresh_token: account.refresh_token.clone().map(SecretString::new),
-		access_token_expires_at: account.token_expires_at,
+		access_token_expires_at: Some(account.token_expires_at).filter(|at| *at != NON_EXPIRING),
 		refresh_token_expires_at: account.refresh_token.as_ref().and(stored_refresh_expiry),
 	}
 }

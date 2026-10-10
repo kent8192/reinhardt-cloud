@@ -39,8 +39,10 @@ pub struct SocialAccount {
 	#[field(max_length = 8192, skip_info = true, null = true)]
 	pub encrypted_refresh_token: Option<String>,
 
-	/// When the access token expires.
-	pub access_token_expires_at: DateTime<Utc>,
+	/// When the access token expires; none for a GitHub App that opted out of
+	/// user-token expiration, whose tokens never expire.
+	#[field(null = true)]
+	pub access_token_expires_at: Option<DateTime<Utc>>,
 
 	/// When the refresh token expires, when GitHub reports it.
 	#[field(null = true)]

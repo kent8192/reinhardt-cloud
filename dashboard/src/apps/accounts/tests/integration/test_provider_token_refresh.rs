@@ -60,8 +60,24 @@ impl Fixture {
 				&ProviderTokens {
 					access_token: SecretString::new("old-access"),
 					refresh_token: refresh.map(|(token, _)| SecretString::new(token)),
-					access_token_expires_at: now + expires_in,
+					access_token_expires_at: Some(now + expires_in),
 					refresh_token_expires_at: refresh.map(|(_, lifetime)| now + lifetime),
+				},
+			)
+			.await
+			.unwrap();
+	}
+
+	/// Store a token that never expires and has no refresh token.
+	async fn store_non_expiring(&self) {
+		self.storage
+			.store_tokens(
+				self.user,
+				&ProviderTokens {
+					access_token: SecretString::new("old-access"),
+					refresh_token: None,
+					access_token_expires_at: None,
+					refresh_token_expires_at: None,
 				},
 			)
 			.await
@@ -139,6 +155,22 @@ async fn a_token_that_is_not_about_to_expire_is_used_as_it_is() {
 #[rstest]
 #[tokio::test]
 #[serial(database)]
+async fn a_non_expiring_token_is_used_as_it_is_without_asking_for_a_new_sign_in() {
+	// Arrange
+	let fx = fixture(database().await).await;
+	fx.store_non_expiring().await;
+
+	// Act
+	let token = fx.service.access_token(fx.user).await;
+
+	// Assert
+	assert_eq!(token.unwrap().expose_secret(), "old-access");
+	assert_eq!(fx.refresh_calls().await, 0);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
 async fn an_expiring_token_is_renewed_and_the_rotated_pair_is_stored_together() {
 	// Arrange
 	let fx = fixture(database().await).await;
@@ -163,7 +195,7 @@ async fn an_expiring_token_is_renewed_and_the_rotated_pair_is_stored_together() 
 			.map(SecretString::expose_secret),
 		Some("new-refresh")
 	);
-	let access_lifetime = (stored.access_token_expires_at - Utc::now()).num_seconds();
+	let access_lifetime = (stored.access_token_expires_at.unwrap() - Utc::now()).num_seconds();
 	assert!(
 		(28_700..=28_800).contains(&access_lifetime),
 		"{access_lifetime}"

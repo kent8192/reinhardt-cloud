@@ -140,11 +140,19 @@ impl ProviderTokenRefresher {
 		};
 		Ok(ProviderTokens {
 			access_token: SecretString::new(access_token),
-			access_token_expires_at,
+			access_token_expires_at: Some(access_token_expires_at),
 			refresh_token_expires_at,
 			refresh_token,
 		})
 	}
+}
+
+/// Whether the access token can be used as it is: it does not expire, or it
+/// outlasts the refresh skew.
+fn is_fresh(tokens: &ProviderTokens, now: DateTime<Utc>) -> bool {
+	tokens
+		.access_token_expires_at
+		.is_none_or(|expiry| expiry - now > REFRESH_SKEW)
 }
 
 /// Provides a usable GitHub access token for a User.
@@ -176,7 +184,7 @@ impl ProviderTokenService {
 	pub async fn access_token(&self, user_id: Uuid) -> Result<SecretString, TokenAccessError> {
 		let now = Utc::now();
 		let tokens = self.load(user_id).await?;
-		if tokens.access_token_expires_at - now > REFRESH_SKEW {
+		if is_fresh(&tokens, now) {
 			return Ok(tokens.access_token);
 		}
 
@@ -204,7 +212,7 @@ impl ProviderTokenService {
 				for _ in 0..RACE_ATTEMPTS {
 					tokio::time::sleep(RACE_WAIT).await;
 					let current = self.load(user_id).await?;
-					if current.access_token_expires_at - now > REFRESH_SKEW {
+					if is_fresh(&current, now) {
 						return Ok(current.access_token);
 					}
 				}

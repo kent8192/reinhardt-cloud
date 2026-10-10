@@ -62,16 +62,21 @@ async fn flow() -> Flow {
 
 impl Flow {
 	async fn accept_the_code(&self) {
+		self.accept_the_code_with(json!({
+			"access_token": ACCESS,
+			"token_type": "bearer",
+			"expires_in": 28800,
+			"refresh_token": "ghr_refresh",
+			"refresh_token_expires_in": 15811200
+		}))
+		.await;
+	}
+
+	async fn accept_the_code_with(&self, token_response: serde_json::Value) {
 		Mock::given(method("POST"))
 			.and(path("/login/oauth/access_token"))
 			.and(body_string_contains(format!("code={CODE}")))
-			.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-				"access_token": ACCESS,
-				"token_type": "bearer",
-				"expires_in": 28800,
-				"refresh_token": "ghr_refresh",
-				"refresh_token_expires_in": 15811200
-			})))
+			.respond_with(ResponseTemplate::new(200).set_body_json(token_response))
 			.mount(&self.mock)
 			.await;
 	}
@@ -457,9 +462,40 @@ async fn sr_02_the_login_comes_from_the_raw_profile_not_the_display_name() {
 	assert_eq!(identity.profile.name.as_deref(), Some("The Octocat"));
 	assert_eq!(identity.profile.verified_email, None);
 	assert_eq!(identity.tokens.access_token.expose_secret(), ACCESS);
-	let lifetime = (identity.tokens.access_token_expires_at - Utc::now()).num_seconds();
+	let lifetime = (identity.tokens.access_token_expires_at.unwrap() - Utc::now()).num_seconds();
 	assert!((28_700..=28_800).contains(&lifetime), "{lifetime}");
 	assert!(identity.tokens.refresh_token_expires_at.is_some());
+}
+
+#[rstest]
+#[tokio::test]
+async fn a_token_issued_without_expiry_is_non_expiring_and_has_no_refresh_token() {
+	// Arrange
+	let flow = flow().await;
+	flow.accept_the_code_with(json!({
+		"access_token": ACCESS,
+		"token_type": "bearer"
+	}))
+	.await;
+	flow.serve_octocat().await;
+	let started = flow.github.begin().await.unwrap();
+
+	// Act
+	let identity = flow
+		.github
+		.complete(
+			CODE,
+			&state_of(&started.authorization_url),
+			Some(&started.binding),
+		)
+		.await
+		.unwrap();
+
+	// Assert
+	assert_eq!(identity.tokens.access_token.expose_secret(), ACCESS);
+	assert_eq!(identity.tokens.access_token_expires_at, None);
+	assert!(identity.tokens.refresh_token.is_none());
+	assert_eq!(identity.tokens.refresh_token_expires_at, None);
 }
 
 #[rstest]
