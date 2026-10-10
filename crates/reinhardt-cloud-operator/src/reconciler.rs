@@ -1696,6 +1696,7 @@ async fn reconcile_redis_credentials_secret(
 				&name,
 				Some(&provenance.uid),
 				&provenance.digest,
+				None,
 			)
 			.await?;
 			info!(
@@ -1710,8 +1711,19 @@ async fn reconcile_redis_credentials_secret(
 	let digest = redis_credentials_digest(&secret);
 	// Commit to the generated data before creating the Secret: only the
 	// operator knows this data, so the digest identifies the Secret created
-	// below even if the UID write after creation never happens.
-	patch_redis_credentials_provenance(&project_api, &name, None, &digest).await?;
+	// below even if the UID write after creation never happens. The write is
+	// conditioned on the observed Project resourceVersion, so a concurrent
+	// reconcile (for example an overlapping operator Pod during a rollout)
+	// that already recorded the winning Secret's provenance is never
+	// overwritten by a stale view.
+	patch_redis_credentials_provenance(
+		&project_api,
+		&name,
+		None,
+		&digest,
+		app.metadata.resource_version.as_deref(),
+	)
+	.await?;
 	let created = secret_api
 		.create(&PostParams::default(), &secret)
 		.await
@@ -1719,7 +1731,10 @@ async fn reconcile_redis_credentials_secret(
 	let uid = created.metadata.uid.ok_or_else(|| {
 		Error::SecretGeneration("created Redis credentials Secret has no UID".to_string())
 	})?;
-	patch_redis_credentials_provenance(&project_api, &name, Some(&uid), &digest).await?;
+	// Only one create can succeed for the Secret name, so its creator records
+	// the provenance unconditionally; a loser receives `AlreadyExists`, retries,
+	// and then accepts the recorded winner.
+	patch_redis_credentials_provenance(&project_api, &name, Some(&uid), &digest, None).await?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
 	Ok(RedisCredentialsProvenance { uid, digest })
 }
@@ -1727,19 +1742,25 @@ async fn reconcile_redis_credentials_secret(
 /// Writes the Redis credentials provenance to the `Project` status.
 ///
 /// A `None` UID clears any previously recorded UID, so the status never pairs
-/// a stale UID with the digest of newly generated data.
+/// a stale UID with the digest of newly generated data. When
+/// `resource_version` is set, the API server rejects the write with a
+/// conflict if the Project changed since that version was observed.
 async fn patch_redis_credentials_provenance(
 	project_api: &Api<Project>,
 	name: &str,
 	uid: Option<&str>,
 	digest: &str,
+	resource_version: Option<&str>,
 ) -> Result<(), Error> {
-	let status_patch = serde_json::json!({
+	let mut status_patch = serde_json::json!({
 		"status": {
 			"redisCredentialsSecretUid": uid,
 			"redisCredentialsSecretDigest": digest,
 		}
 	});
+	if let Some(resource_version) = resource_version {
+		status_patch["metadata"] = serde_json::json!({ "resourceVersion": resource_version });
+	}
 	project_api
 		.patch_status(name, &PatchParams::default(), &Patch::Merge(&status_patch))
 		.await
@@ -3906,10 +3927,13 @@ mod tests {
 	type RecordedRequests = Arc<parking_lot::Mutex<Vec<(http::Method, String, serde_json::Value)>>>;
 
 	/// Serves the Redis credentials flow for `reconcile_redis_credentials_secret`
-	/// tests and records every request.
+	/// tests and records every request. When `create_wins` is false, the Secret
+	/// POST fails with `AlreadyExists`, as for a reconcile that lost a creation
+	/// race to a concurrent operator Pod.
 	fn redis_credentials_api(
 		app: &Project,
 		existing: Option<Secret>,
+		create_wins: bool,
 	) -> (Client, RecordedRequests) {
 		use http_body_util::BodyExt;
 
@@ -3940,11 +3964,19 @@ mod tests {
 						}))
 						.unwrap(),
 					),
-					(&http::Method::POST, _) => {
+					(&http::Method::POST, _) if create_wins => {
 						let mut created = body.clone();
 						created["metadata"]["uid"] = serde_json::json!("created-secret-uid");
 						(201, serde_json::to_vec(&created).unwrap())
 					}
+					(&http::Method::POST, _) => (
+						409,
+						serde_json::to_vec(&serde_json::json!({
+							"apiVersion": "v1", "kind": "Status", "status": "Failure",
+							"reason": "AlreadyExists", "message": "already exists", "code": 409
+						}))
+						.unwrap(),
+					),
 					_ => (200, project),
 				};
 				captured.lock().push((parts.method, path, body));
@@ -3963,8 +3995,9 @@ mod tests {
 	#[tokio::test]
 	async fn redis_credentials_creation_commits_digest_before_creating_the_secret() {
 		// Arrange
-		let app = make_test_app("payments");
-		let (client, requests) = redis_credentials_api(&app, None);
+		let mut app = make_test_app("payments");
+		app.metadata.resource_version = Some("41".to_string());
+		let (client, requests) = redis_credentials_api(&app, None, true);
 
 		// Act
 		let provenance = reconcile_redis_credentials_secret(&app, &client, "default")
@@ -4001,6 +4034,7 @@ mod tests {
 		assert_eq!(
 			recorded[1].2,
 			serde_json::json!({
+				"metadata": { "resourceVersion": "41" },
 				"status": {
 					"redisCredentialsSecretUid": null,
 					"redisCredentialsSecretDigest": digest,
@@ -4027,6 +4061,34 @@ mod tests {
 
 	#[rstest]
 	#[tokio::test]
+	async fn redis_credentials_creation_loser_retries_without_recording_its_uid() {
+		// Arrange: a concurrent operator Pod created the Secret first.
+		let mut app = make_test_app("payments");
+		app.metadata.resource_version = Some("41".to_string());
+		let (client, requests) = redis_credentials_api(&app, None, false);
+
+		// Act
+		let result = reconcile_redis_credentials_secret(&app, &client, "default").await;
+
+		// Assert: the loser stops after the rejected POST and is retried, so it
+		// never records a UID that would displace the winner's provenance.
+		let Err(error) = result else {
+			panic!("expected the losing creation to fail");
+		};
+		assert_eq!(backoff_class(&error), BackoffClass::DependencyNotReady);
+		let methods: Vec<_> = requests
+			.lock()
+			.iter()
+			.map(|(method, _, _)| method.clone())
+			.collect();
+		assert_eq!(
+			methods,
+			vec![http::Method::GET, http::Method::PATCH, http::Method::POST]
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
 	async fn redis_credentials_recovers_uid_after_interrupted_creation() {
 		// Arrange: the operator committed the digest and created the Secret,
 		// then stopped before recording the UID.
@@ -4038,7 +4100,7 @@ mod tests {
 			redis_credentials_secret_digest: Some(digest.clone()),
 			..Default::default()
 		});
-		let (client, requests) = redis_credentials_api(&app, Some(secret));
+		let (client, requests) = redis_credentials_api(&app, Some(secret), true);
 
 		// Act
 		let provenance = reconcile_redis_credentials_secret(&app, &client, "default")
@@ -4080,7 +4142,7 @@ mod tests {
 		});
 		let mut replacement = build_managed_redis_credentials_secret(&app, "default");
 		replacement.metadata.uid = Some("tenant-secret-uid".to_string());
-		let (client, requests) = redis_credentials_api(&app, Some(replacement));
+		let (client, requests) = redis_credentials_api(&app, Some(replacement), true);
 
 		// Act
 		let result = reconcile_redis_credentials_secret(&app, &client, "default").await;

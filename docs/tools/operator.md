@@ -1041,7 +1041,10 @@ generated credential data to the status and clears any previous UID; after creat
 the new UID. If the operator stops between those writes, the next reconciliation adopts the
 existing Secret only when it is immutable and its data matches the committed digest. Tenants
 cannot learn the generated password before the Secret exists, so they cannot pre-create a Secret
-that matches the digest.
+that matches the digest. The digest write is conditioned on the observed Project
+`resourceVersion`, and only the reconcile whose Secret `create` succeeds records the UID, so
+overlapping operator Pods (for example during a rolling update) converge on the Secret that won
+creation; the losing reconcile receives `AlreadyExists` and retries.
 
 The controller watches operator-labelled Secrets, so deleting or modifying a Redis credentials
 Secret immediately re-runs provenance validation for its Project. A replacement Secret has a new
