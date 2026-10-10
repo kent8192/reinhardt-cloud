@@ -10,11 +10,24 @@ use std::error::Error;
 use std::sync::Arc;
 
 use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand};
+use reinhardt::db::backends::DatabaseConnection;
+use reinhardt::db::orm::init_database;
 
-use crate::config::settings::{ProjectSettings, get_resolved_settings};
+use crate::config::settings::{ProjectSettings, get_resolved_settings, profile_name};
 
 /// Directory holding the WASM bundle and `index.html` inside the runtime image.
 const PAGES_STATIC_DIR: &str = "/app/static/wasm";
+
+/// Whether the OpenAPI document, Swagger UI, and ReDoc are served.
+///
+/// Only the `local` and `ci` profiles serve them (SR-11); every other profile,
+/// including one with an unrecognized name, never registers them, so their
+/// paths answer like any unknown path. (The framework's own `Profile` enum
+/// cannot tell `local` or `ci` from any other custom name, so the profile name
+/// is compared directly.)
+fn serves_api_documentation(profile: &str) -> bool {
+	matches!(profile, "local" | "ci")
+}
 
 /// Build the `runserver` context used by the container entry point.
 ///
@@ -22,13 +35,19 @@ const PAGES_STATIC_DIR: &str = "/app/static/wasm";
 /// neither a `src/` tree to watch nor a Rust toolchain; the prebuilt Pages
 /// bundle is served from [`PAGES_STATIC_DIR`]. The validated project settings
 /// are attached to the context; without them `runserver` would build its own
-/// settings and skip the startup validation.
-fn build_context(bind_addr: &str, settings: ProjectSettings) -> CommandContext {
+/// settings and skip the startup validation. API documentation is switched off
+/// outside the `local` and `ci` profiles.
+fn build_context(bind_addr: &str, settings: ProjectSettings, profile: &str) -> CommandContext {
 	let mut options: HashMap<String, Vec<String>> = HashMap::new();
 	options.insert("noreload".to_owned(), Vec::new());
 	options.insert("with-pages".to_owned(), Vec::new());
 	options.insert("no-wasm".to_owned(), Vec::new());
 	options.insert("static-dir".to_owned(), vec![PAGES_STATIC_DIR.to_owned()]);
+	if !serves_api_documentation(profile) {
+		// `runserver` reads this flag with an underscore, unlike its other
+		// hyphenated options.
+		options.insert("no_docs".to_owned(), Vec::new());
+	}
 	CommandContext::new(vec![bind_addr.to_owned()])
 		.with_options(options)
 		.with_settings(Arc::new(settings))
@@ -40,9 +59,27 @@ fn build_context(bind_addr: &str, settings: ProjectSettings) -> CommandContext {
 /// `production` profiles, the provider-token key) runs here, before anything
 /// listens, so a misconfigured deployment stops with a clear error (SR-99,
 /// SR-100, SR-06).
-fn prepare_context(bind_addr: &str) -> Result<CommandContext, Box<dyn Error>> {
+pub(crate) fn prepare_context(bind_addr: &str) -> Result<CommandContext, Box<dyn Error>> {
 	let settings = get_resolved_settings()?.into_parts().0;
-	Ok(build_context(bind_addr, settings))
+	Ok(build_context(bind_addr, settings, &profile_name()))
+}
+
+/// Initialize the global ORM connection pool from the validated settings.
+///
+/// `runserver` expects the pool to exist: upstream creates it in
+/// `run_command_with_registry` before dispatching the command, a step this
+/// entry point skips by calling `RunServerCommand` directly. Without it
+/// `runserver` only warns that it cannot register the database connection, and
+/// every database-backed handler (`CurrentUser<User>`, the session middleware,
+/// the admin site) fails at request time instead of at startup.
+async fn initialize_orm_database(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+	let settings = ctx
+		.settings
+		.as_deref()
+		.ok_or("the server context carries no settings")?;
+	let url = DatabaseConnection::database_url_from(settings, None)?;
+	init_database(&url).await?;
+	Ok(())
 }
 
 /// Run the HTTP server on `bind_addr` until shutdown.
@@ -52,9 +89,21 @@ fn prepare_context(bind_addr: &str) -> Result<CommandContext, Box<dyn Error>> {
 /// Returns an error when settings validation fails, route registration fails,
 /// or the server itself fails.
 pub async fn run(bind_addr: &str) -> Result<(), Box<dyn Error>> {
-	RunServerCommand
-		.execute(&prepare_context(bind_addr)?)
-		.await?;
+	serve(&prepare_context(bind_addr)?).await
+}
+
+/// Run the HTTP server described by `ctx` until shutdown.
+///
+/// Initializes the ORM pool first (see [`initialize_orm_database`]), then
+/// hands the context to `runserver`.
+///
+/// # Errors
+///
+/// Returns an error when the database cannot be reached, route registration
+/// fails, or the server itself fails.
+pub async fn serve(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+	initialize_orm_database(ctx).await?;
+	RunServerCommand.execute(ctx).await?;
 	Ok(())
 }
 

@@ -148,6 +148,17 @@ pub fn get_resolved_settings() -> Result<ResolvedSettings<ProjectSettings>, Buil
 	resolve_validated(&pending)
 }
 
+/// The name of the profile selected by `REINHARDT_ENV`, lowercased (`local`
+/// when unset or empty).
+#[must_use]
+pub fn profile_name() -> String {
+	env::var("REINHARDT_ENV")
+		.ok()
+		.map(|name| name.trim().to_ascii_lowercase())
+		.filter(|name| !name.is_empty())
+		.unwrap_or_else(|| "local".to_owned())
+}
+
 fn active_profile() -> Profile {
 	Profile::parse(&env::var("REINHARDT_ENV").unwrap_or_else(|_| "local".to_string()))
 }
