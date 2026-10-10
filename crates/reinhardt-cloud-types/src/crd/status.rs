@@ -164,6 +164,10 @@ pub struct ProjectStatus {
 	/// API-assigned UID of the operator-created Redis credentials Secret.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub redis_credentials_secret_uid: Option<String>,
+	/// SHA-256 digest of the Redis credentials Secret data, recorded before the
+	/// operator creates the Secret so an interrupted creation can be recovered.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub redis_credentials_secret_digest: Option<String>,
 	/// Status of the worker deployment sub-resource
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub worker: Option<WorkerStatus>,
@@ -210,10 +214,11 @@ mod tests {
 	}
 
 	#[rstest]
-	fn redis_credentials_secret_uid_roundtrips() {
+	fn redis_credentials_secret_provenance_roundtrips() {
 		// Arrange
 		let status = ProjectStatus {
 			redis_credentials_secret_uid: Some("secret-uid".to_string()),
+			redis_credentials_secret_digest: Some("secret-digest".to_string()),
 			..Default::default()
 		};
 
@@ -224,9 +229,14 @@ mod tests {
 
 		// Assert
 		assert_eq!(json["redisCredentialsSecretUid"], "secret-uid");
+		assert_eq!(json["redisCredentialsSecretDigest"], "secret-digest");
 		assert_eq!(
 			deserialized.redis_credentials_secret_uid.as_deref(),
 			Some("secret-uid")
+		);
+		assert_eq!(
+			deserialized.redis_credentials_secret_digest.as_deref(),
+			Some("secret-digest")
 		);
 	}
 

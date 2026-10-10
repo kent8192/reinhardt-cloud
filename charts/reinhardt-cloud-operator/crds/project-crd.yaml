@@ -1070,6 +1070,12 @@ spec:
                 description: API-assigned UID of the operator-created Redis credentials Secret.
                 nullable: true
                 type: string
+              redisCredentialsSecretDigest:
+                description: |-
+                  SHA-256 digest of the Redis credentials Secret data, recorded before the
+                  operator creates the Secret so an interrupted creation can be recovered.
+                nullable: true
+                type: string
               conditions:
                 description: Standard Kubernetes condition list
                 items:
