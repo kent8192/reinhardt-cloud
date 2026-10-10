@@ -245,8 +245,11 @@ volume, the operator only accepts a dedicated directory below the application
 directory, such as `/app/static` or `/app/dashboard/static`. It rejects `/app`
 itself, paths outside `/app` (including system and credential paths such as
 `/var/run/secrets/...`), empty path segments, and application directories such as
-`/app/settings` or `/app/migrations`. Existing isolation security contexts and
-volume ownership apply.
+`/app/settings` or `/app/migrations`. For prebuilt publications the operator also
+rejects (permanently, until the spec is fixed) application `env` entries that
+select another settings profile (`REINHARDT_ENV` other than `production`), a
+different static root or URL than `pages.static_root`/`static_url`, or a base
+directory override. Existing isolation security contexts and volume ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses

@@ -190,9 +190,22 @@ pub(crate) fn configure_pages(
 	if metadata.signals.pages {
 		validate_pages_runtime_image(config)?;
 		let root = static_root_reader::read_static_root(project_dir, config)?;
+		let (static_root, static_url) = (root.runtime_path(), root.url);
+		// Deployment env overrides settings at runtime, so it must not move the
+		// application to a different profile, root, URL, or base directory.
+		let conflicts = reinhardt_cloud_types::crd::pages::conflicting_publication_env(
+			&static_root,
+			&static_url,
+			&config.env,
+		);
+		if !conflicts.is_empty() {
+			return Err(format!(
+				"[env] overrides {conflicts:?} conflict with the generated Pages publication ({static_root} at {static_url}, production profile); remove them or set them to those values, or provide a custom Dockerfile"
+			));
+		}
 		let pages = config.pages.get_or_insert_default();
-		pages.static_root = Some(root.runtime_path());
-		pages.static_url = Some(root.url);
+		pages.static_root = Some(static_root);
+		pages.static_url = Some(static_url);
 		// Generated images ship the buildstatic publication at that root.
 		pages.prebuilt = Some(true);
 	} else {
@@ -625,6 +638,49 @@ mod tests {
 		assert_eq!(result.is_ok(), accepted, "{result:?}");
 		if !accepted {
 			assert!(result.unwrap_err().contains("source.build.base_image"));
+		}
+	}
+
+	#[rstest]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/other", true, false)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/assets/", true, false)]
+	#[case("REINHARDT_ENV", "staging", true, false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true, false)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/dist", true, true)]
+	#[case("REINHARDT_EMAIL__HOST", "smtp.example.com", true, true)]
+	#[case("REINHARDT_ENV", "staging", false, true)]
+	fn generated_pages_reject_env_overrides_of_the_publication(
+		#[case] key: &str,
+		#[case] value: &str,
+		#[case] pages: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages,
+				..Default::default()
+			},
+		};
+		let mut config = ReinhardtCloudToml::default();
+		config.env.insert(key.to_owned(), value.to_owned());
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if accepted {
+			assert_eq!(config.pages.is_some(), pages);
+		} else {
+			assert!(result.unwrap_err().contains(key));
+			assert_eq!(config.pages, None);
 		}
 	}
 

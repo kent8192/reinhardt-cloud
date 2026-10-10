@@ -939,6 +939,13 @@ fails (for example an outdated `reinhardt-commands` lock), neither
 staged beside their targets and replaced together; if either replacement fails
 (for example a target that cannot be overwritten), the previous Dockerfile is
 restored and the config is left unchanged.
+Deployment `[env]` values override image settings at runtime, so Pages generation
+rejects `[env]` entries that would make the running app read a different
+publication: `REINHARDT_ENV` other than `production`, static root keys
+(`REINHARDT_STATIC_FILES__ROOT`, `REINHARDT_STATIC__ROOT`, `REINHARDT_STATIC_ROOT`)
+or static URL keys (`..._URL`) that differ from the recorded `[pages]` values, and
+any base directory override (`REINHARDT_CORE__BASE_DIR`, `REINHARDT_BASE_DIR`).
+The operator applies the same check to every `prebuilt` Pages project.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 `source.build.build_args` value when provided, otherwise its literal default.

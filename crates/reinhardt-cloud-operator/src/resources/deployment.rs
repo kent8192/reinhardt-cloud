@@ -132,6 +132,17 @@ pub(crate) fn build_deployment(
 			if !allowed {
 				return Err(Error::InvalidStaticRoot(config.static_root.clone()));
 			}
+			// Application env takes precedence over image settings, so overrides
+			// of the profile, static root/URL, or base_dir would make the app
+			// resolve a publication the sidecar does not serve.
+			let conflicts = reinhardt_cloud_types::crd::pages::conflicting_publication_env(
+				&config.static_root,
+				&config.static_url,
+				&app.spec.env,
+			);
+			if !conflicts.is_empty() {
+				return Err(Error::ConflictingPagesEnv(conflicts));
+			}
 			// Mount the volume at a sibling path so the image publication stays
 			// visible while its exact bytes seed the volume. `cp` runs directly
 			// rather than through a shell, and only for images explicitly marked
@@ -1170,6 +1181,46 @@ mod tests {
 			Err(error) => {
 				assert!(!accepted, "{root} must be accepted: {error}");
 				assert!(matches!(&error, Error::InvalidStaticRoot(value) if value == root));
+			}
+		}
+	}
+
+	#[rstest]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/other", true, false)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/assets/", true, false)]
+	#[case("REINHARDT_ENV", "staging", true, false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true, false)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/static", true, true)]
+	#[case("REINHARDT_ENV", "production", true, true)]
+	#[case("REINHARDT_ENV", "staging", false, true)]
+	fn prebuilt_publications_reject_conflicting_env_overrides(
+		#[case] key: &str,
+		#[case] value: &str,
+		#[case] prebuilt: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let mut app = make_test_app("app", "img:v1", None);
+		app.spec.env = BTreeMap::from([(key.to_owned(), value.to_owned())]);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/app/static".into();
+		pages.prebuilt = prebuilt;
+
+		// Act
+		let result = build_deployment(&app, Some(&pages), &Platform::Onpremise);
+
+		// Assert
+		match result {
+			Ok(_) => assert!(accepted, "{key}={value} must be rejected"),
+			Err(error) => {
+				assert!(!accepted, "{key}={value} must be accepted: {error}");
+				assert!(
+					matches!(&error, Error::ConflictingPagesEnv(keys) if keys == &[key.to_owned()])
+				);
+				assert_eq!(
+					crate::error::backoff_class(&error),
+					crate::error::BackoffClass::Permanent
+				);
 			}
 		}
 	}

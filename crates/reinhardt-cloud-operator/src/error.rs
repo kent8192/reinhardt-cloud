@@ -64,6 +64,13 @@ pub(crate) enum Error {
 	)]
 	InvalidStaticRoot(String),
 
+	/// Application environment overrides would make the app read a different
+	/// static publication than the prebuilt Pages image ships.
+	#[error(
+		"Pages prebuilt publication conflicts with env overrides {0:?}: remove them or set them to the recorded pages.static_root/static_url (REINHARDT_ENV must be production; base_dir overrides are not supported)"
+	)]
+	ConflictingPagesEnv(Vec<String>),
+
 	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
 	#[error(
 		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
@@ -196,6 +203,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
 		| Error::InvalidStaticRoot(_)
+		| Error::ConflictingPagesEnv(_)
 		| Error::InvalidPluginSpec(_)
 		| Error::DatabaseProvisioning(_)
 		| Error::ServiceAccountOwnership { .. }
