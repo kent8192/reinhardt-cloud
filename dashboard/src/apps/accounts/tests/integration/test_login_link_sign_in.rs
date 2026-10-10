@@ -8,9 +8,15 @@ use serde_json::{Value, json};
 use serial_test::serial;
 
 use crate::apps::accounts::models::User;
+use reinhardt::conf::settings::secret_types::SecretString;
+
 use crate::apps::accounts::services::server::login_links::{
 	DEFAULT_LIFETIME, LoginLinkSecret, issue, testing,
 };
+use crate::apps::accounts::services::server::redis_handle::RedisHandle;
+use crate::apps::accounts::services::server::sessions::SessionService;
+use crate::apps::accounts::services::server::staff::{RevokeOutcome, grant, revoke};
+use crate::apps::accounts::services::server::users::find_by_github_user_id;
 use crate::apps::accounts::tests::server_support::{AppOptions, Browser, Reply, TestApp};
 use crate::apps::accounts::tests::support::insert_user;
 use crate::audit::capture::capture_audit_events;
@@ -377,4 +383,45 @@ async fn sr_18_a_link_signs_in_without_any_github_app() {
 	);
 	assert_eq!(confirmed.json(), json!("SignedIn"));
 	assert_eq!(viewer(&mut browser, &app).await["is_staff"], json!(true));
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_105_a_pre_provisioned_user_who_signed_in_with_a_link_is_demoted_not_removed() {
+	// Arrange
+	let app = app_without_github().await;
+	grant(8_014).await.unwrap();
+	let link = issue(8_014, DEFAULT_LIFETIME).await.unwrap();
+	let mut browser = app.browser();
+	confirm(&mut browser, &app, &link.secret).await;
+	let sessions = SessionService::new(
+		RedisHandle::new(&SecretString::new(app.redis_url.clone()))
+			.expect("the Redis URL is valid"),
+	);
+
+	// Act
+	let outcome = revoke(8_014, &sessions).await.unwrap();
+
+	// Assert
+	assert!(
+		matches!(
+			outcome,
+			RevokeOutcome::Revoked {
+				sessions_ended: 1,
+				..
+			}
+		),
+		"{outcome:?}"
+	);
+	let kept = find_by_github_user_id(8_014).await.unwrap().unwrap();
+	assert!(
+		!kept.is_staff && kept.is_active,
+		"the row stays, as an ordinary User"
+	);
+	assert!(
+		kept.last_login.is_some(),
+		"the link sign-in counted as a sign-in"
+	);
+	assert_eq!(viewer(&mut browser, &app).await, json!(null));
 }
