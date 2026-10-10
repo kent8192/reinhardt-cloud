@@ -1,9 +1,12 @@
 # Reinhardt alpha.11 to alpha.14 migration coverage
 
-The Dashboard uses `reinhardt-web = "=0.4.0-alpha.14"`, matching
-`reinhardt-pages` and test dependencies, and pinned alpha.14 migration/format
-tools. The published `reinhardt-event-catalog 0.4.0-alpha.1` is an intentional
-transitive dependency of this release.
+This historical record covers the alpha.14 upgrade, which moved the Dashboard to
+`reinhardt-web = "=0.4.0-alpha.14"`, matching `reinhardt-pages` and test
+dependencies, with pinned alpha.14 migration/format tools. The Dashboard now
+uses `0.4.0-alpha.20`; see [the Dashboard guide](../tools/dashboard.md) for the
+current dependency and tool pins. The published
+`reinhardt-event-catalog 0.4.0-alpha.1` was an intentional transitive dependency
+of that release.
 
 The [upstream release range](https://github.com/kent8192/reinhardt-web/compare/reinhardt-web%40v0.4.0-alpha.11...reinhardt-web%40v0.4.0-alpha.14)
 contains 524 commits, from baseline `8e5f998ebca51877c5cc5a868c983c9b38e63e1d`

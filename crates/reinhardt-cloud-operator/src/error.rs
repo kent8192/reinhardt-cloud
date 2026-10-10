@@ -57,6 +57,20 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// A static output path cannot be safely mounted beside its image source,
+	/// or a prebuilt publication root lies outside the allowed `/app/<dir>` tree.
+	#[error(
+		"invalid Pages static root '{0}': require an absolute directory without parent traversal; prebuilt roots must be a dedicated directory below /app (for example /app/static), excluding application directories such as settings, migrations, src, and target"
+	)]
+	InvalidStaticRoot(String),
+
+	/// Application environment overrides would make the app read a different
+	/// static publication than the prebuilt Pages image ships.
+	#[error(
+		"Pages prebuilt publication conflicts with env overrides {0:?}: remove them or set them to the recorded pages.static_root/static_url (REINHARDT_ENV must be production; base_dir must be '.'; settings directory overrides such as REINHARDT_CLOUD_CONFIG_DIR are not supported)"
+	)]
+	ConflictingPagesEnv(Vec<String>),
+
 	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
 	#[error(
 		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
@@ -188,6 +202,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidStaticRoot(_)
+		| Error::ConflictingPagesEnv(_)
 		| Error::InvalidPluginSpec(_)
 		| Error::DatabaseProvisioning(_)
 		| Error::ServiceAccountOwnership { .. }

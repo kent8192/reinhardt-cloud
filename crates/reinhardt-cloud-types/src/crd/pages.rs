@@ -12,7 +12,7 @@ use crate::validation::ValidationError;
 /// Presence of `Some(PagesSpec)` in `ProjectSpec.pages` implicitly enables
 /// pages deployment. There is no separate `enabled` field --- use `None` to disable.
 /// This matches the pattern of `DatabaseSpec`, `CacheSpec`, etc.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Default)]
 pub struct PagesSpec {
 	/// Path inside the container where collectstatic outputs files.
 	/// Defaults to `/app/staticfiles` (standard STATIC_ROOT).
@@ -32,6 +32,15 @@ pub struct PagesSpec {
 	pub brotli: Option<bool>,
 	/// Enable Gzip compression. Defaults to true.
 	pub gzip: Option<bool>,
+	/// Whether the image already contains a complete `buildstatic` publication
+	/// at `static_root`. When true, the operator copies that publication into
+	/// the static-server volume with `cp` instead of running `collectstatic`,
+	/// so the image must provide `cp` on `PATH`, and `static_root` must be a
+	/// dedicated directory below `/app` (for example `/app/static`). `env`
+	/// must not select another settings profile, static root, static URL, or
+	/// base directory. `reinhardt-cloud init` and `sync` set this for
+	/// generated Pages Dockerfiles. Defaults to false.
+	pub prebuilt: Option<bool>,
 }
 
 /// CRD-safe resource requirements for the static-web-server sidecar.
@@ -82,6 +91,64 @@ impl PagesSpec {
 	}
 }
 
+/// Settings environment variables that change where a running application
+/// reads its static publication. Keys are matched case-insensitively because
+/// the settings loader lowercases environment keys.
+const PUBLICATION_ROOT_ENV: &[&str] = &[
+	"REINHARDT_STATIC_FILES__ROOT",
+	"REINHARDT_STATIC__ROOT",
+	"REINHARDT_STATIC_ROOT",
+];
+const PUBLICATION_URL_ENV: &[&str] = &[
+	"REINHARDT_STATIC_FILES__URL",
+	"REINHARDT_STATIC__URL",
+	"REINHARDT_STATIC_URL",
+];
+const PUBLICATION_BASE_DIR_ENV: &[&str] = &["REINHARDT_CORE__BASE_DIR", "REINHARDT_BASE_DIR"];
+/// Variables that select a different settings directory, such as the
+/// Dashboard's `REINHARDT_CLOUD_CONFIG_DIR`. The selected files can define any
+/// static root or URL, which deployment cannot inspect, so they always conflict.
+const PUBLICATION_SETTINGS_DIR_ENV: &[&str] = &["REINHARDT_CLOUD_CONFIG_DIR"];
+
+/// Returns the environment keys that would make the running application read
+/// a different publication than a prebuilt Pages image ships.
+///
+/// A prebuilt publication is recorded from the production settings profile at
+/// `static_root` and `static_url`. Application environment variables take
+/// precedence over image settings, so a different profile, static root, static
+/// URL, base directory, or settings directory would make the app resolve assets
+/// the static-server sidecar does not serve. Values equal to the recorded
+/// contract are allowed. Prebuilt publications are generated with the
+/// working-directory base (`base_dir = "."`), so only base directory overrides
+/// that resolve to the working directory itself keep relative roots in place.
+/// Settings directory overrides are always reported because the files they
+/// select are not visible at deployment time.
+pub fn conflicting_publication_env(
+	static_root: &str,
+	static_url: &str,
+	env: &BTreeMap<String, String>,
+) -> Vec<String> {
+	env.iter()
+		.filter(|(key, value)| {
+			let key = key.to_ascii_uppercase();
+			let key = key.as_str();
+			(key == "REINHARDT_ENV" && value.as_str() != "production")
+				|| (PUBLICATION_ROOT_ENV.contains(&key) && value.as_str() != static_root)
+				|| (PUBLICATION_URL_ENV.contains(&key) && value.as_str() != static_url)
+				|| (PUBLICATION_BASE_DIR_ENV.contains(&key) && !is_working_directory(value))
+				|| PUBLICATION_SETTINGS_DIR_ENV.contains(&key)
+		})
+		.map(|(key, _)| key.clone())
+		.collect()
+}
+
+/// Whether a base directory value is the working directory (`.`, `./`, `././`).
+fn is_working_directory(value: &str) -> bool {
+	!value.is_empty()
+		&& value.split('/').all(|part| matches!(part, "." | ""))
+		&& value.starts_with('.')
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -98,6 +165,7 @@ mod tests {
 			cache_max_age: Some(86400),
 			brotli: Some(true),
 			gzip: Some(true),
+			prebuilt: Some(true),
 		};
 
 		// Act
@@ -118,6 +186,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -138,6 +207,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -160,6 +230,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -182,6 +253,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -243,5 +315,48 @@ gzip: true
 		// Assert
 		assert!(reqs.requests.is_empty());
 		assert!(reqs.limits.is_empty());
+	}
+
+	#[rstest]
+	#[case("REINHARDT_EMAIL__HOST", "smtp", false)]
+	#[case("REINHARDT_ENV", "production", false)]
+	#[case("REINHARDT_ENV", "staging", true)]
+	#[case("reinhardt_env", "staging", true)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/static", false)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/other", true)]
+	#[case("REINHARDT_STATIC__ROOT", "static", true)]
+	#[case("REINHARDT_STATIC_ROOT", "/app/other", true)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/static/", false)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/assets/", true)]
+	#[case("REINHARDT_STATIC__URL", "/assets/", true)]
+	#[case("REINHARDT_STATIC_URL", "/assets/", true)]
+	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true)]
+	#[case("REINHARDT_BASE_DIR", ".", false)]
+	#[case("REINHARDT_BASE_DIR", "./", false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "././", false)]
+	#[case("REINHARDT_BASE_DIR", "", true)]
+	#[case("REINHARDT_BASE_DIR", "..", true)]
+	#[case("REINHARDT_BASE_DIR", "./app", true)]
+	#[case("REINHARDT_BASE_DIR", "/", true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/settings", true)]
+	fn detects_env_overrides_of_the_publication_contract(
+		#[case] key: &str,
+		#[case] value: &str,
+		#[case] conflicting: bool,
+	) {
+		// Arrange
+		let env = BTreeMap::from([(key.to_owned(), value.to_owned())]);
+
+		// Act
+		let conflicts = conflicting_publication_env("/app/static", "/static/", &env);
+
+		// Assert
+		let expected: Vec<String> = if conflicting {
+			vec![key.to_owned()]
+		} else {
+			Vec::new()
+		};
+		assert_eq!(conflicts, expected);
 	}
 }

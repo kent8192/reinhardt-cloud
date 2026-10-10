@@ -4,6 +4,7 @@ mod cargo_lock_reader;
 mod dockerfile;
 mod rust_toolchain_reader;
 mod stages;
+mod static_root_reader;
 
 use std::path::{Path, PathBuf};
 
@@ -50,7 +51,10 @@ fn locate_workspace_boundary(start_dir: &Path) -> Option<PathBuf> {
 pub(crate) use self::dockerfile::Dockerfile;
 pub(crate) use self::stages::DockerfileSignals;
 
-use self::stages::{build_builder_stage, build_chef_stage, build_runtime_stage, build_wasm_stage};
+use self::stages::{
+	build_assets_stage, build_builder_stage, build_chef_stage, build_runtime_stage,
+	build_wasm_stage,
+};
 
 /// Reason why Dockerfile generation was skipped.
 #[derive(Debug, PartialEq)]
@@ -92,12 +96,190 @@ pub(crate) fn should_skip_dockerfile(
 	SkipReason::None
 }
 
+/// Replace `reinhardt-cloud.toml` and, when generated, the Dockerfile as one unit.
+///
+/// Both contents are staged beside their targets first, so a failed write
+/// changes nothing. The Dockerfile is replaced before the config; if the
+/// config replacement then fails, the previous Dockerfile is moved back so the
+/// pair never describes different images.
+pub(crate) fn write_project_files(
+	config_path: &Path,
+	config: &str,
+	dockerfile: Option<(&Path, &str)>,
+) -> std::io::Result<()> {
+	let staged_config = stage_file(config_path, config)?;
+	let Some((dockerfile_path, contents)) = dockerfile else {
+		staged_config
+			.persist(config_path)
+			.map_err(|error| error.error)?;
+		return Ok(());
+	};
+	let staged_dockerfile = stage_file(dockerfile_path, contents)?;
+	// Keep the previous Dockerfile at a temporary path until the config is in
+	// place; dropping the backup removes it after success. The backup name is
+	// reserved without creating a file, so the move never targets an existing
+	// destination regardless of platform rename semantics.
+	let existing = match std::fs::symlink_metadata(dockerfile_path) {
+		Ok(metadata) => Some(metadata),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+		Err(error) => return Err(error),
+	};
+	if existing.as_ref().is_some_and(std::fs::Metadata::is_dir) {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			format!(
+				"{} is a directory, not a Dockerfile",
+				dockerfile_path.display()
+			),
+		));
+	}
+	let backup = if existing.is_some() {
+		Some(
+			tempfile::Builder::new()
+				.prefix(".reinhardt-cloud-backup-")
+				.make_in(parent_dir(dockerfile_path), |candidate| {
+					move_to_unused_path(dockerfile_path, candidate)
+				})?
+				.into_temp_path(),
+		)
+	} else {
+		None
+	};
+	let replaced = staged_dockerfile
+		.persist(dockerfile_path)
+		.map_err(|error| error.error)
+		.and_then(|_| {
+			staged_config
+				.persist(config_path)
+				.map(drop)
+				.map_err(|error| error.error)
+		});
+	if let Err(error) = replaced {
+		match &backup {
+			Some(backup) => std::fs::rename(backup, dockerfile_path)?,
+			None if dockerfile_path.is_file() => std::fs::remove_file(dockerfile_path)?,
+			None => {}
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
+fn parent_dir(path: &Path) -> &Path {
+	path.parent()
+		.filter(|parent| !parent.as_os_str().is_empty())
+		.unwrap_or(Path::new("."))
+}
+
+/// Move `source` to `destination` only if nothing exists there yet; an
+/// existing destination reports `AlreadyExists` so a fresh name is chosen.
+fn move_to_unused_path(source: &Path, destination: &Path) -> std::io::Result<()> {
+	if destination.symlink_metadata().is_ok() {
+		return Err(std::io::ErrorKind::AlreadyExists.into());
+	}
+	std::fs::rename(source, destination)
+}
+
+/// Write `contents` to a temporary file beside `target`, keeping the target's
+/// permissions (or ordinary file permissions for a new target).
+fn stage_file(target: &Path, contents: &str) -> std::io::Result<tempfile::NamedTempFile> {
+	use std::io::Write;
+	let mut staged = tempfile::Builder::new()
+		.prefix(".reinhardt-cloud-")
+		.tempfile_in(parent_dir(target))?;
+	staged.write_all(contents.as_bytes())?;
+	let permissions = match std::fs::metadata(target) {
+		Ok(metadata) if metadata.is_file() => Some(metadata.permissions()),
+		Ok(_) => None,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+		Err(error) => return Err(error),
+	};
+	#[cfg(unix)]
+	let permissions =
+		permissions.or_else(|| Some(std::os::unix::fs::PermissionsExt::from_mode(0o644)));
+	if let Some(permissions) = permissions {
+		staged.as_file().set_permissions(permissions)?;
+	}
+	Ok(staged)
+}
+
+/// Keep the deployment sidecar's root consistent with the generated publication.
+pub(crate) fn configure_pages(
+	project_dir: &Path,
+	metadata: &crate::feature_detector::ProjectMetadata,
+	config: &mut ReinhardtCloudToml,
+	force: bool,
+) -> Result<(), String> {
+	if should_skip_dockerfile(project_dir, config, force) != SkipReason::None {
+		return Ok(());
+	}
+	validate_build_context(config)?;
+	if metadata.signals.pages {
+		validate_pages_runtime_image(config)?;
+		let root = static_root_reader::read_static_root(project_dir, config)?;
+		let (static_root, static_url) = (root.runtime_path(), root.url);
+		// Deployment env overrides settings at runtime, so it must not move the
+		// application to a different profile, root, URL, or base directory.
+		let conflicts = reinhardt_cloud_types::crd::pages::conflicting_publication_env(
+			&static_root,
+			&static_url,
+			&config.env,
+		);
+		if !conflicts.is_empty() {
+			return Err(format!(
+				"[env] overrides {conflicts:?} conflict with the generated Pages publication ({static_root} at {static_url}, production profile); remove them or set them to those values, or provide a custom Dockerfile"
+			));
+		}
+		let pages = config.pages.get_or_insert_default();
+		pages.static_root = Some(static_root);
+		pages.static_url = Some(static_url);
+		// Generated images ship the buildstatic publication at that root.
+		pages.prebuilt = Some(true);
+	} else {
+		config.pages = None;
+	}
+	Ok(())
+}
+
+fn validate_build_context(config: &ReinhardtCloudToml) -> Result<(), String> {
+	if let Some(context) = config
+		.source
+		.as_ref()
+		.and_then(|source| source.build.as_ref())
+		.and_then(|build| build.context.as_deref())
+		&& (context.is_empty()
+			|| !Path::new(context)
+				.components()
+				.all(|part| matches!(part, std::path::Component::CurDir)))
+	{
+		return Err("generated Dockerfiles require the workspace root build context ('.'); provide a custom Dockerfile for a different source.build.context".to_owned());
+	}
+	Ok(())
+}
+
+/// Prebuilt Pages images are seeded into the static-server volume with `cp`,
+/// which custom runtime base images such as distroless cannot be assumed to
+/// provide.
+fn validate_pages_runtime_image(config: &ReinhardtCloudToml) -> Result<(), String> {
+	if config
+		.source
+		.as_ref()
+		.and_then(|source| source.build.as_ref())
+		.and_then(|build| build.base_image.as_deref())
+		.is_some()
+	{
+		return Err("generated Pages images require the default runtime base image because the operator seeds their static publication with `cp`; remove source.build.base_image (for example a distroless image), or provide a custom Dockerfile and set [pages].prebuilt explicitly".to_owned());
+	}
+	Ok(())
+}
+
 /// Collect all signals needed for Dockerfile generation.
 pub(crate) fn collect_signals(
 	project_dir: &Path,
 	metadata: &crate::feature_detector::ProjectMetadata,
 	toml_config: &ReinhardtCloudToml,
 ) -> Result<DockerfileSignals, String> {
+	validate_build_context(toml_config)?;
 	let rust_version = rust_toolchain_reader::read_rust_version(project_dir)?;
 
 	let signals = &metadata.signals;
@@ -144,6 +326,22 @@ pub(crate) fn collect_signals(
 		None
 	};
 
+	// Publication must use an available command and the declared production root.
+	let static_root = if signals.pages {
+		validate_pages_runtime_image(toml_config)?;
+		cargo_lock_reader::require_buildstatic(
+			cargo_lock_content.as_deref(),
+			&metadata.name,
+			&metadata.version,
+		)?;
+		Some(static_root_reader::read_static_root(
+			project_dir,
+			toml_config,
+		)?)
+	} else {
+		None
+	};
+
 	// protoc requirement: detected from Cargo.lock so that transitive
 	// prost/tonic dependencies (e.g., reinhardt-cloud-grpc pulling in
 	// tonic-build) trigger installation even when the consumer crate does
@@ -179,6 +377,7 @@ pub(crate) fn collect_signals(
 		grpc: signals.grpc,
 		graphql: signals.graphql,
 		wasm_bindgen_version,
+		static_root,
 		database: signals.database.clone(),
 		cache: signals.cache.clone(),
 		session_backend: None, // Only available via introspect at deploy time
@@ -230,6 +429,7 @@ pub(crate) fn generate(signals: &DockerfileSignals) -> Dockerfile {
 
 	if signals.pages {
 		stages.push(build_wasm_stage(signals));
+		stages.push(build_assets_stage(signals));
 	}
 
 	stages.push(build_runtime_stage(signals));
@@ -254,6 +454,7 @@ mod tests {
 			grpc: false,
 			graphql: false,
 			wasm_bindgen_version: None,
+			static_root: Some(static_root_reader::StaticRoot::relative("static")),
 			database: None,
 			cache: None,
 			session_backend: None,
@@ -274,6 +475,331 @@ mod tests {
 				..Default::default()
 			}),
 			..Default::default()
+		}
+	}
+
+	#[rstest]
+	#[case("", "", "/static/")]
+	#[case("[static_files]\nurl='/assets/'", "", "/assets/")]
+	#[case("[static_files]\nurl='/old/'", "[static_files]\nurl='/new/'", "/new/")]
+	#[case("static_url='/top/'", "", "/top/")]
+	fn pages_url_matches_effective_publication(
+		#[case] base: &str,
+		#[case] production: &str,
+		#[case] expected: &str,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("static_root='dist'\n{base}"),
+		)
+		.unwrap();
+		std::fs::write(dir.path().join("settings/production.toml"), production).unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages: true,
+				..Default::default()
+			},
+		};
+		let mut config = ReinhardtCloudToml::default();
+
+		// Act
+		configure_pages(dir.path(), &metadata, &mut config, true).unwrap();
+
+		// Assert
+		let pages = config.pages.unwrap();
+		assert_eq!(pages.static_root.as_deref(), Some("/app/dist"));
+		assert_eq!(pages.static_url.as_deref(), Some(expected));
+		assert_eq!(pages.prebuilt, Some(true));
+	}
+
+	#[rstest]
+	#[case(".", None, true)]
+	#[case("./", None, true)]
+	#[case("dashboard", None, false)]
+	#[case("dashboard", Some("Dockerfile"), false)]
+	#[case("dashboard", Some("Containerfile"), true)]
+	fn non_root_context_requires_a_custom_dockerfile(
+		#[case] context: &str,
+		#[case] dockerfile: Option<&str>,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "workspace-member".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: Default::default(),
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			context: Some(context.into()),
+			dockerfile: dockerfile.map(str::to_owned),
+			..Default::default()
+		}));
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if !accepted {
+			assert!(result.unwrap_err().contains("custom Dockerfile"));
+		}
+	}
+
+	#[rstest]
+	#[case::both_replaced(None, true)]
+	#[case::config_cannot_be_replaced(Some("reinhardt-cloud.toml"), false)]
+	#[case::dockerfile_cannot_be_replaced(Some("Dockerfile"), false)]
+	fn project_files_are_replaced_together_or_not_at_all(
+		#[case] blocked: Option<&str>,
+		#[case] replaced: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let config_path = dir.path().join("reinhardt-cloud.toml");
+		let dockerfile_path = dir.path().join("Dockerfile");
+		for (name, contents) in [
+			("reinhardt-cloud.toml", "old config"),
+			("Dockerfile", "FROM old"),
+		] {
+			let path = dir.path().join(name);
+			if blocked == Some(name) {
+				// A non-empty directory cannot be replaced by a file.
+				std::fs::create_dir_all(path.join("occupied")).unwrap();
+			} else {
+				std::fs::write(path, contents).unwrap();
+			}
+		}
+		let snapshot = |path: &Path| std::fs::read_to_string(path).ok();
+		let before = (snapshot(&config_path), snapshot(&dockerfile_path));
+
+		// Act
+		let result = write_project_files(
+			&config_path,
+			"new config",
+			Some((dockerfile_path.as_path(), "FROM new")),
+		);
+
+		// Assert
+		assert_eq!(result.is_ok(), replaced, "{result:?}");
+		let after = (snapshot(&config_path), snapshot(&dockerfile_path));
+		if replaced {
+			assert_eq!(
+				after,
+				(Some("new config".to_owned()), Some("FROM new".to_owned()))
+			);
+		} else {
+			assert_eq!(after, before);
+		}
+		let mut names: Vec<_> = std::fs::read_dir(dir.path())
+			.unwrap()
+			.map(|entry| entry.unwrap().file_name().into_string().unwrap())
+			.collect();
+		names.sort();
+		assert_eq!(names, ["Dockerfile", "reinhardt-cloud.toml"]);
+	}
+
+	#[rstest]
+	#[case::unused_destination(false, true)]
+	#[case::existing_destination(true, false)]
+	fn dockerfile_backup_never_moves_onto_an_existing_path(
+		#[case] occupied: bool,
+		#[case] moved: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let source = dir.path().join("Dockerfile");
+		let destination = dir.path().join(".reinhardt-cloud-backup-candidate");
+		std::fs::write(&source, "FROM old").unwrap();
+		if occupied {
+			std::fs::write(&destination, "unrelated").unwrap();
+		}
+
+		// Act
+		let result = move_to_unused_path(&source, &destination);
+
+		// Assert
+		assert_eq!(result.is_ok(), moved, "{result:?}");
+		if moved {
+			assert!(!source.exists());
+			assert_eq!(std::fs::read_to_string(&destination).unwrap(), "FROM old");
+		} else {
+			assert_eq!(
+				result.unwrap_err().kind(),
+				std::io::ErrorKind::AlreadyExists
+			);
+			assert_eq!(std::fs::read_to_string(&source).unwrap(), "FROM old");
+			assert_eq!(std::fs::read_to_string(&destination).unwrap(), "unrelated");
+		}
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn project_file_replacement_keeps_ordinary_permissions() {
+		use std::os::unix::fs::PermissionsExt;
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let config_path = dir.path().join("reinhardt-cloud.toml");
+		let dockerfile_path = dir.path().join("Dockerfile");
+		std::fs::write(&dockerfile_path, "FROM old").unwrap();
+		std::fs::set_permissions(&dockerfile_path, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+		// Act
+		write_project_files(
+			&config_path,
+			"new config",
+			Some((dockerfile_path.as_path(), "FROM new")),
+		)
+		.unwrap();
+
+		// Assert
+		let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(mode(&config_path), 0o644);
+		assert_eq!(mode(&dockerfile_path), 0o640);
+	}
+
+	#[rstest]
+	#[case(true, Some("gcr.io/distroless/cc-debian12"), false)]
+	#[case(true, None, true)]
+	#[case(false, Some("gcr.io/distroless/cc-debian12"), true)]
+	fn generated_pages_images_reject_custom_runtime_base_images(
+		#[case] pages: bool,
+		#[case] base_image: Option<&str>,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages,
+				..Default::default()
+			},
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			base_image: base_image.map(str::to_owned),
+			..Default::default()
+		}));
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if !accepted {
+			assert!(result.unwrap_err().contains("source.build.base_image"));
+		}
+	}
+
+	#[rstest]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/other", true, false)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/assets/", true, false)]
+	#[case("REINHARDT_ENV", "staging", true, false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true, false)]
+	#[case("REINHARDT_BASE_DIR", ".", true, true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", true, false)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/dist", true, true)]
+	#[case("REINHARDT_EMAIL__HOST", "smtp.example.com", true, true)]
+	#[case("REINHARDT_ENV", "staging", false, true)]
+	fn generated_pages_reject_env_overrides_of_the_publication(
+		#[case] key: &str,
+		#[case] value: &str,
+		#[case] pages: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages,
+				..Default::default()
+			},
+		};
+		let mut config = ReinhardtCloudToml::default();
+		config.env.insert(key.to_owned(), value.to_owned());
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if accepted {
+			assert_eq!(config.pages.is_some(), pages);
+		} else {
+			assert!(result.unwrap_err().contains(key));
+			assert_eq!(config.pages, None);
+		}
+	}
+
+	#[rstest]
+	#[case(true, false, false, true, Some("/app/old"))]
+	#[case(true, false, false, false, Some("/app/old"))]
+	#[case(true, false, true, false, None)]
+	#[case(false, false, false, false, None)]
+	#[case(false, true, true, false, Some("/app/old"))]
+	#[case(true, false, true, true, Some("/app/dist"))]
+	fn pages_settings_follow_image_regeneration(
+		#[case] existing_image: bool,
+		#[case] custom_image: bool,
+		#[case] force: bool,
+		#[case] pages_enabled: bool,
+		#[case] expected_root: Option<&str>,
+	) {
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		if existing_image {
+			std::fs::write(dir.path().join("Dockerfile"), "FROM existing").unwrap();
+		}
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages: pages_enabled,
+				..Default::default()
+			},
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			dockerfile: custom_image.then(|| "Containerfile".into()),
+			..Default::default()
+		}));
+		config.pages = Some(reinhardt_cloud_types::crd::pages::PagesSpec {
+			static_root: Some("/app/old".into()),
+			static_url: Some("/old/".into()),
+			..Default::default()
+		});
+		let should_generate =
+			should_skip_dockerfile(dir.path(), &config, force) == SkipReason::None;
+
+		configure_pages(dir.path(), &metadata, &mut config, force).unwrap();
+
+		assert_eq!(
+			config
+				.pages
+				.as_ref()
+				.and_then(|pages| pages.static_root.as_deref()),
+			expected_root,
+			"generate={should_generate}"
+		);
+		if !should_generate {
+			assert_eq!(config.pages.unwrap().static_url.as_deref(), Some("/old/"));
 		}
 	}
 

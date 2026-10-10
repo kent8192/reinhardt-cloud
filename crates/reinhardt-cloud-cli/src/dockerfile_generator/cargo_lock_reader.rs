@@ -86,10 +86,157 @@ pub(super) fn detect_protoc_requirement(cargo_lock_content: &str) -> bool {
 	false
 }
 
+/// Reject generated Pages images when the resolved framework lacks buildstatic.
+pub(super) fn require_buildstatic(
+	content: Option<&str>,
+	project_name: &str,
+	project_version: &str,
+) -> Result<(), String> {
+	let content = content.ok_or(
+		"Pages Dockerfile generation requires Cargo.lock with reinhardt-commands >=0.4.0-alpha.20",
+	)?;
+	let parsed: toml::Value =
+		toml::from_str(content).map_err(|error| format!("failed to parse Cargo.lock: {error}"))?;
+	let packages = parsed
+		.get("package")
+		.and_then(toml::Value::as_array)
+		.ok_or("Cargo.lock has no package graph")?;
+	let roots: Vec<_> = packages
+		.iter()
+		.enumerate()
+		.filter(|(_, package)| {
+			package.get("name").and_then(toml::Value::as_str) == Some(project_name)
+				&& package.get("version").and_then(toml::Value::as_str) == Some(project_version)
+				&& package.get("source").is_none()
+		})
+		.map(|(index, _)| index)
+		.collect();
+	if roots.len() != 1 {
+		return Err(format!(
+			"Cargo.lock must identify the local application {project_name}@{project_version}; regenerate its lockfile"
+		));
+	}
+	let minimum =
+		semver::Version::parse("0.4.0-alpha.20").expect("valid minimum framework version");
+	let mut pending = roots;
+	let mut visited = std::collections::BTreeSet::new();
+	let mut commands_found = false;
+	while let Some(index) = pending.pop() {
+		if !visited.insert(index) {
+			continue;
+		}
+		let package = &packages[index];
+		if package.get("name").and_then(toml::Value::as_str) == Some("reinhardt-commands") {
+			let version = package
+				.get("version")
+				.and_then(toml::Value::as_str)
+				.and_then(|version| semver::Version::parse(version).ok());
+			if version.is_none_or(|version| version < minimum) {
+				return Err("the selected application requires reinhardt-commands >=0.4.0-alpha.20 for buildstatic; update and lock its framework, or provide a custom Dockerfile".into());
+			}
+			commands_found = true;
+		}
+		for dependency in package
+			.get("dependencies")
+			.and_then(toml::Value::as_array)
+			.into_iter()
+			.flatten()
+		{
+			let dependency = dependency.as_str().ok_or("invalid Cargo.lock dependency")?;
+			let fields: Vec<_> = dependency.split_whitespace().collect();
+			let name = fields.first().ok_or("empty Cargo.lock dependency")?;
+			let version = fields.get(1).filter(|value| !value.starts_with('('));
+			let source = fields
+				.iter()
+				.find(|value| value.starts_with('('))
+				.map(|value| value.trim_start_matches('(').trim_end_matches(')'));
+			let matches: Vec<_> = packages
+				.iter()
+				.enumerate()
+				.filter(|(_, candidate)| {
+					candidate.get("name").and_then(toml::Value::as_str) == Some(*name)
+						&& version.is_none_or(|version| {
+							candidate.get("version").and_then(toml::Value::as_str) == Some(*version)
+						}) && source.is_none_or(|source| {
+						candidate.get("source").and_then(toml::Value::as_str) == Some(source)
+					})
+				})
+				.map(|(index, _)| index)
+				.collect();
+			if matches.len() != 1 {
+				return Err(format!(
+					"Cargo.lock dependency {dependency} is missing or ambiguous; regenerate the application's lockfile"
+				));
+			}
+			pending.extend(matches);
+		}
+	}
+	if !commands_found {
+		return Err("the selected application's Cargo.lock dependency graph has no reinhardt-commands for buildstatic; update and lock its framework, or provide a custom Dockerfile".into());
+	}
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use rstest::*;
+
+	#[rstest]
+	#[case("0.4.0-alpha.14", false)]
+	#[case("0.4.0-alpha.19", false)]
+	#[case("0.4.0-alpha.20", true)]
+	#[case("0.4.0", true)]
+	fn buildstatic_requires_a_capable_resolved_framework(
+		#[case] version: &str,
+		#[case] available: bool,
+	) {
+		let content = format!("[[package]]\nname='reinhardt-commands'\nversion='{version}'");
+		assert_eq!(
+			require_buildstatic(Some(&content), "reinhardt-commands", version).is_ok(),
+			available
+		);
+	}
+
+	#[rstest]
+	#[case("0.4.0-alpha.20", true)]
+	#[case("0.4.0-alpha.19", false)]
+	fn buildstatic_uses_only_the_selected_application_dependency_graph(
+		#[case] selected_version: &str,
+		#[case] accepted: bool,
+	) {
+		let other_version = if selected_version.ends_with("20") {
+			"0.4.0-alpha.19"
+		} else {
+			"0.4.0-alpha.20"
+		};
+		let content = format!(
+			r#"
+[[package]]
+name = "selected-app"
+version = "0.1.0"
+dependencies = ["framework {selected_version}"]
+[[package]]
+name = "framework"
+version = "{selected_version}"
+dependencies = ["reinhardt-commands {selected_version}"]
+[[package]]
+name = "unrelated-app"
+version = "0.1.0"
+dependencies = ["reinhardt-commands {other_version}"]
+[[package]]
+name = "reinhardt-commands"
+version = "{selected_version}"
+[[package]]
+name = "reinhardt-commands"
+version = "{other_version}"
+"#
+		);
+		assert_eq!(
+			require_buildstatic(Some(&content), "selected-app", "0.1.0").is_ok(),
+			accepted
+		);
+	}
 
 	// C1: Standard Cargo.lock with wasm-bindgen 0.2.100
 	#[rstest]

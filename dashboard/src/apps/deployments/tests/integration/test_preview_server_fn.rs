@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use reinhardt::CurrentUser;
 use reinhardt::Model;
 use reinhardt::test::fixtures::{
@@ -279,7 +279,8 @@ async fn deleting_github_deployment_releases_repository_import_claim(
 	let deployment = create_deployment(&conn, &org, &cluster, "reinhardt-cloud", None).await;
 	let github_project = create_github_project(&conn, &org, &deployment).await;
 	let repository_id = github_project.repository_id();
-	let claim_started_at = Utc::now();
+	// PostgreSQL timestamps and the framework encoder support microseconds.
+	let claim_started_at = Utc::now().trunc_subsecs(6);
 	GitHubRepository::objects()
 		.filter(GitHubRepository::field_id().eq(repository_id))
 		.update_fields([

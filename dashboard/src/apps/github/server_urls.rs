@@ -497,7 +497,7 @@ mod tests {
 		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
 
 		// Assert
-		assert_eq!(should_refresh, true);
+		assert!(should_refresh);
 	}
 
 	#[rstest]
@@ -510,6 +510,6 @@ mod tests {
 		let should_refresh = should_refresh_git_credentials_for_webhook(&action);
 
 		// Assert
-		assert_eq!(should_refresh, false);
+		assert!(!should_refresh);
 	}
 }

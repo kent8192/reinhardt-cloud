@@ -38,8 +38,8 @@ cargo run --bin manage migrate
 
 Install [reinhardt-web](https://github.com/kent8192/reinhardt-web) CLI tools:
 ```bash
-cargo install reinhardt-admin-cli --version "=0.4.0-alpha.14" --locked
-cargo install reinhardt-formatter --version "=0.4.0-alpha.14" --locked
+cargo install reinhardt-admin-cli --version "=0.4.0-alpha.20" --locked
+cargo install reinhardt-formatter --version "=0.4.0-alpha.20" --locked
 ```
 
 ```bash
@@ -59,7 +59,7 @@ cargo make runserver-watch  # Start server with auto-reload (requires bacon)
 
 ### Component styles
 
-The v0.4.0-alpha.14 Dashboard follows the Reinhardt Pages Project Template:
+The v0.4.0-alpha.20 Dashboard follows the Reinhardt Pages Project Template:
 each app owns its component stylesheet at
 `src/apps/<app>/client/style.rs` and exports it from `client.rs` with
 `pub mod style;`. Cross-app primitives belong in
@@ -161,7 +161,7 @@ are mapped through model constraint metadata to safe form errors.
 
 ### Client routes and data
 
-The v0.4.0-alpha.14 client uses one reinhardt-pages `ClientRouter` tree. The
+The v0.4.0-alpha.20 client uses one reinhardt-pages `ClientRouter` tree. The
 `#[layout]` Dashboard shell renders its child routes through `Outlet`:
 `/login` and `/register` are public, while `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` are authenticated children.

@@ -18,6 +18,8 @@ pub(crate) struct ResolvedPagesConfig {
 	pub cache_max_age: u64,
 	pub brotli: bool,
 	pub gzip: bool,
+	/// The image ships a complete `buildstatic` publication at `static_root`.
+	pub prebuilt: bool,
 }
 
 impl Default for ResolvedPagesConfig {
@@ -39,6 +41,7 @@ impl Default for ResolvedPagesConfig {
 			cache_max_age: 86400,
 			brotli: true,
 			gzip: true,
+			prebuilt: false,
 		}
 	}
 }
@@ -79,6 +82,7 @@ pub(crate) fn resolve_pages_config(app: &Project) -> Option<ResolvedPagesConfig>
 			cache_max_age: pages.cache_max_age.unwrap_or(defaults.cache_max_age),
 			brotli: pages.brotli.unwrap_or(defaults.brotli),
 			gzip: pages.gzip.unwrap_or(defaults.gzip),
+			prebuilt: pages.prebuilt.unwrap_or(defaults.prebuilt),
 		},
 		None => defaults,
 	};
@@ -136,6 +140,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		});
 
 		// Act / Assert
@@ -208,6 +213,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		});
 
 		// Act
@@ -230,6 +236,7 @@ mod tests {
 			cache_max_age: Some(604800),
 			brotli: Some(false),
 			gzip: None,
+			prebuilt: Some(true),
 		});
 
 		// Act
@@ -242,5 +249,6 @@ mod tests {
 		assert_eq!(config.cache_max_age, 604800);
 		assert!(!config.brotli);
 		assert!(config.gzip);
+		assert!(config.prebuilt);
 	}
 }

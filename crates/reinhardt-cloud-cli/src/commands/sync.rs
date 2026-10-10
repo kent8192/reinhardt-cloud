@@ -44,25 +44,39 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 		existing_config.infrastructure.as_ref(),
 	)?;
 	merge_existing_infrastructure(&existing_config, &mut config)?;
-	let toml_string = generate_reinhardt_cloud_toml_string(&config);
-
-	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
-	println!("Updated reinhardt-cloud.toml");
-
-	// Generate Dockerfile
-	match dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force) {
-		SkipReason::CustomDockerfile => {
-			println!("Skipped Dockerfile (custom path set in [source.build])");
-		}
-		SkipReason::AlreadyExists => {
-			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
-		}
+	// Build arguments and custom Dockerfile paths affect publication selection.
+	config.source = existing_config.source.clone();
+	config.pages = existing_config.pages.clone();
+	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config, args.force)?;
+	// Resolve the Dockerfile before writing anything so a failed generation
+	// cannot leave the deployment config describing an image that was not built.
+	let skip = dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force);
+	let generated = match skip {
 		SkipReason::None => {
 			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
 			let dockerfile = dockerfile_generator::generate(&signals);
-			let dockerfile_path = project_dir.join("Dockerfile");
-			std::fs::write(&dockerfile_path, dockerfile.to_string())?;
+			Some((signals, dockerfile))
+		}
+		SkipReason::CustomDockerfile | SkipReason::AlreadyExists => None,
+	};
+	let toml_string = generate_reinhardt_cloud_toml_string(&config);
+	let dockerfile_path = project_dir.join("Dockerfile");
+	let dockerfile_string = generated
+		.as_ref()
+		.map(|(_, dockerfile)| dockerfile.to_string());
 
+	// Replace both files together so they never describe different images.
+	dockerfile_generator::write_project_files(
+		&reinhardt_cloud_toml_path,
+		&toml_string,
+		dockerfile_string
+			.as_deref()
+			.map(|contents| (dockerfile_path.as_path(), contents)),
+	)?;
+	println!("Updated reinhardt-cloud.toml");
+
+	match generated {
+		Some((signals, _)) => {
 			let pattern = if signals.pages { "pages" } else { "api" };
 			let db_info = signals
 				.database
@@ -70,6 +84,12 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 				.map(|d| format!(" + {d}"))
 				.unwrap_or_default();
 			println!("Updated Dockerfile ({pattern}{db_info})");
+		}
+		None if skip == SkipReason::CustomDockerfile => {
+			println!("Skipped Dockerfile (custom path set in [source.build])");
+		}
+		None => {
+			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
 		}
 	}
 
@@ -392,6 +412,187 @@ public = false
 		assert!(
 			error.contains("infrastructure.buckets[].name must contain only"),
 			"unexpected error: {error}"
+		);
+	}
+
+	#[rstest]
+	#[case("dist", "/custom/assets", false, false)]
+	#[case("${ASSET_ROOT:-fallback}", "/custom/assets", false, false)]
+	#[case("dist", "/custom/assets", true, true)]
+	#[case("dist", "/app/dist", false, true)]
+	#[case("${ASSET_ROOT:-fallback}", "/app/public/assets", false, true)]
+	#[tokio::test]
+	async fn execute_preserves_publication_contract(
+		#[case] root: &str,
+		#[case] expected: &str,
+		#[case] custom: bool,
+		#[case] force: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name="pages-app"
+version="0.1.0"
+edition="2024"
+[dependencies]
+reinhardt-web={version="0.4.0-alpha.20",features=["pages"]}
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			"[toolchain]\nchannel='1.96.0'",
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name="pages-app"
+version="0.1.0"
+dependencies=["reinhardt-commands", "wasm-bindgen"]
+[[package]]
+name="reinhardt-commands"
+version="0.4.0-alpha.20"
+[[package]]
+name="wasm-bindgen"
+version="0.2.114"
+"#,
+		)
+		.unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot={root:?}"),
+		)
+		.unwrap();
+		let dockerfile = if custom {
+			"custom.Dockerfile"
+		} else {
+			"Dockerfile"
+		};
+		std::fs::write(dir.path().join("Dockerfile"), "FROM scratch\n").unwrap();
+		std::fs::write(
+			dir.path().join("reinhardt-cloud.toml"),
+			format!(
+				r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[source]
+repository="https://example.com/pages-app.git"
+[source.build]
+dockerfile="{dockerfile}"
+[source.build.build_args]
+ASSET_ROOT="public/assets"
+[pages]
+static_root="/custom/assets"
+cache_max_age=60
+brotli=false
+"#
+			),
+		)
+		.unwrap();
+		// Act
+		execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force,
+		})
+		.await
+		.unwrap();
+		let written = std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml")).unwrap();
+		let config: ReinhardtCloudToml = toml::from_str(&written).unwrap();
+		let spec = config.to_project_spec();
+		// Assert
+		let pages = spec.pages.unwrap();
+		assert_eq!(pages.static_root.as_deref(), Some(expected));
+		assert_eq!(pages.cache_max_age, Some(60));
+		assert_eq!(pages.brotli, Some(false));
+		assert_eq!(pages.prebuilt, (force && !custom).then_some(true));
+		let build = config.source.unwrap().build.unwrap();
+		assert_eq!(build.dockerfile.as_deref(), Some(dockerfile));
+		assert_eq!(
+			build.build_args.get("ASSET_ROOT").map(String::as_str),
+			Some("public/assets")
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn execute_keeps_config_when_dockerfile_generation_fails() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name="pages-app"
+version="0.1.0"
+edition="2024"
+[dependencies]
+reinhardt-web={version="0.4.0-alpha.14",features=["pages"]}
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			"[toolchain]\nchannel='1.96.0'",
+		)
+		.unwrap();
+		// The locked framework predates buildstatic, so generation must fail.
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name="pages-app"
+version="0.1.0"
+dependencies=["reinhardt-commands", "wasm-bindgen"]
+[[package]]
+name="reinhardt-commands"
+version="0.4.0-alpha.14"
+[[package]]
+name="wasm-bindgen"
+version="0.2.114"
+"#,
+		)
+		.unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			"[static_files]\nroot='dist'",
+		)
+		.unwrap();
+		std::fs::write(dir.path().join("Dockerfile"), "FROM existing\n").unwrap();
+		let existing = r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[pages]
+static_root="/app/old"
+static_url="/old/"
+"#;
+		std::fs::write(dir.path().join("reinhardt-cloud.toml"), existing).unwrap();
+
+		// Act
+		let result = execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: true,
+		})
+		.await;
+
+		// Assert
+		let error = result.unwrap_err().to_string();
+		assert!(error.contains("buildstatic"), "unexpected error: {error}");
+		assert_eq!(
+			std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml")).unwrap(),
+			existing
+		);
+		assert_eq!(
+			std::fs::read_to_string(dir.path().join("Dockerfile")).unwrap(),
+			"FROM existing\n"
 		);
 	}
 }

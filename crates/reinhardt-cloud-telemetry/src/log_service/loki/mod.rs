@@ -495,11 +495,8 @@ mod tests {
 		};
 
 		// Act + Assert
-		assert_eq!(legacy_record_matches_post_filter(&record, &matching), true);
-		assert_eq!(
-			legacy_record_matches_post_filter(&record, &mismatched),
-			false
-		);
+		assert!(legacy_record_matches_post_filter(&record, &matching));
+		assert!(!legacy_record_matches_post_filter(&record, &mismatched));
 	}
 
 	#[rstest]

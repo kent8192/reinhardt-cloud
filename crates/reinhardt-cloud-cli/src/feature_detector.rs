@@ -93,12 +93,37 @@ pub(crate) fn detect_project(project_dir: &Path) -> Result<ProjectMetadata, Stri
 		.to_owned();
 	validate_package_name(&name)?;
 
-	let version = parsed
+	let declared_version = parsed
 		.get("package")
-		.and_then(|p| p.get("version"))
-		.and_then(|v| v.as_str())
-		.unwrap_or("0.1.0")
-		.to_owned();
+		.and_then(|package| package.get("version"));
+	let version = if declared_version
+		.and_then(|version| version.get("workspace"))
+		.and_then(toml::Value::as_bool)
+		== Some(true)
+	{
+		let workspace = if parsed.get("workspace").is_some() {
+			parsed.clone()
+		} else {
+			let manifest = find_workspace_root(project_dir)
+				.ok_or("inherited package version requires a workspace root")?;
+			let content = std::fs::read_to_string(manifest)
+				.map_err(|error| format!("cannot read workspace package version: {error}"))?;
+			toml::from_str::<toml::Value>(&content)
+				.map_err(|error| format!("cannot parse workspace package version: {error}"))?
+		};
+		workspace
+			.get("workspace")
+			.and_then(|workspace| workspace.get("package"))
+			.and_then(|package| package.get("version"))
+			.and_then(toml::Value::as_str)
+			.ok_or("inherited package version requires workspace.package.version")?
+			.to_owned()
+	} else {
+		declared_version
+			.and_then(toml::Value::as_str)
+			.unwrap_or("0.0.0")
+			.to_owned()
+	};
 
 	// Find reinhardt-web dependency (handles package rename pattern,
 	// target-cfg sections, and `workspace = true` inheritance).
@@ -760,6 +785,32 @@ reinhardt = { package = "reinhardt-web", version = "0.1", features = ["db-postgr
 		assert!(metadata.features.contains(&"auth-jwt".to_owned()));
 		assert_eq!(metadata.signals.database, Some("postgresql".to_owned()));
 		assert!(metadata.signals.jwt);
+	}
+
+	#[rstest]
+	fn selected_application_without_version_uses_cargo_identity() {
+		let directory = tempfile::tempdir().unwrap();
+		std::fs::write(directory.path().join("Cargo.toml"), "[package]\nname='selected-app'\n[dependencies]\nreinhardt={package='reinhardt-web',version='0.4.0-alpha.20',features=['pages']}").unwrap();
+
+		let metadata = detect_project(directory.path()).unwrap();
+
+		assert_eq!(metadata.version, "0.0.0");
+		assert_eq!(metadata.name, "selected-app");
+	}
+
+	#[rstest]
+	fn selected_application_version_resolves_workspace_inheritance() {
+		let workspace = tempfile::tempdir().unwrap();
+		std::fs::write(workspace.path().join("Cargo.toml"), "[workspace]\nmembers=['app']\n[workspace.package]\nversion='1.2.3'\n[workspace.dependencies]\nreinhardt={package='reinhardt-web',version='0.4.0-alpha.20',features=['pages']}").unwrap();
+		let member = workspace.path().join("app");
+		std::fs::create_dir(&member).unwrap();
+		std::fs::write(member.join("Cargo.toml"), "[package]\nname='selected-app'\nversion.workspace=true\n[dependencies]\nreinhardt.workspace=true").unwrap();
+
+		let metadata = detect_project(&member).unwrap();
+
+		assert_eq!(metadata.name, "selected-app");
+		assert_eq!(metadata.version, "1.2.3");
+		assert!(metadata.signals.pages);
 	}
 
 	/// `reinhardt = { workspace = true }` in a member crate must follow

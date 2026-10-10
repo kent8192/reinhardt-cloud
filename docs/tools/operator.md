@@ -1298,7 +1298,7 @@ stateDiagram-v2
 | `database` | Database infrastructure (engine, version, storage, instance class) |
 | `cache` | Cache configuration (Redis backend and instance type) |
 | `mail` | Mail/SMTP configuration (host, port, credentials) |
-| `pages` | Static frontend configuration (compression, caching, resources) |
+| `pages` | Static frontend configuration (compression, caching, resources, and `prebuilt` image publications seeded with `cp` instead of `collectstatic`) |
 | `services` | Service exposure (port, target port, Ingress hostname) |
 | `scale` | Autoscaling configuration (min/max replicas, metric, target value) |
 | `worker` | Background worker configuration (command, concurrency) |

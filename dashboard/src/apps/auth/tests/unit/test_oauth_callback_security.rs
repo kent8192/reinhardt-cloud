@@ -55,8 +55,8 @@ mod tests {
 			.await;
 
 		// Assert
-		assert_eq!(matches!(swapped, Err(SocialAuthError::InvalidState)), true);
-		assert_eq!(matches!(replay, Err(SocialAuthError::InvalidState)), true);
+		assert!(matches!(swapped, Err(SocialAuthError::InvalidState)));
+		assert!(matches!(replay, Err(SocialAuthError::InvalidState)));
 	}
 
 	#[rstest]
@@ -89,6 +89,6 @@ mod tests {
 			.await;
 
 		// Assert
-		assert_eq!(matches!(result, Err(SocialAuthError::InvalidState)), true);
+		assert!(matches!(result, Err(SocialAuthError::InvalidState)));
 	}
 }

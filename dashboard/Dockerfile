@@ -18,15 +18,6 @@ COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release -p reinhardt-cloud-dashboard
-# Collection reads settings but does not connect to PostgreSQL or Redis.
-# These ephemeral values are scoped to this build command, never the runtime.
-RUN cd /app/dashboard && \
-    build_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" && \
-    REINHARDT_ENV=ci \
-    REINHARDT_CORE__SECRET_KEY="$build_secret" \
-    REINHARDT_CLOUD_JWT_SECRET="$build_secret" \
-    REINHARDT_DATABASE_PASSWORD="$build_secret" \
-    /app/target/release/manage collectstatic --no-input --package reinhardt-cloud-dashboard --all-features
 
 FROM rust:1.96.0-bookworm AS wasm
 RUN rustup target add wasm32-unknown-unknown
@@ -34,11 +25,23 @@ RUN cargo install wasm-bindgen-cli@0.2.126
 WORKDIR /app
 COPY . .
 RUN cargo build --release --target wasm32-unknown-unknown --lib -p reinhardt-cloud-dashboard
-RUN wasm-bindgen --out-dir /wasm-dist --target web target/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm && \
-    asset_hash="$(sha256sum /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm | sha256sum | cut -c1-16)" && \
-    cp /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}.js && \
-    cp /wasm-dist/reinhardt_cloud_dashboard_bg.wasm /wasm-dist/reinhardt_cloud_dashboard.${asset_hash}_bg.wasm && \
-    rm /wasm-dist/reinhardt_cloud_dashboard.js /wasm-dist/reinhardt_cloud_dashboard_bg.wasm
+RUN wasm-bindgen --out-dir /wasm-dist --target web \
+    target/wasm32-unknown-unknown/release/reinhardt_cloud_dashboard.wasm
+
+FROM builder AS assets
+COPY --from=wasm /wasm-dist /build/wasm-dist
+WORKDIR /app/dashboard
+# buildstatic uses the same full settings loader as collectstatic.
+RUN build_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" && \
+    REINHARDT_ENV=ci \
+    REINHARDT_CORE__SECRET_KEY="$build_secret" \
+    REINHARDT_CLOUD_JWT_SECRET="$build_secret" \
+    REINHARDT_DATABASE_PASSWORD="$build_secret" \
+    /app/target/release/manage buildstatic \
+    --pages-dir /build/wasm-dist \
+    --pages-entry reinhardt_cloud_dashboard.js \
+    --pages-document index.html \
+    --package reinhardt-cloud-dashboard --all-features
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
@@ -48,9 +51,7 @@ RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder /app/target/release/reinhardt-cloud-dashboard /app/
 COPY --from=builder /app/target/release/manage /app/
-COPY --from=builder /app/dashboard/static /app/static/
-COPY --from=wasm /wasm-dist /app/static/wasm/
-COPY --from=builder /app/dashboard/static/index.html /app/static/wasm/index.html
+COPY --from=assets /app/dashboard/static /app/static
 COPY --from=builder /app/dashboard/settings /app/settings
 COPY --from=builder /app/dashboard/migrations /app/migrations
 RUN chown -R appuser:appuser /app
