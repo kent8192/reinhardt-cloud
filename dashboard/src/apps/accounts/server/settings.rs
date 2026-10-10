@@ -27,6 +27,11 @@ use crate::apps::accounts::services::server::token_crypto::{
 /// | `token_encryption_key` | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY` |
 /// | `token_encryption_key_id` | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID` |
 /// | `token_encryption_retired_keys` | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS` |
+/// | `public_url` | `REINHARDT_CLOUD_PUBLIC_URL` |
+/// | `allowed_origins` | `REINHARDT_CLOUD_ALLOWED_ORIGINS` |
+/// | `github_client_id` | `REINHARDT_CLOUD_GITHUB_CLIENT_ID` |
+/// | `github_client_secret` | `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET` |
+/// | `github_authorize_url`, `github_token_url`, `github_api_url` | `REINHARDT_CLOUD_GITHUB_{AUTHORIZE,TOKEN,API}_URL` |
 #[settings(fragment = true, section = "accounts", validate = false)]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AccountsSettings {
@@ -58,6 +63,38 @@ pub struct AccountsSettings {
 	/// tokens written before a rotation.
 	#[serde(default)]
 	pub token_encryption_retired_keys: Option<SecretString>,
+
+	/// Origin the Dashboard is served from (`scheme://host[:port]`, no path).
+	/// The GitHub callback URL and the first cross-site request origin
+	/// (SR-12) derive from it.
+	#[serde(default)]
+	pub public_url: String,
+
+	/// Comma-separated extra origins allowed to send state-changing
+	/// cookie-authenticated requests (SR-12). A wildcard entry is ignored.
+	#[serde(default)]
+	pub allowed_origins: String,
+
+	/// Client ID of the GitHub App that backs sign-in.
+	#[serde(default)]
+	pub github_client_id: String,
+
+	/// Client secret of the GitHub App. Never logged.
+	#[serde(default)]
+	pub github_client_secret: Option<SecretString>,
+
+	/// Overrides the GitHub authorization endpoint. Empty means GitHub.
+	/// Exists so integration tests can point the flow at a local mock server.
+	#[serde(default)]
+	pub github_authorize_url: String,
+
+	/// Overrides the GitHub token endpoint. Empty means GitHub.
+	#[serde(default)]
+	pub github_token_url: String,
+
+	/// Overrides the GitHub REST API base URL. Empty means GitHub.
+	#[serde(default)]
+	pub github_api_url: String,
 }
 
 impl AccountsSettings {
@@ -93,13 +130,135 @@ impl AccountsSettings {
 	}
 }
 
+impl AccountsSettings {
+	/// The GitHub App configuration, or `None` when sign-in is not configured
+	/// (no client ID or no client secret).
+	#[must_use]
+	pub fn github_app(&self) -> Option<GithubAppConfig> {
+		let client_secret = self.github_client_secret.as_ref()?;
+		let client_id = self.github_client_id.trim();
+		if client_id.is_empty() || client_secret.is_empty() {
+			return None;
+		}
+		let public_url = self.public_url.trim().trim_end_matches('/');
+		Some(GithubAppConfig {
+			client_id: client_id.to_owned(),
+			client_secret: client_secret.clone(),
+			redirect_uri: format!("{public_url}{GITHUB_CALLBACK_PATH}"),
+			authorize_url: non_empty_or(&self.github_authorize_url, GITHUB_AUTHORIZE_URL),
+			token_url: non_empty_or(&self.github_token_url, GITHUB_TOKEN_URL),
+			api_url: non_empty_or(&self.github_api_url, GITHUB_API_URL)
+				.trim_end_matches('/')
+				.to_owned(),
+		})
+	}
+
+	/// Origins allowed to send state-changing cookie-authenticated requests
+	/// (SR-12): the public URL's origin plus the configured list. A wildcard or
+	/// a malformed entry is ignored. In a debug profile the loopback origins of
+	/// `port` are added; no deployed profile may enable them.
+	#[must_use]
+	pub fn request_origins(&self, debug: bool, port: u16) -> Vec<String> {
+		let mut origins: Vec<String> = Vec::new();
+		let configured = self.allowed_origins.split(',');
+		for candidate in std::iter::once(self.public_url.as_str()).chain(configured) {
+			if let Some(origin) = normalize_origin(candidate)
+				&& !origins.contains(&origin)
+			{
+				origins.push(origin);
+			}
+		}
+		if debug {
+			for loopback in [
+				format!("http://localhost:{port}"),
+				format!("http://127.0.0.1:{port}"),
+			] {
+				if !origins.contains(&loopback) {
+					origins.push(loopback);
+				}
+			}
+		}
+		origins
+	}
+}
+
+/// Path of the GitHub callback served by this application.
+pub const GITHUB_CALLBACK_PATH: &str = "/api/auth/github/callback/";
+
+const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_API_URL: &str = "https://api.github.com";
+
+fn non_empty_or(value: &str, default: &str) -> String {
+	let value = value.trim();
+	if value.is_empty() { default } else { value }.to_owned()
+}
+
+/// Reduce `candidate` to `scheme://host[:port]`, or `None` when it is empty, a
+/// wildcard, or not an http(s) origin.
+fn normalize_origin(candidate: &str) -> Option<String> {
+	let candidate = candidate.trim();
+	if candidate.is_empty() || candidate.contains('*') {
+		return None;
+	}
+	let (scheme, rest) = candidate.split_once("://")?;
+	if !matches!(scheme, "http" | "https") {
+		return None;
+	}
+	let authority = rest.split(['/', '?', '#']).next()?;
+	if authority.is_empty() || authority.contains('@') {
+		return None;
+	}
+	Some(format!("{scheme}://{authority}"))
+}
+
+/// The GitHub App used for sign-in, as the application consumes it.
+#[derive(Clone, Debug)]
+pub struct GithubAppConfig {
+	/// App client ID.
+	pub client_id: String,
+	/// App client secret (redacts itself in `Debug`).
+	pub client_secret: SecretString,
+	/// Callback URL registered on the App.
+	pub redirect_uri: String,
+	/// Authorization endpoint.
+	pub authorize_url: String,
+	/// Token endpoint, used for code exchange and refresh.
+	pub token_url: String,
+	/// REST API base URL without a trailing slash.
+	pub api_url: String,
+}
+
 impl SettingsValidation for AccountsSettings {
-	fn validate(&self, _profile: &Profile) -> ValidationResult {
+	fn validate(&self, profile: &Profile) -> ValidationResult {
 		self.sign_up_policy()
 			.map_err(|error| ValidationError::InvalidValue {
 				key: "accounts.sign_up_allowed_*".to_owned(),
 				message: error.to_string(),
 			})?;
+		// Sign-in is optional so that a Control Plane can run with Login Links
+		// alone (break-glass or automation), but a half-configured App is a
+		// mistake, never a choice.
+		let has_id = !self.github_client_id.trim().is_empty();
+		let has_secret = self
+			.github_client_secret
+			.as_ref()
+			.is_some_and(|secret| !secret.is_empty());
+		if has_id != has_secret {
+			return Err(ValidationError::InvalidValue {
+				key: "accounts.github_client_*".to_owned(),
+				message: "the GitHub App client ID and secret must be set together".to_owned(),
+			});
+		}
+		if has_id
+			&& matches!(profile, Profile::Staging | Profile::Production)
+			&& !self.public_url.trim().starts_with("https://")
+		{
+			return Err(ValidationError::InvalidValue {
+				key: "accounts.public_url".to_owned(),
+				message: "must be an https origin in a deployed profile".to_owned(),
+			});
+		}
 		Ok(())
 	}
 }

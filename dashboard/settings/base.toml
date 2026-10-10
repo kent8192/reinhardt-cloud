@@ -24,6 +24,16 @@
 #                                     REINHARDT_CORE__SECRET_KEY
 #   REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID, REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS
 #                                     optional, for key rotation
+#   REINHARDT_CLOUD_GITHUB_CLIENT_ID, REINHARDT_CLOUD_GITHUB_CLIENT_SECRET
+#                                     the GitHub App behind sign-in; optional
+#                                     (without them only Login Links sign in),
+#                                     but set together
+#   REINHARDT_CLOUD_PUBLIC_URL        origin the Dashboard is served from; the
+#                                     GitHub callback and the cross-site request
+#                                     allow-list derive from it
+#   REINHARDT_CLOUD_ALLOWED_ORIGINS   optional comma-separated extra origins
+#   REINHARDT_CLOUD_GITHUB_{AUTHORIZE,TOKEN,API}_URL
+#                                     optional endpoint overrides (tests only)
 
 [core]
 debug = false
@@ -61,6 +71,13 @@ sign_up_allowed_github_organization_ids = "${REINHARDT_CLOUD_SIGN_UP_ALLOWED_GIT
 token_encryption_key = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY:-}"
 token_encryption_key_id = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID:-}"
 token_encryption_retired_keys = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS:-}"
+public_url = "${REINHARDT_CLOUD_PUBLIC_URL:-}"
+allowed_origins = "${REINHARDT_CLOUD_ALLOWED_ORIGINS:-}"
+github_client_id = "${REINHARDT_CLOUD_GITHUB_CLIENT_ID:-}"
+github_client_secret = "${REINHARDT_CLOUD_GITHUB_CLIENT_SECRET:-}"
+github_authorize_url = "${REINHARDT_CLOUD_GITHUB_AUTHORIZE_URL:-}"
+github_token_url = "${REINHARDT_CLOUD_GITHUB_TOKEN_URL:-}"
+github_api_url = "${REINHARDT_CLOUD_GITHUB_API_URL:-}"
 
 [redis]
 url = "${REINHARDT_CLOUD_REDIS_URL:-redis://127.0.0.1:6379/0}"

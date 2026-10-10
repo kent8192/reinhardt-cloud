@@ -16,6 +16,9 @@ secure_hsts_seconds = 31536000
 secure_hsts_include_subdomains = true
 secure_hsts_preload = true
 
+[accounts]
+public_url = "${REINHARDT_CLOUD_PUBLIC_URL:-https://reinhardt-cloud.dev}"
+
 [redis]
 url = "${REINHARDT_CLOUD_REDIS_URL:?must be set to the Redis URL, including credentials}"
 
