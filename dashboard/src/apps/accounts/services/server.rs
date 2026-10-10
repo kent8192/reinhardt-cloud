@@ -15,4 +15,5 @@ pub mod sign_in_notices;
 pub mod sign_up_policy;
 pub mod staff;
 pub mod token_crypto;
+pub mod user_recovery;
 pub mod users;

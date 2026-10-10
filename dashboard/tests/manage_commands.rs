@@ -11,7 +11,12 @@ use std::fmt::Write as _;
 use std::process::{Command, Output};
 
 use cloud_control_plane::apps::accounts::models::{LoginLink, User};
+use cloud_control_plane::apps::accounts::services::server::redis_handle::RedisHandle;
+use cloud_control_plane::apps::accounts::services::server::sessions::{
+	IssuedSession, SessionService,
+};
 use cloud_control_plane::persisted_time::persisted_now;
+use reinhardt::conf::settings::secret_types::SecretString;
 use reinhardt::db::orm::Model;
 use reinhardt::test::fixtures::{
 	ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
@@ -66,6 +71,22 @@ impl Host {
 			_redis: redis,
 			env,
 		}
+	}
+
+	/// Sessions in the host's Redis, for tests that plant or inspect them.
+	fn sessions(&self) -> SessionService {
+		let url = self
+			.env
+			.iter()
+			.find(|(name, _)| *name == "REINHARDT_CLOUD_REDIS_URL")
+			.map(|(_, value)| value.clone())
+			.expect("the host has a Redis URL");
+		SessionService::new(RedisHandle::new(&SecretString::new(url)).expect("a valid Redis URL"))
+	}
+
+	/// Stop Redis, as an outage would.
+	async fn stop_redis(&self) {
+		self._redis.stop().await.expect("Redis stops");
 	}
 
 	fn set(&mut self, name: &'static str, value: &str) {
@@ -541,6 +562,224 @@ async fn sr_107_repoint_moves_the_user_and_refuses_an_id_another_user_has() {
 #[tokio::test]
 #[serial(database)]
 async fn sr_107_repoint_requires_both_numeric_ids(#[case] args: &[&str]) {
+	// Arrange
+	let host = Host::start().await;
+
+	// Act
+	let run = host.manage(args);
+
+	// Assert
+	assert_eq!(run.status, 2, "{}", run.stderr);
+	assert!(run.audit_events().is_empty());
+}
+
+async fn set_active(github_user_id: i64, active: bool) {
+	User::objects()
+		.filter(User::field_github_user_id().eq(github_user_id))
+		.update_fields([User::field_is_active().assign(active)])
+		.await
+		.unwrap();
+}
+
+async fn mark_signed_in(github_user_id: i64) {
+	User::objects()
+		.filter(User::field_github_user_id().eq(github_user_id))
+		.update_fields([User::field_last_login().assign(Some(persisted_now()))])
+		.await
+		.unwrap();
+}
+
+/// A signed-in Staff User with a live session, as after a normal sign-in.
+async fn staff_with_session(host: &Host, github_user_id: i64) -> (User, IssuedSession) {
+	let run = host.manage(&[
+		"grant-staff",
+		"--github-user-id",
+		&github_user_id.to_string(),
+	]);
+	assert_eq!(run.status, 0, "{}", run.stderr);
+	mark_signed_in(github_user_id).await;
+	let user = user_of(github_user_id).await.unwrap();
+	let session = host.sessions().create(user.id).await.unwrap();
+	(user, session)
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_end_sessions_removes_every_session_of_the_user() {
+	// Arrange
+	let host = Host::start().await;
+	let (user, first) = staff_with_session(&host, 70_040).await;
+	let second = host.sessions().create(user.id).await.unwrap();
+
+	// Act
+	let run = host.manage(&["end-sessions", "--github-user-id", "70040"]);
+
+	// Assert
+	assert_eq!(run.status, 0, "{}", run.stderr);
+	assert!(run.stdout.contains("Ended 2 session(s)"), "{}", run.stdout);
+	for session in [&first, &second] {
+		assert_eq!(host.sessions().resolve(&session.token).await.unwrap(), None);
+	}
+	let records = run.audit_records();
+	assert_eq!(records.len(), 1, "{}", run.stderr);
+	assert_eq!(records[0]["event"], "accounts.end_sessions.succeeded");
+	assert_eq!(records[0]["actor_kind"], "host_operator");
+	assert_eq!(records[0]["github_user_id"], 70_040);
+	assert!(
+		user_of(70_040).await.unwrap().is_staff,
+		"ending sessions changes nothing else"
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_end_sessions_exits_non_zero_when_redis_fails() {
+	// Arrange
+	let host = Host::start().await;
+	staff_with_session(&host, 70_041).await;
+	host.stop_redis().await;
+
+	// Act
+	let run = host.manage(&["end-sessions", "--github-user-id", "70041"]);
+
+	// Assert
+	assert_ne!(run.status, 0);
+	assert!(run.stdout.is_empty(), "{}", run.stdout);
+	assert_eq!(run.audit_events(), ["accounts.end_sessions.failed"]);
+	assert_eq!(run.audit_records()[0]["reason"], "sessions_not_ended");
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_reactivate_user_ends_sessions_first_so_none_comes_back() {
+	// Arrange: deactivated, with a session nobody presented while inactive.
+	let host = Host::start().await;
+	let (_, leftover) = staff_with_session(&host, 70_042).await;
+	set_active(70_042, false).await;
+
+	// Act
+	let run = host.manage(&["reactivate-user", "--github-user-id", "70042"]);
+
+	// Assert
+	assert_eq!(run.status, 0, "{}", run.stderr);
+	assert!(run.stdout.contains("is active again"), "{}", run.stdout);
+	assert!(
+		run.stdout.contains("1 session(s) ended first"),
+		"{}",
+		run.stdout
+	);
+	assert!(user_of(70_042).await.unwrap().is_active);
+	assert_eq!(
+		host.sessions().resolve(&leftover.token).await.unwrap(),
+		None,
+		"a pre-existing session is refused once the User is active again"
+	);
+	let records = run.audit_records();
+	assert_eq!(records.len(), 1, "{}", run.stderr);
+	assert_eq!(records[0]["event"], "accounts.reactivate.succeeded");
+	assert_eq!(records[0]["reason"], "reactivated");
+	assert_eq!(records[0]["github_user_id"], 70_042);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_reactivate_user_refuses_when_the_session_step_fails() {
+	// Arrange
+	let host = Host::start().await;
+	staff_with_session(&host, 70_043).await;
+	set_active(70_043, false).await;
+	host.stop_redis().await;
+
+	// Act
+	let run = host.manage(&["reactivate-user", "--github-user-id", "70043"]);
+
+	// Assert
+	assert_ne!(run.status, 0);
+	assert!(
+		!user_of(70_043).await.unwrap().is_active,
+		"the User stays inactive when old sessions could not be ended"
+	);
+	assert_eq!(run.audit_events(), ["accounts.reactivate.refused"]);
+	assert_eq!(run.audit_records()[0]["reason"], "sessions_not_ended");
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_reactivating_an_active_user_is_unchanged() {
+	// Arrange
+	let host = Host::start().await;
+	let (user, session) = staff_with_session(&host, 70_044).await;
+
+	// Act
+	let run = host.manage(&["reactivate-user", "--github-user-id", "70044"]);
+
+	// Assert
+	assert_eq!(run.status, 0, "{}", run.stderr);
+	assert!(run.stdout.contains("already active"), "{}", run.stdout);
+	assert_eq!(run.audit_records()[0]["reason"], "unchanged");
+	assert_eq!(
+		host.sessions().resolve(&session.token).await.unwrap(),
+		Some(user.id),
+		"an unchanged User keeps their session"
+	);
+}
+
+/// The only active Staff User is deactivated by the re-pointing fallback. Nobody
+/// can use the admin site (it needs active Staff) and the User cannot sign in, so
+/// recovery has to work from the shell alone.
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_the_only_staff_user_recovers_through_the_commands_alone() {
+	// Arrange
+	let host = Host::start().await;
+	let (user, leftover) = staff_with_session(&host, 70_045).await;
+	set_active(70_045, false).await;
+	let active_staff = User::objects()
+		.filter(User::field_is_staff().eq(true))
+		.filter(User::field_is_active().eq(true))
+		.all()
+		.await
+		.unwrap();
+	assert!(active_staff.is_empty(), "nobody can reach the admin site");
+
+	// Act
+	let ended = host.manage(&["end-sessions", "--github-user-id", "70045"]);
+	let reactivated = host.manage(&["reactivate-user", "--github-user-id", "70045"]);
+
+	// Assert
+	assert_eq!(
+		(ended.status, reactivated.status),
+		(0, 0),
+		"{}",
+		reactivated.stderr
+	);
+	let recovered = user_of(70_045).await.unwrap();
+	assert_eq!(recovered.id, user.id);
+	assert!(recovered.is_active && recovered.is_staff);
+	assert_eq!(
+		host.sessions().resolve(&leftover.token).await.unwrap(),
+		None
+	);
+	assert_eq!(ended.audit_events(), ["accounts.end_sessions.succeeded"]);
+	assert_eq!(
+		reactivated.audit_events(),
+		["accounts.reactivate.succeeded"]
+	);
+}
+
+#[rstest]
+#[case::end_sessions(&["end-sessions"])]
+#[case::reactivate_user(&["reactivate-user"])]
+#[case::reactivate_zero(&["reactivate-user", "--github-user-id", "0"])]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_the_recovery_commands_require_a_positive_numeric_id(#[case] args: &[&str]) {
 	// Arrange
 	let host = Host::start().await;
 

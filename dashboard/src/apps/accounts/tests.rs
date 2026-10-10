@@ -28,5 +28,6 @@ mod integration {
 	mod test_sign_in;
 	mod test_sign_up;
 	mod test_staff;
+	mod test_user_recovery;
 	mod test_users;
 }
