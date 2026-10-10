@@ -150,3 +150,7 @@ required-features = ["with-reinhardt"]
 [[test]]
 name = "i18n"
 required-features = ["with-reinhardt"]
+
+[[test]]
+name = "manage_commands"
+required-features = ["with-reinhardt"]

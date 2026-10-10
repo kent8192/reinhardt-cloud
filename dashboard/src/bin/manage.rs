@@ -31,9 +31,7 @@ mod native {
 	use reinhardt::commands::execute_from_command_line_with_capabilities;
 	#[cfg(feature = "commands-shell")]
 	use reinhardt::commands::execute_from_command_line_with_capabilities_and_shell;
-	use reinhardt::commands::{
-		CapabilityProvider, CargoCheckContext, CommandRegistry, command_error_exit_code,
-	};
+	use reinhardt::commands::{CapabilityProvider, CargoCheckContext, command_error_exit_code};
 	use reinhardt::conf::settings::PendingSettings;
 	use reinhardt::conf::settings::builder::BuildError;
 	use reinhardt::conf::settings::scoped::ScopedSettings;
@@ -66,7 +64,7 @@ mod native {
 		);
 		#[cfg(feature = "commands-shell")]
 		let result = execute_from_command_line_with_capabilities_and_shell(
-			CommandRegistry::new(),
+			cloud_control_plane::config::commands::registry(),
 			ProjectProvider,
 			Some(cargo_context),
 			get_shell_config(),
@@ -74,7 +72,7 @@ mod native {
 		.await;
 		#[cfg(not(feature = "commands-shell"))]
 		let result = execute_from_command_line_with_capabilities(
-			CommandRegistry::new(),
+			cloud_control_plane::config::commands::registry(),
 			ProjectProvider,
 			Some(cargo_context),
 		)

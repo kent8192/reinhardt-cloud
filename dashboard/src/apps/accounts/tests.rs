@@ -7,6 +7,7 @@ mod unit {
 	mod test_access_gate;
 	mod test_admin;
 	mod test_base_user;
+	mod test_commands;
 	mod test_cookies;
 	mod test_cross_site_guard;
 	mod test_request_origins;
