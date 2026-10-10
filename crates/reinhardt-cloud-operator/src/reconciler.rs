@@ -77,9 +77,10 @@ fn managed_github_credentials_secret_name(project_name: &str) -> String {
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
-/// Enables creation of operator-managed tenant namespaces and creation and
-/// deletion of parent-qualified preview namespaces. Tenant namespaces are
-/// create-only and are never deleted by the operator.
+/// Enables creation and deletion of parent-qualified preview namespaces and
+/// server-side apply of tenant namespace labels. Tenant namespaces always
+/// pre-exist (a tenant `Project` lives in its namespace) and are never deleted
+/// by the operator.
 ///
 /// Standalone runs leave this unset and keep preview namespace cleanup
 /// enabled; the Helm chart always passes an explicit value derived from
@@ -143,7 +144,8 @@ pub(crate) struct Context {
 	/// `managed_apps{phase}` gauge in sync as objects transition between
 	/// phases and when they are deleted. Key is `(namespace, name)`.
 	pub phase_state: Arc<DashMap<(String, String), String>>,
-	/// Whether the operator may create and delete tenant and preview namespaces.
+	/// Whether the operator may create and delete preview namespaces; when
+	/// disabled, tenant and preview namespace labels are merge-patched only.
 	pub manage_namespace_lifecycle: bool,
 }
 
@@ -2776,8 +2778,17 @@ async fn delete_owned_preview_namespace(
 		);
 		return Ok(false);
 	}
+	let Some(observed_uid) = existing_ns.metadata.uid.as_deref() else {
+		warn!(
+			"Retaining preview namespace {preview_namespace} during cleanup of {parent_namespace}/{parent_name}: observed namespace has no UID"
+		);
+		return Ok(false);
+	};
 	match ns_api
-		.delete(preview_namespace, &DeleteParams::default())
+		.delete(
+			preview_namespace,
+			&delete_params_for_observed_uid(observed_uid),
+		)
 		.await
 	{
 		Ok(_) => {
@@ -2792,8 +2803,35 @@ async fn delete_owned_preview_namespace(
 			);
 			Ok(false)
 		}
+		Err(err) if delete_precondition_failed(&err) => {
+			warn!(
+				"Retaining preview namespace {preview_namespace} during cleanup of {parent_namespace}/{parent_name}: it was replaced after ownership verification ({err})"
+			);
+			Ok(false)
+		}
 		Err(err) => Err(Error::Kube(err)),
 	}
+}
+
+/// Delete options that only succeed while the object still has the UID that
+/// was observed (and ownership-verified) before the delete request.
+///
+/// A replacement created under the same name has a different UID, so the API
+/// server rejects the delete with `409 Conflict` instead of removing it.
+fn delete_params_for_observed_uid(observed_uid: &str) -> DeleteParams {
+	DeleteParams {
+		preconditions: Some(kube::api::Preconditions {
+			uid: Some(observed_uid.to_string()),
+			resource_version: None,
+		}),
+		..Default::default()
+	}
+}
+
+/// Returns whether a delete failed because its UID precondition no longer
+/// matches, i.e. the object was replaced after it was observed.
+fn delete_precondition_failed(error: &kube::Error) -> bool {
+	matches!(error, kube::Error::Api(status) if status.code == 409)
 }
 
 /// Label selector matching the operator-created preview `Project`s for one parent.
@@ -2860,23 +2898,36 @@ async fn delete_retained_preview_projects(
 	let mut remaining = 0;
 	for preview_app in &previews.items {
 		let preview_name = preview_app.name_any();
-		if !is_verified_preview_of(preview_app, parent_namespace, parent_name) {
+		let observed_uid = preview_app.metadata.uid.as_deref();
+		let Some(observed_uid) = observed_uid
+			.filter(|_| is_verified_preview_of(preview_app, parent_namespace, parent_name))
+		else {
 			warn!(
 				"Skipping {preview_namespace}/{preview_name} during cleanup of {parent_namespace}/{parent_name}: it is not a verified operator-created preview of this Project"
 			);
 			continue;
-		}
+		};
 		remaining += 1;
 		if preview_app.metadata.deletion_timestamp.is_some() {
 			continue;
 		}
-		match api.delete(&preview_name, &DeleteParams::default()).await {
+		match api
+			.delete(&preview_name, &delete_params_for_observed_uid(observed_uid))
+			.await
+		{
 			Ok(_) => {
 				info!(
 					"Deleted preview environment {preview_namespace}/{preview_name} during cleanup of {parent_namespace}/{parent_name}"
 				);
 			}
 			Err(kube::Error::Api(status)) if status.code == 404 => {}
+			Err(err) if delete_precondition_failed(&err) => {
+				// Still counted, so the parent finalizer waits and the next pass
+				// re-verifies whatever object now has this name.
+				warn!(
+					"Preview {preview_namespace}/{preview_name} was replaced after ownership verification during cleanup of {parent_namespace}/{parent_name}; re-verifying on the next pass"
+				);
+			}
 			Err(err) => return Err(Error::Kube(err)),
 		}
 	}
@@ -2953,17 +3004,23 @@ where
 		return Ok(());
 	};
 	let kind = K::kind(&());
-	if !resources::preview_namespace::labels_match_preview_guardrail(
-		existing.meta().labels.as_ref(),
-		parent_namespace,
-		parent_name,
-	) {
+	let observed_uid = existing.meta().uid.as_deref();
+	let Some(observed_uid) = observed_uid.filter(|_| {
+		resources::preview_namespace::labels_match_preview_guardrail(
+			existing.meta().labels.as_ref(),
+			parent_namespace,
+			parent_name,
+		)
+	}) else {
 		warn!(
 			"Retaining {kind} {preview_namespace}/{name} during cleanup of {parent_namespace}/{parent_name}: it is not labeled as an operator-created preview guardrail of this Project"
 		);
 		return Ok(());
-	}
-	match api.delete(name, &DeleteParams::default()).await {
+	};
+	match api
+		.delete(name, &delete_params_for_observed_uid(observed_uid))
+		.await
+	{
 		Ok(_) => {
 			info!(
 				"Deleted {kind} {preview_namespace}/{name} during cleanup of {parent_namespace}/{parent_name}"
@@ -2971,6 +3028,12 @@ where
 			Ok(())
 		}
 		Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
+		Err(err) if delete_precondition_failed(&err) => {
+			warn!(
+				"Retaining {kind} {preview_namespace}/{name} during cleanup of {parent_namespace}/{parent_name}: it was replaced after ownership verification ({err})"
+			);
+			Ok(())
+		}
 		Err(err) => Err(Error::Kube(err)),
 	}
 }
@@ -4228,14 +4291,31 @@ mod tests {
 	where
 		F: Fn(&http::Method, &str) -> (u16, serde_json::Value) + Clone + Send + Sync + 'static,
 	{
+		let (client, requests, _) = recording_client_with_delete_preconditions(respond);
+		(client, requests)
+	}
+
+	/// Like [`recording_client`], additionally recording every DELETE request
+	/// as `"<path> <preconditions.uid>"` (`-` when no UID precondition is sent).
+	fn recording_client_with_delete_preconditions<F>(
+		respond: F,
+	) -> (Client, RecordedRequests, RecordedRequests)
+	where
+		F: Fn(&http::Method, &str) -> (u16, serde_json::Value) + Clone + Send + Sync + 'static,
+	{
+		use http_body_util::BodyExt;
 		use tower::service_fn;
 
 		let requests: RecordedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+		let deletes: RecordedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
 		let requests_for_service = requests.clone();
+		let deletes_for_service = deletes.clone();
 		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
 			let requests = requests_for_service.clone();
+			let deletes = deletes_for_service.clone();
 			let respond = respond.clone();
 			async move {
+				let method = req.method().clone();
 				let path = req.uri().path().to_string();
 				let content_type = req
 					.headers()
@@ -4246,8 +4326,26 @@ mod tests {
 				requests
 					.lock()
 					.expect("requests lock should not be poisoned")
-					.push(format!("{} {path} {content_type}", req.method()));
-				let (status, body) = respond(req.method(), &path);
+					.push(format!("{method} {path} {content_type}"));
+				if method == http::Method::DELETE {
+					let bytes = req
+						.into_body()
+						.collect()
+						.await
+						.expect("delete body should be readable")
+						.to_bytes();
+					let options: serde_json::Value =
+						serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+					let uid = options["preconditions"]["uid"]
+						.as_str()
+						.unwrap_or("-")
+						.to_string();
+					deletes
+						.lock()
+						.expect("deletes lock should not be poisoned")
+						.push(format!("{path} {uid}"));
+				}
+				let (status, body) = respond(&method, &path);
 				Ok::<_, std::convert::Infallible>(
 					http::Response::builder()
 						.status(status)
@@ -4258,7 +4356,18 @@ mod tests {
 				)
 			}
 		});
-		(Client::new(svc, "default"), requests)
+		(Client::new(svc, "default"), requests, deletes)
+	}
+
+	fn conflict_status() -> serde_json::Value {
+		serde_json::json!({
+			"apiVersion": "v1",
+			"kind": "Status",
+			"status": "Failure",
+			"message": "Precondition failed: UID in precondition does not match UID in object",
+			"reason": "Conflict",
+			"code": 409,
+		})
 	}
 
 	fn not_found_status() -> serde_json::Value {
@@ -4380,6 +4489,7 @@ mod tests {
 		let operator_preview = |pr_number: &str| {
 			let mut app = make_test_app(&preview::preview_project_name("api", pr_number));
 			app.metadata.namespace = Some(preview_ns.clone());
+			app.metadata.uid = Some(format!("uid-{pr_number}"));
 			app.metadata.labels = Some(preview::preview_labels("default", "api", pr_number));
 			app
 		};
@@ -4407,13 +4517,18 @@ mod tests {
 			"items": [active.clone(), terminating, forged, legacy],
 		});
 		let deleted = serde_json::to_value(&active).expect("project json should serialize");
-		let (client, requests) = recording_client(move |method, _| {
-			if method == http::Method::DELETE {
-				(200, deleted.clone())
-			} else {
-				(200, list.clone())
-			}
-		});
+		// The legacy preview is replaced between list and delete, so its UID
+		// precondition fails with 409.
+		let (client, requests, deletes) =
+			recording_client_with_delete_preconditions(move |method, path| {
+				if method == http::Method::DELETE && path.ends_with("/api-pr-4") {
+					(409, conflict_status())
+				} else if method == http::Method::DELETE {
+					(200, deleted.clone())
+				} else {
+					(200, list.clone())
+				}
+			});
 		let projects_path =
 			format!("/apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/{preview_ns}/projects");
 
@@ -4432,6 +4547,13 @@ mod tests {
 				format!("GET {projects_path} -"),
 				format!("DELETE {projects_path}/api-pr-1 application/json"),
 				format!("DELETE {projects_path}/api-pr-4 application/json"),
+			]
+		);
+		assert_eq!(
+			*deletes.lock().expect("deletes lock should not be poisoned"),
+			vec![
+				format!("{projects_path}/api-pr-1 uid-1"),
+				format!("{projects_path}/api-pr-4 uid-4"),
 			]
 		);
 	}
@@ -4541,14 +4663,26 @@ mod tests {
 			),
 		]
 		.into_iter()
-		.map(|(path, value)| (path, value.expect("guardrail json should serialize")))
+		.map(|(path, value)| {
+			let mut value = value.expect("guardrail json should serialize");
+			let name = path.rsplit('/').next().expect("guardrail name").to_string();
+			value["metadata"]["uid"] = serde_json::Value::String(format!("uid-{name}"));
+			(path, value)
+		})
 		.collect();
-		// The Issuer path is absent, as when the cert-manager CRD is not installed.
-		let (client, requests) = recording_client(move |_, path| {
-			objects
-				.get(path)
-				.map_or_else(|| (404, not_found_status()), |object| (200, object.clone()))
-		});
+		let allow_ingress_path =
+			format!("{networking}/networkpolicies/{}", pns::ALLOW_INGRESS_NAME);
+		// The Issuer path is absent, as when the cert-manager CRD is not installed,
+		// and the allow policy is replaced between lookup and delete (409).
+		let (client, requests, deletes) =
+			recording_client_with_delete_preconditions(move |method, path| {
+				if method == http::Method::DELETE && path == allow_ingress_path {
+					return (409, conflict_status());
+				}
+				objects
+					.get(path)
+					.map_or_else(|| (404, not_found_status()), |object| (200, object.clone()))
+			});
 
 		// Act
 		delete_retained_preview_guardrails(&client, "default", "api", &preview_ns)
@@ -4584,6 +4718,26 @@ mod tests {
 					pns::ALLOW_INGRESS_NAME
 				),
 				format!("GET {issuer_path} -"),
+			]
+		);
+		assert_eq!(
+			*deletes.lock().expect("deletes lock should not be poisoned"),
+			vec![
+				format!(
+					"{core}/resourcequotas/{} uid-{}",
+					pns::QUOTA_NAME,
+					pns::QUOTA_NAME
+				),
+				format!(
+					"{core}/limitranges/{} uid-{}",
+					pns::LIMIT_RANGE_NAME,
+					pns::LIMIT_RANGE_NAME
+				),
+				format!(
+					"{networking}/networkpolicies/{} uid-{}",
+					pns::ALLOW_INGRESS_NAME,
+					pns::ALLOW_INGRESS_NAME
+				),
 			]
 		);
 	}
