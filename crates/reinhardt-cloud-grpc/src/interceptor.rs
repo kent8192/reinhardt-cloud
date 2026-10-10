@@ -779,7 +779,13 @@ mod tests {
 		let result = interceptor.call(req);
 
 		// Assert
-		assert!(result.is_ok());
+		let passed = result.expect("public path must bypass authentication");
+		assert_eq!(
+			passed.extensions().get::<GrpcPath>(),
+			Some(&GrpcPath::new(path))
+		);
+		assert!(passed.extensions().get::<Claims>().is_none());
+		assert_eq!(passed.extensions().get::<AgentClaims>(), None);
 	}
 
 	/// Inner service that echoes the recorded path.
