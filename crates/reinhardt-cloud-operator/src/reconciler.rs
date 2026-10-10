@@ -17,6 +17,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::{Action, Controller};
 use kube::runtime::finalizer::{Event as FinalizerEvent, finalizer};
+use kube::runtime::reflector::ObjectRef;
 use kube::runtime::watcher;
 use kube::{Client, Resource, ResourceExt};
 use tracing::{Instrument, error, info, warn};
@@ -1864,6 +1865,20 @@ fn redis_credentials_secret_provenance(
 	})
 }
 
+/// Maps a Redis credentials Secret event to the `Project` that consumes it, so
+/// a deleted or replaced Secret is re-validated without waiting for a
+/// `Project` change.
+fn redis_credentials_secret_project_ref(secret: Secret) -> Option<ObjectRef<Project>> {
+	let namespace = secret.metadata.namespace.as_deref()?;
+	let project = secret
+		.metadata
+		.name
+		.as_deref()?
+		.strip_suffix("-redis-credentials")
+		.filter(|project| !project.is_empty())?;
+	Some(ObjectRef::new(project).within(namespace))
+}
+
 async fn delete_redis_credentials_secret_if_managed(
 	secret_api: &Api<Secret>,
 	app: &Project,
@@ -1879,9 +1894,14 @@ async fn delete_redis_credentials_secret_if_managed(
 		return Ok(());
 	};
 	if redis_credentials_secret_provenance(&existing, app).is_some() {
-		let _ = secret_api
-			.delete(&secret_name, &DeleteParams::default())
-			.await;
+		let params = DeleteParams {
+			preconditions: Some(kube::api::Preconditions {
+				uid: existing.metadata.uid.clone(),
+				resource_version: None,
+			}),
+			..DeleteParams::default()
+		};
+		let _ = secret_api.delete(&secret_name, &params).await;
 		return Ok(());
 	}
 
@@ -3194,6 +3214,7 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 	let statefulsets: Api<StatefulSet> = Api::all(client.clone());
 	let network_policies: Api<NetworkPolicy> = Api::all(client.clone());
 	let limit_ranges: Api<LimitRange> = Api::all(client.clone());
+	let secrets: Api<Secret> = Api::all(client.clone());
 
 	let platform = PlatformConfig::from_env();
 	let context = Arc::new(Context {
@@ -3235,6 +3256,15 @@ pub(crate) async fn run(client: Client, metrics: Arc<Metrics>) {
 			limit_ranges,
 			watcher::Config::default()
 				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
+		)
+		// Redis credentials Secrets carry no owner reference, so map their
+		// events by name: deleting or modifying the operator-labelled Secret
+		// re-runs provenance validation for its Project.
+		.watches(
+			secrets,
+			watcher::Config::default()
+				.labels("app.kubernetes.io/managed-by=reinhardt-cloud-operator"),
+			redis_credentials_secret_project_ref,
 		)
 		.shutdown_on_signal()
 		.run(reconcile, error_policy, context)
@@ -3845,6 +3875,31 @@ mod tests {
 		assert!(first_digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
 		assert_eq!(first_digest, redis_credentials_digest(&first.clone()));
 		assert_ne!(first_digest, second_digest);
+	}
+
+	#[rstest]
+	#[case::redis_credentials("payments-redis-credentials", Some("payments"))]
+	#[case::other_secret("payments-jwt-secret", None)]
+	#[case::bare_suffix("-redis-credentials", None)]
+	fn redis_credentials_secret_events_map_to_their_project(
+		#[case] secret_name: &str,
+		#[case] expected_project: Option<&str>,
+	) {
+		// Arrange
+		let secret = secret_with_metadata(ObjectMeta {
+			name: Some(secret_name.to_string()),
+			namespace: Some("tenant".to_string()),
+			..Default::default()
+		});
+
+		// Act
+		let project = redis_credentials_secret_project_ref(secret);
+
+		// Assert
+		assert_eq!(
+			project,
+			expected_project.map(|name| ObjectRef::<Project>::new(name).within("tenant"))
+		);
 	}
 
 	/// Requests recorded by `redis_credentials_api` as `(method, path, JSON body)`.

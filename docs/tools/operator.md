@@ -1034,7 +1034,7 @@ For a status-approved legacy Secret, the operator removes this Project's owner r
 the observed resourceVersion, both during reconciliation and before Retain finalization. Other
 owners are preserved, and the patch does not modify credential data. With
 `deletion_policy: Delete`, the operator deletes the Secret only when it matches the recorded
-provenance.
+provenance, using the Secret UID as a delete precondition.
 
 Creation is crash-safe: before creating the Secret, the operator writes the digest of the
 generated credential data to the status and clears any previous UID; after creation it records
@@ -1042,6 +1042,14 @@ the new UID. If the operator stops between those writes, the next reconciliation
 existing Secret only when it is immutable and its data matches the committed digest. Tenants
 cannot learn the generated password before the Secret exists, so they cannot pre-create a Secret
 that matches the digest.
+
+The controller watches operator-labelled Secrets, so deleting or modifying a Redis credentials
+Secret immediately re-runs provenance validation for its Project. A replacement Secret has a new
+UID and is rejected with a `ResourceOwnershipConflict` until a platform administrator resolves it.
+Validation cannot stop Pods that restart in the meantime from reading a replacement by name, so
+tenant principals must not be granted `create`, `update`, `patch`, or `delete` on Secrets in
+Project namespaces; the same requirement protects the JWT, `core.secret_key`, and database
+credential Secrets.
 
 When upgrading from a release that used labels or owner references as Redis Secret ownership,
 first apply the new CRD schema, perform this adoption while the old operator remains running,
