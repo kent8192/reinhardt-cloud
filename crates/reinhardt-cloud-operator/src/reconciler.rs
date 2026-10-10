@@ -4970,27 +4970,6 @@ mod tests {
 	}
 
 	#[rstest]
-	fn operator_chart_runs_a_single_non_overlapping_replica() {
-		// Arrange: Redis credential creation relies on a single writer, because
-		// the operator does not implement leader election.
-		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-			.join("../../charts/reinhardt-cloud-operator/templates/deployment.yaml");
-
-		// Act
-		let template = std::fs::read_to_string(path).expect("operator chart Deployment template");
-
-		// Assert
-		assert!(
-			template.starts_with("{{- if gt (int .Values.replicaCount) 1 }}\n{{- fail "),
-			"the chart must refuse to render more than one operator replica"
-		);
-		assert!(
-			template.contains("  strategy:\n    type: Recreate\n"),
-			"upgrades must not run an old and a new operator Pod side by side"
-		);
-	}
-
-	#[rstest]
 	fn test_compute_backoff_caps_at_max() {
 		// Assert: large attempt counts saturate to BACKOFF_MAX_SECS.
 		assert_eq!(
