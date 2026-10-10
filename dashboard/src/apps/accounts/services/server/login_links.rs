@@ -4,8 +4,9 @@
 //! - **Issuance** is only reachable from `manage create-login-link`; nothing in
 //!   the HTTP, WebSocket, or gRPC surface calls [`issue`]. The target must be an
 //!   existing, active User: a Login Link never creates one (SR-18).
-//! - **The secret** is 256 random bits from the operating system's generator,
-//!   shown once to the operator and stored only as its SHA-256 digest. It is a
+//! - **The secret** is 256 random bits from the thread-local cryptographically
+//!   secure generator (`rand::rng()`, seeded from the operating system), shown
+//!   once to the operator and stored only as its SHA-256 digest. It is a
 //!   [`LoginLinkSecret`], which redacts itself in `Debug` and is never handed to
 //!   `tracing`.
 //! - **Lifetime** is fixed at issuance and can never exceed [`MAX_LIFETIME`], a
