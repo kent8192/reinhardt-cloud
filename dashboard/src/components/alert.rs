@@ -58,6 +58,20 @@ pub enum AlertTone {
 	Danger,
 }
 
+impl AlertTone {
+	/// Returns the ARIA live-region role announcing an alert of this tone.
+	///
+	/// Only a failure interrupts assistive technology (`alert`, an assertive
+	/// live region); information and warnings wait for the current
+	/// announcement (`status`, a polite live region).
+	pub fn live_role(self) -> &'static str {
+		match self {
+			Self::Info | Self::Warning => "status",
+			Self::Danger => "alert",
+		}
+	}
+}
+
 /// Returns the class list for an alert of the given tone.
 pub fn alert_classes(tone: AlertTone) -> ClassList {
 	let base = ALERT_STYLES.alert() + "";
@@ -68,14 +82,16 @@ pub fn alert_classes(tone: AlertTone) -> ClassList {
 	}
 }
 
-/// Renders an alert announced to assistive technology (`role="alert"`).
+/// Renders an alert announced to assistive technology with the live-region
+/// role of its tone ([`AlertTone::live_role`]).
 pub fn alert(tone: AlertTone, title: TranslatedText, body: impl IntoPage) -> Page {
 	let classes = alert_classes(tone);
+	let role = tone.live_role();
 	let body = body.into_page();
 	page!({
 		div {
 			class: classes,
-			role: "alert",
+			role: role,
 			p {
 				class: ALERT_STYLES.title(),
 				{ title }
