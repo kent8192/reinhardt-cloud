@@ -79,7 +79,7 @@ Common top-level value keys (summarized from `values.yaml`):
 | `imagePullSecrets` | List of pull-secret references | `[]` |
 | `namespace` | Kubernetes namespace the operator is installed into | `reinhardt-cloud-system` |
 | `platform` | Target platform (`onpremise` / `aws` / `gcp`); drives `PlatformConfig` and RBAC rules | `onpremise` |
-| `rbac.namespaces.manageLifecycle` | Grant and enable creation/deletion of tenant and preview namespaces | `false` |
+| `rbac.namespaces.manageLifecycle` | Grant and enable creation of tenant namespaces (create-only; they are not deleted when their last `Project` is removed) and creation/deletion of preview namespaces | `false` |
 | `features.database` | Enable database inference and RBAC rules | `true` |
 | `features.cache` | Enable Redis cache inference | `false` |
 | `features.ingress` | Enable Ingress inference and RBAC rules | `false` |

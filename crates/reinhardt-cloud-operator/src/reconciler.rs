@@ -77,7 +77,9 @@ fn managed_github_credentials_secret_name(project_name: &str) -> String {
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
-/// Enables creation and deletion of operator-managed tenant namespaces.
+/// Enables creation of operator-managed tenant namespaces and creation and
+/// deletion of parent-qualified preview namespaces. Tenant namespaces are
+/// create-only and are never deleted by the operator.
 ///
 /// Standalone runs leave this unset and keep preview namespace cleanup
 /// enabled; the Helm chart always passes an explicit value derived from

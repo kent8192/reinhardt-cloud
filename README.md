@@ -385,7 +385,9 @@ features:
 Namespace lifecycle RBAC is disabled by default to keep the operator service account least-privilege.
 When tenant or preview namespaces are managed by a separate platform workflow, leave
 `rbac.namespaces.manageLifecycle=false` and pre-create those namespaces. Set it to `true` only when
-the operator is intentionally trusted to create, update, and delete its managed namespaces.
+the operator is intentionally trusted to create tenant namespaces and to create and delete preview
+namespaces. Tenant namespaces are create-only: the operator does not delete them, or their quota and
+network policies, when the last `Project` in a tenant is removed.
 
 ### Isolation defaults
 
@@ -534,10 +536,11 @@ cargo make runserver
 REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE=1 cargo run --bin reinhardt-cloud-operator
 ```
 
-The local command enables creation and cleanup of operator-owned tenant and
-preview namespaces. Lifecycle management also stays enabled when
-`REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE` is unset; set it to `false` when
-namespace lifecycle is managed by the platform.
+The local command lets the operator create tenant namespaces and create and
+delete parent-qualified preview namespaces. Tenant namespaces are never deleted
+by the operator. Lifecycle management also stays enabled when
+`REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE` is unset; set it explicitly to
+`false` or `0` when namespace lifecycle is managed by the platform.
 
 ## API Stability
 
