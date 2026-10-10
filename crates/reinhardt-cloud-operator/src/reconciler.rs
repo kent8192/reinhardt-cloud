@@ -10,7 +10,7 @@ use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscaler;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
-	ConfigMap, LimitRange, Namespace, Secret, Service, ServiceAccount,
+	ConfigMap, LimitRange, Namespace, PodTemplateSpec, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::networking::v1::{Ingress, IngressRule, NetworkPolicy};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -674,7 +674,14 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	}
 
 	let migration_state = if should_provision_postgresql(&app) {
-		reconcile_migration_job_resource(&app, &ctx.client, namespace, &ctx.platform).await?
+		reconcile_migration_job_resource(
+			&app,
+			&ctx.client,
+			namespace,
+			&ctx.platform,
+			redis_provenance.as_ref(),
+		)
+		.await?
 	} else {
 		MigrationGateState::NotRequired
 	};
@@ -1323,14 +1330,23 @@ async fn reconcile_db_service_resource(
 /// Reconciles the database migration `Job`.
 ///
 /// - If the revision job completed successfully, returns `Succeeded`.
-/// - If the revision job failed, returns `Failed` and leaves it for inspection.
-/// - If the revision job is still running, returns `Running`.
+/// - If the revision job failed, returns `Failed` and leaves it for inspection,
+///   unless it ran with Redis credentials that have since been regenerated:
+///   then it is deleted so the next reconciliation reruns it with the current
+///   password, and `Running` is returned.
+/// - If the revision job is still running, returns `Running`. A running Job is
+///   never interrupted for a credential change; if the stale password makes it
+///   fail, the rule above reruns it.
 /// - If no revision job exists, creates one and returns `Running`.
+///
+/// The Job receives the Redis password through `build_application_env_vars`,
+/// so its Pod template is stamped with the Secret UID like the Deployments.
 async fn reconcile_migration_job_resource(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
 	platform: &PlatformConfig,
+	redis_provenance: Option<&RedisCredentialsProvenance>,
 ) -> Result<MigrationGateState, Error> {
 	let revision_key = migration_revision_key(app);
 	let job_name = migration_job_name(app, &revision_key);
@@ -1345,6 +1361,23 @@ async fn reconcile_migration_job_resource(
 			return Ok(MigrationGateState::Succeeded);
 		}
 		if job_condition_is_true(status, "Failed") {
+			if migration_job_has_stale_redis_credentials(&existing, redis_provenance) {
+				let params = DeleteParams {
+					preconditions: Some(kube::api::Preconditions {
+						uid: existing.metadata.uid.clone(),
+						resource_version: None,
+					}),
+					..DeleteParams::background()
+				};
+				job_api
+					.delete(&job_name, &params)
+					.await
+					.map_err(Error::Kube)?;
+				info!(
+					"Deleted failed migration Job {namespace}/{job_name} to rerun it with regenerated Redis credentials"
+				);
+				return Ok(MigrationGateState::Running);
+			}
 			warn!("Migration Job {namespace}/{job_name} failed for current revision");
 			return Ok(MigrationGateState::Failed);
 		}
@@ -1352,13 +1385,32 @@ async fn reconcile_migration_job_resource(
 		return Ok(MigrationGateState::Running);
 	}
 
-	let desired = build_migration_job(app, platform, &revision_key)?;
+	let mut desired = build_migration_job(app, platform, &revision_key)?;
+	if let (Some(provenance), Some(spec)) = (redis_provenance, desired.spec.as_mut()) {
+		provenance.stamp_template(&mut spec.template);
+	}
 	job_api
 		.create(&PostParams::default(), &desired)
 		.await
 		.map_err(Error::Kube)?;
 	info!("Created migration Job {namespace}/{job_name}");
 	Ok(MigrationGateState::Running)
+}
+
+/// Whether a migration Job ran with Redis credentials that were regenerated
+/// since it was created. Jobs created before credential stamping carry no UID
+/// and are kept, so an operator upgrade never reruns a retained failure.
+fn migration_job_has_stale_redis_credentials(
+	job: &Job,
+	redis_provenance: Option<&RedisCredentialsProvenance>,
+) -> bool {
+	let Some(provenance) = redis_provenance else {
+		return false;
+	};
+	job.spec
+		.as_ref()
+		.and_then(|spec| stamped_redis_credentials_uid(&spec.template))
+		.is_some_and(|stamped| stamped != provenance.uid)
 }
 
 fn job_condition_is_true(
@@ -1678,10 +1730,15 @@ impl RedisCredentialsProvenance {
 	/// Stamps the Secret UID into a Redis-consuming Deployment's Pod template,
 	/// so replacing the credentials rolls the workload onto the new password.
 	fn stamp_pod_template(&self, deployment: &mut Deployment) {
-		let Some(spec) = deployment.spec.as_mut() else {
-			return;
-		};
-		spec.template
+		if let Some(spec) = deployment.spec.as_mut() {
+			self.stamp_template(&mut spec.template);
+		}
+	}
+
+	/// Stamps the Secret UID into any Pod template that receives the password
+	/// through `build_application_env_vars`.
+	fn stamp_template(&self, template: &mut PodTemplateSpec) {
+		template
 			.metadata
 			.get_or_insert_with(ObjectMeta::default)
 			.annotations
@@ -1691,6 +1748,16 @@ impl RedisCredentialsProvenance {
 				self.uid.clone(),
 			);
 	}
+}
+
+/// Returns the Redis credentials Secret UID a Pod template was stamped with.
+fn stamped_redis_credentials_uid(template: &PodTemplateSpec) -> Option<&str> {
+	template
+		.metadata
+		.as_ref()
+		.and_then(|metadata| metadata.annotations.as_ref())
+		.and_then(|annotations| annotations.get(REDIS_CREDENTIALS_REVISION_ANNOTATION))
+		.map(String::as_str)
 }
 
 /// Reconciles the Redis credentials `Secret` for a `Project`.
@@ -2001,10 +2068,8 @@ async fn roll_redis_credential_consumers(
 		let stamped = existing
 			.spec
 			.as_ref()
-			.and_then(|spec| spec.template.metadata.as_ref())
-			.and_then(|metadata| metadata.annotations.as_ref())
-			.and_then(|annotations| annotations.get(REDIS_CREDENTIALS_REVISION_ANNOTATION));
-		if stamped == Some(&provenance.uid) {
+			.and_then(|spec| stamped_redis_credentials_uid(&spec.template));
+		if stamped == Some(provenance.uid.as_str()) {
 			continue;
 		}
 		let patch = serde_json::json!({
@@ -4260,6 +4325,129 @@ mod tests {
 			Vec::new()
 		};
 		assert_eq!(*recorded, expected);
+	}
+
+	#[rstest]
+	#[case::failed_with_stale_credentials("Failed", Some("previous-secret-uid"), true, true)]
+	#[case::failed_with_current_credentials("Failed", Some("current-secret-uid"), true, false)]
+	#[case::failed_before_stamping("Failed", None, true, false)]
+	#[case::failed_without_redis("Failed", Some("previous-secret-uid"), false, false)]
+	#[case::running_with_stale_credentials("Running", Some("previous-secret-uid"), true, false)]
+	#[tokio::test]
+	async fn failed_migration_job_reruns_after_redis_credential_regeneration(
+		#[case] job_state: &str,
+		#[case] stamped_uid: Option<&str>,
+		#[case] redis_enabled: bool,
+		#[case] expect_rerun: bool,
+	) {
+		// Arrange
+		let app = make_test_app("payments");
+		let platform = PlatformConfig::onprem_defaults();
+		let revision_key = migration_revision_key(&app);
+		let job_name = migration_job_name(&app, &revision_key);
+		let mut job = build_migration_job(&app, &platform, &revision_key).expect("job builds");
+		job.metadata.uid = Some("job-uid".to_string());
+		if let Some(uid) = stamped_uid {
+			RedisCredentialsProvenance {
+				uid: uid.to_string(),
+			}
+			.stamp_template(&mut job.spec.as_mut().expect("job spec").template);
+		}
+		if job_state == "Failed" {
+			job.status = Some(k8s_openapi::api::batch::v1::JobStatus {
+				conditions: Some(vec![k8s_openapi::api::batch::v1::JobCondition {
+					type_: "Failed".to_string(),
+					status: "True".to_string(),
+					..Default::default()
+				}]),
+				..Default::default()
+			});
+		}
+		let job_path = format!("/apis/batch/v1/namespaces/default/jobs/{job_name}");
+		let (client, requests) =
+			stub_object_api(vec![(job_path.clone(), serde_json::to_vec(&job).unwrap())]);
+		let current = RedisCredentialsProvenance {
+			uid: "current-secret-uid".to_string(),
+		};
+
+		// Act
+		let state = reconcile_migration_job_resource(
+			&app,
+			&client,
+			"default",
+			&platform,
+			redis_enabled.then_some(&current),
+		)
+		.await
+		.unwrap();
+
+		// Assert: only a failed Job that ran with regenerated credentials is
+		// deleted, conditioned on its UID, so the next reconcile reruns it; a
+		// running migration is never interrupted.
+		let expected_state = if expect_rerun || job_state == "Running" {
+			MigrationGateState::Running
+		} else {
+			MigrationGateState::Failed
+		};
+		assert_eq!(state, expected_state);
+		let recorded = requests.lock();
+		let deletes: Vec<_> = recorded
+			.iter()
+			.filter(|(method, _, _)| *method == http::Method::DELETE)
+			.map(|(_, path, body)| {
+				(
+					path.clone(),
+					body["propagationPolicy"].clone(),
+					body["preconditions"]["uid"].clone(),
+				)
+			})
+			.collect();
+		let expected_deletes = if expect_rerun {
+			vec![(
+				job_path,
+				serde_json::json!("Background"),
+				serde_json::json!("job-uid"),
+			)]
+		} else {
+			Vec::new()
+		};
+		assert_eq!(deletes, expected_deletes);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn new_migration_job_is_stamped_with_redis_credentials() {
+		// Arrange: no Job exists for the current revision.
+		let app = make_test_app("payments");
+		let platform = PlatformConfig::onprem_defaults();
+		let revision_key = migration_revision_key(&app);
+		let job = build_migration_job(&app, &platform, &revision_key).expect("job builds");
+		let (client, requests) = stub_object_api(vec![(
+			"/apis/batch/v1/namespaces/default/jobs".to_string(),
+			serde_json::to_vec(&job).unwrap(),
+		)]);
+		let current = RedisCredentialsProvenance {
+			uid: "current-secret-uid".to_string(),
+		};
+
+		// Act
+		let state =
+			reconcile_migration_job_resource(&app, &client, "default", &platform, Some(&current))
+				.await
+				.unwrap();
+
+		// Assert
+		assert_eq!(state, MigrationGateState::Running);
+		let recorded = requests.lock();
+		let created = recorded
+			.iter()
+			.find(|(method, _, _)| *method == http::Method::POST)
+			.map(|(_, _, body)| serde_json::from_value::<Job>(body.clone()).unwrap())
+			.expect("migration Job created");
+		assert_eq!(
+			stamped_redis_credentials_uid(&created.spec.expect("job spec").template),
+			Some("current-secret-uid")
+		);
 	}
 
 	#[rstest]

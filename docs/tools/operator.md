@@ -1080,6 +1080,14 @@ evaluated, so a regenerated credential still reaches every running consumer whil
 pending or a migration Job is running or failed; the gates never cause a missing Deployment to
 be created.
 
+Migration Jobs also receive the Redis password, so their Pod template carries the same
+annotation. A migration Job that is still running when the credentials are regenerated is never
+interrupted. If a migration Job for the current revision has failed and its annotation names an
+earlier Secret UID, the operator deletes it (background propagation, conditioned on the Job UID)
+so the next reconciliation reruns the migration with the current password. A failed Job that ran
+with the current credentials, or that predates the annotation, is retained for inspection and
+keeps blocking the revision as before.
+
 On every reconciliation the operator also restores the `app.kubernetes.io/name` and
 `app.kubernetes.io/managed-by` labels on the approved Secret, using a metadata-only patch
 conditioned on its UID and resourceVersion. Removing these labels takes the Secret out of the watch
