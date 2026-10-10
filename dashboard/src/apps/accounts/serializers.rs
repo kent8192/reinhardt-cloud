@@ -9,5 +9,6 @@
 //! pub mod item;
 //! ```
 
+pub mod login_link;
 pub mod sign_in;
 pub mod viewer;

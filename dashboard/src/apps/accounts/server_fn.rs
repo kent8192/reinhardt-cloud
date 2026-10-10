@@ -10,6 +10,7 @@
 //! session middleware, models, ...) that are not compiled on the WASM
 //! target.
 
+pub mod consume_login_link;
 pub mod current_viewer;
 pub mod sign_out;
 pub mod take_sign_in_notice;
