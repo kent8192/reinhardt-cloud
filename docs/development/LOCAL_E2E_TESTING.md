@@ -293,8 +293,9 @@ The Operator uses the host's `KUBECONFIG` to reach the cluster started in
 step 1. `rustls` `CryptoProvider` is installed explicitly at startup
 (kent8192/reinhardt-cloud#314) — no TLS panic on Kubernetes 1.31+.
 
-This local command enables tenant and preview namespace lifecycle management,
-so deleting a parent Project also removes its operator-owned preview namespace.
+This local command enables preview namespace lifecycle management, so deleting a
+parent Project also removes its operator-owned preview namespace. Tenant
+namespaces must still exist before their Projects are created.
 An unset value also keeps lifecycle management enabled, so set it explicitly to
 `false` or `0` for platform-managed namespaces.
 

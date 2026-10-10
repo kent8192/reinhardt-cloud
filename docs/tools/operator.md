@@ -79,7 +79,7 @@ Common top-level value keys (summarized from `values.yaml`):
 | `imagePullSecrets` | List of pull-secret references | `[]` |
 | `namespace` | Kubernetes namespace the operator is installed into | `reinhardt-cloud-system` |
 | `platform` | Target platform (`onpremise` / `aws` / `gcp`); drives `PlatformConfig` and RBAC rules | `onpremise` |
-| `rbac.namespaces.manageLifecycle` | Grant and enable creation of tenant namespaces (create-only; they are not deleted when their last `Project` is removed) and creation/deletion of preview namespaces | `false` |
+| `rbac.namespaces.manageLifecycle` | Grant and enable creation/deletion of parent-qualified preview namespaces. Tenant namespaces are always pre-created by the platform and never deleted by the operator | `false` |
 | `features.database` | Enable database inference and RBAC rules | `true` |
 | `features.cache` | Enable Redis cache inference | `false` |
 | `features.ingress` | Enable Ingress inference and RBAC rules | `false` |
@@ -283,17 +283,21 @@ When the field is set, the operator:
 
 - Computes the tenant namespace as `tenant-<organization>` (or
   `tenant-<organization>-<team>` if `team` is set).
-- Server-side applies that `Namespace` together with a default
-  `ResourceQuota` and a default-deny + same-namespace + ingress-controller
-  `NetworkPolicy` triple before any per-app workload is reconciled. When
-  namespace lifecycle management is disabled, the operator does not create the
-  `Namespace`: it only merge-patches the labels of a pre-created tenant
-  namespace, and fails with a dependency-not-ready backoff (no quota or
-  policies applied) until the platform creates it.
 - Verifies that `metadata.namespace` matches the computed value.
   Mismatches set `status.phase: failed` and emit a `Degraded=True`
   condition with reason `TenantMismatch`; the controller then skips
   exponential-backoff retries until the user fixes the spec.
+- Applies the tenant labels to that existing `Namespace` together with a
+  default `ResourceQuota` and a default-deny + same-namespace +
+  ingress-controller `NetworkPolicy` triple before any per-app workload is
+  reconciled. With namespace lifecycle management disabled, the labels are
+  merge-patched so the operator can never create a `Namespace`.
+
+The tenant namespace must always be pre-created by the platform, regardless of
+`rbac.namespaces.manageLifecycle`: a namespaced `Project` cannot be stored in a
+namespace that does not exist, so the operator only ever sees tenant `Project`s
+whose namespace is already present. The operator never deletes tenant
+namespaces or their quota and network policies.
 
 CRs that omit `spec.tenant` continue to reconcile in whatever
 namespace they were created in, with no quota or network policy
@@ -327,12 +331,13 @@ and expands or contracts based on `platform` and `features.*` values at install 
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
-pre-create tenant and preview namespaces when those workflows are used. The chart passes this same
-setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`. While lifecycle management is
-disabled, the operator never creates tenant or preview namespaces and never deletes preview
-namespaces: it requires the tenant namespace and the parent-qualified preview namespace to be
-pre-created (reconciliation fails with a dependency-not-ready backoff until they exist) and only
-merge-patches their labels before applying guardrails. On parent deletion it retains the preview
+pre-create preview namespaces when previews are used. Tenant namespaces are always pre-created,
+whatever this setting is, because a tenant `Project` must already live in its tenant namespace. The
+chart passes this same setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`. While
+lifecycle management is disabled, the operator never creates or deletes namespaces: it requires the
+parent-qualified preview namespace to be pre-created (reconciliation fails with a dependency-not-ready
+backoff until it exists) and only merge-patches tenant and preview namespace labels before applying
+guardrails. On parent deletion it retains the preview
 namespace, deletes the parent's operator-created preview `Project`s, and keeps the parent finalizer
 until their own finalizers finish. A preview `Project` is deleted only when it carries the canonical
 preview, parent, numeric PR-number, and `app.kubernetes.io/managed-by: reinhardt-cloud` labels and its
@@ -931,8 +936,8 @@ kubectl rollout status deployment/reinhardt-cloud-operator \
 The Helm chart renders a `ClusterRole` whose rules are determined by the `platform` and `features`
 values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
-`patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
-workflow. With lifecycle management disabled, deleting a preview-enabled `Project` retains its
+`patch`, so preview namespaces must be pre-created by a more privileged platform workflow (tenant
+namespaces are always pre-created). With lifecycle management disabled, deleting a preview-enabled `Project` retains its
 preview namespace, waits for the parent's operator-created preview `Project`s to be deleted, and removes
 the operator-created preview guardrails (including the cert-manager `Issuer`, hence the `issuers`
 delete verb) before removing the parent finalizer. The base rules (always present, regardless of
