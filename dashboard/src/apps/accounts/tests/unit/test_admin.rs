@@ -49,6 +49,21 @@ fn sr_20_admin_cannot_change_staff_or_identity_fields() {
 }
 
 #[rstest]
+fn sr_107_admin_cannot_change_whether_a_user_is_active() {
+	// Arrange
+	let admin = UserAdmin;
+
+	// Act
+	let readonly = admin.readonly_fields();
+
+	// Assert
+	assert!(
+		readonly.contains(&"is_active"),
+		"reactivation must go through `manage reactivate-user`, which ends the sessions first"
+	);
+}
+
+#[rstest]
 fn sr_107_admin_cannot_move_a_user_to_another_github_account() {
 	// Arrange
 	let admin = UserAdmin;
@@ -64,7 +79,7 @@ fn sr_107_admin_cannot_move_a_user_to_another_github_account() {
 
 #[rstest]
 #[tokio::test]
-async fn sr_20_admin_never_creates_or_deletes_users() {
+async fn sr_20_admin_never_creates_changes_or_deletes_users() {
 	// Arrange
 	let admin = UserAdmin;
 	let staff = user_with(true, true);
@@ -73,7 +88,7 @@ async fn sr_20_admin_never_creates_or_deletes_users() {
 	let permissions = permissions_of(&admin, &staff).await;
 
 	// Assert
-	assert_eq!(permissions, (true, false, true, false));
+	assert_eq!(permissions, (true, false, false, false));
 }
 
 #[rstest]

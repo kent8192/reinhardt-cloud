@@ -309,3 +309,89 @@ async fn sr_107_a_session_left_behind_by_the_fallback_does_not_survive_reactivat
 		user.id
 	);
 }
+
+/// The admin site is no way to reactivate a User: reinhardt-admin offers no hook
+/// that could end the User's sessions first, so a reactivation there would bring
+/// back every session left in Redis while the User was inactive.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_107_the_admin_site_cannot_reactivate_a_user_so_a_stale_session_stays_dead() {
+	// Arrange: Staff and a target, both signed in; the target is then deactivated
+	// (as the re-pointing fallback does), leaving their session in Redis.
+	let app = TestApp::start(AppOptions::default()).await;
+	insert_user(5_001, "ops", true).await;
+	let ops = GithubAccount::new(5_001, "ops");
+	let target = GithubAccount::new(5_002, "target");
+	app.expect_sign_in("code-ops", &ops).await;
+	app.expect_sign_in("code-target", &target).await;
+	let mut staff = app.browser();
+	staff.sign_in("code-ops").await;
+	let mut stale = app.browser();
+	stale.sign_in("code-target").await;
+	let target_user = find_by_github_user_id(5_002).await.unwrap().unwrap();
+	deactivate(&target_user).await;
+	let dashboard = staff
+		.post_with(
+			"/admin/api/server_fn/get_dashboard",
+			json!({}),
+			&[("Origin", &app.base_url)],
+		)
+		.await;
+	assert_eq!(dashboard.status, 200, "Staff reaches the admin site");
+	let csrf = staff
+		.cookie("csrftoken")
+		.expect("the dashboard sets the CSRF cookie")
+		.to_owned();
+	let id = target_user.id.to_string();
+
+	// Act
+	let reactivate = staff
+		.post_with(
+			"/admin/api/server_fn/update_record",
+			json!({"model_name": "User", "id": id, "request": {"csrf_token": csrf, "is_active": true}}),
+			&[("Origin", &app.base_url)],
+		)
+		.await;
+	let inline = staff
+		.post_with(
+			"/admin/api/server_fn/update_inline_edits",
+			json!({"model_name": "User", "request": {"csrf_token": csrf, "updates": [
+				{"object_id": id, "changes": {"is_active": true}}
+			]}}),
+			&[("Origin", &app.base_url)],
+		)
+		.await;
+	let stale_viewer = stale
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await;
+
+	// Assert
+	// Refused for permission, before the data is looked at (with change
+	// permission the same requests get as far as the write).
+	assert_eq!((reactivate.status, inline.status), (403, 403));
+	for reply in [&reactivate, &inline] {
+		assert_eq!(
+			reply.json()["message"],
+			json!("Permission denied"),
+			"{reply:?}"
+		);
+	}
+	assert!(
+		!find_by_github_user_id(5_002)
+			.await
+			.unwrap()
+			.unwrap()
+			.is_active,
+		"the admin site did not reactivate the User"
+	);
+	assert_eq!(
+		stale_viewer.json(),
+		json!(null),
+		"the stale session stays refused"
+	);
+}

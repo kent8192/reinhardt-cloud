@@ -159,7 +159,9 @@ is the only non-DI type allowed in a binary.
   admin site (it needs an active Staff User, who may be the one that is
   deactivated): `end-sessions` ends a User's sessions, and `reactivate-user` ends
   them first and only then reactivates. A fail-closed path that deactivates a
-  User must name these commands in its error message.
+  User must name these commands in its error message. The User admin is
+  read-only (including `is_active`), so Staff cannot reactivate a User there
+  without their sessions being ended.
 
 ### Pages and UI
 

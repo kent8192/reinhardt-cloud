@@ -5,10 +5,11 @@
 //! flag is not set before a `ModelAdmin` is consulted. The registrations below
 //! narrow what Staff can do inside the site:
 //!
-//! - Users are never created or deleted here (they are created by sign-in or
-//!   `manage grant-staff`), identity and Staff fields are read-only so the
-//!   admin site cannot grant Staff (SR-20) or move a User to another GitHub
-//!   account (SR-107), and only activation can be changed.
+//! - Users are never created, changed, or deleted here (they are created by
+//!   sign-in or `manage grant-staff`). Identity, Staff, and activation are
+//!   read-only, so the admin site cannot grant Staff (SR-20), move a User to
+//!   another GitHub account (SR-107), or reactivate a User without ending their
+//!   sessions first; those go through the `manage` commands.
 //! - Provider tokens are not shown at all, in any form, and the link row is
 //!   read-only (SR-06, SR-102).
 //! - Login Links are listed read-only without their digest: only
