@@ -7630,6 +7630,7 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64",
+ "bytes",
  "cfg_aliases",
  "chrono",
  "clap",
@@ -7637,9 +7638,12 @@ dependencies = [
  "console_error_panic_hook",
  "ctor 0.6.3",
  "hkdf",
+ "hyper",
  "inventory",
  "js-sys",
  "linkme",
+ "rand 0.9.4",
+ "redis 0.27.6",
  "reinhardt-commands",
  "reinhardt-web",
  "reqwest 0.12.28",
@@ -7658,6 +7662,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "wiremock",
 ]
 
 [[package]]

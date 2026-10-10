@@ -78,6 +78,14 @@ hkdf = "0.12"
 sha2 = "0.10"
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# Session and sign-in state live in Redis so every replica sees them (SR-04,
+# SR-08). The version and features match the ones `reinhardt-middleware`
+# compiles, so the facade's Redis session backend and this client share one build.
+redis = { version = "0.27", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
+# Calls GitHub for the signing-in User's profile and organizations, and refreshes
+# provider tokens (reinhardt-web#6709); `rustls-tls` keeps TLS off the system store.
+reqwest = { workspace = true }
+rand = { workspace = true }
 
 [build-dependencies]
 cfg_aliases = "0.2"
@@ -99,8 +107,12 @@ serial_test = "3.2"
 wasm-bindgen-test = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-reqwest = { workspace = true }
 tokio = { workspace = true }
+# Local stand-in for GitHub; GitHub is never called for real in tests.
+wiremock = "0.6"
+# Build requests for the middleware unit tests.
+bytes = "1"
+hyper = "1"
 # Captures `audit` events in tests.
 tracing-subscriber = { workspace = true }
 # Parses the committed settings profiles in tests.
@@ -111,6 +123,14 @@ toml = { workspace = true }
 [[test]]
 name = "components_browser"
 path = "tests/wasm/components_browser.rs"
+
+[[test]]
+name = "accounts_browser"
+path = "tests/wasm/accounts_browser.rs"
+
+[[test]]
+name = "accounts_navigation"
+path = "tests/wasm/accounts_navigation.rs"
 
 # Native test targets are skipped by `wasm-pack test --no-default-features`,
 # which builds every test target for wasm32.

@@ -10,6 +10,12 @@
 debug = true
 allowed_hosts = ["localhost", "127.0.0.1"]
 
+# Sign-in needs a GitHub App whose callback URL is
+# `http://localhost:8000/api/auth/github/callback/`. Export
+# REINHARDT_CLOUD_GITHUB_CLIENT_ID and REINHARDT_CLOUD_GITHUB_CLIENT_SECRET.
+[accounts]
+public_url = "${REINHARDT_CLOUD_PUBLIC_URL:-http://localhost:8000}"
+
 # The dev container reaches Redis by its service name (`RC_REDIS_HOST=redis`);
 # host-native development falls back to localhost.
 [redis]

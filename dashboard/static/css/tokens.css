@@ -39,9 +39,15 @@
 	--leading-ui: 1.45;
 	--leading-compact: 1.5;
 	--leading-prose: 1.6;
+	/* Display headline and the monospaced log of the sign-in preview. */
+	--leading-display: 1.1;
+	--leading-log: 1.65;
 
 	/* Display headings tighten slightly. */
 	--tracking-display: -0.2px;
+	/* The sign-in headline and card titles tighten more. */
+	--tracking-hero: -0.8px;
+	--tracking-heading: -0.3px;
 
 	--weight-regular: 400;
 	--weight-medium: 500;
@@ -93,6 +99,26 @@
 	--brand-mark-width: 2.75rem;
 	/* Moves the skip link above the viewport until it receives focus. */
 	--skip-link-hidden-top: -4rem;
+
+	/* ---- Sign-in product preview -----------------------------------------
+	 * The decorative scene is placed from the vertical middle of the page
+	 * (`-top` offsets) and from its right edge; a negative end offset reaches
+	 * past the edge. */
+	--preview-deploy-top: 13rem;
+	--preview-deploy-end: -7rem;
+	--preview-deploy-width: 42rem;
+	--preview-phase-rule: 4px;
+	--preview-log-end: 3rem;
+	--preview-log-bottom: -3rem;
+	--preview-log-width: 38rem;
+	--preview-log-height: 22rem;
+	--preview-log-time-width: 5.5rem;
+	--preview-log-level-width: 3.75rem;
+	--preview-live-marker: 0.5rem;
+	--preview-project-chip-top: 17rem;
+	--preview-project-chip-end: 18rem;
+	--preview-cluster-chip-top: 2.25rem;
+	--preview-cluster-chip-end: -1rem;
 
 	/* ---- Status badge ---------------------------------------------------------
 	 * The marker is a shape drawn from borders, so its strokes are sizes. */

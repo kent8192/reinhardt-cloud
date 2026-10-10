@@ -1,1 +1,3 @@
-//! Reusable client-side custom hooks for the accounts application.
+//! Client-side hooks of the accounts application.
+
+pub mod viewer;

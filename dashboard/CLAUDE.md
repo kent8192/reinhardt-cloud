@@ -28,7 +28,10 @@ name is the one `reinhardt-admin startproject` generated; do not rename either.
 - `src/bin/manage.rs` management binary (`manage`).
 - `src/client/` browser-only WASM launcher.
 - `src/apps/` one module per application (below).
-- `src/config/` settings, installed apps, and project route aggregation.
+- `src/config/` settings, installed apps, project route aggregation, the admin
+  site, and the request-surface middleware (`config/middleware/`, `config/web.rs`).
+  `routes()` must stay synchronous: an `async` `#[routes]` function registers no
+  client routes.
 - `src/components/` components shared by every application; `src/i18n/` the
   message catalogs.
 - `static/` design tokens, base styles, utilities, and images served through
@@ -74,6 +77,11 @@ Dockerfile generator. Keep these stable:
   `REINHARDT_CLOUD_SECRET_KEY`, `REINHARDT_CLOUD_JWT_SECRET`,
   `REINHARDT_CLOUD_REDIS_URL`, `REINHARDT_CLOUD_REDIS_PASSWORD`, and
   `REINHARDT_DATABASE_{HOST,PORT,NAME,USER,PASSWORD}`.
+- Sign-in additionally reads `REINHARDT_CLOUD_GITHUB_CLIENT_ID`,
+  `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET`, and `REINHARDT_CLOUD_PUBLIC_URL`
+  (see `README.md`). `staging` and `production` refuse to start without the
+  GitHub App and the public origin unless `REINHARDT_CLOUD_GITHUB_SIGN_IN=disabled`
+  opts out explicitly, in which case only Login Links can sign in.
 
 ## Required Guidance
 

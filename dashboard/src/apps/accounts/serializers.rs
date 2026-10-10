@@ -8,3 +8,6 @@
 //! ```rust,ignore
 //! pub mod item;
 //! ```
+
+pub mod sign_in;
+pub mod viewer;

@@ -56,6 +56,10 @@ pub struct User {
 	#[field(default = false)]
 	pub is_staff: bool,
 
+	/// When the User last completed a sign-in. Written only by sign-in itself.
+	#[field(null = true)]
+	pub last_login: Option<DateTime<Utc>>,
+
 	/// Creation timestamp.
 	#[field(auto_now_add = true)]
 	pub created_at: DateTime<Utc>,

@@ -1,5 +1,7 @@
 //! URL configuration for the accounts application.
 //!
+pub mod paths;
+
 #[cfg(client)]
 pub mod client_router;
 

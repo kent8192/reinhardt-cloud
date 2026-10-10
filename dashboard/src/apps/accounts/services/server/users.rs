@@ -185,6 +185,7 @@ async fn create_user(
 		.email(profile.verified_email.clone())
 		.is_active(true)
 		.is_staff(false)
+		.last_login(None)
 		.finish();
 
 	match User::objects().create(&new_user).await {

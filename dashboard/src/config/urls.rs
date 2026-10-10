@@ -2,7 +2,20 @@
 //!
 //! `routes` is the single project-level registration. Each application exposes
 //! one `url_patterns()` aggregate for HTTP, WebSocket, gRPC, and client routes;
-//! merge them explicitly below, one `merge` per installed application.
+//! merge them explicitly below, one `merge` per installed application. On the
+//! server the merged routes are then wrapped with the shared request surface
+//! (admin site, middleware, dependency injection) by `config::web`.
+//!
+//! Workaround for kent8192/reinhardt-web#6722 (tracked in
+//! kent8192/reinhardt-cloud#950): `routes` must stay synchronous because
+//! `#[routes]` registers the browser's client routes only for a synchronous
+//! function; an `async` one leaves the single-page application without any
+//! route. Remove this constraint when the upstream issue is resolved.
+//!
+//! Ideal implementation (without workaround):
+//!   `pub async fn routes(#[inject] services: AccountsServices) -> UnifiedRouter`
+//!   // The server-side request surface resolves its services through
+//!   // dependency injection while the client routes still register.
 
 use reinhardt::UnifiedRouter;
 use reinhardt::routes;
@@ -11,7 +24,7 @@ use reinhardt::routes;
 pub fn routes() -> UnifiedRouter {
 	// One merge per installed app. `url_patterns()` is target-neutral; no
 	// server/client cfg branch is needed here.
-	UnifiedRouter::new()
+	let router = UnifiedRouter::new()
 		.merge(crate::apps::accounts::urls::url_patterns())
 		.merge(crate::apps::organizations::urls::url_patterns())
 		.merge(crate::apps::clusters::urls::url_patterns())
@@ -20,5 +33,9 @@ pub fn routes() -> UnifiedRouter {
 		.merge(crate::apps::deployments::urls::url_patterns())
 		.merge(crate::apps::logs::urls::url_patterns())
 		.merge(crate::apps::github::urls::url_patterns())
-		.merge(crate::apps::health::urls::url_patterns())
+		.merge(crate::apps::health::urls::url_patterns());
+
+	#[cfg(server)]
+	let router = crate::config::web::assemble(router);
+	router
 }
