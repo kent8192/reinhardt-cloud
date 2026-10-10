@@ -142,6 +142,15 @@ fn authenticated_cluster_id<T>(request: &Request<T>) -> Result<Uuid, Status> {
 		.map_err(|_| Status::permission_denied("Agent token carries an invalid cluster_id"))
 }
 
+/// Message returned for every cluster-binding failure.
+///
+/// One fixed text for all causes (unknown agent, agent of another cluster)
+/// so a caller cannot use the response to probe registry state.
+const BINDING_DENIED: &str = "Agent is not registered under the authenticated cluster";
+
+/// Message returned by entry points that carry no authenticated cluster.
+const UNBOUND_DENIED: &str = "Request is not bound to an authenticated cluster";
+
 // --- gRPC Server ---
 
 /// gRPC server implementation wrapping a `ClusterAgentService` trait object.
@@ -295,9 +304,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		// An agent identity is peer-supplied, so a stream is only served
 		// once it is bound to the authenticated cluster. Registering
 		// without that binding would let any caller claim any `agent_id`.
-		Err(ApiError::Unauthorized(
-			"Agent identity required: use agent_stream_authenticated".to_string(),
-		))
+		Err(ApiError::Forbidden(UNBOUND_DENIED.to_string()))
 	}
 
 	async fn agent_stream_authenticated(
@@ -339,7 +346,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		let mut command_rx = self
 			.registry
 			.register_with_cluster(info, cluster_id)
-			.map_err(|e| ApiError::Forbidden(e.to_string()))?;
+			.map_err(|_| ApiError::Forbidden(BINDING_DENIED.to_string()))?;
 		let generation = command_rx.generation();
 		let registry = self.registry.clone();
 		let agent_id_copy = agent_id;
@@ -390,9 +397,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		// The health payload names its agent, and that name is
 		// peer-supplied, so health is only accepted together with the
 		// authenticated cluster.
-		Err(ApiError::Unauthorized(
-			"Agent identity required: use report_health_for_cluster".to_string(),
-		))
+		Err(ApiError::Forbidden(UNBOUND_DENIED.to_string()))
 	}
 
 	async fn report_health_for_cluster(
@@ -400,15 +405,9 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		cluster_id: Uuid,
 		health: AgentHealth,
 	) -> Result<(), ApiError> {
-		// Both failure modes map to the same message so a caller cannot
-		// probe which agent ids are registered under other clusters.
 		self.registry
 			.update_health_for_cluster(&cluster_id, health)
-			.map_err(|_| {
-				ApiError::Forbidden(
-					"Agent is not registered under the authenticated cluster".to_string(),
-				)
-			})
+			.map_err(|_| ApiError::Forbidden(BINDING_DENIED.to_string()))
 	}
 
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError> {
@@ -991,8 +990,8 @@ mod tests {
 		let stream = service.agent_stream(Box::pin(tokio_stream::empty())).await;
 
 		// Assert
-		assert!(matches!(health, Err(ApiError::Unauthorized(_))));
-		assert!(matches!(stream, Err(ApiError::Unauthorized(_))));
+		assert!(matches!(health, Err(ApiError::Forbidden(m)) if m == UNBOUND_DENIED));
+		assert!(matches!(stream, Err(ApiError::Forbidden(m)) if m == UNBOUND_DENIED));
 		assert!(registry.get_health(&agent_id).is_none());
 	}
 
@@ -1023,7 +1022,7 @@ mod tests {
 			.await;
 
 		// Assert
-		assert!(matches!(result, Err(ApiError::Forbidden(_))));
+		assert!(matches!(result, Err(ApiError::Forbidden(m)) if m == BINDING_DENIED));
 		assert_eq!(
 			registry.agents_for_cluster(&victim_cluster),
 			vec![victim_agent]

@@ -29,6 +29,9 @@ use uuid::Uuid;
 
 const JWT_SECRET: &[u8] = b"agent-identity-binding-test-secret";
 
+/// The one message every binding failure returns to the client.
+const BINDING_DENIED: &str = "Agent is not registered under the authenticated cluster";
+
 /// A running tonic server; the serving task is aborted on drop.
 struct TestServer {
 	addr: SocketAddr,
@@ -252,6 +255,7 @@ async fn report_health_for_other_clusters_agent_is_denied_and_registry_unchanged
 
 	// Assert
 	assert_eq!(status.code(), Code::PermissionDenied);
+	assert_eq!(status.message(), BINDING_DENIED);
 	assert_eq!(
 		server.registry.get_health(&victim_agent).unwrap().pod_count,
 		3
@@ -281,6 +285,7 @@ async fn report_health_for_unregistered_agent_is_denied(#[future] server: TestSe
 
 	// Assert
 	assert_eq!(status.code(), Code::PermissionDenied);
+	assert_eq!(status.message(), BINDING_DENIED);
 	assert!(server.registry.get_health(&unknown_agent).is_none());
 }
 
@@ -341,6 +346,7 @@ async fn agent_stream_with_other_clusters_agent_id_is_denied_and_entry_unchanged
 	// Assert — denied, and the victim keeps its binding and command channel
 	let status = result.expect_err("hijacking handshake must be denied");
 	assert_eq!(status.code(), Code::PermissionDenied);
+	assert_eq!(status.message(), BINDING_DENIED);
 	assert_eq!(
 		server.registry.agents_for_cluster(&victim_cluster),
 		vec![victim_agent]
