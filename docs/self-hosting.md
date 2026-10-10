@@ -47,6 +47,17 @@ place:
    `reinhardt-cloud-dashboard-secrets` exists in the
    `reinhardt-cloud-system` namespace with at least these keys:
    - `email-host` — the SMTP host used for outbound dashboard email.
+   - `github-client-id` and `github-client-secret` — the client ID and
+     secret of the GitHub App behind sign-in. The Dashboard runs the
+     `production` profile and refuses to start without them (GitHub is the
+     only way to sign in). Set the App's callback URL to
+     `<public-url>/api/auth/github/callback/`.
+   - `public-url` — the `https` origin the Dashboard is served from, without
+     a path (for example `https://reinhardt-cloud.dev`).
+   - `trusted-proxies` — comma-separated IP addresses of the TLS-terminating
+     proxies in front of the Dashboard. Only requests from these addresses
+     have `X-Forwarded-Proto` honored, which lets `Strict-Transport-Security`
+     be sent. The value may be empty, in which case HSTS is never sent.
 
    The operator resolves `secretRef:<secret>/<key>` values declared in
    `spec.env` only when `<secret>` is the app-scoped
@@ -128,7 +139,11 @@ placeholder; replace the placeholder values (`<region>`, `<project-id>`,
 
    kubectl -n reinhardt-cloud-system create secret generic \
      reinhardt-cloud-dashboard-secrets \
-     --from-literal=email-host='<smtp-provider-host>'
+     --from-literal=email-host='<smtp-provider-host>' \
+     --from-literal=github-client-id='<github-app-client-id>' \
+     --from-literal=github-client-secret='<github-app-client-secret>' \
+     --from-literal=public-url='https://<dashboard-host>' \
+     --from-literal=trusted-proxies='<proxy-ip>[,<proxy-ip>]'
    ```
 
 3. Render the manifest locally and apply it to bootstrap the first version:

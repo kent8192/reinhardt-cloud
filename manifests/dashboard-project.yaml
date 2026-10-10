@@ -12,7 +12,11 @@
 #     is registered (v1alpha2).
 #   - The `reinhardt-cloud-system` namespace exists.
 #   - A Secret named `reinhardt-cloud-dashboard-secrets` with keys
-#     `email-host` exists in `reinhardt-cloud-system`.
+#     `email-host`, `github-client-id`, `github-client-secret`, `public-url`,
+#     and `trusted-proxies` exists in `reinhardt-cloud-system`. The Dashboard
+#     runs the `production` profile, which refuses to start without a GitHub
+#     App (sign-in is the only way in) and an https public origin. The
+#     `trusted-proxies` value may be empty, in which case HSTS is not sent.
 #
 # See docs/self-hosting.md for the full bootstrap, upgrade, and rollback flow.
 ---
@@ -65,4 +69,13 @@ spec:
   # in this namespace (see prerequisites).
   env:
     REINHARDT_EMAIL__HOST: secretRef:reinhardt-cloud-dashboard-secrets/email-host
+    # GitHub App behind sign-in, and the https origin the Dashboard is served
+    # from (the GitHub callback URL derives from it).
+    REINHARDT_CLOUD_GITHUB_CLIENT_ID: secretRef:reinhardt-cloud-dashboard-secrets/github-client-id
+    REINHARDT_CLOUD_GITHUB_CLIENT_SECRET: secretRef:reinhardt-cloud-dashboard-secrets/github-client-secret
+    REINHARDT_CLOUD_PUBLIC_URL: secretRef:reinhardt-cloud-dashboard-secrets/public-url
+    # Comma-separated IP addresses of the TLS-terminating proxies in front of
+    # the Dashboard; only these may assert X-Forwarded-Proto, which is what
+    # lets Strict-Transport-Security be sent.
+    REINHARDT_CLOUD_TRUSTED_PROXIES: secretRef:reinhardt-cloud-dashboard-secrets/trusted-proxies
     GRPC_ENDPOINT: http://reinhardt-cloud-operator.reinhardt-cloud-system.svc.cluster.local:50051
