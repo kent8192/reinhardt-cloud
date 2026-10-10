@@ -943,9 +943,11 @@ Deployment `[env]` values override image settings at runtime, so Pages generatio
 rejects `[env]` entries that would make the running app read a different
 publication: `REINHARDT_ENV` other than `production`, static root keys
 (`REINHARDT_STATIC_FILES__ROOT`, `REINHARDT_STATIC__ROOT`, `REINHARDT_STATIC_ROOT`)
-or static URL keys (`..._URL`) that differ from the recorded `[pages]` values, and
+or static URL keys (`..._URL`) that differ from the recorded `[pages]` values,
 any base directory override (`REINHARDT_CORE__BASE_DIR`, `REINHARDT_BASE_DIR`) other
-than the working directory (`.`), which generated Pages settings already require.
+than the working directory (`.`), which generated Pages settings already require, and
+any settings directory override (`REINHARDT_CLOUD_CONFIG_DIR`), whose files could
+define another static root or URL that deployment cannot inspect.
 The operator applies the same check to every `prebuilt` Pages project.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching

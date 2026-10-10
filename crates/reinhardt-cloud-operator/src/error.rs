@@ -67,7 +67,7 @@ pub(crate) enum Error {
 	/// Application environment overrides would make the app read a different
 	/// static publication than the prebuilt Pages image ships.
 	#[error(
-		"Pages prebuilt publication conflicts with env overrides {0:?}: remove them or set them to the recorded pages.static_root/static_url (REINHARDT_ENV must be production; base_dir overrides are not supported)"
+		"Pages prebuilt publication conflicts with env overrides {0:?}: remove them or set them to the recorded pages.static_root/static_url (REINHARDT_ENV must be production; base_dir must be '.'; settings directory overrides such as REINHARDT_CLOUD_CONFIG_DIR are not supported)"
 	)]
 	ConflictingPagesEnv(Vec<String>),
 

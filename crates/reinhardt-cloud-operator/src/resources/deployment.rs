@@ -1231,6 +1231,8 @@ mod tests {
 	#[case("REINHARDT_ENV", "staging", true, false)]
 	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true, false)]
 	#[case("REINHARDT_BASE_DIR", ".", true, true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", true, false)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", false, true)]
 	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/static", true, true)]
 	#[case("REINHARDT_ENV", "production", true, true)]
 	#[case("REINHARDT_ENV", "staging", false, true)]

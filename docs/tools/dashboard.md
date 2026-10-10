@@ -249,8 +249,10 @@ itself, paths outside `/app` (including system and credential paths such as
 rejects (permanently, until the spec is fixed) application `env` entries that
 select another settings profile (`REINHARDT_ENV` other than `production`), a
 different static root or URL than `pages.static_root`/`static_url`, or a base
-directory override other than the working directory (`.`). Existing isolation
-security contexts and volume ownership apply.
+directory override other than the working directory (`.`), or any settings
+directory override such as `REINHARDT_CLOUD_CONFIG_DIR` (the image's own
+`ENV REINHARDT_CLOUD_CONFIG_DIR=/app/settings` is unaffected because it is not
+part of `spec.env`). Existing isolation security contexts and volume ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses

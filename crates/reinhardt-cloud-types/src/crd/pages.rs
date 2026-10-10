@@ -105,6 +105,10 @@ const PUBLICATION_URL_ENV: &[&str] = &[
 	"REINHARDT_STATIC_URL",
 ];
 const PUBLICATION_BASE_DIR_ENV: &[&str] = &["REINHARDT_CORE__BASE_DIR", "REINHARDT_BASE_DIR"];
+/// Variables that select a different settings directory, such as the
+/// Dashboard's `REINHARDT_CLOUD_CONFIG_DIR`. The selected files can define any
+/// static root or URL, which deployment cannot inspect, so they always conflict.
+const PUBLICATION_SETTINGS_DIR_ENV: &[&str] = &["REINHARDT_CLOUD_CONFIG_DIR"];
 
 /// Returns the environment keys that would make the running application read
 /// a different publication than a prebuilt Pages image ships.
@@ -112,11 +116,13 @@ const PUBLICATION_BASE_DIR_ENV: &[&str] = &["REINHARDT_CORE__BASE_DIR", "REINHAR
 /// A prebuilt publication is recorded from the production settings profile at
 /// `static_root` and `static_url`. Application environment variables take
 /// precedence over image settings, so a different profile, static root, static
-/// URL, or base directory would make the app resolve assets the static-server
-/// sidecar does not serve. Values equal to the recorded contract are allowed.
-/// Prebuilt publications are generated with the working-directory base
-/// (`base_dir = "."`), so only base directory overrides that resolve to the
-/// working directory itself keep relative roots in place.
+/// URL, base directory, or settings directory would make the app resolve assets
+/// the static-server sidecar does not serve. Values equal to the recorded
+/// contract are allowed. Prebuilt publications are generated with the
+/// working-directory base (`base_dir = "."`), so only base directory overrides
+/// that resolve to the working directory itself keep relative roots in place.
+/// Settings directory overrides are always reported because the files they
+/// select are not visible at deployment time.
 pub fn conflicting_publication_env(
 	static_root: &str,
 	static_url: &str,
@@ -130,6 +136,7 @@ pub fn conflicting_publication_env(
 				|| (PUBLICATION_ROOT_ENV.contains(&key) && value.as_str() != static_root)
 				|| (PUBLICATION_URL_ENV.contains(&key) && value.as_str() != static_url)
 				|| (PUBLICATION_BASE_DIR_ENV.contains(&key) && !is_working_directory(value))
+				|| PUBLICATION_SETTINGS_DIR_ENV.contains(&key)
 		})
 		.map(|(key, _)| key.clone())
 		.collect()
@@ -331,6 +338,8 @@ gzip: true
 	#[case("REINHARDT_BASE_DIR", "..", true)]
 	#[case("REINHARDT_BASE_DIR", "./app", true)]
 	#[case("REINHARDT_BASE_DIR", "/", true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/settings", true)]
 	fn detects_env_overrides_of_the_publication_contract(
 		#[case] key: &str,
 		#[case] value: &str,
