@@ -126,6 +126,22 @@ fn api_error_to_status(e: ApiError) -> Status {
 	}
 }
 
+/// Return the cluster the caller authenticated as.
+///
+/// `AgentJwtInterceptor` injects `AgentClaims` after verifying the agent
+/// token. Every `AgentService` RPC derives its trust from those claims, so a
+/// request without usable claims is refused here instead of being served on
+/// an unauthenticated path (the interceptor was not installed, or it was
+/// bypassed).
+fn authenticated_cluster_id<T>(request: &Request<T>) -> Result<Uuid, Status> {
+	let claims = request
+		.extensions()
+		.get::<AgentClaims>()
+		.ok_or_else(|| Status::permission_denied("Agent identity required"))?;
+	Uuid::parse_str(&claims.cluster_id)
+		.map_err(|_| Status::permission_denied("Agent token carries an invalid cluster_id"))
+}
+
 // --- gRPC Server ---
 
 /// gRPC server implementation wrapping a `ClusterAgentService` trait object.
@@ -148,16 +164,10 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		&self,
 		request: Request<Streaming<pb::AgentEvent>>,
 	) -> Result<Response<Self::AgentStreamStream>, Status> {
-		// Extract the authenticated cluster_id from AgentJwtInterceptor
-		// before consuming the request body. The interceptor is wired in
-		// `dashboard::config::grpc::start_grpc_server`; absent claims here
-		// indicate the interceptor was not installed (test or misconfig)
-		// and the implementation should fall back to its unauthenticated
-		// path.
-		let cluster_id = request
-			.extensions()
-			.get::<AgentClaims>()
-			.and_then(|claims| Uuid::parse_str(&claims.cluster_id).ok());
+		// The authenticated cluster comes from `AgentJwtInterceptor` (wired
+		// in `dashboard::config::grpc::start_grpc_server`). The stream is
+		// refused without it, before the request body is consumed.
+		let cluster_id = authenticated_cluster_id(&request)?;
 
 		let incoming = request.into_inner();
 
@@ -185,6 +195,7 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		&self,
 		request: Request<pb::AgentHealthReport>,
 	) -> Result<Response<StatusResponse>, Status> {
+		let cluster_id = authenticated_cluster_id(&request)?;
 		let report = request.into_inner();
 		let agent_id = report
 			.agent_id
@@ -200,8 +211,9 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 			reported_at: proto_timestamp_to_chrono(report.reported_at),
 		};
 
+		// `agent_id` is peer-supplied; the service binds it to `cluster_id`.
 		self.service
-			.report_health(health)
+			.report_health_for_cluster(cluster_id, health)
 			.await
 			.map_err(api_error_to_status)?;
 
@@ -215,6 +227,9 @@ impl pb::agent_service_server::AgentService for AgentServiceGrpc {
 		&self,
 		request: Request<pb::AgentDeployStatus>,
 	) -> Result<Response<StatusResponse>, Status> {
+		// The report names a project, not an agent; the claims requirement
+		// keeps unauthenticated callers off this path.
+		authenticated_cluster_id(&request)?;
 		let status = request.into_inner();
 		let reported_at = proto_timestamp_to_chrono(status.timestamp);
 
@@ -275,13 +290,22 @@ impl RegistryBackedAgentService {
 impl ClusterAgentService for RegistryBackedAgentService {
 	async fn agent_stream(
 		&self,
-		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
+		_agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
 	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
-		// Consume the first event from the agent to identify the cluster/agent
-		// binding. Subsequent events (heartbeats, deploy status) are processed
-		// in the background.
-		let mut events = agent_events;
+		// An agent identity is peer-supplied, so a stream is only served
+		// once it is bound to the authenticated cluster. Registering
+		// without that binding would let any caller claim any `agent_id`.
+		Err(ApiError::Unauthorized(
+			"Agent identity required: use agent_stream_authenticated".to_string(),
+		))
+	}
 
+	async fn agent_stream_authenticated(
+		&self,
+		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
+		cluster_id: Uuid,
+	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
+		let mut events = agent_events;
 		let (out_tx, out_rx) = mpsc::channel::<Result<AgentCommand, ApiError>>(64);
 
 		// The Connected event is expected first; without it we cannot
@@ -308,11 +332,14 @@ impl ClusterAgentService for RegistryBackedAgentService {
 			last_seen: timestamp,
 		};
 
-		// `agent_stream_authenticated` (below) re-routes through this
-		// method with the cluster binding already applied; the plain
-		// `agent_stream` path is reached only when no JWT claims were
-		// injected by the interceptor (tests, misconfig).
-		let mut command_rx = self.registry.register(info);
+		// Bind the agent to its authenticated cluster_id so
+		// `AgentRegistry::send_command_to_cluster` reaches it. The
+		// announced `agent_id` is peer-supplied: registration is refused
+		// when it already belongs to another cluster.
+		let mut command_rx = self
+			.registry
+			.register_with_cluster(info, cluster_id)
+			.map_err(|e| ApiError::Forbidden(e.to_string()))?;
 		let registry = self.registry.clone();
 		let agent_id_copy = agent_id;
 
@@ -332,8 +359,17 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		tokio::spawn(async move {
 			while let Some(result) = events.next().await {
 				match result {
-					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
+					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) if id == agent_id_events => {
 						registry_events.heartbeat(&id);
+					}
+					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
+						// A heartbeat may only keep the announcing agent
+						// alive; another agent's identity is ignored.
+						tracing::warn!(
+							announced = %agent_id_events,
+							claimed = %id,
+							"Ignoring heartbeat for an agent other than the connected one"
+						);
 					}
 					Ok(AgentEvent::Error { .. }) | Ok(AgentEvent::DeployStatus { .. }) => {
 						// Logged by the gRPC layer; no extra registry state.
@@ -348,86 +384,29 @@ impl ClusterAgentService for RegistryBackedAgentService {
 		Ok(Box::pin(ReceiverStream::new(out_rx)))
 	}
 
-	async fn agent_stream_authenticated(
+	async fn report_health(&self, _health: AgentHealth) -> Result<(), ApiError> {
+		// The health payload names its agent, and that name is
+		// peer-supplied, so health is only accepted together with the
+		// authenticated cluster.
+		Err(ApiError::Unauthorized(
+			"Agent identity required: use report_health_for_cluster".to_string(),
+		))
+	}
+
+	async fn report_health_for_cluster(
 		&self,
-		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
-		cluster_id: Option<Uuid>,
-	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
-		// Without an authenticated cluster_id we cannot route
-		// `send_command_to_cluster` to this agent — refuse the connection
-		// rather than silently registering an unroutable agent.
-		let Some(cluster_id) = cluster_id else {
-			return Err(ApiError::Unauthorized(
-				"Agent identity required: missing or invalid JWT claims".to_string(),
-			));
-		};
-
-		let mut events = agent_events;
-		let (out_tx, out_rx) = mpsc::channel::<Result<AgentCommand, ApiError>>(64);
-
-		let first = events.next().await;
-		let Some(Ok(AgentEvent::Connected {
-			agent_id,
-			cluster_name,
-			timestamp,
-		})) = first
-		else {
-			return Err(ApiError::BadRequest(
-				"Agent must send Connected event first".to_string(),
-			));
-		};
-
-		let info = AgentInfo {
-			agent_id,
-			cluster_name,
-			node_name: String::new(),
-			version: String::new(),
-			last_seen: timestamp,
-		};
-
-		// Bind the agent to its authenticated cluster_id so
-		// `AgentRegistry::send_command_to_cluster` reaches it.
-		let mut command_rx = self
-			.registry
-			.register_with_cluster(info, cluster_id)
-			.map_err(|e| ApiError::Forbidden(e.to_string()))?;
-		let registry = self.registry.clone();
-		let agent_id_copy = agent_id;
-
-		tokio::spawn(async move {
-			while let Some(cmd) = command_rx.recv().await {
-				if out_tx.send(Ok(cmd)).await.is_err() {
-					break;
-				}
-			}
-			registry.unregister(&agent_id_copy);
-		});
-
-		let registry_events = self.registry.clone();
-		let agent_id_events = agent_id;
-		tokio::spawn(async move {
-			while let Some(result) = events.next().await {
-				match result {
-					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
-						registry_events.heartbeat(&id);
-					}
-					Ok(AgentEvent::Error { .. }) | Ok(AgentEvent::DeployStatus { .. }) => {
-						// Logged by the gRPC layer; no extra registry state.
-					}
-					Ok(_) => {}
-					Err(_) => break,
-				}
-			}
-			registry_events.unregister(&agent_id_events);
-		});
-
-		Ok(Box::pin(ReceiverStream::new(out_rx)))
-	}
-
-	async fn report_health(&self, health: AgentHealth) -> Result<(), ApiError> {
-		let agent_id = health.agent_id;
-		self.registry.update_health(&agent_id, health);
-		Ok(())
+		cluster_id: Uuid,
+		health: AgentHealth,
+	) -> Result<(), ApiError> {
+		// Both failure modes map to the same message so a caller cannot
+		// probe which agent ids are registered under other clusters.
+		self.registry
+			.update_health_for_cluster(&cluster_id, health)
+			.map_err(|_| {
+				ApiError::Forbidden(
+					"Agent is not registered under the authenticated cluster".to_string(),
+				)
+			})
 	}
 
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError> {
@@ -824,6 +803,235 @@ mod tests {
 
 	// --- RegistryBackedAgentService tests ---
 
+	fn agent_info(agent_id: Uuid) -> AgentInfo {
+		AgentInfo {
+			agent_id,
+			cluster_name: "c".to_string(),
+			node_name: "n".to_string(),
+			version: "0.1".to_string(),
+			last_seen: Utc::now(),
+		}
+	}
+
+	fn health_report(agent_id: Uuid, pod_count: u32) -> AgentHealth {
+		AgentHealth {
+			agent_id,
+			healthy: true,
+			cpu_usage_percent: 50.0,
+			memory_usage_percent: 60.0,
+			pod_count,
+			reported_at: Utc::now(),
+		}
+	}
+
+	fn proto_health(agent_id: Uuid) -> pb::AgentHealthReport {
+		pb::AgentHealthReport {
+			agent_id: agent_id.to_string(),
+			healthy: true,
+			cpu_usage_percent: 1.0,
+			memory_usage_percent: 1.0,
+			pod_count: 99,
+			reported_at: None,
+		}
+	}
+
+	fn proto_deploy_status() -> pb::AgentDeployStatus {
+		pb::AgentDeployStatus {
+			project_name: "web".to_string(),
+			success: true,
+			message: "ok".to_string(),
+			timestamp: None,
+		}
+	}
+
+	fn grpc_over_registry() -> (AgentServiceGrpc, Arc<AgentRegistry>) {
+		let registry = Arc::new(AgentRegistry::new());
+		let grpc =
+			AgentServiceGrpc::new(Arc::new(RegistryBackedAgentService::new(registry.clone())));
+		(grpc, registry)
+	}
+
+	fn with_claims<T>(message: T, cluster_id: &str) -> Request<T> {
+		let mut request = Request::new(message);
+		let mut claims = AgentClaims::new(Uuid::now_v7(), 1);
+		claims.cluster_id = cluster_id.to_string();
+		request.extensions_mut().insert(claims);
+		request
+	}
+
+	// --- Identity binding ---
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_report_health_without_claims_is_permission_denied() {
+		// Arrange
+		use pb::agent_service_server::AgentService;
+		let (grpc, registry) = grpc_over_registry();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act
+		let status = grpc
+			.report_health(Request::new(proto_health(agent_id)))
+			.await
+			.unwrap_err();
+
+		// Assert
+		assert_eq!(status.code(), tonic::Code::PermissionDenied);
+		assert!(registry.get_health(&agent_id).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_report_deploy_status_without_claims_is_permission_denied() {
+		// Arrange
+		use pb::agent_service_server::AgentService;
+		let (grpc, _registry) = grpc_over_registry();
+
+		// Act
+		let status = grpc
+			.report_deploy_status(Request::new(proto_deploy_status()))
+			.await
+			.unwrap_err();
+
+		// Assert
+		assert_eq!(status.code(), tonic::Code::PermissionDenied);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_report_health_with_malformed_cluster_claim_is_permission_denied() {
+		// Arrange
+		use pb::agent_service_server::AgentService;
+		let (grpc, registry) = grpc_over_registry();
+		let agent_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(agent_id), Uuid::now_v7())
+			.unwrap();
+
+		// Act
+		let status = grpc
+			.report_health(with_claims(proto_health(agent_id), "not-a-uuid"))
+			.await
+			.unwrap_err();
+
+		// Assert
+		assert_eq!(status.code(), tonic::Code::PermissionDenied);
+		assert!(registry.get_health(&agent_id).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_report_health_for_other_clusters_agent_is_permission_denied() {
+		// Arrange
+		use pb::agent_service_server::AgentService;
+		let (grpc, registry) = grpc_over_registry();
+		let victim_agent = Uuid::now_v7();
+		let victim_cluster = Uuid::now_v7();
+		let attacker_cluster = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(victim_agent), victim_cluster)
+			.unwrap();
+
+		// Act
+		let status = grpc
+			.report_health(with_claims(
+				proto_health(victim_agent),
+				&attacker_cluster.to_string(),
+			))
+			.await
+			.unwrap_err();
+
+		// Assert
+		assert_eq!(status.code(), tonic::Code::PermissionDenied);
+		assert!(registry.get_health(&victim_agent).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_report_health_for_own_cluster_agent_is_recorded() {
+		// Arrange
+		use pb::agent_service_server::AgentService;
+		let (grpc, registry) = grpc_over_registry();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act
+		let response = grpc
+			.report_health(with_claims(proto_health(agent_id), &cluster_id.to_string()))
+			.await
+			.unwrap();
+
+		// Assert
+		assert!(response.into_inner().success);
+		assert_eq!(registry.get_health(&agent_id).unwrap().pod_count, 99);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_registry_backed_unbound_entry_points_fail_closed() {
+		// Arrange
+		let registry = Arc::new(AgentRegistry::new());
+		let service = RegistryBackedAgentService::new(registry.clone());
+		let agent_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(agent_id), Uuid::now_v7())
+			.unwrap();
+
+		// Act
+		let health = service.report_health(health_report(agent_id, 5)).await;
+		let stream = service.agent_stream(Box::pin(tokio_stream::empty())).await;
+
+		// Assert
+		assert!(matches!(health, Err(ApiError::Unauthorized(_))));
+		assert!(matches!(stream, Err(ApiError::Unauthorized(_))));
+		assert!(registry.get_health(&agent_id).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_agent_stream_connected_with_other_clusters_agent_id_is_forbidden() {
+		// Arrange
+		let registry = Arc::new(AgentRegistry::new());
+		let service = RegistryBackedAgentService::new(registry.clone());
+		let victim_agent = Uuid::now_v7();
+		let victim_cluster = Uuid::now_v7();
+		let attacker_cluster = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(victim_agent), victim_cluster)
+			.unwrap();
+		let connected = AgentEvent::Connected {
+			agent_id: victim_agent,
+			cluster_name: "attacker".to_string(),
+			timestamp: fixed_timestamp(),
+		};
+
+		// Act
+		let result = service
+			.agent_stream_authenticated(
+				Box::pin(tokio_stream::iter(vec![Ok(connected)])),
+				attacker_cluster,
+			)
+			.await;
+
+		// Assert
+		assert!(matches!(result, Err(ApiError::Forbidden(_))));
+		assert_eq!(
+			registry.agents_for_cluster(&victim_cluster),
+			vec![victim_agent]
+		);
+		assert_eq!(
+			registry.agents_for_cluster(&attacker_cluster),
+			Vec::<Uuid>::new()
+		);
+	}
+
 	#[rstest]
 	#[tokio::test]
 	async fn test_registry_backed_report_health_writes_to_registry() {
@@ -831,26 +1039,16 @@ mod tests {
 		let registry = Arc::new(AgentRegistry::new());
 		let service = RegistryBackedAgentService::new(registry.clone());
 		let agent_id = Uuid::now_v7();
-		let info = AgentInfo {
-			agent_id,
-			cluster_name: "c".to_string(),
-			node_name: "n".to_string(),
-			version: "0.1".to_string(),
-			last_seen: Utc::now(),
-		};
-		let _rx = registry.register(info);
-
-		let health = AgentHealth {
-			agent_id,
-			healthy: true,
-			cpu_usage_percent: 50.0,
-			memory_usage_percent: 60.0,
-			pod_count: 3,
-			reported_at: Utc::now(),
-		};
+		let cluster_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(agent_info(agent_id), cluster_id)
+			.unwrap();
 
 		// Act
-		service.report_health(health).await.unwrap();
+		service
+			.report_health_for_cluster(cluster_id, health_report(agent_id, 3))
+			.await
+			.unwrap();
 
 		// Assert
 		let fetched = service.get_agent_health(agent_id).await.unwrap();
