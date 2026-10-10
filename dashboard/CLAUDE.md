@@ -29,11 +29,13 @@ name is the one `reinhardt-admin startproject` generated; do not rename either.
 - `src/client/` browser-only WASM launcher.
 - `src/apps/` one module per application (below).
 - `src/config/` settings, installed apps, project route aggregation, the admin
-  site, and the request-surface middleware (`config/middleware/`, `config/web.rs`).
+  site, the `manage` command registry (`config/commands.rs`), and the
+  request-surface middleware (`config/middleware/`, `config/web.rs`).
   `routes()` must stay synchronous: an `async` `#[routes]` function registers no
   client routes.
 - `src/components/` components shared by every application; `src/i18n/` the
-  message catalogs.
+  message catalogs; `src/logging.rs` the process-wide `tracing` output (audit
+  events are discarded without it).
 - `static/` design tokens, base styles, utilities, and images served through
   `collectstatic`.
 - `settings/` TOML profiles; `migrations/` database migrations; `index.html` SPA shell.
@@ -136,6 +138,23 @@ The one exception is `ProjectProvider` in `src/bin/manage.rs`: the
 `CapabilityProvider` adapter that hands the library's settings to the command
 framework. It is not injectable, registers nothing, and holds no state, so it
 is the only non-DI type allowed in a binary.
+
+### Management commands
+
+- A project command lives in its application's `server/commands/` and is
+  registered from `config/commands.rs`; `src/bin/manage.rs` only calls that
+  registry. Implement it as a `CapabilityCommand` (clap parses and documents the
+  arguments) and have it load the validated settings with `CommandRuntime::start`
+  (`apps/accounts/server/commands/runtime.rs`): the command driver creates the
+  ORM pool only for built-in commands, and the settings must pass the same
+  validation as the server.
+- The work belongs in a service under `services/server/`, which emits the audit
+  event; the command only parses, prints, and maps errors.
+- Standard output carries only what a script is meant to capture (the Login Link
+  URL); everything else, audit records included, goes to standard error.
+- Staff grants, Login Link issuance, and moving a User to another GitHub account
+  are `manage` commands and nothing else (SR-18, SR-20, SR-107): never add a
+  route, server function, or admin action that does any of them.
 
 ### Pages and UI
 
