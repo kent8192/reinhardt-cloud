@@ -1015,9 +1015,10 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 	// enabled and the parent-qualified preview namespace is labeled as owned
 	// by this Project, deleting it cascade-removes every preview child Project
 	// and its sub-resources. Otherwise the namespace is retained, so delete the
-	// parent-labeled preview Projects explicitly and keep the parent finalizer
-	// until their own finalizers have finished; they carry no owner reference
-	// to the parent and would otherwise keep running indefinitely.
+	// parent's preview Projects explicitly and keep the parent finalizer until
+	// their own finalizers have finished; they carry no owner reference to the
+	// parent and would otherwise keep running indefinitely. The operator-created
+	// namespace guardrails are removed afterwards for the same reason.
 	if app
 		.spec
 		.source
@@ -1050,6 +1051,7 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 					remaining,
 				});
 			}
+			delete_retained_preview_guardrails(&ctx.client, namespace, &name, &preview_ns).await?;
 		}
 	}
 
@@ -2793,12 +2795,15 @@ async fn delete_owned_preview_namespace(
 }
 
 /// Label selector matching the operator-created preview `Project`s for one parent.
-fn preview_projects_label_selector(parent_namespace: &str, parent_name: &str) -> String {
+///
+/// The parent-namespace label is intentionally not part of the selector so
+/// legacy previews created before that label existed are still listed;
+/// [`is_verified_preview_of`] validates every candidate.
+fn preview_projects_label_selector(parent_name: &str) -> String {
 	format!(
-		"{}=true,{}={parent_name},{}={parent_namespace},{},app.kubernetes.io/managed-by={}",
+		"{}=true,{}={parent_name},{},app.kubernetes.io/managed-by={}",
 		preview::PREVIEW_LABEL_KEY,
 		preview::PARENT_APP_LABEL_KEY,
-		preview::PARENT_NAMESPACE_LABEL_KEY,
 		preview::PR_NUMBER_LABEL_KEY,
 		preview::MANAGED_BY_LABEL_VALUE,
 	)
@@ -2807,17 +2812,25 @@ fn preview_projects_label_selector(parent_namespace: &str, parent_name: &str) ->
 /// Returns `true` when `preview_app` is an operator-created preview of the
 /// given parent: its canonical labels, PR number, name, and namespace must all
 /// match what the operator derives for that parent.
+///
+/// Legacy previews without a parent-namespace label are accepted through the
+/// legacy path of [`resources::verified_preview_parent_name`], provided they
+/// live in this parent's preview namespace.
 fn is_verified_preview_of(
 	preview_app: &Project,
 	parent_namespace: &str,
 	parent_name: &str,
 ) -> bool {
-	preview_app
+	let parent_namespace_label_matches = preview_app
 		.metadata
 		.labels
 		.as_ref()
 		.and_then(|labels| labels.get(preview::PARENT_NAMESPACE_LABEL_KEY))
-		.is_some_and(|namespace| namespace == parent_namespace)
+		.is_none_or(|namespace| namespace == parent_namespace);
+	let expected_namespace =
+		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
+	parent_namespace_label_matches
+		&& preview_app.metadata.namespace.as_deref() == Some(expected_namespace.as_str())
 		&& resources::verified_preview_parent_name(preview_app, &preview_app.name_any())
 			.is_some_and(|name| name == parent_name)
 }
@@ -2839,12 +2852,7 @@ async fn delete_retained_preview_projects(
 ) -> Result<usize, Error> {
 	let api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
 	let previews = api
-		.list(
-			&ListParams::default().labels(&preview_projects_label_selector(
-				parent_namespace,
-				parent_name,
-			)),
-		)
+		.list(&ListParams::default().labels(&preview_projects_label_selector(parent_name)))
 		.await
 		.map_err(Error::Kube)?;
 	let mut remaining = 0;
@@ -2871,6 +2879,98 @@ async fn delete_retained_preview_projects(
 		}
 	}
 	Ok(remaining)
+}
+
+/// Deletes the operator-created guardrails (`ResourceQuota`, `LimitRange`,
+/// both `NetworkPolicy` objects, and the cert-manager `Issuer`) from a retained
+/// preview namespace.
+///
+/// These objects carry no owner reference, so they would otherwise outlive the
+/// parent; the default-deny policy in particular would keep affecting later
+/// workloads. Each object is deleted only when its labels prove it was created
+/// by the operator for this parent. Absent objects, including an absent
+/// cert-manager `Issuer` CRD, are treated as already removed.
+async fn delete_retained_preview_guardrails(
+	client: &Client,
+	parent_namespace: &str,
+	parent_name: &str,
+	preview_namespace: &str,
+) -> Result<(), Error> {
+	use resources::preview_namespace as pns;
+
+	let owner = (parent_namespace, parent_name);
+	delete_preview_guardrail_if_owned::<k8s_openapi::api::core::v1::ResourceQuota>(
+		client,
+		preview_namespace,
+		pns::QUOTA_NAME,
+		owner,
+	)
+	.await?;
+	delete_preview_guardrail_if_owned::<LimitRange>(
+		client,
+		preview_namespace,
+		pns::LIMIT_RANGE_NAME,
+		owner,
+	)
+	.await?;
+	for policy_name in [pns::DEFAULT_DENY_NAME, pns::ALLOW_INGRESS_NAME] {
+		delete_preview_guardrail_if_owned::<NetworkPolicy>(
+			client,
+			preview_namespace,
+			policy_name,
+			owner,
+		)
+		.await?;
+	}
+	delete_preview_guardrail_if_owned::<crate::resources::issuer::Issuer>(
+		client,
+		preview_namespace,
+		pns::ISSUER_NAME,
+		owner,
+	)
+	.await
+}
+
+/// Deletes one preview guardrail when its labels match the given
+/// `(parent_namespace, parent_name)` owner; a 404 on lookup or deletion is
+/// treated as already removed.
+async fn delete_preview_guardrail_if_owned<K>(
+	client: &Client,
+	preview_namespace: &str,
+	name: &str,
+	(parent_namespace, parent_name): (&str, &str),
+) -> Result<(), Error>
+where
+	K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
+		+ Clone
+		+ serde::de::DeserializeOwned
+		+ fmt::Debug,
+{
+	let api: Api<K> = Api::namespaced(client.clone(), preview_namespace);
+	let Some(existing) = api.get_opt(name).await.map_err(Error::Kube)? else {
+		return Ok(());
+	};
+	let kind = K::kind(&());
+	if !resources::preview_namespace::labels_match_preview_guardrail(
+		existing.meta().labels.as_ref(),
+		parent_namespace,
+		parent_name,
+	) {
+		warn!(
+			"Retaining {kind} {preview_namespace}/{name} during cleanup of {parent_namespace}/{parent_name}: it is not labeled as an operator-created preview guardrail of this Project"
+		);
+		return Ok(());
+	}
+	match api.delete(name, &DeleteParams::default()).await {
+		Ok(_) => {
+			info!(
+				"Deleted {kind} {preview_namespace}/{name} during cleanup of {parent_namespace}/{parent_name}"
+			);
+			Ok(())
+		}
+		Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
+		Err(err) => Err(Error::Kube(err)),
+	}
 }
 
 async fn delete_migration_jobs(
@@ -4261,12 +4361,12 @@ mod tests {
 	#[rstest]
 	fn preview_projects_label_selector_matches_parent() {
 		// Act
-		let selector = preview_projects_label_selector("default", "api");
+		let selector = preview_projects_label_selector("api");
 
 		// Assert
 		assert_eq!(
 			selector,
-			"reinhardt.dev/preview=true,reinhardt.dev/parent-app=api,reinhardt.dev/parent-namespace=default,reinhardt.dev/pr-number,app.kubernetes.io/managed-by=reinhardt-cloud"
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app=api,reinhardt.dev/pr-number,app.kubernetes.io/managed-by=reinhardt-cloud"
 		);
 	}
 
@@ -4290,11 +4390,19 @@ mod tests {
 		// Same selector labels, but its name does not match the PR-number label.
 		let mut forged = operator_preview("3");
 		forged.metadata.name = Some("manual-copy".to_string());
+		// Created before the parent-namespace label existed.
+		let mut legacy = operator_preview("4");
+		legacy
+			.metadata
+			.labels
+			.as_mut()
+			.expect("preview labels")
+			.remove(preview::PARENT_NAMESPACE_LABEL_KEY);
 		let list = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ProjectList",
 			"metadata": {},
-			"items": [active.clone(), terminating, forged],
+			"items": [active.clone(), terminating, forged, legacy],
 		});
 		let deleted = serde_json::to_value(&active).expect("project json should serialize");
 		let (client, requests) = recording_client(move |method, _| {
@@ -4313,7 +4421,7 @@ mod tests {
 			.expect("preview projects should be deleted");
 
 		// Assert
-		assert_eq!(remaining, 2);
+		assert_eq!(remaining, 3);
 		assert_eq!(
 			*requests
 				.lock()
@@ -4321,26 +4429,49 @@ mod tests {
 			vec![
 				format!("GET {projects_path} -"),
 				format!("DELETE {projects_path}/api-pr-1 application/json"),
+				format!("DELETE {projects_path}/api-pr-4 application/json"),
 			]
 		);
 	}
 
 	#[rstest]
-	#[case::operator_created("api-pr-7", None, None, true)]
-	#[case::name_mismatch("manual-copy", None, None, false)]
-	#[case::foreign_manager("api-pr-7", Some(("app.kubernetes.io/managed-by", "helm")), None, false)]
-	#[case::non_numeric_pr("api-pr-7", Some(("reinhardt.dev/pr-number", "x7")), None, false)]
+	#[case::operator_created("api-pr-7", None, false, own_preview_namespace(), true)]
+	#[case::legacy_without_parent_namespace("api-pr-7", None, true, own_preview_namespace(), true)]
+	#[case::legacy_in_other_parent_namespace(
+		"api-pr-7",
+		None,
+		true,
+		resources::preview_namespace::preview_namespace_name("other", "api"),
+		false
+	)]
+	#[case::name_mismatch("manual-copy", None, false, own_preview_namespace(), false)]
+	#[case::foreign_manager(
+		"api-pr-7",
+		Some(("app.kubernetes.io/managed-by", "helm")),
+		false,
+		own_preview_namespace(),
+		false
+	)]
+	#[case::non_numeric_pr(
+		"api-pr-7",
+		Some(("reinhardt.dev/pr-number", "x7")),
+		false,
+		own_preview_namespace(),
+		false
+	)]
 	#[case::other_parent_namespace(
 		"api-pr-7",
 		Some(("reinhardt.dev/parent-namespace", "other")),
-		None,
+		false,
+		own_preview_namespace(),
 		false
 	)]
-	#[case::wrong_namespace("api-pr-7", None, Some("default"), false)]
+	#[case::wrong_namespace("api-pr-7", None, false, "default".to_string(), false)]
 	fn retained_preview_ownership_is_verified(
 		#[case] name: &str,
 		#[case] label_override: Option<(&str, &str)>,
-		#[case] namespace_override: Option<&str>,
+		#[case] drop_parent_namespace_label: bool,
+		#[case] namespace: String,
 		#[case] expected: bool,
 	) {
 		// Arrange
@@ -4348,11 +4479,11 @@ mod tests {
 		if let Some((key, value)) = label_override {
 			labels.insert(key.to_string(), value.to_string());
 		}
+		if drop_parent_namespace_label {
+			labels.remove(preview::PARENT_NAMESPACE_LABEL_KEY);
+		}
 		let mut app = make_test_app(name);
-		app.metadata.namespace = Some(namespace_override.map_or_else(
-			|| resources::preview_namespace::preview_namespace_name("default", "api"),
-			str::to_string,
-		));
+		app.metadata.namespace = Some(namespace);
 		app.metadata.labels = Some(labels);
 
 		// Act
@@ -4360,6 +4491,99 @@ mod tests {
 
 		// Assert
 		assert_eq!(verified, expected);
+	}
+
+	fn own_preview_namespace() -> String {
+		resources::preview_namespace::preview_namespace_name("default", "api")
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn retained_preview_guardrails_are_deleted_only_when_operator_owned() {
+		// Arrange
+		use resources::preview_namespace as pns;
+
+		let preview_ns = own_preview_namespace();
+		let mut forged_deny = pns::build_default_deny_policy("default", "api");
+		forged_deny
+			.metadata
+			.labels
+			.as_mut()
+			.expect("guardrail labels")
+			.insert(
+				"app.kubernetes.io/managed-by".to_string(),
+				"platform".to_string(),
+			);
+		let core = format!("/api/v1/namespaces/{preview_ns}");
+		let networking = format!("/apis/networking.k8s.io/v1/namespaces/{preview_ns}");
+		let issuer_path = format!(
+			"/apis/cert-manager.io/v1/namespaces/{preview_ns}/issuers/{}",
+			pns::ISSUER_NAME
+		);
+		let objects: std::collections::HashMap<String, serde_json::Value> = [
+			(
+				format!("{core}/resourcequotas/{}", pns::QUOTA_NAME),
+				serde_json::to_value(pns::build_resource_quota("default", "api", None)),
+			),
+			(
+				format!("{core}/limitranges/{}", pns::LIMIT_RANGE_NAME),
+				serde_json::to_value(pns::build_limit_range("default", "api")),
+			),
+			(
+				format!("{networking}/networkpolicies/{}", pns::DEFAULT_DENY_NAME),
+				serde_json::to_value(forged_deny),
+			),
+			(
+				format!("{networking}/networkpolicies/{}", pns::ALLOW_INGRESS_NAME),
+				serde_json::to_value(pns::build_allow_ingress_and_dns_policy("default", "api")),
+			),
+		]
+		.into_iter()
+		.map(|(path, value)| (path, value.expect("guardrail json should serialize")))
+		.collect();
+		// The Issuer path is absent, as when the cert-manager CRD is not installed.
+		let (client, requests) = recording_client(move |_, path| {
+			objects
+				.get(path)
+				.map_or_else(|| (404, not_found_status()), |object| (200, object.clone()))
+		});
+
+		// Act
+		delete_retained_preview_guardrails(&client, "default", "api", &preview_ns)
+			.await
+			.expect("guardrail cleanup should succeed");
+
+		// Assert
+		assert_eq!(
+			*requests
+				.lock()
+				.expect("requests lock should not be poisoned"),
+			vec![
+				format!("GET {core}/resourcequotas/{} -", pns::QUOTA_NAME),
+				format!(
+					"DELETE {core}/resourcequotas/{} application/json",
+					pns::QUOTA_NAME
+				),
+				format!("GET {core}/limitranges/{} -", pns::LIMIT_RANGE_NAME),
+				format!(
+					"DELETE {core}/limitranges/{} application/json",
+					pns::LIMIT_RANGE_NAME
+				),
+				format!(
+					"GET {networking}/networkpolicies/{} -",
+					pns::DEFAULT_DENY_NAME
+				),
+				format!(
+					"GET {networking}/networkpolicies/{} -",
+					pns::ALLOW_INGRESS_NAME
+				),
+				format!(
+					"DELETE {networking}/networkpolicies/{} application/json",
+					pns::ALLOW_INGRESS_NAME
+				),
+				format!("GET {issuer_path} -"),
+			]
+		);
 	}
 
 	#[rstest]

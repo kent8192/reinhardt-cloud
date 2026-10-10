@@ -336,8 +336,14 @@ merge-patches their labels before applying guardrails. On parent deletion it ret
 namespace, deletes the parent's operator-created preview `Project`s, and keeps the parent finalizer
 until their own finalizers finish. A preview `Project` is deleted only when it carries the canonical
 preview, parent, numeric PR-number, and `app.kubernetes.io/managed-by: reinhardt-cloud` labels and its
-name and namespace match the values derived from them; other `Project`s with copied labels are left
-untouched and are not waited on. Enabling lifecycle management requires both the chart's lifecycle
+name and namespace match the values derived from them; legacy previews created before the
+`reinhardt.dev/parent-namespace` label existed are included when they live in the parent's preview
+namespace. Other `Project`s with copied labels are left untouched and are not waited on. Once no
+preview `Project` remains, the operator deletes the namespace guardrails it created
+(`preview-default-quota`, `preview-default-limits`, `preview-default-deny`,
+`preview-allow-ingress-and-dns`, and the `preview-issuer` cert-manager `Issuer`), but only objects
+whose labels identify them as this parent's operator-created guardrails; missing objects and a
+missing cert-manager CRD are ignored. Enabling lifecycle management requires both the chart's lifecycle
 RBAC verbs and the operator setting. Standalone runs that leave the variable unset (for example
 `cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it explicitly to
 `false` or `0` to opt out.
@@ -354,6 +360,7 @@ RBAC verbs and the operator setting. Standalone runs that leave the variable uns
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
+| `cert-manager.io` | `issuers` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `namespaces` | get, patch |
 
 **Feature-conditional rules**:
@@ -926,8 +933,10 @@ values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
 workflow. With lifecycle management disabled, deleting a preview-enabled `Project` retains its
-preview namespace and waits for the parent's operator-created preview `Project`s to be deleted before removing
-the parent finalizer. The base rules (always present, regardless of platform or features) are:
+preview namespace, waits for the parent's operator-created preview `Project`s to be deleted, and removes
+the operator-created preview guardrails (including the cert-manager `Issuer`, hence the `issuers`
+delete verb) before removing the parent finalizer. The base rules (always present, regardless of
+platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -939,6 +948,7 @@ the parent finalizer. The base rules (always present, regardless of platform or 
 | `""` (core) | `events` | create, patch |
 | `networking.k8s.io` | `networkpolicies` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `limitranges`, `resourcequotas` | get, list, watch, create, update, patch, delete |
+| `cert-manager.io` | `issuers` | get, list, watch, create, update, patch, delete |
 | `""` (core) | `namespaces` | get, patch |
 
 Additional rules rendered when specific features or platforms are active:
