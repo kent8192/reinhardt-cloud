@@ -12,6 +12,8 @@ COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release -p my-app
+WORKDIR /app/dashboard
+RUN REINHARDT_ENV=production /app/target/release/manage collectstatic --no-input --package my-app
 
 FROM rust:1.94.1-bookworm AS wasm
 RUN rustup target add wasm32-unknown-unknown
@@ -36,6 +38,7 @@ COPY --from=builder /app/target/release/manage /app/
 # settings/ detected; provide runtime configuration at deployment time
 COPY --from=wasm /wasm-dist /app/static/wasm/
 COPY --from=builder /app/dashboard/index.html /app/static/wasm/index.html
+COPY --from=builder /app/dashboard/dist /app/dist
 COPY --from=builder /app/dashboard/migrations /app/migrations
 RUN chown -R appuser:appuser /app
 # Run as non-root

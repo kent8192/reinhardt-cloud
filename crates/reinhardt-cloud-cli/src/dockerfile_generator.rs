@@ -172,6 +172,12 @@ pub(crate) fn collect_signals(
 	// `None` to signal "no prefix needed".
 	let project_relative_path = compute_project_relative_path(project_dir);
 
+	let collected_static_root = if signals.pages {
+		Some(resolve_collected_static_root(project_dir)?)
+	} else {
+		None
+	};
+
 	Ok(DockerfileSignals {
 		project_name: metadata.name.clone(),
 		rust_version,
@@ -188,6 +194,7 @@ pub(crate) fn collect_signals(
 		has_settings_dir,
 		has_migrations_dir,
 		project_relative_path,
+		collected_static_root,
 	})
 }
 
@@ -209,6 +216,77 @@ fn compute_project_relative_path(project_dir: &Path) -> Option<String> {
 		.to_string_lossy()
 		.into_owned();
 	if rel.is_empty() { None } else { Some(rel) }
+}
+
+/// Default `STATIC_ROOT` when the settings declare none, relative to the
+/// project directory; mirrors the framework's static asset settings default.
+const DEFAULT_STATIC_ROOT: &str = "staticfiles";
+
+/// Settings profile that generated runtime images run under
+/// (`REINHARDT_ENV=production` in the runtime stage).
+const RUNTIME_SETTINGS_PROFILE: &str = "production";
+
+/// Resolves the static root `manage collectstatic` publishes into under the
+/// runtime profile.
+///
+/// Reads `settings/base.toml` and then `settings/production.toml`, a later file
+/// overriding an earlier one per key, and applies the framework's precedence:
+/// `[static_files].root`, then `[static].root`, then a flat `static_root`, then
+/// [`DEFAULT_STATIC_ROOT`]. Environment overrides applied at deployment time are
+/// not visible here, so the root must be a literal Dockerfile-safe path.
+fn resolve_collected_static_root(project_dir: &Path) -> Result<String, String> {
+	let mut static_files_root = None;
+	let mut static_root_section = None;
+	let mut flat_static_root = None;
+	for profile in ["base", RUNTIME_SETTINGS_PROFILE] {
+		let path = project_dir.join("settings").join(format!("{profile}.toml"));
+		if !path.is_file() {
+			continue;
+		}
+		let content = std::fs::read_to_string(&path)
+			.map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+		let table: toml::Table = content
+			.parse()
+			.map_err(|e| format!("failed to parse {}: {e}", path.display()))?;
+		let section_root = |section: &str| {
+			table
+				.get(section)
+				.and_then(|value| value.get("root"))
+				.and_then(toml::Value::as_str)
+				.map(str::to_owned)
+		};
+		static_files_root = section_root("static_files").or(static_files_root);
+		static_root_section = section_root("static").or(static_root_section);
+		flat_static_root = table
+			.get("static_root")
+			.and_then(toml::Value::as_str)
+			.map(str::to_owned)
+			.or(flat_static_root);
+	}
+	let root = static_files_root
+		.or(static_root_section)
+		.or(flat_static_root)
+		.unwrap_or_else(|| DEFAULT_STATIC_ROOT.to_owned());
+	validate_static_root(&root)?;
+	Ok(root.trim_end_matches('/').to_owned())
+}
+
+/// Rejects static roots that cannot be copied literally in a Dockerfile:
+/// unresolved `${...}` placeholders, parent traversal, and characters outside a
+/// conservative path alphabet.
+fn validate_static_root(root: &str) -> Result<(), String> {
+	let safe_characters = root
+		.chars()
+		.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/'));
+	let has_parent_segment = root.split('/').any(|segment| segment == "..");
+	if root.trim_matches('/').is_empty() || !safe_characters || has_parent_segment {
+		return Err(format!(
+			"invalid static root {root:?} in settings: a Pages image publishes \
+			 collected static files there, so it must be a literal path of ASCII \
+			 letters, digits, '.', '-', '_', and '/' without '..'"
+		));
+	}
+	Ok(())
 }
 
 fn validate_docker_token(value: &str, label: &str) -> Result<(), String> {
@@ -263,6 +341,7 @@ mod tests {
 			has_settings_dir: false,
 			has_migrations_dir: false,
 			project_relative_path: None,
+			collected_static_root: None,
 		}
 	}
 
@@ -425,6 +504,7 @@ mod tests {
 			has_settings_dir: true,
 			has_migrations_dir: true,
 			project_relative_path: Some("dashboard".to_string()),
+			collected_static_root: Some("dist".to_string()),
 			..minimal_signals()
 		};
 		assert_eq!(
@@ -768,5 +848,118 @@ version = "1.40.0"
 			!dockerfile.contains("protobuf-compiler"),
 			"Dockerfile must not install protobuf-compiler for unrelated dependency tree"
 		);
+	}
+
+	/// Writes `settings/base.toml` and, when given, `settings/production.toml`
+	/// into a temporary project directory.
+	fn project_with_settings(base: &str, production: Option<&str>) -> tempfile::TempDir {
+		let dir = tempfile::tempdir().unwrap();
+		let settings = dir.path().join("settings");
+		std::fs::create_dir(&settings).unwrap();
+		std::fs::write(settings.join("base.toml"), base).unwrap();
+		if let Some(production) = production {
+			std::fs::write(settings.join("production.toml"), production).unwrap();
+		}
+		dir
+	}
+
+	#[rstest]
+	#[case::default_without_static_settings("[core]\ndebug = false\n", None, "staticfiles")]
+	#[case::static_section("[static]\nroot = \"dist\"\n", None, "dist")]
+	#[case::production_overrides_base(
+		"[static]\nroot = \"dist\"\n",
+		Some("[static]\nroot = \"public\"\n"),
+		"public"
+	)]
+	#[case::production_keeps_base_root_it_does_not_set(
+		"[static]\nroot = \"dist\"\nurl = \"/static/\"\n",
+		Some("[static]\nurl = \"/assets/\"\n"),
+		"dist"
+	)]
+	#[case::section_beats_flat_key(
+		"static_root = \"flat\"\n[static]\nroot = \"section\"\n",
+		None,
+		"section"
+	)]
+	#[case::static_files_beats_static(
+		"[static]\nroot = \"section\"\n[static_files]\nroot = \"typed\"\n",
+		None,
+		"typed"
+	)]
+	#[case::trailing_slash_is_trimmed("[static]\nroot = \"dist/\"\n", None, "dist")]
+	#[case::absolute_root("[static]\nroot = \"/srv/static\"\n", None, "/srv/static")]
+	fn collected_static_root_follows_the_production_settings(
+		#[case] base: &str,
+		#[case] production: Option<&str>,
+		#[case] expected: &str,
+	) {
+		// Arrange
+		let project = project_with_settings(base, production);
+
+		// Act
+		let root = resolve_collected_static_root(project.path());
+
+		// Assert
+		assert_eq!(root, Ok(expected.to_string()));
+	}
+
+	#[rstest]
+	#[case::placeholder("[static]\nroot = \"${STATIC_ROOT:-dist}\"\n")]
+	#[case::parent_traversal("[static]\nroot = \"../outside\"\n")]
+	#[case::filesystem_root("[static]\nroot = \"/\"\n")]
+	#[case::whitespace("[static]\nroot = \"my dist\"\n")]
+	fn collected_static_root_rejects_paths_a_dockerfile_cannot_copy_literally(#[case] base: &str) {
+		// Arrange
+		let project = project_with_settings(base, None);
+
+		// Act
+		let root = resolve_collected_static_root(project.path());
+
+		// Assert
+		let error = root.expect_err("static root must be rejected");
+		assert!(
+			error.starts_with("invalid static root"),
+			"unexpected error: {error}"
+		);
+	}
+
+	/// A Pages project's generated image publishes the static root its
+	/// production settings name; an API project publishes none.
+	#[rstest]
+	#[case(true, Some("dist"))]
+	#[case(false, None)]
+	fn collect_signals_resolves_the_static_root_only_for_pages(
+		#[case] pages: bool,
+		#[case] expected: Option<&str>,
+	) {
+		// Arrange
+		let project = project_with_settings("[static]\nroot = \"dist\"\n", None);
+		std::fs::write(
+			project.path().join("rust-toolchain.toml"),
+			"[toolchain]\nchannel = \"1.94.1\"\n",
+		)
+		.unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "consumer-app".to_string(),
+			version: "0.1.0".to_string(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages,
+				..Default::default()
+			},
+		};
+		let toml_config = config_with_source_build(Some(BuildSection {
+			build_args: [("WASM_BINDGEN_VERSION".to_string(), "0.2.100".to_string())]
+				.into_iter()
+				.collect(),
+			..Default::default()
+		}));
+
+		// Act
+		let signals = collect_signals(project.path(), &metadata, &toml_config)
+			.expect("collect_signals must succeed");
+
+		// Assert
+		assert_eq!(signals.collected_static_root.as_deref(), expected);
 	}
 }
