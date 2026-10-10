@@ -10,10 +10,12 @@
 //! Not subject to the check:
 //!
 //! - safe methods (`GET`, `HEAD`, `OPTIONS`), which must not change state;
-//! - requests with an `Authorization` header: a browser never attaches that
-//!   header by itself, so it cannot be forged cross-site (CLI Sessions, later);
 //! - requests without the session cookie: there is no ambient credential to
 //!   abuse.
+//!
+//! An `Authorization` header does not exempt a request that also carries the
+//! cookie. Bearer CLI Sessions (M2) will be authenticated by the header alone;
+//! the exemption belongs with that credential, not before it exists.
 
 use std::sync::Arc;
 
@@ -40,7 +42,6 @@ impl CrossSiteGuard {
 	fn requires_proof(request: &Request) -> bool {
 		let safe = matches!(request.method.as_str(), "GET" | "HEAD" | "OPTIONS");
 		!safe
-			&& !request.headers.contains_key("Authorization")
 			&& request_cookie(request, SESSION_COOKIE).is_some()
 	}
 

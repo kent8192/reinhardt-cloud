@@ -111,7 +111,7 @@ async fn sr_12_a_request_without_the_session_cookie_has_no_ambient_credential_to
 
 #[rstest]
 #[tokio::test]
-async fn sr_12_an_authorization_header_is_not_ambient_and_is_not_checked() {
+async fn sr_12_an_authorization_header_does_not_exempt_a_cookie_request_from_the_origin_rule() {
 	// Arrange / Act
 	let status = status_of(
 		Method::POST,
@@ -120,7 +120,7 @@ async fn sr_12_an_authorization_header_is_not_ambient_and_is_not_checked() {
 	.await;
 
 	// Assert
-	assert_eq!(status, 200);
+	assert_eq!(status, 403);
 }
 
 #[rstest]

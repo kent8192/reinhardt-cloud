@@ -371,7 +371,7 @@ async fn sr_12_a_cookie_authenticated_write_from_another_site_is_rejected_and_ha
 #[rstest]
 #[tokio::test]
 #[serial(database, env_settings_load)]
-async fn sr_12_a_bearer_header_is_not_subject_to_the_origin_rule() {
+async fn sr_12_a_bearer_header_does_not_exempt_a_cookie_request_from_the_origin_rule() {
 	// Arrange
 	let app = TestApp::start(AppOptions::default()).await;
 	let account = GithubAccount::new(6_005, "scripted");
@@ -387,7 +387,9 @@ async fn sr_12_a_bearer_header_is_not_subject_to_the_origin_rule() {
 		.await;
 
 	// Assert
-	assert_ne!(reply.status, 403, "{reply:?}");
+	// Bearer CLI Sessions arrive with M2; until then an `Authorization` header
+	// is no proof of same-origin intent for a request that carries the cookie.
+	assert_eq!(reply.status, 403, "{reply:?}");
 }
 
 #[rstest]
