@@ -158,6 +158,11 @@ impl TestApp {
 		}
 	}
 
+	/// Stop Redis, as an outage would.
+	pub(crate) async fn stop_redis(&self) {
+		self._redis.stop().await.expect("Redis stops");
+	}
+
 	pub(crate) fn browser(&self) -> Browser {
 		Browser::new(&self.base_url)
 	}
@@ -283,6 +288,7 @@ impl Browser {
 		Self {
 			http: reqwest::Client::builder()
 				.redirect(reqwest::redirect::Policy::none())
+				.timeout(Duration::from_secs(30))
 				.build()
 				.expect("the test client builds"),
 			base_url: base_url.to_owned(),
@@ -378,6 +384,35 @@ impl Browser {
 		let mut request = self.http.post(self.url(path)).json(&body);
 		if let Some(origin) = origin {
 			request = request.header("Origin", origin);
+		}
+		self.send(request).await
+	}
+
+	/// POST `body` as JSON with exactly the given extra headers.
+	pub(crate) async fn post_with(
+		&mut self,
+		path: &str,
+		body: Value,
+		headers: &[(&str, &str)],
+	) -> Reply {
+		let mut request = self.http.post(self.url(path)).json(&body);
+		for (name, value) in headers {
+			request = request.header(*name, *value);
+		}
+		self.send(request).await
+	}
+
+	/// Send a request with any method, JSON body, and headers.
+	pub(crate) async fn request(
+		&mut self,
+		method: &str,
+		path: &str,
+		headers: &[(&str, &str)],
+	) -> Reply {
+		let method = reqwest::Method::from_bytes(method.as_bytes()).expect("a valid method");
+		let mut request = self.http.request(method, self.url(path)).json(&json!({}));
+		for (name, value) in headers {
+			request = request.header(*name, *value);
 		}
 		self.send(request).await
 	}
