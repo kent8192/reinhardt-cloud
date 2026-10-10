@@ -49,3 +49,8 @@ jobs:
       # `wasm_bindgen(start)` boots) must stay cfg-clean on wasm32.
       - name: Check Control Plane library for wasm32
         run: cargo check --locked -p reinhardt-cloud-dashboard --lib --target wasm32-unknown-unknown
+
+      # Compile-check the browser test targets with the feature set that
+      # `cargo make wasm-test` uses; the tests themselves need Chrome and run locally.
+      - name: Check Control Plane browser tests for wasm32
+        run: cargo check --locked -p reinhardt-cloud-dashboard --tests --target wasm32-unknown-unknown --no-default-features --features client-router,msw

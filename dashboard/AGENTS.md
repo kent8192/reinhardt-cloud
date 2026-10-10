@@ -29,6 +29,10 @@ name is the one `reinhardt-admin startproject` generated; do not rename either.
 - `src/client/` browser-only WASM launcher.
 - `src/apps/` one module per application (below).
 - `src/config/` settings, installed apps, and project route aggregation.
+- `src/components/` components shared by every application; `src/i18n/` the
+  message catalogs.
+- `static/` design tokens, base styles, utilities, and images served through
+  `collectstatic`.
 - `settings/` TOML profiles; `migrations/` database migrations; `index.html` SPA shell.
 - `Makefile.toml` supported development and verification tasks.
 
@@ -140,6 +144,33 @@ is the only non-DI type allowed in a binary.
 - Keep shared code cfg-clean across native and `wasm32-unknown-unknown`. Use the
   generated `client` / `server` cfg aliases.
 
+### Components
+
+- Reach for `reinhardt-pages` primitives before writing a component:
+  `ui::ActionButton` / `FormActionButton`, `ui::ActionResultPanel` /
+  `ResourcePanel`, `Portal` / `mount_portal`, `form!` with `client_form:`,
+  `tables::Table`, `#[layout]` with `Outlet`. Apply the design to them with
+  typed `#[style_def]` styles (class values go in through `.attr("class", ..)` or
+  the `styling:` entries). Write a custom component only where no primitive
+  exists, and say in its module comment which primitives were checked.
+- Components shared by several applications live in `src/components/`.
+  Route-backed pages (routing targets, `#[component]` and `#[layout]`
+  functions) always live in `src/apps/<app>/client/components/`.
+
+### Styling
+
+- Component styles are `#[style_def]` / `style!` definitions next to the
+  component (shared ones in `src/components/`). They read tokens with `globals { ... }`
+  and never declare literal colors, spacing, or radii that `tokens.css` owns.
+- `static/css/tokens.css` is the only place visual values are declared. Put
+  what the `style!` DSL cannot express (document and element rules, keyframes,
+  font stacks, elevations, `appearance`) in `static/css/base.css` or as an
+  `rc-` class in `static/css/utilities.css`. One class has one owner: never
+  repeat a scoped class's declarations in static CSS.
+- Never hand-edit or commit generated `__reinhardt__/components.css`, `dist/`,
+  or `dist-wasm/`. No CDN, web fonts, or inline `<script>` for styling.
+- Every `t!` literal needs an entry in `src/i18n/en.rs`.
+
 ### Settings and secrets
 
 - Settings are composed from `settings/base.toml`, the `REINHARDT_ENV` profile
@@ -184,7 +215,7 @@ settings, so export the two required secrets first and point
 cargo run --bin manage -- check
 cargo run --bin manage -- showurls
 cargo make wasm-build-dev        # WASM bundle (wasm32-unknown-unknown, wasm-pack)
-cargo make wasm-test             # browser tests (headless Chrome)
+cargo make wasm-test             # browser tests (headless Chrome; ChromeDriver must match Chrome)
 cargo nextest run --all-features
 ```
 

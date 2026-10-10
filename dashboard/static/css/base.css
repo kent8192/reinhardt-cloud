@@ -1,0 +1,85 @@
+/*
+ * Reinhardt Cloud Dashboard base styles.
+ *
+ * Document-level rules that component-scoped `style!` definitions cannot
+ * express: they target bare elements, `:root`, or the whole document. Every
+ * value reads a token from `tokens.css`. Component styles live in the
+ * `#[style_def]` definitions under `src/ui/`.
+ */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--surface-page);
+	color: var(--ink-default);
+	font-family: var(--font-sans);
+	font-size: var(--text-md);
+	line-height: var(--leading-ui);
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+figure {
+	margin: 0;
+}
+
+ul,
+ol {
+	padding: 0;
+	list-style: none;
+}
+
+a {
+	color: var(--ink-strong);
+	text-decoration-color: var(--border-strong);
+	text-underline-offset: 0.2em;
+}
+
+a:hover {
+	text-decoration-color: var(--accent-text);
+}
+
+code,
+kbd,
+samp {
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+}
+
+table {
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+	vertical-align: middle;
+}
+
+:focus-visible {
+	outline: var(--focus-width) solid var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}

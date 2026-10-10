@@ -1,0 +1,258 @@
+/*
+ * Reinhardt Cloud Dashboard design tokens.
+ *
+ * Every visual decision in the prototype resolves to a custom property
+ * declared here. Colour tokens are semantic (surface, ink, accent, status)
+ * so a theme is a second set of values for the same names.
+ *
+ * Theme selection: `prefers-color-scheme` is the default. An explicit
+ * `data-theme="light"` or `data-theme="dark"` on <html> overrides it.
+ * The dark values are therefore declared twice (media query and attribute);
+ * keep the two blocks identical.
+ */
+
+:root {
+	/* ---- Brand --------------------------------------------------------
+	 * Gold is sampled from branding/logo.png. It is the only accent colour.
+	 * Gold fills carry ink text; gold used as text is the deeper ochre. */
+	--gold-300: #ecd08a;
+	--gold-500: #d4a94f;
+	--gold-600: #bf9235;
+	--gold-800: #8a6410;
+
+	/* ---- Type ----------------------------------------------------------
+	 * System stacks only: no web fonts, no CDN. */
+	--font-sans: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+	--font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+	--font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+	/* Scale: 1.2 ratio from a 14px interface base. */
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-md: 0.875rem;
+	--text-lg: 1.0625rem;
+	--text-xl: 1.3125rem;
+	--text-2xl: 1.75rem;
+	--text-3xl: 2.375rem;
+
+	--leading-tight: 1.2;
+	--leading-ui: 1.45;
+	--leading-prose: 1.6;
+
+	--weight-regular: 400;
+	--weight-medium: 500;
+	--weight-semibold: 600;
+
+	--measure-prose: 62ch;
+	--measure-page: 68rem;
+
+	/* ---- Spacing (4px base) ------------------------------------------ */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2rem;
+	--space-7: 3rem;
+	--space-8: 4rem;
+	--space-9: 6rem;
+
+	/* ---- Radius: small for controls, larger for containers ------------ */
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 10px;
+	--radius-xl: 16px;
+	--radius-full: 999px;
+
+	/* ---- Motion ----------------------------------------------------------- */
+	--duration-fast: 120ms;
+	--duration-base: 200ms;
+	--duration-slow: 360ms;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-enter: cubic-bezier(0, 0, 0.2, 1);
+
+	/* ---- Layout ------------------------------------------------------------ */
+	--sidebar-width: 15.5rem;
+	--control-height: 2.25rem;
+	/* Log viewer chrome: theme-independent, because the viewer is always dark. */
+	--log-border: rgb(255 255 255 / 0.1);
+	--log-control-border: rgb(255 255 255 / 0.25);
+	--log-control-hover: rgb(255 255 255 / 0.08);
+	--log-control-pressed: rgb(255 255 255 / 0.14);
+	--log-control-pressed-border: rgb(255 255 255 / 0.5);
+	--log-line-hover: rgb(255 255 255 / 0.05);
+	--log-focus: #f2f4f7;
+
+	/* Hover wash for quiet controls on the inverse toast surface. */
+	--toast-control-hover: rgb(127 127 127 / 0.25);
+
+	--focus-width: 2px;
+	--focus-offset: 2px;
+}
+
+/* ---- Light theme (default) ------------------------------------------------ */
+:root,
+:root[data-theme="light"] {
+	color-scheme: light;
+
+	--surface-page: #f5f6f8;
+	--surface-raised: #ffffff;
+	--surface-sunken: #eceef2;
+	--surface-hover: #f0f2f5;
+	--surface-inverse: #14181f;
+
+	--border-subtle: #e3e6ec;
+	--border-default: #d3d8e0;
+	--border-strong: #aab2bf;
+
+	--ink-strong: #14181f;
+	--ink-default: #2a303a;
+	--ink-muted: #596170;
+	--ink-subtle: #606774;
+	--ink-inverse: #f4f5f7;
+
+	--accent-fill: var(--gold-500);
+	--accent-fill-hover: var(--gold-600);
+	--accent-on-fill: #14181f;
+	--accent-text: var(--gold-800);
+	--accent-wash: #f8efd9;
+
+	--focus-ring: #14181f;
+
+	/* Status pairs: foreground on its own wash. */
+	--status-success-fg: #17673f;
+	--status-success-bg: #e1f2e8;
+	--status-progress-fg: #1f4fa3;
+	--status-progress-bg: #e3ebfa;
+	--status-warning-fg: #8a5200;
+	--status-warning-bg: #fbecd0;
+	--status-danger-fg: #a52a1d;
+	--status-danger-bg: #fbe6e3;
+	--status-neutral-fg: #4a5160;
+	--status-neutral-bg: #e8ebf0;
+
+	/* Log viewer is always a dark instrument, in both themes. */
+	--log-bg: #0f1319;
+	--log-ink: #d7dce5;
+	--log-muted: #7d8696;
+	--log-info: #8fb6ff;
+	--log-warn: #e8b85c;
+	--log-error: #ff8f84;
+
+	/* Elevation: borders do most of the work; shadows mark things that float. */
+	--elevation-0: none;
+	--elevation-1: 0 1px 2px rgb(20 24 31 / 0.06), 0 4px 12px rgb(20 24 31 / 0.08);
+	--elevation-2: 0 2px 6px rgb(20 24 31 / 0.08), 0 16px 40px rgb(20 24 31 / 0.18);
+	--scrim: rgb(20 24 31 / 0.45);
+}
+
+/* ---- Dark theme: follows the system unless the user chose light ------------ */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+
+		--surface-page: #0e1218;
+		--surface-raised: #151a22;
+		--surface-sunken: #0a0d12;
+		--surface-hover: #1b212b;
+		--surface-inverse: #e8ebf0;
+
+		--border-subtle: #212833;
+		--border-default: #2c3440;
+		--border-strong: #4a5464;
+
+		--ink-strong: #f2f4f7;
+		--ink-default: #d9dee6;
+		--ink-muted: #a5adba;
+		--ink-subtle: #8892a0;
+		--ink-inverse: #14181f;
+
+		--accent-fill: var(--gold-500);
+		--accent-fill-hover: var(--gold-300);
+		--accent-on-fill: #14181f;
+		--accent-text: #e2b95e;
+		--accent-wash: #2a2415;
+
+		--focus-ring: #f2f4f7;
+
+		--status-success-fg: #6fd39b;
+		--status-success-bg: #12281c;
+		--status-progress-fg: #8fb6ff;
+		--status-progress-bg: #14233f;
+		--status-warning-fg: #f0bb62;
+		--status-warning-bg: #2d2210;
+		--status-danger-fg: #ff9a8f;
+		--status-danger-bg: #331813;
+		--status-neutral-fg: #a5adba;
+		--status-neutral-bg: #212833;
+
+		--log-bg: #090c10;
+		--log-ink: #d7dce5;
+		--log-muted: #7d8696;
+		--log-info: #8fb6ff;
+		--log-warn: #e8b85c;
+		--log-error: #ff8f84;
+
+		--elevation-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.4);
+		--elevation-2: 0 2px 6px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.6);
+		--scrim: rgb(0 0 0 / 0.6);
+	}
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+
+	--surface-page: #0e1218;
+	--surface-raised: #151a22;
+	--surface-sunken: #0a0d12;
+	--surface-hover: #1b212b;
+	--surface-inverse: #e8ebf0;
+
+	--border-subtle: #212833;
+	--border-default: #2c3440;
+	--border-strong: #4a5464;
+
+	--ink-strong: #f2f4f7;
+	--ink-default: #d9dee6;
+	--ink-muted: #a5adba;
+	--ink-subtle: #8892a0;
+	--ink-inverse: #14181f;
+
+	--accent-fill: var(--gold-500);
+	--accent-fill-hover: var(--gold-300);
+	--accent-on-fill: #14181f;
+	--accent-text: #e2b95e;
+	--accent-wash: #2a2415;
+
+	--focus-ring: #f2f4f7;
+
+	--status-success-fg: #6fd39b;
+	--status-success-bg: #12281c;
+	--status-progress-fg: #8fb6ff;
+	--status-progress-bg: #14233f;
+	--status-warning-fg: #f0bb62;
+	--status-warning-bg: #2d2210;
+	--status-danger-fg: #ff9a8f;
+	--status-danger-bg: #331813;
+	--status-neutral-fg: #a5adba;
+	--status-neutral-bg: #212833;
+
+	--log-bg: #090c10;
+	--log-ink: #d7dce5;
+	--log-muted: #7d8696;
+	--log-info: #8fb6ff;
+	--log-warn: #e8b85c;
+	--log-error: #ff8f84;
+
+	--elevation-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.4);
+	--elevation-2: 0 2px 6px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.6);
+	--scrim: rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--duration-fast: 0ms;
+		--duration-base: 0ms;
+		--duration-slow: 0ms;
+	}
+}
