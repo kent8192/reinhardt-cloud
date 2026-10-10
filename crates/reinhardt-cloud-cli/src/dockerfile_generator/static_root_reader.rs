@@ -140,6 +140,14 @@ pub(super) fn read_static_root(
 	{
 		return Err("generated Pages require a Dockerfile-safe static URL starting and ending with '/'; provide a custom Dockerfile for other settings".to_owned());
 	}
+	// Ingress keeps an existing application route for a duplicate path, so a
+	// root prefix would never reach the static-server sidecar.
+	if !Path::new(&url)
+		.components()
+		.any(|part| matches!(part, Component::Normal(_)))
+	{
+		return Err("generated Pages require a static URL below '/' (for example '/static/') so it cannot collide with application routes; provide a custom Dockerfile for other settings".to_owned());
+	}
 	// Validate the effective value after production has overridden base settings.
 	if let Some(base) = base_dirs.into_iter().flatten().next()
 		&& base.as_str() != Some(".")
@@ -443,6 +451,27 @@ mod tests {
 
 		// Assert
 		assert!(result.unwrap_err().contains("custom Dockerfile"));
+	}
+
+	#[rstest]
+	#[case("/")]
+	#[case("//")]
+	#[case("/./")]
+	fn rejects_static_urls_that_collide_with_application_routes(#[case] value: &str) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot='dist'\nurl='{value}'"),
+		)
+		.unwrap();
+
+		// Act
+		let result = read_static_root(dir.path(), &ReinhardtCloudToml::default());
+
+		// Assert
+		assert!(result.unwrap_err().contains("below '/'"));
 	}
 
 	#[rstest]

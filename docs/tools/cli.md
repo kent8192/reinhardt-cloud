@@ -939,4 +939,6 @@ A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 That non-secret path binding is pinned in both asset and runtime stages. Dynamic
 base directories, external absolute roots, and other custom settings loaders need
 a custom Dockerfile rather than an inferred path. Use a dedicated publication
-directory outside source, settings, and build metadata.
+directory outside source, settings, and build metadata. The static URL must be a
+prefix below `/` (for example `/static/`): a root URL would share the application's
+`/` Ingress route and never reach the static-server sidecar, so generation rejects it.
