@@ -133,7 +133,9 @@ impl From<OrmError> for RepointError {
 /// If the sessions cannot be ended after the commit, the User is deactivated so
 /// that the per-request check refuses every leftover session without relying on
 /// Redis (fail closed): that emits `accounts.repoint.deactivated`, and a final
-/// `accounts.repoint.failed` with reason `sessions_not_ended_after_change`.
+/// `accounts.repoint.failed` with reason `sessions_not_ended_after_change`. If
+/// the deactivation itself fails, `accounts.repoint.deactivation_failed` records
+/// that leftover sessions may still work.
 ///
 /// # Errors
 ///
@@ -228,7 +230,15 @@ pub async fn repoint(
 						.emit();
 					Deactivation::Done
 				}
-				Err(reason) => Deactivation::Failed(reason),
+				Err(reason) => {
+					// Leftover sessions may still work: say so in the audit log.
+					event("accounts.repoint.deactivation_failed", Outcome::Failed)
+						.subject_user(user_id)
+						.github_user(to)
+						.reason("storage")
+						.emit();
+					Deactivation::Failed(reason)
+				}
 			};
 			event("accounts.repoint.failed", Outcome::Failed)
 				.subject_user(user_id)

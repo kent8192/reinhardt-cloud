@@ -12,6 +12,7 @@ use crate::apps::accounts::services::server::provider_tokens::ProviderTokens;
 use crate::apps::accounts::services::server::repoint::{
 	Deactivation, RepointError, move_identity, repoint,
 };
+use crate::apps::accounts::services::server::sessions::{SessionError, SessionRevoker};
 use crate::apps::accounts::services::server::users::find_by_github_user_id;
 use crate::apps::accounts::tests::server_support::{AppOptions, GithubAccount, TestApp};
 use crate::apps::accounts::tests::support::{
@@ -575,4 +576,61 @@ async fn sr_107_a_leftover_session_is_refused_on_its_next_request_after_a_failed
 		json!(null),
 		"the leftover session no longer authenticates anyone"
 	);
+}
+
+/// A revoker whose first pass works and whose second pass removes the User row
+/// and then fails, so the fallback deactivation has nothing to update.
+struct VanishingRevoker {
+	calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl SessionRevoker for VanishingRevoker {
+	async fn destroy_all_for_user(&self, user: uuid::Uuid) -> Result<usize, SessionError> {
+		use std::sync::atomic::Ordering;
+		if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+			return Ok(0);
+		}
+		User::objects().delete(user).await.unwrap();
+		Err(SessionError::Malformed)
+	}
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_a_failed_deactivation_is_on_the_audit_record(#[future] database: TestDatabase) {
+	// Arrange
+	let _db = database.await;
+	insert_user(1_310, "vanishing", true).await;
+	let revoker = VanishingRevoker {
+		calls: std::sync::atomic::AtomicUsize::new(0),
+	};
+
+	// Act
+	let (events, result) = capture_audit_events(repoint(1_310, 3_310, &revoker)).await;
+
+	// Assert
+	assert!(matches!(
+		result,
+		Err(RepointError::SessionsAfterChange {
+			deactivation: Deactivation::Failed(_),
+			..
+		})
+	));
+	let recorded: Vec<_> = events
+		.iter()
+		.map(|event| (event.field("event"), event.field("outcome")))
+		.collect();
+	assert_eq!(
+		recorded,
+		[
+			(Some("accounts.repoint.released"), Some("succeeded")),
+			(Some("accounts.repoint.claimed"), Some("succeeded")),
+			(Some("accounts.repoint.deactivation_failed"), Some("failed")),
+			(Some("accounts.repoint.failed"), Some("failed")),
+		],
+		"no `deactivated` event: leftover sessions may still work"
+	);
+	assert_eq!(events[2].field("github_user_id"), Some("3310"));
 }
