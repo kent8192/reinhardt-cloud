@@ -13,3 +13,8 @@
 
 # Email mock used by SMTP-related unit tests via TestContainers
 axllent/mailpit:latest
+
+# PostgreSQL and Redis used by the Control Plane's integration tests
+# (reinhardt-test fixtures `postgres_container` and `redis_container`)
+postgres:16-alpine
+redis:7-alpine

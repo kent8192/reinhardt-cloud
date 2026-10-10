@@ -6,9 +6,16 @@
 //! server the merged routes are then wrapped with the shared request surface
 //! (admin site, middleware, dependency injection) by `config::web`.
 //!
-//! `routes` must stay synchronous: `#[routes]` registers the browser's client
-//! routes only for a synchronous function, and an `async` one would leave the
-//! single-page application without any route.
+//! Workaround for kent8192/reinhardt-web#6722 (tracked in
+//! kent8192/reinhardt-cloud#950): `routes` must stay synchronous because
+//! `#[routes]` registers the browser's client routes only for a synchronous
+//! function; an `async` one leaves the single-page application without any
+//! route. Remove this constraint when the upstream issue is resolved.
+//!
+//! Ideal implementation (without workaround):
+//!   `pub async fn routes(#[inject] services: AccountsServices) -> UnifiedRouter`
+//!   // The server-side request surface resolves its services through
+//!   // dependency injection while the client routes still register.
 
 use reinhardt::UnifiedRouter;
 use reinhardt::routes;
