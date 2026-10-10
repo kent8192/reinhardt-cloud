@@ -1713,11 +1713,13 @@ async fn reconcile_redis_credentials_secret(
 	let digest = redis_credentials_digest(&secret);
 	// Commit to the generated data before creating the Secret: only the
 	// operator knows this data, so the digest identifies the Secret created
-	// below even if the UID write after creation never happens. The write is
-	// conditioned on the observed Project resourceVersion, so a concurrent
-	// reconcile (for example an overlapping operator Pod during a rollout)
-	// that already recorded the winning Secret's provenance is never
-	// overwritten by a stale view.
+	// below even if the UID write after creation never happens. A pending
+	// digest left without a Secret can only come from an earlier attempt that
+	// stopped before `create`, because the Helm chart runs exactly one
+	// operator Pod (`Recreate` strategy, `replicaCount` capped at 1) and the
+	// controller never reconciles one Project concurrently; superseding it is
+	// therefore safe. The resourceVersion precondition additionally rejects
+	// the write when the Project status changed since it was observed.
 	patch_redis_credentials_provenance(
 		&project_api,
 		&name,
@@ -4965,6 +4967,27 @@ mod tests {
 			.with_label_values(&["ownership_conflict"])
 			.get();
 		assert_eq!(requeues, 2.0);
+	}
+
+	#[rstest]
+	fn operator_chart_runs_a_single_non_overlapping_replica() {
+		// Arrange: Redis credential creation relies on a single writer, because
+		// the operator does not implement leader election.
+		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+			.join("../../charts/reinhardt-cloud-operator/templates/deployment.yaml");
+
+		// Act
+		let template = std::fs::read_to_string(path).expect("operator chart Deployment template");
+
+		// Assert
+		assert!(
+			template.starts_with("{{- if gt (int .Values.replicaCount) 1 }}\n{{- fail "),
+			"the chart must refuse to render more than one operator replica"
+		);
+		assert!(
+			template.contains("  strategy:\n    type: Recreate\n"),
+			"upgrades must not run an old and a new operator Pod side by side"
+		);
 	}
 
 	#[rstest]

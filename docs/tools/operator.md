@@ -72,7 +72,7 @@ Common top-level value keys (summarized from `values.yaml`):
 
 | Key path | Purpose | Default |
 |---|---|---|
-| `replicaCount` | Number of operator Deployment replicas | `1` |
+| `replicaCount` | Number of operator Deployment replicas. Rendering fails for values above `1` because leader election is not implemented; `0` stops the operator | `1` |
 | `image.repository` | Operator container image repository | `reinhardt-cloud-operator` |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `image.tag` | Image tag; empty string uses the chart's `appVersion` | `""` |
@@ -525,7 +525,6 @@ list and default values.
 | Change on-prem storage class | `--set defaults.storage.class=longhorn` |
 | Change on-prem ingress class | `--set defaults.ingress.class=traefik` |
 | Pass extra environment variables to the operator | `--set operator.extraEnv.MY_VAR=value` |
-| Use a custom operator replica count | `--set replicaCount=2` |
 
 > `features.database` is `true` by default. If your cluster does not have the required database
 > controllers for the configured platform, set `features.database=false` until the controllers are
@@ -866,15 +865,17 @@ The operator does not forward its own `OTEL_EXPORTER_OTLP_ENDPOINT` or per-recon
 The operator is designed to run as a **single replica**. Leader election is not implemented
 (verified: no matches for `leader_election`, `leaderelection`, or `LeaseLock` in
 `crates/reinhardt-cloud-operator/src/`). Running multiple replicas causes duplicate reconcile
-loops and race conditions on status patches.
+loops and race conditions on status patches, including Redis credential creation, which relies
+on a single writer to recover safely from an interrupted creation.
 
-Keep `replicaCount` at `1` in `values.yaml` (the shipped default):
+The chart enforces this: `helm install`/`helm upgrade` fail to render when `replicaCount` is
+greater than `1`, and the operator Deployment uses the `Recreate` strategy so an upgrade stops
+the old operator Pod before starting the new one. Reconciliation pauses briefly during an
+upgrade; existing workloads are unaffected. Set `replicaCount: 0` only to stop the operator.
 
 ```yaml
 replicaCount: 1
 ```
-
-Do not increase this value unless leader election has been implemented.
 
 #### Disaster recovery
 
@@ -1041,10 +1042,11 @@ generated credential data to the status and clears any previous UID; after creat
 the new UID. If the operator stops between those writes, the next reconciliation adopts the
 existing Secret only when it is immutable and its data matches the committed digest. Tenants
 cannot learn the generated password before the Secret exists, so they cannot pre-create a Secret
-that matches the digest. The digest write is conditioned on the observed Project
-`resourceVersion`, and only the reconcile whose Secret `create` succeeds records the UID, so
-overlapping operator Pods (for example during a rolling update) converge on the Secret that won
-creation; the losing reconcile receives `AlreadyExists` and retries.
+that matches the digest. A pending digest without a Secret is superseded on the next attempt; this
+is safe because the chart guarantees a single operator Pod (see [Scaling](#scaling)), so no other
+reconcile can be about to create a Secret for that digest. As defense in depth, the digest write is
+conditioned on the observed Project `resourceVersion`, and only the reconcile whose Secret
+`create` succeeds records the UID; any other attempt receives `AlreadyExists` and retries.
 
 The controller watches operator-labelled Secrets, so deleting or modifying a Redis credentials
 Secret immediately re-runs provenance validation for its Project. A replacement Secret has a new
