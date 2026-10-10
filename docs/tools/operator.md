@@ -324,8 +324,11 @@ permissions are present; all rules follow the least-privilege principle (project
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
 pre-create tenant and preview namespaces when those workflows are used. The chart passes this same
-setting to the operator, which skips preview-namespace deletion while lifecycle management is
-disabled; enabling it requires both the chart's lifecycle RBAC verbs and the operator setting.
+setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`, which skips
+preview-namespace deletion while lifecycle management is disabled; enabling it requires both the
+chart's lifecycle RBAC verbs and the operator setting. Standalone runs that leave the variable unset
+(for example `cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it to
+`false` or `0` to opt out.
 
 **Always-present rules (all platforms and feature configurations)**:
 

@@ -535,8 +535,9 @@ REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE=1 cargo run --bin reinhardt-cloud-ope
 ```
 
 The local command enables creation and cleanup of operator-owned tenant and
-preview namespaces. Leave `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE` unset or
-set it to `false` when namespace lifecycle is managed by the platform.
+preview namespaces. Lifecycle management also stays enabled when
+`REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE` is unset; set it to `false` when
+namespace lifecycle is managed by the platform.
 
 ## API Stability
 

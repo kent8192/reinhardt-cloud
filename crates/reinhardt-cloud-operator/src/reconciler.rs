@@ -78,10 +78,14 @@ const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
 /// Enables creation and deletion of operator-managed tenant namespaces.
+///
+/// Standalone runs leave this unset and keep preview namespace cleanup
+/// enabled; the Helm chart always passes an explicit value derived from
+/// `rbac.namespaces.manageLifecycle`.
 const MANAGE_NAMESPACE_LIFECYCLE_ENV: &str = "REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE";
 
 fn parse_namespace_lifecycle_enabled(value: Option<&str>) -> bool {
-	value.is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+	value.is_none_or(|value| value == "1" || value.eq_ignore_ascii_case("true"))
 }
 
 fn namespace_lifecycle_enabled() -> bool {
@@ -3935,8 +3939,9 @@ mod tests {
 	}
 
 	#[rstest]
-	#[case::unset(None, false)]
+	#[case::unset(None, true)]
 	#[case::disabled(Some("false"), false)]
+	#[case::disabled_numeric(Some("0"), false)]
 	#[case::enabled(Some("true"), true)]
 	#[case::enabled_uppercase(Some("TRUE"), true)]
 	#[case::enabled_numeric(Some("1"), true)]
