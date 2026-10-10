@@ -10,7 +10,12 @@ pub(crate) struct StaticRoot {
 	pub(super) url: String,
 	pub(super) url_env_binding: Option<(String, String)>,
 	pub(super) env_binding: Option<(String, String)>,
+	/// Required settings variables without a declared value. Asset publication
+	/// receives command-scoped random values so unrelated secrets load.
 	pub(super) build_env: Vec<String>,
+	/// Required settings variables declared in `source.build.build_args`.
+	/// Their real values are passed to asset publication as build arguments.
+	pub(super) build_args: Vec<String>,
 }
 
 impl StaticRoot {
@@ -22,6 +27,7 @@ impl StaticRoot {
 			url_env_binding: None,
 			env_binding: None,
 			build_env: Vec::new(),
+			build_args: Vec::new(),
 		}
 	}
 
@@ -239,12 +245,24 @@ pub(super) fn read_static_root(
 	if let Some((name, _)) = &url_env_binding {
 		build_env.remove(name);
 	}
+	// Declared build arguments carry real, non-secret values that may shape
+	// the publication (for example a public origin), so only undeclared
+	// variables fall back to random placeholders.
+	let declared = config
+		.source
+		.as_ref()
+		.and_then(|source| source.build.as_ref())
+		.map(|build| &build.build_args);
+	let (build_args, build_env): (Vec<_>, Vec<_>) = build_env
+		.into_iter()
+		.partition(|name| declared.is_some_and(|args| args.contains_key(name)));
 	Ok(StaticRoot {
 		path,
 		url,
 		url_env_binding,
 		env_binding,
-		build_env: build_env.into_iter().collect(),
+		build_env,
+		build_args,
 	})
 }
 
@@ -608,6 +626,36 @@ mod tests {
 			root.env_binding,
 			Some(("ASSET_ROOT".to_owned(), "dist".to_owned()))
 		);
+	}
+
+	#[rstest]
+	fn declared_build_args_supply_required_settings_instead_of_random_values() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/production.toml"),
+			"static_root='dist'\norigin='${PUBLIC_ORIGIN:?required}'\nsecret='${SECRET}'",
+		)
+		.unwrap();
+		let config = ReinhardtCloudToml {
+			source: Some(reinhardt_cloud_types::reinhardt_cloud_toml::SourceSection {
+				build: Some(reinhardt_cloud_types::reinhardt_cloud_toml::BuildSection {
+					build_args: [("PUBLIC_ORIGIN".to_owned(), "https://example.com".to_owned())]
+						.into(),
+					..Default::default()
+				}),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+
+		// Act
+		let root = read_static_root(dir.path(), &config).unwrap();
+
+		// Assert
+		assert_eq!(root.build_args, ["PUBLIC_ORIGIN"]);
+		assert_eq!(root.build_env, ["SECRET"]);
 	}
 
 	#[rstest]

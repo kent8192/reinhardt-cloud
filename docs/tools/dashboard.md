@@ -211,8 +211,13 @@ The dashboard image pins Reinhardt `0.4.0-alpha.20` for `manage buildstatic`.
 Generated Pages Dockerfiles supply random, command-scoped values for required
 TOML environment references during asset publication. Only references that remain
 in the effective production profile (`base.toml` overlaid by `production.toml`)
-are supplied; values overridden by `production.toml` are ignored. These values are not
-deployment credentials and are not persisted as runtime `ENV` or build arguments.
+are supplied; values overridden by `production.toml` are ignored. A required
+reference that is declared in `[source.build].build_args` keeps its real value: the
+asset stage declares it as a stage-scoped `ARG` that source builds pass with
+`--build-arg`, so publication-relevant values such as a public origin are not
+replaced. Build arguments are recorded in plain text, so declare only non-secret
+values there. Undeclared references get random values that are not deployment
+credentials and are not persisted as runtime `ENV` or build arguments.
 Settings that require typed values or external services need a custom Dockerfile.
 
 `init` and `sync` record the effective production root and URL in

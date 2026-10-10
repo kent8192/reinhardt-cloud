@@ -238,7 +238,17 @@ pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
 		.iter()
 		.map(|name| format!("{name}=\"$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\" "))
 		.collect::<String>();
-	let mut instructions = vec![];
+	// Declared build arguments supply their real values from `--build-arg`;
+	// stage-scoped `ARG`s are visible to this stage's `RUN` only and are not
+	// carried into the runtime image.
+	let mut instructions: Vec<Instruction> = root
+		.build_args
+		.iter()
+		.map(|name| Instruction::Arg {
+			name: name.clone(),
+			default: None,
+		})
+		.collect();
 	if let Some(binding) = &root.env_binding {
 		instructions.push(Instruction::Env(vec![binding.clone()]));
 	}
@@ -464,6 +474,49 @@ mod tests {
 			"/app/dist",
 			"/app/dist"
 		));
+	}
+
+	#[rstest]
+	fn asset_build_uses_declared_build_args_instead_of_random_values(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		let mut root = StaticRoot::relative("dist");
+		root.build_env = vec!["SECRET".to_owned()];
+		root.build_args = vec!["PUBLIC_ORIGIN".to_owned()];
+		minimal_signals.static_root = Some(root);
+
+		// Act
+		let assets = build_assets_stage(&minimal_signals);
+		let runtime = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(matches!(
+			&assets.instructions[0],
+			Instruction::Arg { name, default: None } if name == "PUBLIC_ORIGIN"
+		));
+		let command = assets
+			.instructions
+			.iter()
+			.find_map(|instruction| match instruction {
+				Instruction::Run(command) => Some(command),
+				_ => None,
+			})
+			.unwrap();
+		assert!(command.starts_with("SECRET=\"$(od -An -N32"));
+		assert!(!command.contains("PUBLIC_ORIGIN"));
+		assert!(
+			runtime
+				.instructions
+				.iter()
+				.all(|instruction| match instruction {
+					Instruction::Arg { name, .. } => name != "PUBLIC_ORIGIN",
+					Instruction::Env(values) =>
+						values.iter().all(|(name, _)| name != "PUBLIC_ORIGIN"),
+					_ => true,
+				})
+		);
 	}
 
 	#[fixture]
