@@ -104,8 +104,19 @@ url=$(manage create-login-link --github-user-id 583231 --ttl-minutes 5)
 # old account's stored tokens and unused Login Links are removed and every session
 # ends. An ID that another User already has is refused. If Redis cannot be reached
 # after the move committed, the User is deactivated (leftover sessions are then
-# refused on their next request); set `is_active` again in the admin site.
+# refused on their next request) and the command fails; recover as below.
 manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
+
+# Recovery, once Redis is reachable again. The admin site is not a recovery path:
+# it needs an active Staff User, and the User who needs recovering may be the only
+# one. end-sessions ends every browser session of the User (non-zero exit if Redis
+# fails). reactivate-user ends every session first, and only then sets the User
+# active again, because a session left in Redis while the User was inactive would
+# otherwise become valid again; it refuses if the sessions cannot be ended and
+# changes nothing for a User who is already active. Use the User's current
+# (new) GitHub user ID.
+manage end-sessions --github-user-id 9919
+manage reactivate-user --github-user-id 9919
 ```
 
 A Login Link looks like `<REINHARDT_CLOUD_PUBLIC_URL>/sign-in/link/#<secret>`.
@@ -271,6 +282,8 @@ cargo run --bin manage contract export --format json
 cargo run --bin manage grant-staff --github-user-id <id> [--revoke]
 cargo run --bin manage create-login-link --github-user-id <id> [--ttl-minutes <n>]
 cargo run --bin manage repoint-github-account --github-user-id <id> --new-github-user-id <id>
+cargo run --bin manage end-sessions --github-user-id <id>
+cargo run --bin manage reactivate-user --github-user-id <id>
 ```
 
 The project-specific commands are registered in `src/config/commands.rs`, one

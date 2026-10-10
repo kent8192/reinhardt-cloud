@@ -391,6 +391,10 @@ async fn sr_20_a_redis_failure_after_a_revocation_still_records_it(
 		"{message}"
 	);
 	assert!(
+		message.contains("`manage end-sessions --github-user-id 91`"),
+		"{message}"
+	);
+	assert!(
 		message.contains("read from the database on every request"),
 		"{message}"
 	);

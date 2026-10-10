@@ -155,6 +155,11 @@ is the only non-DI type allowed in a binary.
 - Staff grants, Login Link issuance, and moving a User to another GitHub account
   are `manage` commands and nothing else (SR-18, SR-20, SR-107): never add a
   route, server function, or admin action that does any of them.
+- Recovery from a failed session cleanup is also a `manage` command, never the
+  admin site (it needs an active Staff User, who may be the one that is
+  deactivated): `end-sessions` ends a User's sessions, and `reactivate-user` ends
+  them first and only then reactivates. A fail-closed path that deactivates a
+  User must name these commands in its error message.
 
 ### Pages and UI
 

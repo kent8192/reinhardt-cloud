@@ -83,23 +83,25 @@ pub enum StaffError {
 	///
 	/// Leftover sessions are harmless to the revocation: the Staff flag is read
 	/// from the database on every request.
-	#[error("{}", sessions_not_ended_message(.cause, *.removed))]
+	#[error("{}", sessions_not_ended_message(.cause, *.removed, *.github_user_id))]
 	SessionsNotEnded {
 		/// Why the sessions could not be ended.
 		cause: String,
+		/// The GitHub user ID of the User, for the recovery command.
+		github_user_id: i64,
 		/// Whether the User row was removed (a never-used pre-provisioned User).
 		removed: bool,
 	},
 }
 
-fn sessions_not_ended_message(cause: &str, removed: bool) -> String {
+fn sessions_not_ended_message(cause: &str, removed: bool, github_user_id: i64) -> String {
 	if removed {
 		format!(
 			"the pre-provisioned User was removed, but their sessions could not be ended ({cause}). Any leftover session is refused: the User no longer exists"
 		)
 	} else {
 		format!(
-			"Staff was revoked, but the User's sessions could not be ended ({cause}). Staff powers have already stopped: the Staff flag is read from the database on every request, so a leftover session has ordinary-User access only and expires on its own (30 minutes idle, 24 hours at most)"
+			"Staff was revoked, but the User's sessions could not be ended ({cause}). Staff powers have already stopped: the Staff flag is read from the database on every request, so a leftover session has ordinary-User access only. To end it now, run `manage end-sessions --github-user-id {github_user_id}` once Redis is reachable; otherwise it expires on its own (30 minutes idle, 24 hours at most)"
 		)
 	}
 }
@@ -307,6 +309,7 @@ pub async fn revoke(
 				.emit();
 			Err(StaffError::SessionsNotEnded {
 				cause: cause.to_string(),
+				github_user_id,
 				removed,
 			})
 		}

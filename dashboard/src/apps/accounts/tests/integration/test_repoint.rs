@@ -421,8 +421,14 @@ async fn sr_107_a_redis_failure_after_the_commit_still_records_the_move_and_fail
 	);
 	let message = error.to_string();
 	assert!(message.contains("was deactivated"), "{message}");
-	assert!(message.contains("reactivate"), "{message}");
-	assert!(message.contains("`is_active`"), "{message}");
+	assert!(
+		message.contains("`manage reactivate-user --github-user-id 3300`"),
+		"{message}"
+	);
+	assert!(
+		!message.contains("admin site, set"),
+		"the admin site is not the recovery path: {message}"
+	);
 
 	let moved = find_by_github_user_id(3_300).await.unwrap().unwrap();
 	assert_eq!(moved.id, user.id, "the committed move stands");
@@ -504,6 +510,7 @@ fn sr_107_the_message_tells_the_operator_what_to_do_when_deactivation_failed_too
 	// Arrange
 	let error = RepointError::SessionsAfterChange {
 		cause: "connection refused".to_owned(),
+		github_user_id: 3_400,
 		deactivation: Deactivation::Failed("the database is gone".to_owned()),
 	};
 
@@ -516,7 +523,7 @@ fn sr_107_the_message_tells_the_operator_what_to_do_when_deactivation_failed_too
 		"{message}"
 	);
 	assert!(
-		message.contains("deactivate the User in the admin site now"),
+		message.contains("`manage end-sessions --github-user-id 3400`"),
 		"{message}"
 	);
 	assert!(message.contains("the database is gone"), "{message}");

@@ -24,8 +24,11 @@
 //! If the second pass fails, the move has already committed and been audited.
 //! The operation then fails closed: the User is deactivated, and the per-request
 //! session check reads `is_active` from the database, so every leftover session
-//! is refused without Redis. An operator reactivates the User (admin site, set
-//! `is_active`) once Redis is back.
+//! is refused without Redis. Recovery is `manage reactivate-user`
+//! (`user_recovery`): it ends every leftover session first, because a session
+//! nobody presented while the User was inactive would otherwise become valid
+//! again on reactivation, and it works from a shell, which the admin site does
+//! not when the deactivated User was the only active Staff.
 
 use reinhardt::core::exception::{DatabaseError, DatabaseErrorKind, Error as OrmError};
 use reinhardt::db::orm::{Model, get_connection};
@@ -74,10 +77,12 @@ pub enum RepointError {
 	/// The User was moved (and the move is recorded) but the sessions could not
 	/// be ended afterwards. The command then deactivates the User so that no
 	/// leftover session works.
-	#[error("{}", sessions_after_change_message(.cause, .deactivation))]
+	#[error("{}", sessions_after_change_message(.cause, .deactivation, *.github_user_id))]
 	SessionsAfterChange {
 		/// Why the sessions could not be ended.
 		cause: String,
+		/// The GitHub user ID the User has now, for the recovery commands.
+		github_user_id: i64,
 		/// What happened when the User was deactivated to close the gap.
 		deactivation: Deactivation,
 	},
@@ -94,13 +99,17 @@ pub enum Deactivation {
 	Failed(String),
 }
 
-fn sessions_after_change_message(cause: &str, deactivation: &Deactivation) -> String {
+fn sessions_after_change_message(
+	cause: &str,
+	deactivation: &Deactivation,
+	github_user_id: i64,
+) -> String {
 	match deactivation {
 		Deactivation::Done => format!(
-			"the User was re-pointed, but their sessions could not be ended ({cause}). The account was deactivated so that every leftover session is refused on its next request; once Redis is reachable again, reactivate it by setting `is_active` on the User in the admin site"
+			"the User was re-pointed, but their sessions could not be ended ({cause}). The account was deactivated so that every leftover session is refused on its next request. Once Redis is reachable again, run `manage reactivate-user --github-user-id {github_user_id}`: it ends the leftover sessions first and only then reactivates the account (the admin site cannot, if this was the only active Staff User)"
 		),
 		Deactivation::Failed(reason) => format!(
-			"the User was re-pointed, but their sessions could not be ended ({cause}) and the account could not be deactivated either ({reason}). Leftover sessions may still work: deactivate the User in the admin site now (clear `is_active`), and reactivate it after Redis is reachable"
+			"the User was re-pointed, but their sessions could not be ended ({cause}) and the account could not be deactivated either ({reason}). Leftover sessions may still work: as soon as Redis is reachable, run `manage end-sessions --github-user-id {github_user_id}`"
 		),
 	}
 }
@@ -226,6 +235,7 @@ pub async fn repoint(
 				.emit();
 			Err(RepointError::SessionsAfterChange {
 				cause: cause.to_string(),
+				github_user_id: to,
 				deactivation,
 			})
 		}
