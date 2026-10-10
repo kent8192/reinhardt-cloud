@@ -177,11 +177,13 @@ pub async fn repoint(
 				"sessions_not_ended_before_change",
 				from,
 			),
-			// `SessionsAfterChange` is produced only after the commit and is
-			// audited there; it never reaches this closure.
-			RepointError::Storage(_) | RepointError::SessionsAfterChange { .. } => {
+			RepointError::Storage(_) => {
 				("accounts.repoint.failed", Outcome::Failed, "storage", from)
 			}
+			// Produced only after the commit and audited where it is produced
+			// (with the released and claimed events); nothing to add here, and
+			// nothing to misreport as a failure to change anything.
+			RepointError::SessionsAfterChange { .. } => return error,
 		};
 		event(name, outcome)
 			.github_user(github_user)
