@@ -119,7 +119,20 @@ manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
 # (new) GitHub user ID.
 manage end-sessions --github-user-id 9919
 manage reactivate-user --github-user-id 9919
+
+# Deactivate a User (they can no longer sign in, and every session of theirs is
+# refused on its next request because the flag is read from the database on every
+# request). The sessions are then ended on a best-effort basis: if Redis is down
+# the command still succeeds, says so, and audits `accounts.deactivate.failed`;
+# run end-sessions later to remove them. An already-inactive User is unchanged.
+manage deactivate-user --github-user-id 9919
 ```
+
+These three commands, `deactivate-user`, `reactivate-user`, and `end-sessions`,
+are the whole activation path: the User admin is read-only (including
+`is_active`), because reinhardt-admin has no hook that could end a User's sessions
+before an admin-side reactivation (kent8192/reinhardt-web#6725, tracked in
+kent8192/reinhardt-cloud#956).
 
 A Login Link looks like `<REINHARDT_CLOUD_PUBLIC_URL>/sign-in/link/#<secret>`.
 The secret is in the URL fragment, which a browser never sends, so loading the
@@ -286,6 +299,7 @@ cargo run --bin manage create-login-link --github-user-id <id> [--ttl-minutes <n
 cargo run --bin manage repoint-github-account --github-user-id <id> --new-github-user-id <id>
 cargo run --bin manage end-sessions --github-user-id <id>
 cargo run --bin manage reactivate-user --github-user-id <id>
+cargo run --bin manage deactivate-user --github-user-id <id>
 ```
 
 The project-specific commands are registered in `src/config/commands.rs`, one
