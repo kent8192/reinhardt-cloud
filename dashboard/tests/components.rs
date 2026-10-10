@@ -10,7 +10,7 @@ use cloud_control_plane::components::badge::{BadgeStatus, badge, badge_classes, 
 use cloud_control_plane::components::button::{
 	ButtonProps, ButtonSize, ButtonVariant, button, button_class, button_classes, link_button,
 };
-use cloud_control_plane::components::code_block::code_block;
+use cloud_control_plane::components::code_block::{CODE_BLOCK_STYLES, code_block};
 use cloud_control_plane::components::dialog::{
 	DIALOG_STYLES, DialogProps, dialog_classes, dialog_view, open_dialog,
 };
@@ -222,7 +222,7 @@ fn empty_state_renders_title_body_and_action() {
 
 #[rstest]
 #[serial(i18n)]
-fn code_block_shows_the_text_and_a_copy_button_named_after_its_title() {
+fn code_block_renders_text_and_a_copy_button_whose_name_includes_the_title() {
 	within_ui(|| {
 		// Arrange
 		let command = "reinhardt-cloud login".to_owned();
@@ -232,19 +232,29 @@ fn code_block_shows_the_text_and_a_copy_button_named_after_its_title() {
 
 		// Assert
 		assert_eq!(
-			screen.get_by_text("reinhardt-cloud login").text(),
-			"reinhardt-cloud login"
-		);
-		assert_eq!(
-			screen.get_by_text("Skip to main content").text(),
-			"Skip to main content"
-		);
-		let copy = screen.get_by_role(Role::Button, "Copy Skip to main content");
-		assert_eq!(copy.text(), "Copy");
-		assert!(
-			screen
-				.pretty()
-				.contains("aria-label=\"Copy Skip to main content\"")
+			screen.pretty(),
+			format!(
+				concat!(
+					"<div class=\"{code}\">\n",
+					"  <div class=\"{bar}\">\n",
+					"    <span>\n      Skip to main content\n    </span>\n",
+					"    <button class=\"{button}\" type=\"button\" aria-controls=\"login-text\">\n",
+					"      Copy\n",
+					"      <span class=\"rc-visually-hidden\">\n",
+					"         \n",
+					"        Skip to main content\n",
+					"      </span>\n",
+					"    </button>\n",
+					"  </div>\n",
+					"  <pre class=\"rc-font-mono\">\n",
+					"    <code id=\"login-text\">\n      reinhardt-cloud login\n    </code>\n",
+					"  </pre>\n",
+					"</div>\n",
+				),
+				code = class_value(CODE_BLOCK_STYLES.code()),
+				bar = class_value(CODE_BLOCK_STYLES.bar()),
+				button = class_value(button_classes(ButtonVariant::Quiet, ButtonSize::Small)),
+			)
 		);
 	});
 }
@@ -364,24 +374,6 @@ fn signed_out_layout_hides_a_decorative_aside_from_assistive_technology() {
 		// Assert
 		assert!(html.contains("aria-hidden=\"true\" inert=\"inert\""));
 		assert!(screen.query_by_text("Preview").is_none());
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn copy_buttons_of_different_blocks_have_different_accessible_names() {
-	within_ui(|| {
-		// Arrange
-		let first = render(code_block("first", t!("Copy"), "one".to_owned()));
-		let second = render(code_block("second", t!("Copied"), "two".to_owned()));
-
-		// Act
-		let first_button = first.get_by_role(Role::Button, "Copy Copy");
-		let second_button = second.get_by_role(Role::Button, "Copy Copied");
-
-		// Assert
-		assert_eq!(first_button.text(), "Copy");
-		assert_eq!(second_button.text(), "Copy");
 	});
 }
 
@@ -546,7 +538,7 @@ fn open_dialog_mounts_nothing_on_the_server_target() {
 		let props = DialogProps::new("confirm", t!("Copy"), Page::text("Body"), Page::empty());
 
 		// Act
-		let open = open_dialog(props).expect("portals accept any view on the server target");
+		let open = open_dialog(props, || {}).expect("portals accept any view on the server target");
 
 		// Assert
 		assert!(!open.is_open());

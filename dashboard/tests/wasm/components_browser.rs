@@ -12,6 +12,9 @@ use cloud_control_plane::components::dialog::{DialogProps, open_dialog};
 use cloud_control_plane::components::layout::signed_out::signed_out_layout;
 use cloud_control_plane::components::table_styles::TABLE_STYLES;
 use cloud_control_plane::components::theme::{STORAGE_KEY, Theme, current_theme};
+use std::cell::Cell;
+use std::rc::Rc;
+
 use cloud_control_plane::i18n::i18n_context;
 use reinhardt::pages::builder::html::{div, table, tbody, tr};
 use reinhardt::pages::component::{Page, PageExt};
@@ -23,7 +26,7 @@ use reinhardt::pages::{Element as DomElement, document, page, t};
 use rstest::{fixture, rstest};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
-use web_sys::HtmlElement;
+use web_sys::{HtmlDialogElement, HtmlElement};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -127,25 +130,40 @@ async fn next_tick() {
 		.expect("timeout promise resolves");
 }
 
-/// Simulates a non-secure origin, where `navigator.clipboard` is `undefined`,
-/// and counts uncaught errors until dropped.
-struct NoClipboard;
+/// Replaces `navigator.clipboard` and counts uncaught errors until dropped.
+struct ClipboardStub;
 
-impl NoClipboard {
+impl ClipboardStub {
 	fn run(script: &str) -> JsValue {
 		js_sys::Function::new_no_args(script)
 			.call0(&JsValue::NULL)
 			.expect("test script runs")
 	}
 
-	fn new() -> Self {
-		Self::run(
+	fn install(clipboard: &str) -> Self {
+		Self::run(&format!(
 			"window.__rcUncaught = 0;
-			window.__rcOnError = () => { window.__rcUncaught += 1; };
+			window.__rcOnError = () => {{ window.__rcUncaught += 1; }};
 			window.addEventListener('error', window.__rcOnError);
-			Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });",
-		);
+			Object.defineProperty(navigator, 'clipboard', {{ value: {clipboard}, configurable: true }});"
+		));
 		Self
+	}
+
+	/// A non-secure origin, where `navigator.clipboard` is `undefined`.
+	fn missing() -> Self {
+		Self::install("undefined")
+	}
+
+	/// A clipboard whose `writeText` resolves and records the copied text.
+	fn resolving() -> Self {
+		Self::install(
+			"{ writeText: (text) => { window.__rcCopied = text; return Promise.resolve(); } }",
+		)
+	}
+
+	fn copied_text(&self) -> Option<String> {
+		Self::run("return window.__rcCopied;").as_string()
 	}
 
 	fn uncaught_errors(&self) -> f64 {
@@ -155,10 +173,11 @@ impl NoClipboard {
 	}
 }
 
-impl Drop for NoClipboard {
+impl Drop for ClipboardStub {
 	fn drop(&mut self) {
 		Self::run(
 			"delete navigator.clipboard;
+			delete window.__rcCopied;
 			window.removeEventListener('error', window.__rcOnError);",
 		);
 	}
@@ -291,7 +310,7 @@ fn dialog_opens_as_a_modal_in_a_portal_and_closes_when_dropped(sandbox: Sandbox)
 	// Act
 	let open = sandbox
 		._scope
-		.enter(|| open_dialog(props))
+		.enter(|| open_dialog(props, || {}))
 		.expect("dialog mounts");
 	let element = find().expect("dialog is mounted under the body");
 	let modal = element.as_web_sys().has_attribute("open");
@@ -378,7 +397,7 @@ fn table_primitive_renders_with_the_design_classes(sandbox: Sandbox) {
 #[test_attr(wasm_bindgen_test)]
 async fn copy_button_does_nothing_when_the_clipboard_is_unavailable(sandbox: Sandbox) {
 	// Arrange
-	let no_clipboard = NoClipboard::new();
+	let no_clipboard = ClipboardStub::missing();
 	sandbox.mount(|| {
 		code_block(
 			"login",
@@ -397,9 +416,90 @@ async fn copy_button_does_nothing_when_the_clipboard_is_unavailable(sandbox: San
 
 	// Assert
 	assert_eq!(no_clipboard.uncaught_errors(), 0.0);
-	assert_eq!(copy.text_content().as_deref().map(str::trim), Some("Copy"));
 	assert_eq!(
-		copy.get_attribute("aria-label").as_deref(),
+		copy.text_content().as_deref(),
 		Some("Copy Skip to main content")
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn copy_button_name_follows_the_copied_state_and_keeps_the_visible_word(sandbox: Sandbox) {
+	// Arrange
+	let clipboard = ClipboardStub::resolving();
+	sandbox.mount(|| {
+		code_block(
+			"login",
+			t!("Skip to main content"),
+			"reinhardt-cloud login".to_owned(),
+		)
+	});
+	let copy = sandbox
+		.query("button[aria-controls=\"login-text\"]")
+		.dyn_into::<HtmlElement>()
+		.expect("copy button is an HTML element");
+	let before = copy.text_content();
+
+	// Act
+	copy.click();
+	next_tick().await;
+	next_tick().await;
+	let after = copy.text_content();
+
+	// Assert
+	assert_eq!(before.as_deref(), Some("Copy Skip to main content"));
+	assert_eq!(after.as_deref(), Some("Copied Skip to main content"));
+	assert_eq!(
+		clipboard.copied_text().as_deref(),
+		Some("reinhardt-cloud login")
+	);
+	assert_eq!(clipboard.uncaught_errors(), 0.0);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn dialog_closed_by_the_browser_tears_down_the_portal_and_notifies(sandbox: Sandbox) {
+	// Arrange
+	let closed = Rc::new(Cell::new(0_u32));
+	let props = DialogProps::new(
+		"confirm",
+		t!("Copy"),
+		Page::text("Body text"),
+		button(ButtonProps::new(t!("Copied"))),
+	);
+	let open = sandbox
+		._scope
+		.enter(|| {
+			let closed = Rc::clone(&closed);
+			open_dialog(props, move || closed.set(closed.get() + 1))
+		})
+		.expect("dialog mounts");
+	let dialog = document()
+		.query_selector("dialog#confirm")
+		.expect("valid selector")
+		.expect("dialog is mounted under the body")
+		.as_web_sys()
+		.clone()
+		.dyn_into::<HtmlDialogElement>()
+		.expect("dialog element");
+
+	// Act
+	dialog.close();
+	next_tick().await;
+
+	// Assert
+	assert_eq!(closed.get(), 1);
+	assert!(!open.is_open());
+	assert!(
+		document()
+			.query_selector("dialog#confirm")
+			.expect("valid selector")
+			.is_none()
+	);
+	assert!(
+		document()
+			.query_selector("[data-rh-portal-host]")
+			.expect("valid selector")
+			.is_none()
 	);
 }

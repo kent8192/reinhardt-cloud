@@ -4,7 +4,7 @@ use cloud_control_plane::components::form_styles::form_classes;
 use reinhardt::pages::component::{Page, PageElement};
 use reinhardt::pages::reactive::ReactiveScope;
 use reinhardt::pages::server_fn::{ServerFnError, server_fn};
-use reinhardt::pages::{client_form, form, use_form};
+use reinhardt::pages::{ClientFormChoices, client_form, form, use_form};
 use rstest::rstest;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,26 @@ pub struct ClusterNameRequest {
 
 #[server_fn]
 pub async fn submit_cluster_name(request: ClusterNameRequest) -> Result<(), ServerFnError> {
+	let _ = request;
+	Ok(())
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ClientFormChoices)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationMode {
+	#[default]
+	Manual,
+	Automatic,
+}
+
+#[client_form(server_fn = submit_cluster_mode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClusterModeRequest {
+	pub mode: RegistrationMode,
+}
+
+#[server_fn]
+pub async fn submit_cluster_mode(request: ClusterModeRequest) -> Result<(), ServerFnError> {
 	let _ = request;
 	Ok(())
 }
@@ -87,6 +107,40 @@ fn client_form_renders_the_design_classes() {
 		assert_eq!(
 			attr(elements(&page, "button")[0], "class"),
 			Some(classes.submit.as_str())
+		);
+	});
+}
+
+#[rstest]
+fn client_form_select_takes_the_select_class_through_customize() {
+	ReactiveScope::run(|| {
+		// Arrange
+		let classes = form_classes();
+		let definition = ClusterModeRequestClientForm::new();
+		let runtime = use_form(&definition).build();
+		let mutation = definition.server_mutation(&runtime).build();
+
+		// Act
+		let page = form! {
+			client_form: ClusterModeRequestClientForm,
+			mutation: &mutation,
+			id: "cluster-mode",
+			styling: {
+				input_class: classes.input.clone()
+			},
+			customize: {
+				mode: {
+					class: classes.select.clone()
+				}
+			},
+		}
+		.into_page();
+
+		// Assert
+		assert_eq!(elements(&page, "input").len(), 0);
+		assert_eq!(
+			attr(elements(&page, "select")[0], "class"),
+			Some(classes.select.as_str())
 		);
 	});
 }
