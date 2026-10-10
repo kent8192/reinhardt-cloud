@@ -11,7 +11,10 @@
 //!   account (SR-107), and only activation can be changed.
 //! - Provider tokens are not shown at all, in any form, and the link row is
 //!   read-only (SR-06, SR-102).
+//! - Login Links are listed read-only without their digest: only
+//!   `manage create-login-link` issues one (SR-18).
 
+pub mod login_link;
 pub mod social_account;
 pub mod user;
 
@@ -20,6 +23,7 @@ use reinhardt::admin::{AdminSite, AdminUser};
 
 use crate::apps::accounts::models::User;
 
+use self::login_link::LoginLinkAdmin;
 use self::social_account::SocialAccountAdmin;
 use self::user::UserAdmin;
 
@@ -33,7 +37,8 @@ use self::user::UserAdmin;
 /// Returns an error when a model name or table is already registered.
 pub fn register_model_admins(site: &AdminSite) -> AdminResult<()> {
 	site.register("User", UserAdmin)?;
-	site.register("Social Account", SocialAccountAdmin)
+	site.register("Social Account", SocialAccountAdmin)?;
+	site.register("Login Link", LoginLinkAdmin)
 }
 
 /// A `User` reaches the admin site only as active Staff; the framework checks
