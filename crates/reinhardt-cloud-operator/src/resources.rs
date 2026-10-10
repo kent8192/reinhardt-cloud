@@ -105,10 +105,31 @@ fn image_pull_secret_prefixes(
 	}
 }
 
-fn verified_preview_parent_name(
+/// Returns the parent `Project` name of an operator-created preview `Project`.
+///
+/// Returns `None` unless the preview carries the canonical preview,
+/// `app.kubernetes.io/managed-by`, parent, and numeric PR-number labels, and its
+/// name and namespace match the values the operator derives from those labels.
+pub(crate) fn verified_preview_parent_name(
 	app: &reinhardt_cloud_types::crd::Project,
 	app_name: &str,
 ) -> Option<String> {
+	let parent_name = preview_parent_name_from_labels(app, app_name)?;
+	let labels = app.metadata.labels.as_ref()?;
+	verified_preview_namespace(app, labels, parent_name).then(|| parent_name.to_string())
+}
+
+/// Returns the parent `Project` name recorded on a preview `Project` when its
+/// canonical preview, `app.kubernetes.io/managed-by`, parent, and numeric
+/// PR-number labels are present and its name matches the derived preview name.
+///
+/// The namespace is not checked here; callers must verify it, either through
+/// [`verified_preview_parent_name`] or against a namespace derived from a
+/// known parent.
+pub(crate) fn preview_parent_name_from_labels<'a>(
+	app: &'a reinhardt_cloud_types::crd::Project,
+	app_name: &str,
+) -> Option<&'a str> {
 	let labels = app.metadata.labels.as_ref()?;
 	let parent_name = labels.get(crate::resources::preview::PARENT_APP_LABEL_KEY)?;
 	let pr_number = labels.get(crate::resources::preview::PR_NUMBER_LABEL_KEY)?;
@@ -130,11 +151,7 @@ fn verified_preview_parent_name(
 	}
 
 	let expected_name = crate::resources::preview::preview_project_name(parent_name, pr_number);
-	if app_name == expected_name && verified_preview_namespace(app, labels, parent_name) {
-		Some(parent_name.clone())
-	} else {
-		None
-	}
+	(app_name == expected_name).then_some(parent_name.as_str())
 }
 
 fn verified_preview_namespace(

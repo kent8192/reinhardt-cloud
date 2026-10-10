@@ -121,9 +121,10 @@ rules:
     verbs: ["get", "patch"]
     {{- end }}
   # Preview environments (#707): cert-manager `Issuer` resources emitted into
-  # each `{parent}-preview` namespace. cert-manager CRDs are a platform
-  # prerequisite (see README); delete is not needed because Issuers are
-  # namespace-scoped and vanish with the preview namespace.
+  # each parent-qualified preview namespace. cert-manager CRDs are a platform
+  # prerequisite (see README). Delete is required because a retained preview
+  # namespace (namespace lifecycle management disabled) keeps its Issuer
+  # unless the operator removes it during parent cleanup.
   - apiGroups: ["cert-manager.io"]
     resources: ["issuers"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
