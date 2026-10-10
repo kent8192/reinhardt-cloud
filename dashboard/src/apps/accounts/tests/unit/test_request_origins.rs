@@ -133,3 +133,34 @@ fn the_github_app_debug_output_redacts_the_secret() {
 	// Assert
 	assert!(!rendered.contains("super-secret-value"), "{rendered}");
 }
+
+#[rstest]
+fn sr_13_trusted_proxies_are_exact_ip_addresses() {
+	// Arrange
+	let settings = AccountsSettings {
+		trusted_proxies: "10.0.0.7, 2001:db8::1 ,".to_owned(),
+		..AccountsSettings::default()
+	};
+	let malformed = AccountsSettings {
+		trusted_proxies: "10.0.0.0/8".to_owned(),
+		..AccountsSettings::default()
+	};
+
+	// Act
+	let parsed = settings.trusted_proxy_addresses();
+	let rejected = malformed.trusted_proxy_addresses();
+
+	// Assert
+	assert_eq!(
+		parsed,
+		Ok(vec![
+			"10.0.0.7".parse().unwrap(),
+			"2001:db8::1".parse().unwrap()
+		])
+	);
+	assert_eq!(rejected, Err("10.0.0.0/8".to_owned()));
+	assert_eq!(
+		AccountsSettings::default().trusted_proxy_addresses(),
+		Ok(vec![])
+	);
+}

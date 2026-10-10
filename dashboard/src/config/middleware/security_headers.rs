@@ -12,8 +12,9 @@
 //!   script, inline styles); this middleware leaves it in place.
 //! - **Transport security** (`Strict-Transport-Security`) is added by the
 //!   framework's `SecurityMiddleware` only when the request is known to have
-//!   arrived over HTTPS, which the framework trusts only from a configured
-//!   TLS-terminating proxy. HTTPS redirection is the proxy's job, so it is
+//!   arrived over HTTPS. The framework believes `X-Forwarded-Proto` only from
+//!   a proxy declared in the request's `TrustedProxies`, which `ProxyTrust`
+//!   fills in from `REINHARDT_CLOUD_TRUSTED_PROXIES`. HTTPS redirection is the proxy's job, so it is
 //!   switched off here: behind a proxy that has not been declared trusted,
 //!   every request would look like plain HTTP and loop.
 //!

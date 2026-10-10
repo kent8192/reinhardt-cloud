@@ -29,6 +29,7 @@ use crate::apps::accounts::services::server::token_crypto::{
 /// | `token_encryption_retired_keys` | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS` |
 /// | `public_url` | `REINHARDT_CLOUD_PUBLIC_URL` |
 /// | `allowed_origins` | `REINHARDT_CLOUD_ALLOWED_ORIGINS` |
+/// | `trusted_proxies` | `REINHARDT_CLOUD_TRUSTED_PROXIES` |
 /// | `github_client_id` | `REINHARDT_CLOUD_GITHUB_CLIENT_ID` |
 /// | `github_client_secret` | `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET` |
 /// | `github_authorize_url`, `github_token_url`, `github_api_url` | `REINHARDT_CLOUD_GITHUB_{AUTHORIZE,TOKEN,API}_URL` |
@@ -74,6 +75,13 @@ pub struct AccountsSettings {
 	/// cookie-authenticated requests (SR-12). A wildcard entry is ignored.
 	#[serde(default)]
 	pub allowed_origins: String,
+
+	/// Comma-separated IP addresses of the TLS-terminating proxies in front of
+	/// the Control Plane (the framework matches exact addresses, not ranges).
+	/// Only requests from these addresses have `X-Forwarded-Proto` honored, which
+	/// is what lets `Strict-Transport-Security` be sent behind a proxy (SR-13).
+	#[serde(default)]
+	pub trusted_proxies: String,
 
 	/// Client ID of the GitHub App that backs sign-in.
 	#[serde(default)]
@@ -131,6 +139,20 @@ impl AccountsSettings {
 }
 
 impl AccountsSettings {
+	/// The trusted proxy addresses.
+	///
+	/// # Errors
+	///
+	/// Returns the first entry that is not an IP address.
+	pub fn trusted_proxy_addresses(&self) -> Result<Vec<std::net::IpAddr>, String> {
+		self.trusted_proxies
+			.split(',')
+			.map(str::trim)
+			.filter(|entry| !entry.is_empty())
+			.map(|entry| entry.parse().map_err(|_| entry.to_owned()))
+			.collect()
+	}
+
 	/// The GitHub App configuration, or `None` when sign-in is not configured
 	/// (no client ID or no client secret).
 	#[must_use]
@@ -235,6 +257,11 @@ impl SettingsValidation for AccountsSettings {
 			.map_err(|error| ValidationError::InvalidValue {
 				key: "accounts.sign_up_allowed_*".to_owned(),
 				message: error.to_string(),
+			})?;
+		self.trusted_proxy_addresses()
+			.map_err(|entry| ValidationError::InvalidValue {
+				key: "accounts.trusted_proxies".to_owned(),
+				message: format!("{entry:?} is not an IP address"),
 			})?;
 		// Sign-in is optional so that a Control Plane can run with Login Links
 		// alone (break-glass or automation), but a half-configured App is a

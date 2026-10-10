@@ -1,5 +1,6 @@
 //! Security response headers (SR-13, SR-14), exercised as middleware.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -10,6 +11,7 @@ use reinhardt::core::exception::{Error, Result};
 use reinhardt::{Handler, Middleware, Request, Response};
 use rstest::rstest;
 
+use crate::config::middleware::proxy_trust::ProxyTrust;
 use crate::config::middleware::security_headers::{
 	API_CSP, ContentSecurityPolicy, PAGE_CSP, transport_headers,
 };
@@ -255,4 +257,70 @@ async fn sr_13_every_response_carries_the_basic_hardening_headers() {
 	assert_eq!(header(&response, "x-content-type-options"), Some("nosniff"));
 	assert_eq!(header(&response, "x-frame-options"), Some("DENY"));
 	assert_eq!(header(&response, "referrer-policy"), Some("same-origin"));
+}
+
+const PROXY: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7));
+
+/// The transport headers behind a proxy declaration, as the router stacks them.
+struct BehindProxyTrust;
+
+#[async_trait]
+impl Handler for BehindProxyTrust {
+	async fn handle(&self, request: Request) -> Result<Response> {
+		transport_headers(&security_settings())
+			.process(request, Arc::new(Probe(Outcome::Page)))
+			.await
+	}
+}
+
+async fn through_proxy_trust(
+	trusted: Vec<IpAddr>,
+	peer: IpAddr,
+	forwarded_proto: &str,
+) -> Response {
+	let mut headers = HeaderMap::new();
+	headers.insert("X-Forwarded-Proto", forwarded_proto.parse().unwrap());
+	let request = Request::builder()
+		.method(Method::GET)
+		.uri("/api/anything/")
+		.version(Version::HTTP_11)
+		.headers(headers)
+		.remote_addr(SocketAddr::new(peer, 40_000))
+		.body(Bytes::new())
+		.build()
+		.unwrap();
+	ProxyTrust::new(trusted)
+		.process(request, Arc::new(BehindProxyTrust))
+		.await
+		.unwrap()
+}
+
+#[rstest]
+#[tokio::test]
+async fn sr_13_hsts_is_sent_behind_a_configured_tls_terminating_proxy() {
+	// Arrange / Act
+	let response = through_proxy_trust(vec![PROXY], PROXY, "https").await;
+
+	// Assert
+	assert_eq!(
+		header(&response, "strict-transport-security"),
+		Some("max-age=31536000; includeSubDomains; preload")
+	);
+}
+
+#[rstest]
+#[case::proxy_says_http(vec![PROXY], PROXY, "http")]
+#[case::no_proxy_configured(vec![], PROXY, "https")]
+#[case::forwarded_by_a_stranger(vec![PROXY], IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)), "https")]
+#[tokio::test]
+async fn sr_13_hsts_is_not_sent_when_the_proxy_is_not_trusted_or_says_http(
+	#[case] trusted: Vec<IpAddr>,
+	#[case] peer: IpAddr,
+	#[case] proto: &str,
+) {
+	// Arrange / Act
+	let response = through_proxy_trust(trusted, peer, proto).await;
+
+	// Assert
+	assert_eq!(header(&response, "strict-transport-security"), None);
 }

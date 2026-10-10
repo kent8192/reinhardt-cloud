@@ -32,6 +32,9 @@
 #                                     GitHub callback and the cross-site request
 #                                     allow-list derive from it
 #   REINHARDT_CLOUD_ALLOWED_ORIGINS   optional comma-separated extra origins
+#   REINHARDT_CLOUD_TRUSTED_PROXIES   optional comma-separated IP addresses of the
+#                                     TLS-terminating proxies in front of the
+#                                     Control Plane; needed for HSTS behind one
 #   REINHARDT_CLOUD_GITHUB_{AUTHORIZE,TOKEN,API}_URL
 #                                     optional endpoint overrides (tests only)
 
@@ -73,6 +76,7 @@ token_encryption_key_id = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID:-}"
 token_encryption_retired_keys = "${REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS:-}"
 public_url = "${REINHARDT_CLOUD_PUBLIC_URL:-}"
 allowed_origins = "${REINHARDT_CLOUD_ALLOWED_ORIGINS:-}"
+trusted_proxies = "${REINHARDT_CLOUD_TRUSTED_PROXIES:-}"
 github_client_id = "${REINHARDT_CLOUD_GITHUB_CLIENT_ID:-}"
 github_client_secret = "${REINHARDT_CLOUD_GITHUB_CLIENT_SECRET:-}"
 github_authorize_url = "${REINHARDT_CLOUD_GITHUB_AUTHORIZE_URL:-}"

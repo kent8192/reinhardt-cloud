@@ -19,6 +19,7 @@ use crate::apps::accounts::server::session_auth::SessionAuthMiddleware;
 use crate::config::admin::build_admin_site;
 use crate::config::middleware::access_gate::AccessGate;
 use crate::config::middleware::cross_site_guard::CrossSiteGuard;
+use crate::config::middleware::proxy_trust::ProxyTrust;
 use crate::config::middleware::security_headers::{ContentSecurityPolicy, transport_headers};
 use crate::config::settings::{ProjectSettings, get_resolved_settings};
 
@@ -67,10 +68,24 @@ pub fn assemble_with(
 		.unwrap_or(DEFAULT_PORT);
 	let origins = settings.accounts.request_origins(settings.core.debug, port);
 
+	let proxies = settings
+		.accounts
+		.trusted_proxy_addresses()
+		.expect("trusted proxies were validated at startup");
+	if proxies.is_empty()
+		&& settings.core.security.secure_hsts_seconds.unwrap_or(0) > 0
+		&& !settings.core.debug
+	{
+		tracing::warn!(
+			"HSTS is configured but no trusted proxy is: behind a TLS-terminating proxy, set REINHARDT_CLOUD_TRUSTED_PROXIES or Strict-Transport-Security is never sent"
+		);
+	}
+
 	routes
 		.mount("/admin/", admin_router)
 		.mount("/static/admin/", admin_static_routes())
 		.with_di_registrations(registrations)
+		.with_middleware(ProxyTrust::new(proxies))
 		.with_middleware(transport_headers(&settings.core.security))
 		.with_middleware(ContentSecurityPolicy)
 		.with_middleware(CrossSiteGuard::new(origins))
