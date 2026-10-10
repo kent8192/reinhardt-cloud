@@ -14,7 +14,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use reinhardt_cloud_grpc::agent_claims::create_agent_token;
 use reinhardt_cloud_grpc::interceptor::{AgentJwtInterceptor, intercepted};
-use reinhardt_cloud_grpc::registry::AgentRegistry;
+use reinhardt_cloud_grpc::registry::{AgentRegistry, ClusterRegistration};
 use reinhardt_cloud_grpc::services::cluster_agent::{AgentServiceGrpc, RegistryBackedAgentService};
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::cluster_agent::agent_service_client::AgentServiceClient;
@@ -63,7 +63,7 @@ impl TestServer {
 	///
 	/// The returned receiver keeps the registration alive and yields the
 	/// commands routed to the agent.
-	fn connect_agent(&self, agent_id: Uuid, cluster_id: Uuid) -> mpsc::Receiver<AgentCommand> {
+	fn connect_agent(&self, agent_id: Uuid, cluster_id: Uuid) -> ClusterRegistration {
 		self.registry
 			.register_with_cluster(
 				AgentInfo {
@@ -358,6 +358,60 @@ async fn agent_stream_with_other_clusters_agent_id_is_denied_and_entry_unchanged
 		.await
 		.expect("victim must still be routable");
 	assert_eq!(victim_rx.recv().await, Some(command));
+}
+
+#[rstest]
+#[tokio::test]
+async fn reconnect_keeps_new_connection_registered_after_old_stream_ends(
+	#[future] server: TestServer,
+) {
+	// Arrange — the agent connects, then reconnects under the same identity
+	let server = server.await;
+	let cluster = Uuid::now_v7();
+	let agent = Uuid::now_v7();
+	let mut client = server.client().await;
+	let (old_events, old_result) = open_stream(&mut client, agent, cluster).await;
+	let mut old_commands = old_result.expect("first handshake").into_inner();
+	let (_new_events, new_result) = open_stream(&mut client, agent, cluster).await;
+	let mut new_commands = new_result.expect("reconnect handshake").into_inner();
+
+	// Act — the old stream ends. Replacing the registry entry closed its
+	// command channel, so awaiting its end proves the old forward task has
+	// run its cleanup; closing the event sender ends the old event pump.
+	let old_end = tokio::time::timeout(std::time::Duration::from_secs(5), old_commands.message())
+		.await
+		.expect("old command stream must end after replacement")
+		.expect("old command stream ends cleanly");
+	drop(old_events);
+	// The event pump has no observable completion signal; a bounded wait
+	// gives it time to run its cleanup before the registry is inspected.
+	tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+	// Assert — the new connection still owns the entry and receives commands
+	assert_eq!(old_end, None);
+	assert_eq!(server.registry.agents_for_cluster(&cluster), vec![agent]);
+	server
+		.registry
+		.send_command_to_cluster(
+			&cluster,
+			AgentCommand::Restart {
+				project_name: "web".to_string(),
+			},
+		)
+		.await
+		.expect("the reconnected agent must stay routable");
+	let delivered = tokio::time::timeout(std::time::Duration::from_secs(5), new_commands.message())
+		.await
+		.expect("command must reach the new stream")
+		.expect("new command stream stays open");
+	assert_eq!(
+		delivered,
+		Some(pb::AgentCommand {
+			command: Some(pb::agent_command::Command::Restart(pb::RestartCommand {
+				project_name: "web".to_string(),
+			})),
+		})
+	);
 }
 
 // --- Missing claims (fail closed) ---
