@@ -41,8 +41,7 @@ impl CrossSiteGuard {
 
 	fn requires_proof(request: &Request) -> bool {
 		let safe = matches!(request.method.as_str(), "GET" | "HEAD" | "OPTIONS");
-		!safe
-			&& request_cookie(request, SESSION_COOKIE).is_some()
+		!safe && request_cookie(request, SESSION_COOKIE).is_some()
 	}
 
 	fn presented_origin(request: &Request) -> Option<String> {

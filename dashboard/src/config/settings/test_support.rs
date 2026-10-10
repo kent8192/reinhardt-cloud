@@ -87,7 +87,10 @@ pub(crate) fn required_env(profile: &'static str) -> Vec<(&'static str, Option<&
 	let mut vars: Vec<_> = REQUIRED_ENV.iter().map(|(k, v)| (*k, Some(*v))).collect();
 	if matches!(profile, "staging" | "production") {
 		// A deployed profile refuses to start without the GitHub App.
-		vars.push(("REINHARDT_CLOUD_GITHUB_CLIENT_ID", Some("Iv1.test-client-id")));
+		vars.push((
+			"REINHARDT_CLOUD_GITHUB_CLIENT_ID",
+			Some("Iv1.test-client-id"),
+		));
 		vars.push((
 			"REINHARDT_CLOUD_GITHUB_CLIENT_SECRET",
 			Some("test-only-github-client-secret"),
