@@ -129,8 +129,8 @@ are the source of truth for commands; examples do not authorize their side effec
 ## Instruction maintenance
 
 Keep `AGENTS.md` and `CLAUDE.md` mirrored in the same commit, including nested
-pairs. Only mechanical substitutions of their names, local-file names, and
-Codex attribution / Claude Code attribution may differ. Run
+pairs. Only mechanical substitutions of their names and local-file names may
+differ. Run
 `diff CLAUDE.md AGENTS.md` and verify normalized equivalence after editing.
 
 Read `AGENTS.local.md` if present. Do not change user configuration files as an

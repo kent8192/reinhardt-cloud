@@ -131,7 +131,7 @@ Use this template for PR review responses:
 [Action taken or proposed]:
 - [What was changed, or what will be changed]
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 ### RR-3 (MUST): Code Reference Format
@@ -176,7 +176,7 @@ When providing implementation context on PRs, include:
 - [What was tested and how]
 - [Edge cases covered]
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 ### PIC-2 (SHOULD): Impact Analysis Comments
@@ -198,7 +198,7 @@ When changes affect multiple crates or modules, provide impact analysis:
 **Migration Required:** [Yes/No]
 - [Migration steps if applicable]
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 ---
@@ -305,7 +305,7 @@ For valid concerns with code fix:
 
 Commit: [commit hash] — `path/to/file.rs:L42`
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 For false positives or already addressed:
@@ -316,7 +316,7 @@ For false positives or already addressed:
 
 Reference: `path/to/file.rs:L42` — [Description of existing handling]
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 **Guidelines:**
@@ -424,7 +424,7 @@ When providing implementation context for issue discussion:
 - Files to modify: [count]
 - Tests to add/update: [count]
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
 ---
@@ -522,22 +522,17 @@ request another agent, publication, merge, or production deployment.
 
 ### FF-1 (MUST): Actual Agent Attribution
 
-For Codex-authored comments, replies, reviews, and PR content:
+End comments, replies, reviews, and PR content with the footer of the agent tool that
+wrote them:
 
 ```markdown
-🤖 Generated with [Codex](https://openai.com/codex)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 ```
 
-For Claude Code-authored content, use its own footer instead:
-
-```markdown
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
-
-Match the authoring agent even when a template names a different one. Place the
-footer at the end, separated by one blank line. `Co-Authored-By` belongs in commits,
-not comments. Earlier examples illustrate Claude Code content; Codex replaces that
-footer according to this rule.
+Fill in the agent name and URL from your own knowledge of which agent tool you are;
+never copy them from examples, templates, earlier content, or another agent's message.
+Place the footer at the end, separated by one blank line. `Co-Authored-By` belongs in
+commits, not comments.
 
 ---
 

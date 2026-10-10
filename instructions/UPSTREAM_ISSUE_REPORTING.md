@@ -81,7 +81,7 @@ Discovered during Reinhardt Cloud development while [brief context].
 
 Reinhardt Cloud tracking issue: https://github.com/kent8192/reinhardt-cloud/issues/N
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 EOF
 )"
 ```
@@ -94,7 +94,7 @@ Upstream issues MUST:
 - Include clear reproduction steps
 - Include the discovery context (e.g., "discovered during Reinhardt Cloud operator reconciler implementation")
 - Reference related Reinhardt Cloud issues or PRs if applicable
-- Include Claude Code attribution footer
+- Include the authoring agent's attribution footer (GITHUB_INTERACTION.md FF-1)
 - **NOT** include absolute local paths or user-specific information
 
 ### UR-4 (MUST): Cross-Referencing with Tracking Issues
@@ -153,7 +153,7 @@ This issue should be closed when:
 - The upstream issue is resolved AND
 - The Reinhardt Cloud workaround (if any) is removed
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [<Agent Name>](<Agent URL>)
 EOF
 )"
 ```
