@@ -1,7 +1,7 @@
 /*
  * Applies the stored theme before first paint so a returning User never sees
  * the wrong theme while the WebAssembly application loads. The storage key
- * must match `STORAGE_KEY` in `src/ui/theme.rs`.
+ * must match `STORAGE_KEY` in `src/components/theme.rs`.
  */
 (function () {
 	"use strict";

@@ -20,7 +20,7 @@ use reinhardt::pages::{
 	style_def,
 };
 
-use crate::components::browser::{self, CloseListener};
+use crate::components::browser::{self, EventListener};
 
 #[style_def]
 pub static DIALOG_STYLES: DialogStyles = style! {
@@ -137,7 +137,7 @@ pub fn dialog_view(props: DialogProps) -> Page {
 /// and the `on_close` callback runs.
 pub struct OpenDialog {
 	// Declared before `portal` so the listener is removed before the dialog.
-	_close_listener: Option<CloseListener>,
+	_close_listener: Option<EventListener>,
 	portal: Rc<RefCell<Option<PortalHandle>>>,
 }
 
