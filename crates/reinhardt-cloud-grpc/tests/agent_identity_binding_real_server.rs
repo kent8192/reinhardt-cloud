@@ -323,8 +323,9 @@ async fn agent_stream_binds_announced_agent_to_authenticated_cluster(#[future] s
 	let (_events, result) = open_stream(&mut client, agent, cluster).await;
 
 	// Assert
-	assert!(result.is_ok(), "own handshake must be accepted");
+	let _commands = result.expect("own handshake must be accepted");
 	assert_eq!(server.registry.agents_for_cluster(&cluster), vec![agent]);
+	assert_eq!(server.registry.count(), 1);
 }
 
 #[rstest]
