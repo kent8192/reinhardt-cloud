@@ -944,7 +944,8 @@ rejects `[env]` entries that would make the running app read a different
 publication: `REINHARDT_ENV` other than `production`, static root keys
 (`REINHARDT_STATIC_FILES__ROOT`, `REINHARDT_STATIC__ROOT`, `REINHARDT_STATIC_ROOT`)
 or static URL keys (`..._URL`) that differ from the recorded `[pages]` values, and
-any base directory override (`REINHARDT_CORE__BASE_DIR`, `REINHARDT_BASE_DIR`).
+any base directory override (`REINHARDT_CORE__BASE_DIR`, `REINHARDT_BASE_DIR`) other
+than the working directory (`.`), which generated Pages settings already require.
 The operator applies the same check to every `prebuilt` Pages project.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching

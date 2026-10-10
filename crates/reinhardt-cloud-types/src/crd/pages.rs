@@ -113,9 +113,10 @@ const PUBLICATION_BASE_DIR_ENV: &[&str] = &["REINHARDT_CORE__BASE_DIR", "REINHAR
 /// `static_root` and `static_url`. Application environment variables take
 /// precedence over image settings, so a different profile, static root, static
 /// URL, or base directory would make the app resolve assets the static-server
-/// sidecar does not serve. Values equal to the recorded contract are allowed;
-/// base directory overrides are always reported because relative roots move
-/// with them.
+/// sidecar does not serve. Values equal to the recorded contract are allowed.
+/// Prebuilt publications are generated with the working-directory base
+/// (`base_dir = "."`), so only base directory overrides that resolve to the
+/// working directory itself keep relative roots in place.
 pub fn conflicting_publication_env(
 	static_root: &str,
 	static_url: &str,
@@ -128,10 +129,17 @@ pub fn conflicting_publication_env(
 			(key == "REINHARDT_ENV" && value.as_str() != "production")
 				|| (PUBLICATION_ROOT_ENV.contains(&key) && value.as_str() != static_root)
 				|| (PUBLICATION_URL_ENV.contains(&key) && value.as_str() != static_url)
-				|| PUBLICATION_BASE_DIR_ENV.contains(&key)
+				|| (PUBLICATION_BASE_DIR_ENV.contains(&key) && !is_working_directory(value))
 		})
 		.map(|(key, _)| key.clone())
 		.collect()
+}
+
+/// Whether a base directory value is the working directory (`.`, `./`, `././`).
+fn is_working_directory(value: &str) -> bool {
+	!value.is_empty()
+		&& value.split('/').all(|part| matches!(part, "." | ""))
+		&& value.starts_with('.')
 }
 
 #[cfg(test)]
@@ -316,7 +324,13 @@ gzip: true
 	#[case("REINHARDT_STATIC__URL", "/assets/", true)]
 	#[case("REINHARDT_STATIC_URL", "/assets/", true)]
 	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true)]
-	#[case("REINHARDT_BASE_DIR", ".", true)]
+	#[case("REINHARDT_BASE_DIR", ".", false)]
+	#[case("REINHARDT_BASE_DIR", "./", false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "././", false)]
+	#[case("REINHARDT_BASE_DIR", "", true)]
+	#[case("REINHARDT_BASE_DIR", "..", true)]
+	#[case("REINHARDT_BASE_DIR", "./app", true)]
+	#[case("REINHARDT_BASE_DIR", "/", true)]
 	fn detects_env_overrides_of_the_publication_contract(
 		#[case] key: &str,
 		#[case] value: &str,
