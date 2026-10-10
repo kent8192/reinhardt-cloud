@@ -216,6 +216,23 @@ pub(super) fn read_static_root(
 	{
 		return Err("static root overlaps application sources, settings, or build metadata; use a dedicated publication directory".to_owned());
 	}
+	// The asset stage writes, and the runtime image copies, the whole directory
+	// from the workspace tree in the builder. It must not be an ancestor of the
+	// application member (e.g. `/app/apps` for member `apps/dashboard`) or hold
+	// any crate sources of its own.
+	let build_relative = if path.starts_with("/app/") {
+		relative_path.to_path_buf()
+	} else {
+		Path::new(member.as_deref().unwrap_or_default()).join(relative_path)
+	};
+	let workspace = super::locate_workspace_file(project, "Cargo.lock")
+		.and_then(|lock| lock.parent().map(Path::to_path_buf))
+		.unwrap_or_else(|| project.to_path_buf());
+	if Path::new(member.as_deref().unwrap_or_default()).starts_with(&build_relative)
+		|| contains_crate_manifest(&workspace.join(&build_relative))?
+	{
+		return Err("static root contains a workspace member or crate sources; use a dedicated publication directory".to_owned());
+	}
 	if let Some((name, _)) = &env_binding {
 		build_env.remove(name);
 	}
@@ -229,6 +246,42 @@ pub(super) fn read_static_root(
 		env_binding,
 		build_env: build_env.into_iter().collect(),
 	})
+}
+
+/// Whether an existing directory holds a `Cargo.toml` at any depth, without
+/// following symbolic links. A missing directory holds no sources.
+fn contains_crate_manifest(directory: &Path) -> Result<bool, String> {
+	let mut pending = vec![directory.to_path_buf()];
+	while let Some(current) = pending.pop() {
+		let entries = match std::fs::read_dir(&current) {
+			Ok(entries) => entries,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+			Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => continue,
+			Err(error) => {
+				return Err(format!(
+					"cannot inspect static root {}: {error}",
+					current.display()
+				));
+			}
+		};
+		for entry in entries {
+			let entry = entry.map_err(|error| {
+				format!("cannot inspect static root {}: {error}", current.display())
+			})?;
+			let kind = entry.file_type().map_err(|error| {
+				format!(
+					"cannot inspect static root {}: {error}",
+					entry.path().display()
+				)
+			})?;
+			if kind.is_dir() {
+				pending.push(entry.path());
+			} else if entry.file_name() == "Cargo.toml" {
+				return Ok(true);
+			}
+		}
+	}
+	Ok(false)
 }
 
 /// Overlay a later settings profile: tables merge recursively, other values replace.
@@ -668,5 +721,53 @@ mod tests {
 			read_static_root(&project, &ReinhardtCloudToml::default()).is_ok(),
 			accepted
 		);
+	}
+
+	#[rstest]
+	#[case("/app/apps", false)]
+	#[case("/app/apps/dashboard", false)]
+	#[case("/app/crates", false)]
+	#[case("vendor", false)]
+	#[case("/app/apps/dashboard/static", true)]
+	#[case("static", true)]
+	#[case("/app/published", true)]
+	fn rejects_roots_containing_workspace_sources(#[case] path: &str, #[case] accepted: bool) {
+		// Arrange: a nested member next to another crate and vendored sources.
+		let workspace = tempfile::tempdir().unwrap();
+		std::fs::write(
+			workspace.path().join("Cargo.toml"),
+			"[workspace]\nmembers=['apps/dashboard', 'crates/shared']",
+		)
+		.unwrap();
+		std::fs::write(workspace.path().join("Cargo.lock"), "version = 3").unwrap();
+		let project = workspace.path().join("apps/dashboard");
+		std::fs::create_dir_all(project.join("settings")).unwrap();
+		std::fs::write(project.join("Cargo.toml"), "[package]\nname='dashboard'").unwrap();
+		std::fs::create_dir_all(workspace.path().join("crates/shared")).unwrap();
+		std::fs::write(
+			workspace.path().join("crates/shared/Cargo.toml"),
+			"[package]\nname='shared'",
+		)
+		.unwrap();
+		std::fs::create_dir_all(project.join("vendor/dependency")).unwrap();
+		std::fs::write(
+			project.join("vendor/dependency/Cargo.toml"),
+			"[package]\nname='dependency'",
+		)
+		.unwrap();
+		std::fs::write(
+			project.join("settings/base.toml"),
+			format!("static_root={path:?}"),
+		)
+		.unwrap();
+
+		// Act
+		let result = read_static_root(&project, &ReinhardtCloudToml::default());
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if !accepted {
+			assert!(result.unwrap_err().contains("static root"));
+		}
 	}
 }
