@@ -229,11 +229,15 @@ path and supply a Dockerfile designed for that context. Static URL interpolation
 must use an `_URL` variable with an explicit build argument or literal default;
 generation pins that public prefix for asset publication and runtime routing.
 Other dynamic settings require a custom Dockerfile and explicit Pages settings.
-The operator seeds the static sidecar’s shared volume from the image publication
-through a sibling mount, preserving its manifest, JS, WASM and generation paths.
-It runs legacy `collectstatic` only when no baked manifest exists. Pages images
-must provide `/bin/sh` and `cp`; static roots must be absolute directories without
-parent traversal. Existing isolation security contexts and volume ownership apply.
+`init` and `sync` also set `[pages].prebuilt = true` for generated Pages images.
+For such images the operator seeds the static sidecar’s shared volume by running
+`cp` (without a shell) from the image publication through a sibling mount,
+preserving its manifest, JS, WASM and generation paths. Images without that
+explicit marker keep the legacy `manage collectstatic --no-input` init container;
+a file named `manifest.json` alone never selects the prebuilt path. Prebuilt
+images must provide `cp` on `PATH`. Static roots must be absolute directories
+without parent traversal. Existing isolation security contexts and volume
+ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component
 styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses

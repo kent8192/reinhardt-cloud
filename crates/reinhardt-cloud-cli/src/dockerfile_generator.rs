@@ -112,6 +112,8 @@ pub(crate) fn configure_pages(
 		let pages = config.pages.get_or_insert_default();
 		pages.static_root = Some(root.runtime_path());
 		pages.static_url = Some(root.url);
+		// Generated images ship the buildstatic publication at that root.
+		pages.prebuilt = Some(true);
 	} else {
 		config.pages = None;
 	}
@@ -375,6 +377,7 @@ mod tests {
 		let pages = config.pages.unwrap();
 		assert_eq!(pages.static_root.as_deref(), Some("/app/dist"));
 		assert_eq!(pages.static_url.as_deref(), Some(expected));
+		assert_eq!(pages.prebuilt, Some(true));
 	}
 
 	#[rstest]

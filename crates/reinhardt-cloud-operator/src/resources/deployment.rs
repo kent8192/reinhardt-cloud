@@ -51,7 +51,8 @@ fn build_main_container_probe(app: &Project, default_port: i32) -> Result<Option
 /// Builds a `Deployment` for the given `Project`.
 ///
 /// Uses the app's own namespace as the single source of truth.
-/// When `pages_config` is provided, adds a collectstatic initContainer,
+/// When `pages_config` is provided, adds a static-seeding initContainer
+/// (`cp` from a prebuilt image publication, otherwise `collectstatic`),
 /// a static-server sidecar container, and a shared emptyDir volume.
 /// Returns an error if the owner reference cannot be computed.
 pub(crate) fn build_deployment(
@@ -95,7 +96,7 @@ pub(crate) fn build_deployment(
 	// Additional containers (sidecars)
 	let mut extra_containers: Vec<Container> = Vec::new();
 
-	// Pages: collectstatic initContainer, static-server sidecar, emptyDir volume
+	// Pages: static-seeding initContainer, static-server sidecar, emptyDir volume
 	if let Some(config) = pages_config {
 		// Add shared emptyDir volume for static files
 		volumes.push(Volume {
@@ -104,8 +105,6 @@ pub(crate) fn build_deployment(
 			..Default::default()
 		});
 
-		// Mount a sibling staging directory so the image publication remains
-		// visible in this container while its bytes seed the shared volume.
 		// Container paths use POSIX syntax regardless of the operator build host.
 		let root = config.static_root.trim_end_matches('/');
 		if !root.starts_with('/')
@@ -115,51 +114,59 @@ pub(crate) fn build_deployment(
 		{
 			return Err(Error::InvalidStaticRoot(config.static_root.clone()));
 		}
-		let staging = format!("{root}-cloud-volume");
-		init_containers.push(Container {
-			name: "seed-static-files".into(),
-			image: Some(app.spec.image.clone()),
-			command: Some(vec!["/bin/sh".into(), "-ec".into()]),
-			args: Some(vec![
-				"if [ -f \"$1/manifest.json\" ] || [ -f \"$1/staticfiles.json\" ]; then cp -RP -- \"$1/.\" \"$2/\"; fi".into(),
-				"seed-static-files".into(),
-				config.static_root.clone(),
-				staging.clone(),
-			]),
-			volume_mounts: Some(vec![VolumeMount { name: "static-files".into(), mount_path: staging, ..Default::default() }]),
-			..Default::default()
-		});
 
-		// collectstatic initContainer
-		let mut collectstatic_mounts = volume_mounts.clone();
-		collectstatic_mounts.push(VolumeMount {
-			name: "static-files".to_string(),
-			mount_path: config.static_root.clone(),
-			..Default::default()
-		});
+		if config.prebuilt {
+			// Mount the volume at a sibling path so the image publication stays
+			// visible while its exact bytes seed the volume. `cp` runs directly
+			// rather than through a shell, and only for images explicitly marked
+			// as shipping a publication.
+			let staging = format!("{root}-cloud-volume");
+			init_containers.push(Container {
+				name: "seed-static-files".to_string(),
+				image: Some(app.spec.image.clone()),
+				command: Some(vec![
+					"cp".to_string(),
+					"-RP".to_string(),
+					"--".to_string(),
+					format!("{root}/."),
+					format!("{staging}/"),
+				]),
+				volume_mounts: Some(vec![VolumeMount {
+					name: "static-files".to_string(),
+					mount_path: staging,
+					..Default::default()
+				}]),
+				..Default::default()
+			});
+		} else {
+			// collectstatic initContainer
+			let mut collectstatic_mounts = volume_mounts.clone();
+			collectstatic_mounts.push(VolumeMount {
+				name: "static-files".to_string(),
+				mount_path: config.static_root.clone(),
+				..Default::default()
+			});
 
-		let mut collectstatic_env = merged_env.clone();
-		collectstatic_env.push(EnvVar {
-			name: "REINHARDT_STATIC_ROOT".to_string(),
-			value: Some(config.static_root.clone()),
-			..Default::default()
-		});
+			let mut collectstatic_env = merged_env.clone();
+			collectstatic_env.push(EnvVar {
+				name: "REINHARDT_STATIC_ROOT".to_string(),
+				value: Some(config.static_root.clone()),
+				..Default::default()
+			});
 
-		init_containers.push(Container {
-			name: "collectstatic".to_string(),
-			image: Some(app.spec.image.clone()),
-			// Published manifests must retain their original generation and assets.
-			// Images without a publication retain the legacy collection path.
-			command: Some(vec!["/bin/sh".into(), "-ec".into()]),
-			args: Some(vec![
-				"if [ ! -f \"$1/manifest.json\" ] && [ ! -f \"$1/staticfiles.json\" ]; then exec manage collectstatic --no-input; fi".into(),
-				"collectstatic".into(),
-				config.static_root.clone(),
-			]),
-			env: Some(collectstatic_env),
-			volume_mounts: Some(collectstatic_mounts),
-			..Default::default()
-		});
+			init_containers.push(Container {
+				name: "collectstatic".to_string(),
+				image: Some(app.spec.image.clone()),
+				command: Some(vec![
+					"manage".to_string(),
+					"collectstatic".to_string(),
+					"--no-input".to_string(),
+				]),
+				env: Some(collectstatic_env),
+				volume_mounts: Some(collectstatic_mounts),
+				..Default::default()
+			});
+		}
 
 		// Convert server_resources to k8s ResourceRequirements
 		let server_resources = ResourceRequirements {
@@ -308,7 +315,7 @@ pub(crate) fn build_deployment(
 					volumes: Some(volumes),
 					// Forward validated spec.imagePullSecrets so the kubelet can
 					// authenticate to private registries when pulling the main
-					// application container, the collectstatic init-container,
+					// application container, the static-seeding init-container,
 					// and the static-server sidecar — they all share this
 					// PodSpec.
 					image_pull_secrets: super::validated_image_pull_secrets(app)?,
@@ -975,26 +982,66 @@ mod tests {
 			.expect("collectstatic init container should be present");
 		assert_eq!(
 			collectstatic.command.as_deref(),
-			Some(["/bin/sh".to_owned(), "-ec".to_owned()].as_slice())
+			Some(
+				[
+					"manage".to_owned(),
+					"collectstatic".to_owned(),
+					"--no-input".to_owned(),
+				]
+				.as_slice()
+			)
 		);
-		assert_eq!(
-			collectstatic.args.as_ref().unwrap()[0],
-			"if [ ! -f \"$1/manifest.json\" ] && [ ! -f \"$1/staticfiles.json\" ]; then exec manage collectstatic --no-input; fi"
-		);
-		assert_eq!(collectstatic.args.as_ref().unwrap()[2], pages.static_root);
+		assert_eq!(collectstatic.args, None);
+	}
+
+	#[rstest]
+	#[case(false, &["collectstatic"])]
+	#[case(true, &["seed-static-files"])]
+	fn pages_static_seeding_follows_the_publication_marker(
+		#[case] prebuilt: bool,
+		#[case] expected: &[&str],
+	) {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.prebuilt = prebuilt;
+
+		// Act
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+
+		// Assert
+		let inits = deployment
+			.spec
+			.unwrap()
+			.template
+			.spec
+			.unwrap()
+			.init_containers
+			.unwrap();
+		let names: Vec<_> = inits.iter().map(|c| c.name.as_str()).collect();
+		assert_eq!(names, expected);
+		for container in &inits {
+			let command = container.command.as_ref().unwrap();
+			assert!(
+				!command[0].ends_with("sh"),
+				"Pages init containers must not require a shell: {command:?}"
+			);
+			assert_eq!(container.args, None);
+		}
 	}
 
 	#[cfg(unix)]
 	#[rstest]
-	fn pages_image_publication_survives_shared_volume_initialization() {
+	fn prebuilt_image_publication_survives_shared_volume_initialization() {
+		// Arrange
 		let directory = tempfile::tempdir().unwrap();
 		let source = directory.path().join("publication");
-		std::fs::create_dir(&source).unwrap();
+		std::fs::create_dir_all(source.join("builds/generation")).unwrap();
 		let files = [
 			("manifest.json", "{\"version\":\"2.0\"}"),
 			("index.html", "<script src=app.js></script>"),
-			("app.js", "import './app.wasm';"),
-			("app.wasm", "wasm fixture"),
+			("builds/generation/app.js", "import './app.wasm';"),
+			("builds/generation/app.wasm", "wasm fixture"),
 			(".generation", "pinned generation"),
 		];
 		for (name, bytes) in files {
@@ -1002,7 +1049,10 @@ mod tests {
 		}
 		let mut pages = make_default_pages_config();
 		pages.static_root = source.to_str().unwrap().into();
+		pages.prebuilt = true;
 		let app = make_test_app("app", "img:v1", None);
+
+		// Act
 		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
 		let spec = deployment.spec.unwrap().template.spec.unwrap();
 		let containers = spec.init_containers.unwrap();
@@ -1017,41 +1067,22 @@ mod tests {
 			.iter()
 			.find(|mount| mount.name == "static-files")
 			.unwrap();
-		assert_ne!(mount.mount_path, pages.static_root);
 		let target = std::path::Path::new(&mount.mount_path);
-		assert!(!target.starts_with(&source) && !source.starts_with(target));
 		std::fs::create_dir(target).unwrap();
 		let command = seed.command.as_ref().unwrap();
 		let status = std::process::Command::new(&command[0])
 			.args(&command[1..])
-			.args(seed.args.as_ref().unwrap())
 			.status()
 			.unwrap();
+
+		// Assert
 		assert!(status.success());
+		assert_ne!(mount.mount_path, pages.static_root);
+		assert!(!target.starts_with(&source) && !source.starts_with(target));
 		for (name, bytes) in files {
 			assert_eq!(std::fs::read(target.join(name)).unwrap(), bytes.as_bytes());
 			assert_eq!(std::fs::read(source.join(name)).unwrap(), bytes.as_bytes());
 		}
-		let collect = containers
-			.iter()
-			.find(|container| container.name == "collectstatic")
-			.unwrap();
-		let command = collect.command.as_ref().unwrap();
-		let mut arguments = collect.args.clone().unwrap();
-		*arguments.last_mut().unwrap() = mount.mount_path.clone();
-		// The volume maps the published root to these seeded bytes. No manage
-		// binary is available: recollection must be skipped for a baked manifest.
-		let status = std::process::Command::new(&command[0])
-			.args(&command[1..])
-			.args(arguments)
-			.env("PATH", directory.path())
-			.status()
-			.unwrap();
-		assert!(status.success());
-		assert_eq!(
-			std::fs::read(target.join("manifest.json")).unwrap(),
-			files[0].1.as_bytes()
-		);
 	}
 
 	#[rstest]
@@ -1061,76 +1092,20 @@ mod tests {
 	#[case("/app/./dist")]
 	#[case("/app/dist\n")]
 	fn publication_roots_cannot_overlap_the_seed_volume(#[case] root: &str) {
+		// Arrange
 		let app = make_test_app("app", "img:v1", None);
 		let mut pages = make_default_pages_config();
 		pages.static_root = root.into();
+		pages.prebuilt = true;
+
+		// Act
 		let error = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap_err();
+
+		// Assert
 		assert!(matches!(&error, Error::InvalidStaticRoot(value) if value == root));
 		assert_eq!(
 			crate::error::backoff_class(&error),
 			crate::error::BackoffClass::Permanent
-		);
-	}
-
-	#[cfg(unix)]
-	#[rstest]
-	fn images_without_a_publication_still_collect_into_the_shared_volume() {
-		use std::os::unix::fs::PermissionsExt;
-		let directory = tempfile::tempdir().unwrap();
-		let source = directory.path().join("publication");
-		std::fs::create_dir(&source).unwrap();
-		std::fs::write(
-			source.join("unpublished-input"),
-			"keep outside the shared publication",
-		)
-		.unwrap();
-		let mut pages = make_default_pages_config();
-		pages.static_root = source.to_str().unwrap().into();
-		let app = make_test_app("app", "img:v1", None);
-		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
-		let containers = deployment
-			.spec
-			.unwrap()
-			.template
-			.spec
-			.unwrap()
-			.init_containers
-			.unwrap();
-		let seed = containers
-			.iter()
-			.find(|container| container.name == "seed-static-files")
-			.unwrap();
-		let target = directory.path().join("publication-cloud-volume");
-		std::fs::create_dir(&target).unwrap();
-		let command = seed.command.as_ref().unwrap();
-		let status = std::process::Command::new(&command[0])
-			.args(&command[1..])
-			.args(seed.args.as_ref().unwrap())
-			.status()
-			.unwrap();
-		assert!(status.success());
-		assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
-		let manage = directory.path().join("manage");
-		std::fs::write(&manage, "#!/bin/sh\n[ \"$1\" = collectstatic ] && [ \"$2\" = --no-input ] || exit 9\nprintf collected > \"$REINHARDT_STATIC_ROOT/manifest.json\"\n").unwrap();
-		std::fs::set_permissions(&manage, std::fs::Permissions::from_mode(0o700)).unwrap();
-		let collect = containers
-			.iter()
-			.find(|container| container.name == "collectstatic")
-			.unwrap();
-		let command = collect.command.as_ref().unwrap();
-		let mut arguments = collect.args.clone().unwrap();
-		*arguments.last_mut().unwrap() = target.to_str().unwrap().into();
-		let status = std::process::Command::new(&command[0])
-			.args(&command[1..])
-			.args(arguments)
-			.env("PATH", directory.path())
-			.env("REINHARDT_STATIC_ROOT", &target)
-			.status()
-			.unwrap();
-		assert!(status.success());
-		assert_eq!(
-			std::fs::read(target.join("manifest.json")).unwrap(),
-			b"collected"
 		);
 	}
 

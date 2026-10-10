@@ -495,6 +495,7 @@ brotli=false
 		assert_eq!(pages.static_root.as_deref(), Some(expected));
 		assert_eq!(pages.cache_max_age, Some(60));
 		assert_eq!(pages.brotli, Some(false));
+		assert_eq!(pages.prebuilt, (force && !custom).then_some(true));
 		let build = config.source.unwrap().build.unwrap();
 		assert_eq!(build.dockerfile.as_deref(), Some(dockerfile));
 		assert_eq!(

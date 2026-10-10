@@ -1139,6 +1139,7 @@ mod tests {
 				cache_max_age: Some(86400),
 				brotli: None,
 				gzip: None,
+				prebuilt: None,
 			}),
 			deletion_policy: DeletionPolicy::Delete,
 			features: vec!["db-postgres".to_string(), "auth-jwt".to_string()],
@@ -1233,6 +1234,7 @@ mod tests {
 				cache_max_age: Some(86400),
 				brotli: None,
 				gzip: None,
+				prebuilt: None,
 			}),
 			..Default::default()
 		};
@@ -1261,6 +1263,7 @@ mod tests {
 				cache_max_age: None,
 				brotli: None,
 				gzip: None,
+				prebuilt: None,
 			}),
 			..Default::default()
 		};

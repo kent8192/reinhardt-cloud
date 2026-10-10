@@ -32,6 +32,12 @@ pub struct PagesSpec {
 	pub brotli: Option<bool>,
 	/// Enable Gzip compression. Defaults to true.
 	pub gzip: Option<bool>,
+	/// Whether the image already contains a complete `buildstatic` publication
+	/// at `static_root`. When true, the operator copies that publication into
+	/// the static-server volume with `cp` instead of running `collectstatic`,
+	/// so the image must provide `cp` on `PATH`. `reinhardt-cloud init` and
+	/// `sync` set this for generated Pages Dockerfiles. Defaults to false.
+	pub prebuilt: Option<bool>,
 }
 
 /// CRD-safe resource requirements for the static-web-server sidecar.
@@ -98,6 +104,7 @@ mod tests {
 			cache_max_age: Some(86400),
 			brotli: Some(true),
 			gzip: Some(true),
+			prebuilt: Some(true),
 		};
 
 		// Act
@@ -118,6 +125,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -138,6 +146,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -160,6 +169,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act
@@ -182,6 +192,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		};
 
 		// Act

@@ -5201,6 +5201,7 @@ mod tests {
 			cache_max_age: None,
 			brotli: None,
 			gzip: None,
+			prebuilt: None,
 		});
 
 		// Act

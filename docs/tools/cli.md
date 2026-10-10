@@ -928,6 +928,9 @@ least `0.4.0-alpha.20` and an explicit static output root in
 `static.root`, or `static_root`). The asset command and runtime use the production
 profile. The generated image copies that publication directory, including workspace
 member paths, to the corresponding runtime root; it does not copy project settings.
+Generating the image also records `[pages].prebuilt = true`, so the operator
+seeds the static sidecar volume from that publication with `cp` instead of
+running `collectstatic`.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 `source.build.build_args` value when provided, otherwise its literal default.
