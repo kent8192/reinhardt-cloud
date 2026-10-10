@@ -17,6 +17,4 @@ pub const MESSAGES: &[(&str, &str)] = &[
 	// Code block
 	("Copy", "Copy"),
 	("Copied", "Copied"),
-	("Copy {title}", "Copy {title}"),
-	("Copied {title}", "Copied {title}"),
 ];

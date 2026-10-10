@@ -57,9 +57,10 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 /// Renders `text` in a code block with a bar holding `title` and a copy button.
 ///
 /// `id` must be unique in the document; the copy button controls the `<code>`
-/// element with the ID `{id}-text`. The button's accessible name is "Copy
-/// {title}" ("Copied {title}" after a copy) so several blocks on one page can
-/// be told apart while the visible word stays part of the name.
+/// element with the ID `{id}-text`. The button's accessible name is computed
+/// from its content: the visible word ("Copy", then "Copied" after a copy)
+/// followed by `title` in a visually hidden span, so several blocks on one page
+/// can be told apart and the name always contains the visible label.
 pub fn code_block(id: &str, title: TranslatedText, text: String) -> Page {
 	let copied = Signal::new(false);
 	let copy = Callback::new({
@@ -84,13 +85,12 @@ pub fn code_block(id: &str, title: TranslatedText, text: String) -> Page {
 					class: button_class,
 					type: "button",
 					aria_controls: controls,
-					aria_label: if copied.get() {
-						t!("Copied {title}", title = title).render_string()
-					} else {
-						t!("Copy {title}", title = title).render_string()
-					},
 					@click: copy,
-					if copied.get() { { t!("Copied") } } else { { t!("Copy") } }
+					if copied.get() { { t!("Copied") } }
+					else { { t!("Copy") } }span {
+						class: "rc-visually-hidden",
+						" " { title.clone() }
+					}
 				}
 			}
 			pre {
