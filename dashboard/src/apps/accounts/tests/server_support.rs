@@ -129,6 +129,12 @@ impl TestApp {
 		} else {
 			(Some(""), Some(""))
 		};
+		// A deployed profile starts without the GitHub App only on an explicit
+		// opt-out.
+		vars.push((
+			"REINHARDT_CLOUD_GITHUB_SIGN_IN",
+			(!options.github_configured).then_some("disabled"),
+		));
 		vars.push(("REINHARDT_CLOUD_GITHUB_CLIENT_ID", client_id));
 		vars.push(("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", client_secret));
 		vars.push((
