@@ -200,6 +200,29 @@ impl SessionService {
 		})
 	}
 
+	/// Start a session for `user` in place of the one the browser presented.
+	///
+	/// This is the one place that rotates a session (SR-08), shared by every way
+	/// of signing in (the GitHub callback and Login Link consumption), so they
+	/// cannot drift apart. `previous` is the session cookie the browser sent, if
+	/// any: it is destroyed first, because a token planted before sign-in
+	/// (fixation) must not survive it. When it cannot be destroyed it would stay
+	/// valid beside the new session, so no session is issued at all.
+	///
+	/// # Errors
+	///
+	/// Returns an error when Redis is unreachable or refuses a write.
+	pub async fn replace(
+		&self,
+		user: Uuid,
+		previous: Option<&SessionToken>,
+	) -> Result<IssuedSession, SessionError> {
+		if let Some(previous) = previous {
+			self.destroy(previous).await?;
+		}
+		self.create(user).await
+	}
+
 	/// The User a presented token belongs to, if the session is still alive.
 	///
 	/// Using a session slides its idle timer forward, but never past the

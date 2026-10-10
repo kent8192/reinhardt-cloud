@@ -20,8 +20,6 @@
 
 use std::sync::Arc;
 
-use reinhardt::db::orm::Model;
-
 use crate::apps::accounts::models::User;
 use crate::apps::accounts::services::server::github::{
 	CompleteError, GithubIdentity, GithubSignIn,
@@ -32,10 +30,9 @@ use crate::apps::accounts::services::server::sessions::{
 };
 use crate::apps::accounts::services::server::sign_up_policy::SignUpPolicy;
 use crate::apps::accounts::services::server::users::{
-	FirstSignInError, ResolvedUser, resolve_first_sign_in, sync_profile,
+	FirstSignInError, ResolvedUser, record_last_login, resolve_first_sign_in, sync_profile,
 };
 use crate::audit::{ActorKind, AuditEvent, Outcome};
-use crate::persisted_time::persisted_now;
 
 /// What the browser sent to the callback.
 #[derive(Debug)]
@@ -188,19 +185,15 @@ impl SignInService {
 		})?;
 
 		// Rotation (SR-08): the browser gets a new token, and the one it
-		// presented stops working. When the old session cannot be destroyed
-		// it would stay valid next to the new one, so the sign-in fails and
-		// no session is issued.
-		if let Some(previous) = previous_session {
-			self.sessions.destroy(&previous).await.map_err(|error| {
-				tracing::error!(%error, "destroying the previous session failed during sign-in");
+		// presented stops working; Login Link consumption rotates the same way.
+		let session = self
+			.sessions
+			.replace(user.id, previous_session.as_ref())
+			.await
+			.map_err(|error| {
+				tracing::error!(%error, "issuing the session failed during sign-in");
 				"internal"
 			})?;
-		}
-		let session = self.sessions.create(user.id).await.map_err(|error| {
-			tracing::error!(%error, "session creation failed during sign-in");
-			"internal"
-		})?;
 
 		AuditEvent::new(
 			"accounts.sign_in.succeeded",
@@ -220,22 +213,4 @@ fn fail(reason: &'static str) -> SignInOutcome {
 		.reason(reason)
 		.emit();
 	SignInOutcome::Failed
-}
-
-/// Stamp `last_login` without touching any other column.
-async fn record_last_login(user_id: uuid::Uuid) -> Result<(), String> {
-	let now = persisted_now();
-	let updated = User::objects()
-		.filter(User::field_id().eq(user_id))
-		.update_fields([
-			User::field_last_login().assign(Some(now)),
-			User::field_updated_at().assign(now),
-		])
-		.await
-		.map_err(|error| error.to_string())?;
-	if updated == 1 {
-		Ok(())
-	} else {
-		Err("user disappeared during sign-in".to_owned())
-	}
 }
