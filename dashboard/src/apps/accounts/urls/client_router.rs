@@ -10,6 +10,7 @@ use crate::apps::accounts::client::components;
 pub fn client_url_patterns() -> ClientRouter {
 	ClientRouter::new()
 		.component(components::sign_in::sign_in)
+		.component(components::login_link::login_link)
 		.component(components::home::home)
 }
 
