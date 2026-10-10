@@ -125,7 +125,8 @@ pub(crate) fn build_db_credentials_secret(
 	}
 }
 
-fn standard_secret_labels(project_name: &str) -> BTreeMap<String, String> {
+/// Labels the operator sets on every Secret it generates.
+pub(crate) fn standard_secret_labels(project_name: &str) -> BTreeMap<String, String> {
 	BTreeMap::from([
 		(
 			"app.kubernetes.io/name".to_string(),

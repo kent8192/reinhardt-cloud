@@ -72,7 +72,7 @@ Common top-level value keys (summarized from `values.yaml`):
 
 | Key path | Purpose | Default |
 |---|---|---|
-| `replicaCount` | Number of operator Deployment replicas | `1` |
+| `replicaCount` | Number of operator Deployment replicas. Rendering fails for values above `1` because leader election is not implemented; `0` stops the operator | `1` |
 | `image.repository` | Operator container image repository | `reinhardt-cloud-operator` |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `image.tag` | Image tag; empty string uses the chart's `appVersion` | `""` |
@@ -210,6 +210,8 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `build` | `BuildStatus?` | Active or most recent source build status, including `phase`, `target`, `trigger`, `jobName`, `image`, `imageTag`, and preview identifiers (`previewName`, `prNumber`) |
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
+| `redisCredentialsSecretUid` | string? | API-assigned UID used to prove the Redis credentials Secret was created or explicitly adopted by the operator |
+| `redisCredentialsSecretDigest` | string? | SHA-256 digest of generated Redis credentials Secret data, present only between committing to the data and recording the Secret UID, so an interrupted creation can be recovered |
 | `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
 | `observedGeneration` | int64 | Last generation observed by the controller |
 
@@ -523,7 +525,6 @@ list and default values.
 | Change on-prem storage class | `--set defaults.storage.class=longhorn` |
 | Change on-prem ingress class | `--set defaults.ingress.class=traefik` |
 | Pass extra environment variables to the operator | `--set operator.extraEnv.MY_VAR=value` |
-| Use a custom operator replica count | `--set replicaCount=2` |
 
 > `features.database` is `true` by default. If your cluster does not have the required database
 > controllers for the configured platform, set `features.database=false` until the controllers are
@@ -567,7 +568,15 @@ upgrades are performed by pulling the latest source and re-running `helm upgrade
    kubectl apply -f charts/reinhardt-cloud-operator/crds/
    ```
 
-4. **Run `helm upgrade`** with the same overlay used at install time. Substitute the correct
+4. **Migrate legacy Redis credentials before rolling out the new operator.** When upgrading
+   from a release that trusted labels or owner references, keep the old operator running
+   after the new CRD schema has been applied. Follow the [Redis Secret adoption procedure](#secrets)
+   to verify, freeze, and adopt the credentials Secret for every Project using Redis cache
+   or Redis-backed sessions. Confirm that each Project's `status.redisCredentialsSecretUid`
+   contains the verified UID. The old CRD schema prunes this new status field, so adoption
+   cannot be completed before step 3. Stop the upgrade if any required adoption fails.
+
+5. **Run `helm upgrade`** with the same overlay used at install time. Substitute the correct
    `-f` flag for your platform:
 
    ```bash
@@ -587,7 +596,7 @@ upgrades are performed by pulling the latest source and re-running `helm upgrade
      -f charts/reinhardt-cloud-operator/values-gcp.yaml
    ```
 
-5. **Watch the rollout:**
+6. **Watch the rollout:**
 
    ```bash
    kubectl rollout status deployment/reinhardt-cloud-operator \
@@ -856,15 +865,24 @@ The operator does not forward its own `OTEL_EXPORTER_OTLP_ENDPOINT` or per-recon
 The operator is designed to run as a **single replica**. Leader election is not implemented
 (verified: no matches for `leader_election`, `leaderelection`, or `LeaseLock` in
 `crates/reinhardt-cloud-operator/src/`). Running multiple replicas causes duplicate reconcile
-loops and race conditions on status patches.
+loops and race conditions on status patches, including Redis credential creation, which relies
+on a single writer to recover safely from an interrupted creation.
 
-Keep `replicaCount` at `1` in `values.yaml` (the shipped default):
+The chart enforces this: `helm install`/`helm upgrade` fail to render when `replicaCount` is
+greater than `1`, and the operator Deployment uses the `Recreate` strategy so an upgrade stops
+the old operator Pod before starting the new one. Reconciliation pauses briefly during an
+upgrade; existing workloads are unaffected. Set `replicaCount: 0` only to stop the operator.
 
 ```yaml
 replicaCount: 1
 ```
 
-Do not increase this value unless leader election has been implemented.
+**Exactly one operator installation per cluster is supported.** Every installation watches
+`Project` resources in all namespaces, and the replica guard applies only within a single Helm
+release. Installing the chart a second time under a different release name (or running the operator
+binary elsewhere against the same cluster) produces concurrent writers and is not supported. Cluster-wide
+enforcement through Lease-based leader election is tracked in
+[#952](https://github.com/kent8192/reinhardt-cloud/issues/952).
 
 #### Disaster recovery
 
@@ -1012,9 +1030,112 @@ No bearer tokens or cloud-provider secrets are mounted into the pod by the chart
 
 Application-level secrets (JWT keys, database credentials, and Redis credentials) are created by
 the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
-written to disk on the operator node. Operator-generated Redis credential Secrets are owned by the
-corresponding `Project`; `deletion_policy: Delete` removes them explicitly, while
-`deletion_policy: Retain` keeps them for manual cleanup with the retained cache/database resources.
+written to disk on the operator node. Redis credential Secrets intentionally do not use a
+controller owner reference: `deletion_policy: Retain` keeps them safe from garbage collection.
+The operator records the API-assigned Secret UID in `status.redisCredentialsSecretUid` and accepts
+only a Secret with that UID as provenance; labels and owner references alone are not trusted. Newly created Redis credential Secrets are immutable, and reconciliation
+refuses a mutable adopted Secret. Provenance is validated before any application, worker, or
+migration workload that consumes the Secret is applied.
+For a status-approved legacy Secret, the operator removes this Project's owner references using
+the observed resourceVersion, both during reconciliation and before Retain finalization. Other
+owners are preserved, and the patch does not modify credential data. With
+`deletion_policy: Delete`, the operator deletes the Secret only when it matches the recorded
+provenance, using the Secret UID as a delete precondition.
+
+Creation is crash-safe: before creating the Secret, the operator writes a SHA-256 digest of the
+generated credential data to `status.redisCredentialsSecretDigest` and clears any previous UID;
+after creation it records the new UID and clears the digest. The digest exists only in this
+window, because a plain digest in the `Project` status would let anyone who can read the Project
+test password guesses offline; once the UID is recorded, the UID and the Secret's immutability
+detect replacement and mutation without it. The operator also clears a digest it finds next to a
+recorded UID. If the operator stops between those writes, the next reconciliation adopts the
+existing Secret only when it is immutable and its data matches the committed digest. Tenants
+cannot learn the generated password before the Secret exists, so they cannot pre-create a Secret
+that matches the digest. A pending digest without a Secret is superseded on the next attempt; this
+is safe because the chart guarantees a single operator Pod (see [Scaling](#scaling)), so no other
+reconcile can be about to create a Secret for that digest. As defense in depth, the digest write is
+conditioned on the observed Project `resourceVersion`, and only the reconcile whose Secret
+`create` succeeds records the UID; any other attempt receives `AlreadyExists` and retries.
+
+The controller watches operator-labelled Secrets, so deleting or modifying a Redis credentials
+Secret immediately re-runs provenance validation for its Project. A replacement Secret has a new
+UID and is rejected with a `ResourceOwnershipConflict` until a platform administrator resolves it.
+Because a replacement may lack the operator labels and therefore produce no watch event when it is
+removed, ownership conflicts are rechecked every 5 minutes instead of waiting for a Project change.
+Validation cannot stop Pods that restart in the meantime from reading a replacement by name, so
+tenant principals must not be granted `create`, `update`, `patch`, or `delete` on Secrets in
+Project namespaces; the same requirement protects the JWT, `core.secret_key`, and database
+credential Secrets.
+
+Workloads read the Redis password once, through an environment variable, so the operator stamps
+the API-assigned Secret UID into the Pod template of the application, worker, and Redis
+Deployments as the `reinhardt.dev/redis-credentials-uid` annotation. The annotation carries no
+credential material. If an approved Secret is deleted, the next reconciliation generates a new
+Secret with a new UID, and the changed annotation rolls all three Deployments onto the new password
+instead of leaving running Pods on the old one. Redis-backed sessions and cached data do not
+survive this rotation, and requests can fail briefly while the Deployments roll. Upgrading to an
+operator release that adds this annotation triggers one rollout of each Redis-consuming
+Deployment. Existing Deployments are rolled before the source-build and migration gates are
+evaluated, so a regenerated credential still reaches every running consumer while a build is
+pending or a migration Job is running or failed; the gates never cause a missing Deployment to
+be created.
+
+Migration Jobs also receive the Redis password, so their Pod template carries the same
+annotation. A migration Job that is still running when the credentials are regenerated is never
+interrupted. If a migration Job for the current revision has failed and its annotation names an
+earlier Secret UID, the operator deletes it (background propagation, conditioned on the Job UID)
+so the next reconciliation reruns the migration with the current password. A failed Job that ran
+with the current credentials, or that predates the annotation, is retained for inspection and
+keeps blocking the revision as before.
+
+On every reconciliation the operator also restores the `app.kubernetes.io/name` and
+`app.kubernetes.io/managed-by` labels on the approved Secret, using a metadata-only patch
+conditioned on its UID and resourceVersion. Removing these labels takes the Secret out of the watch
+selector, which itself produces a watch event, so the labels are restored immediately and later
+deletion or replacement of the Secret stays visible to the controller.
+
+When upgrading from a release that used labels or owner references as Redis Secret ownership,
+first apply the new CRD schema, perform this adoption while the old operator remains running,
+and only then roll out the new operator, as described in the upgrade sequence above. Also
+perform adoption after recreating a Project whose retained Secret should be reused, before
+allowing its workloads to reconcile. A platform administrator
+must capture one Secret JSON snapshot containing its UID, resourceVersion, and credential data,
+independently verify the password **from that snapshot** against the trusted running Redis
+instance, and freeze using **that same snapshot's** UID and resourceVersion. Do not fetch the
+Secret again between verification and freezing. A concurrent change causes the conditional
+patch to fail; in that case discard the snapshot and repeat verification from the beginning.
+Only after the freeze succeeds may the administrator adopt that UID through the protected
+status subresource. Freezing an unchecked value is not provenance.
+
+```bash
+set -euo pipefail
+umask 077
+SECRET_SNAPSHOT="$(mktemp)"
+trap 'rm -f "$SECRET_SNAPSHOT"' EXIT
+kubectl get secret <project>-redis-credentials -n <namespace> -o json > "$SECRET_SNAPSHOT"
+SECRET_UID="$(jq -er '.metadata.uid' "$SECRET_SNAPSHOT")"
+SECRET_RV="$(jq -er '.metadata.resourceVersion' "$SECRET_SNAPSHOT")"
+
+# Independently verify the password in SECRET_SNAPSHOT against the trusted running Redis.
+# Do not print credential data, use a second Secret GET, or continue if verification fails.
+# The verification method depends on the administrator's trusted Redis access path.
+read -r -p "Snapshot password verified against running Redis? Type VERIFIED: " CONFIRM
+[ "$CONFIRM" = VERIFIED ] || exit 1
+
+FREEZE_PATCH="$(jq -cn --arg uid "$SECRET_UID" --arg rv "$SECRET_RV" \
+  '{metadata:{uid:$uid,resourceVersion:$rv},immutable:true}')"
+kubectl patch secret <project>-redis-credentials -n <namespace> --type=merge \
+  -p "$FREEZE_PATCH"
+# A failed freeze exits above: never adopt a newly fetched or unverified revision.
+kubectl patch project <project> -n <namespace> --subresource=status --type=merge \
+  -p "$(jq -cn --arg uid "$SECRET_UID" \
+    '{status:{redisCredentialsSecretUid:$uid,redisCredentialsSecretDigest:null}}')"
+```
+
+Tenant users must not be granted `projects/status` write permission; the UID adoption step is a
+trusted migration decision by the platform administrator. Adoption clears any digest left by an
+earlier Secret, and no digest of adopted credentials is ever persisted: provenance of an adopted
+Secret rests on its recorded UID and immutability alone.
 
 ---
 
@@ -1319,6 +1440,8 @@ stateDiagram-v2
 | `readyReplicas` | Number of ready replicas in the Deployment |
 | `database` | Status of the provisioned database sub-resource (phase, endpoint, credentials_secret) |
 | `cache` | Status of the provisioned cache sub-resource (phase, endpoint) |
+| `redisCredentialsSecretUid` | API-assigned UID proving the Redis credentials Secret provenance |
+| `redisCredentialsSecretDigest` | Pending SHA-256 digest of generated Redis credentials, cleared once the Secret UID is recorded |
 | `worker` | Status of the worker deployment sub-resource (ready_replicas) |
 
 ---
