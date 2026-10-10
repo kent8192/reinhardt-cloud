@@ -21,11 +21,13 @@ pub static ALERT_STYLES: AlertStyles = style! {
 		weight_semibold: Number;
 		status_warning_fg: Color;
 		status_danger_fg: Color;
+		border_width: Length;
+		border_width_emphasis: Length;
 	}
 	.alert {
 		padding: (globals.space_3, globals.space_4);
-		border: (1px, solid, globals.border_default);
-		border-left-width: 3px;
+		border: (globals.border_width, solid, globals.border_default);
+		border-left-width: globals.border_width_emphasis;
 		border-radius: globals.radius_md;
 		background: globals.surface_raised;
 	}

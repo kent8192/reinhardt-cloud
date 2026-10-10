@@ -38,12 +38,16 @@ pub static DIALOG_STYLES: DialogStyles = style! {
 		text_xl: Length;
 		leading_prose: Number;
 		weight_regular: Number;
+		border_width: Length;
+		measure_dialog: Length;
+		space_6: Length;
+		tracking_display: Length;
 	}
 	.dialog {
-		width: min(32rem, 100vw - 2rem);
+		width: min(globals.measure_dialog, 100vw - globals.space_6);
 		padding: globals.space_5;
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_xl;
 		color: globals.ink_default;
 		&::backdrop {
@@ -54,7 +58,7 @@ pub static DIALOG_STYLES: DialogStyles = style! {
 		color: globals.ink_strong;
 		font-size: globals.text_xl;
 		font-weight: globals.weight_regular;
-		letter-spacing: -0.2px;
+		letter-spacing: globals.tracking_display;
 	}
 	.body {
 		margin: (globals.space_3, 0, globals.space_5);

@@ -13,13 +13,23 @@ use reinhardt::pages::{ClassList, TranslatedText, page, style_def};
 #[style_def]
 pub static BADGE_STYLES: BadgeStyles = style! {
 	globals {
+		space_1: Length;
 		space_2: Length;
 		border_default: Color;
+		border_width: Length;
 		ink_muted: Color;
+		radius_xs: Length;
 		radius_sm: Length;
 		radius_full: Length;
 		text_sm: Length;
+		leading_compact: Number;
 		weight_medium: Number;
+		badge_gap: Length;
+		badge_padding_block: Length;
+		badge_padding_inline_end: Length;
+		badge_marker_size: Length;
+		badge_marker_ring: Length;
+		badge_marker_outline: Length;
 		status_success_fg: Color;
 		status_success_bg: Color;
 		status_progress_fg: Color;
@@ -34,18 +44,18 @@ pub static BADGE_STYLES: BadgeStyles = style! {
 	.badge {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: (0.125rem, 0.625rem, 0.125rem, globals.space_2);
+		gap: globals.badge_gap;
+		padding: (globals.badge_padding_block, globals.badge_padding_inline_end, globals.badge_padding_block, globals.space_2);
 		border-radius: globals.radius_full;
 		font-size: globals.text_sm;
 		font-weight: globals.weight_medium;
-		line-height: 1.5;
+		line-height: globals.leading_compact;
 		white-space: nowrap;
 		&::before {
 			content: "";
 			flex: none;
-			width: 0.5rem;
-			height: 0.5rem;
+			width: globals.badge_marker_size;
+			height: globals.badge_marker_size;
 			background: currentColor;
 			border-radius: globals.radius_full;
 		}
@@ -60,7 +70,7 @@ pub static BADGE_STYLES: BadgeStyles = style! {
 		color: globals.status_progress_fg;
 		&::before {
 			background: transparent;
-			border: (2px, solid, currentColor);
+			border: (globals.badge_marker_ring, solid, currentColor);
 			border-top-color: transparent;
 		}
 	}
@@ -72,9 +82,9 @@ pub static BADGE_STYLES: BadgeStyles = style! {
 			width: 0;
 			height: 0;
 			background: transparent;
-			border-left: (0.25rem, solid, transparent);
-			border-right: (0.25rem, solid, transparent);
-			border-bottom: (0.5rem, solid, currentColor);
+			border-left: (globals.space_1, solid, transparent);
+			border-right: (globals.space_1, solid, transparent);
+			border-bottom: (globals.badge_marker_size, solid, currentColor);
 			border-radius: 0;
 		}
 	}
@@ -82,7 +92,7 @@ pub static BADGE_STYLES: BadgeStyles = style! {
 		background: globals.status_danger_bg;
 		color: globals.status_danger_fg;
 		&::before {
-			border-radius: 1px;
+			border-radius: globals.radius_xs;
 		}
 	}
 	.neutral {
@@ -90,18 +100,18 @@ pub static BADGE_STYLES: BadgeStyles = style! {
 		color: globals.status_neutral_fg;
 		&::before {
 			background: transparent;
-			border: (1.5px, solid, currentColor);
+			border: (globals.badge_marker_outline, solid, currentColor);
 		}
 	}
 	/* A plain label for facts that are not states: roles, sources. */
 	.chip {
 		display: inline-block;
 		padding: (0, globals.space_2);
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_sm;
 		color: globals.ink_muted;
 		font-size: globals.text_sm;
-		line-height: 1.5;
+		line-height: globals.leading_compact;
 		white-space: nowrap;
 	}
 };

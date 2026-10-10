@@ -18,6 +18,8 @@ pub static EMPTY_STATE_STYLES: EmptyStateStyles = style! {
 		text_lg: Length;
 		leading_prose: Number;
 		weight_semibold: Number;
+		border_width: Length;
+		measure_empty: Length;
 	}
 	.empty {
 		display: flex;
@@ -25,10 +27,10 @@ pub static EMPTY_STATE_STYLES: EmptyStateStyles = style! {
 		align-items: flex-start;
 		gap: globals.space_3;
 		padding: globals.space_6;
-		border: (1px, dashed, globals.border_strong);
+		border: (globals.border_width, dashed, globals.border_strong);
 		border-radius: globals.radius_lg;
 		p {
-			max-width: 46ch;
+			max-width: globals.measure_empty;
 			color: globals.ink_muted;
 			line-height: globals.leading_prose;
 		}

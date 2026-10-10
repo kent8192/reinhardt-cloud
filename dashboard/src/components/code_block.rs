@@ -28,10 +28,12 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 		ink_strong: Color;
 		ink_muted: Color;
 		text_sm: Length;
+		border_width: Length;
+		leading_prose: Number;
 	}
 	.code {
 		background: globals.surface_sunken;
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_md;
 		pre {
 			margin: 0;
@@ -39,7 +41,7 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 			overflow-x: auto;
 			color: globals.ink_strong;
 			font-size: globals.text_sm;
-			line-height: 1.6;
+			line-height: globals.leading_prose;
 		}
 	}
 	.bar {
@@ -48,7 +50,7 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 		justify-content: space-between;
 		gap: globals.space_3;
 		padding: (globals.space_1, globals.space_1, globals.space_1, globals.space_4);
-		border-bottom: (1px, solid, globals.border_default);
+		border-bottom: (globals.border_width, solid, globals.border_default);
 		color: globals.ink_muted;
 		font-size: globals.text_sm;
 	}
