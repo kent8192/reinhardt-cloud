@@ -461,7 +461,13 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 		})
 		.unwrap_or(false);
 	let redis_provenance = if should_provision_cache(&app) || needs_redis_sessions {
-		Some(reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?)
+		let provenance = reconcile_redis_credentials_secret(&app, &ctx.client, namespace).await?;
+		// The source-build and migration gates below can return before the
+		// Deployment applies; a regenerated Secret must still reach every
+		// running consumer, so roll the existing ones first.
+		let deployments: Api<Deployment> = Api::namespaced(ctx.client.clone(), namespace);
+		roll_redis_credential_consumers(&deployments, &app, &provenance).await?;
+		Some(provenance)
 	} else {
 		None
 	};
@@ -1956,6 +1962,60 @@ fn redis_credentials_secret_project_ref(secret: Secret) -> Option<ObjectRef<Proj
 		.strip_suffix("-redis-credentials")
 		.filter(|project| !project.is_empty())?;
 	Some(ObjectRef::new(project).within(namespace))
+}
+
+/// Rolls existing Redis-consuming Deployments onto the current credentials.
+///
+/// Patches only the credentials revision annotation of Deployments that
+/// already exist and are controlled by the `Project`, so no workload is created
+/// or changed otherwise while a source-build or migration gate holds. A
+/// Deployment already stamped with the current Secret UID is left untouched.
+async fn roll_redis_credential_consumers(
+	deployments: &Api<Deployment>,
+	app: &Project,
+	provenance: &RedisCredentialsProvenance,
+) -> Result<(), Error> {
+	let name = app.name_any();
+	for deployment_name in [
+		name.clone(),
+		format!("{name}-worker"),
+		format!("{name}-redis"),
+	] {
+		let Some(existing) = deployments
+			.get_opt(&deployment_name)
+			.await
+			.map_err(Error::Kube)?
+		else {
+			continue;
+		};
+		if !existing_resource_is_controlled_by_project(&existing.metadata, app) {
+			continue;
+		}
+		let stamped = existing
+			.spec
+			.as_ref()
+			.and_then(|spec| spec.template.metadata.as_ref())
+			.and_then(|metadata| metadata.annotations.as_ref())
+			.and_then(|annotations| annotations.get(REDIS_CREDENTIALS_REVISION_ANNOTATION));
+		if stamped == Some(&provenance.uid) {
+			continue;
+		}
+		let patch = serde_json::json!({
+			"spec": { "template": { "metadata": { "annotations": {
+				REDIS_CREDENTIALS_REVISION_ANNOTATION: provenance.uid,
+			} } } }
+		});
+		deployments
+			.patch(
+				&deployment_name,
+				&PatchParams::default(),
+				&Patch::Merge(&patch),
+			)
+			.await
+			.map_err(Error::Kube)?;
+		info!("Rolled Deployment {deployment_name} onto the current Redis credentials");
+	}
+	Ok(())
 }
 
 async fn delete_redis_credentials_secret_if_managed(
@@ -4066,6 +4126,77 @@ mod tests {
 			}
 		});
 		(Client::new(service, "default"), requests)
+	}
+
+	#[rstest]
+	#[case::unstamped(None, true, true)]
+	#[case::previous_credentials(Some("previous-secret-uid"), true, true)]
+	#[case::current_credentials(Some("current-secret-uid"), true, false)]
+	#[case::not_controlled(Some("previous-secret-uid"), false, false)]
+	#[tokio::test]
+	async fn regenerated_redis_credentials_roll_existing_consumers_before_gates(
+		#[case] stamped_uid: Option<&str>,
+		#[case] controlled: bool,
+		#[case] expect_patch: bool,
+	) {
+		// Arrange: only the application Deployment exists, for example while a
+		// failed migration Job keeps the remaining workloads gated.
+		let app = make_test_app("payments");
+		let mut deployment =
+			build_deployment(&app, None, &Platform::Onpremise).expect("deployment builds");
+		if let Some(uid) = stamped_uid {
+			RedisCredentialsProvenance {
+				uid: uid.to_string(),
+				digest: "digest".to_string(),
+			}
+			.stamp_pod_template(&mut deployment);
+		}
+		if !controlled {
+			deployment.metadata.owner_references = None;
+		}
+		let (client, requests) = stub_object_api(vec![(
+			"/apis/apps/v1/namespaces/default/deployments/payments".to_string(),
+			serde_json::to_vec(&deployment).unwrap(),
+		)]);
+		let deployments: Api<Deployment> = Api::namespaced(client, "default");
+		let current = RedisCredentialsProvenance {
+			uid: "current-secret-uid".to_string(),
+			digest: "digest".to_string(),
+		};
+
+		// Act
+		roll_redis_credential_consumers(&deployments, &app, &current)
+			.await
+			.unwrap();
+
+		// Assert: absent Deployments are never created, and only a controlled,
+		// stale application Deployment is patched with the new Secret UID.
+		let recorded = requests.lock();
+		let patches: Vec<_> = recorded
+			.iter()
+			.filter(|(method, _, _)| *method == http::Method::PATCH)
+			.map(|(_, path, body)| (path.as_str(), body.clone()))
+			.collect();
+		let expected = if expect_patch {
+			vec![(
+				"/apis/apps/v1/namespaces/default/deployments/payments",
+				serde_json::json!({
+					"spec": { "template": { "metadata": { "annotations": {
+						REDIS_CREDENTIALS_REVISION_ANNOTATION: "current-secret-uid",
+					} } } }
+				}),
+			)]
+		} else {
+			Vec::new()
+		};
+		assert_eq!(patches, expected);
+		assert_eq!(
+			recorded
+				.iter()
+				.filter(|(method, _, _)| *method == http::Method::GET)
+				.count(),
+			3
+		);
 	}
 
 	#[rstest]

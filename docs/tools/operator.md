@@ -1066,7 +1066,10 @@ Secret with a new UID, and the changed annotation rolls all three Deployments on
 instead of leaving running Pods on the old one. Redis-backed sessions and cached data do not
 survive this rotation, and requests can fail briefly while the Deployments roll. Upgrading to an
 operator release that adds this annotation triggers one rollout of each Redis-consuming
-Deployment.
+Deployment. Existing Deployments are rolled before the source-build and migration gates are
+evaluated, so a regenerated credential still reaches every running consumer while a build is
+pending or a migration Job is running or failed; the gates never cause a missing Deployment to
+be created.
 
 On every reconciliation the operator also restores the `app.kubernetes.io/name` and
 `app.kubernetes.io/managed-by` labels on the approved Secret, using a metadata-only patch
