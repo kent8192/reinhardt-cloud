@@ -20,5 +20,12 @@ pub const GITHUB_SIGN_IN_PATH: &str = "/api/auth/github/";
 /// The sign-in page.
 pub const SIGN_IN_PAGE_PATH: &str = "/sign-in/";
 
+/// The page a Login Link opens (`manage create-login-link` prints this path, an
+/// origin before it, and the secret after a `#`). The secret sits in the URL
+/// fragment on purpose: the browser never sends a fragment, so the GET that loads
+/// this page carries nothing to log, to forward in a `Referer`, or for a link
+/// previewer to consume. Only the deliberate confirmation POST carries it.
+pub const LOGIN_LINK_PAGE_PATH: &str = "/sign-in/link/";
+
 /// Where a signed-in browser lands.
 pub const HOME_PATH: &str = "/";

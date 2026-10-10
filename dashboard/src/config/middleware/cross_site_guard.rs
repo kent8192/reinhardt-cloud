@@ -11,7 +11,10 @@
 //!
 //! - safe methods (`GET`, `HEAD`, `OPTIONS`), which must not change state;
 //! - requests without the session cookie: there is no ambient credential to
-//!   abuse.
+//!   abuse. The exception is a path that *starts* a session
+//!   (`SESSION_ESTABLISHING_PATHS`, for example confirming a Login Link): there
+//!   the request is the thing a hostile page would forge, so it always has to
+//!   prove its origin.
 //!
 //! An `Authorization` header does not exempt a request that also carries the
 //! cookie. Bearer CLI Sessions (M2) will be authenticated by the header alone;
@@ -24,6 +27,7 @@ use reinhardt::core::exception::Result;
 use reinhardt::{Handler, Middleware, Request, Response};
 
 use crate::apps::accounts::server::cookies::{SESSION_COOKIE, request_cookie};
+use crate::apps::accounts::urls::server_router::SESSION_ESTABLISHING_PATHS;
 
 /// Rejects cross-site state-changing requests that carry a session cookie.
 #[derive(Clone, Debug)]
@@ -41,7 +45,9 @@ impl CrossSiteGuard {
 
 	fn requires_proof(request: &Request) -> bool {
 		let safe = matches!(request.method.as_str(), "GET" | "HEAD" | "OPTIONS");
-		!safe && request_cookie(request, SESSION_COOKIE).is_some()
+		!safe
+			&& (request_cookie(request, SESSION_COOKIE).is_some()
+				|| SESSION_ESTABLISHING_PATHS.contains(&request.uri.path()))
 	}
 
 	fn presented_origin(request: &Request) -> Option<String> {

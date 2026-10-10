@@ -259,3 +259,33 @@ pub async fn sync_profile(user: User, profile: &GithubProfile) -> Result<User, U
 		.await?
 		.ok_or_else(|| UserError::Storage("user disappeared during profile sync".to_owned()))
 }
+
+/// Stamp `last_login` without touching any other column.
+///
+/// Every way of signing in records the login through this function. Only a
+/// completed sign-in may call it: `last_login` is also what tells a User who has
+/// signed in from one that `manage grant-staff` pre-provisioned and nobody has
+/// used yet.
+///
+/// # Errors
+///
+/// Returns [`UserError::Storage`] when the update fails or the User no longer
+/// exists.
+pub async fn record_last_login(user_id: uuid::Uuid) -> Result<(), UserError> {
+	let now = persisted_now();
+	let updated = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.update_fields([
+			User::field_last_login().assign(Some(now)),
+			User::field_updated_at().assign(now),
+		])
+		.await
+		.map_err(UserError::storage)?;
+	if updated == 1 {
+		Ok(())
+	} else {
+		Err(UserError::Storage(
+			"user disappeared during sign-in".to_owned(),
+		))
+	}
+}

@@ -6,6 +6,7 @@ use reinhardt::admin::core::AdminError;
 use reinhardt::admin::{AdminSite, AdminUser, ModelAdmin};
 
 use crate::apps::accounts::models::User;
+use crate::apps::accounts::server::admin::login_link::LoginLinkAdmin;
 use crate::apps::accounts::server::admin::register_model_admins;
 use crate::apps::accounts::server::admin::social_account::SocialAccountAdmin;
 use crate::apps::accounts::server::admin::user::UserAdmin;
@@ -48,8 +49,37 @@ fn sr_20_admin_cannot_change_staff_or_identity_fields() {
 }
 
 #[rstest]
+fn sr_107_admin_cannot_change_whether_a_user_is_active() {
+	// Arrange
+	let admin = UserAdmin;
+
+	// Act
+	let readonly = admin.readonly_fields();
+
+	// Assert
+	assert!(
+		readonly.contains(&"is_active"),
+		"reactivation must go through `manage reactivate-user`, which ends the sessions first"
+	);
+}
+
+#[rstest]
+fn sr_107_admin_cannot_move_a_user_to_another_github_account() {
+	// Arrange
+	let admin = UserAdmin;
+
+	// Act
+	let readonly = admin.readonly_fields();
+
+	// Assert
+	for field in ["github_user_id", "github_login", "email"] {
+		assert!(readonly.contains(&field), "`{field}` must be read-only");
+	}
+}
+
+#[rstest]
 #[tokio::test]
-async fn sr_20_admin_never_creates_or_deletes_users() {
+async fn sr_20_admin_never_creates_changes_or_deletes_users() {
 	// Arrange
 	let admin = UserAdmin;
 	let staff = user_with(true, true);
@@ -58,7 +88,7 @@ async fn sr_20_admin_never_creates_or_deletes_users() {
 	let permissions = permissions_of(&admin, &staff).await;
 
 	// Assert
-	assert_eq!(permissions, (true, false, true, false));
+	assert_eq!(permissions, (true, false, false, false));
 }
 
 #[rstest]
@@ -92,6 +122,40 @@ async fn sr_06_admin_never_edits_social_accounts() {
 
 	// Assert
 	assert_eq!(permissions, (true, false, false, false));
+}
+
+#[rstest]
+#[tokio::test]
+async fn sr_18_admin_never_creates_edits_or_deletes_login_links() {
+	// Arrange
+	let admin = LoginLinkAdmin;
+	let staff = user_with(true, true);
+
+	// Act
+	let permissions = permissions_of(&admin, &staff).await;
+
+	// Assert
+	assert_eq!(permissions, (true, false, false, false));
+}
+
+#[rstest]
+fn sr_18_admin_exposes_no_digest_column_for_login_links() {
+	// Arrange
+	let admin = LoginLinkAdmin;
+
+	// Act
+	let columns: Vec<_> = admin
+		.list_display()
+		.into_iter()
+		.chain(admin.fields().unwrap_or_default())
+		.collect();
+
+	// Assert
+	assert!(!columns.is_empty(), "the field whitelist must be explicit");
+	assert!(
+		!columns.iter().any(|column| column.contains("token")),
+		"{columns:?}"
+	);
 }
 
 #[rstest]
@@ -129,7 +193,7 @@ fn sr_20_every_accounts_model_is_registered_with_the_admin_site() {
 	// Assert
 	let mut registered = site.registered_models();
 	registered.sort();
-	assert_eq!(registered, vec!["Social Account", "User"]);
+	assert_eq!(registered, vec!["Login Link", "Social Account", "User"]);
 	let user_admin = site.get_model_admin("User").unwrap();
 	assert!(user_admin.readonly_fields().contains(&"is_staff"));
 }

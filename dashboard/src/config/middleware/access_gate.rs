@@ -32,6 +32,7 @@ const SIGN_IN_PAGE: &str = "/sign-in/";
 /// |-------|------------------|
 /// | accounts: sign-in start and callback | they create the session |
 /// | accounts: sign-in notice, current viewer | the sign-in page runs before sign-in |
+/// | accounts: confirm a Login Link | the single-use link is the credential; only `manage create-login-link` issues one (SR-16, SR-18) |
 /// | `/static/admin/` | the admin site's own CSS and scripts |
 ///
 /// Not listed because the router never sees them: the single-page application

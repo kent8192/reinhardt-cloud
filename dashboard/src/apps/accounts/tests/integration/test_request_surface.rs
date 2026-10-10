@@ -46,6 +46,17 @@ async fn set_staff(github_user_id: i64, value: bool) {
 		.unwrap();
 }
 
+/// The body the enumeration sends to `path`. Every route takes `{}` except the
+/// one that needs its argument to get as far as answering: confirming a Login
+/// Link with an empty token is a well-formed request that signs nobody in.
+fn anonymous_request_body(path: &str) -> serde_json::Value {
+	if path == "/api/server_fn/consume_login_link" {
+		json!({"token": ""})
+	} else {
+		json!({})
+	}
+}
+
 #[rstest]
 #[tokio::test]
 #[serial(database, env_settings_load)]
@@ -64,7 +75,12 @@ async fn sr_10_only_the_enumerated_routes_answer_an_anonymous_request() {
 		for method in methods {
 			enumerated += 1;
 			let reply = browser
-				.request(method.as_str(), &concrete, &[("Origin", &app.base_url)])
+				.request_with_body(
+					method.as_str(),
+					&concrete,
+					&[("Origin", &app.base_url)],
+					&anonymous_request_body(&concrete),
+				)
 				.await;
 			let success = (200..400).contains(&reply.status);
 			if success {
@@ -120,7 +136,7 @@ async fn sr_01_no_route_accepts_a_credential() {
 	let mut anonymous = app.browser();
 
 	// Act
-	let suspicious: Vec<String> = router
+	let named_like_a_credential: Vec<String> = router
 		.get_all_routes()
 		.into_iter()
 		.map(|(path, ..)| path)
@@ -130,6 +146,11 @@ async fn sr_01_no_route_accepts_a_credential() {
 				.any(|word| path.to_ascii_lowercase().contains(word))
 		})
 		.collect();
+	// Confirming a Login Link takes a single-use grant a host operator issued
+	// (SR-16, SR-18), not a username or password; it is checked on its own below.
+	let (confirmation, suspicious): (Vec<_>, Vec<_>) = named_like_a_credential
+		.into_iter()
+		.partition(|path| path == "/api/server_fn/consume_login_link");
 	let mut answers = Vec::new();
 	for path in &suspicious {
 		let body = json!({"username": "ops", "password": "hunter2"});
@@ -151,6 +172,16 @@ async fn sr_01_no_route_accepts_a_credential() {
 		],
 		"only the admin site's built-in credential endpoints are named like one"
 	);
+	assert_eq!(confirmation, ["/api/server_fn/consume_login_link"]);
+	let password_attempt = anonymous
+		.post_with(
+			&confirmation[0],
+			json!({"username": "ops", "password": "hunter2", "token": "hunter2"}),
+			&[("Origin", &app.base_url)],
+		)
+		.await;
+	assert_eq!(password_attempt.json(), json!("Rejected"));
+	assert!(password_attempt.set_cookie("cloud_session").is_none());
 	assert!(
 		answers
 			.iter()
@@ -533,4 +564,59 @@ async fn sr_13_the_spa_shell_currently_carries_no_security_headers_upstream_gap(
 			"upstream now sets `{missing}` on the shell: remove the workaround (reinhardt-web#6721)"
 		);
 	}
+}
+
+/// A route-name heuristic, and only a backstop. It catches a handler that is
+/// obviously named like a Staff grant, a Login Link issuance, a re-pointing, or
+/// one of the activation tools (`end-sessions`, `reactivate-user`,
+/// `deactivate-user`), but a route can be named anything. The guarantee that no
+/// request moves a User to another GitHub account is structural and is tested
+/// separately: the admin site cannot edit `github_user_id` or `is_staff`
+/// (`sr_107_admin_cannot_move_a_user_to_another_github_account`,
+/// `sr_20_admin_cannot_change_staff_or_identity_fields`), and the services that
+/// do those things are called only from the `manage` commands.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_18_20_107_no_route_issues_a_link_grants_staff_or_moves_a_user() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	let router = reinhardt::get_router().expect("the server registered its router");
+
+	// Act
+	let paths: Vec<String> = router
+		.get_all_routes()
+		.into_iter()
+		.map(|(path, ..)| path.to_ascii_lowercase())
+		.collect();
+	let mentioning = |words: &[&str]| -> Vec<String> {
+		paths
+			.iter()
+			.filter(|path| words.iter().any(|word| path.contains(word)))
+			.cloned()
+			.collect()
+	};
+
+	// Assert
+	assert!(
+		mentioning(&[
+			"staff",
+			"grant",
+			"repoint",
+			"github_user_id",
+			"issue",
+			"reactivate",
+			"end_sessions",
+			"end-sessions",
+			"deactivate",
+		])
+		.is_empty(),
+		"Staff grants, Login Link issuance, re-pointing, and the activation tools (`end-sessions`, `reactivate-user`, `deactivate-user`) exist only as `manage` commands: {paths:?}"
+	);
+	assert_eq!(
+		mentioning(&["login_link", "login-link", "loginlink"]),
+		["/api/server_fn/consume_login_link"],
+		"the only Login Link route confirms an existing link"
+	);
+	drop(app);
 }
