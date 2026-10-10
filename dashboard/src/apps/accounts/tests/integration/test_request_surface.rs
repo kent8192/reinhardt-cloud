@@ -479,3 +479,50 @@ async fn sr_14_a_storage_outage_reaches_the_client_as_a_generic_error() {
 		"the server function failed with its fixed generic message"
 	);
 }
+
+/// Documents the SR-13 gap on the single-page application shell.
+///
+/// Workaround for kent8192/reinhardt-web#6721 (tracked in
+/// kent8192/reinhardt-cloud#949): `runserver --with-pages` answers the shell
+/// and static assets from a static layer in front of the router, so they carry
+/// none of the security headers the router adds. Serving the shell from a
+/// router catch-all (`--no-spa`) was tried: it does get `PAGE_CSP` and the frame
+/// protections, but the document would then have to be rendered by the
+/// application, including the WASM loader the static layer injects (an inline
+/// module script in the development build, which `script-src 'self'` blocks,
+/// and a manifest-driven entry in the production build, which the application
+/// cannot reproduce without the framework's private asset code).
+///
+/// This test fails when upstream starts attaching headers to the shell, which
+/// is the signal to delete this workaround and assert `PAGE_CSP` instead.
+///
+/// Ideal implementation (without workaround):
+///   `assert_eq!(shell.header("content-security-policy"), Some(PAGE_CSP));`
+///   // The shell document carries the page policy and frame protections.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_13_the_spa_shell_currently_carries_no_security_headers_upstream_gap() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	let mut browser = app.browser();
+
+	// Act
+	let shell = browser.get("/sign-in/").await;
+
+	// Assert
+	assert_eq!(shell.status, 200);
+	assert_eq!(shell.header("content-type"), Some("text/html"));
+	for missing in [
+		"content-security-policy",
+		"x-frame-options",
+		"x-content-type-options",
+		"referrer-policy",
+	] {
+		assert_eq!(
+			shell.header(missing),
+			None,
+			"upstream now sets `{missing}` on the shell: remove the workaround (reinhardt-web#6721)"
+		);
+	}
+}
