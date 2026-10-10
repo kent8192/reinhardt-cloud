@@ -45,7 +45,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # WebSocket routers); `server`, `pages`, `admin`, `database`, `db-postgres`, `sessions`, `forms`, and
 # `client-router` back the web stack, and the rest are retained from the previous crate for the
 # milestones that build on them.
-reinhardt = { package = "reinhardt-web", version = "=0.4.0-alpha.20", features = ["database", "db-postgres", "auth", "auth-oauth", "auth-social", "core", "conf", "server", "di", "i18n", "middleware", "middleware-security", "rest", "openapi", "openapi-router", "commands-server", "commands-contract", "commands-autoreload", "introspect", "test", "testcontainers", "pages", "forms", "websockets", "grpc", "admin", "sessions", "session-redis", "mail", "static-files", "client-router"] }
+reinhardt = { package = "reinhardt-web", version = "=0.4.0-alpha.20", features = ["database", "db-postgres", "auth", "auth-oauth", "auth-social", "social-auth", "core", "conf", "server", "di", "i18n", "middleware", "middleware-security", "rest", "openapi", "openapi-router", "commands-server", "commands-contract", "commands-autoreload", "introspect", "test", "testcontainers", "pages", "forms", "websockets", "grpc", "admin", "sessions", "session-redis", "mail", "static-files", "client-router"] }
 # Native `manage` / runserver command support, pinned in lockstep with `reinhardt` and used
 # by the dashboard `commands-shell` feature.
 reinhardt-commands = { version = "=0.4.0-alpha.20", default-features = false, features = ["shell", "server", "autoreload", "grpc", "websockets"] }
