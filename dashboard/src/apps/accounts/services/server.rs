@@ -12,5 +12,6 @@ pub mod sessions;
 pub mod sign_in;
 pub mod sign_in_notices;
 pub mod sign_up_policy;
+pub mod staff;
 pub mod token_crypto;
 pub mod users;

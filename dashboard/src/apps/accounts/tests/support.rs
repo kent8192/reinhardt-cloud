@@ -7,11 +7,14 @@ use reinhardt::core::exception::{DatabaseErrorKind, Error};
 use reinhardt::db::orm::Model;
 use reinhardt::test::fixtures::{
 	ContainerAsync, GenericImage, MigrationDatabase, postgres_with_migrations_from_dir,
+	redis_container,
 };
 use rstest::fixture;
 
 use crate::apps::accounts::models::User;
 use crate::apps::accounts::services::server::provider_tokens::OrmSocialAccountStorage;
+use crate::apps::accounts::services::server::redis_handle::RedisHandle;
+use crate::apps::accounts::services::server::sessions::SessionService;
 use crate::apps::accounts::services::server::sign_up_policy::{
 	MembershipError, OrganizationMembership,
 };
@@ -124,4 +127,20 @@ pub(crate) fn database_violation(error: &Error) -> Option<(DatabaseErrorKind, Op
 	error
 		.database_error()
 		.map(|database| (database.kind(), database.constraint().map(str::to_owned)))
+}
+
+/// A Redis container and the session service on top of it. Dropping it stops
+/// the container.
+pub(crate) struct TestSessions {
+	_container: ContainerAsync<GenericImage>,
+	pub(crate) sessions: SessionService,
+}
+
+pub(crate) async fn redis_sessions() -> TestSessions {
+	let (container, _port, url) = redis_container().await;
+	let handle = RedisHandle::new(&SecretString::new(url)).expect("the Redis URL is valid");
+	TestSessions {
+		_container: container,
+		sessions: SessionService::new(handle),
+	}
 }
