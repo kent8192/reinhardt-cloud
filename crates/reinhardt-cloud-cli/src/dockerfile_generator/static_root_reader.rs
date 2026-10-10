@@ -49,10 +49,10 @@ pub(super) fn read_static_root(
 	project: &Path,
 	config: &ReinhardtCloudToml,
 ) -> Result<StaticRoot, String> {
-	let mut selected: [Option<toml::Value>; 3] = [None, None, None];
-	let mut selected_urls: [Option<toml::Value>; 3] = [None, None, None];
-	let mut base_dirs: [Option<toml::Value>; 2] = [None, None];
-	let mut build_env = BTreeSet::new();
+	// Compose the production profile the way the settings loader does: later
+	// profiles override earlier ones key by key. buildstatic interpolates only
+	// effective values, so variables in shadowed values must not be injected.
+	let mut value = toml::Value::Table(toml::Table::new());
 	for profile in ["base", "production"] {
 		let path = project.join("settings").join(format!("{profile}.toml"));
 		if !path.exists() {
@@ -60,45 +60,26 @@ pub(super) fn read_static_root(
 		}
 		let text = std::fs::read_to_string(&path)
 			.map_err(|error| format!("cannot read static settings {}: {error}", path.display()))?;
-		let value: toml::Value = toml::from_str(&text)
+		let overlay: toml::Value = toml::from_str(&text)
 			.map_err(|error| format!("cannot parse static settings {}: {error}", path.display()))?;
-		collect_required_variables(&value, &mut build_env)?;
-		for (index, base) in [
-			value.get("core").and_then(|core| core.get("base_dir")),
-			value.get("base_dir"),
-		]
-		.into_iter()
-		.enumerate()
-		{
-			if let Some(base) = base {
-				base_dirs[index] = Some(base.clone());
-			}
-		}
-		for (index, candidate) in [
-			value.get("static_files").and_then(|v| v.get("root")),
-			value.get("static").and_then(|v| v.get("root")),
-			value.get("static_root"),
-		]
-		.into_iter()
-		.enumerate()
-		{
-			if let Some(candidate) = candidate {
-				selected[index] = Some(candidate.clone());
-			}
-		}
-		for (index, candidate) in [
-			value.get("static_files").and_then(|v| v.get("url")),
-			value.get("static").and_then(|v| v.get("url")),
-			value.get("static_url"),
-		]
-		.into_iter()
-		.enumerate()
-		{
-			if let Some(candidate) = candidate {
-				selected_urls[index] = Some(candidate.clone());
-			}
-		}
+		merge_profile(&mut value, overlay);
 	}
+	let mut build_env = BTreeSet::new();
+	collect_required_variables(&value, &mut build_env)?;
+	let base_dirs = [
+		value.get("core").and_then(|core| core.get("base_dir")),
+		value.get("base_dir"),
+	];
+	let selected = [
+		value.get("static_files").and_then(|v| v.get("root")),
+		value.get("static").and_then(|v| v.get("root")),
+		value.get("static_root"),
+	];
+	let selected_urls = [
+		value.get("static_files").and_then(|v| v.get("url")),
+		value.get("static").and_then(|v| v.get("url")),
+		value.get("static_url"),
+	];
 	let url = selected_urls.into_iter().flatten().next();
 	let url = match &url {
 		Some(value) => value.as_str().ok_or("static URL must be a string")?,
@@ -239,6 +220,23 @@ pub(super) fn read_static_root(
 		env_binding,
 		build_env: build_env.into_iter().collect(),
 	})
+}
+
+/// Overlay a later settings profile: tables merge recursively, other values replace.
+fn merge_profile(target: &mut toml::Value, overlay: toml::Value) {
+	match (target, overlay) {
+		(toml::Value::Table(target), toml::Value::Table(overlay)) => {
+			for (key, value) in overlay {
+				match target.get_mut(&key) {
+					Some(existing) => merge_profile(existing, value),
+					None => {
+						target.insert(key, value);
+					}
+				}
+			}
+		}
+		(target, overlay) => *target = overlay,
+	}
 }
 
 /// Read variable names only. Asset publication never needs deployment credentials.
@@ -514,6 +512,42 @@ mod tests {
 			root.env_binding,
 			Some(("ASSET_ROOT".to_owned(), "dist".to_owned()))
 		);
+	}
+
+	#[rstest]
+	#[case(
+		"[static_files]\nroot='${REINHARDT_STATIC_FILES__ROOT}'",
+		"[static_files]\nroot='dist'",
+		vec![]
+	)]
+	#[case(
+		"[core]\nsecret_key='${OLD_SECRET}'\n[static_files]\nroot='dist'",
+		"[core]\nsecret_key='${NEW_SECRET}'",
+		vec!["NEW_SECRET"]
+	)]
+	#[case(
+		"[core]\nsecret_key='${SECRET}'\n[static_files]\nroot='dist'",
+		"[core]\ndebug=false",
+		vec!["SECRET"]
+	)]
+	fn injects_only_variables_of_the_effective_production_profile(
+		#[case] base: &str,
+		#[case] production: &str,
+		#[case] required: Vec<&str>,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), base).unwrap();
+		std::fs::write(dir.path().join("settings/production.toml"), production).unwrap();
+
+		// Act
+		let root = read_static_root(dir.path(), &ReinhardtCloudToml::default()).unwrap();
+
+		// Assert
+		assert_eq!(root.build_env, required);
+		assert_eq!(root.runtime_path(), "/app/dist");
+		assert_eq!(root.env_binding, None);
 	}
 
 	#[rstest]

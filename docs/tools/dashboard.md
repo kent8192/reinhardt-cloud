@@ -209,7 +209,9 @@ The image also:
 
 The dashboard image pins Reinhardt `0.4.0-alpha.20` for `manage buildstatic`.
 Generated Pages Dockerfiles supply random, command-scoped values for required
-TOML environment references during asset publication. These values are not
+TOML environment references during asset publication. Only references that remain
+in the effective production profile (`base.toml` overlaid by `production.toml`)
+are supplied; values overridden by `production.toml` are ignored. These values are not
 deployment credentials and are not persisted as runtime `ENV` or build arguments.
 Settings that require typed values or external services need a custom Dockerfile.
 
