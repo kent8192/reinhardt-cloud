@@ -49,7 +49,7 @@ expanded). Optional variables, all read through `settings/base.toml`:
 |----------|--------|
 | `REINHARDT_CLOUD_SIGN_UP_POLICY` | `open`, `allowlist`, or `invite_only` (default). Any other value means `invite_only`. |
 | `REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_USER_IDS` | Comma-separated numeric GitHub user IDs admitted under `allowlist`. |
-| `REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_ORGANIZATION_IDS` | Comma-separated numeric GitHub organization IDs whose members are admitted under `allowlist`. IDs, not logins: a renamed organization's old login can be claimed by someone else. |
+| `REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_ORGANIZATION_IDS` | Comma-separated numeric GitHub organization IDs whose members are admitted under `allowlist`. IDs, not logins: a renamed organization's old login can be claimed by someone else. Membership is read with the signing-in User's own token from `GET /user/memberships/orgs?state=active`, so the GitHub App needs the "Members" organization permission and must be installed on the organization; a pending invitation does not count. |
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY` | Base64 of 32 random bytes, the key that encrypts GitHub tokens at rest. When unset, a key is derived from `REINHARDT_CORE__SECRET_KEY`. |
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID` | Identifier stored with every ciphertext; defaults to `primary`. |
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS` | Comma-separated `id:base64` pairs kept to decrypt tokens sealed before a key rotation. |

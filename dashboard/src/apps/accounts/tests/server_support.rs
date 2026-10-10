@@ -54,7 +54,10 @@ pub(crate) struct GithubAccount {
 	pub id: i64,
 	pub login: &'static str,
 	pub name: Option<&'static str>,
+	/// Organizations the account is an active member of.
 	pub organization_ids: Vec<i64>,
+	/// Organizations that invited the account, which has not accepted yet.
+	pub pending_organization_ids: Vec<i64>,
 	pub access_token: String,
 	pub refresh_token: String,
 }
@@ -66,6 +69,7 @@ impl GithubAccount {
 			login,
 			name: None,
 			organization_ids: Vec::new(),
+			pending_organization_ids: Vec::new(),
 			access_token: format!("ghu_access_{id}"),
 			refresh_token: format!("ghr_refresh_{id}"),
 		}
@@ -210,13 +214,22 @@ impl TestApp {
 			})))
 			.mount(&self.github)
 			.await;
-		let organizations: Vec<Value> = account
-			.organization_ids
-			.iter()
-			.map(|id| json!({"id": id, "login": format!("org-{id}")}))
-			.collect();
+		let memberships = |ids: &[i64], state: &str| -> Vec<Value> {
+			ids.iter()
+				.map(|id| {
+					json!({
+						"state": state,
+						"role": "member",
+						"organization": {"id": id, "login": format!("org-{id}")}
+					})
+				})
+				.collect()
+		};
+		let mut organizations = memberships(&account.organization_ids, "active");
+		organizations.extend(memberships(&account.pending_organization_ids, "pending"));
 		Mock::given(method("GET"))
-			.and(path("/user/orgs"))
+			.and(path("/user/memberships/orgs"))
+			.and(query_param("state", "active"))
 			.and(header("authorization", bearer.as_str()))
 			.and(query_param("page", "1"))
 			.respond_with(ResponseTemplate::new(200).set_body_json(organizations))

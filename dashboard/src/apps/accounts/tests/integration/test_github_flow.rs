@@ -723,14 +723,15 @@ async fn sr_19_memberships_are_read_from_github_with_the_users_own_token() {
 	// Arrange
 	let flow = flow().await;
 	Mock::given(method("GET"))
-		.and(path("/user/orgs"))
+		.and(path("/user/memberships/orgs"))
 		.and(wiremock::matchers::header(
 			"authorization",
 			"Bearer ghu_token",
 		))
+		.and(wiremock::matchers::query_param("state", "active"))
 		.respond_with(ResponseTemplate::new(200).set_body_json(json!([
-			{"id": 7001, "login": "acme"},
-			{"id": 7002, "login": "initech"}
+			{"state": "active", "organization": {"id": 7001, "login": "acme"}},
+			{"state": "active", "organization": {"id": 7002, "login": "initech"}}
 		])))
 		.mount(&flow.mock)
 		.await;
@@ -745,22 +746,67 @@ async fn sr_19_memberships_are_read_from_github_with_the_users_own_token() {
 
 #[rstest]
 #[tokio::test]
+async fn sr_19_a_membership_that_is_not_active_is_not_membership() {
+	// Arrange
+	let flow = flow().await;
+	Mock::given(method("GET"))
+		.and(path("/user/memberships/orgs"))
+		.respond_with(ResponseTemplate::new(200).set_body_json(json!([
+			{"state": "active", "organization": {"id": 7001, "login": "acme"}},
+			{"state": "pending", "organization": {"id": 7002, "login": "initech"}}
+		])))
+		.mount(&flow.mock)
+		.await;
+	let membership = flow.github.memberships(SecretString::new("ghu_token"));
+
+	// Act
+	let ids = membership.organization_ids(1).await;
+
+	// Assert
+	assert_eq!(ids, Ok(vec![7001]));
+}
+
+#[rstest]
+#[tokio::test]
+async fn sr_19_a_user_who_belongs_to_no_organization_has_no_memberships() {
+	// Arrange
+	let flow = flow().await;
+	Mock::given(method("GET"))
+		.and(path("/user/memberships/orgs"))
+		.respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+		.mount(&flow.mock)
+		.await;
+	let membership = flow.github.memberships(SecretString::new("ghu_token"));
+
+	// Act
+	let ids = membership.organization_ids(1).await;
+
+	// Assert
+	assert_eq!(ids, Ok(Vec::new()));
+}
+
+#[rstest]
+#[tokio::test]
 async fn sr_19_memberships_follow_pagination() {
 	// Arrange
 	let flow = flow().await;
 	let first_page: Vec<_> = (1..=100)
-		.map(|id| json!({"id": id, "login": "o"}))
+		.map(|id| json!({"state": "active", "organization": {"id": id, "login": "o"}}))
 		.collect();
 	Mock::given(method("GET"))
-		.and(path("/user/orgs"))
+		.and(path("/user/memberships/orgs"))
 		.and(wiremock::matchers::query_param("page", "1"))
 		.respond_with(ResponseTemplate::new(200).set_body_json(first_page))
 		.mount(&flow.mock)
 		.await;
 	Mock::given(method("GET"))
-		.and(path("/user/orgs"))
+		.and(path("/user/memberships/orgs"))
 		.and(wiremock::matchers::query_param("page", "2"))
-		.respond_with(ResponseTemplate::new(200).set_body_json(json!([{"id": 101, "login": "o"}])))
+		.respond_with(
+			ResponseTemplate::new(200).set_body_json(
+				json!([{"state": "active", "organization": {"id": 101, "login": "o"}}]),
+			),
+		)
 		.mount(&flow.mock)
 		.await;
 	let membership = flow.github.memberships(SecretString::new("ghu_token"));
@@ -784,7 +830,7 @@ async fn sr_19_a_membership_lookup_that_fails_is_an_error_not_an_empty_list(
 	// Arrange
 	let flow = flow().await;
 	Mock::given(method("GET"))
-		.and(path("/user/orgs"))
+		.and(path("/user/memberships/orgs"))
 		.respond_with(answer)
 		.mount(&flow.mock)
 		.await;
@@ -803,10 +849,10 @@ async fn sr_19_more_organizations_than_were_read_is_an_error() {
 	// Arrange
 	let flow = flow().await;
 	let full_page: Vec<_> = (1..=100)
-		.map(|id| json!({"id": id, "login": "o"}))
+		.map(|id| json!({"state": "active", "organization": {"id": id, "login": "o"}}))
 		.collect();
 	Mock::given(method("GET"))
-		.and(path("/user/orgs"))
+		.and(path("/user/memberships/orgs"))
 		.respond_with(ResponseTemplate::new(200).set_body_json(full_page))
 		.mount(&flow.mock)
 		.await;

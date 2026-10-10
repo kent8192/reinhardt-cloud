@@ -406,14 +406,24 @@ const MAX_ORGANIZATION_PAGES: u32 = 5;
 /// `OrganizationMembership` backed by GitHub, using the signing-in account's
 /// own token.
 ///
-/// `GET /user/orgs` needs no permission on the App but lists only organizations
-/// the App can see for the account, so an allowlisted organization has to
-/// have installed or authorized the App. Anything GitHub cannot confirm denies
-/// the sign-up.
+/// `GET /user/memberships/orgs?state=active` lists the account's active
+/// organization memberships for a GitHub App user access token (the
+/// `GET /user/orgs` listing comes back empty for such tokens). It needs the
+/// App's "Members" organization permission, so an allowlisted organization has
+/// to have installed the App with it. Only memberships GitHub reports as
+/// `active` count; a pending invitation is not membership. Anything GitHub
+/// cannot confirm denies the sign-up.
 pub struct GithubOrganizationMembership {
 	http: reqwest::Client,
 	api_url: String,
 	access_token: SecretString,
+}
+
+/// One entry of `GET /user/memberships/orgs`.
+#[derive(Deserialize)]
+struct MembershipEntry {
+	state: String,
+	organization: OrganizationEntry,
 }
 
 #[derive(Deserialize)]
@@ -428,8 +438,12 @@ impl OrganizationMembership for GithubOrganizationMembership {
 		for page in 1..=MAX_ORGANIZATION_PAGES {
 			let response = self
 				.http
-				.get(format!("{}/user/orgs", self.api_url))
-				.query(&[("per_page", "100"), ("page", &page.to_string())])
+				.get(format!("{}/user/memberships/orgs", self.api_url))
+				.query(&[
+					("state", "active"),
+					("per_page", "100"),
+					("page", &page.to_string()),
+				])
 				.bearer_auth(self.access_token.expose_secret())
 				.header("Accept", "application/vnd.github+json")
 				.send()
@@ -438,10 +452,15 @@ impl OrganizationMembership for GithubOrganizationMembership {
 			if !response.status().is_success() {
 				return Err(MembershipError);
 			}
-			let entries: Vec<OrganizationEntry> =
+			let entries: Vec<MembershipEntry> =
 				response.json().await.map_err(|_| MembershipError)?;
 			let full_page = entries.len() >= 100;
-			ids.extend(entries.into_iter().map(|entry| entry.id));
+			ids.extend(
+				entries
+					.into_iter()
+					.filter(|entry| entry.state == "active")
+					.map(|entry| entry.organization.id),
+			);
 			if !full_page {
 				return Ok(ids);
 			}

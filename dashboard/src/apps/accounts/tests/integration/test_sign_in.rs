@@ -577,20 +577,31 @@ async fn sr_19_the_allowlist_admits_members_of_a_listed_organization_verified_wi
 	member.organization_ids = vec![7_001, 7_002];
 	let mut outsider = GithubAccount::new(5_015, "outsider");
 	outsider.organization_ids = vec![9_999];
+	let mut invitee = GithubAccount::new(5_030, "invitee");
+	invitee.pending_organization_ids = vec![7_001];
 	app.expect_sign_in("code-14", &member).await;
 	app.expect_sign_in("code-15", &outsider).await;
+	app.expect_sign_in("code-30", &invitee).await;
 	let mut member_browser = app.browser();
 	let mut outsider_browser = app.browser();
+	let mut invitee_browser = app.browser();
 
 	// Act
 	let admitted = member_browser.sign_in("code-14").await;
 	let denied = outsider_browser.sign_in("code-15").await;
+	let not_yet_a_member = invitee_browser.sign_in("code-30").await;
 
 	// Assert
 	assert_eq!(admitted.header("location"), Some("/"));
 	assert_eq!(denied.header("location"), Some("/sign-in/"));
+	assert_eq!(
+		not_yet_a_member.header("location"),
+		Some("/sign-in/"),
+		"a pending invitation is not membership"
+	);
 	assert!(user_of(5_014).await.is_some());
 	assert!(user_of(5_015).await.is_none());
+	assert!(user_of(5_030).await.is_none());
 }
 
 #[rstest]
@@ -609,7 +620,7 @@ async fn sr_19_an_organization_lookup_that_fails_denies_the_sign_up() {
 	// The token exchange and profile work; the organization list does not.
 	app.expect_sign_in("code-16", &account).await;
 	wiremock::Mock::given(wiremock::matchers::method("GET"))
-		.and(wiremock::matchers::path("/user/orgs"))
+		.and(wiremock::matchers::path("/user/memberships/orgs"))
 		.respond_with(wiremock::ResponseTemplate::new(500).set_body_string("PROVIDER-DETAIL"))
 		.with_priority(1)
 		.mount(&app.github)
