@@ -47,6 +47,11 @@ web-sys = { version = "0.3", features = [
 	"EventTarget",
 	"Location",
 	"History",
+	"Storage",
+	"MediaQueryList",
+	"Navigator",
+	"Clipboard",
+	"HtmlDialogElement",
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
@@ -75,6 +80,31 @@ msw = ["reinhardt/msw"]
 rstest = { workspace = true }
 serial_test = "3.2"
 
+# Browser tests run under `wasm-pack test`; Cargo does not auto-discover test
+# files under `tests/<subdir>/`, so the target is declared explicitly below.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
+
+# Browser-only test target: the file is `#![cfg(client)]`, so it compiles to
+# nothing on native targets and runs under `cargo make wasm-test`.
+[[test]]
+name = "ui_browser"
+path = "tests/wasm/ui_browser.rs"
+
+# Native test targets are skipped by `wasm-pack test --no-default-features`,
+# which builds every test target for wasm32.
+[[test]]
+name = "integration"
+required-features = ["with-reinhardt"]
+
+[[test]]
+name = "ui_components"
+required-features = ["with-reinhardt"]
+
+[[test]]
+name = "i18n"
+required-features = ["with-reinhardt"]
