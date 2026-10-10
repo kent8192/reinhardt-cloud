@@ -2,4 +2,5 @@
 
 pub mod cluster;
 
+#[cfg(native)]
 pub use cluster::Cluster;

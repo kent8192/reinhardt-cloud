@@ -2,7 +2,9 @@
 //!
 //! Links a local `User` to a third-party identity provider (GitHub, GitLab,
 //! ...). One row per (user, provider) link; the same user may link several
-//! providers. The pair `(provider, provider_user_id)` is globally unique so
+//! providers. Both `(user_id, provider)` and `(provider, provider_user_id)`
+//! are unique, preventing concurrent callbacks from adding a second identity
+//! for the same provider and user. Provider identities are globally unique so
 //! that the same external identity cannot be claimed by two local users.
 //!
 //! OAuth tokens are stored only as encrypted metadata when a downstream
@@ -21,7 +23,20 @@ use super::User;
 /// The `id` is a UUID rather than an auto-increment integer to match the
 /// `reinhardt-auth` `SocialAccountStorage` trait surface (its `delete`
 /// takes `Uuid`), and to keep enumeration of links non-trivial.
-#[model(app_label = "auth", table_name = "auth_social_accounts")]
+#[model(
+	app_label = "auth",
+	table_name = "auth_social_accounts",
+	constraints = [
+		unique(
+			fields = ["provider", "provider_user_id"],
+			name = "auth_social_account_provider_uid_uniq"
+		),
+		unique(
+			fields = ["user_id", "provider"],
+			name = "auth_social_account_user_provider_uniq"
+		)
+	]
+)]
 #[derive(Default, Serialize, Deserialize)]
 pub struct SocialAccount {
 	/// Primary key (UUID v4, generated on insert).
@@ -29,7 +44,7 @@ pub struct SocialAccount {
 	pub id: Uuid,
 
 	/// User that owns this provider account link.
-	#[rel(foreign_key, related_name = "social_accounts")]
+	#[rel(foreign_key, related_name = "social_accounts", on_delete = Cascade)]
 	pub user: ForeignKeyField<User>,
 
 	/// Provider identifier — `"github"`, `"gitlab"`, etc. Lowercase, stable.

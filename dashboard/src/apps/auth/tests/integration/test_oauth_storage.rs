@@ -1,9 +1,11 @@
-//! Integration tests for `OrmSocialAccountStorage`.
+//! Integration tests for OAuth account and callback state storage.
 //!
 //! Verifies that the dashboard's `SocialAccountStorage` impl honours the
 //! framework contract — round-trips, lookup by provider/uid, listing by
 //! user, update-of-missing returns an error, and delete is idempotent on
 //! the missing case the same way the in-memory reference impl behaves.
+//! Contextual callback state must also cross dashboard replicas and be
+//! consumed exactly once before exchanging provider credentials.
 
 #[cfg(test)]
 mod tests {
@@ -11,20 +13,25 @@ mod tests {
 	use base64::engine::general_purpose::STANDARD;
 	use chrono::{Duration, Utc};
 	use reinhardt::BaseUser;
-	use reinhardt::auth::social::core::OAuthToken;
+	use reinhardt::auth::social::core::{OAuthToken, SocialAuthError};
 	use reinhardt::auth::social::storage::{SocialAccount, SocialAccountStorage};
 	use reinhardt::db::orm::Model;
-	use reinhardt::prelude::DatabaseConnection;
 	use reinhardt::test::APIClient;
 	use reinhardt::test::fixtures::postgres_with_migrations_from_dir;
-	use reinhardt::test::fixtures::{ContainerAsync, GenericImage};
+	use reinhardt::test::fixtures::redis_container;
+	use reinhardt::test::fixtures::{ContainerAsync, GenericImage, MigrationDatabase};
 	use rstest::*;
 	use serial_test::serial;
 	use std::sync::Arc;
 	use uuid::Uuid;
+	use wiremock::matchers::{method, path};
+	use wiremock::{Mock, MockServer, ResponseTemplate};
 
 	use crate::apps::auth::models::User;
+	use crate::apps::auth::server_urls::oauth::{oauth_account_link_user, oauth_state_binding};
+	use crate::apps::auth::services::oauth::backend::assemble_social_auth_backend;
 	use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
+	use crate::apps::auth::services::oauth::{OAuthSettings, ProviderCredentials};
 	use crate::config::test_helpers::build_test_app;
 	use reinhardt::UrlReverser;
 
@@ -39,7 +46,7 @@ mod tests {
 			let mut saved = Vec::new();
 			for (key, value) in vars {
 				saved.push((key, std::env::var(key).ok()));
-				// SAFETY: these database tests are serialized before mutating process env.
+				// SAFETY: these tests serialize access to the affected process env vars.
 				unsafe {
 					std::env::set_var(key, value);
 				}
@@ -65,7 +72,7 @@ mod tests {
 	#[fixture]
 	async fn db() -> (
 		ContainerAsync<GenericImage>,
-		Arc<DatabaseConnection>,
+		MigrationDatabase,
 		APIClient,
 		Arc<UrlReverser>,
 	) {
@@ -126,12 +133,119 @@ mod tests {
 	}
 
 	#[rstest]
+	#[tokio::test]
+	#[serial(database, env_oauth_endpoints)]
+	async fn contextual_oauth_state_is_shared_and_consumed_once() {
+		// Arrange
+		let (_redis, _port, redis_url) = redis_container().await;
+		let provider = MockServer::start().await;
+		Mock::given(method("POST"))
+			.and(path("/token"))
+			.respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+				"access_token": "test-access-token",
+				"token_type": "Bearer",
+				"expires_in": 3600
+			})))
+			.expect(1)
+			.mount(&provider)
+			.await;
+		Mock::given(method("GET"))
+			.and(path("/userinfo"))
+			.respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+				"id": 42,
+				"login": "test-user"
+			})))
+			.expect(1)
+			.mount(&provider)
+			.await;
+		let _env = EnvGuard::set(vec![
+			(
+				"REINHARDT_CLOUD_OAUTH_GITHUB_AUTHORIZE_URL",
+				format!("{}/authorize", provider.uri()),
+			),
+			(
+				"REINHARDT_CLOUD_OAUTH_GITHUB_TOKEN_URL",
+				format!("{}/token", provider.uri()),
+			),
+			(
+				"REINHARDT_CLOUD_OAUTH_GITHUB_USERINFO_URL",
+				format!("{}/userinfo", provider.uri()),
+			),
+		]);
+		let settings = OAuthSettings {
+			github: Some(ProviderCredentials {
+				client_id: "test-client".to_owned(),
+				client_secret: "test-secret".to_owned(),
+				redirect_uri: "https://example.test/oauth/github/callback".to_owned(),
+			}),
+		};
+		let initiating_replica = assemble_social_auth_backend(&settings, &redis_url)
+			.await
+			.unwrap()
+			.unwrap();
+		let callback_replica_a = assemble_social_auth_backend(&settings, &redis_url)
+			.await
+			.unwrap()
+			.unwrap();
+		let callback_replica_b = assemble_social_auth_backend(&settings, &redis_url)
+			.await
+			.unwrap()
+			.unwrap();
+		let user_id = Uuid::now_v7();
+		let context = serde_json::to_vec(&Some(user_id)).unwrap();
+		let binding = oauth_state_binding("link.browser-a", Some("session-a")).unwrap();
+		let authorization = initiating_replica
+			.begin_auth_with_context("github", None, None, &binding, context.clone())
+			.await
+			.unwrap();
+
+		// Act
+		let (first, second) = tokio::join!(
+			callback_replica_a.handle_callback_with_context(
+				"github",
+				"code",
+				&authorization.state,
+				&binding
+			),
+			callback_replica_b.handle_callback_with_context(
+				"github",
+				"code",
+				&authorization.state,
+				&binding
+			),
+		);
+		let outcomes = [first, second];
+		let replay = initiating_replica
+			.handle_callback_with_context("github", "code", &authorization.state, &binding)
+			.await;
+
+		// Assert
+		assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+		assert_eq!(
+			outcomes
+				.iter()
+				.filter(|result| matches!(result, Err(SocialAuthError::InvalidState)))
+				.count(),
+			1
+		);
+		let completed = outcomes.into_iter().find_map(Result::ok).unwrap();
+		assert_eq!(completed.context, context);
+		assert_eq!(
+			oauth_account_link_user(&completed.context, Some(user_id)).unwrap(),
+			Some(user_id)
+		);
+		assert_eq!(completed.callback.claims.unwrap().sub, "42");
+		assert_eq!(matches!(replay, Err(SocialAuthError::InvalidState)), true);
+		provider.verify().await;
+	}
+
+	#[rstest]
 	#[tokio::test(flavor = "multi_thread")]
 	#[serial(database)]
 	async fn test_create_then_find_by_provider(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -177,7 +291,7 @@ mod tests {
 	async fn test_store_token_for_user_encrypts_and_loads_explicitly(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -230,7 +344,7 @@ mod tests {
 	async fn test_find_by_provider_returns_none_for_missing(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -255,7 +369,7 @@ mod tests {
 	async fn test_find_by_user_lists_all_providers(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -293,7 +407,7 @@ mod tests {
 	async fn test_update_missing_returns_error(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -317,7 +431,7 @@ mod tests {
 	async fn test_delete_removes_row(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -345,7 +459,7 @@ mod tests {
 	async fn test_unique_provider_user_id_is_enforced(
 		#[future] db: (
 			ContainerAsync<GenericImage>,
-			Arc<DatabaseConnection>,
+			MigrationDatabase,
 			APIClient,
 			Arc<UrlReverser>,
 		),
@@ -370,5 +484,41 @@ mod tests {
 			result.is_err(),
 			"second link with duplicate (provider, provider_user_id) must fail"
 		);
+	}
+	#[rstest]
+	#[tokio::test(flavor = "multi_thread")]
+	#[serial(database)]
+	async fn concurrent_identities_for_one_user_and_provider_have_one_winner(
+		#[future] db: (
+			ContainerAsync<GenericImage>,
+			MigrationDatabase,
+			APIClient,
+			Arc<UrlReverser>,
+		),
+	) {
+		// Arrange
+		let (_container, _connection, _client, _urls) = db.await;
+		let user_id = create_test_user("provider_race", "race@example.com").await;
+		let storage = OrmSocialAccountStorage::new();
+
+		// Act
+		let (first, second) = tokio::join!(
+			storage.create(sample_account(user_id, "github", "first")),
+			storage.create(sample_account(user_id, "github", "second")),
+		);
+
+		// Assert
+		let winner = match (first, second) {
+			(Ok(winner), Err(SocialAuthError::Storage(_)))
+			| (Err(SocialAuthError::Storage(_)), Ok(winner)) => winner,
+			other => panic!("exactly one concurrent insert must succeed: {other:?}"),
+		};
+		let links = storage
+			.find_by_user(user_id)
+			.await
+			.expect("load persisted link");
+		assert_eq!(links.len(), 1);
+		assert_eq!(links[0].id, winner.id);
+		assert_eq!(links[0].provider_user_id, winner.provider_user_id);
 	}
 }

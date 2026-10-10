@@ -84,9 +84,4 @@ ignore = [
 	# quick-xml: unbounded namespace-declaration allocation in NsReader
 	# (solution: upgrade to >=0.41.0). Same transitive pin as RUSTSEC-2026-0194.
 	"RUSTSEC-2026-0195",
-
-	# rkyv: insufficient archive validation for Rc/Arc (solution: upgrade to >=0.8.17).
-	# Transitive: reinhardt-web -> sqlx -> sqlx-postgres -> rust_decimal 1.42.1 -> rkyv 0.7.46
-	# rust_decimal 1.42 still depends on the unsupported rkyv 0.7 series.
-	"RUSTSEC-2026-0235",
 ]

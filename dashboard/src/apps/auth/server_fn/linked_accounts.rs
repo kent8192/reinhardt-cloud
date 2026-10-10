@@ -22,7 +22,7 @@ pub async fn list_linked_oauth_accounts(
 	use crate::apps::auth::server_fn::oauth_providers::label_for_provider;
 
 	let rows = SocialAccount::objects()
-		.filter(SocialAccount::field_user_id().eq(user.id.to_string()))
+		.filter(SocialAccount::field_user_id().eq(user.id))
 		.all()
 		.await
 		.map_err(|err| {

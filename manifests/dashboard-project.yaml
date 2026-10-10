@@ -65,4 +65,9 @@ spec:
   # in this namespace (see prerequisites).
   env:
     REINHARDT_EMAIL__HOST: secretRef:reinhardt-cloud-dashboard-secrets/email-host
-    GRPC_ENDPOINT: http://reinhardt-cloud-operator.reinhardt-cloud-system.svc.cluster.local:50051
+    # The dashboard hosts its own gRPC server (default bind 0.0.0.0:50051) and
+    # connects to it as a client for the /api/healthz/ probe and the log
+    # streaming bridge, so the endpoint is the in-pod loopback address. The
+    # Service above only exposes port 80 -> 8000 and the operator serves no
+    # gRPC, so a Service/operator URL on 50051 can never be reached.
+    GRPC_ENDPOINT: http://127.0.0.1:50051

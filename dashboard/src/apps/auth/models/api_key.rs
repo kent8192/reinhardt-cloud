@@ -38,7 +38,7 @@ pub struct ApiKey {
 	pub id: Option<i64>,
 
 	/// Owner of this token.
-	#[rel(foreign_key, related_name = "api_keys")]
+	#[rel(foreign_key, related_name = "api_keys", on_delete = Cascade)]
 	pub user: ForeignKeyField<User>,
 
 	/// SHA-256(plaintext token) encoded as lowercase hex (64 chars). Globally unique.

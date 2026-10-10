@@ -51,17 +51,17 @@ mindmap
 **DON'T:**
 
 ```
-src/controller/mod.rs  // ❌ Old Rust 2015 style
+src/controller/mod.rs  // ❌ Disallowed project layout
 ```
 
 **DO:**
 
 ```
-src/controller.rs      // ✅ Rust 2024 style
+src/controller.rs      // ✅ Required project layout
 ```
 
-**Why?** `mod.rs` is deprecated and makes file navigation harder. See
-@instructions/MODULE_SYSTEM.md
+**Why?** Named module files make navigation easier and follow the project layout.
+See [MODULE_SYSTEM.md](MODULE_SYSTEM.md).
 
 ### ❌ Glob Imports
 
@@ -77,16 +77,11 @@ pub use controller::*;  // ❌ Pollutes namespace
 pub use controller::{AppController, AppContext, ControllerConfig};  // ✅ Explicit
 ```
 
-**Exception**: Test modules may use `use super::*;` for convenience:
+Use explicit imports in test modules too, including `rstest::{fixture, rstest}`
+when both attributes are needed. This keeps examples consistent with production
+module visibility rules.
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;  // ✅ Acceptable in test modules
-}
-```
-
-**Why?** Makes it unclear what's exported and causes naming conflicts.
+**Why?** Explicit imports expose dependencies and avoid accidental API expansion.
 
 ### ❌ Circular Module Dependencies
 
@@ -591,26 +586,14 @@ rm reconciler.rs.bak controller.rs.old  # ✅ Delete backups
 
 ## Workflow Anti-Patterns
 
-### ❌ Committing Without User Instruction
+### ❌ Committing Outside Authorization
 
-**DON'T:**
-
-```bash
-# ❌ AI creates commit automatically
-git add .
-git commit -m "feat: Add feature"
-```
-
-**DO:**
-
-```bash
-# ✅ Wait for explicit user instruction
-# User: "Please commit these changes"
-git add <specific files>
-git commit -m "..."
-```
-
-**Why?** Commits should only be made with explicit user authorization.
+Apply [COMMIT_GUIDELINE.md](COMMIT_GUIDELINE.md#commit-execution-policy) before
+committing. Its verified local-commit exception applies only to ordinary work
+branches. Stage specific owned paths, inspect the staged diff, and create one
+focused commit. Pushes and other external actions retain their separate scope.
+Do not stage an entire dirty checkout or require fresh approval for an action
+already authorized by the task or that exception.
 
 ### ❌ Monolithic Commits
 
@@ -679,9 +662,9 @@ Always update documentation in the same workflow as code changes.
 
 ## Related Documentation
 
-- **Main Quick Reference**: @CLAUDE.md (see Quick Reference section)
-- **Main standards**: @CLAUDE.md
-- **Module system**: @instructions/MODULE_SYSTEM.md
-- **Testing standards**: @instructions/TESTING_STANDARDS.md
-- **Documentation standards**: @instructions/DOCUMENTATION_STANDARDS.md
-- **Kubernetes patterns**: @instructions/KUBERNETES_PATTERNS.md
+- **Main Quick Reference**: [AGENTS.md](../AGENTS.md#quick-reference) / [CLAUDE.md](../CLAUDE.md#quick-reference)
+- **Main Standards**: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
+- **Module system**: [MODULE_SYSTEM.md](MODULE_SYSTEM.md)
+- **Testing standards**: [TESTING_STANDARDS.md](TESTING_STANDARDS.md)
+- **Documentation standards**: [DOCUMENTATION_STANDARDS.md](DOCUMENTATION_STANDARDS.md)
+- **Kubernetes patterns**: [KUBERNETES_PATTERNS.md](KUBERNETES_PATTERNS.md)
