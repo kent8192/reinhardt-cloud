@@ -9,9 +9,9 @@
 //! | `GET /api/auth/github/callback/` | complete a GitHub sign-in | allowed |
 //! | `take_sign_in_notice` | sign-in page redeems its notice | allowed |
 //! | `current_viewer` | who is signed in (`null` when nobody) | allowed |
-//! | `sign_out` | destroy the session | needs a session |
+//! | `sign_out` | destroy the session | allowed (idempotent) |
 //!
-//! The first four are the accounts share of the enumerated unauthenticated
+//! All five are the accounts share of the enumerated unauthenticated
 //! surface (SR-10, see `config::middleware::access_gate`). There is no route
 //! that accepts a credential: GitHub is the only identity provider (SR-01).
 
@@ -26,12 +26,16 @@ pub const AUTH_PREFIX: &str = "/api/auth/";
 
 /// Paths (routes the framework serves) that answer anonymous callers.
 ///
+/// `sign_out` is among them because it only ever acts on the session the caller
+/// presents: a visitor whose session already expired can still leave cleanly.
+///
 /// Server functions are registered under `/api/server_fn/<name>`.
 pub const ANONYMOUS_PATHS: &[&str] = &[
 	"/api/auth/github/",
 	"/api/auth/github/callback/",
 	"/api/server_fn/take_sign_in_notice",
 	"/api/server_fn/current_viewer",
+	"/api/server_fn/sign_out",
 ];
 
 pub fn server_url_patterns() -> ServerRouter {

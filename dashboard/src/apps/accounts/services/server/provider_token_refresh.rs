@@ -23,6 +23,11 @@ use crate::apps::accounts::services::server::provider_tokens::{
 /// A token that expires within this window is refreshed before use.
 const REFRESH_SKEW: Duration = Duration::seconds(60);
 
+/// After GitHub rejects a refresh token, how often and how long to wait for a
+/// concurrent request to store the replacement it obtained.
+const RACE_ATTEMPTS: u32 = 4;
+const RACE_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
+
 /// Why a token could not be provided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TokenAccessError {
@@ -194,13 +199,16 @@ impl ProviderTokenService {
 			Err(RefreshError::Unavailable) => Err(TokenAccessError::Unavailable),
 			Err(RefreshError::Rejected) => {
 				// Refresh tokens are single-use: a concurrent request may have
-				// spent this one and already stored its replacement.
-				let current = self.load(user_id).await?;
-				if current.access_token_expires_at - now > REFRESH_SKEW {
-					Ok(current.access_token)
-				} else {
-					Err(TokenAccessError::ReauthenticationRequired)
+				// spent this one and be about to store its replacement. Give it
+				// a moment before telling the User to sign in again.
+				for _ in 0..RACE_ATTEMPTS {
+					tokio::time::sleep(RACE_WAIT).await;
+					let current = self.load(user_id).await?;
+					if current.access_token_expires_at - now > REFRESH_SKEW {
+						return Ok(current.access_token);
+					}
 				}
+				Err(TokenAccessError::ReauthenticationRequired)
 			}
 		}
 	}

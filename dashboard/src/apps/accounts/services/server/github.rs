@@ -57,6 +57,9 @@ const GITHUB_TIMEOUT: Duration = Duration::from_secs(10);
 ///   // `TokenResponse` carries the field GitHub sent.
 const GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS: u64 = 15_811_200;
 
+/// Redis key prefix of the pending sign-in states.
+pub(crate) const STATE_KEY_PREFIX: &str = "cloud:oauth-state:";
+
 /// Binding used when the browser presented no binding cookie.
 ///
 /// `handle_callback_with_context` returns *before* consuming the state when the
@@ -160,7 +163,7 @@ impl GithubSignIn {
 			.map_err(|_| CompleteError::Internal)?;
 		let sessions = RedisSessionBackend::new_from_url(redis_url.expose_secret())
 			.map_err(|_| CompleteError::Internal)?
-			.with_key_prefix("cloud:oauth-state:".to_owned());
+			.with_key_prefix(STATE_KEY_PREFIX.to_owned());
 		let states = Arc::new(AsyncSessionStateStore::new(sessions));
 		let mut backend = SocialAuthBackend::with_state_store(states.clone());
 		backend.register_provider(Arc::new(provider));

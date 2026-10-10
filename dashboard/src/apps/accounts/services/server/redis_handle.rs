@@ -8,9 +8,17 @@
 use std::sync::Arc;
 
 use redis::Client;
-use redis::aio::ConnectionManager;
+use std::time::Duration;
+
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use reinhardt::conf::settings::secret_types::SecretString;
 use tokio::sync::OnceCell;
+
+/// Longest a connection attempt may take.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Longest a command may take. A request must fail, not hang, when Redis is
+/// unreachable.
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Failures talking to Redis. The message is for server logs only (SR-14).
 #[derive(Debug, thiserror::Error)]
@@ -52,7 +60,13 @@ impl RedisHandle {
 	pub async fn connection(&self) -> Result<ConnectionManager, RedisError> {
 		let manager = self
 			.connection
-			.get_or_try_init(|| ConnectionManager::new(self.client.clone()))
+			.get_or_try_init(|| {
+				let config = ConnectionManagerConfig::new()
+					.set_number_of_retries(1)
+					.set_connection_timeout(CONNECT_TIMEOUT)
+					.set_response_timeout(RESPONSE_TIMEOUT);
+				ConnectionManager::new_with_config(self.client.clone(), config)
+			})
 			.await?;
 		Ok(manager.clone())
 	}
