@@ -76,6 +76,12 @@ fn managed_github_credentials_secret_name(project_name: &str) -> String {
 /// risk exists if the operator itself writes the annotation and immediately
 /// re-triggers reconciliation. The value is consumed read-only here.
 const TRACEPARENT_ANNOTATION: &str = "reinhardt.io/traceparent";
+/// Pod template annotation recording the UID of the Redis credentials Secret a
+/// workload was rolled out with. Workloads read the password once through an
+/// environment variable, so a regenerated Secret (new UID) must change this
+/// annotation to restart the application, worker, and Redis Pods together.
+/// The UID is API-assigned and carries no credential material.
+const REDIS_CREDENTIALS_REVISION_ANNOTATION: &str = "reinhardt.dev/redis-credentials-uid";
 /// Comma-separated list of DNS suffixes that tenant-supplied Ingress hosts may use.
 const INGRESS_HOST_SUFFIXES_ENV: &str = "REINHARDT_CLOUD_INGRESS_HOST_SUFFIXES";
 
@@ -690,7 +696,11 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// has completed, so a new workload image never serves before its schema
 	// change gate succeeds.
 	ensure_deployment_apply_target_is_owned(&deployments, &app, namespace, &name).await?;
-	let desired_deployment = build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
+	let mut desired_deployment =
+		build_deployment(&app, pages_config.as_ref(), &ctx.platform.platform)?;
+	if let Some(provenance) = &redis_provenance {
+		provenance.stamp_pod_template(&mut desired_deployment);
+	}
 	deployments
 		.patch(
 			&name,
@@ -776,7 +786,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Cache provisioning — explicit spec.cache takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_cache(&app) {
-		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_deployment(&app, &ctx.client, namespace, redis_provenance.as_ref()).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled cache resources for {name}");
 	}
@@ -784,8 +794,14 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 	// Worker provisioning — explicit spec.worker takes precedence,
 	// falling back to introspect infrastructure signals.
 	if should_provision_worker(&app) {
-		reconcile_worker_deployment_resource(&app, &ctx.client, namespace, &ctx.platform.platform)
-			.await?;
+		reconcile_worker_deployment_resource(
+			&app,
+			&ctx.client,
+			namespace,
+			&ctx.platform.platform,
+			redis_provenance.as_ref(),
+		)
+		.await?;
 		info!("Reconciled worker deployment for {name}");
 	}
 
@@ -822,7 +838,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 
 	// Session backend: ensure Redis when session_backend=redis (Phase 4)
 	if needs_redis_sessions && !should_provision_cache(&app) {
-		reconcile_cache_deployment(&app, &ctx.client, namespace).await?;
+		reconcile_cache_deployment(&app, &ctx.client, namespace, redis_provenance.as_ref()).await?;
 		reconcile_cache_service_resource(&app, &ctx.client, namespace).await?;
 		info!("Reconciled Redis for session backend for {name}");
 	}
@@ -1649,6 +1665,23 @@ impl RedisCredentialsProvenance {
 		status.redis_credentials_secret_uid = Some(self.uid.clone());
 		status.redis_credentials_secret_digest = Some(self.digest.clone());
 	}
+
+	/// Stamps the Secret UID into a Redis-consuming Deployment's Pod template,
+	/// so replacing the credentials rolls the workload onto the new password.
+	fn stamp_pod_template(&self, deployment: &mut Deployment) {
+		let Some(spec) = deployment.spec.as_mut() else {
+			return;
+		};
+		spec.template
+			.metadata
+			.get_or_insert_with(ObjectMeta::default)
+			.annotations
+			.get_or_insert_with(BTreeMap::new)
+			.insert(
+				REDIS_CREDENTIALS_REVISION_ANNOTATION.to_string(),
+				self.uid.clone(),
+			);
+	}
 }
 
 /// Reconciles the Redis credentials `Secret` for a `Project`.
@@ -1941,10 +1974,14 @@ async fn reconcile_cache_deployment(
 	app: &Project,
 	client: &Client,
 	namespace: &str,
+	redis_provenance: Option<&RedisCredentialsProvenance>,
 ) -> Result<(), Error> {
 	let name = format!("{}-redis", app.name_any());
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
-	let desired = resources::cache::build_cache_deployment(app)?;
+	let mut desired = resources::cache::build_cache_deployment(app)?;
+	if let Some(provenance) = redis_provenance {
+		provenance.stamp_pod_template(&mut desired);
+	}
 	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 	deployments
 		.patch(&name, &ssapply, &Patch::Apply(&desired))
@@ -1978,11 +2015,15 @@ async fn reconcile_worker_deployment_resource(
 	client: &Client,
 	namespace: &str,
 	platform: &Platform,
+	redis_provenance: Option<&RedisCredentialsProvenance>,
 ) -> Result<(), Error> {
 	let custom_cmd = app.spec.worker.as_ref().and_then(|w| w.command.as_deref());
 	let name = format!("{}-worker", app.name_any());
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
-	let desired = resources::worker::build_worker_deployment(app, custom_cmd, platform)?;
+	let mut desired = resources::worker::build_worker_deployment(app, custom_cmd, platform)?;
+	if let Some(provenance) = redis_provenance {
+		provenance.stamp_pod_template(&mut desired);
+	}
 	let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 	deployments
 		.patch(&name, &ssapply, &Patch::Apply(&desired))
@@ -3911,6 +3952,57 @@ mod tests {
 		assert!(first_digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
 		assert_eq!(first_digest, redis_credentials_digest(&first.clone()));
 		assert_ne!(first_digest, second_digest);
+	}
+
+	#[rstest]
+	#[case::application("application")]
+	#[case::worker("worker")]
+	#[case::redis("redis")]
+	fn regenerated_redis_credentials_roll_every_consumer(#[case] workload: &str) {
+		// Arrange: the approved Secret was deleted and the operator generated a
+		// replacement with a new UID.
+		let app = make_test_app("payments");
+		let build = || {
+			match workload {
+				"application" => build_deployment(&app, None, &Platform::Onpremise),
+				"worker" => {
+					resources::worker::build_worker_deployment(&app, None, &Platform::Onpremise)
+				}
+				_ => resources::cache::build_cache_deployment(&app),
+			}
+			.expect("deployment builds")
+		};
+		let original = RedisCredentialsProvenance {
+			uid: "original-secret-uid".to_string(),
+			digest: "original-digest".to_string(),
+		};
+		let regenerated = RedisCredentialsProvenance {
+			uid: "regenerated-secret-uid".to_string(),
+			digest: "regenerated-digest".to_string(),
+		};
+		let mut before = build();
+		let mut after = build();
+
+		// Act
+		original.stamp_pod_template(&mut before);
+		regenerated.stamp_pod_template(&mut after);
+
+		// Assert: only the API-assigned UID is exposed, and it changes the Pod
+		// template so the workload restarts onto the new password.
+		let template = |deployment: Deployment| deployment.spec.expect("deployment spec").template;
+		let before = template(before);
+		let after = template(after);
+		let revision = |template: &k8s_openapi::api::core::v1::PodTemplateSpec| {
+			template
+				.metadata
+				.as_ref()
+				.and_then(|metadata| metadata.annotations.as_ref())
+				.and_then(|annotations| annotations.get(REDIS_CREDENTIALS_REVISION_ANNOTATION))
+				.cloned()
+		};
+		assert_eq!(revision(&before).as_deref(), Some("original-secret-uid"));
+		assert_eq!(revision(&after).as_deref(), Some("regenerated-secret-uid"));
+		assert_ne!(before, after);
 	}
 
 	#[rstest]

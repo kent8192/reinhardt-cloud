@@ -1058,6 +1058,16 @@ tenant principals must not be granted `create`, `update`, `patch`, or `delete` o
 Project namespaces; the same requirement protects the JWT, `core.secret_key`, and database
 credential Secrets.
 
+Workloads read the Redis password once, through an environment variable, so the operator stamps
+the API-assigned Secret UID into the Pod template of the application, worker, and Redis
+Deployments as the `reinhardt.dev/redis-credentials-uid` annotation. The annotation carries no
+credential material. If an approved Secret is deleted, the next reconciliation generates a new
+Secret with a new UID, and the changed annotation rolls all three Deployments onto the new password
+instead of leaving running Pods on the old one. Redis-backed sessions and cached data do not
+survive this rotation, and requests can fail briefly while the Deployments roll. Upgrading to an
+operator release that adds this annotation triggers one rollout of each Redis-consuming
+Deployment.
+
 When upgrading from a release that used labels or owner references as Redis Secret ownership,
 first apply the new CRD schema, perform this adoption while the old operator remains running,
 and only then roll out the new operator, as described in the upgrade sequence above. Also
