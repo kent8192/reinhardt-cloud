@@ -784,6 +784,7 @@ mod tests {
 			passed.extensions().get::<GrpcPath>(),
 			Some(&GrpcPath::new(path))
 		);
+		// `Claims` does not implement `PartialEq`, so it cannot use `assert_eq!`.
 		assert!(passed.extensions().get::<Claims>().is_none());
 		assert_eq!(passed.extensions().get::<AgentClaims>(), None);
 	}
