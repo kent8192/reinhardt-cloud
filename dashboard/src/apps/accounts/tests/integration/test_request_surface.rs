@@ -566,6 +566,14 @@ async fn sr_13_the_spa_shell_currently_carries_no_security_headers_upstream_gap(
 	}
 }
 
+/// A route-name heuristic, and only a backstop. It catches a handler that is
+/// obviously named like a Staff grant, a Login Link issuance, or a re-pointing,
+/// but a route can be named anything. The guarantee that no request moves a User
+/// to another GitHub account is structural and is tested separately: the admin
+/// site cannot edit `github_user_id` or `is_staff`
+/// (`sr_107_admin_cannot_move_a_user_to_another_github_account`,
+/// `sr_20_admin_cannot_change_staff_or_identity_fields`), and the services that
+/// do those things are called only from the `manage` commands.
 #[rstest]
 #[tokio::test]
 #[serial(database, env_settings_load)]
