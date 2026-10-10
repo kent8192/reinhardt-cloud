@@ -174,11 +174,17 @@ fn badge_and_chip_render_their_labels() {
 }
 
 #[rstest]
+#[case(AlertTone::Info, "status")]
+#[case(AlertTone::Warning, "status")]
+#[case(AlertTone::Danger, "alert")]
 #[serial(i18n)]
-fn alert_announces_its_title_and_body() {
+fn alert_announces_its_title_and_body_with_the_role_of_its_tone(
+	#[case] tone: AlertTone,
+	#[case] expected_role: &str,
+) {
 	within_ui(|| {
 		// Arrange
-		let screen = render(alert(AlertTone::Warning, t!("Copy"), t!("Copied")));
+		let screen = render(alert(tone, t!("Copy"), t!("Copied")));
 
 		// Act
 		let title = screen.get_by_text("Copy").text();
@@ -188,8 +194,8 @@ fn alert_announces_its_title_and_body() {
 		assert_eq!(title, "Copy");
 		assert_eq!(body, "Copied");
 		assert!(screen.pretty().starts_with(&format!(
-			"<div class=\"{}\" role=\"alert\">",
-			class_value(alert_classes(AlertTone::Warning))
+			"<div class=\"{}\" role=\"{expected_role}\">",
+			class_value(alert_classes(tone))
 		)));
 	});
 }

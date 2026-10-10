@@ -37,7 +37,11 @@
 
 	--leading-tight: 1.2;
 	--leading-ui: 1.45;
+	--leading-compact: 1.5;
 	--leading-prose: 1.6;
+
+	/* Display headings tighten slightly. */
+	--tracking-display: -0.2px;
 
 	--weight-regular: 400;
 	--weight-medium: 500;
@@ -45,6 +49,9 @@
 
 	--measure-prose: 62ch;
 	--measure-page: 68rem;
+	--measure-empty: 46ch;
+	--measure-dialog: 32rem;
+	--measure-signed-out: 36rem;
 
 	/* ---- Spacing (4px base) ------------------------------------------ */
 	--space-1: 0.25rem;
@@ -58,11 +65,17 @@
 	--space-9: 6rem;
 
 	/* ---- Radius: small for controls, larger for containers ------------ */
+	--radius-xs: 1px;
 	--radius-sm: 4px;
 	--radius-md: 6px;
 	--radius-lg: 10px;
 	--radius-xl: 16px;
 	--radius-full: 999px;
+
+	/* ---- Borders ------------------------------------------------------------
+	 * Hairlines separate surfaces; the emphasis rule marks an alert's tone. */
+	--border-width: 1px;
+	--border-width-emphasis: 3px;
 
 	/* ---- Motion ----------------------------------------------------------- */
 	--duration-fast: 120ms;
@@ -74,6 +87,21 @@
 	/* ---- Layout ------------------------------------------------------------ */
 	--sidebar-width: 15.5rem;
 	--control-height: 2.25rem;
+	--control-height-sm: 1.875rem;
+	--control-height-lg: 2.75rem;
+	/* Brand mark width in the signed-out chrome. */
+	--brand-mark-width: 2.75rem;
+	/* Moves the skip link above the viewport until it receives focus. */
+	--skip-link-hidden-top: -4rem;
+
+	/* ---- Status badge ---------------------------------------------------------
+	 * The marker is a shape drawn from borders, so its strokes are sizes. */
+	--badge-gap: 0.4rem;
+	--badge-padding-block: 0.125rem;
+	--badge-padding-inline-end: 0.625rem;
+	--badge-marker-size: 0.5rem;
+	--badge-marker-ring: 2px;
+	--badge-marker-outline: 1.5px;
 	/* Log viewer chrome: theme-independent, because the viewer is always dark. */
 	--log-border: rgb(255 255 255 / 0.1);
 	--log-control-border: rgb(255 255 255 / 0.25);

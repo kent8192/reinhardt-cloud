@@ -40,6 +40,10 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 		ink_strong: Color;
 		text_lg: Length;
 		weight_semibold: Number;
+		brand_mark_width: Length;
+		measure_signed_out: Length;
+		skip_link_hidden_top: Length;
+		tracking_display: Length;
 	}
 	.page {
 		position: relative;
@@ -47,7 +51,7 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 		/* `minmax(0, 36rem) minmax(0, 1fr)` in the prototype. `unchecked_fn!` accepts
 		 * one call only, so two tracks cannot use it; `min-width: 0` on the grid
 		 * items below gives the `1fr` track the same zero minimum. */
-		grid-template-columns: (36rem, 1fr);
+		grid-template-columns: (globals.measure_signed_out, 1fr);
 		align-items: center;
 		min-height: 100vh;
 		overflow: hidden;
@@ -55,7 +59,7 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	.skip {
 		position: absolute;
 		left: globals.space_3;
-		top: -4rem;
+		top: globals.skip_link_hidden_top;
 		z-index: 100;
 		padding: (globals.space_3, globals.space_3);
 		background: globals.surface_inverse;
@@ -83,9 +87,9 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 		color: globals.ink_strong;
 		font-size: globals.text_lg;
 		font-weight: globals.weight_semibold;
-		letter-spacing: -0.2px;
+		letter-spacing: globals.tracking_display;
 		img {
-			width: 2.75rem;
+			width: globals.brand_mark_width;
 			height: auto;
 		}
 	}

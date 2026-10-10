@@ -38,6 +38,9 @@ pub static BUTTON_STYLES: ButtonStyles = style! {
 		text_lg: Length;
 		weight_medium: Number;
 		weight_semibold: Number;
+		border_width: Length;
+		control_height_lg: Length;
+		control_height_sm: Length;
 	}
 	.btn {
 		display: inline-flex;
@@ -47,7 +50,7 @@ pub static BUTTON_STYLES: ButtonStyles = style! {
 		min-height: globals.control_height;
 		padding: (0, globals.space_4);
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_strong);
+		border: (globals.border_width, solid, globals.border_strong);
 		border-radius: globals.radius_md;
 		color: globals.ink_strong;
 		font-weight: globals.weight_medium;
@@ -100,7 +103,7 @@ pub static BUTTON_STYLES: ButtonStyles = style! {
 		background: globals.surface_inverse;
 		border-color: transparent;
 		color: globals.ink_inverse;
-		min-height: 2.75rem;
+		min-height: globals.control_height_lg;
 		padding: (0, globals.space_5);
 		font-size: globals.text_lg;
 		font-weight: globals.weight_semibold;
@@ -110,7 +113,7 @@ pub static BUTTON_STYLES: ButtonStyles = style! {
 		}
 	}
 	.small {
-		min-height: 1.875rem;
+		min-height: globals.control_height_sm;
 		padding: (0, globals.space_3);
 		font-size: globals.text_sm;
 	}

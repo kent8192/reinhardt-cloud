@@ -26,11 +26,12 @@ pub static TABLE_STYLES: TableStyles = style! {
 		text_sm: Length;
 		weight_regular: Number;
 		weight_medium: Number;
+		border_width: Length;
 	}
 	.wrap {
 		overflow-x: auto;
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_lg;
 	}
 	.table {
@@ -38,7 +39,7 @@ pub static TABLE_STYLES: TableStyles = style! {
 		th, td {
 			padding: (globals.space_3, globals.space_4);
 			text-align: left;
-			border-bottom: (1px, solid, globals.border_subtle);
+			border-bottom: (globals.border_width, solid, globals.border_subtle);
 		}
 		thead {
 			th {

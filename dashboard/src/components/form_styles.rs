@@ -30,6 +30,8 @@ pub static FORM_STYLES: FormStyles = style! {
 		weight_medium: Number;
 		weight_semibold: Number;
 		status_danger_fg: Color;
+		border_width: Length;
+		border_width_emphasis: Length;
 	}
 	.form {
 		display: flex;
@@ -55,8 +57,8 @@ pub static FORM_STYLES: FormStyles = style! {
 	}
 	.summary {
 		padding: (globals.space_3, globals.space_4);
-		border: (1px, solid, globals.border_default);
-		border-left: (3px, solid, globals.status_danger_fg);
+		border: (globals.border_width, solid, globals.border_default);
+		border-left: (globals.border_width_emphasis, solid, globals.status_danger_fg);
 		border-radius: globals.radius_md;
 		background: globals.surface_raised;
 		color: globals.ink_strong;
@@ -67,7 +69,7 @@ pub static FORM_STYLES: FormStyles = style! {
 		min-height: globals.control_height;
 		padding: (0, globals.space_3);
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_strong);
+		border: (globals.border_width, solid, globals.border_strong);
 		border-radius: globals.radius_md;
 		color: globals.ink_strong;
 		&::placeholder {
