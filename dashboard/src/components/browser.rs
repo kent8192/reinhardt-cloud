@@ -65,6 +65,34 @@ mod browser_impl {
 		}
 	}
 
+	/// Removes the `close` listener of a dialog when dropped.
+	pub(super) struct CloseListener {
+		target: web_sys::EventTarget,
+		closure: Closure<dyn FnMut()>,
+	}
+
+	impl Drop for CloseListener {
+		fn drop(&mut self) {
+			// Removing a listener that is already gone is harmless.
+			let _ = self.target.remove_event_listener_with_callback(
+				"close",
+				self.closure.as_ref().unchecked_ref(),
+			);
+		}
+	}
+
+	pub(super) fn on_dialog_close(
+		id: &str,
+		callback: impl FnMut() + 'static,
+	) -> Option<CloseListener> {
+		let target: web_sys::EventTarget = dialog(id)?.into();
+		let closure = Closure::<dyn FnMut()>::new(callback);
+		target
+			.add_event_listener_with_callback("close", closure.as_ref().unchecked_ref())
+			.ok()?;
+		Some(CloseListener { target, closure })
+	}
+
 	pub(super) fn copy_text(text: &str, done: impl FnOnce() + 'static) {
 		let Some(window) = window() else {
 			return;
@@ -118,6 +146,15 @@ mod browser_impl {
 
 	pub(super) fn show_modal(_id: &str) {}
 
+	pub(super) struct CloseListener;
+
+	pub(super) fn on_dialog_close(
+		_id: &str,
+		_callback: impl FnMut() + 'static,
+	) -> Option<CloseListener> {
+		None
+	}
+
 	pub(super) fn copy_text(_text: &str, _done: impl FnOnce() + 'static) {}
 
 	pub(super) fn after_millis(_milliseconds: i32, _callback: impl FnOnce() + 'static) {}
@@ -151,6 +188,20 @@ pub fn system_prefers_dark() -> bool {
 /// Opens the `<dialog>` with the given ID as a modal.
 pub fn show_modal(id: &str) {
 	browser_impl::show_modal(id);
+}
+
+/// Keeps a dialog `close` listener registered until dropped.
+pub struct CloseListener {
+	_inner: browser_impl::CloseListener,
+}
+
+/// Calls `callback` whenever the `<dialog>` with the given ID closes, whether
+/// through `Escape`, `<form method="dialog">`, or `close()`.
+///
+/// Returns `None` when the dialog is not in the document (always on the server
+/// target). The listener is removed when the returned guard is dropped.
+pub fn on_dialog_close(id: &str, callback: impl FnMut() + 'static) -> Option<CloseListener> {
+	browser_impl::on_dialog_close(id, callback).map(|inner| CloseListener { _inner: inner })
 }
 
 /// Copies `text` to the clipboard and calls `done` once the copy succeeded.
