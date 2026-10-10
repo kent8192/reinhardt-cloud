@@ -1703,4 +1703,31 @@ static_root="/app/dist"
 			Some("/app/dist")
 		);
 	}
+
+	#[rstest]
+	fn dashboard_config_matches_its_image_publication() {
+		// Arrange
+		let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+		let config: ReinhardtCloudToml = toml::from_str(
+			&std::fs::read_to_string(repository.join("dashboard/reinhardt-cloud.toml")).unwrap(),
+		)
+		.unwrap();
+		let dockerfile = std::fs::read_to_string(repository.join("dashboard/Dockerfile")).unwrap();
+
+		// Act
+		let pages = config.to_project_spec().pages.unwrap();
+
+		// Assert
+		let static_root = pages.static_root.unwrap();
+		assert_eq!(static_root, "/app/static");
+		assert_eq!(pages.static_url.as_deref(), Some("/static/"));
+		assert_eq!(pages.prebuilt, Some(true));
+		assert!(
+			dockerfile
+				.lines()
+				.any(|line| line
+					== format!("COPY --from=assets /app/dashboard/static {static_root}")),
+			"dashboard/Dockerfile must publish into {static_root}"
+		);
+	}
 }

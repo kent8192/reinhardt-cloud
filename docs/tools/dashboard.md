@@ -250,6 +250,10 @@ styles together. Build-only random settings values are supplied in that stage;
 production credentials are supplied at deployment time. The asset stage uses
 the CI profile's inherited `static` output root and copies only that publication
 to the runtime image. A separate legacy `collectstatic` publication is not needed.
+Because the Dashboard uses a hand-written Dockerfile, `dashboard/reinhardt-cloud.toml`
+records its publication explicitly: `[pages] static_root = "/app/static"`,
+`static_url = "/static/"`, and `prebuilt = true`, so a CLI deploy serves the baked
+manifest, JS, and WASM instead of an empty `collectstatic` volume.
 
 ### Database requirements
 
