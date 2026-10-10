@@ -208,6 +208,11 @@ fn sr_10_the_listed_routes_are_public_exactly() {
 
 #[rstest]
 #[case::dot_dot("/api/anything/../../static/admin/x")]
+#[case::leading_double_slash("//api/x")]
+#[case::inner_dot_segment("/api/./x")]
+#[case::leading_dot_segment("/./api/x")]
+#[case::encoded_prefix("/%61pi/x")]
+#[case::outside_the_api_with_a_dot_segment("/static/./admin/x")]
 #[tokio::test]
 async fn sr_10_traversal_cannot_borrow_a_public_prefix(#[case] path: &str) {
 	// Arrange / Act

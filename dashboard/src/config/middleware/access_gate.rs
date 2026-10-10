@@ -104,7 +104,9 @@ impl Middleware for AccessGate {
 			return Ok(json_error(Response::not_found(), "not found"));
 		}
 		let admin = is_admin_path(&path);
-		let guarded = path.starts_with("/api/") || admin;
+		// A path that is not canonical is guarded wherever it points: the router
+		// may resolve it to a route the prefix checks below would not recognise.
+		let guarded = !is_canonical(&path) || path.starts_with("/api/") || admin;
 		if !guarded || is_unauthenticated(&path) {
 			return next.handle(request).await;
 		}
