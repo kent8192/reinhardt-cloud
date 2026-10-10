@@ -7,6 +7,7 @@
 //! - `client`       — WASM-only frontend (booted by its `wasm_bindgen(start)` entry point)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
 //! - `i18n`         — message catalogs and the page i18n context
+//! - `logging`      — the process-wide `tracing` subscriber (server only)
 //! - `components`   — components shared by every app (route-backed pages live in `apps/<app>/client/components/`)
 //! - `server`       — production HTTP server bootstrap used by the server binary
 
@@ -34,6 +35,8 @@ pub mod audit;
 pub mod components;
 pub mod config;
 pub mod i18n;
+#[cfg(server)]
+pub mod logging;
 pub mod persisted_time;
 #[cfg(server)]
 pub mod server;

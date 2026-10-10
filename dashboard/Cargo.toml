@@ -78,6 +78,9 @@ hkdf = "0.12"
 sha2 = "0.10"
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# Installs the process-wide log output (`logging::init`); the tests also use it
+# to capture `audit` events.
+tracing-subscriber = { workspace = true }
 # Session and sign-in state live in Redis so every replica sees them (SR-04,
 # SR-08). The version and features match the ones `reinhardt-middleware`
 # compiles, so the facade's Redis session backend and this client share one build.
@@ -113,8 +116,6 @@ wiremock = "0.6"
 # Build requests for the middleware unit tests.
 bytes = "1"
 hyper = "1"
-# Captures `audit` events in tests.
-tracing-subscriber = { workspace = true }
 # Parses the committed settings profiles in tests.
 toml = { workspace = true }
 
