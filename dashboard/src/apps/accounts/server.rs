@@ -7,6 +7,9 @@
 
 pub mod admin;
 pub mod base_user;
+pub mod context;
+pub mod cookies;
 pub mod forms;
+pub mod session_auth;
 pub mod settings;
 pub mod views;
