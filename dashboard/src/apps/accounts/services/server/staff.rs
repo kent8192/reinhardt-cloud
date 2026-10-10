@@ -59,12 +59,11 @@ pub enum RevokeOutcome {
 		/// The removed User.
 		user_id: Uuid,
 	},
-	/// The User was not Staff; their sessions were ended anyway.
+	/// The User was not Staff; nothing changed and no session was touched, just
+	/// as a repeated grant changes nothing.
 	NotStaff {
 		/// The User.
 		user_id: Uuid,
-		/// How many live sessions were destroyed.
-		sessions_ended: usize,
 	},
 }
 
@@ -226,6 +225,9 @@ enum Committed {
 
 /// Remove Staff from the GitHub account `github_user_id` and end its sessions.
 ///
+/// Revoking a User who is not Staff changes nothing and ends no session: the
+/// outcome is `unchanged`, as for a repeated grant.
+///
 /// A User that was pre-provisioned and has never signed in is removed instead:
 /// leaving the row would keep the policy exemption of SR-105 alive after the
 /// operator withdrew the grant. Audited as `accounts.revoke_staff.succeeded` /
@@ -284,6 +286,10 @@ pub async fn revoke(
 		.subject_user(user_id)
 		.reason(reason)
 		.emit();
+	if let Committed::NotStaff(user_id) = committed {
+		// Idempotent, like a repeated grant: no change, so no session is ended.
+		return Ok(RevokeOutcome::NotStaff { user_id });
+	}
 
 	match sessions.destroy_all_for_user(user_id).await {
 		Ok(sessions_ended) => Ok(match committed {
@@ -292,10 +298,7 @@ pub async fn revoke(
 				sessions_ended,
 			},
 			Committed::Removed(_) => RevokeOutcome::PreProvisionRemoved { user_id },
-			Committed::NotStaff(_) => RevokeOutcome::NotStaff {
-				user_id,
-				sessions_ended,
-			},
+			Committed::NotStaff(_) => RevokeOutcome::NotStaff { user_id },
 		}),
 		Err(cause) => {
 			event("accounts.revoke_staff.failed", Outcome::Failed)

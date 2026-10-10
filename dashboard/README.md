@@ -89,7 +89,8 @@ the numeric GitHub user ID.
 # The account need not have signed in: it is created from the ID alone and can
 # sign in with GitHub whatever the sign-up policy is. The exemption is for that
 # one ID. Add --revoke to remove Staff and end the User's sessions (a User who was
-# pre-provisioned and never signed in is removed with it).
+# pre-provisioned and never signed in is removed with it). Revoking a User who is
+# not Staff changes nothing and ends no session, like a repeated grant.
 manage grant-staff --github-user-id 583231
 manage grant-staff --github-user-id 583231 --revoke
 

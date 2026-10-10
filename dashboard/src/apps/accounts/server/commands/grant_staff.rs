@@ -105,8 +105,8 @@ fn describe_revoke(github_user_id: i64, outcome: &RevokeOutcome) -> String {
 		RevokeOutcome::PreProvisionRemoved { .. } => format!(
 			"GitHub user {github_user_id} was pre-provisioned and had never signed in; the User was removed, so the sign-up exemption is gone."
 		),
-		RevokeOutcome::NotStaff { sessions_ended, .. } => format!(
-			"GitHub user {github_user_id} was not Staff; {sessions_ended} session(s) ended."
-		),
+		RevokeOutcome::NotStaff { .. } => {
+			format!("GitHub user {github_user_id} was not Staff; nothing changed.")
+		}
 	}
 }

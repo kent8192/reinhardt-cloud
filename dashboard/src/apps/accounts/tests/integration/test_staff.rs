@@ -249,7 +249,9 @@ async fn sr_20_a_revocation_of_an_unknown_id_is_denied_and_changes_nothing(
 #[rstest]
 #[tokio::test]
 #[serial(database)]
-async fn sr_20_revoking_a_regular_user_still_ends_their_sessions(#[future] database: TestDatabase) {
+async fn sr_20_revoking_a_user_who_is_not_staff_is_an_unchanged_no_op(
+	#[future] database: TestDatabase,
+) {
 	// Arrange
 	let _db = database.await;
 	let redis = redis_sessions().await;
@@ -257,17 +259,48 @@ async fn sr_20_revoking_a_regular_user_still_ends_their_sessions(#[future] datab
 	let session = redis.sessions.create(user.id).await.unwrap();
 
 	// Act
-	let outcome = revoke(81, &redis.sessions).await.unwrap();
+	let (events, outcome) = capture_audit_events(revoke(81, &redis.sessions)).await;
 
 	// Assert
 	assert_eq!(
-		outcome,
-		RevokeOutcome::NotStaff {
-			user_id: user.id,
-			sessions_ended: 1
-		}
+		outcome.unwrap(),
+		RevokeOutcome::NotStaff { user_id: user.id }
 	);
-	assert_eq!(redis.sessions.resolve(&session.token).await.unwrap(), None);
+	assert_eq!(
+		redis.sessions.resolve(&session.token).await.unwrap(),
+		Some(user.id),
+		"nothing changed, so the session is not ended"
+	);
+	let unchanged = find_by_github_user_id(81).await.unwrap().unwrap();
+	assert_eq!((unchanged.is_staff, unchanged.is_active), (false, true));
+	assert_eq!(events.len(), 1);
+	assert_eq!(
+		events[0].field("event"),
+		Some("accounts.revoke_staff.succeeded")
+	);
+	assert_eq!(events[0].field("reason"), Some("unchanged"));
+	assert_eq!(events[0].field("outcome"), Some("succeeded"));
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_20_revoking_a_user_who_is_not_staff_needs_no_session_store(
+	#[future] database: TestDatabase,
+) {
+	// Arrange: Redis is down, but there is nothing to end.
+	let _db = database.await;
+	let user = insert_user(82, "regular", false).await;
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let outcome = revoke(82, &revoker).await;
+
+	// Assert
+	assert_eq!(
+		outcome.unwrap(),
+		RevokeOutcome::NotStaff { user_id: user.id }
+	);
 }
 
 /// A pre-provisioned account signs in under `invite_only`, whatever the policy.
