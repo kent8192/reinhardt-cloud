@@ -148,12 +148,12 @@ pub(crate) enum Error {
 	#[error("waiting for {remaining} preview Project(s) in namespace '{namespace}' to be deleted")]
 	PreviewProjectsTerminating { namespace: String, remaining: usize },
 
-	/// Namespace lifecycle management is disabled and the preview namespace has
-	/// not been pre-created by the platform.
+	/// Namespace lifecycle management is disabled and an operator-managed
+	/// tenant or preview namespace has not been pre-created by the platform.
 	#[error(
-		"preview namespace '{0}' does not exist; pre-create it or enable namespace lifecycle management"
+		"namespace '{0}' does not exist; pre-create it or enable namespace lifecycle management"
 	)]
-	PreviewNamespaceNotProvisioned(String),
+	NamespaceNotProvisioned(String),
 }
 
 /// Classification of reconciliation errors for backoff decisions.
@@ -211,7 +211,7 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
-		Error::PreviewProjectsTerminating { .. } | Error::PreviewNamespaceNotProvisioned(_) => {
+		Error::PreviewProjectsTerminating { .. } | Error::NamespaceNotProvisioned(_) => {
 			BackoffClass::DependencyNotReady
 		}
 		Error::Finalizer(source) => nested_backoff_class(source.as_ref()),
@@ -413,10 +413,10 @@ mod tests {
 		namespace: "preview-default-api".to_string(),
 		remaining: 2,
 	})]
-	#[case::preview_namespace_not_provisioned(Error::PreviewNamespaceNotProvisioned(
+	#[case::namespace_not_provisioned(Error::NamespaceNotProvisioned(
 		"preview-default-api".to_string()
 	))]
-	fn preview_wait_errors_are_dependency_not_ready(#[case] err: Error) {
+	fn namespace_wait_errors_are_dependency_not_ready(#[case] err: Error) {
 		// Act
 		let class = backoff_class(&err);
 

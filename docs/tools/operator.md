@@ -285,7 +285,11 @@ When the field is set, the operator:
   `tenant-<organization>-<team>` if `team` is set).
 - Server-side applies that `Namespace` together with a default
   `ResourceQuota` and a default-deny + same-namespace + ingress-controller
-  `NetworkPolicy` triple before any per-app workload is reconciled.
+  `NetworkPolicy` triple before any per-app workload is reconciled. When
+  namespace lifecycle management is disabled, the operator does not create the
+  `Namespace`: it only merge-patches the labels of a pre-created tenant
+  namespace, and fails with a dependency-not-ready backoff (no quota or
+  policies applied) until the platform creates it.
 - Verifies that `metadata.namespace` matches the computed value.
   Mismatches set `status.phase: failed` and emit a `Degraded=True`
   condition with reason `TenantMismatch`; the controller then skips
@@ -325,10 +329,11 @@ Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; t
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
 pre-create tenant and preview namespaces when those workflows are used. The chart passes this same
 setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`. While lifecycle management is
-disabled, the operator never creates or deletes preview namespaces: it requires the parent-qualified
-preview namespace to be pre-created (reconciliation fails with a dependency-not-ready backoff until it
-exists) and only merge-patches its owner labels before applying guardrails. On parent deletion it
-retains the namespace, deletes the parent-labeled preview `Project`s, and keeps the parent finalizer
+disabled, the operator never creates tenant or preview namespaces and never deletes preview
+namespaces: it requires the tenant namespace and the parent-qualified preview namespace to be
+pre-created (reconciliation fails with a dependency-not-ready backoff until they exist) and only
+merge-patches their labels before applying guardrails. On parent deletion it
+retains the preview namespace, deletes the parent-labeled preview `Project`s, and keeps the parent finalizer
 until their own finalizers finish. Enabling lifecycle management requires both the chart's lifecycle
 RBAC verbs and the operator setting. Standalone runs that leave the variable unset (for example
 `cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it explicitly to

@@ -436,6 +436,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 					.isolation
 					.as_ref()
 					.and_then(|isolation| isolation.network.as_ref()),
+				ctx.manage_namespace_lifecycle,
 			)
 			.await?;
 		}
@@ -2041,10 +2042,14 @@ fn validate_tenant_namespace(
 /// shared across CRs; the `ResourceQuota` and `NetworkPolicy` resources
 /// likewise omit owner references for the same reason (see the module
 /// docs in `resources::tenant`).
+///
+/// When namespace lifecycle management is disabled, the tenant namespace must
+/// already exist; see [`patch_existing_namespace_labels`].
 async fn reconcile_tenant_resources(
 	client: &Client,
 	tenant: &reinhardt_cloud_types::crd::tenant::TenantRef,
 	network: Option<&reinhardt_cloud_types::crd::isolation::NetworkIsolationSpec>,
+	manage_namespace_lifecycle: bool,
 ) -> Result<(), Error> {
 	let namespace_name = tenant.namespace();
 	let ssapply = PatchParams::apply("reinhardt-cloud-operator").force();
@@ -2052,10 +2057,14 @@ async fn reconcile_tenant_resources(
 	// Namespace is cluster-scoped; use Api::all.
 	let namespaces: Api<Namespace> = Api::all(client.clone());
 	let desired_ns = tenant_resources::build_namespace(tenant);
-	namespaces
-		.patch(&namespace_name, &ssapply, &Patch::Apply(&desired_ns))
-		.await
-		.map_err(Error::Kube)?;
+	if manage_namespace_lifecycle {
+		namespaces
+			.patch(&namespace_name, &ssapply, &Patch::Apply(&desired_ns))
+			.await
+			.map_err(Error::Kube)?;
+	} else {
+		patch_existing_namespace_labels(&namespaces, &namespace_name, &desired_ns).await?;
+	}
 
 	let quotas: Api<k8s_openapi::api::core::v1::ResourceQuota> =
 		Api::namespaced(client.clone(), &namespace_name);
@@ -2094,15 +2103,40 @@ async fn reconcile_tenant_resources(
 	Ok(())
 }
 
+/// Merge-patches the labels of a pre-created namespace without ever creating it.
+///
+/// Used when namespace lifecycle management is disabled: a JSON merge patch
+/// against a missing namespace returns 404 instead of creating the object, and
+/// that 404 is reported as [`Error::NamespaceNotProvisioned`] so callers stop
+/// before applying any guardrail inside the namespace.
+async fn patch_existing_namespace_labels(
+	namespaces: &Api<Namespace>,
+	namespace_name: &str,
+	desired: &Namespace,
+) -> Result<(), Error> {
+	let label_patch = PatchParams {
+		field_manager: Some("reinhardt-cloud-operator".to_string()),
+		..Default::default()
+	};
+	match namespaces
+		.patch(namespace_name, &label_patch, &Patch::Merge(desired))
+		.await
+	{
+		Ok(_) => Ok(()),
+		Err(kube::Error::Api(status)) if status.code == 404 => {
+			Err(Error::NamespaceNotProvisioned(namespace_name.to_string()))
+		}
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
 /// Reconcile the parent-qualified preview namespace and its resource guardrails.
 ///
 /// The preview namespace is intentionally separate from the parent namespace,
 /// so preview Projects do not use owner references to the parent `Project`.
 ///
 /// When namespace lifecycle management is disabled, the namespace must already
-/// exist: its owner labels are merge-patched (which never creates the object)
-/// and a missing namespace yields [`Error::PreviewNamespaceNotProvisioned`]
-/// before any guardrail is applied.
+/// exist; see [`patch_existing_namespace_labels`].
 async fn reconcile_preview_namespace(
 	client: &Client,
 	parent_namespace: &str,
@@ -2131,20 +2165,7 @@ async fn reconcile_preview_namespace(
 			.await
 			.map_err(Error::Kube)?;
 	} else {
-		let label_patch = PatchParams {
-			field_manager: Some("reinhardt-cloud-operator".to_string()),
-			..Default::default()
-		};
-		match namespaces
-			.patch(&ns_name, &label_patch, &Patch::Merge(&desired_ns))
-			.await
-		{
-			Ok(_) => {}
-			Err(kube::Error::Api(status)) if status.code == 404 => {
-				return Err(Error::PreviewNamespaceNotProvisioned(ns_name));
-			}
-			Err(err) => return Err(Error::Kube(err)),
-		}
+		patch_existing_namespace_labels(&namespaces, &ns_name, &desired_ns).await?;
 	}
 
 	let quota =
@@ -4144,21 +4165,64 @@ mod tests {
 		.await;
 
 		// Assert
-		let error = match result {
-			Err(Error::PreviewNamespaceNotProvisioned(namespace)) => {
-				assert_eq!(namespace, preview_ns);
-				"not_provisioned"
-			}
-			Err(Error::Kube(kube::Error::Api(status))) if status.code == 404 => "kube_404",
-			other => panic!("unexpected preview namespace result: {other:?}"),
-		};
-		assert_eq!(error, expected_error);
+		assert_eq!(
+			namespace_reconcile_outcome(result, &preview_ns),
+			expected_error
+		);
 		assert_eq!(
 			*requests
 				.lock()
 				.expect("requests lock should not be poisoned"),
 			vec![format!(
 				"PATCH /api/v1/namespaces/{preview_ns} {expected_content_type}"
+			)]
+		);
+	}
+
+	/// Classifies the result of reconciling a missing namespace.
+	fn namespace_reconcile_outcome(result: Result<(), Error>, expected_ns: &str) -> &'static str {
+		match result {
+			Err(Error::NamespaceNotProvisioned(namespace)) => {
+				assert_eq!(namespace, expected_ns);
+				"not_provisioned"
+			}
+			Err(Error::Kube(kube::Error::Api(status))) if status.code == 404 => "kube_404",
+			other => panic!("unexpected namespace reconcile result: {other:?}"),
+		}
+	}
+
+	#[rstest]
+	#[case::lifecycle_disabled(false, "application/merge-patch+json", "not_provisioned")]
+	#[case::lifecycle_enabled(true, "application/apply-patch+yaml", "kube_404")]
+	#[tokio::test]
+	async fn tenant_namespace_is_only_created_when_lifecycle_is_managed(
+		#[case] manage_namespace_lifecycle: bool,
+		#[case] expected_content_type: &str,
+		#[case] expected_error: &str,
+	) {
+		// Arrange
+		let (client, requests) = recording_client(|_, _| (404, not_found_status()));
+		let tenant = reinhardt_cloud_types::crd::tenant::TenantRef {
+			organization: "acme".to_string(),
+			team: None,
+		};
+		let tenant_ns = tenant.namespace();
+
+		// Act
+		let result =
+			reconcile_tenant_resources(&client, &tenant, None, manage_namespace_lifecycle).await;
+
+		// Assert
+		assert_eq!(
+			namespace_reconcile_outcome(result, &tenant_ns),
+			expected_error
+		);
+		assert_eq!(
+			*requests
+				.lock()
+				.expect("requests lock should not be poisoned"),
+			vec![format!(
+				"PATCH /api/v1/namespaces/{tenant_ns} {expected_content_type}"
 			)]
 		);
 	}
