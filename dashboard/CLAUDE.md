@@ -79,7 +79,9 @@ Dockerfile generator. Keep these stable:
   `REINHARDT_DATABASE_{HOST,PORT,NAME,USER,PASSWORD}`.
 - Sign-in additionally reads `REINHARDT_CLOUD_GITHUB_CLIENT_ID`,
   `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET`, and `REINHARDT_CLOUD_PUBLIC_URL`
-  (see `README.md`); without the GitHub App only Login Links can sign in.
+  (see `README.md`). `staging` and `production` refuse to start without the
+  GitHub App and the public origin unless `REINHARDT_CLOUD_GITHUB_SIGN_IN=disabled`
+  opts out explicitly, in which case only Login Links can sign in.
 
 ## Required Guidance
 

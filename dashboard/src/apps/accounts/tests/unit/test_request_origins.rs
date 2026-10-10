@@ -1,6 +1,8 @@
 //! The allow-list of cross-site request origins (SR-12) and the GitHub App
 //! configuration the same settings describe.
 
+use reinhardt::conf::settings::fragment::SettingsValidation;
+use reinhardt::conf::settings::profile::Profile;
 use reinhardt::conf::settings::secret_types::SecretString;
 use rstest::rstest;
 
@@ -162,5 +164,49 @@ fn sr_13_trusted_proxies_are_exact_ip_addresses() {
 	assert_eq!(
 		AccountsSettings::default().trusted_proxy_addresses(),
 		Ok(vec![])
+	);
+}
+
+#[rstest]
+#[case::bare_origin("https://reinhardt-cloud.dev", Some("https://reinhardt-cloud.dev"))]
+#[case::trailing_slash("https://reinhardt-cloud.dev/", Some("https://reinhardt-cloud.dev"))]
+#[case::with_port("http://localhost:8000", Some("http://localhost:8000"))]
+#[case::empty("", None)]
+#[case::with_a_path("https://reinhardt-cloud.dev/dashboard", None)]
+#[case::without_a_scheme("reinhardt-cloud.dev", None)]
+fn the_public_origin_is_a_bare_origin_or_nothing(
+	#[case] public_url: &str,
+	#[case] expected: Option<&str>,
+) {
+	// Arrange
+	let settings = settings(public_url, "");
+
+	// Act
+	let origin = settings.public_origin();
+
+	// Assert
+	assert_eq!(origin.as_deref(), expected);
+}
+
+#[rstest]
+#[case::local(Profile::Development)]
+#[case::staging(Profile::Staging)]
+fn a_configured_github_app_without_a_public_origin_is_rejected_in_every_profile(
+	#[case] profile: Profile,
+) {
+	// Arrange
+	let settings = AccountsSettings {
+		github_client_id: "Iv1.abc".to_owned(),
+		github_client_secret: Some(SecretString::new("s3cret")),
+		..AccountsSettings::default()
+	};
+
+	// Act
+	let error = settings.validate(&profile).unwrap_err().to_string();
+
+	// Assert
+	assert_eq!(
+		error,
+		"Invalid value for 'accounts.public_url': must be a non-empty origin without a path (for example `https://host`) when the GitHub App is configured"
 	);
 }

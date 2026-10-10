@@ -994,16 +994,115 @@ fn the_deployed_profiles_name_their_https_public_url_and_the_callback_derives_fr
 
 #[rstest]
 #[serial(env_settings_load)]
-fn sign_in_is_optional_so_that_a_login_link_alone_can_run_a_control_plane() {
+#[case::staging("staging")]
+#[case::production("production")]
+fn a_deployed_profile_without_the_github_app_stops_startup_unless_sign_in_is_disabled(
+	#[case] profile: &'static str,
+) {
 	// Arrange
-	let dir = isolated_settings("github-optional", &["base", "production"]);
-	let _env = env_for("production", &dir, &[]);
+	let dir = isolated_settings("github-required", &["base", profile]);
+
+	// Act
+	let message = load_error(
+		profile,
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", None),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", None),
+		],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.github_client_*': the GitHub App client ID and secret are required in a deployed profile; set `accounts.github_sign_in = \"disabled\"` to run without GitHub sign-in"
+	);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+#[case::staging("staging")]
+#[case::production("production")]
+fn sign_in_can_be_disabled_explicitly_so_that_a_login_link_alone_can_run_a_control_plane(
+	#[case] profile: &'static str,
+) {
+	// Arrange
+	let dir = isolated_settings("github-disabled", &["base", profile]);
+	let _env = env_for(
+		profile,
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_SIGN_IN", Some("disabled")),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", None),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", None),
+		],
+	);
 
 	// Act
 	let settings = get_settings().unwrap().resolve().unwrap();
 
 	// Assert
 	assert!(settings.settings().accounts.github_app().is_none());
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn disabling_sign_in_wins_over_a_configured_github_app() {
+	// Arrange
+	let dir = isolated_settings("github-disabled-wins", &["base", "production"]);
+	let _env = env_for(
+		"production",
+		&dir,
+		&[("REINHARDT_CLOUD_GITHUB_SIGN_IN", Some("disabled"))],
+	);
+
+	// Act
+	let settings = get_settings().unwrap().resolve().unwrap();
+
+	// Assert
+	assert!(settings.settings().accounts.github_app().is_none());
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn an_unknown_github_sign_in_value_stops_startup() {
+	// Arrange
+	let dir = isolated_settings("github-sign-in-typo", &["base", "production"]);
+
+	// Act
+	let message = load_error(
+		"production",
+		&dir,
+		&[("REINHARDT_CLOUD_GITHUB_SIGN_IN", Some("disable"))],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.github_sign_in': must be empty or `disabled`"
+	);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+#[case::with_a_path("https://reinhardt-cloud.dev/dashboard")]
+#[case::without_a_scheme("reinhardt-cloud.dev")]
+fn a_configured_github_app_requires_a_bare_origin_as_the_public_url(#[case] public_url: &str) {
+	// Arrange
+	let dir = isolated_settings("github-origin", &["base", "production"]);
+
+	// Act
+	let message = load_error(
+		"production",
+		&dir,
+		&[("REINHARDT_CLOUD_PUBLIC_URL", Some(public_url))],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.public_url': must be a non-empty origin without a path (for example `https://host`) when the GitHub App is configured"
+	);
 }
 
 #[rstest]

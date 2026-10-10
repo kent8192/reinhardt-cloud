@@ -30,6 +30,7 @@ use crate::apps::accounts::services::server::token_crypto::{
 /// | `public_url` | `REINHARDT_CLOUD_PUBLIC_URL` |
 /// | `allowed_origins` | `REINHARDT_CLOUD_ALLOWED_ORIGINS` |
 /// | `trusted_proxies` | `REINHARDT_CLOUD_TRUSTED_PROXIES` |
+/// | `github_sign_in` | `REINHARDT_CLOUD_GITHUB_SIGN_IN` |
 /// | `github_client_id` | `REINHARDT_CLOUD_GITHUB_CLIENT_ID` |
 /// | `github_client_secret` | `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET` |
 /// | `github_authorize_url`, `github_token_url`, `github_api_url` | `REINHARDT_CLOUD_GITHUB_{AUTHORIZE,TOKEN,API}_URL` |
@@ -82,6 +83,12 @@ pub struct AccountsSettings {
 	/// is what lets `Strict-Transport-Security` be sent behind a proxy (SR-13).
 	#[serde(default)]
 	pub trusted_proxies: String,
+
+	/// Set to `disabled` to run without GitHub sign-in (only Login Links can then
+	/// sign in). `staging` and `production` refuse to start without a GitHub App
+	/// unless this explicit opt-out is set.
+	#[serde(default)]
+	pub github_sign_in: String,
 
 	/// Client ID of the GitHub App that backs sign-in.
 	#[serde(default)]
@@ -139,6 +146,20 @@ impl AccountsSettings {
 }
 
 impl AccountsSettings {
+	/// Whether GitHub sign-in was explicitly switched off.
+	#[must_use]
+	pub fn github_sign_in_disabled(&self) -> bool {
+		self.github_sign_in.trim().eq_ignore_ascii_case("disabled")
+	}
+
+	/// The public URL as a bare origin (`scheme://host[:port]`, no path), or
+	/// `None` when it is empty or has anything else in it.
+	#[must_use]
+	pub fn public_origin(&self) -> Option<String> {
+		let candidate = self.public_url.trim().trim_end_matches('/');
+		normalize_origin(candidate).filter(|origin| origin == candidate)
+	}
+
 	/// The trusted proxy addresses.
 	///
 	/// # Errors
@@ -157,6 +178,9 @@ impl AccountsSettings {
 	/// (no client ID or no client secret).
 	#[must_use]
 	pub fn github_app(&self) -> Option<GithubAppConfig> {
+		if self.github_sign_in_disabled() {
+			return None;
+		}
 		let client_secret = self.github_client_secret.as_ref()?;
 		let client_id = self.github_client_id.trim();
 		if client_id.is_empty() || client_secret.is_empty() {
@@ -263,9 +287,14 @@ impl SettingsValidation for AccountsSettings {
 				key: "accounts.trusted_proxies".to_owned(),
 				message: format!("{entry:?} is not an IP address"),
 			})?;
-		// Sign-in is optional so that a Control Plane can run with Login Links
-		// alone (break-glass or automation), but a half-configured App is a
-		// mistake, never a choice.
+		let setting = self.github_sign_in.trim();
+		if !setting.is_empty() && !self.github_sign_in_disabled() {
+			return Err(ValidationError::InvalidValue {
+				key: "accounts.github_sign_in".to_owned(),
+				message: "must be empty or `disabled`".to_owned(),
+			});
+		}
+		// A half-configured App is a mistake, never a choice.
 		let has_id = !self.github_client_id.trim().is_empty();
 		let has_secret = self
 			.github_client_secret
@@ -277,14 +306,31 @@ impl SettingsValidation for AccountsSettings {
 				message: "the GitHub App client ID and secret must be set together".to_owned(),
 			});
 		}
-		if has_id
-			&& matches!(profile, Profile::Staging | Profile::Production)
-			&& !self.public_url.trim().starts_with("https://")
-		{
+		let deployed = matches!(profile, Profile::Staging | Profile::Production);
+		if self.github_sign_in_disabled() {
+			return Ok(());
+		}
+		// Sign-in is the only way in (SR-01): a deployed profile without a GitHub
+		// App must say so explicitly instead of starting with no way to sign in.
+		if deployed && !has_id {
 			return Err(ValidationError::InvalidValue {
-				key: "accounts.public_url".to_owned(),
-				message: "must be an https origin in a deployed profile".to_owned(),
+				key: "accounts.github_client_*".to_owned(),
+				message: "the GitHub App client ID and secret are required in a deployed profile; set `accounts.github_sign_in = \"disabled\"` to run without GitHub sign-in".to_owned(),
 			});
+		}
+		if has_id {
+			if self.public_origin().is_none() {
+				return Err(ValidationError::InvalidValue {
+					key: "accounts.public_url".to_owned(),
+					message: "must be a non-empty origin without a path (for example `https://host`) when the GitHub App is configured".to_owned(),
+				});
+			}
+			if deployed && !self.public_url.trim().starts_with("https://") {
+				return Err(ValidationError::InvalidValue {
+					key: "accounts.public_url".to_owned(),
+					message: "must be an https origin in a deployed profile".to_owned(),
+				});
+			}
 		}
 		Ok(())
 	}

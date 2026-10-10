@@ -288,4 +288,29 @@ mod tests {
 		// the variable name is stable across machines.
 		assert!(error.to_string().contains("REINHARDT_CORE__SECRET_KEY"));
 	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	#[case::staging("staging")]
+	#[case::production("production")]
+	#[tokio::test]
+	async fn run_fails_before_listening_when_a_deployed_profile_has_no_github_app(
+		#[case] profile: &'static str,
+	) {
+		// Arrange
+		let mut vars = required_env(profile);
+		vars.push(("REINHARDT_CLOUD_GITHUB_CLIENT_ID", None));
+		vars.push(("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", None));
+		let _env = EnvGuard::apply(&vars);
+
+		// Act
+		let result = run("127.0.0.1:0").await;
+
+		// Assert
+		let error = result.expect_err("a deployed profile needs the GitHub App or an opt-out");
+		assert_eq!(
+			error.to_string(),
+			"Validation error: Invalid value for 'accounts.github_client_*': the GitHub App client ID and secret are required in a deployed profile; set `accounts.github_sign_in = \"disabled\"` to run without GitHub sign-in"
+		);
+	}
 }
