@@ -2,38 +2,31 @@
 //!
 //! Renders a `<div id="cluster-health">` container populated with one row
 //! per (`cluster_name`, `agent_id`) pair from incoming
-//! [`ClusterHealthPayload`] WebSocket messages. Each (cluster, agent) key
+//! `ClusterHealthPayload` WebSocket messages. Each (cluster, agent) key
 //! uses a stable DOM id so subsequent updates replace the existing row
 //! rather than duplicating it.
 
-#[cfg(wasm)]
 use reinhardt::pages::component::Page;
-#[cfg(wasm)]
 use reinhardt::pages::page;
 
-use crate::shared::ws_messages::ClusterHealthPayload;
-
+use crate::apps::deployments::client::style::STYLES;
 #[cfg(wasm)]
 use crate::shared::client::components::toast::html_escape;
+#[cfg(wasm)]
+use crate::shared::ws_messages::ClusterHealthPayload;
 
 /// DOM id of the cluster health container.
 #[cfg(wasm)]
 const CONTAINER_ID: &str = "cluster-health";
 
 /// Render the cluster health container (empty; rows added dynamically).
-#[cfg(wasm)]
 pub fn cluster_health_container() -> Page {
-	page!(|| {
+	page!({
 		div {
 			id: "cluster-health",
-			class: "cluster-health grid gap-2",
+			class: STYLES.cluster_health(),
 		}
-	})()
-}
-
-#[cfg(not(wasm))]
-pub fn cluster_health_container() -> reinhardt::pages::component::Page {
-	reinhardt::pages::component::Page::Empty
+	})
 }
 
 /// Insert or replace a cluster health row for the given payload.
@@ -61,17 +54,8 @@ pub fn update(payload: ClusterHealthPayload) {
 		}
 	};
 
-	let status_class = if payload.healthy {
-		"bg-green-50 border-green-200"
-	} else {
-		"bg-red-50 border-red-200"
-	};
-	let _ = row.set_attribute(
-		"class",
-		&format!(
-			"cluster-health-row border rounded-md p-2 text-sm flex items-center gap-3 {status_class}"
-		),
-	);
+	let row_class = cluster_health_row_class(payload.healthy);
+	let _ = row.set_attribute("class", row_class.as_str());
 
 	let cluster = html_escape(&payload.cluster_name);
 	let agent = html_escape(&payload.agent_id);
@@ -85,9 +69,36 @@ pub fn update(payload: ClusterHealthPayload) {
 	let mem = format!("{:.1}", payload.memory_usage_percent);
 	let pods = payload.pod_count;
 
-	row.set_inner_html(&format!(
-		r#"<strong class="text-ink-950">{cluster}</strong><span class="text-ink-600">agent={agent}</span><span>status={status}</span><span>cpu={cpu}%</span><span>mem={mem}%</span><span>pods={pods}</span><span class="text-ink-400 ml-auto">{ts}</span>"#
+	row.set_inner_html(&cluster_health_row_markup(
+		&cluster, &agent, &ts, status, &cpu, &mem, pods,
 	));
+}
+
+#[cfg(any(wasm, test))]
+fn cluster_health_row_class(healthy: bool) -> reinhardt::pages::style::ClassList {
+	if healthy {
+		STYLES.cluster_health_row() + STYLES.cluster_health_healthy()
+	} else {
+		STYLES.cluster_health_row() + STYLES.cluster_health_unhealthy()
+	}
+}
+
+#[cfg(any(wasm, test))]
+fn cluster_health_row_markup(
+	cluster: &str,
+	agent: &str,
+	timestamp: &str,
+	status: &str,
+	cpu: &str,
+	memory: &str,
+	pods: u32,
+) -> String {
+	format!(
+		r#"<strong class="{}">{cluster}</strong><span class="{}">agent={agent}</span><span>status={status}</span><span>cpu={cpu}%</span><span>mem={memory}%</span><span>pods={pods}</span><span class="{}">{timestamp}</span>"#,
+		STYLES.health_name().as_str(),
+		STYLES.health_muted().as_str(),
+		STYLES.health_timestamp().as_str(),
+	)
 }
 
 /// Compute a stable DOM id for a (cluster, agent) pair.
@@ -101,14 +112,10 @@ pub fn row_id(cluster_name: &str, agent_id: &str) -> String {
 	format!("cluster-health-{cluster}-{agent}")
 }
 
-// Non-WASM stub so server-side callers (and unit tests) can compile.
-#[cfg(not(wasm))]
-#[allow(dead_code)]
-pub fn update(_payload: ClusterHealthPayload) {}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::apps::deployments::client::style::STYLES;
 	use rstest::rstest;
 
 	#[rstest]
@@ -145,5 +152,42 @@ mod tests {
 		let id = row_id("ns/cluster", "region/agent");
 
 		assert_eq!(id, "cluster-health-ns-cluster-region-agent");
+	}
+
+	#[rstest]
+	fn cluster_health_rows_use_generated_state_and_markup_tokens() {
+		// Act
+		let render: fn(&str, &str, &str, &str, &str, &str, u32) -> String =
+			cluster_health_row_markup;
+		let healthy = cluster_health_row_class(true);
+		let unhealthy = cluster_health_row_class(false);
+		let markup = render(
+			"prod",
+			"agent-a",
+			"2026-08-28T00:00:00Z",
+			"healthy",
+			"1.0",
+			"2.0",
+			3,
+		);
+
+		// Assert
+		assert_eq!(
+			healthy.as_str(),
+			(STYLES.cluster_health_row() + STYLES.cluster_health_healthy()).as_str()
+		);
+		assert_eq!(
+			unhealthy.as_str(),
+			(STYLES.cluster_health_row() + STYLES.cluster_health_unhealthy()).as_str()
+		);
+		assert_eq!(
+			markup,
+			format!(
+				"<strong class=\"{}\">prod</strong><span class=\"{}\">agent=agent-a</span><span>status=healthy</span><span>cpu=1.0%</span><span>mem=2.0%</span><span>pods=3</span><span class=\"{}\">2026-08-28T00:00:00Z</span>",
+				STYLES.health_name().as_str(),
+				STYLES.health_muted().as_str(),
+				STYLES.health_timestamp().as_str(),
+			)
+		);
 	}
 }

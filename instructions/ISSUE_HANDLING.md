@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines strategic principles for handling multiple issues efficiently. While instructions/ISSUE_GUIDELINES.md covers individual issue creation and management, this document provides workflow-level guidance for planning, batching, and parallelizing issue resolution across the Reinhardt Cloud project's multi-crate workspace.
+This file defines strategic principles for handling multiple issues efficiently. While instructions/ISSUE_GUIDELINES.md covers individual issue creation and management, this document provides workflow-level guidance for planning and grouping issue resolution across the Reinhardt Cloud project's multi-crate workspace.
 
 ---
 
@@ -19,7 +19,7 @@ flowchart TD
     E -->|Yes| F["Create preceding PR for shared changes"]
     F --> G["Merge preceding PR first"]
     E -->|No| G
-    G --> H["HA-3: Parallelize independent crate work<br/>via Agent Teams"]
+    G --> H["HA-3: Work in the current agent<br/>Delegate only on explicit user request"]
     H --> I["WU-1: 1 PR = 1 crate x 1 fix pattern"]
 ```
 
@@ -54,28 +54,18 @@ Divide batch work into phases ordered by severity and exploitability, addressing
 | Phase 2 | High | Significant risk but harder to exploit | #107, #102 |
 | Phase 3 | Medium | Important improvements | #104, #105, #106 |
 
-### HA-3 (SHOULD): Agent Team Parallel Work
+### HA-3 (SHOULD): Single-Agent Execution
 
-Use Agent Teams to parallelize work across independent crates within the same phase.
+Work in the current agent by default. Use subagents only when the user explicitly requests delegation for the current task.
 
-**Rationale:** When fixes in different crates are independent (no shared code changes required), they can be implemented simultaneously by different agents, reducing total elapsed time.
-
-**Prerequisites for parallelization:**
-- Fixes are in separate crates with no shared dependencies being modified
-- No cross-crate utility or shared code changes are needed
-- Each agent can complete its work independently
-
-**Example:**
-```
-Phase 1 (parallel work):
-  Agent A → reinhardt-cloud-operator (fix #101)
-  Agent B → reinhardt-cloud-crd (fix #103)
-  Agent C → reinhardt-cloud-webhook (fix #107)
-```
+A skill or workflow does not itself authorize delegation. Keep dependent work and
+edits to shared files sequential. If delegation is requested, give each agent independent file ownership and integrate its result
+before final validation. Separate crates or applications alone do not establish
+independence when a shared dependency or utility must change first (see WU-3).
 
 ### HA-4 (MUST): Branch Organization
 
-Organize work into branches with descriptive names. Each work unit MUST produce logically grouped PRs.
+Organize work into branches with descriptive names. When PR creation is authorized, each work unit MUST produce logically grouped PRs. Otherwise retain reviewable local work.
 
 **Branch naming:**
 ```
@@ -136,7 +126,7 @@ When batch fixes require shared utilities or cross-crate changes, these MUST be 
 Step 1: PR "feat(crd): add shared error type for operator errors"
   → Merged first
 
-Step 2 (parallel, after Step 1 merge):
+Step 2 (independent work units, after the authorized Step 1 merge):
   PR "fix(operator): apply structured error handling to reconciler"
   PR "fix(webhook): apply structured error handling to admission webhook"
   PR "fix(controller): apply structured error handling to controller"
@@ -155,8 +145,8 @@ flowchart TD
     P["Preceding PR:<br/>shared utilities / cross-crate changes"] --> |merge first| A["PR: crate-A fix"]
     P --> |merge first| B["PR: crate-B fix"]
     P --> |merge first| C["PR: crate-C fix"]
-    A -.-> |parallel| B
-    B -.-> |parallel| C
+    A -.-> |independent| B
+    B -.-> |independent| C
 ```
 
 ---
@@ -191,7 +181,7 @@ Phase 1 requires shared error types → preceding PR needed.
 Commit 1 (preceding): "feat(crd): add structured error types for operator errors"
   → PR #A, merge first
 
-Commits 2-4 (parallel via Agent Team, HA-3):
+Commits 2-4 (sequential by default; delegation requires explicit user request, HA-3):
   "fix(operator): apply structured error handling to reconciler"   → PR #B
   "fix(crd): apply structured error handling to validation"       → PR #C
   "fix(webhook): apply structured error handling to admission"    → PR #D
@@ -231,11 +221,11 @@ When issues in upstream dependencies (e.g., reinhardt-web) are discovered during
 
 ## Related Documentation
 
-- **Issue Guidelines**: instructions/ISSUE_GUIDELINES.md
-- **Upstream Issue Reporting**: instructions/UPSTREAM_ISSUE_REPORTING.md
-- **Pull Request Guidelines**: instructions/PR_GUIDELINE.md
-- **Commit Guidelines**: instructions/COMMIT_GUIDELINE.md
-- **GitHub Interaction**: instructions/GITHUB_INTERACTION.md
+- **Issue Guidelines**: [ISSUE_GUIDELINES.md](ISSUE_GUIDELINES.md)
+- **Upstream Issue Reporting**: [UPSTREAM_ISSUE_REPORTING.md](UPSTREAM_ISSUE_REPORTING.md)
+- **Pull Request Guidelines**: [PR_GUIDELINE.md](PR_GUIDELINE.md)
+- **Commit Guidelines**: [COMMIT_GUIDELINE.md](COMMIT_GUIDELINE.md)
+- **GitHub Interaction**: [GITHUB_INTERACTION.md](GITHUB_INTERACTION.md)
 
 ---
 

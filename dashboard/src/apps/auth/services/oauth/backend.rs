@@ -2,40 +2,15 @@
 //!
 //! Wires together:
 //!   * the configured providers (today: `GitHubProvider`, see #428); and
-//!   * an `InMemoryStateStore` for OAuth `state` and PKCE verifiers.
+//!   * a Redis-backed `AsyncSessionStateStore` for OAuth state and PKCE verifiers.
 //!
 //! Exposes [`OAuthBackendBox`] (newtype around `Option<Arc<SocialAuthBackend>>`)
 //! resolved via `#[injectable]`.
 //!
-//! ## State-store choice
-//!
-//! The framework's only `SessionBackend`-backed state store
-//! (`SessionStateStore`) requires a *synchronous* `SessionBackend`, but
-//! the dashboard's `RedisSessionBackend` only implements
-//! `AsyncSessionBackend`. There is no Redis-or-async `StateStore` impl
-//! upstream as of reinhardt-web `main`, so we use
-//! `InMemoryStateStore`. Implication: the dashboard is single-instance
-//! for OAuth flow purposes — a user who starts the flow on one pod and
-//! is routed to another for the callback will see `InvalidState`. The
-//! server route binds each generated state to a short-lived `HttpOnly`
-//! browser cookie before redirecting to the provider and requires the
-//! callback browser to present the same value before consuming the shared
-//! state store entry. That route-level cookie binding prevents OAuth
-//! login CSRF/session swapping while this backend remains process-local.
-//!
-//! Tracked for follow-up: this should move to a Redis-backed StateStore
-//! once upstream `reinhardt-auth` exposes one. (Unrelated to the now-merged
-//! `kent8192/reinhardt-web#3986`, which added `GenericOidcProvider` but
-//! left the state-store backend story unchanged.)
-//!
-//! ## State-store sharing across requests
-//!
-//! `begin_auth` (in the `start` view) and `handle_callback` (in the
-//! `callback` view) MUST observe the same `StateStore` instance,
-//! otherwise the state created on `/start/` is invisible to `/callback/`
-//! and every flow returns `InvalidState`. The DI singleton scope on
-//! [`OAuthBackendBox`] guarantees a single backend instance (and
-//! therefore a single state store) across the lifetime of the process.
+//! OAuth state and PKCE verifiers are stored in Redis through the framework's
+//! `AsyncSessionStateStore`, so any dashboard replica can complete a flow.
+//! Contextual callbacks atomically consume state and validate the initiating
+//! browser/session binding before exchanging provider credentials.
 //!
 //! ## Test-only endpoint overrides
 //!
@@ -53,16 +28,16 @@
 use std::env;
 use std::sync::Arc;
 
+use reinhardt::RedisSessionBackend;
 use reinhardt::auth::social::backend::SocialAuthBackend;
 use reinhardt::auth::social::core::config::ProviderConfig;
 use reinhardt::auth::social::core::error::SocialAuthError;
-use reinhardt::auth::social::flow::state::InMemoryStateStore;
 use reinhardt::auth::social::providers::github::GitHubProvider;
-use reinhardt::di::{Depends, FactoryOutput};
+use reinhardt::di::{Depends, injectable};
+use reinhardt::middleware::session::AsyncSessionStateStore;
 
-use crate::apps::auth::services::oauth::config::{
-	OAuthSettings, OAuthSettingsKey, ProviderCredentials,
-};
+use crate::apps::auth::services::oauth::config::{OAuthSettings, ProviderCredentials};
+use crate::apps::auth::services::session::RedisUrl;
 
 /// DI-resolvable wrapper around the optional `SocialAuthBackend`.
 ///
@@ -74,37 +49,35 @@ use crate::apps::auth::services::oauth::config::{
 /// effectively disabled.
 pub struct OAuthBackendBox(pub Option<Arc<SocialAuthBackend>>);
 
-#[reinhardt::di::injectable_key]
-pub struct OAuthBackendBoxKey;
-
-/// DI factory — singleton scope so the state store and registered
-/// providers are shared across all requests for the lifetime of the
-/// process. Replaces the previous process-wide `OnceLock<Arc<InMemoryStateStore>>`
-/// (kent8192/reinhardt-cloud#599 β2 decision: rely on SingletonScope
-/// for single-instance semantics rather than a hand-rolled OnceLock).
+/// DI factory — singleton scope shares providers and Redis connections.
 ///
 /// Panics on `SocialAuthError` because backend construction failures are
 /// deploy-time configuration errors (bad provider config / missing
 /// dependencies), not recoverable runtime faults.
-#[reinhardt::di::injectable(scope = "singleton")]
+#[injectable(scope = "singleton")]
 async fn create_oauth_backend(
-	#[inject] settings: Depends<OAuthSettingsKey, OAuthSettings>,
-) -> FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox> {
-	FactoryOutput::new(OAuthBackendBox(
-		assemble_social_auth_backend(&settings)
+	#[inject] settings: Depends<OAuthSettings>,
+	#[inject] redis_url: Depends<RedisUrl>,
+) -> OAuthBackendBox {
+	OAuthBackendBox(
+		assemble_social_auth_backend(&settings, &redis_url.0)
 			.await
 			.expect("Failed to construct SocialAuthBackend: check OAuth provider configuration"),
-	))
+	)
 }
 
-async fn assemble_social_auth_backend(
+pub(in crate::apps::auth) async fn assemble_social_auth_backend(
 	settings: &OAuthSettings,
+	redis_url: &str,
 ) -> Result<Option<Arc<SocialAuthBackend>>, SocialAuthError> {
 	if settings.enabled_provider_ids().is_empty() {
 		return Ok(None);
 	}
 
-	let mut backend = SocialAuthBackend::with_state_store(Arc::new(InMemoryStateStore::new()));
+	let sessions = RedisSessionBackend::new_from_url(redis_url)
+		.map_err(|error| SocialAuthError::Storage(error.to_string()))?;
+	let mut backend =
+		SocialAuthBackend::with_state_store(Arc::new(AsyncSessionStateStore::new(sessions)));
 
 	if let Some(creds) = &settings.github {
 		let cfg = github_provider_config(creds);
@@ -147,8 +120,10 @@ fn non_empty_env(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::test_helpers::make_test_di_context;
+	use crate::config::test_helpers::{make_test_di_context, set_provider_value};
+	use reinhardt::di::Depends;
 	use rstest::rstest;
+	use serial_test::serial;
 
 	#[rstest]
 	#[tokio::test]
@@ -157,14 +132,13 @@ mod tests {
 		// providers enabled. The factory should short-circuit to None
 		// rather than constructing an empty backend.
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				OAuthSettings::default(),
-			));
+			set_provider_value(scope, OAuthSettings::default());
+			set_provider_value(scope, RedisUrl("redis://127.0.0.1:6379".into()));
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("OAuthBackendBox factory should resolve when OAuthSettings is registered");
 
@@ -174,6 +148,7 @@ mod tests {
 
 	#[rstest]
 	#[tokio::test]
+	#[serial(env_oauth_endpoints)]
 	async fn test_oauth_backend_factory_returns_some_when_github_configured() {
 		// Arrange — populated OAuthSettings with valid GitHub credentials.
 		// Endpoint URLs are unset so the factory uses the canonical GitHub
@@ -187,14 +162,13 @@ mod tests {
 			}),
 		};
 		let ctx = make_test_di_context(|scope| {
-			scope.set(FactoryOutput::<OAuthSettingsKey, OAuthSettings>::new(
-				settings,
-			));
+			set_provider_value(scope, settings);
+			set_provider_value(scope, RedisUrl("redis://127.0.0.1:6379".into()));
 		});
 
 		// Act
-		let backend: Arc<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>> = ctx
-			.resolve::<FactoryOutput<OAuthBackendBoxKey, OAuthBackendBox>>()
+		let backend = Depends::<OAuthBackendBox>::builder()
+			.resolve(&ctx)
 			.await
 			.expect("OAuthBackendBox factory should resolve when GitHub credentials are present");
 

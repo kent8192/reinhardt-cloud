@@ -101,7 +101,7 @@ pub async fn verify_api_key(plaintext: &str) -> Option<(User, i64)> {
 		return None;
 	}
 
-	let user_id = *api_key.user_id();
+	let user_id = api_key.user_id();
 	let user = User::objects()
 		.filter(User::field_id().eq(user_id))
 		.first()

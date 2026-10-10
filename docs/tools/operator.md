@@ -915,8 +915,9 @@ workflow. The operator uses merge patches for namespace labels in this mode, so 
 cannot be created by a patch request. If lifecycle creation is authorized and a sibling Project
 creates the namespace after an initial 404, the operator handles the create conflict by retrying
 the label merge patch. Permission errors from either operation still fail reconciliation.
-The base rules (always present, regardless of platform or
-features) are:
+A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
+delete its preview namespace; grant that permission through the lifecycle setting before deleting
+the parent. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -1059,6 +1060,10 @@ loop retries every 30 seconds (fixed interval — no exponential backoff; tracke
 **Cause:** `Error::Kube(#[from] kube::Error)` — the API server returned an error (connection
 refused, 401 Unauthorized, 403 Forbidden, 429 Too Many Requests, etc.).
 
+Migration Job API failures retain this `Error::Kube` classification and are retried with the
+configured backoff. Invalid database specifications are reported as `DatabaseProvisioning` and
+remain permanent until the `Project` spec is corrected.
+
 **Diagnose:**
 ```bash
 kubectl logs -n reinhardt-cloud-system deployment/reinhardt-cloud-operator \
@@ -1181,7 +1186,9 @@ has permission to create `Secret` objects in the target namespace (see RBAC foot
 `paas.reinhardt-cloud.dev/cleanup` is not removed.
 
 **Cause:** `Error::Finalizer(Box<dyn Error + Send + Sync>)` — the cleanup path in the finalizer
-returned an error, or the operator is not running.
+returned an error, or the operator is not running. For preview-enabled projects, cleanup keeps the
+finalizer in place when preview namespace deletion is forbidden so that preview workloads are not
+orphaned.
 
 **Diagnose:**
 ```bash

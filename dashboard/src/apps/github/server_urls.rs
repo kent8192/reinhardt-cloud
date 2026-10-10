@@ -16,6 +16,7 @@ use crate::apps::auth::services::oauth::storage::OrmSocialAccountStorage;
 use crate::apps::clusters::models::Cluster;
 use crate::apps::deployments::models::Deployment;
 use crate::apps::github::models::{GitHubInstallation, GitHubProject, GitHubRepository};
+use crate::apps::github::services::GitHubAppSettings;
 use crate::apps::github::services::client::{
 	GitHubAppClient, GitHubUserInstallation, ReqwestGitHubAppClient,
 };
@@ -25,10 +26,9 @@ use crate::apps::github::services::deploy::{
 use crate::apps::github::services::import::apply_webhook_action_to_manifest;
 use crate::apps::github::services::pipeline::github_credentials_secret_name;
 use crate::apps::github::services::webhook::parse_github_webhook_dispatch;
-use crate::apps::github::services::{GitHubAppSettings, GitHubAppSettingsKey};
 use crate::apps::organizations::permissions::action::Action;
 use crate::apps::organizations::permissions::guard::require_permission;
-use crate::config::{AgentRegistrySingleton, AgentRegistrySingletonKey};
+use crate::config::AgentRegistrySingleton;
 use crate::utils::vcs::events::WebhookAction;
 use crate::utils::vcs::signature::verify_github_signature;
 
@@ -49,7 +49,7 @@ pub struct GitHubSetupQuery {
 pub async fn github_setup(
 	Query(query): Query<GitHubSetupQuery>,
 	#[inject] CurrentUser(user): CurrentUser<User>,
-	#[inject] settings: Depends<GitHubAppSettingsKey, GitHubAppSettings>,
+	#[inject] settings: Depends<GitHubAppSettings>,
 ) -> ViewResult<Response> {
 	let storage = OrmSocialAccountStorage::new();
 	let Some(user_access_token) = storage
@@ -96,8 +96,8 @@ pub async fn github_setup(
 #[post("/webhooks/github/", name = "github-webhook")]
 pub async fn github_webhook(
 	Body(payload): Body,
-	#[inject] settings: Depends<GitHubAppSettingsKey, GitHubAppSettings>,
-	#[inject] agent_registry: Depends<AgentRegistrySingletonKey, AgentRegistrySingleton>,
+	#[inject] settings: Depends<GitHubAppSettings>,
+	#[inject] agent_registry: Depends<AgentRegistrySingleton>,
 	#[inject] http_request: ServerFnRequest,
 ) -> ViewResult<Response> {
 	let event_type = required_header(&http_request, "X-GitHub-Event")?;
@@ -165,7 +165,7 @@ pub async fn github_webhook(
 			},
 		);
 	};
-	let deployment_id = *project.deployment_id();
+	let deployment_id = project.deployment_id();
 	let mut deployment = Deployment::objects()
 		.filter(Deployment::field_id().eq(deployment_id))
 		.first()
@@ -214,7 +214,7 @@ pub async fn github_webhook(
 			error!("Failed to update deployment {deployment_id} from GitHub webhook: {e}");
 			AppError::Internal("Failed to update deployment".to_string())
 		})?;
-	let cluster_id = *deployment.cluster_id();
+	let cluster_id = deployment.cluster_id();
 	let cluster = Cluster::objects()
 		.filter(Cluster::field_id().eq(cluster_id))
 		.first()
@@ -288,7 +288,7 @@ async fn upsert_verified_installation(
 			AppError::Internal("Failed to persist GitHub installation".to_string())
 		})?;
 	if let Some(mut existing) = existing {
-		if *existing.organization_id() != organization_id {
+		if existing.organization_id() != organization_id {
 			return Err(AppError::Conflict(
 				"GitHub App installation is already linked to another organization".to_string(),
 			));
@@ -403,7 +403,7 @@ async fn refresh_git_credentials_secret_for_webhook(
 		return Ok(());
 	}
 	let installation = GitHubInstallation::objects()
-		.filter(GitHubInstallation::field_id().eq(*repository.installation_id()))
+		.filter(GitHubInstallation::field_id().eq(repository.installation_id()))
 		.first()
 		.await
 		.map_err(|e| format!("Failed to load GitHub installation: {e}"))?

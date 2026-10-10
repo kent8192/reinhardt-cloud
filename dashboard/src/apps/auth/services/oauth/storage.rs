@@ -42,7 +42,7 @@ use crate::apps::auth::services::oauth::token_crypto::{
 fn orm_to_framework(orm: OrmSocialAccount) -> SocialAccount {
 	SocialAccount {
 		id: orm.id,
-		user_id: *orm.user_id(),
+		user_id: orm.user_id(),
 		provider: orm.provider,
 		provider_user_id: orm.provider_user_id,
 		email: None,

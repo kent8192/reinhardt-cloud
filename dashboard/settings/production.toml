@@ -92,6 +92,10 @@ root = "${REINHARDT_MEDIA__ROOT:-media}"
 [cors]
 allow_origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"]
 
+[ws_origin]
+policy = { mode = "allow_list", origins = ["https://reinhardt-cloud.dev", "https://www.reinhardt-cloud.dev"] }
+reject_missing_origin = true
+
 # Production email delivery — Cloudflare Email Routing is INBOUND only
 # (see base.toml [email] comment). Outbound delivery REQUIRES a third-party
 # provider (Resend / SendGrid / AWS SES / Postmark). Override host/port/

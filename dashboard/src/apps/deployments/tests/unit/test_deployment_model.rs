@@ -2,19 +2,18 @@
 
 #[cfg(test)]
 mod tests {
-	// Included migration files keep `pub(super) fn migration()` because
-	// production discovery loads that symbol from standalone migration modules.
-	mod deployments_project_rename_migration {
-		include!(concat!(
-			env!("CARGO_MANIFEST_DIR"),
-			"/migrations/deployments/0006_rename_deployments_project_name_rename_depl_and_more.rs"
-		));
-	}
-
-	use reinhardt::db::migrations::operations::Operation;
+	use reinhardt::db::migrations::ForeignKeyAction;
+	use reinhardt::db::migrations::operations::{Constraint, Operation};
 	use rstest::rstest;
 
 	use crate::apps::deployments::models::Deployment;
+
+	mod deployments_initial_migration {
+		include!(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/migrations/deployments/0001_initial.rs"
+		));
+	}
 
 	/// All fields from Deployment::new match constructor arguments.
 	#[rstest]
@@ -39,9 +38,9 @@ mod tests {
 			.finish();
 
 		// Assert
-		assert_eq!(*deployment.organization_id(), organization_id);
+		assert_eq!(deployment.organization_id(), organization_id);
 		assert_eq!(deployment.project_name, project_name);
-		assert_eq!(*deployment.cluster_id(), cluster_id);
+		assert_eq!(deployment.cluster_id(), cluster_id);
 		assert_eq!(deployment.status, status);
 		assert_eq!(deployment.image, image);
 		assert_eq!(deployment.project_yaml, Some(project_yaml));
@@ -114,58 +113,110 @@ mod tests {
 	}
 
 	#[rstest]
-	fn test_deployment_rename_migration_preserves_project_columns() {
+	fn test_deployments_initial_migration_uses_final_project_columns() {
 		// Arrange
-		let migration = deployments_project_rename_migration::migration();
+		let migration = deployments_initial_migration::migration();
 
 		// Act
-		let has_project_name_rename = migration.operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::RenameColumn {
-					table,
-					old_name,
-					new_name
-				} if table == "deployments"
-					&& old_name == "app_name"
-					&& new_name == "project_name"
-			)
-		});
-		let has_project_yaml_rename = migration.operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::RenameColumn {
-					table,
-					old_name,
-					new_name
-				} if table == "deployments"
-					&& old_name == "reinhardt_app_yaml"
-					&& new_name == "project_yaml"
-			)
-		});
-		let has_destructive_project_column_change = migration.operations.iter().any(|operation| {
-			matches!(
-				operation,
-				Operation::AddColumn { table, column, .. }
-					if table == "deployments"
-						&& matches!(
-							column.name.as_str(),
-							"app_name" | "project_name" | "reinhardt_app_yaml" | "project_yaml"
-						)
-			) || matches!(
-				operation,
-				Operation::DropColumn { table, column, .. }
-					if table == "deployments"
-						&& matches!(
-							column.as_str(),
-							"app_name" | "project_name" | "reinhardt_app_yaml" | "project_yaml"
-						)
-			)
-		});
+		let columns = migration
+			.operations
+			.iter()
+			.find_map(|operation| match operation {
+				Operation::CreateTable { name, columns, .. } if name == "deployments" => {
+					Some(columns)
+				}
+				_ => None,
+			})
+			.expect("deployments table must be created");
+		let project_columns = columns
+			.iter()
+			.filter(|column| matches!(column.name.as_str(), "project_name" | "project_yaml"))
+			.map(|column| {
+				(
+					column.name.as_str(),
+					format!("{:?}", column.type_definition),
+					column.not_null,
+					column.unique,
+					column.default.as_deref(),
+				)
+			})
+			.collect::<Vec<_>>();
 
 		// Assert
-		assert!(has_project_name_rename);
-		assert!(has_project_yaml_rename);
-		assert!(!has_destructive_project_column_change);
+		assert_eq!(migration.app_label, "deployments");
+		assert_eq!(migration.name, "0001_initial");
+		assert_eq!(
+			project_columns,
+			vec![
+				(
+					"project_name",
+					"VarChar(255)".to_string(),
+					true,
+					false,
+					None,
+				),
+				(
+					"project_yaml",
+					"VarChar(65535)".to_string(),
+					false,
+					false,
+					None,
+				),
+			]
+		);
+		assert!(
+			!columns
+				.iter()
+				.any(|column| matches!(column.name.as_str(), "app_name" | "reinhardt_app_yaml"))
+		);
+	}
+
+	#[rstest]
+	fn test_deployments_initial_migration_preserves_foreign_key_actions() {
+		// Arrange
+		let migration = deployments_initial_migration::migration();
+
+		// Act
+		let mut foreign_key_actions = migration
+			.operations
+			.iter()
+			.find_map(|operation| match operation {
+				Operation::CreateTable {
+					name, constraints, ..
+				} if name == "deployments" => Some(
+					constraints
+						.iter()
+						.filter_map(|constraint| match constraint {
+							Constraint::ForeignKey {
+								columns,
+								on_delete,
+								on_update,
+								..
+							} => Some((columns.clone(), *on_delete, *on_update)),
+							_ => None,
+						})
+						.collect::<Vec<_>>(),
+				),
+				_ => None,
+			})
+			.expect("deployments table must be created");
+		foreign_key_actions.sort();
+
+		// Assert
+		assert_eq!(
+			foreign_key_actions,
+			vec![
+				(
+					vec!["cluster_id".to_string()],
+					ForeignKeyAction::Restrict,
+					ForeignKeyAction::Cascade,
+				),
+				(
+					vec!["organization_id".to_string()],
+					ForeignKeyAction::Cascade,
+					ForeignKeyAction::NoAction,
+				),
+			]
+		);
 	}
 }
