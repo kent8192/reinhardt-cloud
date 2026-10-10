@@ -96,6 +96,86 @@ pub(crate) fn should_skip_dockerfile(
 	SkipReason::None
 }
 
+/// Replace `reinhardt-cloud.toml` and, when generated, the Dockerfile as one unit.
+///
+/// Both contents are staged beside their targets first, so a failed write
+/// changes nothing. The Dockerfile is replaced before the config; if the
+/// config replacement then fails, the previous Dockerfile is moved back so the
+/// pair never describes different images.
+pub(crate) fn write_project_files(
+	config_path: &Path,
+	config: &str,
+	dockerfile: Option<(&Path, &str)>,
+) -> std::io::Result<()> {
+	let staged_config = stage_file(config_path, config)?;
+	let Some((dockerfile_path, contents)) = dockerfile else {
+		staged_config
+			.persist(config_path)
+			.map_err(|error| error.error)?;
+		return Ok(());
+	};
+	let staged_dockerfile = stage_file(dockerfile_path, contents)?;
+	// Keep the previous Dockerfile at a temporary path until the config is in
+	// place; dropping the backup removes it after success.
+	let backup = if dockerfile_path.try_exists()? {
+		let backup = tempfile::Builder::new()
+			.prefix(".reinhardt-cloud-backup-")
+			.tempfile_in(parent_dir(dockerfile_path))?
+			.into_temp_path();
+		std::fs::rename(dockerfile_path, &backup)?;
+		Some(backup)
+	} else {
+		None
+	};
+	let replaced = staged_dockerfile
+		.persist(dockerfile_path)
+		.map_err(|error| error.error)
+		.and_then(|_| {
+			staged_config
+				.persist(config_path)
+				.map(drop)
+				.map_err(|error| error.error)
+		});
+	if let Err(error) = replaced {
+		match &backup {
+			Some(backup) => std::fs::rename(backup, dockerfile_path)?,
+			None if dockerfile_path.is_file() => std::fs::remove_file(dockerfile_path)?,
+			None => {}
+		}
+		return Err(error);
+	}
+	Ok(())
+}
+
+fn parent_dir(path: &Path) -> &Path {
+	path.parent()
+		.filter(|parent| !parent.as_os_str().is_empty())
+		.unwrap_or(Path::new("."))
+}
+
+/// Write `contents` to a temporary file beside `target`, keeping the target's
+/// permissions (or ordinary file permissions for a new target).
+fn stage_file(target: &Path, contents: &str) -> std::io::Result<tempfile::NamedTempFile> {
+	use std::io::Write;
+	let mut staged = tempfile::Builder::new()
+		.prefix(".reinhardt-cloud-")
+		.tempfile_in(parent_dir(target))?;
+	staged.write_all(contents.as_bytes())?;
+	let permissions = match std::fs::metadata(target) {
+		Ok(metadata) if metadata.is_file() => Some(metadata.permissions()),
+		Ok(_) => None,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+		Err(error) => return Err(error),
+	};
+	#[cfg(unix)]
+	let permissions =
+		permissions.or_else(|| Some(std::os::unix::fs::PermissionsExt::from_mode(0o644)));
+	if let Some(permissions) = permissions {
+		staged.as_file().set_permissions(permissions)?;
+	}
+	Ok(staged)
+}
+
 /// Keep the deployment sidecar's root consistent with the generated publication.
 pub(crate) fn configure_pages(
 	project_dir: &Path,
@@ -431,6 +511,84 @@ mod tests {
 		if !accepted {
 			assert!(result.unwrap_err().contains("custom Dockerfile"));
 		}
+	}
+
+	#[rstest]
+	#[case::both_replaced(None, true)]
+	#[case::config_cannot_be_replaced(Some("reinhardt-cloud.toml"), false)]
+	#[case::dockerfile_cannot_be_replaced(Some("Dockerfile"), false)]
+	fn project_files_are_replaced_together_or_not_at_all(
+		#[case] blocked: Option<&str>,
+		#[case] replaced: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let config_path = dir.path().join("reinhardt-cloud.toml");
+		let dockerfile_path = dir.path().join("Dockerfile");
+		for (name, contents) in [
+			("reinhardt-cloud.toml", "old config"),
+			("Dockerfile", "FROM old"),
+		] {
+			let path = dir.path().join(name);
+			if blocked == Some(name) {
+				// A non-empty directory cannot be replaced by a file.
+				std::fs::create_dir_all(path.join("occupied")).unwrap();
+			} else {
+				std::fs::write(path, contents).unwrap();
+			}
+		}
+		let snapshot = |path: &Path| std::fs::read_to_string(path).ok();
+		let before = (snapshot(&config_path), snapshot(&dockerfile_path));
+
+		// Act
+		let result = write_project_files(
+			&config_path,
+			"new config",
+			Some((dockerfile_path.as_path(), "FROM new")),
+		);
+
+		// Assert
+		assert_eq!(result.is_ok(), replaced, "{result:?}");
+		let after = (snapshot(&config_path), snapshot(&dockerfile_path));
+		if replaced {
+			assert_eq!(
+				after,
+				(Some("new config".to_owned()), Some("FROM new".to_owned()))
+			);
+		} else {
+			assert_eq!(after, before);
+		}
+		let mut names: Vec<_> = std::fs::read_dir(dir.path())
+			.unwrap()
+			.map(|entry| entry.unwrap().file_name().into_string().unwrap())
+			.collect();
+		names.sort();
+		assert_eq!(names, ["Dockerfile", "reinhardt-cloud.toml"]);
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn project_file_replacement_keeps_ordinary_permissions() {
+		use std::os::unix::fs::PermissionsExt;
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let config_path = dir.path().join("reinhardt-cloud.toml");
+		let dockerfile_path = dir.path().join("Dockerfile");
+		std::fs::write(&dockerfile_path, "FROM old").unwrap();
+		std::fs::set_permissions(&dockerfile_path, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+		// Act
+		write_project_files(
+			&config_path,
+			"new config",
+			Some((dockerfile_path.as_path(), "FROM new")),
+		)
+		.unwrap();
+
+		// Assert
+		let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+		assert_eq!(mode(&config_path), 0o644);
+		assert_eq!(mode(&dockerfile_path), 0o640);
 	}
 
 	#[rstest]

@@ -935,7 +935,10 @@ custom `[source.build].base_image` (for example distroless); use the default
 runtime image, or a custom Dockerfile with an explicit `[pages].prebuilt` setting.
 `init` and `sync` resolve the Dockerfile before writing anything: if generation
 fails (for example an outdated `reinhardt-commands` lock), neither
-`reinhardt-cloud.toml` nor the existing Dockerfile is modified.
+`reinhardt-cloud.toml` nor the existing Dockerfile is modified. Both files are then
+staged beside their targets and replaced together; if either replacement fails
+(for example a target that cannot be overwritten), the previous Dockerfile is
+restored and the config is left unchanged.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 `source.build.build_args` value when provided, otherwise its literal default.

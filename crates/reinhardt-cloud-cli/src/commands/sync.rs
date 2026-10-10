@@ -60,16 +60,23 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 		SkipReason::CustomDockerfile | SkipReason::AlreadyExists => None,
 	};
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
+	let dockerfile_path = project_dir.join("Dockerfile");
+	let dockerfile_string = generated
+		.as_ref()
+		.map(|(_, dockerfile)| dockerfile.to_string());
 
-	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
+	// Replace both files together so they never describe different images.
+	dockerfile_generator::write_project_files(
+		&reinhardt_cloud_toml_path,
+		&toml_string,
+		dockerfile_string
+			.as_deref()
+			.map(|contents| (dockerfile_path.as_path(), contents)),
+	)?;
 	println!("Updated reinhardt-cloud.toml");
 
-	// Write the Dockerfile
 	match generated {
-		Some((signals, dockerfile)) => {
-			let dockerfile_path = project_dir.join("Dockerfile");
-			std::fs::write(&dockerfile_path, dockerfile.to_string())?;
-
+		Some((signals, _)) => {
 			let pattern = if signals.pages { "pages" } else { "api" };
 			let db_info = signals
 				.database
