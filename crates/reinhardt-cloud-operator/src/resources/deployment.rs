@@ -116,6 +116,18 @@ pub(crate) fn build_deployment(
 		}
 
 		if config.prebuilt {
+			// The whole root is copied into the publicly served volume, so it must
+			// be a dedicated publication directory rather than a top-level tree
+			// such as the `/app` application root or a known application directory.
+			let segments: Vec<&str> = root.split('/').filter(|part| !part.is_empty()).collect();
+			if segments.len() < 2
+				|| (segments[0] == "app"
+					&& matches!(
+						segments[1],
+						"settings" | "migrations" | "src" | "target" | ".git"
+					)) {
+				return Err(Error::InvalidStaticRoot(config.static_root.clone()));
+			}
 			// Mount the volume at a sibling path so the image publication stays
 			// visible while its exact bytes seed the volume. `cp` runs directly
 			// rather than through a shell, and only for images explicitly marked
@@ -1107,6 +1119,39 @@ mod tests {
 			crate::error::backoff_class(&error),
 			crate::error::BackoffClass::Permanent
 		);
+	}
+
+	#[rstest]
+	#[case("/app", false, false)]
+	#[case("/app/", false, false)]
+	#[case("/usr", false, false)]
+	#[case("/app/settings", false, false)]
+	#[case("/app/migrations/static", false, false)]
+	#[case("/app/static", false, true)]
+	#[case("/srv/publication", false, true)]
+	#[case("/app", true, true)]
+	fn prebuilt_roots_must_be_dedicated_publication_directories(
+		#[case] root: &str,
+		#[case] collected: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = root.into();
+		pages.prebuilt = !collected;
+
+		// Act
+		let result = build_deployment(&app, Some(&pages), &Platform::Onpremise);
+
+		// Assert
+		match result {
+			Ok(_) => assert!(accepted, "{root} must be rejected"),
+			Err(error) => {
+				assert!(!accepted, "{root} must be accepted: {error}");
+				assert!(matches!(&error, Error::InvalidStaticRoot(value) if value == root));
+			}
+		}
 	}
 
 	#[rstest]

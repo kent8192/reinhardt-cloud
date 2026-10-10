@@ -57,9 +57,10 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
-	/// A static output path cannot be safely mounted beside its image source.
+	/// A static output path cannot be safely mounted beside its image source,
+	/// or a prebuilt publication root would expose non-publication files.
 	#[error(
-		"invalid Pages static root '{0}': require an absolute directory without parent traversal"
+		"invalid Pages static root '{0}': require an absolute directory without parent traversal; prebuilt roots must be a dedicated publication directory, not a top-level directory such as /app or an application directory (settings, migrations, src, target)"
 	)]
 	InvalidStaticRoot(String),
 
