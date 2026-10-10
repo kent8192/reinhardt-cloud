@@ -81,6 +81,27 @@ ClientLauncher::new("#root")
 - Event handlers inside `page!` normally do not need duplicate native branches.
 - Verify both native and browser targets after changing a shared boundary.
 
+## Styles and assets
+
+- Component styles use `#[style_def] static NAME: TypeName = style! { ... };`.
+  The generated stylesheet is `__reinhardt__/components.css`; `index.html`
+  links it once through `static_url`. Selectors are anchored on local classes,
+  tokens are referenced through `globals { token: Color; }` (typed `Color`,
+  `Length`, `Number`, and similar), and unsupported properties (`animation`,
+  `clip-path`, `appearance`, `vertical-align`, `border-collapse`, ...) are
+  rejected at compile time.
+- `:root`, themes, resets, `@keyframes`, and non-scalar tokens stay in static
+  CSS under `static/css/`, registered for `collectstatic` in
+  `src/config/wasm.rs`.
+- Resolve images with `resolve_static("img/...")`, not hardcoded `/static/`
+  paths.
+- Browser APIs used by shared components live behind `src/ui/browser.rs`, which
+  has inert server stubs so components render the same natively.
+- Browser tests live in `tests/wasm/` and are declared as explicit `[[test]]`
+  targets; native test targets declare `required-features = ["with-reinhardt"]`
+  so `wasm-pack test --no-default-features` skips them. Async `rstest` tests
+  need `#[test_attr(wasm_bindgen_test)]`.
+
 ## Settings and artifacts
 
 Settings load from `settings/base.toml`, the selected profile, and
