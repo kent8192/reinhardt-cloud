@@ -1664,13 +1664,15 @@ async fn reconcile_hpa(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RedisCredentialsProvenance {
 	uid: String,
-	digest: String,
 }
 
 impl RedisCredentialsProvenance {
+	/// Records the approved Secret UID. The pending data digest is dropped: it
+	/// is needed only until the UID exists and would otherwise publish an
+	/// offline password verifier to every reader of the `Project`.
 	fn record(&self, status: &mut ProjectStatus) {
 		status.redis_credentials_secret_uid = Some(self.uid.clone());
-		status.redis_credentials_secret_digest = Some(self.digest.clone());
+		status.redis_credentials_secret_digest = None;
 	}
 
 	/// Stamps the Secret UID into a Redis-consuming Deployment's Pod template,
@@ -1695,10 +1697,11 @@ impl RedisCredentialsProvenance {
 ///
 /// Creates the secret if it does not already exist, preserving existing Redis
 /// passwords across reconciliation cycles. The digest of the generated data is
-/// written to the `Project` status before the Secret is created and the
-/// API-assigned UID after it, so a creation interrupted between the two status
-/// writes is recovered by matching the immutable Secret data against the
-/// committed digest. Any other Secret at the predictable name is rejected.
+/// written to the `Project` status before the Secret is created; after
+/// creation the API-assigned UID replaces it. A creation interrupted between
+/// the two status writes is recovered by matching the immutable Secret data
+/// against the pending digest. Any other Secret at the predictable name is
+/// rejected.
 async fn reconcile_redis_credentials_secret(
 	app: &Project,
 	client: &Client,
@@ -1728,22 +1731,25 @@ async fn reconcile_redis_credentials_secret(
 				"Redis credentials Secret {namespace}/{secret_name} is mutable; a platform administrator must verify and freeze it before adoption"
 			)));
 		}
-		let uid_recorded = app
-			.status
-			.as_ref()
-			.is_some_and(|status| status.redis_credentials_secret_uid.is_some());
-		if !uid_recorded {
+		let status = app.status.as_ref();
+		let uid_recorded =
+			status.is_some_and(|status| status.redis_credentials_secret_uid.is_some());
+		let digest_pending =
+			status.is_some_and(|status| status.redis_credentials_secret_digest.is_some());
+		if !uid_recorded || digest_pending {
 			patch_redis_credentials_provenance(
 				&project_api,
 				&name,
 				Some(&provenance.uid),
-				&provenance.digest,
+				None,
 				None,
 			)
 			.await?;
-			info!(
-				"Recovered provenance of Redis credentials Secret {namespace}/{secret_name} from the committed digest"
-			);
+			if !uid_recorded {
+				info!(
+					"Recovered provenance of Redis credentials Secret {namespace}/{secret_name} from the pending digest"
+				);
+			}
 		}
 		info!("Redis credentials Secret {namespace}/{secret_name} already exists, skipping");
 		return Ok(provenance);
@@ -1764,7 +1770,7 @@ async fn reconcile_redis_credentials_secret(
 		&project_api,
 		&name,
 		None,
-		&digest,
+		Some(&digest),
 		app.metadata.resource_version.as_deref(),
 	)
 	.await?;
@@ -1777,23 +1783,25 @@ async fn reconcile_redis_credentials_secret(
 	})?;
 	// Only one create can succeed for the Secret name, so its creator records
 	// the provenance unconditionally; a loser receives `AlreadyExists`, retries,
-	// and then accepts the recorded winner.
-	patch_redis_credentials_provenance(&project_api, &name, Some(&uid), &digest, None).await?;
+	// and then accepts the recorded winner. The UID replaces the pending digest.
+	patch_redis_credentials_provenance(&project_api, &name, Some(&uid), None, None).await?;
 	info!("Created Redis credentials Secret {namespace}/{secret_name}");
-	Ok(RedisCredentialsProvenance { uid, digest })
+	Ok(RedisCredentialsProvenance { uid })
 }
 
 /// Writes the Redis credentials provenance to the `Project` status.
 ///
-/// A `None` UID clears any previously recorded UID, so the status never pairs
-/// a stale UID with the digest of newly generated data. When
+/// Exactly one of `uid` and `digest` is expected: the pending digest before
+/// creation, and the UID once the Secret exists. The other field is cleared,
+/// so the status never pairs a stale UID with newly generated data and never
+/// keeps a password digest after the UID is established. When
 /// `resource_version` is set, the API server rejects the write with a
 /// conflict if the Project changed since that version was observed.
 async fn patch_redis_credentials_provenance(
 	project_api: &Api<Project>,
 	name: &str,
 	uid: Option<&str>,
-	digest: &str,
+	digest: Option<&str>,
 	resource_version: Option<&str>,
 ) -> Result<(), Error> {
 	let mut status_patch = serde_json::json!({
@@ -1924,10 +1932,11 @@ async fn retain_redis_credentials_secret(
 /// Returns the provenance of `secret` when the `Project` status proves that
 /// the operator created it or a platform administrator adopted it.
 ///
-/// A recorded UID must match exactly, together with the recorded data digest
-/// when one exists. Without a recorded UID, only a Secret whose data matches
-/// the digest committed before creation is accepted; that data is generated by
-/// the operator and unknown until the Secret exists, so this recovers an
+/// A recorded UID must match exactly; together with the immutability the
+/// caller enforces, this detects both replacement (new UID) and mutation of the
+/// data. Without a recorded UID, only a Secret whose data matches the digest
+/// committed before creation is accepted; that data is generated by the
+/// operator and unknown until the Secret exists, so this recovers an
 /// interrupted creation without trusting tenant-writable labels or owner
 /// references.
 fn redis_credentials_secret_provenance(
@@ -1936,17 +1945,15 @@ fn redis_credentials_secret_provenance(
 ) -> Option<RedisCredentialsProvenance> {
 	let uid = secret.metadata.uid.as_deref()?;
 	let status = app.status.as_ref()?;
-	let digest = redis_credentials_digest(secret);
-	let recorded_digest = status.redis_credentials_secret_digest.as_deref();
 	let trusted = match status.redis_credentials_secret_uid.as_deref() {
-		Some(recorded_uid) => {
-			recorded_uid == uid && recorded_digest.is_none_or(|recorded| recorded == digest)
-		}
-		None => recorded_digest == Some(digest.as_str()),
+		Some(recorded_uid) => recorded_uid == uid,
+		None => status
+			.redis_credentials_secret_digest
+			.as_deref()
+			.is_some_and(|pending| pending == redis_credentials_digest(secret)),
 	};
 	trusted.then(|| RedisCredentialsProvenance {
 		uid: uid.to_owned(),
-		digest,
 	})
 }
 
@@ -3976,10 +3983,10 @@ mod tests {
 
 	#[rstest]
 	#[case::recorded_uid(Some("secret-uid"), None, true)]
-	#[case::recorded_uid_and_digest(Some("secret-uid"), Some(true), true)]
-	#[case::replaced_data_under_recorded_uid(Some("secret-uid"), Some(false), false)]
+	#[case::recorded_uid_with_leftover_digest(Some("secret-uid"), Some(true), true)]
+	#[case::recorded_uid_ignores_digest(Some("secret-uid"), Some(false), true)]
 	#[case::replaced_secret_uid(Some("previous-secret-uid"), Some(true), false)]
-	#[case::committed_digest_after_interrupted_creation(None, Some(true), true)]
+	#[case::pending_digest_after_interrupted_creation(None, Some(true), true)]
 	#[case::uncommitted_data(None, Some(false), false)]
 	#[case::no_recorded_provenance(None, None, false)]
 	fn redis_credentials_secret_provenance_requires_recorded_uid_or_committed_digest(
@@ -4012,7 +4019,6 @@ mod tests {
 		// Assert
 		let expected = expected_trusted.then(|| RedisCredentialsProvenance {
 			uid: "secret-uid".to_string(),
-			digest,
 		});
 		assert_eq!(provenance, expected);
 	}
@@ -4055,11 +4061,9 @@ mod tests {
 		};
 		let original = RedisCredentialsProvenance {
 			uid: "original-secret-uid".to_string(),
-			digest: "original-digest".to_string(),
 		};
 		let regenerated = RedisCredentialsProvenance {
 			uid: "regenerated-secret-uid".to_string(),
-			digest: "regenerated-digest".to_string(),
 		};
 		let mut before = build();
 		let mut after = build();
@@ -4147,7 +4151,6 @@ mod tests {
 		if let Some(uid) = stamped_uid {
 			RedisCredentialsProvenance {
 				uid: uid.to_string(),
-				digest: "digest".to_string(),
 			}
 			.stamp_pod_template(&mut deployment);
 		}
@@ -4161,7 +4164,6 @@ mod tests {
 		let deployments: Api<Deployment> = Api::namespaced(client, "default");
 		let current = RedisCredentialsProvenance {
 			uid: "current-secret-uid".to_string(),
-			digest: "digest".to_string(),
 		};
 
 		// Act
@@ -4216,7 +4218,7 @@ mod tests {
 		secret.metadata.resource_version = Some("17".to_string());
 		app.status = Some(ProjectStatus {
 			redis_credentials_secret_uid: Some("secret-uid".to_string()),
-			redis_credentials_secret_digest: Some(redis_credentials_digest(&secret)),
+			redis_credentials_secret_digest: None,
 			..Default::default()
 		});
 		let labels = standard_secret_labels("payments");
@@ -4408,7 +4410,7 @@ mod tests {
 			serde_json::json!({
 				"status": {
 					"redisCredentialsSecretUid": "created-secret-uid",
-					"redisCredentialsSecretDigest": digest,
+					"redisCredentialsSecretDigest": null,
 				}
 			})
 		);
@@ -4416,7 +4418,6 @@ mod tests {
 			provenance,
 			RedisCredentialsProvenance {
 				uid: "created-secret-uid".to_string(),
-				digest,
 			}
 		);
 	}
@@ -4478,7 +4479,7 @@ mod tests {
 			serde_json::json!({
 				"status": {
 					"redisCredentialsSecretUid": "secret-uid",
-					"redisCredentialsSecretDigest": digest,
+					"redisCredentialsSecretDigest": null,
 				}
 			})
 		);
@@ -4486,9 +4487,62 @@ mod tests {
 			provenance,
 			RedisCredentialsProvenance {
 				uid: "secret-uid".to_string(),
-				digest,
 			}
 		);
+	}
+
+	#[rstest]
+	#[case::leftover_digest(true, 2)]
+	#[case::uid_only(false, 1)]
+	#[tokio::test]
+	async fn approved_redis_secret_status_keeps_no_password_digest(
+		#[case] leftover_digest: bool,
+		#[case] expected_requests: usize,
+	) {
+		// Arrange: the UID is recorded, possibly next to a digest written by an
+		// earlier operator build or left over from an administrator adoption.
+		let mut app = make_test_app("payments");
+		let mut secret = build_managed_redis_credentials_secret(&app, "default");
+		secret.metadata.uid = Some("secret-uid".to_string());
+		app.status = Some(ProjectStatus {
+			redis_credentials_secret_uid: Some("secret-uid".to_string()),
+			redis_credentials_secret_digest: leftover_digest
+				.then(|| redis_credentials_digest(&secret)),
+			..Default::default()
+		});
+		let (client, requests) = redis_credentials_api(&app, Some(secret), true);
+
+		// Act
+		let provenance = reconcile_redis_credentials_secret(&app, &client, "default")
+			.await
+			.unwrap();
+
+		// Assert: a leftover digest, an offline password verifier for anyone
+		// who can read the Project, is cleared while the UID is kept.
+		let recorded = requests.lock();
+		assert_eq!(recorded.len(), expected_requests);
+		if leftover_digest {
+			assert_eq!(recorded[1].0, http::Method::PATCH);
+			assert_eq!(
+				recorded[1].2,
+				serde_json::json!({
+					"status": {
+						"redisCredentialsSecretUid": "secret-uid",
+						"redisCredentialsSecretDigest": null,
+					}
+				})
+			);
+		}
+		let mut status = ProjectStatus {
+			redis_credentials_secret_digest: Some("leftover".to_string()),
+			..Default::default()
+		};
+		provenance.record(&mut status);
+		assert_eq!(
+			status.redis_credentials_secret_uid.as_deref(),
+			Some("secret-uid")
+		);
+		assert_eq!(status.redis_credentials_secret_digest, None);
 	}
 
 	#[rstest]

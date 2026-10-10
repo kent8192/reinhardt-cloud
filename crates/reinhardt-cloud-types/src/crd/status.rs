@@ -164,8 +164,9 @@ pub struct ProjectStatus {
 	/// API-assigned UID of the operator-created Redis credentials Secret.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub redis_credentials_secret_uid: Option<String>,
-	/// SHA-256 digest of the Redis credentials Secret data, recorded before the
-	/// operator creates the Secret so an interrupted creation can be recovered.
+	/// SHA-256 digest of generated Redis credentials Secret data, recorded before
+	/// the operator creates the Secret so an interrupted creation can be
+	/// recovered, and cleared once the Secret UID is recorded.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub redis_credentials_secret_digest: Option<String>,
 	/// Status of the worker deployment sub-resource

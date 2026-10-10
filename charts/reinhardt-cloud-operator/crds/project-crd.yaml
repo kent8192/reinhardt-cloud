@@ -1072,8 +1072,9 @@ spec:
                 type: string
               redisCredentialsSecretDigest:
                 description: |-
-                  SHA-256 digest of the Redis credentials Secret data, recorded before the
-                  operator creates the Secret so an interrupted creation can be recovered.
+                  SHA-256 digest of generated Redis credentials Secret data, recorded before
+                  the operator creates the Secret so an interrupted creation can be
+                  recovered, and cleared once the Secret UID is recorded.
                 nullable: true
                 type: string
               conditions:

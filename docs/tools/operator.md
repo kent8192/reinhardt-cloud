@@ -211,7 +211,7 @@ From `charts/reinhardt-cloud-operator/crds/`:
 | `database.phase` | `ResourcePhase` | Database provisioning phase. Values: `Pending`, `Provisioning`, `Ready`, `Failed` |
 | `cache.phase` | `ResourcePhase` | Cache provisioning phase. Same values as `database.phase` |
 | `redisCredentialsSecretUid` | string? | API-assigned UID used to prove the Redis credentials Secret was created or explicitly adopted by the operator |
-| `redisCredentialsSecretDigest` | string? | SHA-256 digest of the Redis credentials Secret data, committed before creation so an interrupted creation can be recovered |
+| `redisCredentialsSecretDigest` | string? | SHA-256 digest of generated Redis credentials Secret data, present only between committing to the data and recording the Secret UID, so an interrupted creation can be recovered |
 | `worker.phase` | `ResourcePhase` | Worker deployment phase. Same values as `database.phase` |
 | `observedGeneration` | int64 | Last generation observed by the controller |
 
@@ -1032,10 +1032,8 @@ Application-level secrets (JWT keys, database credentials, and Redis credentials
 the reconciler as Kubernetes `Secret` objects within the application's namespace and are never
 written to disk on the operator node. Redis credential Secrets intentionally do not use a
 controller owner reference: `deletion_policy: Retain` keeps them safe from garbage collection.
-The operator records the API-assigned Secret UID in `status.redisCredentialsSecretUid` and a
-SHA-256 digest of the Secret data in `status.redisCredentialsSecretDigest`, and accepts only a
-Secret matching that UID (and digest, when recorded) as provenance; labels and owner references
-alone are not trusted. Newly created Redis credential Secrets are immutable, and reconciliation
+The operator records the API-assigned Secret UID in `status.redisCredentialsSecretUid` and accepts
+only a Secret with that UID as provenance; labels and owner references alone are not trusted. Newly created Redis credential Secrets are immutable, and reconciliation
 refuses a mutable adopted Secret. Provenance is validated before any application, worker, or
 migration workload that consumes the Secret is applied.
 For a status-approved legacy Secret, the operator removes this Project's owner references using
@@ -1044,9 +1042,13 @@ owners are preserved, and the patch does not modify credential data. With
 `deletion_policy: Delete`, the operator deletes the Secret only when it matches the recorded
 provenance, using the Secret UID as a delete precondition.
 
-Creation is crash-safe: before creating the Secret, the operator writes the digest of the
-generated credential data to the status and clears any previous UID; after creation it records
-the new UID. If the operator stops between those writes, the next reconciliation adopts the
+Creation is crash-safe: before creating the Secret, the operator writes a SHA-256 digest of the
+generated credential data to `status.redisCredentialsSecretDigest` and clears any previous UID;
+after creation it records the new UID and clears the digest. The digest exists only in this
+window, because a plain digest in the `Project` status would let anyone who can read the Project
+test password guesses offline; once the UID is recorded, the UID and the Secret's immutability
+detect replacement and mutation without it. The operator also clears a digest it finds next to a
+recorded UID. If the operator stops between those writes, the next reconciliation adopts the
 existing Secret only when it is immutable and its data matches the committed digest. Tenants
 cannot learn the generated password before the Secret exists, so they cannot pre-create a Secret
 that matches the digest. A pending digest without a Secret is superseded on the next attempt; this
@@ -1124,8 +1126,8 @@ kubectl patch project <project> -n <namespace> --subresource=status --type=merge
 
 Tenant users must not be granted `projects/status` write permission; the UID adoption step is a
 trusted migration decision by the platform administrator. Adoption clears any digest left by an
-earlier Secret; the operator records the digest of the adopted, immutable data on its next
-successful reconciliation.
+earlier Secret, and no digest of adopted credentials is ever persisted: provenance of an adopted
+Secret rests on its recorded UID and immutability alone.
 
 ---
 
@@ -1431,7 +1433,7 @@ stateDiagram-v2
 | `database` | Status of the provisioned database sub-resource (phase, endpoint, credentials_secret) |
 | `cache` | Status of the provisioned cache sub-resource (phase, endpoint) |
 | `redisCredentialsSecretUid` | API-assigned UID proving the Redis credentials Secret provenance |
-| `redisCredentialsSecretDigest` | SHA-256 digest of the Redis credentials Secret data used for crash-safe creation |
+| `redisCredentialsSecretDigest` | Pending SHA-256 digest of generated Redis credentials, cleared once the Secret UID is recorded |
 | `worker` | Status of the worker deployment sub-resource (ready_replicas) |
 
 ---
