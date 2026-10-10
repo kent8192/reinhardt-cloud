@@ -269,3 +269,26 @@ pub fn link_button(
 		}
 	})
 }
+
+/// Renders an `<a>` styled as a button, for navigation to a URL the server
+/// answers itself (a redirect to another site, a download).
+///
+/// `rel="external"` keeps the client's link interception from routing the
+/// click through the client router, which has no route for it and would drop
+/// the navigation.
+pub fn external_link_button(
+	href: String,
+	label: TranslatedText,
+	variant: ButtonVariant,
+	size: ButtonSize,
+) -> Page {
+	let classes = button_classes(variant, size);
+	page!({
+		a {
+			class: classes,
+			href: href,
+			rel: "external",
+			{ label }
+		}
+	})
+}

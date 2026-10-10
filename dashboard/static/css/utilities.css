@@ -63,6 +63,24 @@
 	border: 0;
 }
 
+.rc-font-display {
+	font-family: var(--font-display);
+}
+
+.rc-elevation-1 {
+	box-shadow: var(--elevation-1);
+}
+
+/* The wash behind the phase in progress. */
+.rc-progress-wash {
+	background: linear-gradient(90deg, var(--status-progress-bg), transparent 85%);
+}
+
+/* A still copy of an animated component, for decorative previews. */
+.rc-still .rc-spin::before {
+	animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.rc-spin::before,
 	.rc-dialog-enter[open] {

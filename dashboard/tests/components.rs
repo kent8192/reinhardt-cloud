@@ -8,7 +8,8 @@ use std::rc::Rc;
 use cloud_control_plane::components::alert::{ALERT_STYLES, AlertTone, alert, alert_classes};
 use cloud_control_plane::components::badge::{BadgeStatus, badge, badge_classes, chip};
 use cloud_control_plane::components::button::{
-	ButtonProps, ButtonSize, ButtonVariant, button, button_class, button_classes, link_button,
+	ButtonProps, ButtonSize, ButtonVariant, button, button_class, button_classes,
+	external_link_button, link_button,
 };
 use cloud_control_plane::components::code_block::{CODE_BLOCK_STYLES, code_block};
 use cloud_control_plane::components::dialog::{
@@ -130,6 +131,32 @@ fn link_button_points_at_the_given_href() {
 			screen.pretty(),
 			format!(
 				"<a class=\"{}\" href=\"/sign-in/\">\n  Copy\n</a>\n",
+				class_value(button_classes(ButtonVariant::Github, ButtonSize::Regular)),
+			)
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn external_link_button_opts_out_of_client_link_interception() {
+	within_ui(|| {
+		// Arrange
+		let href = "/api/auth/github/".to_owned();
+
+		// Act
+		let screen = render(external_link_button(
+			href,
+			t!("Copy"),
+			ButtonVariant::Github,
+			ButtonSize::Regular,
+		));
+
+		// Assert
+		assert_eq!(
+			screen.pretty(),
+			format!(
+				"<a class=\"{}\" href=\"/api/auth/github/\" rel=\"external\">\n  Copy\n</a>\n",
 				class_value(button_classes(ButtonVariant::Github, ButtonSize::Regular)),
 			)
 		);

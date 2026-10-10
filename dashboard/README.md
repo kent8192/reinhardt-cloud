@@ -53,6 +53,26 @@ expanded). Optional variables, all read through `settings/base.toml`:
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY` | Base64 of 32 random bytes, the key that encrypts GitHub tokens at rest. When unset, a key is derived from `REINHARDT_CORE__SECRET_KEY`. |
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID` | Identifier stored with every ciphertext; defaults to `primary`. |
 | `REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS` | Comma-separated `id:base64` pairs kept to decrypt tokens sealed before a key rotation. |
+| `REINHARDT_CLOUD_GITHUB_CLIENT_ID`, `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET` | Client ID and secret of the GitHub App behind sign-in. Set both or neither: a Control Plane without them starts and can only be entered with a Login Link. The App's callback URL is `<public URL>/api/auth/github/callback/`. |
+| `REINHARDT_CLOUD_PUBLIC_URL` | Origin the Dashboard is served from. The GitHub callback URL and the first allowed cross-site request origin derive from it. `staging.toml` and `production.toml` name the deployed origins and require `https` when the GitHub App is configured. |
+| `REINHARDT_CLOUD_ALLOWED_ORIGINS` | Comma-separated extra origins allowed to send state-changing cookie-authenticated requests. A wildcard is ignored; loopback origins exist only in a debug profile. |
+| `REINHARDT_CLOUD_GITHUB_AUTHORIZE_URL`, `REINHARDT_CLOUD_GITHUB_TOKEN_URL`, `REINHARDT_CLOUD_GITHUB_API_URL` | Endpoint overrides that point sign-in at a local stand-in for GitHub (tests only). |
+
+### Sign-in and the request surface
+
+Browser sign-in is GitHub only (a GitHub App's user authorization with PKCE).
+The sign-in state is single-use, expires within ten minutes, and is bound to
+the browser by a short-lived `HttpOnly` cookie; sessions live in Redis with a
+30-minute idle and 24-hour absolute limit, are rotated at every sign-in, and are
+destroyed on the server at sign-out. Privileges are read from the current
+`User` row on every request. Everything under `/api/` and `/admin` rejects
+anonymous callers except the short list in
+`src/config/middleware/access_gate.rs`; the admin site additionally requires
+Staff. State-changing cookie-authenticated requests must carry an allowed
+`Origin`. The OpenAPI document, Swagger UI, and ReDoc are served only in the
+`local` and `ci` profiles. The security headers cover everything the router
+serves; the single-page application shell and static assets are answered by the
+framework's static layer, which cannot carry them yet (reinhardt-web#6721).
 
 ### Audit events
 
@@ -101,7 +121,8 @@ dashboard/
 ├── src/
 │   ├── audit.rs      # Shared audit-event helper (`tracing` target `audit`)
 │   ├── main.rs       # Server binary (container entry point)
-│   ├── server.rs     # Server bootstrap used by main.rs
+│   ├── server.rs     # Server bootstrap used by main.rs (ORM pool, documentation switch)
+│   ├── config/       # Settings, project routes, admin site, request-surface middleware
 │   ├── bin/manage.rs # Management binary
 │   ├── client/       # WASM entry point (runs in browser)
 │   │   └── lib.rs    # `wasm_bindgen(start)` launcher
