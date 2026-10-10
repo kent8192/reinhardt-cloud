@@ -387,7 +387,10 @@ impl ClusterAgentService for RegistryBackedAgentService {
 
 		// Bind the agent to its authenticated cluster_id so
 		// `AgentRegistry::send_command_to_cluster` reaches it.
-		let mut command_rx = self.registry.register_with_cluster(info, cluster_id);
+		let mut command_rx = self
+			.registry
+			.register_with_cluster(info, cluster_id)
+			.map_err(|e| ApiError::Forbidden(e.to_string()))?;
 		let registry = self.registry.clone();
 		let agent_id_copy = agent_id;
 

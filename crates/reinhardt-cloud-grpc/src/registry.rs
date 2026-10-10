@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -19,6 +21,20 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Number of missed heartbeats before an agent is considered dead.
 const MISSED_HEARTBEATS_THRESHOLD: u32 = 3;
+
+/// Why an agent-supplied identity was refused by a cluster-scoped operation.
+///
+/// The variants deliberately carry no identifiers of other clusters so the
+/// error can be surfaced to the caller without disclosing registry state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ClusterBindingError {
+	/// No agent with the supplied identity is registered.
+	#[error("agent is not registered")]
+	NotRegistered,
+	/// The agent is registered, but not under the authenticated cluster.
+	#[error("agent is not bound to the authenticated cluster")]
+	ClusterMismatch,
+}
 
 /// State of a connected agent.
 struct AgentConnection {
@@ -87,33 +103,55 @@ impl AgentRegistry {
 	/// `cluster_id` taken from the agent's authenticated JWT claims, so
 	/// later calls to [`AgentRegistry::send_command_to_cluster`] can route
 	/// by cluster identity rather than agent identity.
+	///
+	/// The agent identity is supplied by the peer, so it cannot be trusted
+	/// to be unclaimed. The check and the insert are one atomic map
+	/// operation: an `agent_id` that is already registered under a different
+	/// cluster (or without a cluster binding) is refused with
+	/// [`ClusterBindingError::ClusterMismatch`] and the existing entry is
+	/// left untouched. Re-registering an `agent_id` under the same cluster
+	/// replaces the previous connection (agent reconnect).
 	pub fn register_with_cluster(
 		&self,
 		info: AgentInfo,
 		cluster_id: Uuid,
-	) -> mpsc::Receiver<AgentCommand> {
+	) -> Result<mpsc::Receiver<AgentCommand>, ClusterBindingError> {
 		let (tx, rx) = mpsc::channel(64);
 		let agent_id = info.agent_id;
+		let cluster_name = info.cluster_name.clone();
+		let connection = AgentConnection {
+			info,
+			health: None,
+			command_tx: tx,
+			last_heartbeat: Utc::now(),
+			cluster_id: Some(cluster_id),
+		};
+
+		match self.agents.entry(agent_id) {
+			Entry::Occupied(mut occupied) => {
+				if occupied.get().cluster_id != Some(cluster_id) {
+					warn!(
+						agent_id = %agent_id,
+						cluster_id = %cluster_id,
+						"Refused registration of an agent_id bound to another cluster"
+					);
+					return Err(ClusterBindingError::ClusterMismatch);
+				}
+				occupied.insert(connection);
+			}
+			Entry::Vacant(vacant) => {
+				vacant.insert(connection);
+			}
+		}
 
 		info!(
 			agent_id = %agent_id,
 			cluster_id = %cluster_id,
-			cluster = %info.cluster_name,
+			cluster = %cluster_name,
 			"Agent registered with cluster binding"
 		);
 
-		self.agents.insert(
-			agent_id,
-			AgentConnection {
-				info,
-				health: None,
-				command_tx: tx,
-				last_heartbeat: Utc::now(),
-				cluster_id: Some(cluster_id),
-			},
-		);
-
-		rx
+		Ok(rx)
 	}
 
 	/// Send a command to any connected agent that reports itself as
@@ -166,6 +204,30 @@ impl AgentRegistry {
 			conn.health = Some(health);
 			conn.last_heartbeat = Utc::now();
 		}
+	}
+
+	/// Update the health status of an agent on behalf of an authenticated
+	/// cluster.
+	///
+	/// The health payload names the agent it describes, but that name is
+	/// supplied by the peer. The update is applied only when
+	/// `health.agent_id` is registered under `cluster_id`; otherwise the
+	/// registry is left unchanged and the reason is returned.
+	pub fn update_health_for_cluster(
+		&self,
+		cluster_id: &Uuid,
+		health: AgentHealth,
+	) -> Result<(), ClusterBindingError> {
+		let mut conn = self
+			.agents
+			.get_mut(&health.agent_id)
+			.ok_or(ClusterBindingError::NotRegistered)?;
+		if conn.cluster_id != Some(*cluster_id) {
+			return Err(ClusterBindingError::ClusterMismatch);
+		}
+		conn.health = Some(health);
+		conn.last_heartbeat = Utc::now();
+		Ok(())
 	}
 
 	/// Send a command to a specific agent.
@@ -649,7 +711,9 @@ mod tests {
 		let cluster_id = Uuid::now_v7();
 
 		// Act
-		let _rx = registry.register_with_cluster(test_agent_info(agent_id), cluster_id);
+		let _rx = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
 
 		// Assert
 		let agents = registry.agents_for_cluster(&cluster_id);
@@ -664,7 +728,9 @@ mod tests {
 		let registry = AgentRegistry::new();
 		let agent_id = Uuid::now_v7();
 		let cluster_id = Uuid::now_v7();
-		let mut rx = registry.register_with_cluster(test_agent_info(agent_id), cluster_id);
+		let mut rx = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
 
 		// Act
 		let cmd = AgentCommand::Deploy {
@@ -701,5 +767,137 @@ mod tests {
 
 		// Assert
 		assert!(result.is_err());
+	}
+
+	// --- Cluster binding enforcement tests ---
+
+	fn test_health(agent_id: Uuid, pod_count: u32) -> AgentHealth {
+		AgentHealth {
+			agent_id,
+			healthy: true,
+			cpu_usage_percent: 1.0,
+			memory_usage_percent: 2.0,
+			pod_count,
+			reported_at: Utc::now(),
+		}
+	}
+
+	#[rstest]
+	fn test_register_with_cluster_refuses_agent_id_bound_to_other_cluster() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let victim_cluster = Uuid::now_v7();
+		let attacker_cluster = Uuid::now_v7();
+		let _victim_rx = registry
+			.register_with_cluster(test_agent_info(agent_id), victim_cluster)
+			.unwrap();
+
+		// Act
+		let result = registry.register_with_cluster(test_agent_info(agent_id), attacker_cluster);
+
+		// Assert
+		assert_eq!(result.unwrap_err(), ClusterBindingError::ClusterMismatch);
+		assert_eq!(registry.agents_for_cluster(&victim_cluster), vec![agent_id]);
+		assert_eq!(
+			registry.agents_for_cluster(&attacker_cluster),
+			Vec::<Uuid>::new()
+		);
+	}
+
+	#[rstest]
+	fn test_register_with_cluster_refuses_agent_id_registered_without_binding() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let _rx = registry.register(test_agent_info(agent_id));
+
+		// Act
+		let result = registry.register_with_cluster(test_agent_info(agent_id), cluster_id);
+
+		// Assert
+		assert_eq!(result.unwrap_err(), ClusterBindingError::ClusterMismatch);
+		assert_eq!(registry.agents_for_cluster(&cluster_id), Vec::<Uuid>::new());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_register_with_cluster_allows_reconnect_in_same_cluster() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let _old_rx = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act
+		let mut new_rx = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+		let cmd = AgentCommand::Restart {
+			project_name: "web".to_string(),
+		};
+		registry.send_command(&agent_id, cmd.clone()).await.unwrap();
+
+		// Assert
+		assert_eq!(registry.count(), 1);
+		assert_eq!(new_rx.recv().await.unwrap(), cmd);
+	}
+
+	#[rstest]
+	fn test_update_health_for_cluster_accepts_own_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act
+		let result = registry.update_health_for_cluster(&cluster_id, test_health(agent_id, 7));
+
+		// Assert
+		assert_eq!(result, Ok(()));
+		assert_eq!(registry.get_health(&agent_id).unwrap().pod_count, 7);
+	}
+
+	#[rstest]
+	fn test_update_health_for_cluster_rejects_other_clusters_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let victim_cluster = Uuid::now_v7();
+		let attacker_cluster = Uuid::now_v7();
+		let _rx = registry
+			.register_with_cluster(test_agent_info(agent_id), victim_cluster)
+			.unwrap();
+		registry
+			.update_health_for_cluster(&victim_cluster, test_health(agent_id, 3))
+			.unwrap();
+
+		// Act
+		let result =
+			registry.update_health_for_cluster(&attacker_cluster, test_health(agent_id, 99));
+
+		// Assert
+		assert_eq!(result, Err(ClusterBindingError::ClusterMismatch));
+		assert_eq!(registry.get_health(&agent_id).unwrap().pod_count, 3);
+	}
+
+	#[rstest]
+	fn test_update_health_for_cluster_rejects_unregistered_agent() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+
+		// Act
+		let result = registry.update_health_for_cluster(&Uuid::now_v7(), test_health(agent_id, 1));
+
+		// Assert
+		assert_eq!(result, Err(ClusterBindingError::NotRegistered));
+		assert!(registry.get_health(&agent_id).is_none());
 	}
 }
