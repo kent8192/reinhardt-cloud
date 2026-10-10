@@ -372,20 +372,26 @@ async fn sr_17_the_lifetime_can_be_shortened_but_never_raised_past_the_ceiling()
 	assert_eq!((shorter.status, ceiling.status), (0, 0));
 	assert_eq!((above.status, zero.status), (2, 2), "{}", above.stderr);
 	assert!(above.stdout.is_empty() && zero.stdout.is_empty());
-	let mut minutes: Vec<i64> = LoginLink::objects()
+	let mut lifetimes: Vec<chrono::Duration> = LoginLink::objects()
 		.all()
 		.all()
 		.await
 		.unwrap()
 		.iter()
-		.map(|row| (row.expires_at - row.created_at).num_minutes())
+		.map(|row| row.expires_at - row.created_at)
 		.collect();
-	minutes.sort_unstable();
-	assert_eq!(
-		minutes,
-		[1, 14],
-		"2 and 15 minutes, truncated to whole minutes"
-	);
+	lifetimes.sort_unstable();
+	assert_eq!(lifetimes.len(), 2, "the refused requests stored nothing");
+	// `created_at` is stamped by the framework and `expires_at` by the command a
+	// moment apart, so compare with a tolerance, as the default-lifetime test does.
+	for (lifetime, minutes) in lifetimes.iter().zip([2, 15]) {
+		assert!(
+			(*lifetime - chrono::Duration::minutes(minutes))
+				.num_seconds()
+				.abs() < 5,
+			"expected about {minutes} minutes, got {lifetime}"
+		);
+	}
 }
 
 #[rstest]
