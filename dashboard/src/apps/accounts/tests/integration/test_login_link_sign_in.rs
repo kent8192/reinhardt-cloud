@@ -157,7 +157,7 @@ async fn sr_16_opening_the_url_or_sending_a_get_consumes_nothing() {
 	// Act
 	let page_reply = previewer.get(&page).await;
 	let get_reply = previewer.get(&with_query).await;
-	let head_like = previewer
+	let get_with_origin = previewer
 		.get_with(&with_query, &[("Origin", &app.base_url)])
 		.await;
 
@@ -168,9 +168,10 @@ async fn sr_16_opening_the_url_or_sending_a_get_consumes_nothing() {
 		!page_reply.body.contains(link.secret.expose()),
 		"the served page does not echo the secret"
 	);
-	assert!(
-		![200, 302].contains(&get_reply.status) && ![200, 302].contains(&head_like.status),
-		"a GET must not confirm: {get_reply:?} {head_like:?}"
+	assert_eq!(
+		(get_reply.status, get_with_origin.status),
+		(405, 405),
+		"a GET is refused as a method, so it cannot confirm"
 	);
 	assert!(get_reply.set_cookie("cloud_session").is_none());
 	let mut human = app.browser();
