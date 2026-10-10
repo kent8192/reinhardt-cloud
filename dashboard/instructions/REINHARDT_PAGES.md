@@ -81,6 +81,19 @@ ClientLauncher::new("#root")
 - Event handlers inside `page!` normally do not need duplicate native branches.
 - Verify both native and browser targets after changing a shared boundary.
 
+## Components
+
+- Use `reinhardt-pages` primitives first and style them: `ui::ActionButton` and
+  `FormActionButton` (`.attr("class", ..)`), `ui::ActionResultPanel` and
+  `ResourcePanel` (the slots hold the styled alert and empty state), `Portal` /
+  `mount_portal` for dialogs, `form!` with `client_form:` (its `styling:` and
+  `customize:` entries evaluate class expressions), `tables::Table` (browser-only
+  `dom::Element` rendering), and `#[layout]` with `Outlet`.
+- Write a custom component only where no primitive exists, and name the
+  primitives that were checked in its module comment.
+- Shared components live in `src/components/`; route-backed pages (routing
+  targets) live in `src/apps/<app>/client/components/`.
+
 ## Styles and assets
 
 - Component styles use `#[style_def] static NAME: TypeName = style! { ... };`.
@@ -95,7 +108,7 @@ ClientLauncher::new("#root")
   `src/config/wasm.rs`.
 - Resolve images with `resolve_static("img/...")`, not hardcoded `/static/`
   paths.
-- Browser APIs used by shared components live behind `src/ui/browser.rs`, which
+- Browser APIs used by shared components live behind `src/components/browser.rs`, which
   has inert server stubs so components render the same natively.
 - Browser tests live in `tests/wasm/` and are declared as explicit `[[test]]`
   targets; native test targets declare `required-features = ["with-reinhardt"]`
