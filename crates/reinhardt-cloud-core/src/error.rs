@@ -3,6 +3,12 @@
 use thiserror::Error;
 
 /// Framework-agnostic API errors for the Reinhardt Cloud platform.
+///
+/// The enum is intentionally exhaustive (not `#[non_exhaustive]`): the
+/// transport adapters that map it to gRPC statuses match every variant, so
+/// adding a variant is a compile error there instead of a silent fallback to
+/// a generic status. `Forbidden` (HTTP 403, gRPC `PermissionDenied`) was added
+/// for callers that are authenticated but not allowed to act on the target.
 #[derive(Debug, Clone, Error)]
 pub enum ApiError {
 	#[error("unauthorized: {0}")]
