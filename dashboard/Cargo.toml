@@ -109,8 +109,8 @@ toml = { workspace = true }
 # Browser-only test target: the file is `#![cfg(client)]`, so it compiles to
 # nothing on native targets and runs under `cargo make wasm-test`.
 [[test]]
-name = "ui_browser"
-path = "tests/wasm/ui_browser.rs"
+name = "components_browser"
+path = "tests/wasm/components_browser.rs"
 
 # Native test targets are skipped by `wasm-pack test --no-default-features`,
 # which builds every test target for wasm32.
@@ -119,7 +119,11 @@ name = "integration"
 required-features = ["with-reinhardt"]
 
 [[test]]
-name = "ui_components"
+name = "components"
+required-features = ["with-reinhardt"]
+
+[[test]]
+name = "client_form_styling"
 required-features = ["with-reinhardt"]
 
 [[test]]

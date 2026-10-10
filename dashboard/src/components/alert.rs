@@ -1,6 +1,9 @@
 //! Inline alert for outcomes a person has to act on.
+//!
+//! Presentation for the `error` slot of `ui::ActionResultPanel` and
+//! `ui::ResourcePanel`, which render only the slot content they are given.
 
-use reinhardt::pages::component::Page;
+use reinhardt::pages::component::{IntoPage, Page};
 use reinhardt::pages::{ClassList, TranslatedText, page, style_def};
 
 #[style_def]
@@ -66,8 +69,9 @@ pub fn alert_classes(tone: AlertTone) -> ClassList {
 }
 
 /// Renders an alert announced to assistive technology (`role="alert"`).
-pub fn alert(tone: AlertTone, title: TranslatedText, body: TranslatedText) -> Page {
+pub fn alert(tone: AlertTone, title: TranslatedText, body: impl IntoPage) -> Page {
 	let classes = alert_classes(tone);
+	let body = body.into_page();
 	page!({
 		div {
 			class: classes,

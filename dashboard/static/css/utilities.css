@@ -24,24 +24,12 @@
 	}
 }
 
-.rc-font-display {
-	font-family: var(--font-display);
-}
-
 .rc-font-mono {
 	font-family: var(--font-mono);
 }
 
-.rc-elevation-1 {
-	box-shadow: var(--elevation-1);
-}
-
 .rc-elevation-2 {
 	box-shadow: var(--elevation-2);
-}
-
-.rc-transition-colors {
-	transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
 }
 
 /* Spinning ring marker: the badge draws its marker with ::before. */

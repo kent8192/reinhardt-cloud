@@ -1,4 +1,7 @@
 //! Empty state: says what appears here and what to do next.
+//!
+//! Presentation for the `empty` slot of `ui::ResourcePanel`, which renders only
+//! the slot content it is given.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::{TranslatedText, page, style_def};

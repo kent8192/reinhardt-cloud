@@ -1,12 +1,17 @@
 //! Code block with a copy button.
+//!
+//! `reinhardt-pages` checked: `ui::ActionButton` dispatches an async `Action`,
+//! and the only clipboard support is the `ClipboardEvent` payload in `event`
+//! (no write helper). Copying is a browser call with a timed label, so the block
+//! and its copy button are custom.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::reactive::Signal;
 use reinhardt::pages::{Callback, TranslatedText, page, style_def, t};
 
-use crate::ui::browser;
-use crate::ui::button::{ButtonSize, ButtonVariant, button_classes};
+use crate::components::browser;
+use crate::components::button::{ButtonSize, ButtonVariant, button_classes};
 
 /// How long the copy button reports success before it reverts, in milliseconds.
 const COPIED_LABEL_MILLIS: i32 = 1600;
@@ -52,7 +57,9 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 /// Renders `text` in a code block with a bar holding `title` and a copy button.
 ///
 /// `id` must be unique in the document; the copy button controls the `<code>`
-/// element with the ID `{id}-text`.
+/// element with the ID `{id}-text`. The button's accessible name is "Copy
+/// {title}" ("Copied {title}" after a copy) so several blocks on one page can
+/// be told apart while the visible word stays part of the name.
 pub fn code_block(id: &str, title: TranslatedText, text: String) -> Page {
 	let copied = Signal::new(false);
 	let copy = Callback::new({
@@ -77,6 +84,11 @@ pub fn code_block(id: &str, title: TranslatedText, text: String) -> Page {
 					class: button_class,
 					type: "button",
 					aria_controls: controls,
+					aria_label: if copied.get() {
+						t!("Copied {title}", title = title).render_string()
+					} else {
+						t!("Copy {title}", title = title).render_string()
+					},
 					@click: copy,
 					if copied.get() { { t!("Copied") } } else { { t!("Copy") } }
 				}

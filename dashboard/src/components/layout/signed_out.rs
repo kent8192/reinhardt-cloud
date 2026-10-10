@@ -1,14 +1,21 @@
-//! Layout of pages shown before sign-in.
+//! Frame of pages shown before sign-in.
 //!
 //! A brand line with the logo mark and the theme toggle sit above a single
 //! main column. An optional decorative aside fills the remaining width on wide
 //! screens and is hidden from assistive technology and on small screens.
+//!
+//! `reinhardt-pages` checked: `#[layout(path, name = ..)]` with `Outlet` is the
+//! router's primitive for a layout *route*; it binds a path and belongs to the
+//! owning application's `client/components/`. This is the presentational
+//! frame such a route layout renders its `Outlet` into (`Outlet` implements
+//! `IntoPage`, so it can be passed as `content`). Nothing in `reinhardt-pages`
+//! provides the brand line, skip link, or theme toggle chrome.
 
-use reinhardt::pages::component::Page;
+use reinhardt::pages::component::{IntoPage, Page};
 use reinhardt::pages::static_resolver::resolve_static;
 use reinhardt::pages::{page, style_def, t};
 
-use crate::ui::theme::theme_toggle;
+use crate::components::theme::theme_toggle;
 
 /// Logical path of the small logo mark under `static/`.
 pub const LOGO_MARK_PATH: &str = "img/logo-mark-small.png";
@@ -37,6 +44,9 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	.page {
 		position: relative;
 		display: grid;
+		/* `minmax(0, 36rem) minmax(0, 1fr)` in the prototype. `unchecked_fn!` accepts
+		 * one call only, so two tracks cannot use it; `min-width: 0` on the grid
+		 * items below gives the `1fr` track the same zero minimum. */
 		grid-template-columns: (36rem, 1fr);
 		align-items: center;
 		min-height: 100vh;
@@ -82,6 +92,7 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	.main {
 		position: relative;
 		z-index: 1;
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		gap: globals.space_5;
@@ -89,6 +100,7 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	}
 	.aside {
 		position: relative;
+		min-width: 0;
 		align-self: stretch;
 		min-height: 100vh;
 		overflow: hidden;
@@ -97,7 +109,7 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	}
 	@media (max-width: 62rem) {
 		.page {
-			grid-template-columns: 1fr;
+			grid-template-columns: unchecked_fn!(minmax(0, 1fr));
 		}
 		.chrome {
 			top: globals.space_5;
@@ -113,11 +125,12 @@ pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {
 	}
 };
 
-/// Wraps `content` in the signed-out layout.
+/// Wraps `content` in the signed-out frame.
 ///
 /// `content` becomes the contents of the `<main id="main">` landmark; `aside`
 /// is decorative and must not carry information or controls.
-pub fn signed_out_layout(content: Page, aside: Option<Page>) -> Page {
+pub fn signed_out_layout(content: impl IntoPage, aside: Option<Page>) -> Page {
+	let content = content.into_page();
 	let logo = resolve_static(LOGO_MARK_PATH);
 	let (logo_width, logo_height) = (LOGO_MARK_SIZE.0.to_string(), LOGO_MARK_SIZE.1.to_string());
 	let skip_target = format!("#{MAIN_ID}");

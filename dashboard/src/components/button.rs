@@ -1,4 +1,13 @@
-//! Button and link-styled-as-button.
+//! Button styles, plus a plain button and a link styled as a button.
+//!
+//! `reinhardt-pages` checked: `ui::ActionButton` (dispatches an `Action`) and
+//! `ui::FormActionButton` (submits a form `FormAction`) cover action buttons;
+//! style them with `.attr("class", button_class(..))`. Neither takes an
+//! arbitrary click handler, and neither renders an anchor, so `button` (theme
+//! toggle, copy, dialog controls) and `link_button` (navigation styled as a
+//! button) stay as thin components here.
+
+use std::borrow::Cow;
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::ClickEvent;
@@ -150,6 +159,14 @@ pub fn button_classes(variant: ButtonVariant, size: ButtonSize) -> ClassList {
 		ButtonSize::Regular => styled,
 		ButtonSize::Small => styled + BUTTON_STYLES.small(),
 	}
+}
+
+/// Returns the `class` attribute value of a button as an owned string.
+///
+/// Pass it to `ActionButton::attr("class", ..)` or
+/// `FormActionButton::attr("class", ..)`, which accept only string attributes.
+pub fn button_class(variant: ButtonVariant, size: ButtonSize) -> String {
+	Cow::from(button_classes(variant, size)).into_owned()
 }
 
 /// Properties of a [`button`].

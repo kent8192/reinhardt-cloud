@@ -1,13 +1,23 @@
-//! Modal dialog on the native `<dialog>` element.
+//! Modal dialog on the native `<dialog>` element, mounted through a portal.
 //!
-//! The browser traps focus inside a modal dialog and closes it on `Escape`.
-//! Open it with [`show_modal`] and close it with [`close`], passing the same ID
-//! given to [`DialogProps::new`].
+//! `reinhardt-pages` checked: `Portal` / `mount_portal` mount a view outside the
+//! caller's tree and return a `PortalHandle` that removes it when dropped. There
+//! is no dialog primitive, so this module supplies the `<dialog>` markup
+//! ([`dialog_view`]) and the open/close lifecycle ([`open_dialog`]) on top of
+//! the portal. The browser traps focus inside a modal dialog and closes it on
+//! `Escape`.
+//!
+//! Portals render only a placeholder on the server target and mount nothing, so
+//! [`open_dialog`] returns an inactive handle there; the markup is covered by
+//! native tests of [`dialog_view`] and the lifecycle by browser tests.
 
 use reinhardt::pages::component::Page;
-use reinhardt::pages::{ClassList, TranslatedText, page, style_def};
+use reinhardt::pages::{
+	ClassList, PortalError, PortalHandle, PortalTarget, TranslatedText, mount_portal, page,
+	style_def,
+};
 
-use crate::ui::browser;
+use crate::components::browser;
 
 #[style_def]
 pub static DIALOG_STYLES: DialogStyles = style! {
@@ -55,7 +65,7 @@ pub static DIALOG_STYLES: DialogStyles = style! {
 	}
 };
 
-/// Properties of a [`dialog`].
+/// Properties of a dialog.
 #[derive(Clone)]
 pub struct DialogProps {
 	id: String,
@@ -84,8 +94,8 @@ pub fn dialog_classes() -> ClassList {
 	DIALOG_STYLES.dialog() + "rc-elevation-2" + "rc-dialog-enter"
 }
 
-/// Renders a closed dialog; open it with [`show_modal`].
-pub fn dialog(props: DialogProps) -> Page {
+/// Renders the closed `<dialog>` element for `props`.
+pub fn dialog_view(props: DialogProps) -> Page {
 	let DialogProps {
 		id,
 		title,
@@ -116,12 +126,35 @@ pub fn dialog(props: DialogProps) -> Page {
 	})
 }
 
-/// Opens the dialog with the given ID as a modal.
-pub fn show_modal(id: &str) {
-	browser::show_modal(id);
+/// A dialog that is open until this handle is dropped.
+///
+/// Dropping the handle unmounts the portal and removes the dialog from the
+/// document, which also releases the focus trap.
+pub struct OpenDialog {
+	portal: PortalHandle,
 }
 
-/// Closes the dialog with the given ID.
-pub fn close(id: &str) {
-	browser::close_dialog(id);
+impl OpenDialog {
+	/// Reports whether the dialog is mounted in a document.
+	///
+	/// Always `false` on the server target, where portals mount nothing.
+	pub fn is_open(&self) -> bool {
+		self.portal.is_active()
+	}
+}
+
+/// Mounts the dialog under `<body>` and opens it as a modal.
+///
+/// Call it inside a reactive scope. Keep the returned handle for as long as the
+/// dialog should exist; drop it to close the dialog.
+///
+/// # Errors
+///
+/// Returns the portal error when the document has no `<body>` or the view
+/// cannot be mounted.
+pub fn open_dialog(props: DialogProps) -> Result<OpenDialog, PortalError> {
+	let id = props.id.clone();
+	let portal = mount_portal(PortalTarget::body(), dialog_view(props))?;
+	browser::show_modal(&id);
+	Ok(OpenDialog { portal })
 }

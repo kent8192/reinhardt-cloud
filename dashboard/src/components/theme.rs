@@ -1,5 +1,9 @@
 //! Light and dark theme selection.
 //!
+//! `reinhardt-pages` checked: `ui::ActionButton` dispatches an `Action`, and the
+//! toggle is a synchronous document and storage update, so a styled `button`
+//! with a click handler is used. No primitive exists for theme state.
+//!
 //! The theme follows the system setting until a User picks one. A picked theme
 //! is written to the `data-theme` attribute of the document root, which the
 //! tokens in `static/css/tokens.css` switch on, and remembered in local
@@ -11,8 +15,8 @@ use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::reactive::Signal;
 use reinhardt::pages::{Callback, page, t};
 
-use crate::ui::browser;
-use crate::ui::button::{ButtonSize, ButtonVariant, button_classes};
+use crate::components::browser;
+use crate::components::button::{ButtonSize, ButtonVariant, button_classes};
 
 /// Local storage key of the remembered theme; keep in sync with
 /// `static/js/theme-init.js`.

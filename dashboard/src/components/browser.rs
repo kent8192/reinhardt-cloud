@@ -6,8 +6,9 @@
 
 #[cfg(client)]
 mod browser_impl {
-	use wasm_bindgen::JsCast;
+	use js_sys::Reflect;
 	use wasm_bindgen::closure::Closure;
+	use wasm_bindgen::{JsCast, JsValue};
 	use web_sys::{HtmlDialogElement, Window};
 
 	fn window() -> Option<Window> {
@@ -64,17 +65,18 @@ mod browser_impl {
 		}
 	}
 
-	pub(super) fn close_dialog(id: &str) {
-		if let Some(dialog) = dialog(id) {
-			dialog.close();
-		}
-	}
-
 	pub(super) fn copy_text(text: &str, done: impl FnOnce() + 'static) {
 		let Some(window) = window() else {
 			return;
 		};
-		let promise = window.navigator().clipboard().write_text(text);
+		let navigator = window.navigator();
+		// `navigator.clipboard` is undefined on non-secure origins; calling
+		// through it would throw, so skip the copy and leave the label as is.
+		let clipboard = Reflect::get(&navigator, &JsValue::from_str("clipboard"));
+		if clipboard.is_ok_and(|value| value.is_undefined() || value.is_null()) {
+			return;
+		}
+		let promise = navigator.clipboard().write_text(text);
 		wasm_bindgen_futures::spawn_local(async move {
 			// A rejected write (permission denied) leaves the label unchanged.
 			if wasm_bindgen_futures::JsFuture::from(promise).await.is_ok() {
@@ -116,8 +118,6 @@ mod browser_impl {
 
 	pub(super) fn show_modal(_id: &str) {}
 
-	pub(super) fn close_dialog(_id: &str) {}
-
 	pub(super) fn copy_text(_text: &str, _done: impl FnOnce() + 'static) {}
 
 	pub(super) fn after_millis(_milliseconds: i32, _callback: impl FnOnce() + 'static) {}
@@ -151,11 +151,6 @@ pub fn system_prefers_dark() -> bool {
 /// Opens the `<dialog>` with the given ID as a modal.
 pub fn show_modal(id: &str) {
 	browser_impl::show_modal(id);
-}
-
-/// Closes the `<dialog>` with the given ID.
-pub fn close_dialog(id: &str) {
-	browser_impl::close_dialog(id);
 }
 
 /// Copies `text` to the clipboard and calls `done` once the copy succeeded.

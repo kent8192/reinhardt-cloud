@@ -1,5 +1,9 @@
 //! Status badge and plain chip.
 //!
+//! `reinhardt-pages` checked: `ui` has only the action/resource primitives and
+//! `tables` has `BooleanColumn` / `ChoiceColumn` cell renderers; none draws a
+//! status marker with a label, so this component is custom.
+//!
 //! Each status pairs a color with its own marker shape and a text label, so a
 //! status is never conveyed by color alone.
 
