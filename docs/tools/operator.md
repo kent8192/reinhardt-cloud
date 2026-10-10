@@ -332,9 +332,12 @@ setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`. While l
 disabled, the operator never creates tenant or preview namespaces and never deletes preview
 namespaces: it requires the tenant namespace and the parent-qualified preview namespace to be
 pre-created (reconciliation fails with a dependency-not-ready backoff until they exist) and only
-merge-patches their labels before applying guardrails. On parent deletion it
-retains the preview namespace, deletes the parent-labeled preview `Project`s, and keeps the parent finalizer
-until their own finalizers finish. Enabling lifecycle management requires both the chart's lifecycle
+merge-patches their labels before applying guardrails. On parent deletion it retains the preview
+namespace, deletes the parent's operator-created preview `Project`s, and keeps the parent finalizer
+until their own finalizers finish. A preview `Project` is deleted only when it carries the canonical
+preview, parent, numeric PR-number, and `app.kubernetes.io/managed-by: reinhardt-cloud` labels and its
+name and namespace match the values derived from them; other `Project`s with copied labels are left
+untouched and are not waited on. Enabling lifecycle management requires both the chart's lifecycle
 RBAC verbs and the operator setting. Standalone runs that leave the variable unset (for example
 `cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it explicitly to
 `false` or `0` to opt out.
@@ -923,7 +926,7 @@ values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
 workflow. With lifecycle management disabled, deleting a preview-enabled `Project` retains its
-preview namespace and waits for the parent-labeled preview `Project`s to be deleted before removing
+preview namespace and waits for the parent's operator-created preview `Project`s to be deleted before removing
 the parent finalizer. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |

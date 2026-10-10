@@ -105,7 +105,12 @@ fn image_pull_secret_prefixes(
 	}
 }
 
-fn verified_preview_parent_name(
+/// Returns the parent `Project` name of an operator-created preview `Project`.
+///
+/// Returns `None` unless the preview carries the canonical preview,
+/// `app.kubernetes.io/managed-by`, parent, and numeric PR-number labels, and its
+/// name and namespace match the values the operator derives from those labels.
+pub(crate) fn verified_preview_parent_name(
 	app: &reinhardt_cloud_types::crd::Project,
 	app_name: &str,
 ) -> Option<String> {

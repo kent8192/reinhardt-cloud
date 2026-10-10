@@ -2792,22 +2792,45 @@ async fn delete_owned_preview_namespace(
 	}
 }
 
-/// Label selector matching the preview `Project`s created for one parent.
+/// Label selector matching the operator-created preview `Project`s for one parent.
 fn preview_projects_label_selector(parent_namespace: &str, parent_name: &str) -> String {
 	format!(
-		"{}=true,{}={parent_name},{}={parent_namespace}",
+		"{}=true,{}={parent_name},{}={parent_namespace},{},app.kubernetes.io/managed-by={}",
 		preview::PREVIEW_LABEL_KEY,
 		preview::PARENT_APP_LABEL_KEY,
 		preview::PARENT_NAMESPACE_LABEL_KEY,
+		preview::PR_NUMBER_LABEL_KEY,
+		preview::MANAGED_BY_LABEL_VALUE,
 	)
 }
 
-/// Requests deletion of every preview `Project` created for a parent in a
-/// retained preview namespace.
+/// Returns `true` when `preview_app` is an operator-created preview of the
+/// given parent: its canonical labels, PR number, name, and namespace must all
+/// match what the operator derives for that parent.
+fn is_verified_preview_of(
+	preview_app: &Project,
+	parent_namespace: &str,
+	parent_name: &str,
+) -> bool {
+	preview_app
+		.metadata
+		.labels
+		.as_ref()
+		.and_then(|labels| labels.get(preview::PARENT_NAMESPACE_LABEL_KEY))
+		.is_some_and(|namespace| namespace == parent_namespace)
+		&& resources::verified_preview_parent_name(preview_app, &preview_app.name_any())
+			.is_some_and(|name| name == parent_name)
+}
+
+/// Requests deletion of every operator-created preview `Project` of a parent
+/// in a retained preview namespace.
 ///
-/// Returns the number of preview `Project`s still present when the cleanup
-/// pass started. A non-zero count means their finalizers have not finished
-/// yet, so the parent finalizer must be kept until a later pass observes none.
+/// `Project`s that match the label selector but fail ownership verification
+/// (for example, manually managed objects carrying copied labels) are skipped
+/// and not counted. Returns the number of verified preview `Project`s still
+/// present when the cleanup pass started. A non-zero count means their
+/// finalizers have not finished yet, so the parent finalizer must be kept
+/// until a later pass observes none.
 async fn delete_retained_preview_projects(
 	client: &Client,
 	parent_namespace: &str,
@@ -2824,11 +2847,19 @@ async fn delete_retained_preview_projects(
 		)
 		.await
 		.map_err(Error::Kube)?;
+	let mut remaining = 0;
 	for preview_app in &previews.items {
+		let preview_name = preview_app.name_any();
+		if !is_verified_preview_of(preview_app, parent_namespace, parent_name) {
+			warn!(
+				"Skipping {preview_namespace}/{preview_name} during cleanup of {parent_namespace}/{parent_name}: it is not a verified operator-created preview of this Project"
+			);
+			continue;
+		}
+		remaining += 1;
 		if preview_app.metadata.deletion_timestamp.is_some() {
 			continue;
 		}
-		let preview_name = preview_app.name_any();
 		match api.delete(&preview_name, &DeleteParams::default()).await {
 			Ok(_) => {
 				info!(
@@ -2839,7 +2870,7 @@ async fn delete_retained_preview_projects(
 			Err(err) => return Err(Error::Kube(err)),
 		}
 	}
-	Ok(previews.items.len())
+	Ok(remaining)
 }
 
 async fn delete_migration_jobs(
@@ -4235,7 +4266,7 @@ mod tests {
 		// Assert
 		assert_eq!(
 			selector,
-			"reinhardt.dev/preview=true,reinhardt.dev/parent-app=api,reinhardt.dev/parent-namespace=default"
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app=api,reinhardt.dev/parent-namespace=default,reinhardt.dev/pr-number,app.kubernetes.io/managed-by=reinhardt-cloud"
 		);
 	}
 
@@ -4244,19 +4275,26 @@ mod tests {
 	async fn retained_preview_projects_are_deleted_and_counted() {
 		// Arrange
 		let preview_ns = resources::preview_namespace::preview_namespace_name("default", "api");
-		let mut active = make_test_app("api-pr-1");
-		active.metadata.namespace = Some(preview_ns.clone());
-		let mut terminating = make_test_app("api-pr-2");
-		terminating.metadata.namespace = Some(preview_ns.clone());
+		let operator_preview = |pr_number: &str| {
+			let mut app = make_test_app(&preview::preview_project_name("api", pr_number));
+			app.metadata.namespace = Some(preview_ns.clone());
+			app.metadata.labels = Some(preview::preview_labels("default", "api", pr_number));
+			app
+		};
+		let active = operator_preview("1");
+		let mut terminating = operator_preview("2");
 		terminating.metadata.deletion_timestamp =
 			Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
 				k8s_openapi::jiff::Timestamp::now(),
 			));
+		// Same selector labels, but its name does not match the PR-number label.
+		let mut forged = operator_preview("3");
+		forged.metadata.name = Some("manual-copy".to_string());
 		let list = serde_json::json!({
 			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
 			"kind": "ProjectList",
 			"metadata": {},
-			"items": [active.clone(), terminating],
+			"items": [active.clone(), terminating, forged],
 		});
 		let deleted = serde_json::to_value(&active).expect("project json should serialize");
 		let (client, requests) = recording_client(move |method, _| {
@@ -4285,6 +4323,43 @@ mod tests {
 				format!("DELETE {projects_path}/api-pr-1 application/json"),
 			]
 		);
+	}
+
+	#[rstest]
+	#[case::operator_created("api-pr-7", None, None, true)]
+	#[case::name_mismatch("manual-copy", None, None, false)]
+	#[case::foreign_manager("api-pr-7", Some(("app.kubernetes.io/managed-by", "helm")), None, false)]
+	#[case::non_numeric_pr("api-pr-7", Some(("reinhardt.dev/pr-number", "x7")), None, false)]
+	#[case::other_parent_namespace(
+		"api-pr-7",
+		Some(("reinhardt.dev/parent-namespace", "other")),
+		None,
+		false
+	)]
+	#[case::wrong_namespace("api-pr-7", None, Some("default"), false)]
+	fn retained_preview_ownership_is_verified(
+		#[case] name: &str,
+		#[case] label_override: Option<(&str, &str)>,
+		#[case] namespace_override: Option<&str>,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let mut labels = preview::preview_labels("default", "api", "7");
+		if let Some((key, value)) = label_override {
+			labels.insert(key.to_string(), value.to_string());
+		}
+		let mut app = make_test_app(name);
+		app.metadata.namespace = Some(namespace_override.map_or_else(
+			|| resources::preview_namespace::preview_namespace_name("default", "api"),
+			str::to_string,
+		));
+		app.metadata.labels = Some(labels);
+
+		// Act
+		let verified = is_verified_preview_of(&app, "default", "api");
+
+		// Assert
+		assert_eq!(verified, expected);
 	}
 
 	#[rstest]
