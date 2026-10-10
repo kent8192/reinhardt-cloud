@@ -877,6 +877,13 @@ upgrade; existing workloads are unaffected. Set `replicaCount: 0` only to stop t
 replicaCount: 1
 ```
 
+**Exactly one operator installation per cluster is supported.** Every installation watches
+`Project` resources in all namespaces, and the replica guard applies only within a single Helm
+release. Installing the chart a second time under a different release name (or running the operator
+binary elsewhere against the same cluster) produces concurrent writers and is not supported. Cluster-wide
+enforcement through Lease-based leader election is tracked in
+[#952](https://github.com/kent8192/reinhardt-cloud/issues/952).
+
 #### Disaster recovery
 
 When the operator pod is unavailable:
