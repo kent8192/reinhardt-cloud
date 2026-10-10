@@ -116,14 +116,32 @@ pub(crate) fn write_project_files(
 	};
 	let staged_dockerfile = stage_file(dockerfile_path, contents)?;
 	// Keep the previous Dockerfile at a temporary path until the config is in
-	// place; dropping the backup removes it after success.
-	let backup = if dockerfile_path.try_exists()? {
-		let backup = tempfile::Builder::new()
-			.prefix(".reinhardt-cloud-backup-")
-			.tempfile_in(parent_dir(dockerfile_path))?
-			.into_temp_path();
-		std::fs::rename(dockerfile_path, &backup)?;
-		Some(backup)
+	// place; dropping the backup removes it after success. The backup name is
+	// reserved without creating a file, so the move never targets an existing
+	// destination regardless of platform rename semantics.
+	let existing = match std::fs::symlink_metadata(dockerfile_path) {
+		Ok(metadata) => Some(metadata),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+		Err(error) => return Err(error),
+	};
+	if existing.as_ref().is_some_and(std::fs::Metadata::is_dir) {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			format!(
+				"{} is a directory, not a Dockerfile",
+				dockerfile_path.display()
+			),
+		));
+	}
+	let backup = if existing.is_some() {
+		Some(
+			tempfile::Builder::new()
+				.prefix(".reinhardt-cloud-backup-")
+				.make_in(parent_dir(dockerfile_path), |candidate| {
+					move_to_unused_path(dockerfile_path, candidate)
+				})?
+				.into_temp_path(),
+		)
 	} else {
 		None
 	};
@@ -151,6 +169,15 @@ fn parent_dir(path: &Path) -> &Path {
 	path.parent()
 		.filter(|parent| !parent.as_os_str().is_empty())
 		.unwrap_or(Path::new("."))
+}
+
+/// Move `source` to `destination` only if nothing exists there yet; an
+/// existing destination reports `AlreadyExists` so a fresh name is chosen.
+fn move_to_unused_path(source: &Path, destination: &Path) -> std::io::Result<()> {
+	if destination.symlink_metadata().is_ok() {
+		return Err(std::io::ErrorKind::AlreadyExists.into());
+	}
+	std::fs::rename(source, destination)
 }
 
 /// Write `contents` to a temporary file beside `target`, keeping the target's
@@ -577,6 +604,40 @@ mod tests {
 			.collect();
 		names.sort();
 		assert_eq!(names, ["Dockerfile", "reinhardt-cloud.toml"]);
+	}
+
+	#[rstest]
+	#[case::unused_destination(false, true)]
+	#[case::existing_destination(true, false)]
+	fn dockerfile_backup_never_moves_onto_an_existing_path(
+		#[case] occupied: bool,
+		#[case] moved: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		let source = dir.path().join("Dockerfile");
+		let destination = dir.path().join(".reinhardt-cloud-backup-candidate");
+		std::fs::write(&source, "FROM old").unwrap();
+		if occupied {
+			std::fs::write(&destination, "unrelated").unwrap();
+		}
+
+		// Act
+		let result = move_to_unused_path(&source, &destination);
+
+		// Assert
+		assert_eq!(result.is_ok(), moved, "{result:?}");
+		if moved {
+			assert!(!source.exists());
+			assert_eq!(std::fs::read_to_string(&destination).unwrap(), "FROM old");
+		} else {
+			assert_eq!(
+				result.unwrap_err().kind(),
+				std::io::ErrorKind::AlreadyExists
+			);
+			assert_eq!(std::fs::read_to_string(&source).unwrap(), "FROM old");
+			assert_eq!(std::fs::read_to_string(&destination).unwrap(), "unrelated");
+		}
 	}
 
 	#[cfg(unix)]
