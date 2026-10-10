@@ -373,8 +373,10 @@ impl ClusterAgentService for RegistryBackedAgentService {
 					}
 					Ok(AgentEvent::Heartbeat { agent_id: id, .. }) => {
 						// A heartbeat may only keep the announcing agent
-						// alive; another agent's identity is ignored.
-						tracing::warn!(
+						// alive; another agent's identity is ignored. Logged
+						// at debug level because an authenticated agent can
+						// send this on every event and must not flood the log.
+						tracing::debug!(
 							announced = %agent_id_events,
 							claimed = %id,
 							"Ignoring heartbeat for an agent other than the connected one"
