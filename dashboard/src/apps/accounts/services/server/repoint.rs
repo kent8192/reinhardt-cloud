@@ -20,13 +20,19 @@
 //! cannot join it, so they are ended before and again after it. The first pass
 //! aborts the operation if Redis is down, before anything changed; the second
 //! closes the window in which the old account could have signed in again.
+//!
+//! If the second pass fails, the move has already committed and been audited.
+//! The operation then fails closed: the User is deactivated, and the per-request
+//! session check reads `is_active` from the database, so every leftover session
+//! is refused without Redis. An operator reactivates the User (admin site, set
+//! `is_active`) once Redis is back.
 
 use reinhardt::core::exception::{DatabaseError, DatabaseErrorKind, Error as OrmError};
 use reinhardt::db::orm::{Model, get_connection};
 use uuid::Uuid;
 
 use crate::apps::accounts::models::{LoginLink, SocialAccount, User};
-use crate::apps::accounts::services::server::sessions::SessionService;
+use crate::apps::accounts::services::server::sessions::SessionRevoker;
 use crate::apps::accounts::services::server::staff::placeholder_login;
 use crate::apps::accounts::services::server::users::find_by_github_user_id;
 use crate::audit::{ActorKind, AuditEvent, Outcome};
@@ -44,7 +50,7 @@ pub struct Repointed {
 	pub sessions_ended_before: usize,
 }
 
-/// Why a User was not re-pointed.
+/// Why a User was not (fully) re-pointed.
 #[derive(Debug, thiserror::Error)]
 pub enum RepointError {
 	/// A GitHub user ID is not a valid one.
@@ -65,9 +71,38 @@ pub enum RepointError {
 	/// Sessions could not be ended before anything changed.
 	#[error("sessions could not be ended and nothing was changed: {0}")]
 	SessionsBeforeChange(String),
-	/// The User was moved but sessions could not be ended afterwards.
-	#[error("the User was re-pointed but their sessions could not be ended: {0}")]
-	SessionsAfterChange(String),
+	/// The User was moved (and the move is recorded) but the sessions could not
+	/// be ended afterwards. The command then deactivates the User so that no
+	/// leftover session works.
+	#[error("{}", sessions_after_change_message(.cause, .deactivation))]
+	SessionsAfterChange {
+		/// Why the sessions could not be ended.
+		cause: String,
+		/// What happened when the User was deactivated to close the gap.
+		deactivation: Deactivation,
+	},
+}
+
+/// The outcome of deactivating a User because their sessions could not be ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Deactivation {
+	/// The User is deactivated: every leftover session is refused on its next
+	/// request, because the session check reads `is_active` from the database.
+	Done,
+	/// Deactivating failed too (the reason is attached); leftover sessions may
+	/// still work.
+	Failed(String),
+}
+
+fn sessions_after_change_message(cause: &str, deactivation: &Deactivation) -> String {
+	match deactivation {
+		Deactivation::Done => format!(
+			"the User was re-pointed, but their sessions could not be ended ({cause}). The account was deactivated so that every leftover session is refused on its next request; once Redis is reachable again, reactivate it by setting `is_active` on the User in the admin site"
+		),
+		Deactivation::Failed(reason) => format!(
+			"the User was re-pointed, but their sessions could not be ended ({cause}) and the account could not be deactivated either ({reason}). Leftover sessions may still work: deactivate the User in the admin site now (clear `is_active`), and reactivate it after Redis is reachable"
+		),
+	}
 }
 
 impl From<OrmError> for RepointError {
@@ -78,11 +113,18 @@ impl From<OrmError> for RepointError {
 
 /// Move the User with GitHub user ID `from` to GitHub user ID `to`.
 ///
-/// Audited with the host operator as the actor. Success emits two events that
-/// share the User: `accounts.repoint.released` carrying the old numeric ID and
-/// `accounts.repoint.claimed` carrying the new one (the shared audit shape has
-/// one GitHub-ID field). A refusal emits `accounts.repoint.denied` and a
+/// Audited with the host operator as the actor. The success events are emitted
+/// the moment the database change commits, before the sessions are ended a
+/// second time, so the move is on record even if Redis then fails: two events
+/// that share the User, `accounts.repoint.released` carrying the old numeric ID
+/// and `accounts.repoint.claimed` carrying the new one (the shared audit shape
+/// has one GitHub-ID field). A refusal emits `accounts.repoint.denied` and a
 /// failure `accounts.repoint.failed`, each with a reason code.
+///
+/// If the sessions cannot be ended after the commit, the User is deactivated so
+/// that the per-request check refuses every leftover session without relying on
+/// Redis (fail closed): that emits `accounts.repoint.deactivated`, and a final
+/// `accounts.repoint.failed` with reason `sessions_not_ended_after_change`.
 ///
 /// # Errors
 ///
@@ -91,77 +133,118 @@ impl From<OrmError> for RepointError {
 pub async fn repoint(
 	from: i64,
 	to: i64,
-	sessions: &SessionService,
+	sessions: &dyn SessionRevoker,
 ) -> Result<Repointed, RepointError> {
-	let result = repoint_inner(from, to, sessions).await;
 	let event = |name, outcome| AuditEvent::new(name, ActorKind::HostOperator, outcome);
-	match &result {
-		Ok(done) => {
-			event("accounts.repoint.released", Outcome::Succeeded)
-				.subject_user(done.user_id)
-				.github_user(from)
-				.emit();
-			event("accounts.repoint.claimed", Outcome::Succeeded)
-				.subject_user(done.user_id)
-				.github_user(to)
-				.emit();
-		}
-		Err(error) => {
-			let (name, outcome, reason, github_user) = match error {
-				RepointError::InvalidGithubUserId => (
-					"accounts.repoint.denied",
-					Outcome::Denied,
-					"invalid_github_user_id",
-					from,
-				),
-				RepointError::SameGithubUserId => (
-					"accounts.repoint.denied",
-					Outcome::Denied,
-					"same_github_user_id",
-					from,
-				),
-				RepointError::UnknownUser => (
-					"accounts.repoint.denied",
-					Outcome::Denied,
-					"unknown_user",
-					from,
-				),
-				RepointError::TargetInUse => (
-					"accounts.repoint.denied",
-					Outcome::Denied,
-					"target_in_use",
-					to,
-				),
-				RepointError::Storage(_) => {
-					("accounts.repoint.failed", Outcome::Failed, "storage", from)
+	let refused = |error: RepointError| {
+		let (name, outcome, reason, github_user) = match &error {
+			RepointError::InvalidGithubUserId => (
+				"accounts.repoint.denied",
+				Outcome::Denied,
+				"invalid_github_user_id",
+				from,
+			),
+			RepointError::SameGithubUserId => (
+				"accounts.repoint.denied",
+				Outcome::Denied,
+				"same_github_user_id",
+				from,
+			),
+			RepointError::UnknownUser => (
+				"accounts.repoint.denied",
+				Outcome::Denied,
+				"unknown_user",
+				from,
+			),
+			RepointError::TargetInUse => (
+				"accounts.repoint.denied",
+				Outcome::Denied,
+				"target_in_use",
+				to,
+			),
+			RepointError::SessionsBeforeChange(_) => (
+				"accounts.repoint.failed",
+				Outcome::Failed,
+				"sessions_not_ended_before_change",
+				from,
+			),
+			// `SessionsAfterChange` is produced only after the commit and is
+			// audited there; it never reaches this closure.
+			RepointError::Storage(_) | RepointError::SessionsAfterChange { .. } => {
+				("accounts.repoint.failed", Outcome::Failed, "storage", from)
+			}
+		};
+		event(name, outcome)
+			.github_user(github_user)
+			.reason(reason)
+			.emit();
+		error
+	};
+
+	let user_id = match prepare(from, to, sessions).await {
+		Ok(prepared) => prepared,
+		Err(error) => return Err(refused(error)),
+	};
+	let sessions_ended_before = user_id.sessions_ended_before;
+	let user_id = user_id.user_id;
+
+	if let Err(error) = move_identity(user_id, from, to).await {
+		return Err(refused(error));
+	}
+	// Committed. The move is on record before anything can fail again.
+	event("accounts.repoint.released", Outcome::Succeeded)
+		.subject_user(user_id)
+		.github_user(from)
+		.emit();
+	event("accounts.repoint.claimed", Outcome::Succeeded)
+		.subject_user(user_id)
+		.github_user(to)
+		.emit();
+
+	match sessions.destroy_all_for_user(user_id).await {
+		Ok(sessions_ended) => Ok(Repointed {
+			user_id,
+			sessions_ended,
+			sessions_ended_before,
+		}),
+		Err(cause) => {
+			let deactivation = match deactivate(user_id).await {
+				Ok(()) => {
+					event("accounts.repoint.deactivated", Outcome::Succeeded)
+						.subject_user(user_id)
+						.github_user(to)
+						.reason("sessions_not_ended_after_change")
+						.emit();
+					Deactivation::Done
 				}
-				RepointError::SessionsBeforeChange(_) => (
-					"accounts.repoint.failed",
-					Outcome::Failed,
-					"sessions_not_ended_before_change",
-					from,
-				),
-				RepointError::SessionsAfterChange(_) => (
-					"accounts.repoint.failed",
-					Outcome::Failed,
-					"sessions_not_ended_after_change",
-					to,
-				),
+				Err(reason) => Deactivation::Failed(reason),
 			};
-			event(name, outcome)
-				.github_user(github_user)
-				.reason(reason)
+			event("accounts.repoint.failed", Outcome::Failed)
+				.subject_user(user_id)
+				.github_user(to)
+				.reason("sessions_not_ended_after_change")
 				.emit();
+			Err(RepointError::SessionsAfterChange {
+				cause: cause.to_string(),
+				deactivation,
+			})
 		}
 	}
-	result
 }
 
-async fn repoint_inner(
+/// What the checks and the first session pass established.
+struct Prepared {
+	user_id: Uuid,
+	sessions_ended_before: usize,
+}
+
+/// Everything that must hold before the database changes: valid distinct IDs,
+/// a User to move, a free target, and the sessions ended once.
+async fn prepare(
 	from: i64,
 	to: i64,
-	sessions: &SessionService,
-) -> Result<Repointed, RepointError> {
+	sessions: &dyn SessionRevoker,
+) -> Result<Prepared, RepointError> {
 	if from <= 0 || to <= 0 {
 		return Err(RepointError::InvalidGithubUserId);
 	}
@@ -184,18 +267,27 @@ async fn repoint_inner(
 		.destroy_all_for_user(user.id)
 		.await
 		.map_err(|error| RepointError::SessionsBeforeChange(error.to_string()))?;
-
-	move_identity(user.id, from, to).await?;
-
-	let sessions_ended = sessions
-		.destroy_all_for_user(user.id)
-		.await
-		.map_err(|error| RepointError::SessionsAfterChange(error.to_string()))?;
-	Ok(Repointed {
+	Ok(Prepared {
 		user_id: user.id,
-		sessions_ended,
 		sessions_ended_before,
 	})
+}
+
+/// Deactivate the User so the session check refuses their leftover sessions.
+async fn deactivate(user_id: Uuid) -> Result<(), String> {
+	let updated = User::objects()
+		.filter(User::field_id().eq(user_id))
+		.update_fields([
+			User::field_is_active().assign(false),
+			User::field_updated_at().assign(persisted_now()),
+		])
+		.await
+		.map_err(|error| error.to_string())?;
+	if updated == 1 {
+		Ok(())
+	} else {
+		Err("the User disappeared".to_owned())
+	}
 }
 
 /// The database half, in one transaction: either the User has the new identity

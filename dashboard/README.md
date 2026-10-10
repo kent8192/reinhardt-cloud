@@ -101,7 +101,9 @@ url=$(manage create-login-link --github-user-id 583231 --ttl-minutes 5)
 
 # Move a User to another GitHub account. Memberships, roles, and Staff stay; the
 # old account's stored tokens and unused Login Links are removed and every session
-# ends. An ID that another User already has is refused.
+# ends. An ID that another User already has is refused. If Redis cannot be reached
+# after the move committed, the User is deactivated (leftover sessions are then
+# refused on their next request); set `is_active` again in the admin site.
 manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
 ```
 

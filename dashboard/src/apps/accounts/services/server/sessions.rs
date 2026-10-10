@@ -20,6 +20,7 @@
 
 use std::time::Duration;
 
+use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
@@ -292,6 +293,29 @@ impl SessionService {
 		}
 		let _: () = connection.del(&user_key).await?;
 		Ok(destroyed)
+	}
+}
+
+/// Ending every session of a User.
+///
+/// The operator commands that change who a User is (re-pointing, Staff
+/// revocation) depend on this narrow seam rather than on [`SessionService`], so
+/// the commit-then-Redis-fails path can be exercised with a revoker that fails
+/// on demand.
+#[async_trait]
+pub trait SessionRevoker: Send + Sync {
+	/// Destroy every session of `user`; returns how many were live.
+	///
+	/// # Errors
+	///
+	/// Returns an error when the session store cannot be reached or written.
+	async fn destroy_all_for_user(&self, user: Uuid) -> Result<usize, SessionError>;
+}
+
+#[async_trait]
+impl SessionRevoker for SessionService {
+	async fn destroy_all_for_user(&self, user: Uuid) -> Result<usize, SessionError> {
+		SessionService::destroy_all_for_user(self, user).await
 	}
 }
 

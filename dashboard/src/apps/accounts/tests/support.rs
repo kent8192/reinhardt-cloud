@@ -10,11 +10,14 @@ use reinhardt::test::fixtures::{
 	redis_container,
 };
 use rstest::fixture;
+use uuid::Uuid;
 
 use crate::apps::accounts::models::User;
 use crate::apps::accounts::services::server::provider_tokens::OrmSocialAccountStorage;
 use crate::apps::accounts::services::server::redis_handle::RedisHandle;
-use crate::apps::accounts::services::server::sessions::SessionService;
+use crate::apps::accounts::services::server::sessions::{
+	SessionError, SessionRevoker, SessionService,
+};
 use crate::apps::accounts::services::server::sign_up_policy::{
 	MembershipError, OrganizationMembership,
 };
@@ -142,5 +145,36 @@ pub(crate) async fn redis_sessions() -> TestSessions {
 	TestSessions {
 		_container: container,
 		sessions: SessionService::new(handle),
+	}
+}
+
+/// A session revoker whose Redis dies on a schedule: the first `passes` calls
+/// succeed without touching any session (so a test can leave one behind), and
+/// every later call fails as an unreachable Redis would.
+pub(crate) struct ScriptedRevoker {
+	passes: std::sync::atomic::AtomicUsize,
+}
+
+impl ScriptedRevoker {
+	pub(crate) fn failing_after(passes: usize) -> Self {
+		Self {
+			passes: std::sync::atomic::AtomicUsize::new(passes),
+		}
+	}
+}
+
+#[async_trait::async_trait]
+impl SessionRevoker for ScriptedRevoker {
+	async fn destroy_all_for_user(&self, _user: Uuid) -> Result<usize, SessionError> {
+		use std::sync::atomic::Ordering;
+		let left = self.passes.load(Ordering::SeqCst);
+		if left > 0 {
+			self.passes.store(left - 1, Ordering::SeqCst);
+			return Ok(0);
+		}
+		Err(SessionError::from(redis::RedisError::from((
+			redis::ErrorKind::IoError,
+			"connection refused",
+		))))
 	}
 }

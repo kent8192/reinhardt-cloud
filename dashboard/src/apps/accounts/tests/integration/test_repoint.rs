@@ -9,11 +9,13 @@ use serial_test::serial;
 use crate::apps::accounts::models::{LoginLink, SocialAccount, User};
 use crate::apps::accounts::services::server::login_links::{DEFAULT_LIFETIME, consume, issue};
 use crate::apps::accounts::services::server::provider_tokens::ProviderTokens;
-use crate::apps::accounts::services::server::repoint::{RepointError, move_identity, repoint};
+use crate::apps::accounts::services::server::repoint::{
+	Deactivation, RepointError, move_identity, repoint,
+};
 use crate::apps::accounts::services::server::users::find_by_github_user_id;
 use crate::apps::accounts::tests::server_support::{AppOptions, GithubAccount, TestApp};
 use crate::apps::accounts::tests::support::{
-	TestDatabase, database, insert_user, redis_sessions, storage, user_count,
+	ScriptedRevoker, TestDatabase, database, insert_user, redis_sessions, storage, user_count,
 };
 use crate::audit::capture::capture_audit_events;
 use crate::persisted_time::persisted_now;
@@ -389,4 +391,181 @@ async fn sr_107_the_old_account_loses_the_user_and_the_new_account_gets_it() {
 		"under an open policy the old account is a brand-new, unrelated User"
 	);
 	assert!(!impostor.is_staff);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_a_redis_failure_after_the_commit_still_records_the_move_and_fails_closed(
+	#[future] database: TestDatabase,
+) {
+	// Arrange: the first session pass works, the one after the commit fails.
+	let _db = database.await;
+	let user = insert_user(1_300, "committed", true).await;
+	let revoker = ScriptedRevoker::failing_after(1);
+
+	// Act
+	let (events, result) = capture_audit_events(repoint(1_300, 3_300, &revoker)).await;
+
+	// Assert
+	let error = result.expect_err("the cleanup failed, so the command fails");
+	assert!(
+		matches!(
+			error,
+			RepointError::SessionsAfterChange {
+				deactivation: Deactivation::Done,
+				..
+			}
+		),
+		"{error:?}"
+	);
+	let message = error.to_string();
+	assert!(message.contains("was deactivated"), "{message}");
+	assert!(message.contains("reactivate"), "{message}");
+	assert!(message.contains("`is_active`"), "{message}");
+
+	let moved = find_by_github_user_id(3_300).await.unwrap().unwrap();
+	assert_eq!(moved.id, user.id, "the committed move stands");
+	assert!(!moved.is_active, "fail closed: the User is deactivated");
+	assert!(moved.is_staff, "Staff is not touched by the fallback");
+
+	let recorded: Vec<_> = events
+		.iter()
+		.map(|event| {
+			(
+				event.field("event"),
+				event.field("reason"),
+				event.field("github_user_id"),
+			)
+		})
+		.collect();
+	assert_eq!(
+		recorded,
+		[
+			(Some("accounts.repoint.released"), None, Some("1300")),
+			(Some("accounts.repoint.claimed"), None, Some("3300")),
+			(
+				Some("accounts.repoint.deactivated"),
+				Some("sessions_not_ended_after_change"),
+				Some("3300")
+			),
+			(
+				Some("accounts.repoint.failed"),
+				Some("sessions_not_ended_after_change"),
+				Some("3300")
+			),
+		]
+	);
+	let outcomes: Vec<_> = events.iter().map(|event| event.field("outcome")).collect();
+	assert_eq!(
+		outcomes,
+		[
+			Some("succeeded"),
+			Some("succeeded"),
+			Some("succeeded"),
+			Some("failed")
+		]
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_a_redis_failure_before_anything_changed_changes_nothing(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(1_301, "untouched", true).await;
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let (events, result) = capture_audit_events(repoint(1_301, 3_301, &revoker)).await;
+
+	// Assert
+	assert!(matches!(result, Err(RepointError::SessionsBeforeChange(_))));
+	let same = find_by_github_user_id(1_301).await.unwrap().unwrap();
+	assert_eq!((same.id, same.is_active), (user.id, true));
+	assert!(find_by_github_user_id(3_301).await.unwrap().is_none());
+	assert_eq!(
+		events.len(),
+		1,
+		"no success event for a move that did not happen"
+	);
+	assert_eq!(events[0].field("event"), Some("accounts.repoint.failed"));
+	assert_eq!(
+		events[0].field("reason"),
+		Some("sessions_not_ended_before_change")
+	);
+}
+
+#[rstest]
+fn sr_107_the_message_tells_the_operator_what_to_do_when_deactivation_failed_too() {
+	// Arrange
+	let error = RepointError::SessionsAfterChange {
+		cause: "connection refused".to_owned(),
+		deactivation: Deactivation::Failed("the database is gone".to_owned()),
+	};
+
+	// Act
+	let message = error.to_string();
+
+	// Assert
+	assert!(
+		message.contains("could not be deactivated either"),
+		"{message}"
+	);
+	assert!(
+		message.contains("deactivate the User in the admin site now"),
+		"{message}"
+	);
+	assert!(message.contains("the database is gone"), "{message}");
+}
+
+/// The leftover session of a User whose cleanup failed is refused on its next
+/// request, without Redis having to be reachable for the check to be correct.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_107_a_leftover_session_is_refused_on_its_next_request_after_a_failed_cleanup() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	let old = GithubAccount::new(4_101, "leftover");
+	app.expect_sign_in("code-leftover", &old).await;
+	let mut browser = app.browser();
+	browser.sign_in("code-leftover").await;
+	let user = find_by_github_user_id(4_101).await.unwrap().unwrap();
+	let before = browser
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await;
+	assert_eq!(before.json()["github_login"], json!("leftover"));
+	// The session survives the failed cleanup: both passes are no-ops or errors.
+	let revoker = ScriptedRevoker::failing_after(1);
+
+	// Act
+	let result = repoint(4_101, 4_102, &revoker).await;
+	let after = browser
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await;
+
+	// Assert
+	assert!(matches!(
+		result,
+		Err(RepointError::SessionsAfterChange { .. })
+	));
+	let moved = find_by_github_user_id(4_102).await.unwrap().unwrap();
+	assert_eq!((moved.id, moved.is_active), (user.id, false));
+	assert_eq!(
+		after.json(),
+		json!(null),
+		"the leftover session no longer authenticates anyone"
+	);
 }
