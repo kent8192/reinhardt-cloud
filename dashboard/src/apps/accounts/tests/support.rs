@@ -25,6 +25,17 @@ pub(crate) struct TestDatabase {
 	_connection: MigrationDatabase,
 }
 
+impl TestDatabase {
+	/// The host port PostgreSQL listens on. The container trusts every local
+	/// connection, as the framework's fixture configures it.
+	pub(crate) async fn port(&self) -> u16 {
+		self._container
+			.get_host_port_ipv4(5432)
+			.await
+			.expect("PostgreSQL publishes its port")
+	}
+}
+
 #[fixture]
 pub(crate) async fn database() -> TestDatabase {
 	let migrations = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -81,6 +92,7 @@ pub(crate) async fn insert_user(github_user_id: i64, login: &str, is_staff: bool
 		.email(None)
 		.is_active(true)
 		.is_staff(is_staff)
+		.last_login(None)
 		.finish();
 	User::objects()
 		.create(&user)

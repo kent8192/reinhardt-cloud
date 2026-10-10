@@ -6,6 +6,7 @@
 //! root so the generated info DTOs can also compile for the WASM target.
 
 pub mod admin;
+pub mod base_user;
 pub mod forms;
 pub mod settings;
 pub mod views;

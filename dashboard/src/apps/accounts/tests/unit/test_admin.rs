@@ -19,6 +19,7 @@ fn user_with(is_active: bool, is_staff: bool) -> User {
 		.email(None)
 		.is_active(is_active)
 		.is_staff(is_staff)
+		.last_login(None)
 		.finish()
 }
 

@@ -129,6 +129,7 @@ async fn sr_03_storage_rejects_a_second_user_for_one_github_identity(
 		.email(None)
 		.is_active(true)
 		.is_staff(false)
+		.last_login(None)
 		.finish();
 
 	// Act
