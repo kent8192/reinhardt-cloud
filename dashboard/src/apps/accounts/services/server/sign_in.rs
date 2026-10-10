@@ -12,7 +12,8 @@
 //! 4. an inactive User is turned away (SR-07);
 //! 5. the profile is synchronized, the provider tokens are stored encrypted
 //!    (SR-06), `last_login` is recorded, and a new session is issued while the
-//!    session the browser presented, if any, is destroyed (SR-08).
+//!    session the browser presented, if any, is destroyed (SR-08); if that
+//!    cannot be done, no session is issued and the sign-in fails.
 //!
 //! Every outcome is audited with the shared event shape, and no outcome
 //! carries provider text.
@@ -187,9 +188,14 @@ impl SignInService {
 		})?;
 
 		// Rotation (SR-08): the browser gets a new token, and the one it
-		// presented stops working.
+		// presented stops working. When the old session cannot be destroyed
+		// it would stay valid next to the new one, so the sign-in fails and
+		// no session is issued.
 		if let Some(previous) = previous_session {
-			let _ = self.sessions.destroy(&previous).await;
+			self.sessions.destroy(&previous).await.map_err(|error| {
+				tracing::error!(%error, "destroying the previous session failed during sign-in");
+				"internal"
+			})?;
 		}
 		let session = self.sessions.create(user.id).await.map_err(|error| {
 			tracing::error!(%error, "session creation failed during sign-in");

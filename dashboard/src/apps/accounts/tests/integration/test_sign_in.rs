@@ -307,6 +307,64 @@ async fn sr_08_each_sign_in_rotates_the_session_and_ends_the_one_presented() {
 #[rstest]
 #[tokio::test]
 #[serial(database, env_settings_load)]
+async fn sr_08_a_sign_in_that_cannot_end_the_presented_session_issues_no_session() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	let account = GithubAccount::new(5_016, "stuck-session");
+	app.expect_sign_in("code-16a", &account).await;
+	app.expect_sign_in("code-16b", &account).await;
+	let mut browser = app.browser();
+	browser.sign_in("code-16a").await;
+	let first = browser.cookie("cloud_session").unwrap().to_owned();
+	// Make the delete of the presented session fail: `GETDEL` on a list is a
+	// `WRONGTYPE` error and leaves the key in place.
+	let client = redis::Client::open(app.redis_url.as_str()).unwrap();
+	let mut connection = client.get_multiplexed_async_connection().await.unwrap();
+	let keys: Vec<String> = redis::cmd("KEYS")
+		.arg("*:s:*")
+		.query_async(&mut connection)
+		.await
+		.unwrap();
+	assert_eq!(keys.len(), 1, "one live session: {keys:?}");
+	let _: () = redis::cmd("DEL")
+		.arg(&keys[0])
+		.query_async(&mut connection)
+		.await
+		.unwrap();
+	let _: () = redis::cmd("LPUSH")
+		.arg(&keys[0])
+		.arg("not-a-session-record")
+		.query_async(&mut connection)
+		.await
+		.unwrap();
+
+	// Act
+	let (events, callback) = capture_audit_events(browser.sign_in("code-16b")).await;
+
+	// Assert
+	assert_eq!(
+		callback.header("location"),
+		Some("/sign-in/"),
+		"{callback:?}"
+	);
+	assert!(
+		callback.set_cookie("cloud_session").is_none(),
+		"no session is issued: {callback:?}"
+	);
+	assert_eq!(browser.cookie("cloud_session"), Some(first.as_str()));
+	let last = events.last().expect("the failure is audited");
+	assert_eq!(last.field("event"), Some("accounts.sign_in.failed"));
+	assert_eq!(last.field("outcome"), Some("failed"));
+	assert!(
+		events
+			.iter()
+			.all(|event| event.field("event") != Some("accounts.sign_in.succeeded"))
+	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
 async fn sr_08_a_session_planted_before_sign_in_is_worthless_afterwards() {
 	// Arrange
 	let app = TestApp::start(AppOptions::default()).await;

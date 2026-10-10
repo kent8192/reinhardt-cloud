@@ -76,6 +76,8 @@ impl GithubAccount {
 pub(crate) struct TestApp {
 	pub(crate) base_url: String,
 	pub(crate) github: MockServer,
+	/// URL of the Redis the server uses, for tests that tamper with its data.
+	pub(crate) redis_url: String,
 	server: JoinHandle<()>,
 	_database: TestDatabase,
 	_redis: ContainerAsync<GenericImage>,
@@ -155,6 +157,7 @@ impl TestApp {
 		Self {
 			base_url,
 			github,
+			redis_url,
 			server,
 			_database: db,
 			_redis: redis,
