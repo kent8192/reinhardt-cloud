@@ -119,10 +119,15 @@ fn document_theme() -> Option<String> {
 
 /// Yields to the event loop once so reactive updates reach the DOM.
 async fn next_tick() {
+	sleep_millis(0).await;
+}
+
+/// Waits `milliseconds` on the browser's timer queue.
+async fn sleep_millis(milliseconds: i32) {
 	let promise = js_sys::Promise::new(&mut |resolve, _reject| {
 		web_sys::window()
 			.expect("window")
-			.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 0)
+			.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, milliseconds)
 			.expect("schedule timeout");
 	});
 	wasm_bindgen_futures::JsFuture::from(promise)
@@ -535,6 +540,45 @@ async fn copy_button_name_follows_the_copied_state_and_keeps_the_visible_word(sa
 	assert_eq!(clipboard.uncaught_errors(), 0.0);
 }
 
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn repeated_copy_keeps_the_copied_label_for_the_full_interval(sandbox: Sandbox) {
+	// Arrange
+	let _clipboard = ClipboardStub::resolving();
+	sandbox.mount(|| {
+		code_block(
+			"login",
+			t!("Skip to main content"),
+			"reinhardt-cloud login".to_owned(),
+		)
+	});
+	let copy = sandbox
+		.query("button[aria-controls=\"login-text\"]")
+		.dyn_into::<HtmlElement>()
+		.expect("copy button is an HTML element");
+
+	// Act
+	// Copy again 1000 ms after the first copy, then read the label 1900 ms
+	// after the first copy (past its 1600 ms reset) and 2800 ms after it (past
+	// the second copy's reset).
+	copy.click();
+	sleep_millis(1000).await;
+	copy.click();
+	sleep_millis(900).await;
+	let after_first_interval = copy.text_content();
+	sleep_millis(900).await;
+	let after_second_interval = copy.text_content();
+
+	// Assert
+	assert_eq!(
+		after_first_interval.as_deref(),
+		Some("Copied Skip to main content")
+	);
+	assert_eq!(
+		after_second_interval.as_deref(),
+		Some("Copy Skip to main content")
+	);
+}
 
 #[rstest]
 #[test_attr(wasm_bindgen_test)]

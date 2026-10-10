@@ -63,12 +63,22 @@ pub static CODE_BLOCK_STYLES: CodeBlockStyles = style! {
 /// can be told apart and the name always contains the visible label.
 pub fn code_block(id: &str, title: TranslatedText, text: String) -> Page {
 	let copied = Signal::new(false);
+	// Counts successful copies. Each reset timer clears the label only when no
+	// later copy happened, so a repeated copy keeps "Copied" for the full
+	// interval instead of being cut short by the earlier timer.
+	let copy_generation = Signal::new(0_u32);
 	let copy = Callback::new({
 		let text = text.clone();
 		move |_event: ClickEvent| {
 			browser::copy_text(&text, move || {
+				let generation = copy_generation.get_untracked().wrapping_add(1);
+				copy_generation.set(generation);
 				copied.set(true);
-				browser::after_millis(COPIED_LABEL_MILLIS, move || copied.set(false));
+				browser::after_millis(COPIED_LABEL_MILLIS, move || {
+					if copy_generation.get_untracked() == generation {
+						copied.set(false);
+					}
+				});
 			});
 		}
 	});
