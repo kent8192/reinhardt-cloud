@@ -20,7 +20,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::apps::accounts::server::settings::GithubAppConfig;
 use crate::apps::accounts::services::server::github::{
-	CompleteError, GithubSignIn, STATE_KEY_PREFIX,
+	CompleteError, GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS, GithubSignIn, STATE_KEY_PREFIX,
 };
 use crate::apps::accounts::services::server::sign_up_policy::{
 	MembershipError, OrganizationMembership,
@@ -465,6 +465,41 @@ async fn sr_02_the_login_comes_from_the_raw_profile_not_the_display_name() {
 	let lifetime = (identity.tokens.access_token_expires_at.unwrap() - Utc::now()).num_seconds();
 	assert!((28_700..=28_800).contains(&lifetime), "{lifetime}");
 	assert!(identity.tokens.refresh_token_expires_at.is_some());
+}
+
+#[rstest]
+fn the_fallback_refresh_token_lifetime_is_the_one_github_documents() {
+	// Arrange / Act
+	let documented = 184 * 24 * 60 * 60;
+
+	// Assert
+	assert_eq!(GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS, 15_897_600);
+	assert_eq!(GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS, documented);
+}
+
+#[rstest]
+#[tokio::test]
+async fn an_expiring_token_gets_the_documented_refresh_lifetime() {
+	// Arrange
+	let flow = flow().await;
+	flow.accept_the_code().await;
+	flow.serve_octocat().await;
+	let started = flow.github.begin().await.unwrap();
+
+	// Act
+	let identity = flow
+		.github
+		.complete(
+			CODE,
+			&state_of(&started.authorization_url),
+			Some(&started.binding),
+		)
+		.await
+		.unwrap();
+
+	// Assert
+	let lifetime = (identity.tokens.refresh_token_expires_at.unwrap() - Utc::now()).num_seconds();
+	assert!((15_897_500..=15_897_600).contains(&lifetime), "{lifetime}");
 }
 
 #[rstest]

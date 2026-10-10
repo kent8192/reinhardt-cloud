@@ -46,7 +46,7 @@ use crate::apps::accounts::services::server::users::GithubProfile;
 const GITHUB_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Lifetime GitHub documents for the refresh token of an expiring GitHub App
-/// user token (`refresh_token_expires_in`, six months).
+/// user token (`refresh_token_expires_in`, 15,897,600 seconds: 184 days).
 ///
 /// Workaround for kent8192/reinhardt-web#6709 (tracked in
 /// kent8192/reinhardt-cloud#936): upstream's `TokenResponse` drops
@@ -56,7 +56,7 @@ const GITHUB_TIMEOUT: Duration = Duration::from_secs(10);
 /// Ideal implementation (without workaround):
 ///   `let refresh_expires_in = result.callback.token_response.refresh_token_expires_in;`
 ///   // `TokenResponse` carries the field GitHub sent.
-const GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS: u64 = 15_811_200;
+pub(crate) const GITHUB_REFRESH_TOKEN_LIFETIME_SECONDS: u64 = 15_897_600;
 
 /// Redis key prefix of the pending sign-in states.
 pub(crate) const STATE_KEY_PREFIX: &str = "cloud:oauth-state:";
