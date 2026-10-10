@@ -13,6 +13,12 @@ allowed_origins = "http://localhost:8000"
 debug = false
 allowed_hosts = ["localhost", "127.0.0.1"]
 
+# The browser suites (Bruno, WASM) run against this profile over plain HTTP on
+# loopback, where a `Secure` cookie would never be sent back. It is therefore a
+# development profile for SR-08; `staging` and `production` must be `Secure`.
+[core.security]
+session_cookie_secure = false
+
 [core.databases.default]
 name = "${REINHARDT_DATABASE_NAME:-reinhardt_cloud_ci}"
 

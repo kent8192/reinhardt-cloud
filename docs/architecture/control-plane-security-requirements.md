@@ -278,6 +278,7 @@ Milestones were reassigned when CLI Sessions moved to M2 (they depend on Organiz
 - **Requirement:** Session cookies MUST be script-inaccessible, `SameSite=Lax` or stricter, and `Secure` in every profile except local development. A new session identifier MUST be issued at sign-in. A session MUST expire after at most 30 minutes of inactivity and at most 24 hours in total. Sign-out MUST destroy the session on the server, not only clear the cookie. Session state MUST be shared across replicas.
 - **Source:** #294 (031b0664d, 6a70b3476); configuration in `config/urls.rs` (`create_cookie_session_config`).
 - **Old tests:** `auth/services/session.rs::test_session_id_from_cookie_header`, `auth/services/session.rs::test_session_service_factory_resolves_with_overridden_redis_url`, `dashboard/tests/e2e/auth_dashboard_clusters_deployments_github/browser_session.rs::session_is_deleted_when_its_guard_leaves_scope`. Cookie attributes, lifetimes, and server-side destruction on sign-out: `gap`.
+- **Implementation status (M1):** met, with `Secure` following the profile's `session_cookie_secure`. The two non-`Secure` profiles are `local` (development over plain HTTP) and `ci`: the Bruno and WASM browser suites run against `ci` over plain HTTP on loopback, where a `Secure` cookie would never be sent back, so `ci.toml` sets `session_cookie_secure = false` explicitly. `staging` and `production` are validated to be `Secure` at startup (SR-100).
 
 ### SR-09 Private pages and server endpoints require an authenticated session
 
