@@ -20,9 +20,7 @@ use reinhardt::pages::server_fn::ServerFnRouterExt;
 
 use crate::apps::accounts::server::views;
 use crate::apps::accounts::server_fn::{current_viewer, sign_out, take_sign_in_notice};
-
-/// Prefix of the accounts HTTP endpoints.
-pub const AUTH_PREFIX: &str = "/api/auth/";
+use crate::apps::accounts::urls::paths::AUTH_PREFIX;
 
 /// Paths (routes the framework serves) that answer anonymous callers.
 ///

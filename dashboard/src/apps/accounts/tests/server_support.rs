@@ -76,7 +76,6 @@ impl GithubAccount {
 pub(crate) struct TestApp {
 	pub(crate) base_url: String,
 	pub(crate) github: MockServer,
-	pub(crate) redis_url: String,
 	server: JoinHandle<()>,
 	_database: TestDatabase,
 	_redis: ContainerAsync<GenericImage>,
@@ -150,7 +149,6 @@ impl TestApp {
 		Self {
 			base_url,
 			github,
-			redis_url,
 			server,
 			_database: db,
 			_redis: redis,
@@ -302,10 +300,6 @@ impl Browser {
 
 	pub(crate) fn set_cookie(&mut self, name: &str, value: &str) {
 		self.jar.insert(name.to_owned(), value.to_owned());
-	}
-
-	pub(crate) fn clear_cookie(&mut self, name: &str) {
-		self.jar.remove(name);
 	}
 
 	fn cookie_header(&self) -> Option<String> {

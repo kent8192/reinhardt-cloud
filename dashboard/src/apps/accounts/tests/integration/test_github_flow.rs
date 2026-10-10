@@ -50,7 +50,6 @@ async fn flow() -> Flow {
 		api_url: mock.uri(),
 	};
 	let github = GithubSignIn::new(&config, &SecretString::new(redis_url.clone()))
-		.await
 		.expect("the flow builds without a network");
 	Flow {
 		github,
@@ -96,9 +95,8 @@ impl Flow {
 	}
 
 	/// A second instance sharing this flow's Redis, as another replica would.
-	async fn replica(&self) -> GithubSignIn {
+	fn replica(&self) -> GithubSignIn {
 		GithubSignIn::new(&self.config, &SecretString::new(self.redis_url.clone()))
-			.await
 			.expect("a replica builds")
 	}
 
@@ -243,7 +241,7 @@ async fn sr_04_concurrent_callbacks_with_one_state_succeed_exactly_once() {
 	flow.serve_octocat().await;
 	let started = flow.github.begin().await.unwrap();
 	let state = state_of(&started.authorization_url);
-	let other = flow.replica().await;
+	let other = flow.replica();
 
 	// Act
 	let (here, there) = tokio::join!(
@@ -270,7 +268,7 @@ async fn sr_04_state_is_shared_across_replicas() {
 	flow.accept_the_code().await;
 	flow.serve_octocat().await;
 	let started = flow.github.begin().await.unwrap();
-	let other = flow.replica().await;
+	let other = flow.replica();
 
 	// Act
 	let identity = other

@@ -23,11 +23,8 @@ use crate::apps::accounts::services::server::sign_in::{CallbackRequest, SignInOu
 use crate::apps::accounts::services::server::sign_in_notices::{
 	NOTICE_LIFETIME, NoticeKind, StoredNotice,
 };
+use crate::apps::accounts::urls::paths::{HOME_PATH, SIGN_IN_PAGE_PATH};
 
-/// Where the browser goes once signed in.
-pub const SIGNED_IN_PATH: &str = "/";
-/// The sign-in page.
-pub const SIGN_IN_PAGE_PATH: &str = "/sign-in/";
 /// Path scope of the binding cookie: only the callback needs it.
 pub const BINDING_COOKIE_PATH: &str = "/api/auth/github/callback/";
 
@@ -115,8 +112,7 @@ pub async fn finish_github_sign_in(
 				"/",
 				session.lifetime,
 			);
-			no_store(Response::temporary_redirect(SIGNED_IN_PATH))
-				.append_header("Set-Cookie", &cookie)
+			no_store(Response::temporary_redirect(HOME_PATH)).append_header("Set-Cookie", &cookie)
 		}
 		SignInOutcome::NotInvited { login } => {
 			notice_redirect(

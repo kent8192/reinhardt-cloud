@@ -55,11 +55,14 @@ pub struct AccountsServices {
 impl AccountsServices {
 	/// Assemble the services from the validated settings.
 	///
+	/// Nothing here reaches the network or Redis, so building the router never
+	/// needs either to be up.
+	///
 	/// # Errors
 	///
 	/// Returns an error when a setting that passed startup validation still
 	/// cannot be turned into a service.
-	pub async fn build(settings: &ProjectSettings) -> Result<Self, ServicesError> {
+	pub fn build(settings: &ProjectSettings) -> Result<Self, ServicesError> {
 		let accounts = &settings.accounts;
 		let redis = RedisHandle::new(&settings.redis.url).map_err(|_| ServicesError::Redis)?;
 		let sessions = SessionService::new(redis.clone());
@@ -78,7 +81,6 @@ impl AccountsServices {
 					.sign_up_policy()
 					.map_err(|_| ServicesError::Policy)?;
 				let github = GithubSignIn::new(&app, &settings.redis.url)
-					.await
 					.map_err(|_| ServicesError::Github)?;
 				let sign_in = SignInService::new(github, sessions.clone(), storage.clone(), policy);
 				let tokens = ProviderTokenService::new(storage, ProviderTokenRefresher::new(&app));

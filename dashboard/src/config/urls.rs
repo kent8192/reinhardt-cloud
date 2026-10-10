@@ -5,12 +5,16 @@
 //! merge them explicitly below, one `merge` per installed application. On the
 //! server the merged routes are then wrapped with the shared request surface
 //! (admin site, middleware, dependency injection) by `config::web`.
+//!
+//! `routes` must stay synchronous: `#[routes]` registers the browser's client
+//! routes only for a synchronous function, and an `async` one would leave the
+//! single-page application without any route.
 
 use reinhardt::UnifiedRouter;
 use reinhardt::routes;
 
 #[routes]
-pub async fn routes() -> UnifiedRouter {
+pub fn routes() -> UnifiedRouter {
 	// One merge per installed app. `url_patterns()` is target-neutral; no
 	// server/client cfg branch is needed here.
 	let router = UnifiedRouter::new()
@@ -25,6 +29,6 @@ pub async fn routes() -> UnifiedRouter {
 		.merge(crate::apps::health::urls::url_patterns());
 
 	#[cfg(server)]
-	let router = crate::config::web::assemble(router).await;
+	let router = crate::config::web::assemble(router);
 	router
 }

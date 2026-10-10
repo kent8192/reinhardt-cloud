@@ -124,6 +124,14 @@ toml = { workspace = true }
 name = "components_browser"
 path = "tests/wasm/components_browser.rs"
 
+[[test]]
+name = "accounts_browser"
+path = "tests/wasm/accounts_browser.rs"
+
+[[test]]
+name = "accounts_navigation"
+path = "tests/wasm/accounts_navigation.rs"
+
 # Native test targets are skipped by `wasm-pack test --no-default-features`,
 # which builds every test target for wasm32.
 [[test]]

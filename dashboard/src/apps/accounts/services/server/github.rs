@@ -33,6 +33,7 @@ use reinhardt::auth::social::providers::github::GitHubProvider;
 use reinhardt::conf::settings::secret_types::SecretString;
 use reinhardt::middleware::session::AsyncSessionStateStore;
 use serde::Deserialize;
+use tokio::sync::OnceCell;
 
 use crate::apps::accounts::server::settings::GithubAppConfig;
 use crate::apps::accounts::services::server::provider_tokens::{GITHUB_PROVIDER, ProviderTokens};
@@ -118,9 +119,14 @@ pub struct GithubIdentity {
 }
 
 /// Runs the GitHub sign-in flow.
+///
+/// Building it touches neither the network nor Redis: the upstream backend is
+/// assembled on first use, because creating the GitHub provider is `async` and
+/// the router (which owns this value) is built by a synchronous function.
 #[derive(Clone)]
 pub struct GithubSignIn {
-	backend: Arc<SocialAuthBackend>,
+	config: GithubAppConfig,
+	backend: Arc<OnceCell<Arc<SocialAuthBackend>>>,
 	states: Arc<AsyncSessionStateStore<RedisSessionBackend>>,
 	http: reqwest::Client,
 	api_url: String,
@@ -148,31 +154,34 @@ pub(crate) fn github_http_client() -> reqwest::Client {
 impl GithubSignIn {
 	/// Build the flow for `config`, with state kept in the Redis at `redis_url`.
 	///
-	/// No network call is made.
-	///
 	/// # Errors
 	///
-	/// Returns [`CompleteError::Internal`] when the provider or the Redis URL is
-	/// unusable.
-	pub async fn new(
-		config: &GithubAppConfig,
-		redis_url: &SecretString,
-	) -> Result<Self, CompleteError> {
-		let provider = GitHubProvider::new(provider_config(config))
-			.await
-			.map_err(|_| CompleteError::Internal)?;
+	/// Returns [`CompleteError::Internal`] when the Redis URL is unusable.
+	pub fn new(config: &GithubAppConfig, redis_url: &SecretString) -> Result<Self, CompleteError> {
 		let sessions = RedisSessionBackend::new_from_url(redis_url.expose_secret())
 			.map_err(|_| CompleteError::Internal)?
 			.with_key_prefix(STATE_KEY_PREFIX.to_owned());
-		let states = Arc::new(AsyncSessionStateStore::new(sessions));
-		let mut backend = SocialAuthBackend::with_state_store(states.clone());
-		backend.register_provider(Arc::new(provider));
 		Ok(Self {
-			backend: Arc::new(backend),
-			states,
+			config: config.clone(),
+			backend: Arc::new(OnceCell::new()),
+			states: Arc::new(AsyncSessionStateStore::new(sessions)),
 			http: github_http_client(),
 			api_url: config.api_url.clone(),
 		})
+	}
+
+	/// The upstream backend, assembled on first use.
+	async fn backend(&self) -> Result<&Arc<SocialAuthBackend>, CompleteError> {
+		self.backend
+			.get_or_try_init(|| async {
+				let provider = GitHubProvider::new(provider_config(&self.config))
+					.await
+					.map_err(|_| CompleteError::Internal)?;
+				let mut backend = SocialAuthBackend::with_state_store(self.states.clone());
+				backend.register_provider(Arc::new(provider));
+				Ok(Arc::new(backend))
+			})
+			.await
 	}
 
 	/// Start a sign-in: create single-use, PKCE-protected state bound to a fresh
@@ -187,7 +196,8 @@ impl GithubSignIn {
 		let binding = URL_SAFE_NO_PAD.encode(bytes);
 		let (verifier, challenge) = PkceFlow::generate();
 		let started = self
-			.backend
+			.backend()
+			.await?
 			.begin_auth_with_context(
 				GITHUB_PROVIDER,
 				Some(challenge.as_str()),
@@ -230,7 +240,8 @@ impl GithubSignIn {
 			.filter(|value| !value.is_empty())
 			.map_or(MISSING_BINDING, str::as_bytes);
 		let result = self
-			.backend
+			.backend()
+			.await?
 			.handle_callback_with_context(GITHUB_PROVIDER, code, state, binding)
 			.await
 			.map_err(map_social_error)?

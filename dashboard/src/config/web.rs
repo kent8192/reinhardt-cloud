@@ -33,13 +33,12 @@ const DEFAULT_PORT: u16 = 8000;
 /// Panics when the settings cannot be loaded or a service cannot be built.
 /// Startup validation has already accepted the same settings, so this is a
 /// configuration defect that must stop the process before it serves anything.
-pub async fn assemble(routes: UnifiedRouter) -> UnifiedRouter {
+pub fn assemble(routes: UnifiedRouter) -> UnifiedRouter {
 	let settings = get_resolved_settings()
 		.expect("settings were validated at startup")
 		.into_parts()
 		.0;
 	let services = AccountsServices::build(&settings)
-		.await
 		.expect("the accounts services should build from validated settings");
 	assemble_with(routes, &settings, &services)
 }

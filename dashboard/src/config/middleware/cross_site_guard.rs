@@ -70,7 +70,7 @@ impl Middleware for CrossSiteGuard {
 	async fn process(&self, request: Request, next: Arc<dyn Handler>) -> Result<Response> {
 		if Self::requires_proof(&request) {
 			let allowed = Self::presented_origin(&request)
-				.is_some_and(|origin| self.allowed_origins.iter().any(|ok| *ok == origin));
+				.is_some_and(|origin| self.allowed_origins.contains(&origin));
 			if !allowed {
 				return Ok(Response::forbidden()
 					.with_header("Content-Type", "application/json")
