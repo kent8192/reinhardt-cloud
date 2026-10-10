@@ -48,22 +48,25 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 	config.source = existing_config.source.clone();
 	config.pages = existing_config.pages.clone();
 	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config, args.force)?;
+	// Resolve the Dockerfile before writing anything so a failed generation
+	// cannot leave the deployment config describing an image that was not built.
+	let skip = dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force);
+	let generated = match skip {
+		SkipReason::None => {
+			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
+			let dockerfile = dockerfile_generator::generate(&signals);
+			Some((signals, dockerfile))
+		}
+		SkipReason::CustomDockerfile | SkipReason::AlreadyExists => None,
+	};
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 
 	std::fs::write(&reinhardt_cloud_toml_path, &toml_string)?;
 	println!("Updated reinhardt-cloud.toml");
 
-	// Generate Dockerfile
-	match dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force) {
-		SkipReason::CustomDockerfile => {
-			println!("Skipped Dockerfile (custom path set in [source.build])");
-		}
-		SkipReason::AlreadyExists => {
-			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
-		}
-		SkipReason::None => {
-			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
-			let dockerfile = dockerfile_generator::generate(&signals);
+	// Write the Dockerfile
+	match generated {
+		Some((signals, dockerfile)) => {
 			let dockerfile_path = project_dir.join("Dockerfile");
 			std::fs::write(&dockerfile_path, dockerfile.to_string())?;
 
@@ -74,6 +77,12 @@ pub(crate) async fn execute(args: &SyncArgs) -> Result<(), Box<dyn std::error::E
 				.map(|d| format!(" + {d}"))
 				.unwrap_or_default();
 			println!("Updated Dockerfile ({pattern}{db_info})");
+		}
+		None if skip == SkipReason::CustomDockerfile => {
+			println!("Skipped Dockerfile (custom path set in [source.build])");
+		}
+		None => {
+			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
 		}
 	}
 
@@ -501,6 +510,82 @@ brotli=false
 		assert_eq!(
 			build.build_args.get("ASSET_ROOT").map(String::as_str),
 			Some("public/assets")
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn execute_keeps_config_when_dockerfile_generation_fails() {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::write(
+			dir.path().join("Cargo.toml"),
+			r#"
+[package]
+name="pages-app"
+version="0.1.0"
+edition="2024"
+[dependencies]
+reinhardt-web={version="0.4.0-alpha.14",features=["pages"]}
+"#,
+		)
+		.unwrap();
+		std::fs::write(
+			dir.path().join("rust-toolchain.toml"),
+			"[toolchain]\nchannel='1.96.0'",
+		)
+		.unwrap();
+		// The locked framework predates buildstatic, so generation must fail.
+		std::fs::write(
+			dir.path().join("Cargo.lock"),
+			r#"
+[[package]]
+name="pages-app"
+version="0.1.0"
+dependencies=["reinhardt-commands", "wasm-bindgen"]
+[[package]]
+name="reinhardt-commands"
+version="0.4.0-alpha.14"
+[[package]]
+name="wasm-bindgen"
+version="0.2.114"
+"#,
+		)
+		.unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			"[static_files]\nroot='dist'",
+		)
+		.unwrap();
+		std::fs::write(dir.path().join("Dockerfile"), "FROM existing\n").unwrap();
+		let existing = r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[pages]
+static_root="/app/old"
+static_url="/old/"
+"#;
+		std::fs::write(dir.path().join("reinhardt-cloud.toml"), existing).unwrap();
+
+		// Act
+		let result = execute(&SyncArgs {
+			dir: Some(dir.path().to_path_buf()),
+			force: true,
+		})
+		.await;
+
+		// Assert
+		let error = result.unwrap_err().to_string();
+		assert!(error.contains("buildstatic"), "unexpected error: {error}");
+		assert_eq!(
+			std::fs::read_to_string(dir.path().join("reinhardt-cloud.toml")).unwrap(),
+			existing
+		);
+		assert_eq!(
+			std::fs::read_to_string(dir.path().join("Dockerfile")).unwrap(),
+			"FROM existing\n"
 		);
 	}
 }

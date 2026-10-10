@@ -933,6 +933,9 @@ seeds the static sidecar volume from that publication with `cp` instead of
 running `collectstatic`. Because that seed needs `cp`, Pages generation rejects a
 custom `[source.build].base_image` (for example distroless); use the default
 runtime image, or a custom Dockerfile with an explicit `[pages].prebuilt` setting.
+`init` and `sync` resolve the Dockerfile before writing anything: if generation
+fails (for example an outdated `reinhardt-commands` lock), neither
+`reinhardt-cloud.toml` nor the existing Dockerfile is modified.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 `source.build.build_args` value when provided, otherwise its literal default.

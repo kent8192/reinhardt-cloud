@@ -49,24 +49,27 @@ pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 		println!("  Features: {}", metadata.features.join(", "));
 	}
 
-	// Generate and write reinhardt-cloud.toml
+	// Generate reinhardt-cloud.toml and resolve the Dockerfile before writing
+	// either, so a failed generation cannot leave the deployment config
+	// describing an image that was not built.
 	let mut config = generate_config(&metadata, db_config.as_ref())?;
 	dockerfile_generator::configure_pages(&project_dir, &metadata, &mut config, args.force)?;
+	let skip = dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force);
+	let generated = match skip {
+		SkipReason::None => {
+			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
+			let dockerfile = dockerfile_generator::generate(&signals);
+			Some((signals, dockerfile))
+		}
+		SkipReason::CustomDockerfile | SkipReason::AlreadyExists => None,
+	};
 	let toml_string = generate_reinhardt_cloud_toml_string(&config);
 	tokio::fs::write(&reinhardt_cloud_toml_path, &toml_string).await?;
 	println!("Created reinhardt-cloud.toml");
 
-	// Generate Dockerfile
-	match dockerfile_generator::should_skip_dockerfile(&project_dir, &config, args.force) {
-		SkipReason::CustomDockerfile => {
-			println!("Skipped Dockerfile (custom path set in [source.build])");
-		}
-		SkipReason::AlreadyExists => {
-			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
-		}
-		SkipReason::None => {
-			let signals = dockerfile_generator::collect_signals(&project_dir, &metadata, &config)?;
-			let dockerfile = dockerfile_generator::generate(&signals);
+	// Write the Dockerfile
+	match generated {
+		Some((signals, dockerfile)) => {
 			let dockerfile_path = project_dir.join("Dockerfile");
 			tokio::fs::write(&dockerfile_path, dockerfile.to_string()).await?;
 
@@ -77,6 +80,12 @@ pub(crate) async fn execute(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 				.map(|d| format!(" + {d}"))
 				.unwrap_or_default();
 			println!("Created Dockerfile ({pattern}{db_info})");
+		}
+		None if skip == SkipReason::CustomDockerfile => {
+			println!("Skipped Dockerfile (custom path set in [source.build])");
+		}
+		None => {
+			println!("Skipped Dockerfile (already exists — use --force to overwrite)");
 		}
 	}
 
