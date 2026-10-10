@@ -20,6 +20,8 @@ pub static STYLES: AccountsStyles = style! {
 		radius_sm: Length;
 		radius_lg: Length;
 		radius_full: Length;
+		border_width: Length;
+		preview_phase_rule: Length;
 		text_sm: Length;
 		text_xl: Length;
 		text_3xl: Length;
@@ -27,6 +29,10 @@ pub static STYLES: AccountsStyles = style! {
 		weight_medium: Number;
 		weight_semibold: Number;
 		leading_prose: Number;
+		leading_display: Number;
+		leading_log: Number;
+		tracking_hero: Length;
+		tracking_heading: Length;
 		measure_prose: Length;
 		surface_raised: Color;
 		border_default: Color;
@@ -43,12 +49,26 @@ pub static STYLES: AccountsStyles = style! {
 		log_warn: Color;
 		log_border: Color;
 		gold_500: Color;
+		preview_deploy_top: Length;
+		preview_deploy_end: Length;
+		preview_deploy_width: Length;
+		preview_log_end: Length;
+		preview_log_bottom: Length;
+		preview_log_width: Length;
+		preview_log_height: Length;
+		preview_log_time_width: Length;
+		preview_log_level_width: Length;
+		preview_live_marker: Length;
+		preview_project_chip_top: Length;
+		preview_project_chip_end: Length;
+		preview_cluster_chip_top: Length;
+		preview_cluster_chip_end: Length;
 	}
 	.title {
 		font-size: globals.text_3xl;
 		font-weight: globals.weight_regular;
-		line-height: 1.1;
-		letter-spacing: -0.8px;
+		line-height: globals.leading_display;
+		letter-spacing: globals.tracking_hero;
 		color: globals.ink_strong;
 	}
 	.lede {
@@ -62,13 +82,13 @@ pub static STYLES: AccountsStyles = style! {
 	.card {
 		position: absolute;
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_lg;
 	}
 	.deploy {
-		top: 50% - 13rem;
-		right: -7rem;
-		width: 42rem;
+		top: 50% - globals.preview_deploy_top;
+		right: globals.preview_deploy_end;
+		width: globals.preview_deploy_width;
 		padding: globals.space_5;
 	}
 	.head {
@@ -81,7 +101,7 @@ pub static STYLES: AccountsStyles = style! {
 	.card_title {
 		color: globals.ink_strong;
 		font-size: globals.text_xl;
-		letter-spacing: -0.3px;
+		letter-spacing: globals.tracking_heading;
 	}
 	.card_sub {
 		color: globals.ink_muted;
@@ -97,7 +117,7 @@ pub static STYLES: AccountsStyles = style! {
 	}
 	.phase {
 		padding-top: globals.space_3;
-		border-top-width: 4px;
+		border-top-width: globals.preview_phase_rule;
 		border-top-style: solid;
 	}
 	.phase_pending {
@@ -129,7 +149,7 @@ pub static STYLES: AccountsStyles = style! {
 		gap: (globals.space_2, globals.space_5);
 		margin-top: globals.space_5;
 		padding-top: globals.space_4;
-		border-top: (1px, solid, globals.border_subtle);
+		border-top: (globals.border_width, solid, globals.border_subtle);
 		color: globals.ink_muted;
 		font-size: globals.text_sm;
 	}
@@ -138,10 +158,10 @@ pub static STYLES: AccountsStyles = style! {
 		font-weight: globals.weight_medium;
 	}
 	.log {
-		right: 3rem;
-		bottom: -3rem;
-		width: 38rem;
-		height: 22rem;
+		right: globals.preview_log_end;
+		bottom: globals.preview_log_bottom;
+		width: globals.preview_log_width;
+		height: globals.preview_log_height;
 		overflow: hidden;
 		background: globals.log_bg;
 		color: globals.log_ink;
@@ -152,7 +172,7 @@ pub static STYLES: AccountsStyles = style! {
 		justify-content: space-between;
 		gap: globals.space_3;
 		padding: (globals.space_2, globals.space_3);
-		border-bottom: (1px, solid, globals.log_border);
+		border-bottom: (globals.border_width, solid, globals.log_border);
 		font-size: globals.text_sm;
 		font-weight: globals.weight_medium;
 	}
@@ -162,8 +182,8 @@ pub static STYLES: AccountsStyles = style! {
 		gap: globals.space_2;
 		&::before {
 			content: "";
-			width: 0.5rem;
-			height: 0.5rem;
+			width: globals.preview_live_marker;
+			height: globals.preview_live_marker;
 			background: globals.gold_500;
 			border-radius: globals.radius_full;
 		}
@@ -176,12 +196,12 @@ pub static STYLES: AccountsStyles = style! {
 		padding: (globals.space_3, 0, globals.space_4);
 		overflow: hidden;
 		font-size: globals.text_sm;
-		line-height: 1.65;
+		line-height: globals.leading_log;
 		list-style: none;
 	}
 	.log_line {
 		display: grid;
-		grid-template-columns: (5.5rem, 3.75rem, 1fr);
+		grid-template-columns: (globals.preview_log_time_width, globals.preview_log_level_width, 1fr);
 		gap: globals.space_3;
 		padding: (0, globals.space_4);
 	}
@@ -204,17 +224,17 @@ pub static STYLES: AccountsStyles = style! {
 		gap: globals.space_3;
 		padding: (globals.space_2, globals.space_4);
 		background: globals.surface_raised;
-		border: (1px, solid, globals.border_default);
+		border: (globals.border_width, solid, globals.border_default);
 		border-radius: globals.radius_full;
 		color: globals.ink_strong;
 		font-weight: globals.weight_medium;
 	}
 	.chip_project {
-		top: 50% - 17rem;
-		right: 18rem;
+		top: 50% - globals.preview_project_chip_top;
+		right: globals.preview_project_chip_end;
 	}
 	.chip_cluster {
-		top: 50% + 2.25rem;
-		right: -1rem;
+		top: 50% + globals.preview_cluster_chip_top;
+		right: globals.preview_cluster_chip_end;
 	}
 };
