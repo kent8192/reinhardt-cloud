@@ -340,6 +340,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 			.registry
 			.register_with_cluster(info, cluster_id)
 			.map_err(|e| ApiError::Forbidden(e.to_string()))?;
+		let generation = command_rx.generation();
 		let registry = self.registry.clone();
 		let agent_id_copy = agent_id;
 
@@ -350,7 +351,8 @@ impl ClusterAgentService for RegistryBackedAgentService {
 					break;
 				}
 			}
-			registry.unregister(&agent_id_copy);
+			// Remove only this connection: a reconnect may already own the entry.
+			registry.unregister_if(&agent_id_copy, generation);
 		});
 
 		// Consume agent-side events (heartbeat, deploy status) asynchronously.
@@ -378,7 +380,7 @@ impl ClusterAgentService for RegistryBackedAgentService {
 					Err(_) => break,
 				}
 			}
-			registry_events.unregister(&agent_id_events);
+			registry_events.unregister_if(&agent_id_events, generation);
 		});
 
 		Ok(Box::pin(ReceiverStream::new(out_rx)))

@@ -4,6 +4,7 @@
 //! their health status, and command channels for dispatching operations.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -36,8 +37,38 @@ pub enum ClusterBindingError {
 	ClusterMismatch,
 }
 
+/// Handle to one cluster-bound agent connection.
+///
+/// Carries the command receiver together with the generation of the
+/// registry entry it belongs to. A reconnect under the same `agent_id`
+/// replaces the entry (and closes the previous receiver), so the previous
+/// connection's cleanup must pass its own generation to
+/// [`AgentRegistry::unregister_if`] instead of removing the entry by
+/// `agent_id` alone, which would evict the connection that replaced it.
+#[derive(Debug)]
+pub struct ClusterRegistration {
+	commands: mpsc::Receiver<AgentCommand>,
+	generation: u64,
+}
+
+impl ClusterRegistration {
+	/// Generation of the registry entry created by this registration.
+	pub fn generation(&self) -> u64 {
+		self.generation
+	}
+
+	/// Receive the next command routed to this connection.
+	///
+	/// Returns `None` once the registry entry is removed or replaced.
+	pub async fn recv(&mut self) -> Option<AgentCommand> {
+		self.commands.recv().await
+	}
+}
+
 /// State of a connected agent.
 struct AgentConnection {
+	/// Distinguishes this connection from a later one with the same `agent_id`.
+	generation: u64,
 	info: AgentInfo,
 	health: Option<AgentHealth>,
 	command_tx: mpsc::Sender<AgentCommand>,
@@ -55,6 +86,8 @@ struct AgentConnection {
 /// gRPC handlers, health check tasks, and admin endpoints.
 pub struct AgentRegistry {
 	agents: Arc<DashMap<Uuid, AgentConnection>>,
+	/// Source of connection generations.
+	next_generation: AtomicU64,
 }
 
 impl Default for AgentRegistry {
@@ -67,6 +100,7 @@ impl AgentRegistry {
 	pub fn new() -> Self {
 		Self {
 			agents: Arc::new(DashMap::new()),
+			next_generation: AtomicU64::new(0),
 		}
 	}
 
@@ -86,6 +120,7 @@ impl AgentRegistry {
 		self.agents.insert(
 			agent_id,
 			AgentConnection {
+				generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
 				info,
 				health: None,
 				command_tx: tx,
@@ -110,16 +145,19 @@ impl AgentRegistry {
 	/// cluster (or without a cluster binding) is refused with
 	/// [`ClusterBindingError::ClusterMismatch`] and the existing entry is
 	/// left untouched. Re-registering an `agent_id` under the same cluster
-	/// replaces the previous connection (agent reconnect).
+	/// replaces the previous connection (agent reconnect); each connection
+	/// cleans up with [`AgentRegistry::unregister_if`] and its own generation.
 	pub fn register_with_cluster(
 		&self,
 		info: AgentInfo,
 		cluster_id: Uuid,
-	) -> Result<mpsc::Receiver<AgentCommand>, ClusterBindingError> {
+	) -> Result<ClusterRegistration, ClusterBindingError> {
 		let (tx, rx) = mpsc::channel(64);
 		let agent_id = info.agent_id;
 		let cluster_name = info.cluster_name.clone();
+		let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
 		let connection = AgentConnection {
+			generation,
 			info,
 			health: None,
 			command_tx: tx,
@@ -151,7 +189,10 @@ impl AgentRegistry {
 			"Agent registered with cluster binding"
 		);
 
-		Ok(rx)
+		Ok(ClusterRegistration {
+			commands: rx,
+			generation,
+		})
 	}
 
 	/// Send a command to any connected agent that reports itself as
@@ -189,6 +230,23 @@ impl AgentRegistry {
 		if self.agents.remove(agent_id).is_some() {
 			info!(agent_id = %agent_id, "Agent unregistered");
 		}
+	}
+
+	/// Remove an agent only if it is still the connection created with
+	/// `generation`.
+	///
+	/// Returns `true` when the entry was removed. A connection that was
+	/// replaced by a reconnect under the same `agent_id` no longer owns the
+	/// entry, so its cleanup leaves the replacement registered.
+	pub fn unregister_if(&self, agent_id: &Uuid, generation: u64) -> bool {
+		let removed = self
+			.agents
+			.remove_if(agent_id, |_, conn| conn.generation == generation)
+			.is_some();
+		if removed {
+			info!(agent_id = %agent_id, "Agent unregistered");
+		}
+		removed
 	}
 
 	/// Update the last heartbeat timestamp for an agent.
@@ -899,5 +957,54 @@ mod tests {
 		// Assert
 		assert_eq!(result, Err(ClusterBindingError::NotRegistered));
 		assert!(registry.get_health(&agent_id).is_none());
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_unregister_if_ignores_replaced_connection() {
+		// Arrange — the agent reconnects, replacing its first connection
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let old = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+		let mut new = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act — the replaced connection cleans up
+		let removed = registry.unregister_if(&agent_id, old.generation());
+
+		// Assert — the replacement stays registered and routable
+		assert!(!removed);
+		assert_ne!(old.generation(), new.generation());
+		assert_eq!(registry.agents_for_cluster(&cluster_id), vec![agent_id]);
+		let cmd = AgentCommand::Restart {
+			project_name: "web".to_string(),
+		};
+		registry
+			.send_command_to_cluster(&cluster_id, cmd.clone())
+			.await
+			.unwrap();
+		assert_eq!(new.recv().await, Some(cmd));
+	}
+
+	#[rstest]
+	fn test_unregister_if_removes_current_connection() {
+		// Arrange
+		let registry = AgentRegistry::new();
+		let agent_id = Uuid::now_v7();
+		let cluster_id = Uuid::now_v7();
+		let current = registry
+			.register_with_cluster(test_agent_info(agent_id), cluster_id)
+			.unwrap();
+
+		// Act
+		let removed = registry.unregister_if(&agent_id, current.generation());
+
+		// Assert
+		assert!(removed);
+		assert_eq!(registry.count(), 0);
 	}
 }
