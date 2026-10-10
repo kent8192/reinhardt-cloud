@@ -11,13 +11,16 @@
 //! [`open_dialog`] returns an inactive handle there; the markup is covered by
 //! native tests of [`dialog_view`] and the lifecycle by browser tests.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use reinhardt::pages::component::Page;
 use reinhardt::pages::{
 	ClassList, PortalError, PortalHandle, PortalTarget, TranslatedText, mount_portal, page,
 	style_def,
 };
 
-use crate::components::browser;
+use crate::components::browser::{self, CloseListener};
 
 #[style_def]
 pub static DIALOG_STYLES: DialogStyles = style! {
@@ -126,35 +129,60 @@ pub fn dialog_view(props: DialogProps) -> Page {
 	})
 }
 
-/// A dialog that is open until this handle is dropped.
+/// A dialog that is open until it closes or this handle is dropped.
 ///
 /// Dropping the handle unmounts the portal and removes the dialog from the
-/// document, which also releases the focus trap.
+/// document, which also releases the focus trap. When the browser closes the
+/// dialog itself (`Escape`, `<form method="dialog">`), the portal is torn down
+/// and the `on_close` callback runs.
 pub struct OpenDialog {
-	portal: PortalHandle,
+	// Declared before `portal` so the listener is removed before the dialog.
+	_close_listener: Option<CloseListener>,
+	portal: Rc<RefCell<Option<PortalHandle>>>,
 }
 
 impl OpenDialog {
-	/// Reports whether the dialog is mounted in a document.
+	/// Reports whether the dialog is still mounted in a document.
 	///
 	/// Always `false` on the server target, where portals mount nothing.
 	pub fn is_open(&self) -> bool {
-		self.portal.is_active()
+		self.portal
+			.borrow()
+			.as_ref()
+			.is_some_and(PortalHandle::is_active)
 	}
 }
 
 /// Mounts the dialog under `<body>` and opens it as a modal.
 ///
 /// Call it inside a reactive scope. Keep the returned handle for as long as the
-/// dialog should exist; drop it to close the dialog.
+/// dialog should exist; drop it to close the dialog. `on_close` runs after the
+/// browser closes the dialog on its own (not when the handle is dropped).
 ///
 /// # Errors
 ///
 /// Returns the portal error when the document has no `<body>` or the view
 /// cannot be mounted.
-pub fn open_dialog(props: DialogProps) -> Result<OpenDialog, PortalError> {
+pub fn open_dialog(
+	props: DialogProps,
+	on_close: impl Fn() + 'static,
+) -> Result<OpenDialog, PortalError> {
 	let id = props.id.clone();
-	let portal = mount_portal(PortalTarget::body(), dialog_view(props))?;
+	let portal = Rc::new(RefCell::new(Some(mount_portal(
+		PortalTarget::body(),
+		dialog_view(props),
+	)?)));
 	browser::show_modal(&id);
-	Ok(OpenDialog { portal })
+	let close_listener = browser::on_dialog_close(&id, {
+		let portal = Rc::clone(&portal);
+		move || {
+			// Dropping the handle removes the portal host and the dialog.
+			portal.borrow_mut().take();
+			on_close();
+		}
+	});
+	Ok(OpenDialog {
+		_close_listener: close_listener,
+		portal,
+	})
 }
