@@ -295,7 +295,8 @@ step 1. `rustls` `CryptoProvider` is installed explicitly at startup
 
 This local command enables tenant and preview namespace lifecycle management,
 so deleting a parent Project also removes its operator-owned preview namespace.
-Leave the setting unset or set it to `false` for platform-managed namespaces.
+An unset value also keeps lifecycle management enabled, so set it explicitly to
+`false` or `0` for platform-managed namespaces.
 
 ## 6. Run the Agent
 
