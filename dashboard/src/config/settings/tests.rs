@@ -878,3 +878,170 @@ fn sr_19_a_malformed_allowlist_entry_stops_startup() {
 		"Validation error: Invalid value for 'accounts.sign_up_allowed_*': sign-up allowlist entry \"my-org\" is not a numeric GitHub ID"
 	);
 }
+
+#[rstest]
+#[serial(env_settings_load)]
+#[case::id_without_secret(Some("Iv1.abc"), None)]
+#[case::secret_without_id(None, Some("s3cret"))]
+fn a_half_configured_github_app_stops_startup(
+	#[case] client_id: Option<&'static str>,
+	#[case] client_secret: Option<&'static str>,
+) {
+	// Arrange
+	let dir = isolated_settings("github-half", &["base", "production"]);
+
+	// Act
+	let message = load_error(
+		"production",
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", client_id),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", client_secret),
+		],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.github_client_*': the GitHub App client ID and secret must be set together"
+	);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn sr_99_a_placeholder_is_never_used_as_the_github_client_secret() {
+	// Arrange
+	let dir = isolated_settings("github-placeholder", &["base", "production"]);
+
+	// Act
+	let message = load_error(
+		"production",
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", Some("Iv1.abc")),
+			(
+				"REINHARDT_CLOUD_GITHUB_CLIENT_SECRET",
+				Some("$(GITHUB_CLIENT_SECRET)"),
+			),
+		],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: required secret `accounts.github_client_secret` still holds an unexpanded placeholder"
+	);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn a_deployed_profile_with_a_github_app_requires_an_https_public_url() {
+	// Arrange
+	let dir = isolated_settings("github-https", &["base", "production"]);
+
+	// Act
+	let message = load_error(
+		"production",
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", Some("Iv1.abc")),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", Some("s3cret")),
+			(
+				"REINHARDT_CLOUD_PUBLIC_URL",
+				Some("http://reinhardt-cloud.dev"),
+			),
+		],
+	);
+
+	// Assert
+	assert_eq!(
+		message,
+		"Validation error: Invalid value for 'accounts.public_url': must be an https origin in a deployed profile"
+	);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+#[case::staging("staging", "https://staging.reinhardt-cloud.dev")]
+#[case::production("production", "https://reinhardt-cloud.dev")]
+fn the_deployed_profiles_name_their_https_public_url_and_the_callback_derives_from_it(
+	#[case] profile: &'static str,
+	#[case] origin: &str,
+) {
+	// Arrange
+	let dir = isolated_settings("github-public-url", &["base", profile]);
+	let _env = env_for(
+		profile,
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", Some("Iv1.abc")),
+			("REINHARDT_CLOUD_GITHUB_CLIENT_SECRET", Some("s3cret")),
+		],
+	);
+
+	// Act
+	let settings = get_settings().unwrap().resolve().unwrap();
+	let accounts = &settings.settings().accounts;
+	let app = accounts.github_app().expect("the App is configured");
+
+	// Assert
+	assert_eq!(
+		app.redirect_uri,
+		format!("{origin}/api/auth/github/callback/")
+	);
+	assert_eq!(accounts.request_origins(false, 8000), [origin]);
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn sign_in_is_optional_so_that_a_login_link_alone_can_run_a_control_plane() {
+	// Arrange
+	let dir = isolated_settings("github-optional", &["base", "production"]);
+	let _env = env_for("production", &dir, &[]);
+
+	// Act
+	let settings = get_settings().unwrap().resolve().unwrap();
+
+	// Assert
+	assert!(settings.settings().accounts.github_app().is_none());
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn sr_102_the_github_client_secret_is_redacted_in_debug_output() {
+	// Arrange
+	let dir = isolated_settings("github-redacted", &["base", "production"]);
+	let _env = env_for(
+		"production",
+		&dir,
+		&[
+			("REINHARDT_CLOUD_GITHUB_CLIENT_ID", Some("Iv1.abc")),
+			(
+				"REINHARDT_CLOUD_GITHUB_CLIENT_SECRET",
+				Some("a-very-secret-github-value"),
+			),
+		],
+	);
+	let settings = get_settings().unwrap().resolve().unwrap();
+
+	// Act
+	let rendered = format!("{:?}", settings.settings().accounts);
+
+	// Assert
+	assert!(!rendered.contains("a-very-secret-github-value"));
+}
+
+#[rstest]
+#[serial(env_settings_load)]
+fn the_ci_profile_names_a_public_url_and_allows_the_documented_loopback_origin() {
+	// Arrange
+	let dir = isolated_settings("ci-origins", &["base", "ci"]);
+	let _env = env_for("ci", &dir, &[]);
+
+	// Act
+	let settings = get_settings().unwrap().resolve().unwrap();
+	let origins = settings.settings().accounts.request_origins(false, 8000);
+
+	// Assert
+	assert_eq!(origins, ["http://127.0.0.1:8000", "http://localhost:8000"]);
+}

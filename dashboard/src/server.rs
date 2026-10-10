@@ -114,7 +114,9 @@ mod tests {
 
 	use crate::config::settings::test_support::{EnvGuard, required_env};
 
-	use super::{PAGES_STATIC_DIR, prepare_context, run};
+	use super::{
+		PAGES_STATIC_DIR, initialize_orm_database, prepare_context, run, serves_api_documentation,
+	};
 
 	#[rstest]
 	#[serial(env_settings_load)]
@@ -139,6 +141,89 @@ mod tests {
 			ctx.settings.is_some(),
 			"runserver must receive the validated settings"
 		);
+	}
+
+	#[rstest]
+	#[case::local("local", true)]
+	#[case::ci("ci", true)]
+	#[case::staging("staging", false)]
+	#[case::production("production", false)]
+	#[case::development_alias("development", false)]
+	#[case::unrecognized("qa", false)]
+	#[case::empty("", false)]
+	fn sr_11_only_the_local_and_ci_profiles_serve_api_documentation(
+		#[case] profile: &str,
+		#[case] served: bool,
+	) {
+		// Arrange / Act
+		let result = serves_api_documentation(profile);
+
+		// Assert
+		assert_eq!(result, served);
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	#[case::ci("ci", false)]
+	#[case::staging("staging", true)]
+	#[case::production("production", true)]
+	fn sr_11_the_server_context_withholds_documentation_outside_local_and_ci(
+		#[case] profile: &'static str,
+		#[case] withheld: bool,
+	) {
+		// Arrange
+		let _env = EnvGuard::apply(&required_env(profile));
+
+		// Act
+		let ctx = prepare_context("127.0.0.1:0").expect("valid settings should build a context");
+
+		// Assert
+		assert_eq!(ctx.has_option("no_docs"), withheld);
+	}
+
+	#[rstest]
+	#[serial(database, env_settings_load)]
+	#[tokio::test]
+	async fn the_server_path_initializes_the_orm_pool_from_the_settings() {
+		// Arrange
+		let (_container, _pool, port, _url) = reinhardt::test::fixtures::postgres_container().await;
+		let port = port.to_string();
+		let mut vars = required_env("ci");
+		vars.push(("REINHARDT_DATABASE_HOST", Some("localhost")));
+		vars.push(("REINHARDT_DATABASE_PORT", Some(port.as_str())));
+		vars.push(("REINHARDT_DATABASE_NAME", Some("postgres")));
+		vars.push(("REINHARDT_DATABASE_USER", Some("postgres")));
+		let _env = EnvGuard::apply(&vars);
+		let ctx = prepare_context("127.0.0.1:0").expect("valid settings should build a context");
+
+		// Act
+		initialize_orm_database(&ctx)
+			.await
+			.expect("the pool should come up against the container");
+
+		// Assert
+		// Without this step `runserver` cannot register the database connection
+		// and every database-backed handler fails at request time.
+		let connection = reinhardt::db::orm::get_connection_registration().await;
+		assert!(connection.is_ok(), "the ORM pool is initialized");
+	}
+
+	#[rstest]
+	#[serial(env_settings_load)]
+	#[tokio::test]
+	async fn the_server_path_refuses_to_start_without_a_reachable_database() {
+		// Arrange
+		let mut vars = required_env("ci");
+		vars.push(("REINHARDT_DATABASE_HOST", Some("127.0.0.1")));
+		vars.push(("REINHARDT_DATABASE_PORT", Some("1")));
+		let _env = EnvGuard::apply(&vars);
+		let ctx = prepare_context("127.0.0.1:0").expect("valid settings should build a context");
+
+		// Act
+		let result = initialize_orm_database(&ctx).await;
+
+		// Assert
+		assert!(result.is_err());
 	}
 
 	#[rstest]

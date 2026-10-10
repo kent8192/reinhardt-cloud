@@ -233,6 +233,10 @@ fn validate_secrets(settings: &ProjectSettings) -> Result<(), BuildError> {
 			"accounts.token_encryption_retired_keys",
 			settings.accounts.token_encryption_retired_keys.as_ref(),
 		),
+		(
+			"accounts.github_client_secret",
+			settings.accounts.github_client_secret.as_ref(),
+		),
 	] {
 		if let Some(secret) = secret.filter(|secret| !secret.is_empty()) {
 			reject_unusable_secret(setting, secret.expose_secret())?;
