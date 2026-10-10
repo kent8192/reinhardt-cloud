@@ -116,7 +116,10 @@ mail scanner that only fetches the URL consumes nothing. The page shows a
 own origin. Consumption is one atomic conditional update, so a link works once
 even when two browsers race for it, and an unknown, used, expired, or
 deactivated-User link all get the same answer. The session it creates is the
-same one GitHub sign-in creates. The URL needs `REINHARDT_CLOUD_PUBLIC_URL` to be
+same one GitHub sign-in creates, and it counts as a sign-in: a pre-provisioned
+User who signed in with a Login Link keeps their row when Staff is revoked and is
+only demoted, because the row is removed only for a User who never signed in. The
+URL needs `REINHARDT_CLOUD_PUBLIC_URL` to be
 an origin; the command refuses otherwise.
 
 The audit records are written as JSON lines on standard error, filtered by
