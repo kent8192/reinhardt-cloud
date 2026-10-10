@@ -121,6 +121,7 @@ fn api_error_to_status(e: ApiError) -> Status {
 		ApiError::NotFound(msg) => Status::not_found(msg),
 		ApiError::BadRequest(msg) => Status::invalid_argument(msg),
 		ApiError::Unauthorized(msg) => Status::unauthenticated(msg),
+		ApiError::Forbidden(msg) => Status::permission_denied(msg),
 		ApiError::Internal(msg) => Status::internal(msg),
 	}
 }
