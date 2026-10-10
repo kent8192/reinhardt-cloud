@@ -65,6 +65,19 @@ reinhardt-commands = { workspace = true, optional = true }
 clap = { workspace = true }
 console = "0.16.1"
 tokio = { workspace = true }
+# `#[model]` registers models through these crates.
+ctor = "0.6"
+linkme = "0.3"
+# Provider token encryption (SR-06): RustCrypto AES-256-GCM with a key derived
+# by HKDF-SHA256. `reinhardt-conf` only exposes its AEAD behind a feature the
+# `reinhardt` facade does not forward, and it offers no associated data.
+aes-gcm = "0.10"
+async-trait = { workspace = true }
+base64 = "0.22"
+hkdf = "0.12"
+sha2 = "0.10"
+thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [build-dependencies]
 cfg_aliases = "0.2"
@@ -88,6 +101,10 @@ wasm-bindgen-test = "0.3"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
+# Captures `audit` events in tests.
+tracing-subscriber = { workspace = true }
+# Parses the committed settings profiles in tests.
+toml = { workspace = true }
 
 # Browser-only test target: the file is `#![cfg(client)]`, so it compiles to
 # nothing on native targets and runs under `cargo make wasm-test`.

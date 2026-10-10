@@ -1769,12 +1769,22 @@ dependencies = [
 
 [[package]]
 name = "ctor"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "424e0138278faeb2b401f174ad17e715c829512d74f3d1e81eb43365c2e0590e"
+dependencies = [
+ "ctor-proc-macro",
+ "dtor 0.1.1",
+]
+
+[[package]]
+name = "ctor"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
- "dtor",
+ "dtor 0.3.0",
 ]
 
 [[package]]
@@ -2181,6 +2191,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
 dependencies = [
  "dtoa",
+]
+
+[[package]]
+name = "dtor"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "404d02eeb088a82cfd873006cb713fe411306c7d182c344905e101fb1167d301"
+dependencies = [
+ "dtor-proc-macro",
 ]
 
 [[package]]
@@ -7468,7 +7487,7 @@ dependencies = [
  "chrono",
  "clap",
  "console",
- "ctor",
+ "ctor 0.8.0",
  "data-encoding",
  "dialoguer",
  "hex",
@@ -7608,13 +7627,19 @@ dependencies = [
 name = "reinhardt-cloud-dashboard"
 version = "0.1.0-alpha.2"
 dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "base64",
  "cfg_aliases",
  "chrono",
  "clap",
  "console",
  "console_error_panic_hook",
+ "ctor 0.6.3",
+ "hkdf",
  "inventory",
  "js-sys",
+ "linkme",
  "reinhardt-commands",
  "reinhardt-web",
  "reqwest 0.12.28",
@@ -7622,7 +7647,12 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -8150,7 +8180,7 @@ version = "0.4.0-alpha.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "248182b502b1d23ffbdc86b36fffea7f4cc1794d62902ca1eaf59fc9f0d12ac2"
 dependencies = [
- "ctor",
+ "ctor 0.8.0",
  "inventory",
  "nom 8.0.0",
  "proc-macro-crate",
@@ -8758,7 +8788,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "cfg_aliases",
- "ctor",
+ "ctor 0.8.0",
  "hyper",
  "inventory",
  "linkme",

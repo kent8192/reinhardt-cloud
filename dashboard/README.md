@@ -30,6 +30,38 @@ user default to a local PostgreSQL and can be overridden with
 `REINHARDT_DATABASE_{HOST,PORT,NAME,USER}`. Copy `settings/local.example.toml`
 to `settings/local.toml` (ignored by git) for local overrides.
 
+The server entry (`reinhardt-cloud-dashboard`) and the runtime `manage`
+commands validate settings when they load them and stop with an error that
+names the offending setting (never its value) when a required secret is empty
+or still holds an unexpanded `${...}` or `$(...)` placeholder, when the token
+encryption key or the sign-up allowlists are malformed, or when the `staging`
+or `production` profile is not hardened (debug off, secure cookies, HTTPS
+redirect with HSTS, explicit allowed hosts and `https` WebSocket origins
+without wildcards or localhost). Static `manage` commands that resolve only
+the settings they need, such as `collectstatic`, skip this validation by
+design.
+
+The `staging` and `production` profiles also require
+`REINHARDT_CLOUD_REDIS_URL` (the operator injects it with the Redis password
+expanded). Optional variables, all read through `settings/base.toml`:
+
+| Variable | Effect |
+|----------|--------|
+| `REINHARDT_CLOUD_SIGN_UP_POLICY` | `open`, `allowlist`, or `invite_only` (default). Any other value means `invite_only`. |
+| `REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_USER_IDS` | Comma-separated numeric GitHub user IDs admitted under `allowlist`. |
+| `REINHARDT_CLOUD_SIGN_UP_ALLOWED_GITHUB_ORGANIZATION_IDS` | Comma-separated numeric GitHub organization IDs whose members are admitted under `allowlist`. IDs, not logins: a renamed organization's old login can be claimed by someone else. |
+| `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY` | Base64 of 32 random bytes, the key that encrypts GitHub tokens at rest. When unset, a key is derived from `REINHARDT_CORE__SECRET_KEY`. |
+| `REINHARDT_CLOUD_TOKEN_ENCRYPTION_KEY_ID` | Identifier stored with every ciphertext; defaults to `primary`. |
+| `REINHARDT_CLOUD_TOKEN_ENCRYPTION_RETIRED_KEYS` | Comma-separated `id:base64` pairs kept to decrypt tokens sealed before a key rotation. |
+
+### Audit events
+
+Security-relevant decisions are recorded through `crate::audit::AuditEvent`: a
+`tracing` event at `info` level with target `audit` and the fields `event`,
+`actor_kind`, `actor_user_id`, `subject_user_id`, `github_user_id`, `outcome`,
+and `reason`. The helper has no field for tokens, codes, cookies, secrets, or
+email addresses, and `reason` accepts only a static code.
+
 ### Development Server
 
 ```bash
@@ -67,6 +99,7 @@ cargo build --release -p reinhardt-cloud-dashboard
 ```
 dashboard/
 ├── src/
+│   ├── audit.rs      # Shared audit-event helper (`tracing` target `audit`)
 │   ├── main.rs       # Server binary (container entry point)
 │   ├── server.rs     # Server bootstrap used by main.rs
 │   ├── bin/manage.rs # Management binary

@@ -7,4 +7,5 @@
 
 pub mod admin;
 pub mod forms;
+pub mod settings;
 pub mod views;

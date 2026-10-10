@@ -45,3 +45,6 @@ jobs:
 
       - name: Check code formatting
         run: cargo make fmt-check
+
+      - name: Check migration source version
+        run: reinhardt-admin migrations upgrade-source dashboard/migrations --check

@@ -2,6 +2,8 @@
 //!
 //! Library crate of the Control Plane application. Module layout:
 //! - `apps`         — application code (each app has server-side routes and client-side pages)
+//! - `audit`        — the shared audit-event helper (server only)
+//! - `persisted_time` — microsecond-truncated timestamps for persistence
 //! - `client`       — WASM-only frontend (booted by its `wasm_bindgen(start)` entry point)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
 //! - `i18n`         — message catalogs and the page i18n context
@@ -27,8 +29,11 @@ pub use reinhardt::reinhardt_http;
 
 // Application modules
 pub mod apps;
+#[cfg(server)]
+pub mod audit;
 pub mod config;
 pub mod i18n;
+pub mod persisted_time;
 #[cfg(server)]
 pub mod server;
 pub mod ui;
