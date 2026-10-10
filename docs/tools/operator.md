@@ -1049,6 +1049,8 @@ creation; the losing reconcile receives `AlreadyExists` and retries.
 The controller watches operator-labelled Secrets, so deleting or modifying a Redis credentials
 Secret immediately re-runs provenance validation for its Project. A replacement Secret has a new
 UID and is rejected with a `ResourceOwnershipConflict` until a platform administrator resolves it.
+Because a replacement may lack the operator labels and therefore produce no watch event when it is
+removed, ownership conflicts are rechecked every 5 minutes instead of waiting for a Project change.
 Validation cannot stop Pods that restart in the meantime from reading a replacement by name, so
 tenant principals must not be granted `create`, `update`, `patch`, or `delete` on Secrets in
 Project namespaces; the same requirement protects the JWT, `core.secret_key`, and database

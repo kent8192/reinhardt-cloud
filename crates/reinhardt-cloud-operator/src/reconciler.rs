@@ -159,6 +159,8 @@ const BACKOFF_BASE_TRANSIENT_SECS: u64 = 30;
 const BACKOFF_BASE_DEPENDENCY_SECS: u64 = 60;
 /// Upper bound for any backoff so we keep reconciling within 10 minutes.
 const BACKOFF_MAX_SECS: u64 = 600;
+/// Fixed recheck interval for resource ownership conflicts.
+const OWNERSHIP_CONFLICT_REQUEUE_SECS: u64 = 300;
 
 /// Compute an exponential backoff capped at `BACKOFF_MAX_SECS`.
 ///
@@ -3186,6 +3188,9 @@ fn upsert_project_condition(conditions: &mut Vec<ProjectCondition>, next: Projec
 ///   retrying does not help until the user fixes the resource.
 /// - `Transient` errors use a 30s base; `DependencyNotReady` uses a 60s
 ///   base. Both double on each successive failure and cap at 10 minutes.
+/// - `OwnershipConflict` errors recheck every 5 minutes: the conflicting
+///   object may be unwatched (for example an unlabelled Secret), so removing
+///   it can produce no event that would otherwise trigger reconciliation.
 pub(crate) fn error_policy(obj: Arc<Project>, error: &Error, ctx: Arc<Context>) -> Action {
 	error!("Reconciliation error: {error}");
 
@@ -3199,6 +3204,14 @@ pub(crate) fn error_policy(obj: Arc<Project>, error: &Error, ctx: Arc<Context>) 
 			// does not produce a requeue.
 			ctx.backoff_state.remove(&backoff_key(&obj));
 			Action::await_change()
+		}
+		BackoffClass::OwnershipConflict => {
+			ctx.backoff_state.remove(&backoff_key(&obj));
+			ctx.metrics
+				.requeue_total
+				.with_label_values(&[class.as_metric_label()])
+				.inc();
+			Action::requeue(Duration::from_secs(OWNERSHIP_CONFLICT_REQUEUE_SECS))
 		}
 		BackoffClass::Transient | BackoffClass::DependencyNotReady => {
 			let key = backoff_key(&obj);
@@ -4921,6 +4934,37 @@ mod tests {
 			.with_label_values(&["permanent"])
 			.get();
 		assert_eq!(permanent_requeues, 0.0);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn test_error_policy_ownership_conflict_rechecks_periodically() {
+		// Arrange: an unlabelled Secret holds the Redis credentials name, so
+		// removing it would produce no watch event for this Project.
+		let app = Arc::new(make_test_app("payments"));
+		let error = Error::ResourceOwnershipConflict {
+			kind: "Secret",
+			namespace: "default".to_string(),
+			name: "payments-redis-credentials".to_string(),
+			project_namespace: "default".to_string(),
+			project_name: "payments".to_string(),
+		};
+		let ctx = test_context();
+
+		// Act
+		let first = error_policy(app.clone(), &error, ctx.clone());
+		let second = error_policy(app, &error, ctx.clone());
+
+		// Assert: the recheck interval is fixed rather than exponential.
+		let expected = Action::requeue(Duration::from_secs(OWNERSHIP_CONFLICT_REQUEUE_SECS));
+		assert_eq!(format!("{first:?}"), format!("{expected:?}"));
+		assert_eq!(format!("{second:?}"), format!("{expected:?}"));
+		let requeues = ctx
+			.metrics
+			.requeue_total
+			.with_label_values(&["ownership_conflict"])
+			.get();
+		assert_eq!(requeues, 2.0);
 	}
 
 	#[rstest]

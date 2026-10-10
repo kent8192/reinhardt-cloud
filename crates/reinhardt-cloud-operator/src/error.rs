@@ -159,6 +159,10 @@ pub(crate) enum BackoffClass {
 	DependencyNotReady,
 	/// Permanent error (invalid spec). Do not retry until the object changes.
 	Permanent,
+	/// A resource the operator must manage is held by another owner. Resolving
+	/// it changes objects the controller may not watch (for example an
+	/// unlabelled tenant-created Secret), so retry at a fixed interval.
+	OwnershipConflict,
 }
 
 impl BackoffClass {
@@ -168,6 +172,7 @@ impl BackoffClass {
 			BackoffClass::Transient => "transient",
 			BackoffClass::DependencyNotReady => "dependency_not_ready",
 			BackoffClass::Permanent => "permanent",
+			BackoffClass::OwnershipConflict => "ownership_conflict",
 		}
 	}
 }
@@ -176,6 +181,8 @@ impl BackoffClass {
 ///
 /// Heuristics:
 /// - `MissingField`, `InvalidPort`, probe periods: permanent — user must fix the spec.
+/// - `ResourceOwnershipConflict`: retried at a fixed interval, because removing
+///   the conflicting object may produce no event the controller observes.
 /// - `Kube` with HTTP 404/409: dependency not ready (object missing or
 ///   write conflicts) — wait a bit longer before retrying.
 /// - Finalizer errors inherit the classification of an embedded reconciliation
@@ -196,8 +203,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_)
 		| Error::InvalidIngressHost(_)
-		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
+		Error::ResourceOwnershipConflict { .. } => BackoffClass::OwnershipConflict,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		Error::Finalizer(source) => nested_backoff_class(source.as_ref()),
 		_ => BackoffClass::Transient,
@@ -353,7 +360,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn resource_ownership_conflict_is_permanent() {
+	fn resource_ownership_conflict_is_retried_as_ownership_conflict() {
 		// Arrange
 		let err = Error::ResourceOwnershipConflict {
 			kind: "Service",
@@ -367,7 +374,7 @@ mod tests {
 		let class = backoff_class(&err);
 
 		// Assert
-		assert_eq!(class, BackoffClass::Permanent);
+		assert_eq!(class, BackoffClass::OwnershipConflict);
 	}
 
 	#[rstest]
@@ -391,5 +398,9 @@ mod tests {
 			"dependency_not_ready"
 		);
 		assert_eq!(BackoffClass::Permanent.as_metric_label(), "permanent");
+		assert_eq!(
+			BackoffClass::OwnershipConflict.as_metric_label(),
+			"ownership_conflict"
+		);
 	}
 }
