@@ -542,6 +542,7 @@ async fn apply(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Acti
 				.and_then(|source| source.preview.as_ref())
 				.and_then(|preview| preview.budget.as_ref()),
 			&ctx.preview_config,
+			ctx.manage_namespace_lifecycle,
 		)
 		.await?;
 	}
@@ -1009,60 +1010,46 @@ async fn cleanup(app: Arc<Project>, ctx: &Context, namespace: &str) -> Result<Ac
 		}
 	}
 
-	// Preview namespace (#707): when previews were enabled and namespace
-	// lifecycle management is enabled, the operator owns a parent-qualified
-	// preview namespace. Deleting it cascade-removes every preview child
-	// Project and its sub-resources. A missing namespace is not an error.
-	if ctx.manage_namespace_lifecycle
-		&& app
-			.spec
-			.source
-			.as_ref()
-			.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
-	{
-		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
-		let ns_api: Api<Namespace> = Api::all(ctx.client.clone());
-		if let Some(parent_uid) = app.meta().uid.as_deref() {
-			if let Some(existing_ns) = ns_api.get_opt(&preview_ns).await.map_err(Error::Kube)? {
-				if resources::preview_namespace::labels_match_preview_owner(
-					existing_ns.metadata.labels.as_ref(),
-					namespace,
-					&name,
-					parent_uid,
-				) {
-					match ns_api.delete(&preview_ns, &DeleteParams::default()).await {
-						Ok(_) => {
-							info!(
-								"Deleted preview namespace {preview_ns} during cleanup of {namespace}/{name}"
-							);
-						}
-						Err(err) if preview_namespace_delete_is_not_found_error(&err) => {
-							warn!(
-								"Preview namespace {preview_ns} disappeared during cleanup of {namespace}/{name} ({err})"
-							);
-						}
-						Err(err) => return Err(Error::Kube(err)),
-					}
-				} else {
-					warn!(
-						"Skipping preview namespace cleanup for {namespace}/{name}: {preview_ns} is not labeled as owned by this Project"
-					);
-				}
-			}
-		} else {
-			warn!(
-				"Skipping preview namespace cleanup for {namespace}/{name}: Project UID is missing"
-			);
-		}
-	} else if app
+	// Preview environments (#707): when namespace lifecycle management is
+	// enabled and the parent-qualified preview namespace is labeled as owned
+	// by this Project, deleting it cascade-removes every preview child Project
+	// and its sub-resources. Otherwise the namespace is retained, so delete the
+	// parent-labeled preview Projects explicitly and keep the parent finalizer
+	// until their own finalizers have finished; they carry no owner reference
+	// to the parent and would otherwise keep running indefinitely.
+	if app
 		.spec
 		.source
 		.as_ref()
 		.is_some_and(|s| s.preview.as_ref().is_some_and(|p| p.enabled))
 	{
-		info!(
-			"Skipping preview namespace cleanup for {namespace}/{name}: namespace lifecycle management is disabled"
-		);
+		let preview_ns = resources::preview_namespace::preview_namespace_name(namespace, &name);
+		let namespace_deleted = if ctx.manage_namespace_lifecycle {
+			delete_owned_preview_namespace(
+				&ctx.client,
+				namespace,
+				&name,
+				app.meta().uid.as_deref(),
+				&preview_ns,
+			)
+			.await?
+		} else {
+			info!(
+				"Retaining preview namespace {preview_ns} during cleanup of {namespace}/{name}: namespace lifecycle management is disabled"
+			);
+			false
+		};
+		if !namespace_deleted {
+			let remaining =
+				delete_retained_preview_projects(&ctx.client, namespace, &name, &preview_ns)
+					.await?;
+			if remaining > 0 {
+				return Err(Error::PreviewProjectsTerminating {
+					namespace: preview_ns,
+					remaining,
+				});
+			}
+		}
 	}
 
 	// Decrement the `managed_apps` gauge for the phase this object was
@@ -2111,6 +2098,11 @@ async fn reconcile_tenant_resources(
 ///
 /// The preview namespace is intentionally separate from the parent namespace,
 /// so preview Projects do not use owner references to the parent `Project`.
+///
+/// When namespace lifecycle management is disabled, the namespace must already
+/// exist: its owner labels are merge-patched (which never creates the object)
+/// and a missing namespace yields [`Error::PreviewNamespaceNotProvisioned`]
+/// before any guardrail is applied.
 async fn reconcile_preview_namespace(
 	client: &Client,
 	parent_namespace: &str,
@@ -2118,6 +2110,7 @@ async fn reconcile_preview_namespace(
 	parent_uid: Option<&str>,
 	budget: Option<&reinhardt_cloud_types::crd::source::PreviewBudget>,
 	preview_config: &PreviewConfig,
+	manage_namespace_lifecycle: bool,
 ) -> Result<(), Error> {
 	let ns_name =
 		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
@@ -2130,18 +2123,29 @@ async fn reconcile_preview_namespace(
 		);
 		return Ok(());
 	};
-	namespaces
-		.patch(
-			&ns_name,
-			&ssapply,
-			&Patch::Apply(&resources::preview_namespace::build_namespace(
-				parent_namespace,
-				parent_name,
-				parent_uid,
-			)),
-		)
-		.await
-		.map_err(Error::Kube)?;
+	let desired_ns =
+		resources::preview_namespace::build_namespace(parent_namespace, parent_name, parent_uid);
+	if manage_namespace_lifecycle {
+		namespaces
+			.patch(&ns_name, &ssapply, &Patch::Apply(&desired_ns))
+			.await
+			.map_err(Error::Kube)?;
+	} else {
+		let label_patch = PatchParams {
+			field_manager: Some("reinhardt-cloud-operator".to_string()),
+			..Default::default()
+		};
+		match namespaces
+			.patch(&ns_name, &label_patch, &Patch::Merge(&desired_ns))
+			.await
+		{
+			Ok(_) => {}
+			Err(kube::Error::Api(status)) if status.code == 404 => {
+				return Err(Error::PreviewNamespaceNotProvisioned(ns_name));
+			}
+			Err(err) => return Err(Error::Kube(err)),
+		}
+	}
 
 	let quota =
 		resources::preview_namespace::build_resource_quota(parent_namespace, parent_name, budget);
@@ -2706,6 +2710,115 @@ where
 
 fn preview_namespace_delete_is_not_found_error(error: &kube::Error) -> bool {
 	matches!(error, kube::Error::Api(status) if status.code == 404)
+}
+
+/// Deletes the parent-qualified preview namespace when it is labeled as owned
+/// by the given parent `Project`.
+///
+/// Returns `true` only when a delete request was accepted, so the namespace
+/// deletion cascade-removes every preview child `Project`. Returns `false`
+/// when the namespace is absent, not owned by this parent, or the parent UID
+/// is unknown; callers must then clean up preview `Project`s explicitly.
+async fn delete_owned_preview_namespace(
+	client: &Client,
+	parent_namespace: &str,
+	parent_name: &str,
+	parent_uid: Option<&str>,
+	preview_namespace: &str,
+) -> Result<bool, Error> {
+	let Some(parent_uid) = parent_uid else {
+		warn!(
+			"Retaining preview namespace {preview_namespace} during cleanup of {parent_namespace}/{parent_name}: Project UID is missing"
+		);
+		return Ok(false);
+	};
+	let ns_api: Api<Namespace> = Api::all(client.clone());
+	let Some(existing_ns) = ns_api
+		.get_opt(preview_namespace)
+		.await
+		.map_err(Error::Kube)?
+	else {
+		return Ok(false);
+	};
+	if !resources::preview_namespace::labels_match_preview_owner(
+		existing_ns.metadata.labels.as_ref(),
+		parent_namespace,
+		parent_name,
+		parent_uid,
+	) {
+		warn!(
+			"Retaining preview namespace {preview_namespace} during cleanup of {parent_namespace}/{parent_name}: it is not labeled as owned by this Project"
+		);
+		return Ok(false);
+	}
+	match ns_api
+		.delete(preview_namespace, &DeleteParams::default())
+		.await
+	{
+		Ok(_) => {
+			info!(
+				"Deleted preview namespace {preview_namespace} during cleanup of {parent_namespace}/{parent_name}"
+			);
+			Ok(true)
+		}
+		Err(err) if preview_namespace_delete_is_not_found_error(&err) => {
+			warn!(
+				"Preview namespace {preview_namespace} disappeared during cleanup of {parent_namespace}/{parent_name} ({err})"
+			);
+			Ok(false)
+		}
+		Err(err) => Err(Error::Kube(err)),
+	}
+}
+
+/// Label selector matching the preview `Project`s created for one parent.
+fn preview_projects_label_selector(parent_namespace: &str, parent_name: &str) -> String {
+	format!(
+		"{}=true,{}={parent_name},{}={parent_namespace}",
+		preview::PREVIEW_LABEL_KEY,
+		preview::PARENT_APP_LABEL_KEY,
+		preview::PARENT_NAMESPACE_LABEL_KEY,
+	)
+}
+
+/// Requests deletion of every preview `Project` created for a parent in a
+/// retained preview namespace.
+///
+/// Returns the number of preview `Project`s still present when the cleanup
+/// pass started. A non-zero count means their finalizers have not finished
+/// yet, so the parent finalizer must be kept until a later pass observes none.
+async fn delete_retained_preview_projects(
+	client: &Client,
+	parent_namespace: &str,
+	parent_name: &str,
+	preview_namespace: &str,
+) -> Result<usize, Error> {
+	let api: Api<Project> = Api::namespaced(client.clone(), preview_namespace);
+	let previews = api
+		.list(
+			&ListParams::default().labels(&preview_projects_label_selector(
+				parent_namespace,
+				parent_name,
+			)),
+		)
+		.await
+		.map_err(Error::Kube)?;
+	for preview_app in &previews.items {
+		if preview_app.metadata.deletion_timestamp.is_some() {
+			continue;
+		}
+		let preview_name = preview_app.name_any();
+		match api.delete(&preview_name, &DeleteParams::default()).await {
+			Ok(_) => {
+				info!(
+					"Deleted preview environment {preview_namespace}/{preview_name} during cleanup of {parent_namespace}/{parent_name}"
+				);
+			}
+			Err(kube::Error::Api(status)) if status.code == 404 => {}
+			Err(err) => return Err(Error::Kube(err)),
+		}
+	}
+	Ok(previews.items.len())
 }
 
 async fn delete_migration_jobs(
@@ -3951,6 +4064,196 @@ mod tests {
 
 		// Assert
 		assert_eq!(enabled, expected);
+	}
+
+	type RecordedRequests = Arc<std::sync::Mutex<Vec<String>>>;
+
+	/// Builds a kube `Client` whose requests are recorded as
+	/// `"<METHOD> <path> <content-type>"` and answered by `respond`.
+	fn recording_client<F>(respond: F) -> (Client, RecordedRequests)
+	where
+		F: Fn(&http::Method, &str) -> (u16, serde_json::Value) + Clone + Send + Sync + 'static,
+	{
+		use tower::service_fn;
+
+		let requests: RecordedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+		let requests_for_service = requests.clone();
+		let svc = service_fn(move |req: http::Request<kube::client::Body>| {
+			let requests = requests_for_service.clone();
+			let respond = respond.clone();
+			async move {
+				let path = req.uri().path().to_string();
+				let content_type = req
+					.headers()
+					.get(http::header::CONTENT_TYPE)
+					.and_then(|value| value.to_str().ok())
+					.unwrap_or("-")
+					.to_string();
+				requests
+					.lock()
+					.expect("requests lock should not be poisoned")
+					.push(format!("{} {path} {content_type}", req.method()));
+				let (status, body) = respond(req.method(), &path);
+				Ok::<_, std::convert::Infallible>(
+					http::Response::builder()
+						.status(status)
+						.body(kube::client::Body::from(
+							serde_json::to_vec(&body).expect("response json should serialize"),
+						))
+						.expect("response should build"),
+				)
+			}
+		});
+		(Client::new(svc, "default"), requests)
+	}
+
+	fn not_found_status() -> serde_json::Value {
+		serde_json::json!({
+			"apiVersion": "v1",
+			"kind": "Status",
+			"status": "Failure",
+			"message": "not found",
+			"reason": "NotFound",
+			"code": 404,
+		})
+	}
+
+	#[rstest]
+	#[case::lifecycle_disabled(false, "application/merge-patch+json", "not_provisioned")]
+	#[case::lifecycle_enabled(true, "application/apply-patch+yaml", "kube_404")]
+	#[tokio::test]
+	async fn preview_namespace_is_only_created_when_lifecycle_is_managed(
+		#[case] manage_namespace_lifecycle: bool,
+		#[case] expected_content_type: &str,
+		#[case] expected_error: &str,
+	) {
+		// Arrange
+		let (client, requests) = recording_client(|_, _| (404, not_found_status()));
+		let preview_ns = resources::preview_namespace::preview_namespace_name("default", "api");
+
+		// Act
+		let result = reconcile_preview_namespace(
+			&client,
+			"default",
+			"api",
+			Some("test-uid-12345"),
+			None,
+			&PreviewConfig::from_env(),
+			manage_namespace_lifecycle,
+		)
+		.await;
+
+		// Assert
+		let error = match result {
+			Err(Error::PreviewNamespaceNotProvisioned(namespace)) => {
+				assert_eq!(namespace, preview_ns);
+				"not_provisioned"
+			}
+			Err(Error::Kube(kube::Error::Api(status))) if status.code == 404 => "kube_404",
+			other => panic!("unexpected preview namespace result: {other:?}"),
+		};
+		assert_eq!(error, expected_error);
+		assert_eq!(
+			*requests
+				.lock()
+				.expect("requests lock should not be poisoned"),
+			vec![format!(
+				"PATCH /api/v1/namespaces/{preview_ns} {expected_content_type}"
+			)]
+		);
+	}
+
+	#[rstest]
+	fn preview_projects_label_selector_matches_parent() {
+		// Act
+		let selector = preview_projects_label_selector("default", "api");
+
+		// Assert
+		assert_eq!(
+			selector,
+			"reinhardt.dev/preview=true,reinhardt.dev/parent-app=api,reinhardt.dev/parent-namespace=default"
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn retained_preview_projects_are_deleted_and_counted() {
+		// Arrange
+		let preview_ns = resources::preview_namespace::preview_namespace_name("default", "api");
+		let mut active = make_test_app("api-pr-1");
+		active.metadata.namespace = Some(preview_ns.clone());
+		let mut terminating = make_test_app("api-pr-2");
+		terminating.metadata.namespace = Some(preview_ns.clone());
+		terminating.metadata.deletion_timestamp =
+			Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
+				k8s_openapi::jiff::Timestamp::now(),
+			));
+		let list = serde_json::json!({
+			"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
+			"kind": "ProjectList",
+			"metadata": {},
+			"items": [active.clone(), terminating],
+		});
+		let deleted = serde_json::to_value(&active).expect("project json should serialize");
+		let (client, requests) = recording_client(move |method, _| {
+			if method == http::Method::DELETE {
+				(200, deleted.clone())
+			} else {
+				(200, list.clone())
+			}
+		});
+		let projects_path =
+			format!("/apis/paas.reinhardt-cloud.dev/v1alpha2/namespaces/{preview_ns}/projects");
+
+		// Act
+		let remaining = delete_retained_preview_projects(&client, "default", "api", &preview_ns)
+			.await
+			.expect("preview projects should be deleted");
+
+		// Assert
+		assert_eq!(remaining, 2);
+		assert_eq!(
+			*requests
+				.lock()
+				.expect("requests lock should not be poisoned"),
+			vec![
+				format!("GET {projects_path} -"),
+				format!("DELETE {projects_path}/api-pr-1 application/json"),
+			]
+		);
+	}
+
+	#[rstest]
+	#[tokio::test]
+	async fn retained_preview_projects_report_none_when_all_are_gone() {
+		// Arrange
+		let preview_ns = resources::preview_namespace::preview_namespace_name("default", "api");
+		let (client, requests) = recording_client(|_, _| {
+			(
+				200,
+				serde_json::json!({
+					"apiVersion": "paas.reinhardt-cloud.dev/v1alpha2",
+					"kind": "ProjectList",
+					"metadata": {},
+					"items": [],
+				}),
+			)
+		});
+
+		// Act
+		let remaining = delete_retained_preview_projects(&client, "default", "api", &preview_ns)
+			.await
+			.expect("empty preview list should succeed");
+
+		// Assert
+		assert_eq!(remaining, 0);
+		assert_eq!(
+			requests
+				.lock()
+				.expect("requests lock should not be poisoned")
+				.len(),
+			1
+		);
 	}
 
 	#[rstest]

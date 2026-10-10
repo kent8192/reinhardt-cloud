@@ -324,10 +324,14 @@ permissions are present; all rules follow the least-privilege principle (project
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
 pre-create tenant and preview namespaces when those workflows are used. The chart passes this same
-setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`, which skips
-preview-namespace deletion while lifecycle management is disabled; enabling it requires both the
-chart's lifecycle RBAC verbs and the operator setting. Standalone runs that leave the variable unset
-(for example `cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it to
+setting to the operator as `REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE`. While lifecycle management is
+disabled, the operator never creates or deletes preview namespaces: it requires the parent-qualified
+preview namespace to be pre-created (reconciliation fails with a dependency-not-ready backoff until it
+exists) and only merge-patches its owner labels before applying guardrails. On parent deletion it
+retains the namespace, deletes the parent-labeled preview `Project`s, and keeps the parent finalizer
+until their own finalizers finish. Enabling lifecycle management requires both the chart's lifecycle
+RBAC verbs and the operator setting. Standalone runs that leave the variable unset (for example
+`cargo run -p reinhardt-cloud-operator`) keep lifecycle management enabled; set it explicitly to
 `false` or `0` to opt out.
 
 **Always-present rules (all platforms and feature configurations)**:
@@ -913,9 +917,9 @@ The Helm chart renders a `ClusterRole` whose rules are determined by the `platfo
 values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
-workflow. A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
-delete its preview namespace; grant that permission through the lifecycle setting before deleting
-the parent. The base rules (always present, regardless of platform or features) are:
+workflow. With lifecycle management disabled, deleting a preview-enabled `Project` retains its
+preview namespace and waits for the parent-labeled preview `Project`s to be deleted before removing
+the parent finalizer. The base rules (always present, regardless of platform or features) are:
 
 | apiGroups | resources | verbs |
 |-----------|-----------|-------|
@@ -1185,8 +1189,8 @@ has permission to create `Secret` objects in the target namespace (see RBAC foot
 
 **Cause:** `Error::Finalizer(Box<dyn Error + Send + Sync>)` — the cleanup path in the finalizer
 returned an error, or the operator is not running. For preview-enabled projects, cleanup keeps the
-finalizer in place when preview namespace deletion is forbidden so that preview workloads are not
-orphaned.
+finalizer in place when preview namespace deletion is forbidden, or while preview `Project`s in a
+retained preview namespace are still terminating, so that preview workloads are not orphaned.
 
 **Diagnose:**
 ```bash
