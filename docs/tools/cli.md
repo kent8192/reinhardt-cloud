@@ -930,7 +930,9 @@ profile. The generated image copies that publication directory, including worksp
 member paths, to the corresponding runtime root; it does not copy project settings.
 Generating the image also records `[pages].prebuilt = true`, so the operator
 seeds the static sidecar volume from that publication with `cp` instead of
-running `collectstatic`.
+running `collectstatic`. Because that seed needs `cp`, Pages generation rejects a
+custom `[source.build].base_image` (for example distroless); use the default
+runtime image, or a custom Dockerfile with an explicit `[pages].prebuilt` setting.
 
 A root expression `${VARIABLE_ROOT:-literal-default}` uses the matching
 `source.build.build_args` value when provided, otherwise its literal default.

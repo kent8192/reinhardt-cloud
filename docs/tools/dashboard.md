@@ -235,7 +235,9 @@ For such images the operator seeds the static sidecar’s shared volume by runni
 preserving its manifest, JS, WASM and generation paths. Images without that
 explicit marker keep the legacy `manage collectstatic --no-input` init container;
 a file named `manifest.json` alone never selects the prebuilt path. Prebuilt
-images must provide `cp` on `PATH`. Static roots must be absolute directories
+images must provide `cp` on `PATH`, so generated Pages Dockerfiles reject a
+custom `[source.build].base_image` such as distroless; use a custom Dockerfile
+with an explicit `[pages].prebuilt` setting instead. Static roots must be absolute directories
 without parent traversal. Existing isolation security contexts and volume
 ownership apply.
 Its asset stage publishes Pages, the entry document, and generated component

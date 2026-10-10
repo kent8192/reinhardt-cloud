@@ -108,6 +108,7 @@ pub(crate) fn configure_pages(
 	}
 	validate_build_context(config)?;
 	if metadata.signals.pages {
+		validate_pages_runtime_image(config)?;
 		let root = static_root_reader::read_static_root(project_dir, config)?;
 		let pages = config.pages.get_or_insert_default();
 		pages.static_root = Some(root.runtime_path());
@@ -132,6 +133,22 @@ fn validate_build_context(config: &ReinhardtCloudToml) -> Result<(), String> {
 				.all(|part| matches!(part, std::path::Component::CurDir)))
 	{
 		return Err("generated Dockerfiles require the workspace root build context ('.'); provide a custom Dockerfile for a different source.build.context".to_owned());
+	}
+	Ok(())
+}
+
+/// Prebuilt Pages images are seeded into the static-server volume with `cp`,
+/// which custom runtime base images such as distroless cannot be assumed to
+/// provide.
+fn validate_pages_runtime_image(config: &ReinhardtCloudToml) -> Result<(), String> {
+	if config
+		.source
+		.as_ref()
+		.and_then(|source| source.build.as_ref())
+		.and_then(|build| build.base_image.as_deref())
+		.is_some()
+	{
+		return Err("generated Pages images require the default runtime base image because the operator seeds their static publication with `cp`; remove source.build.base_image (for example a distroless image), or provide a custom Dockerfile and set [pages].prebuilt explicitly".to_owned());
 	}
 	Ok(())
 }
@@ -191,6 +208,7 @@ pub(crate) fn collect_signals(
 
 	// Publication must use an available command and the declared production root.
 	let static_root = if signals.pages {
+		validate_pages_runtime_image(toml_config)?;
 		cargo_lock_reader::require_buildstatic(
 			cargo_lock_content.as_deref(),
 			&metadata.name,
@@ -412,6 +430,43 @@ mod tests {
 		assert_eq!(result.is_ok(), accepted, "{result:?}");
 		if !accepted {
 			assert!(result.unwrap_err().contains("custom Dockerfile"));
+		}
+	}
+
+	#[rstest]
+	#[case(true, Some("gcr.io/distroless/cc-debian12"), false)]
+	#[case(true, None, true)]
+	#[case(false, Some("gcr.io/distroless/cc-debian12"), true)]
+	fn generated_pages_images_reject_custom_runtime_base_images(
+		#[case] pages: bool,
+		#[case] base_image: Option<&str>,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(dir.path().join("settings/base.toml"), "static_root='dist'").unwrap();
+		let metadata = crate::feature_detector::ProjectMetadata {
+			name: "publication".into(),
+			version: "0.1.0".into(),
+			features: vec![],
+			signals: crate::feature_detector::InfraSignals {
+				pages,
+				..Default::default()
+			},
+		};
+		let mut config = config_with_source_build(Some(BuildSection {
+			base_image: base_image.map(str::to_owned),
+			..Default::default()
+		}));
+
+		// Act
+		let result = configure_pages(dir.path(), &metadata, &mut config, true);
+
+		// Assert
+		assert_eq!(result.is_ok(), accepted, "{result:?}");
+		if !accepted {
+			assert!(result.unwrap_err().contains("source.build.base_image"));
 		}
 	}
 
