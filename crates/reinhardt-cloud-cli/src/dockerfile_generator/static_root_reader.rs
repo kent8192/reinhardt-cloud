@@ -129,6 +129,15 @@ pub(super) fn read_static_root(
 	{
 		return Err("generated Pages require a static URL below '/' (for example '/static/') so it cannot collide with application routes; provide a custom Dockerfile for other settings".to_owned());
 	}
+	// A leading `//` makes browsers treat generated references as
+	// protocol-relative URLs to another host, and empty or `.` segments do not
+	// match the normalized Ingress path; require single-slash-separated segments.
+	if url[1..url.len() - 1]
+		.split('/')
+		.any(|segment| segment.is_empty() || segment == ".")
+	{
+		return Err("generated Pages require a normalized static URL path such as '/assets/' without empty or '.' segments (a leading '//' is a protocol-relative URL to another host); provide a custom Dockerfile for other settings".to_owned());
+	}
 	// Validate the effective value after production has overridden base settings.
 	if let Some(base) = base_dirs.into_iter().flatten().next()
 		&& base.as_str() != Some(".")
@@ -470,6 +479,40 @@ mod tests {
 
 		// Assert
 		assert!(result.unwrap_err().contains("below '/'"));
+	}
+
+	#[rstest]
+	#[case("//assets/", false)]
+	#[case("///assets/", false)]
+	#[case("/assets//", false)]
+	#[case("/assets//js/", false)]
+	#[case("/./assets/", false)]
+	#[case("/assets/", true)]
+	#[case("/assets/js/", true)]
+	fn requires_single_slash_separated_static_urls(#[case] value: &str, #[case] accepted: bool) {
+		// Arrange
+		let dir = tempfile::tempdir().unwrap();
+		std::fs::create_dir(dir.path().join("settings")).unwrap();
+		std::fs::write(
+			dir.path().join("settings/base.toml"),
+			format!("[static_files]\nroot='dist'\nurl='{value}'"),
+		)
+		.unwrap();
+
+		// Act
+		let result = read_static_root(dir.path(), &ReinhardtCloudToml::default());
+
+		// Assert
+		match result {
+			Ok(root) => {
+				assert!(accepted, "{value} must be rejected");
+				assert_eq!(root.url, value);
+			}
+			Err(error) => {
+				assert!(!accepted, "{value} must be accepted: {error}");
+				assert!(error.contains("protocol-relative"), "{error}");
+			}
+		}
 	}
 
 	#[rstest]

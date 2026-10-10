@@ -945,3 +945,5 @@ a custom Dockerfile rather than an inferred path. Use a dedicated publication
 directory outside source, settings, and build metadata. The static URL must be a
 prefix below `/` (for example `/static/`): a root URL would share the application's
 `/` Ingress route and never reach the static-server sidecar, so generation rejects it.
+The URL must also be a normalized, single-slash-separated path: a leading `//`
+(protocol-relative, such as `//assets/`) or any empty or `.` segment is rejected.
