@@ -40,7 +40,8 @@ rbac:
     # operator-managed tenant and preview namespace lifecycle. Keep disabled
     # unless the operator service account is intentionally trusted to create
     # namespaces; otherwise pre-create tenant and preview namespaces and allow
-    # the operator to patch labels only.
+    # the operator to merge-patch their labels only. Merge patches cannot
+    # create missing Namespace resources.
     manageLifecycle: false
 
 serviceAccount:

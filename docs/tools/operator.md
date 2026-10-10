@@ -282,9 +282,11 @@ When the field is set, the operator:
 
 - Computes the tenant namespace as `tenant-<organization>` (or
   `tenant-<organization>-<team>` if `team` is set).
-- Server-side applies that `Namespace` together with a default
-  `ResourceQuota` and a default-deny + same-namespace + ingress-controller
-  `NetworkPolicy` triple before any per-app workload is reconciled.
+- Ensures that `Namespace` exists, creating it when namespace lifecycle RBAC is
+  enabled and merge-patching an existing namespace otherwise, together with a
+  default `ResourceQuota` and a default-deny + same-namespace +
+  ingress-controller `NetworkPolicy` triple before any per-app workload is
+  reconciled.
 - Verifies that `metadata.namespace` matches the computed value.
   Mismatches set `status.phase: failed` and emit a `Degraded=True`
   condition with reason `TenantMismatch`; the controller then skips
@@ -322,7 +324,9 @@ and expands or contracts based on `platform` and `features.*` values at install 
 permissions are present; all rules follow the least-privilege principle (project guideline RB-1).
 Namespace lifecycle verbs are also gated by `rbac.namespaces.manageLifecycle`; the default is
 `false`, so the chart grants only `get` and `patch` for namespaces and expects platform operators to
-pre-create tenant and preview namespaces when those workflows are used.
+pre-create tenant and preview namespaces when those workflows are used. The reconciler uses merge
+patches for existing namespaces and only attempts creation after a missing-namespace response;
+creation is authorized only by the opt-in lifecycle verbs.
 
 **Always-present rules (all platforms and feature configurations)**:
 
@@ -907,7 +911,11 @@ The Helm chart renders a `ClusterRole` whose rules are determined by the `platfo
 values. Namespace lifecycle verbs are additionally controlled by
 `rbac.namespaces.manageLifecycle`; the default `false` keeps namespace permissions to `get` and
 `patch`, so tenant and preview namespaces must be pre-created by a more privileged platform
-workflow. A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
+workflow. The operator uses merge patches for namespace labels in this mode, so a missing namespace
+cannot be created by a patch request. If lifecycle creation is authorized and a sibling Project
+creates the namespace after an initial 404, the operator handles the create conflict by retrying
+the label merge patch. Permission errors from either operation still fail reconciliation.
+A preview-enabled `Project` cannot finish finalizer cleanup unless the operator can
 delete its preview namespace; grant that permission through the lifecycle setting before deleting
 the parent. The base rules (always present, regardless of platform or features) are:
 

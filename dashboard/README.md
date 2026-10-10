@@ -133,6 +133,10 @@ cd dashboard && cargo make makemigrations   # Generate migrations from model cha
 cd dashboard && cargo run --bin manage migrate   # Apply checked-in migrations
 ```
 
+Pass UUID values directly to ORM filters for user IDs, social-account IDs, and
+organization ownership. Converting these values to strings binds PostgreSQL text
+parameters, which cannot be compared to UUID columns.
+
 The v0.4.0-alpha.11 migration baseline is a breaking reset with six generated
 app initial migrations (`auth`, `clusters`, `default`, `deployments`,
 `github`, and `organizations`) plus any generated follow-up migrations (for
