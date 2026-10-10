@@ -8,7 +8,8 @@
 //! is written to the `data-theme` attribute of the document root, which the
 //! tokens in `static/css/tokens.css` switch on, and remembered in local
 //! storage. `static/js/theme-init.js` re-applies the stored choice before the
-//! first paint.
+//! first paint. While no theme is picked, the toggle listens for system
+//! changes so its label and next value always match the theme in effect.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::event::ClickEvent;
@@ -80,8 +81,14 @@ pub fn apply_theme(theme: Theme) {
 /// Renders the button that switches to the other theme.
 pub fn theme_toggle() -> Page {
 	let theme = Signal::new(current_theme());
-	// `Signal` is `Copy`, so the handler owns its own handle.
+	// Re-reads the effective theme when the system setting changes; once a
+	// theme is picked, `current_theme` returns the pick and this is a no-op.
+	let system_theme_listener = browser::on_system_theme_change(move || theme.set(current_theme()));
+	// `Signal` is `Copy`, so the handler owns its own handle. The handler also
+	// owns the listener guard: the callback lives in the component's reactive
+	// scope, so the listener is removed when the toggle is disposed.
 	let toggle = Callback::new(move |_event: ClickEvent| {
+		let _keep_listening = &system_theme_listener;
 		let next = theme.get_untracked().toggled();
 		apply_theme(next);
 		theme.set(next);

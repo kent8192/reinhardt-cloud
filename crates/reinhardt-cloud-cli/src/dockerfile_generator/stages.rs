@@ -44,6 +44,14 @@ pub(crate) struct DockerfileSignals {
 	/// `/app/dashboard/migrations` rather than `/app/migrations`. `None` for
 	/// single-crate projects where the project dir IS the build context.
 	pub(crate) project_relative_path: Option<String>,
+	/// Static root that `manage collectstatic` publishes into for a Pages
+	/// project, as written in the project's production settings: relative to
+	/// the project directory, or absolute. The builder stage runs
+	/// `collectstatic` and the runtime stage copies the result to the same
+	/// path under `/app`, where `runserver --with-pages` serves it at the
+	/// static URL (design tokens, static CSS/JS/images, and the generated
+	/// `__reinhardt__/components.css`). `None` when Pages is disabled.
+	pub(crate) collected_static_root: Option<String>,
 }
 
 const DEFAULT_RUNTIME_IMAGE: &str = "debian:bookworm-slim";
@@ -163,6 +171,22 @@ pub(crate) fn build_builder_stage(signals: &DockerfileSignals) -> Stage {
 		"cargo build --release -p {}{feature_args}",
 		signals.project_name
 	)));
+
+	if signals.collected_static_root.is_some() {
+		// Publish the registered static tree and the generated component
+		// stylesheet under the production profile's static root. Collection
+		// resolves only static settings, so no deployment secret is needed;
+		// it runs from the project directory so that relative static
+		// directories and `settings/` resolve, and it extracts styles with
+		// the default feature set the wasm stage compiles.
+		if let Some(rel) = signals.project_relative_path.as_deref() {
+			instructions.push(Instruction::Workdir(format!("/app/{rel}")));
+		}
+		instructions.push(Instruction::Run(format!(
+			"REINHARDT_ENV=production /app/target/release/manage collectstatic --no-input --package {}",
+			signals.project_name
+		)));
+	}
 
 	Stage {
 		base_image: format!("rust:{}-bookworm", signals.rust_version),
@@ -297,6 +321,25 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 			src: index_src,
 			dst: "/app/static/wasm/index.html".to_string(),
 		});
+		if let Some(root) = signals.collected_static_root.as_deref() {
+			// `runserver --with-pages` serves the static URL from the static
+			// root resolved against the runtime working directory, so the
+			// collected tree lands at the same relative path under `/app`.
+			let (src, dst) = if root.starts_with('/') {
+				(root.to_string(), root.to_string())
+			} else {
+				let src = match signals.project_relative_path.as_deref() {
+					Some(rel) => format!("/app/{rel}/{root}"),
+					None => format!("/app/{root}"),
+				};
+				(src, format!("/app/{root}"))
+			};
+			instructions.push(Instruction::Copy {
+				from: Some("builder".to_string()),
+				src,
+				dst,
+			});
+		}
 	}
 
 	if signals.has_migrations_dir {
@@ -403,6 +446,7 @@ mod tests {
 			has_settings_dir: false,
 			has_migrations_dir: false,
 			project_relative_path: None,
+			collected_static_root: None,
 		}
 	}
 
@@ -667,6 +711,81 @@ mod tests {
 
 		// Assert
 		assert!(!stage_contains_copy_from(&stage, "wasm"));
+	}
+
+	// S16b: a Pages workspace member collects static files from its own
+	// directory under the production profile, after the release build that
+	// produces `manage`.
+	#[rstest]
+	fn builder_collects_static_files_from_the_project_directory(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+		minimal_signals.collected_static_root = Some("dist".to_string());
+
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		let tail: Vec<String> = stage
+			.instructions
+			.iter()
+			.rev()
+			.take(3)
+			.map(|instruction| instruction.to_string())
+			.collect();
+		assert_eq!(
+			tail,
+			vec![
+				"RUN REINHARDT_ENV=production /app/target/release/manage collectstatic \
+				 --no-input --package my-app"
+					.to_string(),
+				"WORKDIR /app/dashboard".to_string(),
+				"RUN cargo build --release -p my-app".to_string(),
+			]
+		);
+	}
+
+	// S16c: without Pages there is nothing to publish.
+	#[rstest]
+	fn builder_skips_collectstatic_without_a_static_root(minimal_signals: DockerfileSignals) {
+		// Act
+		let stage = build_builder_stage(&minimal_signals);
+
+		// Assert
+		assert!(!stage_contains_run(&stage, "collectstatic"));
+	}
+
+	// S16d: the collected tree lands at the static root resolved against the
+	// runtime working directory (`/app`), which is where the static URL is
+	// served from.
+	#[rstest]
+	#[case(Some("dashboard"), "dist", "/app/dashboard/dist", "/app/dist")]
+	#[case(None, "dist", "/app/dist", "/app/dist")]
+	#[case(Some("dashboard"), "/srv/static", "/srv/static", "/srv/static")]
+	fn runtime_copies_the_collected_static_root(
+		mut minimal_signals: DockerfileSignals,
+		#[case] project_relative_path: Option<&str>,
+		#[case] static_root: &str,
+		#[case] expected_src: &str,
+		#[case] expected_dst: &str,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+		minimal_signals.project_relative_path = project_relative_path.map(str::to_string);
+		minimal_signals.collected_static_root = Some(static_root.to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(
+			stage_contains_copy(&stage, "builder", expected_src, expected_dst),
+			"runtime stage must COPY {expected_src} -> {expected_dst}"
+		);
 	}
 
 	// S15b (Refs #511): pages-enabled runtime stage MUST also COPY

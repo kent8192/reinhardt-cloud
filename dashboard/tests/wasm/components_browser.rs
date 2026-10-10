@@ -119,10 +119,15 @@ fn document_theme() -> Option<String> {
 
 /// Yields to the event loop once so reactive updates reach the DOM.
 async fn next_tick() {
+	sleep_millis(0).await;
+}
+
+/// Waits `milliseconds` on the browser's timer queue.
+async fn sleep_millis(milliseconds: i32) {
 	let promise = js_sys::Promise::new(&mut |resolve, _reject| {
 		web_sys::window()
 			.expect("window")
-			.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 0)
+			.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, milliseconds)
 			.expect("schedule timeout");
 	});
 	wasm_bindgen_futures::JsFuture::from(promise)
@@ -130,18 +135,54 @@ async fn next_tick() {
 		.expect("timeout promise resolves");
 }
 
+/// Runs a test-setup script in the page and returns its result.
+fn run_script(script: &str) -> JsValue {
+	js_sys::Function::new_no_args(script)
+		.call0(&JsValue::NULL)
+		.expect("test script runs")
+}
+
+/// Replaces `window.matchMedia` with a controllable color-scheme query until
+/// dropped, so a test can change the system theme while the page is open.
+struct SystemThemeStub;
+
+impl SystemThemeStub {
+	/// Installs a query that reports `prefers_dark`.
+	fn install(prefers_dark: bool) -> Self {
+		run_script(&format!(
+			"window.__rcMatchMedia = window.matchMedia;
+			window.__rcColorScheme = new EventTarget();
+			window.__rcColorScheme.matches = {prefers_dark};
+			window.matchMedia = () => window.__rcColorScheme;"
+		));
+		Self
+	}
+
+	/// Switches the system theme and notifies `change` listeners.
+	fn switch_to(&self, prefers_dark: bool) {
+		run_script(&format!(
+			"window.__rcColorScheme.matches = {prefers_dark};
+			window.__rcColorScheme.dispatchEvent(new Event('change'));"
+		));
+	}
+}
+
+impl Drop for SystemThemeStub {
+	fn drop(&mut self) {
+		run_script(
+			"window.matchMedia = window.__rcMatchMedia;
+			delete window.__rcMatchMedia;
+			delete window.__rcColorScheme;",
+		);
+	}
+}
+
 /// Replaces `navigator.clipboard` and counts uncaught errors until dropped.
 struct ClipboardStub;
 
 impl ClipboardStub {
-	fn run(script: &str) -> JsValue {
-		js_sys::Function::new_no_args(script)
-			.call0(&JsValue::NULL)
-			.expect("test script runs")
-	}
-
 	fn install(clipboard: &str) -> Self {
-		Self::run(&format!(
+		run_script(&format!(
 			"window.__rcUncaught = 0;
 			window.__rcOnError = () => {{ window.__rcUncaught += 1; }};
 			window.addEventListener('error', window.__rcOnError);
@@ -163,11 +204,11 @@ impl ClipboardStub {
 	}
 
 	fn copied_text(&self) -> Option<String> {
-		Self::run("return window.__rcCopied;").as_string()
+		run_script("return window.__rcCopied;").as_string()
 	}
 
 	fn uncaught_errors(&self) -> f64 {
-		Self::run("return window.__rcUncaught;")
+		run_script("return window.__rcUncaught;")
 			.as_f64()
 			.expect("error counter is a number")
 	}
@@ -175,7 +216,7 @@ impl ClipboardStub {
 
 impl Drop for ClipboardStub {
 	fn drop(&mut self) {
-		Self::run(
+		run_script(
 			"delete navigator.clipboard;
 			delete window.__rcCopied;
 			window.removeEventListener('error', window.__rcOnError);",
@@ -288,6 +329,49 @@ async fn theme_toggle_label_names_the_theme_it_switches_to(sandbox: Sandbox) {
 	assert_eq!(
 		after.as_deref().map(str::trim),
 		Some(label(initial.toggled()))
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn theme_toggle_follows_system_changes_until_a_theme_is_picked(sandbox: Sandbox) {
+	// Arrange
+	let system = SystemThemeStub::install(false);
+	sandbox.mount(|| {
+		signed_out_layout(
+			page!({
+				h1 { "Welcome" }
+			}),
+			None,
+		)
+	});
+	let toggle = sandbox
+		.query("header button")
+		.dyn_into::<HtmlElement>()
+		.expect("toggle is an HTML element");
+	let before = toggle.text_content();
+
+	// Act
+	system.switch_to(true);
+	next_tick().await;
+	let after_system_change = toggle.text_content();
+	toggle.click();
+	next_tick().await;
+
+	// Assert
+	assert_eq!(
+		before.as_deref().map(str::trim),
+		Some("Switch to dark theme")
+	);
+	assert_eq!(
+		after_system_change.as_deref().map(str::trim),
+		Some("Switch to light theme")
+	);
+	assert_eq!(document_theme().as_deref(), Some("light"));
+	assert_eq!(stored_theme().as_deref(), Some("light"));
+	assert_eq!(
+		toggle.text_content().as_deref().map(str::trim),
+		Some("Switch to dark theme")
 	);
 }
 
@@ -454,6 +538,46 @@ async fn copy_button_name_follows_the_copied_state_and_keeps_the_visible_word(sa
 		Some("reinhardt-cloud login")
 	);
 	assert_eq!(clipboard.uncaught_errors(), 0.0);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn repeated_copy_keeps_the_copied_label_for_the_full_interval(sandbox: Sandbox) {
+	// Arrange
+	let _clipboard = ClipboardStub::resolving();
+	sandbox.mount(|| {
+		code_block(
+			"login",
+			t!("Skip to main content"),
+			"reinhardt-cloud login".to_owned(),
+		)
+	});
+	let copy = sandbox
+		.query("button[aria-controls=\"login-text\"]")
+		.dyn_into::<HtmlElement>()
+		.expect("copy button is an HTML element");
+
+	// Act
+	// Copy again 1000 ms after the first copy, then read the label 1900 ms
+	// after the first copy (past its 1600 ms reset) and 2800 ms after it (past
+	// the second copy's reset).
+	copy.click();
+	sleep_millis(1000).await;
+	copy.click();
+	sleep_millis(900).await;
+	let after_first_interval = copy.text_content();
+	sleep_millis(900).await;
+	let after_second_interval = copy.text_content();
+
+	// Assert
+	assert_eq!(
+		after_first_interval.as_deref(),
+		Some("Copied Skip to main content")
+	);
+	assert_eq!(
+		after_second_interval.as_deref(),
+		Some("Copy Skip to main content")
+	);
 }
 
 #[rstest]
