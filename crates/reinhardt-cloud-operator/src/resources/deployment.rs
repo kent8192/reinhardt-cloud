@@ -146,13 +146,14 @@ pub(crate) fn build_deployment(
 			// Mount the volume at a sibling path so the image publication stays
 			// visible while its exact bytes seed the volume. `cp` runs directly
 			// rather than through a shell, and only for images explicitly marked
-			// as shipping a publication.
+			// as shipping a publication. Operands are explicit `args` so the
+			// image's `ENTRYPOINT`/`CMD` never contribute to the invocation.
 			let staging = format!("{root}-cloud-volume");
 			init_containers.push(Container {
 				name: "seed-static-files".to_string(),
 				image: Some(app.spec.image.clone()),
-				command: Some(vec![
-					"cp".to_string(),
+				command: Some(vec!["cp".to_string()]),
+				args: Some(vec![
 					"-RP".to_string(),
 					"--".to_string(),
 					format!("{root}/."),
@@ -1053,8 +1054,46 @@ mod tests {
 				!command[0].ends_with("sh"),
 				"Pages init containers must not require a shell: {command:?}"
 			);
-			assert_eq!(container.args, None);
 		}
+	}
+
+	#[rstest]
+	fn prebuilt_seed_sets_explicit_operands_independent_of_image_cmd() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/app/static/".into();
+		pages.prebuilt = true;
+
+		// Act
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+
+		// Assert
+		let inits = deployment
+			.spec
+			.unwrap()
+			.template
+			.spec
+			.unwrap()
+			.init_containers
+			.unwrap();
+		let seed = inits
+			.iter()
+			.find(|container| container.name == "seed-static-files")
+			.unwrap();
+		assert_eq!(seed.command.as_deref(), Some(["cp".to_owned()].as_slice()));
+		assert_eq!(
+			seed.args.as_deref(),
+			Some(
+				[
+					"-RP".to_owned(),
+					"--".to_owned(),
+					"/app/static/.".to_owned(),
+					"/app/static-cloud-volume/".to_owned(),
+				]
+				.as_slice()
+			)
+		);
 	}
 
 	#[cfg(unix)]
@@ -1103,8 +1142,9 @@ mod tests {
 		let target = in_container(&mount.mount_path);
 		std::fs::create_dir(&target).unwrap();
 		let command = seed.command.as_ref().unwrap();
+		let arguments = seed.args.as_deref().unwrap_or_default();
 		let status = std::process::Command::new(&command[0])
-			.args(command[1..].iter().map(|arg| {
+			.args(command[1..].iter().chain(arguments).map(|arg| {
 				if arg.starts_with('/') {
 					in_container(arg).into_os_string()
 				} else {
