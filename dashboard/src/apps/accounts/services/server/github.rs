@@ -63,10 +63,17 @@ pub(crate) const STATE_KEY_PREFIX: &str = "cloud:oauth-state:";
 
 /// Binding used when the browser presented no binding cookie.
 ///
-/// `handle_callback_with_context` returns *before* consuming the state when the
-/// binding is empty, which would let a cookie-less replay leave the state
-/// alive. A fixed value that no issued binding can equal makes the state be
-/// consumed and the digest comparison fail instead (SR-04).
+/// Workaround for kent8192/reinhardt-web#6723 (tracked in
+/// kent8192/reinhardt-cloud#953): `handle_callback_with_context` returns
+/// *before* consuming the state when the binding is empty, which would let a
+/// cookie-less callback leave the single-use state alive (SR-04). A fixed value
+/// that no issued binding can equal makes the state be consumed and the digest
+/// comparison fail instead. Remove this when the upstream issue is resolved.
+///
+/// Ideal implementation (without workaround):
+///   `backend.handle_callback_with_context(provider, code, state, binding)`
+///   // with an empty `binding`: consumes the state, then fails with
+///   // `InvalidState`, exactly like a non-matching binding.
 const MISSING_BINDING: &[u8] = b"\0no-binding-cookie";
 
 /// Why a sign-in could not be completed. Carries no provider text.
@@ -248,7 +255,8 @@ impl GithubSignIn {
 			.callback;
 
 		// A failed `/user` call inside the backend is logged and swallowed,
-		// leaving `claims` empty; that is a failed sign-in, not an anonymous one.
+		// leaving `claims` empty; that is a failed sign-in, not an anonymous one
+		// (reinhardt-web#6710, tracked in kent8192/reinhardt-cloud#937).
 		let claims = result.claims.ok_or(CompleteError::ProfileUnavailable)?;
 		let access_token = SecretString::new(result.token_response.access_token.clone());
 		let user = self.fetch_user(&access_token).await?;
