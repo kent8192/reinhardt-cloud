@@ -142,7 +142,9 @@ async fn the_sign_in_page_offers_github_as_the_only_way_in() {
 			.contains("There are no passwords to set or reset.")
 	);
 	assert!(
-		sandbox.find("[role='alert']").is_none(),
+		sandbox
+			.find("main#main [role='alert'], main#main [role='status']")
+			.is_none(),
 		"nothing to explain yet"
 	);
 }
@@ -200,7 +202,8 @@ async fn a_refused_account_reads_the_invitation_alert_with_its_own_login() {
 	settle().await;
 
 	// Assert
-	let alert = sandbox.query("[role='alert']");
+	// A warning is announced politely (`status`); only a failure is `alert`.
+	let alert = sandbox.query("main#main [role='status']");
 	let text = alert.text_content().unwrap_or_default();
 	assert!(
 		text.contains("No Invitation found for @riley-chen"),
