@@ -184,6 +184,14 @@ impl ClusterAgentService for MockClusterAgentService {
 		Ok(())
 	}
 
+	async fn report_health_for_cluster(
+		&self,
+		_cluster_id: Uuid,
+		_health: AgentHealth,
+	) -> Result<(), ApiError> {
+		Ok(())
+	}
+
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError> {
 		Ok(AgentHealth {
 			agent_id,
