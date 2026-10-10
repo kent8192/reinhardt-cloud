@@ -9,7 +9,8 @@ use serial_test::serial;
 use crate::apps::accounts::models::User;
 use crate::apps::accounts::services::server::repoint::repoint;
 use crate::apps::accounts::services::server::user_recovery::{
-	ReactivateOutcome, RecoveryError, end_sessions, reactivate,
+	DeactivateOutcome, ReactivateOutcome, RecoveryError, SessionsStep, deactivate, end_sessions,
+	reactivate,
 };
 use crate::apps::accounts::services::server::users::find_by_github_user_id;
 use crate::apps::accounts::tests::server_support::{AppOptions, GithubAccount, TestApp};
@@ -18,7 +19,7 @@ use crate::apps::accounts::tests::support::{
 };
 use crate::audit::capture::capture_audit_events;
 
-async fn deactivate(user: &User) {
+async fn deactivate_row(user: &User) {
 	User::objects()
 		.filter(User::field_id().eq(user.id))
 		.update_fields([User::field_is_active().assign(false)])
@@ -130,7 +131,7 @@ async fn sr_107_reactivation_ends_leftover_sessions_before_the_user_is_active_ag
 	let redis = redis_sessions().await;
 	let user = insert_user(2_010, "deactivated", true).await;
 	let leftover = redis.sessions.create(user.id).await.unwrap();
-	deactivate(&user).await;
+	deactivate_row(&user).await;
 
 	// Act
 	let (events, outcome) = capture_audit_events(reactivate(2_010, &redis.sessions)).await;
@@ -168,7 +169,7 @@ async fn sr_107_reactivation_refuses_when_the_sessions_cannot_be_ended(
 	// Arrange
 	let _db = database.await;
 	let user = insert_user(2_011, "deactivated", true).await;
-	deactivate(&user).await;
+	deactivate_row(&user).await;
 	let revoker = ScriptedRevoker::failing_after(0);
 
 	// Act
@@ -330,7 +331,7 @@ async fn sr_107_the_admin_site_cannot_reactivate_a_user_so_a_stale_session_stays
 	let mut stale = app.browser();
 	stale.sign_in("code-target").await;
 	let target_user = find_by_github_user_id(5_002).await.unwrap().unwrap();
-	deactivate(&target_user).await;
+	deactivate_row(&target_user).await;
 	let dashboard = staff
 		.post_with(
 			"/admin/api/server_fn/get_dashboard",
@@ -394,4 +395,196 @@ async fn sr_107_the_admin_site_cannot_reactivate_a_user_so_a_stale_session_stays
 		json!(null),
 		"the stale session stays refused"
 	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivation_sets_the_flag_and_ends_the_sessions(#[future] database: TestDatabase) {
+	// Arrange
+	let _db = database.await;
+	let redis = redis_sessions().await;
+	let user = insert_user(2_020, "leaving", true).await;
+	let session = redis.sessions.create(user.id).await.unwrap();
+
+	// Act
+	let (events, outcome) = capture_audit_events(deactivate(2_020, &redis.sessions)).await;
+
+	// Assert
+	assert_eq!(
+		outcome.unwrap(),
+		DeactivateOutcome::Deactivated {
+			user_id: user.id,
+			sessions: SessionsStep::Ended(1)
+		}
+	);
+	let after = find_by_github_user_id(2_020).await.unwrap().unwrap();
+	assert!(!after.is_active && after.is_staff);
+	assert!(after.updated_at >= user.updated_at);
+	assert_eq!(redis.sessions.resolve(&session.token).await.unwrap(), None);
+	assert_eq!(events.len(), 1);
+	assert_eq!(
+		events[0].field("event"),
+		Some("accounts.deactivate.succeeded")
+	);
+	assert_eq!(events[0].field("reason"), Some("deactivated"));
+	assert_eq!(events[0].field("actor_kind"), Some("host_operator"));
+	assert_eq!(events[0].field("github_user_id"), Some("2020"));
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_a_redis_failure_does_not_fail_a_deactivation_but_is_audited(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(2_021, "leaving", false).await;
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let (events, outcome) = capture_audit_events(deactivate(2_021, &revoker)).await;
+
+	// Assert
+	assert!(matches!(
+		outcome.unwrap(),
+		DeactivateOutcome::Deactivated {
+			sessions: SessionsStep::NotEnded(_),
+			..
+		}
+	));
+	assert!(
+		!find_by_github_user_id(2_021)
+			.await
+			.unwrap()
+			.unwrap()
+			.is_active
+	);
+	let recorded: Vec<_> = events
+		.iter()
+		.map(|event| {
+			(
+				event.field("event"),
+				event.field("outcome"),
+				event.field("reason"),
+			)
+		})
+		.collect();
+	assert_eq!(
+		recorded,
+		[
+			(
+				Some("accounts.deactivate.succeeded"),
+				Some("succeeded"),
+				Some("deactivated")
+			),
+			(
+				Some("accounts.deactivate.failed"),
+				Some("failed"),
+				Some("sessions_not_ended")
+			),
+		]
+	);
+	for event in &events {
+		assert_eq!(
+			event.field("subject_user_id"),
+			Some(user.id.to_string().as_str())
+		);
+	}
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivating_an_inactive_user_is_unchanged_and_touches_no_session(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let redis = redis_sessions().await;
+	let user = insert_user(2_022, "already", false).await;
+	deactivate_row(&user).await;
+	let session = redis.sessions.create(user.id).await.unwrap();
+
+	// Act
+	let (events, outcome) = capture_audit_events(deactivate(2_022, &redis.sessions)).await;
+
+	// Assert
+	assert_eq!(
+		outcome.unwrap(),
+		DeactivateOutcome::Unchanged { user_id: user.id }
+	);
+	assert_eq!(
+		redis.sessions.resolve(&session.token).await.unwrap(),
+		Some(user.id)
+	);
+	assert_eq!(events.len(), 1);
+	assert_eq!(events[0].field("reason"), Some("unchanged"));
+}
+
+#[rstest]
+#[case::unknown_user(2_997, "unknown_user")]
+#[case::non_positive(0, "invalid_github_user_id")]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivation_denies_an_invalid_or_unknown_id(
+	#[future] database: TestDatabase,
+	#[case] github_user_id: i64,
+	#[case] reason: &'static str,
+) {
+	// Arrange
+	let _db = database.await;
+	let redis = redis_sessions().await;
+
+	// Act
+	let (events, outcome) = capture_audit_events(deactivate(github_user_id, &redis.sessions)).await;
+
+	// Assert
+	assert!(outcome.is_err());
+	assert_eq!(events[0].field("event"), Some("accounts.deactivate.denied"));
+	assert_eq!(events[0].field("reason"), Some(reason));
+}
+
+/// Deactivation does not need Redis to be effective: the flag is checked on
+/// every request, so a session that could not be deleted is still refused.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_07_a_session_that_could_not_be_deleted_is_refused_once_the_user_is_deactivated() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	let account = GithubAccount::new(5_101, "leaving");
+	app.expect_sign_in("code-leaving", &account).await;
+	let mut browser = app.browser();
+	browser.sign_in("code-leaving").await;
+	let before = browser
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await;
+	assert_eq!(before.json()["github_login"], json!("leaving"));
+	let broken = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let outcome = deactivate(5_101, &broken).await.unwrap();
+	let after = browser
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await;
+
+	// Assert
+	assert!(matches!(
+		outcome,
+		DeactivateOutcome::Deactivated {
+			sessions: SessionsStep::NotEnded(_),
+			..
+		}
+	));
+	assert_eq!(after.json(), json!(null));
 }

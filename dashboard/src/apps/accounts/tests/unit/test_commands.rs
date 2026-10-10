@@ -4,6 +4,7 @@ use reinhardt::commands::CapabilityCommand;
 use rstest::rstest;
 
 use crate::apps::accounts::server::commands::create_login_link::CreateLoginLinkCommand;
+use crate::apps::accounts::server::commands::deactivate_user::DeactivateUserCommand;
 use crate::apps::accounts::server::commands::end_sessions::EndSessionsCommand;
 use crate::apps::accounts::server::commands::grant_staff::GrantStaffCommand;
 use crate::apps::accounts::server::commands::reactivate_user::ReactivateUserCommand;
@@ -16,6 +17,7 @@ use crate::config::commands::registry;
 #[case("repoint-github-account")]
 #[case("end-sessions")]
 #[case("reactivate-user")]
+#[case("deactivate-user")]
 fn the_operator_commands_are_registered_by_name(#[case] name: &str) {
 	// Arrange
 	let registry = registry();
@@ -37,6 +39,7 @@ fn the_command_definitions_are_valid_clap_commands() {
 		RepointGithubAccountCommand.cli(),
 		EndSessionsCommand.cli(),
 		ReactivateUserCommand.cli(),
+		DeactivateUserCommand.cli(),
 	];
 
 	// Act / Assert
@@ -54,6 +57,7 @@ fn every_identifier_argument_is_a_required_numeric_github_user_id() {
 	let repoint = RepointGithubAccountCommand.cli();
 	let end = EndSessionsCommand.cli();
 	let reactivate = ReactivateUserCommand.cli();
+	let deactivate = DeactivateUserCommand.cli();
 
 	// Act
 	let required: Vec<_> = [
@@ -63,6 +67,7 @@ fn every_identifier_argument_is_a_required_numeric_github_user_id() {
 		(&repoint, "new-github-user-id"),
 		(&end, "github-user-id"),
 		(&reactivate, "github-user-id"),
+		(&deactivate, "github-user-id"),
 	]
 	.iter()
 	.map(|(command, id)| {
@@ -74,7 +79,7 @@ fn every_identifier_argument_is_a_required_numeric_github_user_id() {
 	.collect();
 
 	// Assert
-	assert_eq!(required, [Some(true); 6]);
+	assert_eq!(required, [Some(true); 7]);
 }
 
 #[rstest]

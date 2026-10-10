@@ -1,4 +1,4 @@
-//! Host-operator recovery of a User's sessions and activation.
+//! Host-operator control of a User's sessions and activation.
 //!
 //! These are the tools the fail-closed paths point to. When re-pointing cannot
 //! end a User's sessions it deactivates the User; when Staff revocation cannot
@@ -7,10 +7,11 @@
 //! valid again the moment the User is active. Reactivation therefore always ends
 //! every session first, and refuses to reactivate when that fails.
 //!
-//! Both operations are reachable only from `manage` (`end-sessions`,
-//! `reactivate-user`), never from a request: the admin site is no recovery path
-//! because it needs an active Staff User, and the User who needs recovering may
-//! be the only one.
+//! The operations are reachable only from `manage` (`end-sessions`,
+//! `reactivate-user`, `deactivate-user`), never from a request: the admin site
+//! is no recovery path because it needs an active Staff User, and the User who
+//! needs recovering may be the only one. The User admin is read-only (including
+//! `is_active`), so these three commands are the whole activation path.
 
 use reinhardt::core::exception::Error as OrmError;
 use reinhardt::db::orm::Model;
@@ -216,4 +217,123 @@ async fn reactivate_inner(
 		user_id: user.id,
 		sessions_ended,
 	})
+}
+
+/// The sessions step of a deactivation, which is best effort.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionsStep {
+	/// Every session was ended; this many were live.
+	Ended(usize),
+	/// The sessions could not be ended (the reason is attached). The User is
+	/// inactive regardless, so every leftover session is refused on its next
+	/// request; `end-sessions` removes them once Redis is back.
+	NotEnded(String),
+}
+
+/// How a deactivation ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeactivateOutcome {
+	/// The User is inactive now.
+	Deactivated {
+		/// The User.
+		user_id: Uuid,
+		/// What happened when the sessions were ended afterwards.
+		sessions: SessionsStep,
+	},
+	/// The User was already inactive; nothing changed and no session was touched.
+	Unchanged {
+		/// The User.
+		user_id: Uuid,
+	},
+}
+
+/// Deactivate the User with `github_user_id`, then try to end their sessions.
+///
+/// Setting `is_active = false` is what makes every session of the User useless:
+/// `SessionAuthMiddleware` reads the flag from the database on every request. So
+/// ending the sessions afterwards is best effort and its failure does not fail
+/// the command: the outcome carries it ([`SessionsStep::NotEnded`]) and an
+/// `accounts.deactivate.failed` event with reason `sessions_not_ended` follows
+/// the success event. A User who is already inactive is `Unchanged`.
+///
+/// Audited as `accounts.deactivate.succeeded` (reason `deactivated` or
+/// `unchanged`), `.denied` (`unknown_user`, `invalid_github_user_id`), and
+/// `.failed` (`storage`, or `sessions_not_ended` after a success).
+///
+/// # Errors
+///
+/// Returns [`RecoveryError`] when the ID is invalid or unknown, or the database
+/// fails. A failure to end sessions is not an error.
+pub async fn deactivate(
+	github_user_id: i64,
+	sessions: &dyn SessionRevoker,
+) -> Result<DeactivateOutcome, RecoveryError> {
+	let event = |name, outcome| {
+		AuditEvent::new(name, ActorKind::HostOperator, outcome).github_user(github_user_id)
+	};
+	let changed = match deactivate_user(github_user_id).await {
+		Ok(changed) => changed,
+		Err(error) => {
+			let (name, outcome, reason) = match &error {
+				RecoveryError::InvalidGithubUserId => (
+					"accounts.deactivate.denied",
+					Outcome::Denied,
+					"invalid_github_user_id",
+				),
+				RecoveryError::UnknownUser => (
+					"accounts.deactivate.denied",
+					Outcome::Denied,
+					"unknown_user",
+				),
+				RecoveryError::SessionsNotEnded(_) | RecoveryError::Storage(_) => {
+					("accounts.deactivate.failed", Outcome::Failed, "storage")
+				}
+			};
+			event(name, outcome).reason(reason).emit();
+			return Err(error);
+		}
+	};
+	let (user_id, deactivated) = changed;
+	if !deactivated {
+		event("accounts.deactivate.succeeded", Outcome::Succeeded)
+			.subject_user(user_id)
+			.reason("unchanged")
+			.emit();
+		return Ok(DeactivateOutcome::Unchanged { user_id });
+	}
+	event("accounts.deactivate.succeeded", Outcome::Succeeded)
+		.subject_user(user_id)
+		.reason("deactivated")
+		.emit();
+
+	let step = match sessions.destroy_all_for_user(user_id).await {
+		Ok(ended) => SessionsStep::Ended(ended),
+		Err(cause) => {
+			event("accounts.deactivate.failed", Outcome::Failed)
+				.subject_user(user_id)
+				.reason("sessions_not_ended")
+				.emit();
+			SessionsStep::NotEnded(cause.to_string())
+		}
+	};
+	Ok(DeactivateOutcome::Deactivated {
+		user_id,
+		sessions: step,
+	})
+}
+
+/// Set `is_active = false`; returns the User and whether anything changed.
+async fn deactivate_user(github_user_id: i64) -> Result<(Uuid, bool), RecoveryError> {
+	let user = find(github_user_id).await?;
+	if !user.is_active {
+		return Ok((user.id, false));
+	}
+	User::objects()
+		.filter(User::field_id().eq(user.id))
+		.update_fields([
+			User::field_is_active().assign(false),
+			User::field_updated_at().assign(persisted_now()),
+		])
+		.await?;
+	Ok((user.id, true))
 }

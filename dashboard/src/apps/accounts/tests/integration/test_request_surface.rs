@@ -568,9 +568,10 @@ async fn sr_13_the_spa_shell_currently_carries_no_security_headers_upstream_gap(
 
 /// A route-name heuristic, and only a backstop. It catches a handler that is
 /// obviously named like a Staff grant, a Login Link issuance, a re-pointing, or
-/// one of the recovery tools (`end-sessions`, `reactivate-user`), but a route can be named anything. The guarantee that no request moves a User
-/// to another GitHub account is structural and is tested separately: the admin
-/// site cannot edit `github_user_id` or `is_staff`
+/// one of the activation tools (`end-sessions`, `reactivate-user`,
+/// `deactivate-user`), but a route can be named anything. The guarantee that no
+/// request moves a User to another GitHub account is structural and is tested
+/// separately: the admin site cannot edit `github_user_id` or `is_staff`
 /// (`sr_107_admin_cannot_move_a_user_to_another_github_account`,
 /// `sr_20_admin_cannot_change_staff_or_identity_fields`), and the services that
 /// do those things are called only from the `manage` commands.
@@ -607,9 +608,10 @@ async fn sr_18_20_107_no_route_issues_a_link_grants_staff_or_moves_a_user() {
 			"reactivate",
 			"end_sessions",
 			"end-sessions",
+			"deactivate",
 		])
 		.is_empty(),
-		"Staff grants, Login Link issuance, re-pointing, and the recovery tools (`end-sessions`, `reactivate-user`) exist only as `manage` commands: {paths:?}"
+		"Staff grants, Login Link issuance, re-pointing, and the activation tools (`end-sessions`, `reactivate-user`, `deactivate-user`) exist only as `manage` commands: {paths:?}"
 	);
 	assert_eq!(
 		mentioning(&["login_link", "login-link", "loginlink"]),

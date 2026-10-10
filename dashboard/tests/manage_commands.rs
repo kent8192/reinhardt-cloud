@@ -777,6 +777,7 @@ async fn sr_107_the_only_staff_user_recovers_through_the_commands_alone() {
 #[case::end_sessions(&["end-sessions"])]
 #[case::reactivate_user(&["reactivate-user"])]
 #[case::reactivate_zero(&["reactivate-user", "--github-user-id", "0"])]
+#[case::deactivate_user(&["deactivate-user"])]
 #[tokio::test]
 #[serial(database)]
 async fn sr_107_the_recovery_commands_require_a_positive_numeric_id(#[case] args: &[&str]) {
@@ -789,4 +790,101 @@ async fn sr_107_the_recovery_commands_require_a_positive_numeric_id(#[case] args
 	// Assert
 	assert_eq!(run.status, 2, "{}", run.stderr);
 	assert!(run.audit_events().is_empty());
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivate_user_deactivates_ends_sessions_and_is_undone_by_reactivate_user() {
+	// Arrange
+	let host = Host::start().await;
+	let (user, session) = staff_with_session(&host, 70_060).await;
+
+	// Act
+	let deactivated = host.manage(&["deactivate-user", "--github-user-id", "70060"]);
+	let again = host.manage(&["deactivate-user", "--github-user-id", "70060"]);
+
+	// Assert
+	assert_eq!(deactivated.status, 0, "{}", deactivated.stderr);
+	assert!(
+		deactivated
+			.stdout
+			.contains("is deactivated; 1 session(s) ended"),
+		"{}",
+		deactivated.stdout
+	);
+	let after = user_of(70_060).await.unwrap();
+	assert_eq!(after.id, user.id);
+	assert!(!after.is_active && after.is_staff);
+	assert_eq!(host.sessions().resolve(&session.token).await.unwrap(), None);
+	let records = deactivated.audit_records();
+	assert_eq!(records.len(), 1, "{}", deactivated.stderr);
+	assert_eq!(records[0]["event"], "accounts.deactivate.succeeded");
+	assert_eq!(records[0]["reason"], "deactivated");
+	assert_eq!(records[0]["actor_kind"], "host_operator");
+	assert_eq!(records[0]["github_user_id"], 70_060);
+
+	assert_eq!(again.status, 0, "{}", again.stderr);
+	assert!(
+		again.stdout.contains("already inactive"),
+		"{}",
+		again.stdout
+	);
+	assert_eq!(again.audit_records()[0]["reason"], "unchanged");
+
+	let back = host.manage(&["reactivate-user", "--github-user-id", "70060"]);
+	assert_eq!(back.status, 0, "{}", back.stderr);
+	assert!(user_of(70_060).await.unwrap().is_active);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivate_user_succeeds_without_redis_and_says_so() {
+	// Arrange: Redis is down, so the sessions cannot be deleted.
+	let host = Host::start().await;
+	staff_with_session(&host, 70_061).await;
+	host.stop_redis().await;
+
+	// Act
+	let run = host.manage(&["deactivate-user", "--github-user-id", "70061"]);
+
+	// Assert
+	assert_eq!(
+		run.status, 0,
+		"the inactive flag is what stops the User: {}",
+		run.stderr
+	);
+	assert!(!user_of(70_061).await.unwrap().is_active);
+	assert!(run.stdout.contains("is deactivated"), "{}", run.stdout);
+	assert!(
+		run.stderr
+			.contains("manage end-sessions --github-user-id 70061"),
+		"{}",
+		run.stderr
+	);
+	assert_eq!(
+		run.audit_events(),
+		[
+			"accounts.deactivate.succeeded",
+			"accounts.deactivate.failed"
+		]
+	);
+	assert_eq!(run.audit_records()[1]["reason"], "sessions_not_ended");
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_107_deactivate_user_refuses_an_unknown_user() {
+	// Arrange
+	let host = Host::start().await;
+
+	// Act
+	let run = host.manage(&["deactivate-user", "--github-user-id", "70062"]);
+
+	// Assert
+	assert_ne!(run.status, 0);
+	assert_eq!(run.audit_events(), ["accounts.deactivate.denied"]);
+	assert_eq!(run.audit_records()[0]["reason"], "unknown_user");
 }
