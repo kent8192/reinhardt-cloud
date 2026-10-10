@@ -17,6 +17,7 @@ mod unit {
 
 mod integration {
 	mod test_github_flow;
+	mod test_login_links;
 	mod test_provider_token_refresh;
 	mod test_provider_tokens;
 	mod test_request_surface;
