@@ -1,0 +1,83 @@
+/*
+ * Reinhardt Cloud Dashboard utilities.
+ *
+ * The `style!` DSL has no way to read non-scalar tokens (font stacks,
+ * elevations, easing curves), to declare `@keyframes`, or to set properties
+ * such as `animation`, `appearance`, or `font-variant-numeric`. Components
+ * compose these `rc-` classes next to their scoped class tokens for exactly
+ * those cases. Each class has a single purpose and reads tokens only.
+ *
+ * Load after the generated component stylesheet so a utility wins over a
+ * component declaration of equal specificity.
+ */
+
+@keyframes rc-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes rc-dialog-enter {
+	from {
+		opacity: 0;
+		transform: translateY(0.5rem);
+	}
+}
+
+.rc-font-display {
+	font-family: var(--font-display);
+}
+
+.rc-font-mono {
+	font-family: var(--font-mono);
+}
+
+.rc-elevation-1 {
+	box-shadow: var(--elevation-1);
+}
+
+.rc-elevation-2 {
+	box-shadow: var(--elevation-2);
+}
+
+.rc-transition-colors {
+	transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Spinning ring marker: the badge draws its marker with ::before. */
+.rc-spin::before {
+	animation: rc-spin 1.1s linear infinite;
+}
+
+.rc-dialog-enter[open] {
+	animation: rc-dialog-enter var(--duration-base) var(--ease-enter);
+}
+
+/* Native select with the design's chevron instead of the platform arrow. */
+.rc-select-chevron {
+	appearance: none;
+	background-image: linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%), linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+	background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+	background-size: 5px 5px, 5px 5px;
+	background-repeat: no-repeat;
+}
+
+/* Content for assistive technology only, such as a table caption. */
+.rc-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.rc-spin::before,
+	.rc-dialog-enter[open] {
+		animation: none;
+	}
+}

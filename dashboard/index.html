@@ -5,8 +5,13 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="color-scheme" content="light dark">
 	<title>Reinhardt Cloud</title>
+	<script src='{{ static_url("js/theme-init.js") }}'></script>
+	<link rel="stylesheet" href='{{ static_url("css/tokens.css") }}'>
+	<link rel="stylesheet" href='{{ static_url("css/base.css") }}'>
 	<link rel="stylesheet" href='{{ static_url("__reinhardt__/components.css") }}'>
+	<link rel="stylesheet" href='{{ static_url("css/utilities.css") }}'>
 	<style>
 		.loading {
 			display: flex;
@@ -17,8 +22,8 @@
 		.spinner {
 			width: 2rem;
 			height: 2rem;
-			border: 0.25rem solid #d0d7de;
-			border-top-color: #4b5563;
+			border: 0.25rem solid var(--border-default);
+			border-top-color: var(--ink-muted);
 			border-radius: 50%;
 			animation: spin 0.8s linear infinite;
 		}
