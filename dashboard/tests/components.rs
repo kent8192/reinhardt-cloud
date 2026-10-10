@@ -1,31 +1,31 @@
-//! Native tests for the design-system components.
+//! Native tests for the design applied to `reinhardt-pages` primitives and for
+//! the custom components that have no primitive.
 
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use cloud_control_plane::components::alert::{ALERT_STYLES, AlertTone, alert, alert_classes};
+use cloud_control_plane::components::badge::{BadgeStatus, badge, badge_classes, chip};
+use cloud_control_plane::components::button::{
+	ButtonProps, ButtonSize, ButtonVariant, button, button_class, button_classes, link_button,
+};
+use cloud_control_plane::components::code_block::code_block;
+use cloud_control_plane::components::dialog::{
+	DIALOG_STYLES, DialogProps, dialog_classes, dialog_view, open_dialog,
+};
+use cloud_control_plane::components::empty_state::empty_state;
+use cloud_control_plane::components::form_styles::{FORM_STYLES, form_classes};
+use cloud_control_plane::components::layout::signed_out::{MAIN_ID, signed_out_layout};
+use cloud_control_plane::components::theme::{Theme, theme_toggle};
 use cloud_control_plane::i18n::i18n_context;
-use cloud_control_plane::ui::alert::{AlertTone, alert, alert_classes};
-use cloud_control_plane::ui::badge::{BadgeStatus, badge, badge_classes, chip};
-use cloud_control_plane::ui::button::{
-	ButtonProps, ButtonSize, ButtonVariant, button, button_classes, link_button,
-};
-use cloud_control_plane::ui::code_block::code_block;
-use cloud_control_plane::ui::dialog::{DIALOG_STYLES, DialogProps, dialog, dialog_classes};
-use cloud_control_plane::ui::empty_state::empty_state;
-use cloud_control_plane::ui::field::{
-	FIELD_STYLES, SelectFieldProps, SelectOption, TextFieldProps, control_classes, select_field,
-	text_field,
-};
-use cloud_control_plane::ui::layout::signed_out::{MAIN_ID, signed_out_layout};
-use cloud_control_plane::ui::table::{TABLE_STYLES, TableColumn, data_table};
-use cloud_control_plane::ui::theme::{Theme, theme_toggle};
-use reinhardt::pages::component::Page;
+use reinhardt::pages::component::{Component, Outlet, Page};
 use reinhardt::pages::event::ClickEvent;
 use reinhardt::pages::i18n::provide_i18n_context;
-use reinhardt::pages::reactive::{ReactiveScope, Signal};
+use reinhardt::pages::reactive::{ReactiveScope, ResourceState, use_action, use_resource};
 use reinhardt::pages::testing::component::{Role, render};
-use reinhardt::pages::{Callback, page, t};
+use reinhardt::pages::ui::{ActionButton, ActionResultPanel, ResourcePanel};
+use reinhardt::pages::{Callback, deps, page, t};
 use rstest::rstest;
 use serial_test::serial;
 
@@ -222,169 +222,7 @@ fn empty_state_renders_title_body_and_action() {
 
 #[rstest]
 #[serial(i18n)]
-fn text_field_pairs_label_and_input_and_binds_the_value() {
-	within_ui(|| {
-		// Arrange
-		let value = Signal::new(String::new());
-		let props = TextFieldProps::new("display-name", t!("Copy"), value);
-		let screen = render(text_field(props));
-
-		// Act
-		screen.get_by_label("Copy").input("Ada");
-
-		// Assert
-		assert_eq!(value.get_untracked(), "Ada");
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn text_field_marks_the_control_invalid_and_describes_it() {
-	within_ui(|| {
-		// Arrange
-		let value = Signal::new(String::new());
-		let props = TextFieldProps::new("display-name", t!("Copy"), value)
-			.hint(t!("Skip to main content"))
-			.error(t!("Copied"));
-
-		// Act
-		let screen = render(text_field(props));
-
-		// Assert
-		assert_eq!(
-			screen.pretty(),
-			format!(
-				concat!(
-					"<div class=\"{field}\">\n",
-					"  <label class=\"{label}\" for=\"display-name\">\n    Copy\n  </label>\n",
-					"  <input id=\"display-name\" type=\"text\" class=\"{control}\" placeholder=\"\" aria-invalid=\"true\" aria-describedby=\"display-name-hint display-name-error\" value=\"\">\n",
-					"  <p id=\"display-name-hint\" class=\"{hint}\">\n    Skip to main content\n  </p>\n",
-					"  <p id=\"display-name-error\" class=\"{error}\">\n    Copied\n  </p>\n",
-					"</div>\n",
-				),
-				field = class_value(FIELD_STYLES.field()),
-				label = class_value(FIELD_STYLES.label()),
-				control = class_value(control_classes(false, false)),
-				hint = class_value(FIELD_STYLES.hint()),
-				error = class_value(FIELD_STYLES.error()),
-			)
-		);
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn select_field_lists_options_and_binds_the_selection() {
-	within_ui(|| {
-		// Arrange
-		let value = Signal::new("viewer".to_owned());
-		let options = vec![
-			SelectOption {
-				value: "viewer".to_owned(),
-				label: t!("Copy"),
-			},
-			SelectOption {
-				value: "owner".to_owned(),
-				label: t!("Copied"),
-			},
-		];
-		let props = SelectFieldProps::new("role", t!("Skip to main content"), value, options);
-		let screen = render(select_field(props));
-
-		// Act
-		screen.get_by_label("Skip to main content").change("owner");
-
-		// Assert
-		assert_eq!(value.get_untracked(), "owner");
-		assert_eq!(screen.get_by_text("Copy").text(), "Copy");
-		assert_eq!(screen.get_by_text("Copied").text(), "Copied");
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn data_table_renders_caption_headers_and_row_headers() {
-	within_ui(|| {
-		// Arrange
-		let columns = vec![
-			TableColumn::new(t!("Copy")),
-			TableColumn::new(t!("Copied")).align_end(),
-		];
-		let rows = vec![vec![Page::text("alice"), Page::text("owner")]];
-
-		// Act
-		let screen = render(data_table(t!("Skip to main content"), columns, rows));
-
-		// Assert
-		assert_eq!(
-			screen.pretty(),
-			format!(
-				concat!(
-					"<div class=\"{wrap}\">\n",
-					"  <table class=\"{table}\">\n",
-					"    <caption class=\"rc-visually-hidden\">\n      Skip to main content\n    </caption>\n",
-					"    <thead>\n      <tr>\n",
-					"        <th scope=\"col\" class=\"\">\n          Copy\n        </th>\n",
-					"        <th scope=\"col\" class=\"{end}\">\n          Copied\n        </th>\n",
-					"      </tr>\n    </thead>\n",
-					"    <tbody>\n      <tr>\n",
-					"        <th scope=\"row\" class=\"\">\n          alice\n        </th>\n",
-					"        <td class=\"{end}\">\n          owner\n        </td>\n",
-					"      </tr>\n    </tbody>\n",
-					"  </table>\n</div>\n",
-				),
-				wrap = class_value(TABLE_STYLES.wrap()),
-				table = class_value(TABLE_STYLES.table()),
-				end = class_value(TABLE_STYLES.end()),
-			)
-		);
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn dialog_is_labelled_by_its_title_and_starts_closed() {
-	within_ui(|| {
-		// Arrange
-		let props = DialogProps::new(
-			"confirm",
-			t!("Copy"),
-			Page::text("Body text"),
-			button(ButtonProps::new(t!("Copied"))),
-		);
-
-		// Act
-		let screen = render(dialog(props));
-
-		// Assert
-		assert_eq!(
-			screen.pretty(),
-			format!(
-				concat!(
-					"<dialog id=\"confirm\" class=\"{dialog}\" aria-labelledby=\"confirm-title\">\n",
-					"  <h2 id=\"confirm-title\" class=\"{title}\">\n    Copy\n  </h2>\n",
-					"  <div class=\"{body}\">\n    Body text\n  </div>\n",
-					"  <div class=\"{actions}\">\n",
-					"    <button class=\"{button}\" type=\"button\">\n      Copied\n    </button>\n",
-					"  </div>\n",
-					"</dialog>\n",
-				),
-				dialog = class_value(dialog_classes()),
-				title = class_value(DIALOG_STYLES.title()),
-				body = class_value(DIALOG_STYLES.body()),
-				actions = class_value(DIALOG_STYLES.actions()),
-				button = class_value(button_classes(
-					ButtonVariant::Secondary,
-					ButtonSize::Regular
-				)),
-			)
-		);
-	});
-}
-
-#[rstest]
-#[serial(i18n)]
-fn code_block_shows_the_text_and_a_labelled_copy_button() {
+fn code_block_shows_the_text_and_a_copy_button_named_after_its_title() {
 	within_ui(|| {
 		// Arrange
 		let command = "reinhardt-cloud login".to_owned();
@@ -401,8 +239,13 @@ fn code_block_shows_the_text_and_a_labelled_copy_button() {
 			screen.get_by_text("Skip to main content").text(),
 			"Skip to main content"
 		);
-		let copy = screen.get_by_role(Role::Button, "Copy");
+		let copy = screen.get_by_role(Role::Button, "Copy Skip to main content");
 		assert_eq!(copy.text(), "Copy");
+		assert!(
+			screen
+				.pretty()
+				.contains("aria-label=\"Copy Skip to main content\"")
+		);
 	});
 }
 
@@ -521,5 +364,239 @@ fn signed_out_layout_hides_a_decorative_aside_from_assistive_technology() {
 		// Assert
 		assert!(html.contains("aria-hidden=\"true\" inert=\"inert\""));
 		assert!(screen.query_by_text("Preview").is_none());
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn copy_buttons_of_different_blocks_have_different_accessible_names() {
+	within_ui(|| {
+		// Arrange
+		let first = render(code_block("first", t!("Copy"), "one".to_owned()));
+		let second = render(code_block("second", t!("Copied"), "two".to_owned()));
+
+		// Act
+		let first_button = first.get_by_role(Role::Button, "Copy Copy");
+		let second_button = second.get_by_role(Role::Button, "Copy Copied");
+
+		// Assert
+		assert_eq!(first_button.text(), "Copy");
+		assert_eq!(second_button.text(), "Copy");
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn action_button_carries_the_design_classes() {
+	within_ui(|| {
+		// Arrange
+		let action = use_action(|_: u32| async { Ok::<u32, String>(1) });
+		let button = ActionButton::new(action, 7_u32, t!("Copy")).attr(
+			"class",
+			button_class(ButtonVariant::Primary, ButtonSize::Small),
+		);
+
+		// Act
+		let html = button.render().render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<button type=\"button\" class=\"{}\">Copy</button>",
+				class_value(button_classes(ButtonVariant::Primary, ButtonSize::Small)),
+			)
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn resource_panel_presents_each_state_with_the_design_slots() {
+	within_ui(|| {
+		// Arrange
+		let resource = use_resource(|| async { Ok::<Vec<String>, String>(Vec::new()) }, deps![]);
+		let page = ResourcePanel::new(resource)
+			.loading(|| Page::text("loading"))
+			.empty_if(Vec::is_empty)
+			.empty(|_| empty_state(t!("Copy"), t!("Copied"), None))
+			.success(|items| Page::text(format!("items:{}", items.len())))
+			.error(|message| alert(AlertTone::Danger, t!("Copy"), Page::text(message.clone())))
+			.render();
+
+		// Act
+		resource.set(ResourceState::Success(Vec::new()));
+		let empty = page.render_to_string();
+		resource.set(ResourceState::Success(vec!["one".to_owned()]));
+		let success = page.render_to_string();
+		resource.set(ResourceState::Error("boom".to_owned()));
+		let error = page.render_to_string();
+
+		// Assert
+		assert_eq!(
+			empty,
+			empty_state(t!("Copy"), t!("Copied"), None).render_to_string()
+		);
+		assert_eq!(success, "items:1");
+		assert_eq!(
+			error,
+			alert(AlertTone::Danger, t!("Copy"), Page::text("boom")).render_to_string()
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+#[tokio::test]
+async fn failed_action_is_presented_with_the_alert_next_to_the_styled_button() {
+	// Arrange
+	let _i18n = provide_i18n_context(i18n_context());
+	let screen = render(|| {
+		let action = use_action(|_: ()| async { Err::<(), String>("boom".to_owned()) });
+		let trigger = ActionButton::new(action, (), t!("Copy"))
+			.attr(
+				"class",
+				button_class(ButtonVariant::Primary, ButtonSize::Regular),
+			)
+			.render();
+		let result = ActionResultPanel::new(action)
+			.idle(|| Page::text("idle"))
+			.error(|message| alert(AlertTone::Danger, t!("Copied"), Page::text(message.clone())))
+			.render();
+		page!({
+			{
+				trigger
+			}
+			{ result }
+		})
+	});
+	let before = screen.pretty();
+
+	// Act
+	screen.get_by_role(Role::Button, "Copy").click();
+	screen.settle().await;
+	let after = screen.pretty();
+
+	// Assert
+	assert!(before.ends_with("idle\n"));
+	assert_eq!(
+		after,
+		format!(
+			concat!(
+				"<button type=\"button\" class=\"{button}\">\n  Copy\n</button>\n",
+				"<div class=\"{alert}\" role=\"alert\">\n",
+				"  <p class=\"{title}\">\n    Copied\n  </p>\n",
+				"  <p class=\"{body}\">\n    boom\n  </p>\n",
+				"</div>\n",
+			),
+			button = class_value(button_classes(ButtonVariant::Primary, ButtonSize::Regular)),
+			alert = class_value(alert_classes(AlertTone::Danger)),
+			title = class_value(ALERT_STYLES.title()),
+			body = class_value(ALERT_STYLES.body()),
+		)
+	);
+}
+
+#[rstest]
+#[serial(i18n)]
+fn dialog_view_is_labelled_by_its_title_and_starts_closed() {
+	within_ui(|| {
+		// Arrange
+		let props = DialogProps::new(
+			"confirm",
+			t!("Copy"),
+			Page::text("Body text"),
+			button(ButtonProps::new(t!("Copied"))),
+		);
+
+		// Act
+		let screen = render(dialog_view(props));
+
+		// Assert
+		assert_eq!(
+			screen.pretty(),
+			format!(
+				concat!(
+					"<dialog id=\"confirm\" class=\"{dialog}\" aria-labelledby=\"confirm-title\">\n",
+					"  <h2 id=\"confirm-title\" class=\"{title}\">\n    Copy\n  </h2>\n",
+					"  <div class=\"{body}\">\n    Body text\n  </div>\n",
+					"  <div class=\"{actions}\">\n",
+					"    <button class=\"{button}\" type=\"button\">\n      Copied\n    </button>\n",
+					"  </div>\n",
+					"</dialog>\n",
+				),
+				dialog = class_value(dialog_classes()),
+				title = class_value(DIALOG_STYLES.title()),
+				body = class_value(DIALOG_STYLES.body()),
+				actions = class_value(DIALOG_STYLES.actions()),
+				button = class_value(button_classes(
+					ButtonVariant::Secondary,
+					ButtonSize::Regular
+				)),
+			)
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn open_dialog_mounts_nothing_on_the_server_target() {
+	within_ui(|| {
+		// Arrange
+		let props = DialogProps::new("confirm", t!("Copy"), Page::text("Body"), Page::empty());
+
+		// Act
+		let open = open_dialog(props).expect("portals accept any view on the server target");
+
+		// Assert
+		assert!(!open.is_open());
+	});
+}
+
+#[rstest]
+fn form_classes_compose_the_design_for_client_forms() {
+	// Arrange / Act
+	let classes = form_classes();
+
+	// Assert
+	assert_eq!(classes.form, class_value(FORM_STYLES.form()));
+	assert_eq!(classes.field, class_value(FORM_STYLES.field()));
+	assert_eq!(classes.input, class_value(FORM_STYLES.input()));
+	assert_eq!(classes.label, class_value(FORM_STYLES.label()));
+	assert_eq!(classes.help, class_value(FORM_STYLES.help()));
+	assert_eq!(classes.error, class_value(FORM_STYLES.error()));
+	assert_eq!(classes.summary, class_value(FORM_STYLES.summary()));
+	assert_eq!(
+		classes.select,
+		format!(
+			"{} {} rc-select-chevron",
+			class_value(FORM_STYLES.input()),
+			class_value(FORM_STYLES.select())
+		)
+	);
+	assert_eq!(
+		classes.submit,
+		class_value(button_classes(ButtonVariant::Primary, ButtonSize::Regular))
+	);
+}
+
+#[rstest]
+#[serial(i18n)]
+fn signed_out_layout_renders_a_router_outlet_as_its_content() {
+	within_ui(|| {
+		// Arrange
+		let outlet = Outlet::inline(page!({
+			h1 { "Welcome" }
+		}));
+
+		// Act
+		let screen = render(|| signed_out_layout(outlet, None));
+
+		// Assert
+		assert_eq!(
+			screen.get_by_role(Role::Heading, "Welcome").text(),
+			"Welcome"
+		);
+		assert!(screen.pretty().contains(&format!("<main id=\"{MAIN_ID}\"")));
 	});
 }

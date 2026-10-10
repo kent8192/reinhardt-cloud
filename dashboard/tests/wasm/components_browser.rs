@@ -1,21 +1,27 @@
-//! Browser tests for the signed-out layout and its theme toggle.
+//! Browser tests for the signed-out layout, theme toggle, portal dialog, copy
+//! button, and the `Table` primitive with the design styles.
 //!
 //! The file is gated on the `client` cfg alias, so it compiles to nothing on
 //! native targets and only runs under `cargo make wasm-test`.
 
 #![cfg(client)]
 
+use cloud_control_plane::components::button::{ButtonProps, button};
+use cloud_control_plane::components::code_block::code_block;
+use cloud_control_plane::components::dialog::{DialogProps, open_dialog};
+use cloud_control_plane::components::layout::signed_out::signed_out_layout;
+use cloud_control_plane::components::table_styles::TABLE_STYLES;
+use cloud_control_plane::components::theme::{STORAGE_KEY, Theme, current_theme};
 use cloud_control_plane::i18n::i18n_context;
-use cloud_control_plane::ui::button::{ButtonProps, button};
-use cloud_control_plane::ui::dialog::{self, DialogProps, dialog};
-use cloud_control_plane::ui::layout::signed_out::signed_out_layout;
-use cloud_control_plane::ui::theme::{STORAGE_KEY, Theme, current_theme};
+use reinhardt::pages::builder::html::{div, table, tbody, tr};
 use reinhardt::pages::component::{Page, PageExt};
 use reinhardt::pages::i18n::{I18nContext, provide_i18n_context};
 use reinhardt::pages::reactive::ReactiveScope;
+use reinhardt::pages::tables::columns::Column;
+use reinhardt::pages::tables::{ColumnTrait, SortDirection, Table};
 use reinhardt::pages::{Element as DomElement, document, page, t};
 use rstest::{fixture, rstest};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 use web_sys::HtmlElement;
 
@@ -119,6 +125,43 @@ async fn next_tick() {
 	wasm_bindgen_futures::JsFuture::from(promise)
 		.await
 		.expect("timeout promise resolves");
+}
+
+/// Simulates a non-secure origin, where `navigator.clipboard` is `undefined`,
+/// and counts uncaught errors until dropped.
+struct NoClipboard;
+
+impl NoClipboard {
+	fn run(script: &str) -> JsValue {
+		js_sys::Function::new_no_args(script)
+			.call0(&JsValue::NULL)
+			.expect("test script runs")
+	}
+
+	fn new() -> Self {
+		Self::run(
+			"window.__rcUncaught = 0;
+			window.__rcOnError = () => { window.__rcUncaught += 1; };
+			window.addEventListener('error', window.__rcOnError);
+			Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });",
+		);
+		Self
+	}
+
+	fn uncaught_errors(&self) -> f64 {
+		Self::run("return window.__rcUncaught;")
+			.as_f64()
+			.expect("error counter is a number")
+	}
+}
+
+impl Drop for NoClipboard {
+	fn drop(&mut self) {
+		Self::run(
+			"delete navigator.clipboard;
+			window.removeEventListener('error', window.__rcOnError);",
+		);
+	}
 }
 
 #[fixture]
@@ -231,27 +274,132 @@ async fn theme_toggle_label_names_the_theme_it_switches_to(sandbox: Sandbox) {
 
 #[rstest]
 #[wasm_bindgen_test]
-fn dialog_opens_as_a_modal_and_closes(sandbox: Sandbox) {
+fn dialog_opens_as_a_modal_in_a_portal_and_closes_when_dropped(sandbox: Sandbox) {
 	// Arrange
-	sandbox.mount(|| {
-		dialog(DialogProps::new(
-			"confirm",
-			t!("Copy"),
-			Page::text("Body text"),
-			button(ButtonProps::new(t!("Copied"))),
-		))
-	});
-	let element = sandbox.query("dialog#confirm");
+	let props = DialogProps::new(
+		"confirm",
+		t!("Copy"),
+		Page::text("Body text"),
+		button(ButtonProps::new(t!("Copied"))),
+	);
+	let find = || {
+		document()
+			.query_selector("dialog#confirm")
+			.expect("valid selector")
+	};
 
 	// Act
-	let before = element.has_attribute("open");
-	dialog::show_modal("confirm");
-	let while_open = element.has_attribute("open");
-	dialog::close("confirm");
-	let after = element.has_attribute("open");
+	let open = sandbox
+		._scope
+		.enter(|| open_dialog(props))
+		.expect("dialog mounts");
+	let element = find().expect("dialog is mounted under the body");
+	let modal = element.as_web_sys().has_attribute("open");
+	let in_sandbox = sandbox
+		.root
+		.as_web_sys()
+		.contains(Some(element.as_web_sys()));
+	drop(open);
+	let after_drop = find();
 
 	// Assert
-	assert!(!before);
-	assert!(while_open);
-	assert!(!after);
+	assert!(modal);
+	assert!(!in_sandbox);
+	assert!(after_drop.is_none());
+}
+
+/// A table built on the `Table` primitive with the design's scoped classes.
+struct MembersTable {
+	name: Column<String>,
+	rows: Vec<String>,
+}
+
+impl Table for MembersTable {
+	type Row = String;
+
+	fn rows(&self) -> Vec<&String> {
+		self.rows.iter().collect()
+	}
+
+	fn columns(&self) -> Vec<&dyn ColumnTrait> {
+		vec![&self.name]
+	}
+
+	fn render(&self) -> DomElement {
+		let mut body = tbody();
+		for row in &self.rows {
+			body = body.child(tr().child(self.name.render(row)).build());
+		}
+		div()
+			.class(TABLE_STYLES.wrap().as_str())
+			.child(
+				table()
+					.class(TABLE_STYLES.table().as_str())
+					.child(body.build())
+					.build(),
+			)
+			.build()
+	}
+
+	fn handle_sort(&mut self, _field: &str, _direction: SortDirection) {}
+
+	fn handle_pagination(&mut self, _page: usize) {}
+}
+
+#[rstest]
+#[wasm_bindgen_test]
+fn table_primitive_renders_with_the_design_classes(sandbox: Sandbox) {
+	// Arrange
+	let table = MembersTable {
+		name: Column::new("name", "Name"),
+		rows: vec!["alice".to_owned(), "bob".to_owned()],
+	};
+
+	// Act
+	let rendered = table.render();
+	sandbox
+		.root
+		.as_web_sys()
+		.append_child(rendered.as_web_sys())
+		.expect("append table");
+
+	// Assert
+	assert_eq!(
+		sandbox.root.as_web_sys().inner_html(),
+		format!(
+			"<div class=\"{}\"><table class=\"{}\"><tbody><tr><td>alice</td></tr><tr><td>bob</td></tr></tbody></table></div>",
+			TABLE_STYLES.wrap().as_str(),
+			TABLE_STYLES.table().as_str(),
+		)
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn copy_button_does_nothing_when_the_clipboard_is_unavailable(sandbox: Sandbox) {
+	// Arrange
+	let no_clipboard = NoClipboard::new();
+	sandbox.mount(|| {
+		code_block(
+			"login",
+			t!("Skip to main content"),
+			"reinhardt-cloud login".to_owned(),
+		)
+	});
+	let copy = sandbox
+		.query("button[aria-controls=\"login-text\"]")
+		.dyn_into::<HtmlElement>()
+		.expect("copy button is an HTML element");
+
+	// Act
+	copy.click();
+	next_tick().await;
+
+	// Assert
+	assert_eq!(no_clipboard.uncaught_errors(), 0.0);
+	assert_eq!(copy.text_content().as_deref().map(str::trim), Some("Copy"));
+	assert_eq!(
+		copy.get_attribute("aria-label").as_deref(),
+		Some("Copy Skip to main content")
+	);
 }

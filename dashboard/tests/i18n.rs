@@ -28,6 +28,10 @@ fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
 }
 
 /// Returns the string-literal message IDs passed to `t!` in `source`.
+///
+/// The scanner recognises only standalone `t!("literal")` calls. Messages built
+/// through `tr`, `tn`, `tp`, `tnp`, or a non-literal argument are not seen, so
+/// keep those IDs in the catalog by hand.
 fn t_messages(source: &str) -> Vec<String> {
 	let bytes = source.as_bytes();
 	let mut messages = Vec::new();
