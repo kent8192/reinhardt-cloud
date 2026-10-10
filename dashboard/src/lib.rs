@@ -4,6 +4,8 @@
 //! - `apps`         — application code (each app has server-side routes and client-side pages)
 //! - `client`       — WASM-only frontend (booted by its `wasm_bindgen(start)` entry point)
 //! - `config`       — project configuration (settings, urls, apps, wasm)
+//! - `i18n`         — message catalogs and the page i18n context
+//! - `ui`           — design-system components and layouts shared by every app
 //! - `server`       — production HTTP server bootstrap used by the server binary
 
 // Server-only re-exports for macro-generated code.
@@ -26,8 +28,10 @@ pub use reinhardt::reinhardt_http;
 // Application modules
 pub mod apps;
 pub mod config;
+pub mod i18n;
 #[cfg(server)]
 pub mod server;
+pub mod ui;
 
 // Client-only modules (WASM)
 #[cfg(client)]
