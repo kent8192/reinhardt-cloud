@@ -10,9 +10,11 @@ use crate::apps::accounts::services::server::staff::{
 	GrantOutcome, RevokeOutcome, StaffError, grant, placeholder_login, revoke,
 };
 use crate::apps::accounts::services::server::users::find_by_github_user_id;
-use crate::apps::accounts::tests::server_support::{AppOptions, GithubAccount, TestApp};
+use crate::apps::accounts::tests::server_support::{
+	AppOptions, Browser, GithubAccount, Reply, TestApp,
+};
 use crate::apps::accounts::tests::support::{
-	TestDatabase, database, insert_user, redis_sessions, user_count,
+	ScriptedRevoker, TestDatabase, database, insert_user, redis_sessions, user_count,
 };
 use crate::audit::capture::capture_audit_events;
 use crate::persisted_time::persisted_now;
@@ -323,4 +325,159 @@ async fn sr_105_a_pre_provisioned_account_signs_in_under_invite_only_and_nobody_
 		find_by_github_user_id(9_002).await.unwrap().is_none(),
 		"the exemption is for the named ID only"
 	);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_20_a_redis_failure_after_a_revocation_still_records_it(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	let user = insert_user(91, "was-staff", true).await;
+	User::objects()
+		.filter(User::field_id().eq(user.id))
+		.update_fields([User::field_last_login().assign(Some(persisted_now()))])
+		.await
+		.unwrap();
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let (events, result) = capture_audit_events(revoke(91, &revoker)).await;
+
+	// Assert
+	let error = result.expect_err("the session cleanup failed, so the command fails");
+	assert!(
+		matches!(error, StaffError::SessionsNotEnded { removed: false, .. }),
+		"{error:?}"
+	);
+	let message = error.to_string();
+	assert!(
+		message.contains("Staff powers have already stopped"),
+		"{message}"
+	);
+	assert!(
+		message.contains("read from the database on every request"),
+		"{message}"
+	);
+	let after = find_by_github_user_id(91).await.unwrap().unwrap();
+	assert!(!after.is_staff, "the committed revocation stands");
+	let recorded: Vec<_> = events
+		.iter()
+		.map(|event| {
+			(
+				event.field("event"),
+				event.field("outcome"),
+				event.field("reason"),
+			)
+		})
+		.collect();
+	assert_eq!(
+		recorded,
+		[
+			(
+				Some("accounts.revoke_staff.succeeded"),
+				Some("succeeded"),
+				Some("revoked")
+			),
+			(
+				Some("accounts.revoke_staff.failed"),
+				Some("failed"),
+				Some("sessions_not_ended")
+			),
+		]
+	);
+	for event in &events {
+		assert_eq!(event.field("github_user_id"), Some("91"));
+		assert_eq!(
+			event.field("subject_user_id"),
+			Some(user.id.to_string().as_str())
+		);
+	}
+}
+
+#[rstest]
+#[tokio::test]
+#[serial(database)]
+async fn sr_105_a_redis_failure_after_removing_a_pre_provisioned_user_still_records_it(
+	#[future] database: TestDatabase,
+) {
+	// Arrange
+	let _db = database.await;
+	grant(92).await.unwrap();
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let (events, result) = capture_audit_events(revoke(92, &revoker)).await;
+
+	// Assert
+	let error = result.expect_err("the session cleanup failed");
+	assert!(
+		matches!(error, StaffError::SessionsNotEnded { removed: true, .. }),
+		"{error:?}"
+	);
+	assert!(error.to_string().contains("the User no longer exists"));
+	assert!(find_by_github_user_id(92).await.unwrap().is_none());
+	let reasons: Vec<_> = events.iter().map(|event| event.field("reason")).collect();
+	assert_eq!(
+		reasons,
+		[Some("pre_provisioned_removed"), Some("sessions_not_ended")]
+	);
+}
+
+async fn admin_dashboard(browser: &mut Browser, app: &TestApp) -> Reply {
+	browser
+		.post_with(
+			"/admin/api/server_fn/get_dashboard",
+			json!({}),
+			&[("Origin", &app.base_url)],
+		)
+		.await
+}
+
+async fn viewer_of(browser: &mut Browser, app: &TestApp) -> Reply {
+	browser
+		.post_json(
+			"/api/server_fn/current_viewer",
+			json!({}),
+			Some(&app.base_url),
+		)
+		.await
+}
+
+/// A leftover session of a demoted User keeps working as an ordinary User and
+/// loses every Staff power, without Redis being involved in the check.
+#[rstest]
+#[tokio::test]
+#[serial(database, env_settings_load)]
+async fn sr_20_a_leftover_session_has_no_staff_power_after_a_failed_cleanup() {
+	// Arrange
+	let app = TestApp::start(AppOptions::default()).await;
+	insert_user(93, "ops", true).await;
+	let account = GithubAccount::new(93, "ops");
+	app.expect_sign_in("code-ops", &account).await;
+	let mut browser = app.browser();
+	browser.sign_in("code-ops").await;
+	assert_eq!(
+		admin_dashboard(&mut browser, &app).await.status,
+		200,
+		"Staff reaches the admin site"
+	);
+	let revoker = ScriptedRevoker::failing_after(0);
+
+	// Act
+	let result = revoke(93, &revoker).await;
+	let reply = viewer_of(&mut browser, &app).await;
+	let admin_after = admin_dashboard(&mut browser, &app).await;
+
+	// Assert
+	assert!(matches!(result, Err(StaffError::SessionsNotEnded { .. })));
+	assert_eq!(reply.json()["is_staff"], json!(false));
+	assert_eq!(
+		reply.json()["github_login"],
+		json!("ops"),
+		"still an ordinary User"
+	);
+	assert_eq!(admin_after.status, 403, "{admin_after:?}");
 }

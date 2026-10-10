@@ -15,7 +15,7 @@ use reinhardt::db::orm::{Model, get_connection};
 use uuid::Uuid;
 
 use crate::apps::accounts::models::User;
-use crate::apps::accounts::services::server::sessions::SessionService;
+use crate::apps::accounts::services::server::sessions::SessionRevoker;
 use crate::apps::accounts::services::server::users::{UserError, find_by_github_user_id};
 use crate::audit::{ActorKind, AuditEvent, Outcome};
 use crate::persisted_time::persisted_now;
@@ -80,9 +80,29 @@ pub enum StaffError {
 	/// The database refused the operation.
 	#[error("staff storage failed: {0}")]
 	Storage(String),
-	/// The Staff flag was cleared but the User's sessions could not be ended.
-	#[error("Staff was revoked but the sessions could not be ended: {0}")]
-	SessionsNotEnded(String),
+	/// The revocation committed but the User's sessions could not be ended.
+	///
+	/// Leftover sessions are harmless to the revocation: the Staff flag is read
+	/// from the database on every request.
+	#[error("{}", sessions_not_ended_message(.cause, *.removed))]
+	SessionsNotEnded {
+		/// Why the sessions could not be ended.
+		cause: String,
+		/// Whether the User row was removed (a never-used pre-provisioned User).
+		removed: bool,
+	},
+}
+
+fn sessions_not_ended_message(cause: &str, removed: bool) -> String {
+	if removed {
+		format!(
+			"the pre-provisioned User was removed, but their sessions could not be ended ({cause}). Any leftover session is refused: the User no longer exists"
+		)
+	} else {
+		format!(
+			"Staff was revoked, but the User's sessions could not be ended ({cause}). Staff powers have already stopped: the Staff flag is read from the database on every request, so a leftover session has ordinary-User access only and expires on its own (30 minutes idle, 24 hours at most)"
+		)
+	}
 }
 
 impl From<UserError> for StaffError {
@@ -194,12 +214,31 @@ async fn make_staff(user: User) -> Result<GrantOutcome, StaffError> {
 	})
 }
 
+/// What a revocation changed in the database, before the sessions are touched.
+enum Committed {
+	/// The User stopped being Staff.
+	Demoted(Uuid),
+	/// The never-used pre-provisioned User was removed.
+	Removed(Uuid),
+	/// The User was not Staff; nothing changed.
+	NotStaff(Uuid),
+}
+
 /// Remove Staff from the GitHub account `github_user_id` and end its sessions.
 ///
 /// A User that was pre-provisioned and has never signed in is removed instead:
 /// leaving the row would keep the policy exemption of SR-105 alive after the
 /// operator withdrew the grant. Audited as `accounts.revoke_staff.succeeded` /
 /// `.denied` / `.failed`.
+///
+/// The success event is emitted the moment the database change commits, before
+/// the sessions are ended, so a Redis failure cannot lose the record of the
+/// revocation (SR-20). If ending the sessions then fails, an additional
+/// `accounts.revoke_staff.failed` with reason `sessions_not_ended` follows. No
+/// session fallback is needed to fail closed: the Staff flag is read from the
+/// database on every request (`SessionAuthMiddleware`, `AccessGate`), so a
+/// leftover session of a demoted User has ordinary access only and one of a
+/// removed User is anonymous.
 ///
 /// # Errors
 ///
@@ -209,50 +248,70 @@ async fn make_staff(user: User) -> Result<GrantOutcome, StaffError> {
 /// end the sessions.
 pub async fn revoke(
 	github_user_id: i64,
-	sessions: &SessionService,
+	sessions: &dyn SessionRevoker,
 ) -> Result<RevokeOutcome, StaffError> {
-	let result = revoke_inner(github_user_id, sessions).await;
 	let event = |name, outcome| {
 		AuditEvent::new(name, ActorKind::HostOperator, outcome).github_user(github_user_id)
 	};
-	match &result {
-		Ok(outcome) => {
-			let (user_id, reason) = match outcome {
-				RevokeOutcome::Revoked { user_id, .. } => (*user_id, "revoked"),
-				RevokeOutcome::PreProvisionRemoved { user_id } => {
-					(*user_id, "pre_provisioned_removed")
+	let committed = match change(github_user_id).await {
+		Ok(committed) => committed,
+		Err(error) => {
+			match &error {
+				StaffError::InvalidGithubUserId => {
+					event("accounts.revoke_staff.denied", Outcome::Denied)
+						.reason("invalid_github_user_id")
+						.emit();
 				}
-				RevokeOutcome::NotStaff { user_id, .. } => (*user_id, "unchanged"),
-			};
-			event("accounts.revoke_staff.succeeded", Outcome::Succeeded)
-				.subject_user(user_id)
-				.reason(reason)
-				.emit();
+				StaffError::UnknownUser => event("accounts.revoke_staff.denied", Outcome::Denied)
+					.reason("unknown_user")
+					.emit(),
+				StaffError::Storage(_) | StaffError::SessionsNotEnded { .. } => {
+					event("accounts.revoke_staff.failed", Outcome::Failed)
+						.reason("storage")
+						.emit();
+				}
+			}
+			return Err(error);
 		}
-		Err(StaffError::InvalidGithubUserId) => {
-			event("accounts.revoke_staff.denied", Outcome::Denied)
-				.reason("invalid_github_user_id")
-				.emit();
-		}
-		Err(StaffError::UnknownUser) => event("accounts.revoke_staff.denied", Outcome::Denied)
-			.reason("unknown_user")
-			.emit(),
-		Err(StaffError::SessionsNotEnded(_)) => {
+	};
+
+	let (user_id, reason, removed) = match committed {
+		Committed::Demoted(id) => (id, "revoked", false),
+		Committed::Removed(id) => (id, "pre_provisioned_removed", true),
+		Committed::NotStaff(id) => (id, "unchanged", false),
+	};
+	event("accounts.revoke_staff.succeeded", Outcome::Succeeded)
+		.subject_user(user_id)
+		.reason(reason)
+		.emit();
+
+	match sessions.destroy_all_for_user(user_id).await {
+		Ok(sessions_ended) => Ok(match committed {
+			Committed::Demoted(_) => RevokeOutcome::Revoked {
+				user_id,
+				sessions_ended,
+			},
+			Committed::Removed(_) => RevokeOutcome::PreProvisionRemoved { user_id },
+			Committed::NotStaff(_) => RevokeOutcome::NotStaff {
+				user_id,
+				sessions_ended,
+			},
+		}),
+		Err(cause) => {
 			event("accounts.revoke_staff.failed", Outcome::Failed)
+				.subject_user(user_id)
 				.reason("sessions_not_ended")
 				.emit();
+			Err(StaffError::SessionsNotEnded {
+				cause: cause.to_string(),
+				removed,
+			})
 		}
-		Err(StaffError::Storage(_)) => event("accounts.revoke_staff.failed", Outcome::Failed)
-			.reason("storage")
-			.emit(),
 	}
-	result
 }
 
-async fn revoke_inner(
-	github_user_id: i64,
-	sessions: &SessionService,
-) -> Result<RevokeOutcome, StaffError> {
+/// The database half of a revocation.
+async fn change(github_user_id: i64) -> Result<Committed, StaffError> {
 	if github_user_id <= 0 {
 		return Err(StaffError::InvalidGithubUserId);
 	}
@@ -261,11 +320,7 @@ async fn revoke_inner(
 		.ok_or(StaffError::UnknownUser)?;
 
 	if !user.is_staff {
-		let sessions_ended = end_sessions(sessions, user.id).await?;
-		return Ok(RevokeOutcome::NotStaff {
-			user_id: user.id,
-			sessions_ended,
-		});
+		return Ok(Committed::NotStaff(user.id));
 	}
 
 	// One conditional delete decides "pre-provisioned and never used": a User who
@@ -278,10 +333,7 @@ async fn revoke_inner(
 		.delete_with_conn(&mut connection)
 		.await?;
 	if removed == 1 {
-		// Nothing can hold a session for a User who never signed in, but a
-		// session created in the instant before the delete must not outlive it.
-		end_sessions(sessions, user.id).await?;
-		return Ok(RevokeOutcome::PreProvisionRemoved { user_id: user.id });
+		return Ok(Committed::Removed(user.id));
 	}
 
 	User::objects()
@@ -291,16 +343,5 @@ async fn revoke_inner(
 			User::field_updated_at().assign(persisted_now()),
 		])
 		.await?;
-	let sessions_ended = end_sessions(sessions, user.id).await?;
-	Ok(RevokeOutcome::Revoked {
-		user_id: user.id,
-		sessions_ended,
-	})
-}
-
-async fn end_sessions(sessions: &SessionService, user_id: Uuid) -> Result<usize, StaffError> {
-	sessions
-		.destroy_all_for_user(user_id)
-		.await
-		.map_err(|error| StaffError::SessionsNotEnded(error.to_string()))
+	Ok(Committed::Demoted(user.id))
 }
