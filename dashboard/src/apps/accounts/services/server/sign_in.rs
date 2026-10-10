@@ -19,11 +19,12 @@
 
 use std::sync::Arc;
 
-use reinhardt::conf::settings::secret_types::SecretString;
 use reinhardt::db::orm::Model;
 
 use crate::apps::accounts::models::User;
-use crate::apps::accounts::services::server::github::{CompleteError, GithubSignIn};
+use crate::apps::accounts::services::server::github::{
+	CompleteError, GithubIdentity, GithubSignIn,
+};
 use crate::apps::accounts::services::server::provider_tokens::OrmSocialAccountStorage;
 use crate::apps::accounts::services::server::sessions::{
 	IssuedSession, SessionService, SessionToken,
@@ -120,9 +121,9 @@ impl SignInService {
 			Err(error) => return fail(error.code()),
 		};
 
-		let membership = self.github.memberships(SecretString::new(
-			identity.tokens.access_token.expose_secret(),
-		));
+		let membership = self
+			.github
+			.memberships(identity.tokens.access_token.clone());
 		let resolved =
 			match resolve_first_sign_in(&identity.profile, &self.policy, &membership).await {
 				Ok(resolved) => resolved,
@@ -164,7 +165,7 @@ impl SignInService {
 	async fn finish(
 		&self,
 		user: User,
-		identity: &crate::apps::accounts::services::server::github::GithubIdentity,
+		identity: &GithubIdentity,
 		previous_session: Option<SessionToken>,
 	) -> Result<SignInOutcome, &'static str> {
 		let user = sync_profile(user, &identity.profile)

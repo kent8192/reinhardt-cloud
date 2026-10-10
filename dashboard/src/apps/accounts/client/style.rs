@@ -97,7 +97,11 @@ pub static STYLES: AccountsStyles = style! {
 	}
 	.phase {
 		padding-top: globals.space_3;
-		border-top: (4px, solid, globals.border_default);
+		border-top-width: 4px;
+		border-top-style: solid;
+	}
+	.phase_pending {
+		border-top-color: globals.border_default;
 		color: globals.ink_subtle;
 	}
 	.phase_done {

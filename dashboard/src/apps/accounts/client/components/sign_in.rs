@@ -13,6 +13,7 @@ use reinhardt::pages::ui::ResourcePanel;
 use reinhardt::pages::{deps, page, t};
 
 use crate::apps::accounts::client::components::sign_in_preview::sign_in_preview;
+use crate::apps::accounts::client::style::STYLES;
 use crate::apps::accounts::serializers::sign_in::SignInNotice;
 use crate::apps::accounts::server_fn::take_sign_in_notice::take_sign_in_notice;
 use crate::apps::accounts::urls::paths::GITHUB_SIGN_IN_PATH;
@@ -55,11 +56,11 @@ pub fn sign_in_content(notice: Page) -> Page {
 	);
 	page!({
 		h1 {
-			class: crate::apps::accounts::client::style::STYLES.title(),
+			class: STYLES.title(),
 			{ t!("Run your Reinhardt Projects on your own Clusters.") }
 		}
 		p {
-			class: crate::apps::accounts::client::style::STYLES.lede(),
+			class: STYLES.lede(),
 			{ t!(
 				"Register a Kubernetes Cluster, connect a GitHub repository, and every push becomes a Deployment you can watch."
 			) }
@@ -67,7 +68,7 @@ pub fn sign_in_content(notice: Page) -> Page {
 		div { { action } }
 		{ notice }
 		p {
-			class: crate::apps::accounts::client::style::STYLES.foot(),
+			class: STYLES.foot(),
 			{ t!("GitHub is the only way to sign in. There are no passwords to set or reset.") }
 		}
 	})

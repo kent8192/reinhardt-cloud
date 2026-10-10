@@ -110,13 +110,11 @@ fn log_lines() -> Vec<LogLine> {
 }
 
 fn phase(done: bool, current: bool, name: Page, time: Page) -> Page {
-	let mut classes = STYLES.phase() + "";
-	if done {
-		classes = classes + STYLES.phase_done();
-	}
-	if current {
-		classes = classes + STYLES.phase_current() + "rc-progress-wash";
-	}
+	let classes = match (done, current) {
+		(true, _) => STYLES.phase() + STYLES.phase_done(),
+		(false, true) => STYLES.phase() + STYLES.phase_current() + "rc-progress-wash",
+		(false, false) => STYLES.phase() + STYLES.phase_pending(),
+	};
 	page!({
 		li {
 			class: classes,
