@@ -2850,12 +2850,14 @@ fn preview_projects_label_selector(parent_name: &str) -> String {
 }
 
 /// Returns `true` when `preview_app` is an operator-created preview of the
-/// given parent: its canonical labels, PR number, name, and namespace must all
-/// match what the operator derives for that parent.
+/// given parent: its canonical labels, PR number, and name must match what the
+/// operator derives for that parent, and it must live in the preview namespace
+/// derived from the known parent namespace and name.
 ///
-/// Legacy previews without a parent-namespace label are accepted through the
-/// legacy path of [`resources::verified_preview_parent_name`], provided they
-/// live in this parent's preview namespace.
+/// Because the parent is known, the namespace is compared against the exact
+/// derived name (including any truncation and hash) instead of reverse-parsing
+/// it, so legacy previews without a parent-namespace label are accepted even
+/// when their parent identity was truncated in the namespace name.
 fn is_verified_preview_of(
 	preview_app: &Project,
 	parent_namespace: &str,
@@ -2871,8 +2873,8 @@ fn is_verified_preview_of(
 		resources::preview_namespace::preview_namespace_name(parent_namespace, parent_name);
 	parent_namespace_label_matches
 		&& preview_app.metadata.namespace.as_deref() == Some(expected_namespace.as_str())
-		&& resources::verified_preview_parent_name(preview_app, &preview_app.name_any())
-			.is_some_and(|name| name == parent_name)
+		&& resources::preview_parent_name_from_labels(preview_app, &preview_app.name_any())
+			== Some(parent_name)
 }
 
 /// Requests deletion of every operator-created preview `Project` of a parent
@@ -4619,6 +4621,61 @@ mod tests {
 
 	fn own_preview_namespace() -> String {
 		resources::preview_namespace::preview_namespace_name("default", "api")
+	}
+
+	/// A valid (at most 63-character) parent namespace whose preview identity
+	/// `{namespace}-api` exceeds the preview namespace prefix and is truncated.
+	const LONG_PARENT_NAMESPACE: &str = "tenant-acme-platform-engineering-services";
+
+	#[rstest]
+	#[case::legacy_truncated_identity(true, LONG_PARENT_NAMESPACE, true)]
+	#[case::labeled_truncated_identity(false, LONG_PARENT_NAMESPACE, true)]
+	#[case::legacy_in_other_parent_namespace(
+		true,
+		"tenant-acme-platform-engineering-backends",
+		false
+	)]
+	fn retained_preview_ownership_accepts_truncated_parent_identity(
+		#[case] drop_parent_namespace_label: bool,
+		#[case] namespace_parent: &str,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let mut labels = preview::preview_labels(LONG_PARENT_NAMESPACE, "api", "7");
+		if drop_parent_namespace_label {
+			labels.remove(preview::PARENT_NAMESPACE_LABEL_KEY);
+		}
+		let mut app = make_test_app("api-pr-7");
+		app.metadata.namespace = Some(resources::preview_namespace::preview_namespace_name(
+			namespace_parent,
+			"api",
+		));
+		app.metadata.labels = Some(labels);
+
+		// Act
+		let verified = is_verified_preview_of(&app, LONG_PARENT_NAMESPACE, "api");
+
+		// Assert
+		assert_eq!(verified, expected);
+	}
+
+	#[rstest]
+	fn truncated_legacy_preview_stays_unverified_without_known_parent() {
+		// Arrange
+		let mut labels = preview::preview_labels(LONG_PARENT_NAMESPACE, "api", "7");
+		labels.remove(preview::PARENT_NAMESPACE_LABEL_KEY);
+		let mut app = make_test_app("api-pr-7");
+		app.metadata.namespace = Some(resources::preview_namespace::preview_namespace_name(
+			LONG_PARENT_NAMESPACE,
+			"api",
+		));
+		app.metadata.labels = Some(labels);
+
+		// Act
+		let parent = resources::verified_preview_parent_name(&app, "api-pr-7");
+
+		// Assert
+		assert_eq!(parent, None);
 	}
 
 	#[rstest]

@@ -342,8 +342,10 @@ namespace, deletes the parent's operator-created preview `Project`s, and keeps t
 until their own finalizers finish. A preview `Project` is deleted only when it carries the canonical
 preview, parent, numeric PR-number, and `app.kubernetes.io/managed-by: reinhardt-cloud` labels and its
 name and namespace match the values derived from them; legacy previews created before the
-`reinhardt.dev/parent-namespace` label existed are included when they live in the parent's preview
-namespace. Other `Project`s with copied labels are left untouched and are not waited on. Once no
+`reinhardt.dev/parent-namespace` label existed are included when they live in the preview namespace
+derived from the parent's namespace and name, including parents whose long identity is truncated and
+hashed in that namespace name. Other `Project`s with copied labels are left untouched and are not
+waited on. Once no
 preview `Project` remains, the operator deletes the namespace guardrails it created
 (`preview-default-quota`, `preview-default-limits`, `preview-default-deny`,
 `preview-allow-ingress-and-dns`, and the `preview-issuer` cert-manager `Issuer`), but only objects
