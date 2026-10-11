@@ -36,10 +36,14 @@ pub(crate) const PARENT_UID_LABEL_KEY: &str = "reinhardt.dev/parent-uid";
 /// allow policy so the cluster ingress path can reach preview Pods.
 const INGRESS_CONTROLLER_NAMESPACE: &str = "ingress-nginx";
 
-const QUOTA_NAME: &str = "preview-default-quota";
-const LIMIT_RANGE_NAME: &str = "preview-default-limits";
-const DEFAULT_DENY_NAME: &str = "preview-default-deny";
-const ALLOW_INGRESS_NAME: &str = "preview-allow-ingress-and-dns";
+/// Name of the preview-namespace `ResourceQuota`.
+pub(crate) const QUOTA_NAME: &str = "preview-default-quota";
+/// Name of the preview-namespace `LimitRange`.
+pub(crate) const LIMIT_RANGE_NAME: &str = "preview-default-limits";
+/// Name of the preview-namespace default-deny `NetworkPolicy`.
+pub(crate) const DEFAULT_DENY_NAME: &str = "preview-default-deny";
+/// Name of the preview-namespace ingress-and-DNS allow `NetworkPolicy`.
+pub(crate) const ALLOW_INGRESS_NAME: &str = "preview-allow-ingress-and-dns";
 const KUBE_DNS_NAMESPACE_LABEL: &str = "kube-system";
 const KUBE_DNS_APP_LABEL: &str = "kube-dns";
 /// Name of the cert-manager `Issuer` emitted into each preview namespace.
@@ -221,6 +225,22 @@ pub(crate) fn labels_match_preview_owner(
 		&& labels
 			.get(PARENT_UID_LABEL_KEY)
 			.is_some_and(|value| value == parent_uid)
+}
+
+/// Returns whether labels identify an operator-created guardrail (quota,
+/// limit range, network policy, or issuer) of the given parent's preview
+/// namespace: every label from [`preview_namespace_labels`] must be present
+/// with the expected value.
+pub(crate) fn labels_match_preview_guardrail(
+	labels: Option<&BTreeMap<String, String>>,
+	parent_namespace: &str,
+	parent_name: &str,
+) -> bool {
+	labels.is_some_and(|labels| {
+		preview_namespace_labels(parent_namespace, parent_name)
+			.iter()
+			.all(|(key, value)| labels.get(key) == Some(value))
+	})
 }
 
 /// Builds the parent-qualified preview `Namespace`.
@@ -585,6 +605,34 @@ mod tests {
 			"my-app",
 			"uid-2"
 		));
+	}
+
+	#[rstest]
+	#[case::operator_created(None, None, true)]
+	#[case::extra_label(Some(("team", "platform")), None, true)]
+	#[case::foreign_manager(Some(("app.kubernetes.io/managed-by", "helm")), None, false)]
+	#[case::other_parent(Some((PARENT_LABEL_KEY, "other-app")), None, false)]
+	#[case::other_parent_namespace(Some((PARENT_NAMESPACE_LABEL_KEY, "tenant-b")), None, false)]
+	#[case::missing_preview_marker(None, Some("reinhardt.dev/preview-namespace"), false)]
+	fn guardrail_labels_match_only_operator_created_objects(
+		#[case] label_override: Option<(&str, &str)>,
+		#[case] removed_label: Option<&str>,
+		#[case] expected: bool,
+	) {
+		// Arrange
+		let mut labels = preview_namespace_labels("tenant-a", "my-app");
+		if let Some((key, value)) = label_override {
+			labels.insert(key.to_string(), value.to_string());
+		}
+		if let Some(key) = removed_label {
+			labels.remove(key);
+		}
+
+		// Act
+		let matches = labels_match_preview_guardrail(Some(&labels), "tenant-a", "my-app");
+
+		// Assert
+		assert_eq!(matches, expected);
 	}
 
 	#[rstest]

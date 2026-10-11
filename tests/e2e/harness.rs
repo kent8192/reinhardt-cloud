@@ -481,6 +481,7 @@ fn start_local_operator(artifact_dir: &Path) -> Result<Child> {
 	let metrics_addr = random_local_addr()?;
 	let mut child = Command::new(&operator_bin)
 		.current_dir(workspace_root())
+		.env("REINHARDT_CLOUD_MANAGE_NAMESPACE_LIFECYCLE", "1")
 		.env("REINHARDT_CLOUD_METRICS_ADDR", metrics_addr)
 		.env("REINHARDT_CLOUD_METRICS_ENABLED", "0")
 		.stdout(Stdio::from(
