@@ -176,6 +176,11 @@ is the only non-DI type allowed in a binary.
 - Use `watch {}` for reactive conditionals, `use_resource` for reads, and
   `use_action` for mutations. Use `use_callback` for event handlers.
 - Internal redirects go through the router navigation API, not `window.location`.
+- A signed-in page renders its content through `signed_in_page`
+  (`apps/accounts/client/components/shell.rs`): the shell frames it, the guard sends
+  an anonymous browser to sign-in, and the navigation lists only pages that exist.
+  A page does not use a `#[layout]` route for the shell, because a mounted layout
+  cannot move the navigation's current-page marker when a sibling route is shown.
 - Keep shared code cfg-clean across native and `wasm32-unknown-unknown`. Use the
   generated `client` / `server` cfg aliases.
 
