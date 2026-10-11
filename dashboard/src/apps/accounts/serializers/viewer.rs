@@ -9,8 +9,6 @@ pub struct Viewer {
 	pub github_login: String,
 	/// Name shown in the Dashboard.
 	pub display_name: String,
-	/// GitHub avatar URL, when GitHub reports one.
-	pub avatar_url: Option<String>,
 	/// Whether the User is Staff.
 	pub is_staff: bool,
 }

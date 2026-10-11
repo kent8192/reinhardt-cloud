@@ -56,7 +56,6 @@ async fn the_shell_links_move_between_the_signed_in_pages_and_mark_the_current_o
 		Ok(Some(Viewer {
 			github_login: "riley-chen".to_owned(),
 			display_name: "Riley Chen".to_owned(),
-			avatar_url: None,
 			is_staff: false,
 		}))
 	});

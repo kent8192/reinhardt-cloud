@@ -277,7 +277,6 @@ fn viewer(is_staff: bool) -> Viewer {
 	Viewer {
 		github_login: "riley-chen".to_owned(),
 		display_name: "Riley Chen".to_owned(),
-		avatar_url: Some("https://avatars.githubusercontent.com/u/6001".to_owned()),
 		is_staff,
 	}
 }
@@ -369,10 +368,15 @@ async fn the_signed_in_shell_frames_the_overview_for_the_user() {
 	);
 	assert!(!text.contains("CLI Sessions"), "{text}");
 	assert!(!text.contains("Switch Organization"), "{text}");
-	let html = sandbox.root.as_web_sys().inner_html();
-	assert!(
-		!html.contains("avatars.githubusercontent.com"),
-		"the page policy would block the picture, and the design uses initials"
+	let pictures = sandbox
+		.root
+		.as_web_sys()
+		.query_selector_all("img")
+		.expect("valid selector");
+	assert_eq!(
+		pictures.length(),
+		1,
+		"only the brand mark is a picture: the page policy would block GitHub's, and the design uses initials"
 	);
 }
 
@@ -563,13 +567,7 @@ async fn the_account_page_renders_no_secret_about_the_user() {
 
 	// Assert
 	let html = sandbox.root.as_web_sys().inner_html().to_ascii_lowercase();
-	for forbidden in [
-		"token",
-		"email",
-		"@example",
-		"avatars.githubusercontent.com",
-		"password",
-	] {
+	for forbidden in ["token", "email", "@example", "avatars.", "password"] {
 		assert!(!html.contains(forbidden), "`{forbidden}` in {html}");
 	}
 }
