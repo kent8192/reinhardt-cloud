@@ -990,7 +990,7 @@ mod tests {
 		match action {
 			ParsedAction::Rejected { response } => match response {
 				WsMessage::LogStreamAck(payload) => {
-					assert_eq!(payload.acknowledged, false);
+					assert!(!payload.acknowledged);
 					assert_eq!(
 						payload.message,
 						"Too many deployment subscriptions requested"
@@ -1147,7 +1147,7 @@ mod tests {
 		// Assert
 		match response {
 			WsMessage::LogStreamAck(payload) => {
-				assert_eq!(payload.acknowledged, false);
+				assert!(!payload.acknowledged);
 				assert_eq!(payload.message, BUILD_LOG_STREAM_UNAVAILABLE);
 			}
 			_ => panic!("expected LogStreamAck response"),
@@ -1162,7 +1162,7 @@ mod tests {
 		// Assert
 		match response {
 			WsMessage::LogStreamAck(payload) => {
-				assert_eq!(payload.acknowledged, false);
+				assert!(!payload.acknowledged);
 				assert_eq!(payload.message, APP_LOG_STREAM_UNAVAILABLE);
 			}
 			_ => panic!("expected LogStreamAck response"),
@@ -1215,7 +1215,7 @@ mod tests {
 		match action {
 			ParsedAction::Rejected { response } => match &response {
 				WsMessage::LogStreamAck(payload) => {
-					assert_eq!(payload.acknowledged, false);
+					assert!(!payload.acknowledged);
 					assert_eq!(
 						payload.message,
 						"Build log streaming is unavailable until build ownership can be verified"
@@ -1358,7 +1358,7 @@ mod tests {
 		// Assert
 		match response {
 			WsMessage::LogStreamAck(payload) => {
-				assert_eq!(payload.acknowledged, false);
+				assert!(!payload.acknowledged);
 				assert_eq!(
 					payload.message,
 					"Build log streaming requires an authorized deployment-scoped identifier"
@@ -1418,7 +1418,7 @@ mod tests {
 		// Assert
 		match result {
 			Err(WsMessage::LogStreamAck(payload)) => {
-				assert_eq!(payload.acknowledged, false);
+				assert!(!payload.acknowledged);
 				assert_eq!(payload.message, "Not authorized to read deployment logs");
 			}
 			_ => panic!("expected rejected LogStreamAck"),
@@ -1451,7 +1451,7 @@ mod tests {
 		// Assert
 		match result {
 			Err(WsMessage::LogStreamAck(payload)) => {
-				assert_eq!(payload.acknowledged, false);
+				assert!(!payload.acknowledged);
 				assert_eq!(payload.message, "Deployment not found for log subscription");
 			}
 			_ => panic!("expected rejected LogStreamAck"),

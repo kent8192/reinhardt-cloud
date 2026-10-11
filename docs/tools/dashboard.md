@@ -68,7 +68,7 @@ The Dashboard supports credential-based authentication and configured GitHub OAu
 
 ### Layout tour
 
-The v0.4.0-alpha.14 WASM client (`dashboard/src/client/router.rs`) defines one
+The v0.4.0-alpha.20 WASM client (`dashboard/src/client/router.rs`) defines one
 `ClientRouter` tree. `/login` and `/register` are public root routes. The
 authenticated `#[layout]` Dashboard shell renders `/`, `/account`, `/clusters`,
 `/deployments`, and `/github` as child routes through `Outlet`. The HTTP server
@@ -207,6 +207,67 @@ The image also:
 3. Sets `REINHARDT_CLOUD_CONFIG_DIR=/app/settings` and defaults `REINHARDT_ENV=production` so direct container launches use the hardened production profile unless operators explicitly override the profile
 4. Exposes port 8000 for the HTTP API
 
+The dashboard image pins Reinhardt `0.4.0-alpha.20` for `manage buildstatic`.
+Generated Pages Dockerfiles supply random, command-scoped values for required
+TOML environment references during asset publication. Only references that remain
+in the effective production profile (`base.toml` overlaid by `production.toml`)
+are supplied; values overridden by `production.toml` are ignored. A required
+reference that is declared in `[source.build].build_args` keeps its real value: the
+asset stage declares it as a stage-scoped `ARG` that source builds pass with
+`--build-arg`, so publication-relevant values such as a public origin are not
+replaced. Build arguments are recorded in plain text, so declare only non-secret
+values there. Undeclared references get random values that are not deployment
+credentials and are not persisted as runtime `ENV` or build arguments.
+Settings that require typed values or external services need a custom Dockerfile.
+
+`init` and `sync` record the effective production root and URL in
+`[pages].static_root` and `[pages].static_url`; deployment preserves both in
+`Project.spec.pages`. This keeps the Pages sidecar and ingress aligned with the
+runtime copy and generated links, including non-default roots and URL prefixes.
+`sync` preserves existing Pages options and source build arguments; a custom
+Dockerfile retains its explicit `[pages]` settings. Existing default Dockerfiles also
+retain their publication settings unless `--force` regenerates the image. When
+regenerating an image without the Pages feature, `sync` removes its Pages section.
+The buildstatic version check follows the selected application’s locked dependency
+graph; unrelated workspace applications can use different framework versions.
+Generated Dockerfiles require the workspace root build context (`.`). For a
+member-only context such as `dashboard`, set a custom `[source.build].dockerfile`
+path and supply a Dockerfile designed for that context. Static URL interpolation
+must use an `_URL` variable with an explicit build argument or literal default;
+generation pins that public prefix for asset publication and runtime routing.
+Other dynamic settings require a custom Dockerfile and explicit Pages settings.
+`init` and `sync` also set `[pages].prebuilt = true` for generated Pages images.
+For such images the operator seeds the static sidecar’s shared volume by running
+`cp` (without a shell) from the image publication through a sibling mount,
+preserving its manifest, JS, WASM and generation paths. Images without that
+explicit marker keep the legacy `manage collectstatic --no-input` init container;
+a file named `manifest.json` alone never selects the prebuilt path. Prebuilt
+images must provide `cp` on `PATH`, so generated Pages Dockerfiles reject a
+custom `[source.build].base_image` such as distroless; use a custom Dockerfile
+with an explicit `[pages].prebuilt` setting instead. Static roots must be absolute directories
+without parent traversal. Because a prebuilt root is copied whole into the served
+volume, the operator only accepts a dedicated directory below the application
+directory, such as `/app/static` or `/app/dashboard/static`. It rejects `/app`
+itself, paths outside `/app` (including system and credential paths such as
+`/var/run/secrets/...`), empty path segments, and application directories such as
+`/app/settings` or `/app/migrations`. For prebuilt publications the operator also
+rejects (permanently, until the spec is fixed) application `env` entries that
+select another settings profile (`REINHARDT_ENV` other than `production`), a
+different static root or URL than `pages.static_root`/`static_url`, or a base
+directory override other than the working directory (`.`), or any settings
+directory override such as `REINHARDT_CLOUD_CONFIG_DIR` (the image's own
+`ENV REINHARDT_CLOUD_CONFIG_DIR=/app/settings` is unaffected because it is not
+part of `spec.env`). Existing isolation security contexts and volume ownership apply.
+Its asset stage publishes Pages, the entry document, and generated component
+styles together. Build-only random settings values are supplied in that stage;
+production credentials are supplied at deployment time. The asset stage uses
+the CI profile's inherited `static` output root and copies only that publication
+to the runtime image. A separate legacy `collectstatic` publication is not needed.
+Because the Dashboard uses a hand-written Dockerfile, `dashboard/reinhardt-cloud.toml`
+records its publication explicitly: `[pages] static_root = "/app/static"`,
+`static_url = "/static/"`, and `prebuilt = true`, so a CLI deploy serves the baked
+manifest, JS, and WASM instead of an empty `collectstatic` volume.
+
 ### Database requirements
 
 - **ORM**: reinhardt::db (built-in ORM from the `reinhardt` crate)
@@ -236,9 +297,9 @@ for release scope and application changes.
 
 > **Breaking v0.4.0-alpha.11 migration reset**: this initial migration history supports only an empty PostgreSQL database. It does not support inheriting an existing Dashboard migration history, in-place data migration, or `fake-initial` compatibility.
 
-### v0.4.0-alpha.14 PR review checklist
+### v0.4.0-alpha.20 PR review checklist
 
-- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.14`. The official, transitive `reinhardt-event-catalog 0.4.0-alpha.1` remains the published framework's lockfile exception. Use Rust 1.96.0 from `rust-toolchain.toml` and pin `reinhardt-admin-cli` and `reinhardt-formatter` to `0.4.0-alpha.14`. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
+- **Upgrade, new, scaffolding** (`source-command-reinhardt-upgrade`, `source-command-reinhardt-new`, `scaffolding`): confirm every direct and published Reinhardt framework dependency uses `0.4.0-alpha.20`. The official, transitive `reinhardt-event-catalog 0.4.0-alpha.1` remains the published framework's lockfile exception. Use Rust 1.96.0 from `rust-toolchain.toml` and pin `reinhardt-admin-cli` and `reinhardt-formatter` to `0.4.0-alpha.20`. Use generated-project structure only for comparison and do not re-scaffold the Dashboard.
 - **Configuration, architecture, migration** (`configuration`, `architecture`, `migration`): verify the single client route tree, server configuration boundaries, generated migration history, and the empty-PostgreSQL-only upgrade contract.
 - **Pages, macros, signals** (`pages`, `macros`, `signals`): verify public versus authenticated layout placement, `Outlet` nesting, typed event handlers, and reactive query/form state.
 - **API, auth, authorization, dependency injection, modeling, admin** (`api-development`, `authentication`, `authorization`, `dependency-injection`, `modeling`, `admin`): verify server-function input ownership, session revalidation, organization scoping, injected services, database constraints, and admin registrations.
@@ -246,7 +307,7 @@ for release scope and application changes.
 
 ### Component styles and stylesheet extraction
 
-The v0.4.0-alpha.14 Dashboard follows the Reinhardt Pages Project Template for
+The v0.4.0-alpha.20 Dashboard follows the Reinhardt Pages Project Template for
 component styles. Each application owns `dashboard/src/apps/<app>/client/style.rs`
 and exports it from its `client.rs` with `pub mod style;`. Shared primitives
 that are intentionally cross-app belong in `dashboard/src/shared/client/style.rs`.

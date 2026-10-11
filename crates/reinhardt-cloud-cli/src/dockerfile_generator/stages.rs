@@ -1,4 +1,5 @@
 use super::dockerfile::{Instruction, Stage};
+use super::static_root_reader::StaticRoot;
 
 /// All signals required for Dockerfile generation.
 #[derive(Debug, Clone)]
@@ -9,6 +10,7 @@ pub(crate) struct DockerfileSignals {
 	pub(crate) grpc: bool,
 	pub(crate) graphql: bool,
 	pub(crate) wasm_bindgen_version: Option<String>,
+	pub(crate) static_root: Option<StaticRoot>,
 	pub(crate) database: Option<String>,
 	pub(crate) cache: Option<String>,
 	pub(crate) session_backend: Option<String>,
@@ -206,29 +208,70 @@ pub(crate) fn build_wasm_stage(signals: &DockerfileSignals) -> Stage {
 				"cargo build --release --target wasm32-unknown-unknown --lib -p {}",
 				signals.project_name
 			)),
-			Instruction::RunMulti(vec![
-				format!(
-					"wasm-bindgen --out-dir /wasm-dist --target web \
-                     target/wasm32-unknown-unknown/release/{project_name_underscored}.wasm"
-				),
-				format!(
-					"asset_hash=\"$(sha256sum /wasm-dist/{project_name_underscored}.js \
-                     /wasm-dist/{project_name_underscored}_bg.wasm | sha256sum | cut -c1-16)\""
-				),
-				format!(
-					"cp /wasm-dist/{project_name_underscored}.js \
-                     /wasm-dist/{project_name_underscored}.${{asset_hash}}.js"
-				),
-				format!(
-					"cp /wasm-dist/{project_name_underscored}_bg.wasm \
-                     /wasm-dist/{project_name_underscored}.${{asset_hash}}_bg.wasm"
-				),
-				format!(
-					"rm /wasm-dist/{project_name_underscored}.js \
-                     /wasm-dist/{project_name_underscored}_bg.wasm"
-				),
-			]),
+			Instruction::Run(format!(
+				"wasm-bindgen --out-dir /wasm-dist --target web \
+                 target/wasm32-unknown-unknown/release/{project_name_underscored}.wasm"
+			)),
 		],
+	}
+}
+
+/// Builds the asset-publication stage for a complete Pages/static generation.
+///
+/// The framework command owns classification, hashing, reference rewriting, and
+/// atomic activation. Keeping this stage separate from the runtime image means
+/// the final image receives only the configured static root and never needs to
+/// recreate a Pages-specific filename convention.
+pub(crate) fn build_assets_stage(signals: &DockerfileSignals) -> Stage {
+	let workdir = signals
+		.project_relative_path
+		.as_deref()
+		.map_or_else(|| "/app".to_string(), |rel| format!("/app/{rel}"));
+	let project_name_underscored = signals.project_name.replace('-', "_");
+
+	let root = signals
+		.static_root
+		.as_ref()
+		.expect("static root is required for Pages");
+	let ephemeral_env = root
+		.build_env
+		.iter()
+		.map(|name| format!("{name}=\"$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\" "))
+		.collect::<String>();
+	// Declared build arguments supply their real values from `--build-arg`;
+	// stage-scoped `ARG`s are visible to this stage's `RUN` only and are not
+	// carried into the runtime image.
+	let mut instructions: Vec<Instruction> = root
+		.build_args
+		.iter()
+		.map(|name| Instruction::Arg {
+			name: name.clone(),
+			default: None,
+		})
+		.collect();
+	if let Some(binding) = &root.env_binding {
+		instructions.push(Instruction::Env(vec![binding.clone()]));
+	}
+	if let Some(binding) = &root.url_env_binding {
+		instructions.push(Instruction::Env(vec![binding.clone()]));
+	}
+	instructions.extend([
+		Instruction::Copy {
+			from: Some("wasm".to_owned()),
+			src: "/wasm-dist".to_owned(),
+			dst: "/build/wasm-dist".to_owned(),
+		},
+		Instruction::Workdir(workdir),
+		Instruction::Env(vec![("REINHARDT_ENV".to_owned(), "production".to_owned())]),
+		Instruction::Run(format!(
+			"{ephemeral_env}/app/target/release/manage buildstatic --pages-dir /build/wasm-dist --pages-entry {project_name_underscored}.js --pages-document index.html"
+		)),
+	]);
+	Stage {
+		base_image: "builder".to_string(),
+		name: Some("assets".to_string()),
+		platform: None,
+		instructions,
 	}
 }
 
@@ -278,24 +321,15 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 	}
 
 	if signals.pages {
+		let root = signals
+			.static_root
+			.as_ref()
+			.expect("static root is required for Pages");
+		let static_source = root.build_path(signals.project_relative_path.as_deref());
 		instructions.push(Instruction::Copy {
-			from: Some("wasm".to_string()),
-			src: "/wasm-dist".to_string(),
-			dst: "/app/static/wasm/".to_string(),
-		});
-		// SPA fallback: ship `index.html` alongside the WASM artifacts so
-		// `RunServerCommand`'s `--with-pages` mode can serve it for unknown
-		// routes. Source path follows the same workspace-member vs.
-		// project-root layout used by runtime asset copies.
-		// See kent8192/reinhardt-cloud#511.
-		let index_src = match signals.project_relative_path.as_deref() {
-			Some(rel) => format!("/app/{rel}/index.html"),
-			None => "/app/index.html".to_string(),
-		};
-		instructions.push(Instruction::Copy {
-			from: Some("builder".to_string()),
-			src: index_src,
-			dst: "/app/static/wasm/index.html".to_string(),
+			from: Some("assets".to_owned()),
+			src: static_source,
+			dst: root.runtime_path(),
 		});
 	}
 
@@ -329,6 +363,21 @@ pub(crate) fn build_runtime_stage(signals: &DockerfileSignals) -> Stage {
 		("PATH".to_string(), "/app:$PATH".to_string()),
 		("REINHARDT_ENV".to_string(), "production".to_string()),
 	];
+	if signals.pages
+		&& let Some(binding) = signals
+			.static_root
+			.as_ref()
+			.and_then(|root| root.env_binding.clone())
+	{
+		env_pairs.push(binding);
+	}
+	if let Some(binding) = signals
+		.static_root
+		.as_ref()
+		.and_then(|root| root.url_env_binding.clone())
+	{
+		env_pairs.push(binding);
+	}
 	if let Some(backend) = signals.session_backend.as_deref() {
 		env_pairs.push(("REINHARDT_SESSION_BACKEND".to_string(), backend.to_string()));
 	}
@@ -385,6 +434,91 @@ mod tests {
 	use super::*;
 	use rstest::*;
 
+	#[rstest]
+	fn asset_build_scopes_ephemeral_values_to_publication(mut minimal_signals: DockerfileSignals) {
+		// Arrange
+		minimal_signals.pages = true;
+		let mut root = StaticRoot::relative("dist");
+		root.build_env = vec!["SECRET".to_owned(), "DB_PASSWORD".to_owned()];
+		minimal_signals.static_root = Some(root);
+		// Act
+		let assets = build_assets_stage(&minimal_signals);
+		let runtime = build_runtime_stage(&minimal_signals);
+		// Assert
+		let command = assets
+			.instructions
+			.iter()
+			.find_map(|instruction| match instruction {
+				Instruction::Run(command) => Some(command),
+				_ => None,
+			})
+			.unwrap();
+		assert!(command.starts_with(
+			"SECRET=\"$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\" DB_PASSWORD="
+		));
+		assert!(command.contains("/app/target/release/manage buildstatic"));
+		for stage in [&assets, &runtime] {
+			assert!(stage.instructions.iter().all(|instruction| {
+				match instruction {
+					Instruction::Env(values) => values
+						.iter()
+						.all(|(name, _)| name != "SECRET" && name != "DB_PASSWORD"),
+					Instruction::Arg { name, .. } => name != "SECRET" && name != "DB_PASSWORD",
+					_ => true,
+				}
+			}));
+		}
+		assert!(stage_contains_copy(
+			&runtime,
+			"assets",
+			"/app/dist",
+			"/app/dist"
+		));
+	}
+
+	#[rstest]
+	fn asset_build_uses_declared_build_args_instead_of_random_values(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		let mut root = StaticRoot::relative("dist");
+		root.build_env = vec!["SECRET".to_owned()];
+		root.build_args = vec!["PUBLIC_ORIGIN".to_owned()];
+		minimal_signals.static_root = Some(root);
+
+		// Act
+		let assets = build_assets_stage(&minimal_signals);
+		let runtime = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(matches!(
+			&assets.instructions[0],
+			Instruction::Arg { name, default: None } if name == "PUBLIC_ORIGIN"
+		));
+		let command = assets
+			.instructions
+			.iter()
+			.find_map(|instruction| match instruction {
+				Instruction::Run(command) => Some(command),
+				_ => None,
+			})
+			.unwrap();
+		assert!(command.starts_with("SECRET=\"$(od -An -N32"));
+		assert!(!command.contains("PUBLIC_ORIGIN"));
+		assert!(
+			runtime
+				.instructions
+				.iter()
+				.all(|instruction| match instruction {
+					Instruction::Arg { name, .. } => name != "PUBLIC_ORIGIN",
+					Instruction::Env(values) =>
+						values.iter().all(|(name, _)| name != "PUBLIC_ORIGIN"),
+					_ => true,
+				})
+		);
+	}
+
 	#[fixture]
 	fn minimal_signals() -> DockerfileSignals {
 		DockerfileSignals {
@@ -394,6 +528,7 @@ mod tests {
 			grpc: false,
 			graphql: false,
 			wasm_bindgen_version: None,
+			static_root: Some(StaticRoot::relative("static")),
 			database: None,
 			cache: None,
 			session_backend: None,
@@ -517,7 +652,7 @@ mod tests {
 
 	// S6
 	#[rstest]
-	fn wasm_stage_hashes_wasm_asset_filenames(mut minimal_signals: DockerfileSignals) {
+	fn wasm_stage_leaves_publication_to_buildstatic(mut minimal_signals: DockerfileSignals) {
 		// Arrange
 		minimal_signals.pages = true;
 		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
@@ -526,10 +661,43 @@ mod tests {
 		let stage = build_wasm_stage(&minimal_signals);
 
 		// Assert
-		assert!(stage_contains_run(&stage, "asset_hash="));
-		assert!(stage_contains_run(&stage, "my_app.${asset_hash}.js"));
-		assert!(stage_contains_run(&stage, "my_app.${asset_hash}_bg.wasm"));
-		assert!(stage_contains_run(&stage, "rm /wasm-dist/my_app.js"));
+		assert!(stage_contains_run(
+			&stage,
+			"wasm-bindgen --out-dir /wasm-dist"
+		));
+		assert!(!stage_contains_run(&stage, "asset_hash="));
+		assert!(!stage_contains_run(&stage, "rm /wasm-dist/my_app.js"));
+	}
+
+	#[rstest]
+	fn assets_stage_publishes_pages_into_configured_static_root(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+
+		// Act
+		let stage = build_assets_stage(&minimal_signals);
+
+		// Assert
+		assert_eq!(stage.base_image, "builder");
+		assert_eq!(stage.name.as_deref(), Some("assets"));
+		assert!(stage_contains_copy(
+			&stage,
+			"wasm",
+			"/wasm-dist",
+			"/build/wasm-dist"
+		));
+		assert!(stage_contains_run(
+			&stage,
+			"/app/target/release/manage buildstatic --pages-dir /build/wasm-dist"
+		));
+		assert!(stage_contains_run(
+			&stage,
+			"--pages-entry my_app.js --pages-document index.html"
+		));
 	}
 
 	// S7
@@ -647,7 +815,7 @@ mod tests {
 
 	// S15
 	#[rstest]
-	fn runtime_copies_wasm_dist(mut minimal_signals: DockerfileSignals) {
+	fn runtime_copies_unified_static_root(mut minimal_signals: DockerfileSignals) {
 		// Arrange
 		minimal_signals.pages = true;
 		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
@@ -656,7 +824,33 @@ mod tests {
 		let stage = build_runtime_stage(&minimal_signals);
 
 		// Assert
-		assert!(stage_contains_copy_from(&stage, "wasm"));
+		assert!(stage_contains_copy(
+			&stage,
+			"assets",
+			"/app/static",
+			"/app/static"
+		));
+	}
+
+	#[rstest]
+	fn runtime_copies_workspace_member_static_root_into_runtime_root(
+		mut minimal_signals: DockerfileSignals,
+	) {
+		// Arrange
+		minimal_signals.pages = true;
+		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
+		minimal_signals.project_relative_path = Some("dashboard".to_string());
+
+		// Act
+		let stage = build_runtime_stage(&minimal_signals);
+
+		// Assert
+		assert!(stage_contains_copy(
+			&stage,
+			"assets",
+			"/app/dashboard/static",
+			"/app/static"
+		));
 	}
 
 	// S16
@@ -669,70 +863,8 @@ mod tests {
 		assert!(!stage_contains_copy_from(&stage, "wasm"));
 	}
 
-	// S15b (Refs #511): pages-enabled runtime stage MUST also COPY
-	// `index.html` so `RunServerCommand`'s SPA fallback can serve it for
-	// unknown routes. For single-crate projects, the source path is at
-	// the build-context root.
-	#[rstest]
-	fn runtime_copies_index_html_for_root_project(mut minimal_signals: DockerfileSignals) {
-		// Arrange — single-crate project: project_relative_path is None
-		minimal_signals.pages = true;
-		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
-		minimal_signals.project_relative_path = None;
-
-		// Act
-		let stage = build_runtime_stage(&minimal_signals);
-
-		// Assert
-		let copies_index = stage.instructions.iter().any(|inst| {
-			matches!(
-				inst,
-				Instruction::Copy { from: Some(f), src, dst }
-					if f == "builder"
-						&& src == "/app/index.html"
-						&& dst == "/app/static/wasm/index.html"
-			)
-		});
-		assert!(
-			copies_index,
-			"runtime stage must COPY /app/index.html -> /app/static/wasm/index.html; \
-			 see kent8192/reinhardt-cloud#511"
-		);
-	}
-
-	// S15c (Refs #511): for workspace-member projects, the index.html
-	// source path must include the project's relative path so COPY
-	// resolves to the correct location inside the builder stage's
-	// filesystem.
-	#[rstest]
-	fn runtime_copies_index_html_for_workspace_member(mut minimal_signals: DockerfileSignals) {
-		// Arrange — workspace member at `dashboard/`
-		minimal_signals.pages = true;
-		minimal_signals.wasm_bindgen_version = Some("0.2.100".to_string());
-		minimal_signals.project_relative_path = Some("dashboard".to_string());
-
-		// Act
-		let stage = build_runtime_stage(&minimal_signals);
-
-		// Assert
-		let copies_index = stage.instructions.iter().any(|inst| {
-			matches!(
-				inst,
-				Instruction::Copy { from: Some(f), src, dst }
-					if f == "builder"
-						&& src == "/app/dashboard/index.html"
-						&& dst == "/app/static/wasm/index.html"
-			)
-		});
-		assert!(
-			copies_index,
-			"runtime stage must COPY /app/dashboard/index.html for workspace-member \
-			 projects; see kent8192/reinhardt-cloud#511"
-		);
-	}
-
-	// S15d (Refs #511): non-pages projects must NOT trigger the index.html
-	// COPY, because the source file may not exist.
+	// S15b: non-pages projects must NOT trigger the unified static-root COPY,
+	// because no asset publication stage exists for them.
 	#[rstest]
 	fn runtime_no_index_html_copy_when_pages_disabled(minimal_signals: DockerfileSignals) {
 		// Act
@@ -742,12 +874,12 @@ mod tests {
 		let copies_index = stage.instructions.iter().any(|inst| {
 			matches!(
 				inst,
-				Instruction::Copy { dst, .. } if dst == "/app/static/wasm/index.html"
+				Instruction::Copy { dst, .. } if dst == "/app/static"
 			)
 		});
 		assert!(
 			!copies_index,
-			"runtime stage must NOT COPY index.html when pages is disabled"
+			"runtime stage must NOT COPY a generated static root when pages is disabled"
 		);
 	}
 

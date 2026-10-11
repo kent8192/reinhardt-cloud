@@ -738,7 +738,7 @@ mod tests {
 
 			// Assert
 			assert_eq!(outcomes, [MutationDispatchOutcome::UnsupportedTarget; 3]);
-			assert_eq!(runtime.form_state().is_submitting.get(), false);
+			assert!(!runtime.form_state().is_submitting.get());
 			assert_eq!(runtime.form_state().field_errors.get().len(), 0);
 			assert_eq!(
 				CreateDeploymentFormRequestClientForm::to_request(&runtime).project_name,
