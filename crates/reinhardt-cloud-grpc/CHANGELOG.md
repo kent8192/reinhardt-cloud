@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-grpc@v0.1.0-alpha.2...reinhardt-cloud-grpc@v0.1.0-alpha.3) - 2026-10-11
+
+### Added
+
+- *(core)* add forbidden variant to api error mapped to permission denied
+
+### Changed
+
+- *(grpc)* import task and interceptor types from their modules
+
+### Fixed
+
+- *(grpc)* record request path ahead of jwt interceptors
+- *(grpc)* reject non-agent paths in the agent interceptor
+- *(grpc)* keep a reconnected agent registered when its previous stream ends
+- *(grpc)* log foreign-agent heartbeats at debug level
+
+### Security
+
+- *(grpc)* authenticate deployed agent service RPCs
+- *(grpc)* refuse registry operations on agents bound to another cluster
+- *(grpc)* bind agent-reported identities to the authenticated cluster
+- *(grpc)* return one fixed forbidden message for every identity binding failure
+
+### Testing
+
+- *(grpc)* exercise jwt interceptors through a real tonic server
+- *(grpc)* wire real-server interceptor tests through intercepted
+- *(grpc)* use the real log service package path in unit tests
+- *(grpc)* cover log and build wiring without the path service
+- *(grpc)* assert recorded path and absent claims for public-path bypass
+- *(grpc)* cover agent identity binding through a real tonic server
+- *(grpc)* prove a reconnected agent stays routable after the old stream ends
+- *(grpc)* assert the exact registry state after an own-cluster handshake
+- *(grpc)* explain why user claims use a presence check in the public-path test
+
 ## [0.1.0-alpha.1](https://github.com/kent8192/reinhardt-cloud/releases/tag/reinhardt-cloud-grpc@v0.1.0-alpha.1) - 2026-06-21
 
 ### Added

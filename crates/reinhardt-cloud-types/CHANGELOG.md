@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-types@v0.1.0-alpha.2...reinhardt-cloud-types@v0.1.0-alpha.3) - 2026-10-11
+
+### Fixed
+
+- *(assets)* preserve generated Pages publication settings end to end
+- *(operator)* seed pages volumes from an explicit prebuilt publication marker
+- *(pages)* reject env overrides that move a prebuilt publication
+- *(pages)* allow working-directory base_dir overrides for prebuilt publications
+- *(pages)* treat settings directory overrides as publication conflicts
+
+### Security
+
+- *(operator)* allow prebuilt pages roots only below the app directory
+
 ## [0.1.0-alpha.1](https://github.com/kent8192/reinhardt-cloud/releases/tag/reinhardt-cloud-types@v0.1.0-alpha.1) - 2026-06-21
 
 ### Added
