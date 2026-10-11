@@ -72,6 +72,9 @@ pub struct SignedInFrame {
 	pub user_menu: Page,
 }
 
+// The two branches differ only in the `aria-current` attribute: `page!` has no
+// syntax for an optional attribute, and `aria-current="false"` on every other
+// link would put the attribute in the document where it carries no meaning.
 fn nav_link(item: NavItem) -> Page {
 	let NavItem {
 		label,

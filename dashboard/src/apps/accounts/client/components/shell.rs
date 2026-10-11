@@ -58,7 +58,13 @@ pub fn frame_for(viewer: &Viewer, section: Section) -> SignedInFrame {
 /// application frame, once the browser is known to be signed in.
 ///
 /// An anonymous browser is sent to the sign-in page and sees nothing of the
-/// page. `content` runs inside the frame's reactive scope, so it may use hooks.
+/// page.
+///
+/// `content` runs inside the success slot of the `ResourcePanel`, which is
+/// re-run whenever the viewer resource changes state. Hooks it creates (such as
+/// the sign-out action) are created again on each run and their state is lost;
+/// that happens once, when the viewer first loads, because the resource does not
+/// change state again after it succeeds.
 pub fn signed_in_page(section: Section, content: impl Fn(&Viewer) -> Page + 'static) -> Page {
 	let viewer = use_viewer();
 	redirect_anonymous(&viewer);
