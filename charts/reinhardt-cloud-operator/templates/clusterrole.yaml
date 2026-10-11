@@ -109,10 +109,10 @@ rules:
     resources: ["limitranges", "resourcequotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Namespace label patching for Pod Security Standards and pre-created tenant
-  # or preview namespaces. Namespace create/update lifecycle verbs are disabled
-  # by default because Kubernetes RBAC cannot constrain namespace creation by
-  # name prefix. Namespace deletion is also gated by the same opt-in because
-  # Kubernetes RBAC cannot constrain namespace deletion by owner labels.
+  # or preview namespaces. The operator uses non-apply merge patches in this
+  # mode, which cannot create a missing Namespace. Namespace lifecycle verbs
+  # are disabled by default because Kubernetes RBAC cannot constrain namespace
+  # creation or deletion by name prefix or owner labels.
   - apiGroups: [""]
     resources: ["namespaces"]
     {{- if $namespaceRbac.manageLifecycle }}
