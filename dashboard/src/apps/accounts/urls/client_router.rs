@@ -12,6 +12,7 @@ pub fn client_url_patterns() -> ClientRouter {
 		.component(components::sign_in::sign_in)
 		.component(components::login_link::login_link)
 		.component(components::home::home)
+		.component(components::account::account)
 }
 
 pub fn reverse(name: &str, params: &[(&str, &str)]) -> String {

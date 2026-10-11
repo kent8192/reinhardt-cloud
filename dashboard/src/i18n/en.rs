@@ -59,8 +59,6 @@ pub const MESSAGES: &[(&str, &str)] = &[
 		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
 		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
 	),
-	// Signed-in landing (replaced by the Overview page)
-	("Signed in as {name}", "Signed in as {name}"),
 	// Signed-in frame
 	("Sidebar", "Sidebar"),
 	("Primary", "Primary"),

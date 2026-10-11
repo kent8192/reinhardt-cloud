@@ -1,70 +1,36 @@
-//! Where a signed-in browser lands.
+//! Where a signed-in browser lands: the Overview.
 //!
-//! The signed-in application shell replaces this page; until then it is the
-//! guard of the private surface: an anonymous browser is sent to the sign-in
-//! page (SR-09), a signed-in User sees who they are and can sign out.
+//! Nothing can be listed here yet: Organizations, Projects, and Clusters arrive
+//! with later features, so the page says so instead of showing an empty list.
+//! An anonymous browser is sent to the sign-in page (SR-09) by `signed_in_page`.
 //!
-//! `reinhardt-pages` checked: `ui::ResourcePanel` presents the viewer
-//! (loading, anonymous, signed in) and `ui::ActionButton` dispatches the
-//! sign-out action with the design's button class.
+//! `reinhardt-pages` checked: `ui::ResourcePanel` is for a resource that may be
+//! empty; here the empty state is the page's whole content, drawn by the shared
+//! `empty_state`.
 
-use reinhardt::pages::component::{Component, Page};
-use reinhardt::pages::reactive::{use_action, use_effect};
-use reinhardt::pages::ui::{ActionButton, ResourcePanel};
-use reinhardt::pages::{NavigationType, deps, navigate, page, t};
+use reinhardt::pages::component::Page;
+use reinhardt::pages::t;
 
-use crate::apps::accounts::client::hooks::viewer::{redirect_anonymous, use_viewer};
+use crate::apps::accounts::client::components::shell::{Section, signed_in_page};
 use crate::apps::accounts::serializers::viewer::Viewer;
-use crate::apps::accounts::server_fn::sign_out::sign_out;
-use crate::apps::accounts::urls::reverse;
-use crate::components::button::{ButtonSize, ButtonVariant, button_class};
+use crate::components::empty_state::empty_state;
+use crate::components::layout::signed_in::page_head;
 
-/// The signed-in landing content for `viewer`.
-pub fn home_content(viewer: &Viewer, sign_out_button: Page) -> Page {
-	let greeting = t!("Signed in as {name}", name = viewer.display_name.clone());
-	let login = t!("@{login}", login = viewer.github_login.clone());
-	page!({
-		section {
-			h1 { { greeting } }
-			p { { login } }
-			{ sign_out_button }
-		}
-	})
+/// The content of the Overview for `viewer`.
+pub fn home_content(viewer: &Viewer) -> Page {
+	let lede = t!("Welcome, {name}.", name = viewer.display_name.clone());
+	let head = page_head(t!("Overview"), lede);
+	let empty = empty_state(
+		t!("Nothing to show yet"),
+		t!("Your Organizations, Projects, and Clusters will appear here as they become available."),
+		None,
+	);
+	Page::Fragment(vec![head, empty])
 }
 
-/// The signed-in landing page, without its route registration.
+/// The Overview page, without its route registration (so tests can mount it).
 pub fn home_page() -> Page {
-	let viewer = use_viewer();
-	redirect_anonymous(&viewer);
-
-	let sign_out_action = use_action(|_: ()| async { sign_out().await });
-	use_effect(
-		move || {
-			if sign_out_action.is_success() {
-				let _ = navigate(reverse("sign-in", &[]), NavigationType::Replace);
-			}
-			None::<fn()>
-		},
-		deps![sign_out_action],
-	);
-	let button = ActionButton::new(sign_out_action, (), t!("Sign out"))
-		.attr(
-			"class",
-			button_class(ButtonVariant::Secondary, ButtonSize::Regular),
-		)
-		.render();
-
-	ResourcePanel::new(viewer)
-		.loading(Page::empty)
-		.empty_if(Option::is_none)
-		.empty(|_| Page::empty())
-		.success(move |viewer| {
-			viewer
-				.as_ref()
-				.map_or_else(Page::empty, |viewer| home_content(viewer, button.clone()))
-		})
-		.error(|_| Page::empty())
-		.render()
+	signed_in_page(Section::Overview, home_content)
 }
 
 /// The home route.

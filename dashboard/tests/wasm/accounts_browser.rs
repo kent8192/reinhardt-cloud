@@ -1,5 +1,6 @@
 //! Browser tests of the accounts application's pages: the sign-in page (SR-01,
-//! SR-19) and the signed-in landing page.
+//! SR-19), the signed-in shell, the Overview, and the account page (SR-07,
+//! SR-09).
 //!
 //! The file is gated on the `client` cfg alias, so it compiles to nothing on
 //! native targets and only runs under `cargo make wasm-test`. Server functions
@@ -7,7 +8,8 @@
 
 #![cfg(client)]
 
-use cloud_control_plane::apps::accounts::client::components::home::home_content;
+use cloud_control_plane::apps::accounts::client::components::account::account_page;
+use cloud_control_plane::apps::accounts::client::components::home::{home_content, home_page};
 use cloud_control_plane::apps::accounts::client::components::login_link::{
 	login_link_content, rejected_alert,
 };
@@ -18,9 +20,12 @@ use cloud_control_plane::apps::accounts::serializers::login_link::LoginLinkOutco
 use cloud_control_plane::apps::accounts::serializers::sign_in::SignInNotice;
 use cloud_control_plane::apps::accounts::serializers::viewer::Viewer;
 use cloud_control_plane::apps::accounts::server_fn::consume_login_link::consume_login_link;
+use cloud_control_plane::apps::accounts::server_fn::current_viewer::current_viewer;
+use cloud_control_plane::apps::accounts::server_fn::sign_out::sign_out;
 use cloud_control_plane::apps::accounts::server_fn::take_sign_in_notice::take_sign_in_notice;
 use cloud_control_plane::apps::accounts::urls::paths::{
-	AUTH_PREFIX, GITHUB_SIGN_IN_PATH, HOME_PATH, LOGIN_LINK_PAGE_PATH, SIGN_IN_PAGE_PATH,
+	ACCOUNT_PAGE_PATH, AUTH_PREFIX, GITHUB_SIGN_IN_PATH, HOME_PATH, LOGIN_LINK_PAGE_PATH,
+	SIGN_IN_PAGE_PATH,
 };
 use cloud_control_plane::apps::accounts::urls::reverse;
 use cloud_control_plane::i18n::i18n_context;
@@ -268,28 +273,399 @@ fn the_invitation_alert_never_reveals_which_policy_refused_the_account() {
 	}
 }
 
-#[rstest]
-#[wasm_bindgen_test]
-fn the_signed_in_landing_shows_who_is_signed_in() {
-	// Arrange
-	let sandbox = Sandbox::new();
-	let viewer = Viewer {
+fn viewer(is_staff: bool) -> Viewer {
+	Viewer {
 		github_login: "riley-chen".to_owned(),
 		display_name: "Riley Chen".to_owned(),
-		avatar_url: None,
-		is_staff: false,
-	};
+		avatar_url: Some("https://avatars.githubusercontent.com/u/6001".to_owned()),
+		is_staff,
+	}
+}
+
+/// Teach the worker who is signed in (`None` for an anonymous caller) and how
+/// `sign_out` answers.
+async fn worker_with_sign_out(
+	viewer: Option<Viewer>,
+	sign_out_answer: Result<(), reinhardt::pages::server_fn::ServerFnError>,
+) -> MockServiceWorker {
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<current_viewer::marker>(move |_| Ok(viewer.clone()));
+	worker.handle_server_fn::<sign_out::marker>(move |_| sign_out_answer.clone());
+	worker
+}
+
+/// A worker whose `sign_out` succeeds.
+async fn worker_with_viewer(viewer: Option<Viewer>) -> MockServiceWorker {
+	worker_with_sign_out(viewer, Ok(())).await
+}
+
+#[rstest]
+#[wasm_bindgen_test]
+fn the_overview_greets_the_user_and_promises_only_what_is_to_come() {
+	// Arrange
+	let sandbox = Sandbox::new();
 
 	// Act
-	sandbox.mount(|| home_content(&viewer, Page::text("sign out here")));
+	sandbox.mount(|| home_content(&viewer(false)));
 
 	// Assert
 	assert_eq!(
 		sandbox.query("h1").text_content().as_deref(),
-		Some("Signed in as Riley Chen")
+		Some("Overview")
 	);
-	assert!(sandbox.text().contains("@riley-chen"));
-	assert!(sandbox.text().contains("sign out here"));
+	assert!(sandbox.text().contains("Welcome, Riley Chen."));
+	assert!(sandbox.text().contains("Nothing to show yet"));
+	assert!(
+		sandbox.find("a").is_none(),
+		"no link to a feature that does not exist"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_signed_in_shell_frames_the_overview_for_the_user() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(home_page);
+	settle().await;
+
+	// Assert
+	let nav = sandbox.query("nav[aria-label='Primary']");
+	let links = nav.query_selector_all("a").expect("valid selector");
+	assert_eq!(
+		links.length(),
+		1,
+		"only the Overview exists in the navigation"
+	);
+	let overview = nav.query_selector("a").expect("selector").expect("a link");
+	assert_eq!(
+		overview.text_content().as_deref().map(str::trim),
+		Some("Overview")
+	);
+	assert_eq!(overview.get_attribute("href").as_deref(), Some(HOME_PATH));
+	assert_eq!(
+		overview.get_attribute("aria-current").as_deref(),
+		Some("page")
+	);
+	let toggle = sandbox.query("details[data-menu] > summary");
+	let toggle_text = toggle.text_content().unwrap_or_default();
+	assert!(toggle_text.contains("Riley Chen"), "{toggle_text}");
+	assert!(toggle_text.contains("@riley-chen"), "{toggle_text}");
+	assert!(
+		toggle_text.contains("RC"),
+		"the initials stand in for the picture: {toggle_text}"
+	);
+	assert_eq!(
+		sandbox.query("main h1").text_content().as_deref(),
+		Some("Overview")
+	);
+	let text = sandbox.text();
+	assert!(
+		text.contains("Switch to"),
+		"the theme toggle is in the sidebar: {text}"
+	);
+	assert!(!text.contains("CLI Sessions"), "{text}");
+	assert!(!text.contains("Switch Organization"), "{text}");
+	let html = sandbox.root.as_web_sys().inner_html();
+	assert!(
+		!html.contains("avatars.githubusercontent.com"),
+		"the page policy would block the picture, and the design uses initials"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_user_menu_offers_the_account_page_and_sign_out_and_nothing_else() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(home_page);
+	settle().await;
+
+	// Assert
+	let menu = sandbox.query("details[data-menu]");
+	let entries = menu
+		.query_selector_all("a, button")
+		.expect("valid selector");
+	assert_eq!(entries.length(), 2);
+	let account = menu
+		.query_selector("a")
+		.expect("selector")
+		.expect("the account link");
+	assert_eq!(
+		account.text_content().as_deref().map(str::trim),
+		Some("Account")
+	);
+	assert_eq!(
+		account.get_attribute("href").as_deref(),
+		Some(ACCOUNT_PAGE_PATH)
+	);
+	let sign_out = menu
+		.query_selector("button")
+		.expect("selector")
+		.expect("the sign-out button");
+	assert_eq!(
+		sign_out.text_content().as_deref().map(str::trim),
+		Some("Sign out")
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn escape_closes_the_open_user_menu_and_returns_focus_to_its_toggle() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(home_page);
+	settle().await;
+	let menu = sandbox.query("details[data-menu]");
+	menu.set_attribute("open", "").expect("open the menu");
+
+	// Act
+	let init = web_sys::KeyboardEventInit::new();
+	init.set_key("Escape");
+	init.set_bubbles(true);
+	let escape = web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &init)
+		.expect("create the event");
+	menu.query_selector("summary")
+		.expect("selector")
+		.expect("the toggle")
+		.dispatch_event(&escape)
+		.expect("dispatch the event");
+
+	// Assert
+	assert!(!menu.has_attribute("open"), "the menu is closed");
+	let focused = web_sys::window()
+		.and_then(|window| window.document())
+		.and_then(|document| document.active_element())
+		.expect("an element has focus");
+	assert_eq!(focused.tag_name(), "SUMMARY");
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn another_key_leaves_the_open_user_menu_open() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(home_page);
+	settle().await;
+	let menu = sandbox.query("details[data-menu]");
+	menu.set_attribute("open", "").expect("open the menu");
+
+	// Act
+	let init = web_sys::KeyboardEventInit::new();
+	init.set_key("a");
+	init.set_bubbles(true);
+	let key = web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &init)
+		.expect("create the event");
+	menu.dispatch_event(&key).expect("dispatch the event");
+
+	// Assert
+	assert!(menu.has_attribute("open"));
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn sr_09_an_anonymous_browser_sees_nothing_of_the_private_pages() {
+	// Arrange
+	let _worker = worker_with_viewer(None).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(home_page);
+	settle().await;
+	let overview = sandbox.text();
+	let account_sandbox = Sandbox::new();
+	account_sandbox.mount(account_page);
+	settle().await;
+
+	// Assert
+	assert_eq!(overview.trim(), "");
+	assert_eq!(account_sandbox.text().trim(), "");
+	assert!(sandbox.find("nav").is_none());
+	assert!(account_sandbox.find("main").is_none());
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_account_page_shows_the_github_profile_without_a_staff_mark_for_ordinary_users() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(account_page);
+	settle().await;
+
+	// Assert
+	assert_eq!(
+		sandbox.query("main h1").text_content().as_deref(),
+		Some("Account")
+	);
+	let main = sandbox.query("main");
+	let text = main.text_content().unwrap_or_default();
+	assert!(text.contains("Riley Chen"), "{text}");
+	assert!(text.contains("@riley-chen"), "{text}");
+	assert!(text.contains("RC"), "{text}");
+	let facts = main
+		.query_selector("dl")
+		.expect("selector")
+		.expect("the facts")
+		.text_content()
+		.unwrap_or_default();
+	assert!(
+		!facts.contains("You can operate this Control Plane"),
+		"{facts}"
+	);
+	assert!(facts.contains("No"), "{facts}");
+	assert!(
+		sandbox.find("nav a[aria-current]").is_none(),
+		"the account page is not a navigation entry, so nothing in the navigation is current"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_account_page_marks_staff() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(true))).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(account_page);
+	settle().await;
+
+	// Assert
+	let facts = sandbox.query("main dl").text_content().unwrap_or_default();
+	assert!(facts.contains("Staff"), "{facts}");
+	assert!(
+		facts.contains("You can operate this Control Plane across all Organizations."),
+		"{facts}"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_account_page_renders_no_secret_about_the_user() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(true))).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(account_page);
+	settle().await;
+
+	// Assert
+	let html = sandbox.root.as_web_sys().inner_html().to_ascii_lowercase();
+	for forbidden in [
+		"token",
+		"email",
+		"@example",
+		"avatars.githubusercontent.com",
+		"password",
+	] {
+		assert!(!html.contains(forbidden), "`{forbidden}` in {html}");
+	}
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn signing_out_from_the_account_page_calls_the_server_once() {
+	// Arrange
+	let worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(account_page);
+	settle().await;
+	worker
+		.calls_to_server_fn::<sign_out::marker>()
+		.assert_not_called();
+	let button = sandbox.query("main button");
+	assert_eq!(
+		button.text_content().as_deref().map(str::trim),
+		Some("Sign out")
+	);
+
+	// Act
+	button
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert
+	worker
+		.calls_to_server_fn::<sign_out::marker>()
+		.assert_count(1);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_failed_sign_out_says_the_session_may_still_be_active() {
+	// Arrange
+	let _worker = worker_with_sign_out(
+		Some(viewer(false)),
+		Err(reinhardt::pages::server_fn::ServerFnError::server(
+			500,
+			"Internal server error",
+		)),
+	)
+	.await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(account_page);
+	settle().await;
+
+	// Act
+	sandbox
+		.query("main button")
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert
+	let alert = sandbox
+		.query("main [role='alert']")
+		.text_content()
+		.unwrap_or_default();
+	assert!(alert.contains("Sign-out did not complete"), "{alert}");
+	assert!(
+		alert.contains("Your session may still be active."),
+		"{alert}"
+	);
+	assert_eq!(
+		sandbox.query("main h1").text_content().as_deref(),
+		Some("Account"),
+		"the page stays where it is"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn signing_out_from_the_user_menu_calls_the_server_once() {
+	// Arrange
+	let worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(home_page);
+	settle().await;
+
+	// Act
+	sandbox
+		.query("details[data-menu] button")
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert
+	worker
+		.calls_to_server_fn::<sign_out::marker>()
+		.assert_count(1);
 }
 
 #[rstest]
@@ -298,6 +674,7 @@ fn the_client_routes_and_the_server_redirects_agree() {
 	// Arrange / Act / Assert
 	assert_eq!(reverse("sign-in", &[]), SIGN_IN_PAGE_PATH);
 	assert_eq!(reverse("home", &[]), HOME_PATH);
+	assert_eq!(reverse("account", &[]), ACCOUNT_PAGE_PATH);
 	assert_eq!(reverse("login-link", &[]), LOGIN_LINK_PAGE_PATH);
 	assert_eq!(GITHUB_SIGN_IN_PATH, format!("{AUTH_PREFIX}github/"));
 }

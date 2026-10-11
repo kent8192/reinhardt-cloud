@@ -29,3 +29,6 @@ pub const LOGIN_LINK_PAGE_PATH: &str = "/sign-in/link/";
 
 /// Where a signed-in browser lands.
 pub const HOME_PATH: &str = "/";
+
+/// The account page.
+pub const ACCOUNT_PAGE_PATH: &str = "/account/";
