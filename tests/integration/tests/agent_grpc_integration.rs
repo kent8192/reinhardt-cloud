@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use prost_types::Timestamp;
 use reinhardt_cloud_core::mocks::MockClusterAgentService;
+use reinhardt_cloud_grpc::agent_claims::AgentClaims;
 use reinhardt_cloud_grpc::services::cluster_agent::AgentServiceGrpc;
 use reinhardt_cloud_proto::cluster_agent as pb;
 use reinhardt_cloud_proto::cluster_agent::agent_service_client::AgentServiceClient;
@@ -18,6 +19,9 @@ use tonic::transport::{Channel, Server};
 use uuid::Uuid;
 
 /// Start a gRPC server with AgentService on a random port.
+///
+/// `AgentService` refuses calls without authenticated `AgentClaims`, so a
+/// stand-in for `AgentJwtInterceptor` injects claims for a fresh cluster.
 async fn start_agent_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
 	let mock_service = Arc::new(MockClusterAgentService::new());
 	let grpc_service = AgentServiceGrpc::new(mock_service);
@@ -26,7 +30,15 @@ async fn start_agent_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
 
 	let handle = tokio::spawn(async move {
 		Server::builder()
-			.add_service(AgentServiceServer::new(grpc_service))
+			.add_service(AgentServiceServer::with_interceptor(
+				grpc_service,
+				|mut request: tonic::Request<()>| {
+					request
+						.extensions_mut()
+						.insert(AgentClaims::new(Uuid::now_v7(), 1));
+					Ok(request)
+				},
+			))
 			.serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
 			.await
 			.unwrap();
