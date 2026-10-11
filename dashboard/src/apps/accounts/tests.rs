@@ -10,6 +10,7 @@ mod unit {
 	mod test_commands;
 	mod test_cookies;
 	mod test_cross_site_guard;
+	mod test_removed_surfaces;
 	mod test_request_origins;
 	mod test_router_assembly;
 	mod test_security_headers;
