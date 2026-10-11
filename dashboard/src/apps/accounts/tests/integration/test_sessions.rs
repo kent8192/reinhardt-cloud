@@ -227,6 +227,50 @@ async fn sr_08_every_session_of_a_user_can_be_destroyed_at_once() {
 
 #[rstest]
 #[tokio::test]
+async fn sr_08_destroying_every_session_leaves_no_session_outside_the_index() {
+	// Arrange
+	let redis = redis().await;
+	let sessions = SessionService::new(redis.handle.clone());
+	let user = Uuid::now_v7();
+	let mut creators = Vec::new();
+	for _ in 0..32 {
+		let sessions = sessions.clone();
+		creators.push(tokio::spawn(async move {
+			sessions.create(user).await.unwrap().token
+		}));
+	}
+
+	// Act
+	let first_sweep = sessions.destroy_all_for_user(user).await.unwrap();
+	let mut tokens = Vec::new();
+	for creator in creators {
+		tokens.push(creator.await.unwrap());
+	}
+	let mut survivors = 0;
+	for token in &tokens {
+		if sessions.resolve(token).await.unwrap().is_some() {
+			survivors += 1;
+		}
+	}
+	let second_sweep = sessions.destroy_all_for_user(user).await.unwrap();
+
+	// Assert
+	assert!(first_sweep <= tokens.len());
+	assert_eq!(
+		second_sweep, survivors,
+		"every session that outlived the first sweep is still named by the index, so the second sweep ends it"
+	);
+	for token in &tokens {
+		assert_eq!(
+			sessions.resolve(token).await.unwrap(),
+			None,
+			"no session of the User survives two sweeps"
+		);
+	}
+}
+
+#[rstest]
+#[tokio::test]
 async fn sign_in_notices_are_redeemed_exactly_once() {
 	// Arrange
 	let redis = redis().await;
