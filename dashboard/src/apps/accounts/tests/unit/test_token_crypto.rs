@@ -119,9 +119,12 @@ fn sr_06_tampered_envelope_is_rejected(context: TokenContext) {
 		.encrypt(&SecretString::new("ghu_secret"), context)
 		.unwrap();
 	let (head, body) = envelope.rsplit_once('.').unwrap();
+	// Change the first character, not the last: the last base64 character carries
+	// padding bits that a strict decoder rejects as a malformed envelope, which
+	// would make this test depend on the random ciphertext.
 	let mut flipped = body.to_owned();
-	let replacement = if flipped.ends_with('A') { "B" } else { "A" };
-	flipped.replace_range(flipped.len() - 1.., replacement);
+	let replacement = if flipped.starts_with('A') { "B" } else { "A" };
+	flipped.replace_range(..1, replacement);
 	let tampered = format!("{head}.{flipped}");
 
 	// Act
