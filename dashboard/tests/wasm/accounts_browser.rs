@@ -451,6 +451,70 @@ async fn escape_closes_the_open_user_menu_and_returns_focus_to_its_toggle() {
 	assert_eq!(focused.tag_name(), "SUMMARY");
 }
 
+/// Dispatches a bubbling `click` on `target`, as a pointer press would.
+fn click_on(target: &web_sys::Element) {
+	let init = web_sys::MouseEventInit::new();
+	init.set_bubbles(true);
+	let click = web_sys::MouseEvent::new_with_mouse_event_init_dict("click", &init)
+		.expect("create the event");
+	target.dispatch_event(&click).expect("dispatch the event");
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_click_outside_the_open_user_menu_closes_it_and_a_click_inside_does_not() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(home_page);
+	settle().await;
+	let menu = sandbox.query("details[data-menu]");
+	menu.set_attribute("open", "").expect("open the menu");
+
+	// Act
+	// The panel, not a link: a click on a link would navigate the test page away.
+	click_on(&sandbox.query("details[data-menu] > div"));
+	let open_after_inside_click = menu.has_attribute("open");
+	click_on(&sandbox.query("main h1"));
+
+	// Assert
+	assert!(
+		open_after_inside_click,
+		"a click inside the menu leaves it open"
+	);
+	assert!(!menu.has_attribute("open"), "a click elsewhere closes it");
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn the_outside_click_listener_is_removed_with_the_menu() {
+	// Arrange
+	let _worker = worker_with_viewer(Some(viewer(false))).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(home_page);
+	settle().await;
+	drop(sandbox);
+	let document = web_sys::window()
+		.and_then(|window| window.document())
+		.expect("document");
+	let stray = document.create_element("details").expect("create a menu");
+	stray.set_attribute("data-menu", "true").expect("mark it");
+	stray.set_attribute("open", "").expect("open it");
+	document
+		.body()
+		.expect("body")
+		.append_child(&stray)
+		.expect("append it");
+
+	// Act
+	click_on(&document.body().expect("body"));
+
+	// Assert
+	let still_open = stray.has_attribute("open");
+	stray.remove();
+	assert!(still_open, "the torn-down menu no longer reacts to clicks");
+}
+
 #[rstest]
 #[test_attr(wasm_bindgen_test)]
 async fn another_key_leaves_the_open_user_menu_open() {

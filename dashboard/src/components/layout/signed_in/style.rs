@@ -139,9 +139,13 @@ pub static SIGNED_IN_STYLES: SignedInStyles = style! {
 		text-align: left;
 	}
 	.panel {
+		position: absolute;
+		z-index: 20;
+		left: 0;
+		right: 0;
+		bottom: 100% + globals.space_1;
 		display: flex;
 		flex-direction: column;
-		margin-top: globals.space_1;
 		padding: globals.space_1;
 		background: globals.surface_raised;
 		border: (globals.border_width, solid, globals.border_default);
@@ -241,6 +245,10 @@ pub static SIGNED_IN_STYLES: SignedInStyles = style! {
 			flex-direction: row;
 			align-items: center;
 			margin-top: 0;
+		}
+		.panel {
+			top: 100% + globals.space_1;
+			bottom: auto;
 		}
 		.main {
 			padding: (globals.space_5, globals.space_4, globals.space_8);

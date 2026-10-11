@@ -4,9 +4,8 @@
 //! No link to CLI Sessions appears: they belong to a later release.
 //!
 //! `reinhardt-pages` checked: `ui::ActionButton` signs out (see
-//! `sign_out_button`); the menu is the shared `<details>` disclosure of
-//! `components::layout::signed_in`, which sits in the sidebar's flow and covers
-//! nothing, so it needs no `Portal`.
+//! `sign_out_button`); the menu is the shared `<details>` popover of
+//! `components::layout::signed_in`, which explains why it is not a `Portal`.
 
 use reinhardt::pages::component::Page;
 use reinhardt::pages::t;

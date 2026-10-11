@@ -7,9 +7,12 @@
 //!
 //! `reinhardt-pages` checked: `router::Link` takes a plain `String` label and
 //! has no active-link support, so the navigation links are anchors the client's
-//! link interception routes. The menus are `<details>` disclosures. `ui` and
-//! `tables` have no navigation or menu primitive; the theme toggle is the
-//! shared `theme_toggle_as`.
+//! link interception routes. The menus are `<details>` popovers positioned by
+//! typed styles, as in the design. `Portal` was checked and not used: the panel
+//! has to stay inside the `<details>` for native toggling, tab order, and
+//! anchoring to its toggle, and nothing in the sidebar clips an overlay that a
+//! portal would have to escape. `ui` and `tables` have no navigation or menu
+//! primitive; the theme toggle is the shared `theme_toggle_as`.
 //!
 //! Workaround for kent8192/reinhardt-web#6727 (tracked in
 //! kent8192/reinhardt-cloud#958): a `#[layout]` route keeps its shell mounted
@@ -35,8 +38,9 @@
 
 use reinhardt::pages::component::{IntoPage, Page};
 use reinhardt::pages::event::KeyDownEvent;
+use reinhardt::pages::reactive::use_retained_effect;
 use reinhardt::pages::static_resolver::resolve_static;
-use reinhardt::pages::{ClassList, TranslatedText, page, t};
+use reinhardt::pages::{ClassList, TranslatedText, deps, page, t};
 
 use crate::components::browser;
 use crate::components::button::ButtonVariant;
@@ -198,9 +202,20 @@ pub fn menu_link(href: String, label: TranslatedText) -> Page {
 /// `items` the entries shown when it is open.
 ///
 /// `summary` is the content of the control (a name, a label); this wraps it
-/// in the bordered toggle with its chevron. `Escape` closes the menu and
-/// returns focus to the toggle.
+/// in the bordered toggle with its chevron. The panel is a popover above the
+/// toggle, as in the design: it takes no room in the sidebar, so opening it moves
+/// nothing. `Escape` closes the menu and returns focus to the toggle; a click
+/// outside it closes it too.
 pub fn menu(summary: Page, items: Vec<Page>) -> Page {
+	// The effect is retained by the menu's mounted view scope. Its cleanup drops
+	// the listener guard, so the document listener goes away with the menu.
+	use_retained_effect(
+		move || {
+			let outside_click = browser::close_menus_on_outside_click(OPEN_MENU_SELECTOR);
+			Some(move || drop(outside_click))
+		},
+		deps![],
+	);
 	let close_on_escape = move |event: KeyDownEvent| {
 		if event.key() == "Escape" {
 			browser::close_open_menus(OPEN_MENU_SELECTOR);
