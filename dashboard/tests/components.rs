@@ -20,11 +20,12 @@ use cloud_control_plane::components::dialog::{
 };
 use cloud_control_plane::components::empty_state::empty_state;
 use cloud_control_plane::components::form_styles::{FORM_STYLES, form_classes};
+use cloud_control_plane::components::layout::MAIN_ID;
 use cloud_control_plane::components::layout::signed_in::{
 	NavItem, SignedInFrame, menu, menu_item_class, menu_link, page_head, page_section, person,
 	signed_in_layout,
 };
-use cloud_control_plane::components::layout::signed_out::{MAIN_ID, signed_out_layout};
+use cloud_control_plane::components::layout::signed_out::signed_out_layout;
 use cloud_control_plane::components::theme::{Theme, theme_toggle};
 use cloud_control_plane::i18n::i18n_context;
 use reinhardt::pages::component::{Component, Outlet, Page};

@@ -40,16 +40,8 @@ use reinhardt::pages::{ClassList, TranslatedText, page, style_def, t};
 
 use crate::components::browser;
 use crate::components::button::ButtonVariant;
+use crate::components::layout::{LOGO_MARK_PATH, LOGO_MARK_SIZE, MAIN_ID};
 use crate::components::theme::theme_toggle_as;
-
-/// Logical path of the small logo mark under `static/`.
-pub const LOGO_MARK_PATH: &str = "img/logo-mark-small.png";
-
-/// Pixel size of [`LOGO_MARK_PATH`]; the image is never upscaled.
-const LOGO_MARK_SIZE: (u32, u32) = (142, 98);
-
-/// `id` of the main landmark, targeted by the skip link.
-pub const MAIN_ID: &str = "main";
 
 /// Selector of the open menus the `Escape` key closes.
 const OPEN_MENU_SELECTOR: &str = "details[data-menu][open]";
