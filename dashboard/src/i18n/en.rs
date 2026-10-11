@@ -59,10 +59,52 @@ pub const MESSAGES: &[(&str, &str)] = &[
 		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
 		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
 	),
-	// Signed-in landing
-	("Signed in as {name}", "Signed in as {name}"),
+	// Signed-in frame
+	("Sidebar", "Sidebar"),
+	("Primary", "Primary"),
+	("Overview", "Overview"),
+	("User menu", "User menu"),
+	("Account", "Account"),
 	("@{login}", "@{login}"),
 	("Sign out", "Sign out"),
+	("Sign-out did not complete", "Sign-out did not complete"),
+	(
+		"Your session may still be active. Try again.",
+		"Your session may still be active. Try again.",
+	),
+	(
+		"The Dashboard could not load your account",
+		"The Dashboard could not load your account",
+	),
+	(
+		"Reload the page. If it keeps happening, ask Staff of this Control Plane.",
+		"Reload the page. If it keeps happening, ask Staff of this Control Plane.",
+	),
+	// Overview page
+	("Welcome, {name}.", "Welcome, {name}."),
+	("Nothing to show yet", "Nothing to show yet"),
+	(
+		"Your Organizations, Projects, and Clusters will appear here as they become available.",
+		"Your Organizations, Projects, and Clusters will appear here as they become available.",
+	),
+	// Account page
+	(
+		"The GitHub profile this Control Plane knows you by.",
+		"The GitHub profile this Control Plane knows you by.",
+	),
+	("Profile", "Profile"),
+	("GitHub account", "GitHub account"),
+	("Staff", "Staff"),
+	("No", "No"),
+	(
+		"You can operate this Control Plane across all Organizations.",
+		"You can operate this Control Plane across all Organizations.",
+	),
+	("Session", "Session"),
+	(
+		"Signing out ends your session in this browser.",
+		"Signing out ends your session in this browser.",
+	),
 	// Sign-in preview (decorative sample content)
 	("Running", "Running"),
 	("Applying", "Applying"),

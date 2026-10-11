@@ -1,14 +1,14 @@
 //! Component styles for the accounts application.
 //!
 //! The sign-in page and its decorative product preview (Variant A of the
-//! approved design). Colors, spacing, radii, and type sizes come from the
+//! approved design), and the account page. Colors, spacing, radii, and type sizes come from the
 //! tokens; what the `style!` DSL cannot express (font stacks, elevations, the
 //! progress wash) is composed from the `rc-` utilities in
 //! `static/css/utilities.css`.
 
 use reinhardt::pages::style_def;
 
-/// Styles of the sign-in page.
+/// Styles of the sign-in page and the account page.
 #[style_def]
 pub static STYLES: AccountsStyles = style! {
 	globals {
@@ -236,5 +236,51 @@ pub static STYLES: AccountsStyles = style! {
 	.chip_cluster {
 		top: 50% + globals.preview_cluster_chip_top;
 		right: globals.preview_cluster_chip_end;
+	}
+	.account_card {
+		display: flex;
+		flex-direction: column;
+		gap: globals.space_5;
+		padding: globals.space_5;
+		background: globals.surface_raised;
+		border: (globals.border_width, solid, globals.border_default);
+		border-radius: globals.radius_lg;
+	}
+	.account_head {
+		display: flex;
+		align-items: center;
+		gap: globals.space_4;
+	}
+	.account_name {
+		color: globals.ink_strong;
+		font-size: globals.text_xl;
+		font-weight: globals.weight_semibold;
+		letter-spacing: globals.tracking_heading;
+	}
+	.account_facts {
+		display: grid;
+		grid-template-columns: (auto, 1fr);
+		gap: (globals.space_3, globals.space_5);
+		dt {
+			color: globals.ink_muted;
+		}
+		dd {
+			color: globals.ink_strong;
+		}
+	}
+	.account_staff {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: globals.space_3;
+	}
+	.account_session {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: globals.space_3;
+		p {
+			color: globals.ink_muted;
+		}
 	}
 };

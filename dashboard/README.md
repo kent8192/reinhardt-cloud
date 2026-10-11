@@ -56,7 +56,7 @@ expanded). Optional variables, all read through `settings/base.toml`:
 | `REINHARDT_CLOUD_GITHUB_CLIENT_ID`, `REINHARDT_CLOUD_GITHUB_CLIENT_SECRET` | Client ID and secret of the GitHub App behind sign-in. Set both together. `staging` and `production` refuse to start without them (and without `REINHARDT_CLOUD_PUBLIC_URL`) unless `REINHARDT_CLOUD_GITHUB_SIGN_IN=disabled` opts out; a Control Plane started that way can only be entered with a Login Link. The App's callback URL is `<public URL>/api/auth/github/callback/`. |
 | `REINHARDT_CLOUD_GITHUB_SIGN_IN` | `disabled` runs the Control Plane without GitHub sign-in. Any other non-empty value stops startup. |
 | `REINHARDT_CLOUD_PUBLIC_URL` | Origin the Dashboard is served from; with the GitHub App configured it must be a bare origin (scheme and host, no path) in every profile. The GitHub callback URL and the first allowed cross-site request origin derive from it. `staging.toml` and `production.toml` name the deployed origins and require `https` when the GitHub App is configured. |
-| `REINHARDT_CLOUD_TRUSTED_PROXIES` | Comma-separated IP addresses (exact addresses; the framework supports no ranges) of the TLS-terminating proxies in front of the Control Plane. Only requests from these addresses have `X-Forwarded-Proto` honored, which is what lets `Strict-Transport-Security` be sent behind a proxy. Unset, HSTS is never sent (a startup warning says so in a deployed profile). |
+| `REINHARDT_CLOUD_TRUSTED_PROXIES` | Comma-separated IP addresses (exact addresses; the framework supports no ranges) of the TLS-terminating proxies in front of the Control Plane. An IPv4 address also matches its IPv4-mapped IPv6 form (`::ffff:a.b.c.d`), which a dual-stack listener reports. Only requests from these addresses have `X-Forwarded-Proto` honored, which is what lets `Strict-Transport-Security` be sent behind a proxy. Unset, HSTS is never sent (a startup warning says so in a deployed profile). |
 | `REINHARDT_CLOUD_ALLOWED_ORIGINS` | Comma-separated extra origins allowed to send state-changing cookie-authenticated requests. A wildcard is ignored; loopback origins exist only in a debug profile. |
 | `REINHARDT_CLOUD_GITHUB_AUTHORIZE_URL`, `REINHARDT_CLOUD_GITHUB_TOKEN_URL`, `REINHARDT_CLOUD_GITHUB_API_URL` | Endpoint overrides that point sign-in at a local stand-in for GitHub (tests only). |
 
@@ -75,6 +75,21 @@ Staff. State-changing cookie-authenticated requests must carry an allowed
 `local` and `ci` profiles. The security headers cover everything the router
 serves; the single-page application shell and static assets are answered by the
 framework's static layer, which cannot carry them yet (reinhardt-web#6721).
+
+### The signed-in application
+
+A signed-in page is framed by the shell in `src/components/layout/signed_in.rs`:
+a sidebar with the brand, the primary navigation, the User menu (the account page
+and sign out), and the theme toggle, beside the page content. The navigation lists
+only the pages that exist, and the Organization switcher renders nothing until
+Organizations exist. Every signed-in page renders through `signed_in_page`
+(`apps/accounts/client/components/shell.rs`), which asks the server who is signed
+in, sends an anonymous browser to the sign-in page, and renders nothing private
+before the answer arrives. The pages are the Overview (`/`) and the account page
+(`/account/`: the GitHub profile, a Staff indicator, and sign out). The browser
+is sent only the display name, the GitHub login, and the Staff flag; the User's
+GitHub picture is not shown because the page content security policy allows
+images only from this origin, so initials stand in for it, as in the design.
 
 ### Operator access: Staff, Login Links, and moving a User
 
@@ -111,12 +126,17 @@ manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
 # it needs an active Staff User, and the User who needs recovering may be the only
 # one. It also cannot reactivate anyone: the User admin is read-only (activation,
 # Staff, and identity change only through these commands), because reinhardt-admin
-# has no hook that could end the sessions first. end-sessions ends every browser session of the User (non-zero exit if Redis
-# fails). reactivate-user ends every session first, and only then sets the User
-# active again, because a session left in Redis while the User was inactive would
-# otherwise become valid again; it refuses if the sessions cannot be ended and
-# changes nothing for a User who is already active. Use the User's current
-# (new) GitHub user ID.
+# has no hook that could end the sessions first.
+#
+# end-sessions ends every browser session of the User (non-zero exit if Redis
+# fails).
+#
+# reactivate-user ends every session first, and only then sets the User active
+# again, because a session left in Redis while the User was inactive would
+# otherwise become valid again. It refuses if the sessions cannot be ended and
+# changes nothing for a User who is already active.
+#
+# Use the User's current (new) GitHub user ID with both.
 manage end-sessions --github-user-id 9919
 manage reactivate-user --github-user-id 9919
 
@@ -208,7 +228,7 @@ dashboard/
 │   │   └── lib.rs    # `wasm_bindgen(start)` launcher
 │   ├── i18n.rs       # Message catalogs and the page i18n context
 │   ├── components.rs # Components shared by every app (see "Components")
-│   ├── components/   # Styled primitives, badge, code block, theme toggle, layouts
+│   ├── components/   # Styled primitives, badge, avatar, code block, theme toggle, layouts (signed-in and signed-out)
 │   ├── apps/         # App modules generated by startapp
 │   │   ├── accounts.rs
 │   │   └── accounts/
@@ -251,8 +271,8 @@ channels, both published by `collectstatic` and linked once from `index.html`:
   elevations, easing, keyframes, `appearance`, and similar). `tokens.css` is the
   only place visual values are declared.
 
-The theme follows the system setting until the toggle in the signed-out layout
-sets `data-theme` on `<html>` and stores the choice in local storage under
+The theme follows the system setting until the toggle in the sidebar (or the
+signed-out layout) sets `data-theme` on `<html>` and stores the choice in local storage under
 `rc-theme`; `static/js/theme-init.js` re-applies it before first paint.
 
 ### Components

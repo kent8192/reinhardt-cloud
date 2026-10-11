@@ -79,7 +79,6 @@ async fn sr_16_confirming_a_link_signs_the_browser_in_with_a_hardened_session() 
 		json!({
 			"github_login": "ops",
 			"display_name": "ops",
-			"avatar_url": null,
 			"is_staff": true
 		})
 	);

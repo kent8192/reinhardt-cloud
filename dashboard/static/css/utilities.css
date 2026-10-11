@@ -71,6 +71,37 @@
 	box-shadow: var(--elevation-1);
 }
 
+/* A `<summary>` drawn as a control: the platform marker is replaced by a
+ * chevron that turns when its `<details>` is open. */
+.rc-disclosure {
+	list-style: none;
+	cursor: pointer;
+}
+
+.rc-disclosure::-webkit-details-marker {
+	display: none;
+}
+
+.rc-disclosure::after {
+	content: "";
+	flex: none;
+	width: var(--chevron-size);
+	height: var(--chevron-size);
+	border-right: var(--chevron-stroke) solid var(--ink-muted);
+	border-bottom: var(--chevron-stroke) solid var(--ink-muted);
+	transform: translateY(-2px) rotate(45deg);
+	transition: transform var(--duration-base) var(--ease-standard);
+}
+
+details[open] > .rc-disclosure::after {
+	transform: translateY(1px) rotate(225deg);
+}
+
+/* The current page in the sidebar navigation: an outline and an accent edge. */
+.rc-nav-current {
+	box-shadow: inset 0 0 0 var(--border-width) var(--border-default), inset var(--border-width-emphasis) 0 0 var(--accent-fill);
+}
+
 /* The wash behind the phase in progress. */
 .rc-progress-wash {
 	background: linear-gradient(90deg, var(--status-progress-bg), transparent 85%);
@@ -85,5 +116,9 @@
 	.rc-spin::before,
 	.rc-dialog-enter[open] {
 		animation: none;
+	}
+
+	.rc-disclosure::after {
+		transition: none;
 	}
 }

@@ -309,6 +309,41 @@ async fn sr_13_hsts_is_sent_behind_a_configured_tls_terminating_proxy() {
 }
 
 #[rstest]
+#[case::mapped_peer_of_an_ipv4_proxy(vec![PROXY], "::ffff:10.0.0.7".parse().unwrap())]
+#[case::ipv4_peer_of_a_mapped_proxy(vec!["::ffff:10.0.0.7".parse().unwrap()], PROXY)]
+#[case::mapped_peer_of_a_mapped_proxy(vec!["::ffff:10.0.0.7".parse().unwrap()], "::ffff:10.0.0.7".parse().unwrap())]
+#[tokio::test]
+async fn sr_13_an_ipv4_proxy_is_trusted_however_the_listener_spells_its_address(
+	#[case] trusted: Vec<IpAddr>,
+	#[case] peer: IpAddr,
+) {
+	// Arrange / Act
+	let response = through_proxy_trust(trusted, peer, "https").await;
+
+	// Assert
+	assert_eq!(
+		header(&response, "strict-transport-security"),
+		Some("max-age=31536000; includeSubDomains; preload")
+	);
+}
+
+#[rstest]
+#[case::another_mapped_address(vec![PROXY], "::ffff:10.0.0.8".parse().unwrap())]
+#[case::an_unrelated_ipv6_address(vec![PROXY], "2001:db8::1".parse().unwrap())]
+#[case::a_mapped_address_is_not_a_range(vec!["::ffff:10.0.0.7".parse().unwrap()], IpAddr::V4(Ipv4Addr::new(10, 0, 0, 8)))]
+#[tokio::test]
+async fn sr_13_ipv4_mapping_widens_nothing_beyond_the_declared_address(
+	#[case] trusted: Vec<IpAddr>,
+	#[case] peer: IpAddr,
+) {
+	// Arrange / Act
+	let response = through_proxy_trust(trusted, peer, "https").await;
+
+	// Assert
+	assert_eq!(header(&response, "strict-transport-security"), None);
+}
+
+#[rstest]
 #[case::proxy_says_http(vec![PROXY], PROXY, "http")]
 #[case::no_proxy_configured(vec![], PROXY, "https")]
 #[case::forwarded_by_a_stranger(vec![PROXY], IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)), "https")]

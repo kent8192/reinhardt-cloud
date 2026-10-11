@@ -19,6 +19,7 @@
 //! and are composed through the `rc-` classes named in each component.
 
 pub mod alert;
+pub mod avatar;
 pub mod badge;
 pub mod browser;
 pub mod button;

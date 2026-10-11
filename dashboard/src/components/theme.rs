@@ -78,8 +78,15 @@ pub fn apply_theme(theme: Theme) {
 	browser::write_stored(STORAGE_KEY, theme.as_str());
 }
 
-/// Renders the button that switches to the other theme.
+/// Renders the button that switches to the other theme, drawn as a secondary
+/// button (the signed-out chrome).
 pub fn theme_toggle() -> Page {
+	theme_toggle_as(ButtonVariant::Secondary)
+}
+
+/// Renders the button that switches to the other theme, drawn as `variant`
+/// (the signed-in sidebar uses the quiet one).
+pub fn theme_toggle_as(variant: ButtonVariant) -> Page {
 	let theme = Signal::new(current_theme());
 	// Re-reads the effective theme when the system setting changes; once a
 	// theme is picked, `current_theme` returns the pick and this is a no-op.
@@ -93,7 +100,7 @@ pub fn theme_toggle() -> Page {
 		apply_theme(next);
 		theme.set(next);
 	});
-	let classes = button_classes(ButtonVariant::Secondary, ButtonSize::Small);
+	let classes = button_classes(variant, ButtonSize::Small);
 	page!({
 		button {
 			class: classes,

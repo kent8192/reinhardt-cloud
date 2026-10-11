@@ -39,6 +39,35 @@ mod browser_impl {
 			.map(str::to_owned)
 	}
 
+	fn open_menus(selector: &str) -> Vec<web_sys::Element> {
+		let Some(document) = window().and_then(|window| window.document()) else {
+			return Vec::new();
+		};
+		let Ok(menus) = document.query_selector_all(selector) else {
+			return Vec::new();
+		};
+		(0..menus.length())
+			.filter_map(|index| menus.item(index))
+			.filter_map(|node| node.dyn_into::<web_sys::Element>().ok())
+			.collect()
+	}
+
+	pub(super) fn close_open_menus(selector: &str) {
+		for menu in open_menus(selector) {
+			// Removing an attribute that is present cannot fail.
+			let _ = menu.remove_attribute("open");
+			// Hand focus back to the control that opened the menu.
+			if let Some(summary) = menu
+				.query_selector("summary")
+				.ok()
+				.flatten()
+				.and_then(|summary| summary.dyn_into::<web_sys::HtmlElement>().ok())
+			{
+				let _ = summary.focus();
+			}
+		}
+	}
+
 	pub(super) fn read_stored(key: &str) -> Option<String> {
 		// Storage can be blocked by the browser; treat that as "nothing stored".
 		window()?.local_storage().ok()??.get_item(key).ok()?
@@ -63,7 +92,7 @@ mod browser_impl {
 	pub(super) struct EventListener {
 		target: web_sys::EventTarget,
 		event: &'static str,
-		closure: Closure<dyn FnMut()>,
+		closure: Closure<dyn FnMut(web_sys::Event)>,
 	}
 
 	impl Drop for EventListener {
@@ -79,9 +108,9 @@ mod browser_impl {
 	fn listen(
 		target: web_sys::EventTarget,
 		event: &'static str,
-		callback: impl FnMut() + 'static,
+		callback: impl FnMut(web_sys::Event) + 'static,
 	) -> Option<EventListener> {
-		let closure = Closure::<dyn FnMut()>::new(callback);
+		let closure = Closure::<dyn FnMut(web_sys::Event)>::new(callback);
 		target
 			.add_event_listener_with_callback(event, closure.as_ref().unchecked_ref())
 			.ok()?;
@@ -93,9 +122,29 @@ mod browser_impl {
 	}
 
 	pub(super) fn on_system_theme_change(
-		callback: impl FnMut() + 'static,
+		mut callback: impl FnMut() + 'static,
 	) -> Option<EventListener> {
-		listen(color_scheme_query()?.into(), "change", callback)
+		listen(color_scheme_query()?.into(), "change", move |_event| {
+			callback();
+		})
+	}
+
+	pub(super) fn close_menus_on_outside_click(selector: &'static str) -> Option<EventListener> {
+		let document = window()?.document()?;
+		listen(document.into(), "click", move |event| {
+			let target = event
+				.target()
+				.and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+			for menu in open_menus(selector) {
+				let inside = target
+					.as_ref()
+					.is_some_and(|target| menu.contains(Some(target)));
+				if !inside {
+					// Removing an attribute that is present cannot fail.
+					let _ = menu.remove_attribute("open");
+				}
+			}
+		})
 	}
 
 	fn dialog(id: &str) -> Option<HtmlDialogElement> {
@@ -117,7 +166,8 @@ mod browser_impl {
 		id: &str,
 		callback: impl FnMut() + 'static,
 	) -> Option<EventListener> {
-		listen(dialog(id)?.into(), "close", callback)
+		let mut callback = callback;
+		listen(dialog(id)?.into(), "close", move |_event| callback())
 	}
 
 	pub(super) fn copy_text(text: &str, done: impl FnOnce() + 'static) {
@@ -162,6 +212,12 @@ mod browser_impl {
 	pub(super) fn set_document_theme(_theme: &str) {}
 
 	pub(super) fn location_fragment() -> Option<String> {
+		None
+	}
+
+	pub(super) fn close_open_menus(_selector: &str) {}
+
+	pub(super) fn close_menus_on_outside_click(_selector: &'static str) -> Option<EventListener> {
 		None
 	}
 
@@ -213,6 +269,25 @@ pub fn set_document_theme(theme: &str) {
 /// keeps its secret there. Always `None` on the server target.
 pub fn location_fragment() -> Option<String> {
 	browser_impl::location_fragment()
+}
+
+/// Closes every open disclosure menu matching `selector` and returns focus to
+/// its summary. Does nothing on the server target.
+///
+/// A `<details>` menu opens and closes without scripting; this is the keyboard
+/// dismissal (`Escape`) the native element does not provide.
+pub fn close_open_menus(selector: &str) {
+	browser_impl::close_open_menus(selector);
+}
+
+/// Closes every open disclosure menu matching `selector` when the page is
+/// clicked outside it (a click inside a menu leaves it alone).
+///
+/// Returns `None` when the browser has no document (always on the server
+/// target). The listener is removed when the returned guard is dropped.
+pub fn close_menus_on_outside_click(selector: &'static str) -> Option<EventListener> {
+	browser_impl::close_menus_on_outside_click(selector)
+		.map(|inner| EventListener { _inner: inner })
 }
 
 /// Reads a value from local storage; `None` when absent or storage is blocked.

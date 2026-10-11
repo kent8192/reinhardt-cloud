@@ -120,6 +120,22 @@ struct Record {
 	created_ms: i64,
 }
 
+/// Deletes every session an index names, then the index, in one step.
+///
+/// `KEYS[1]` is the User's index; `ARGV[1]` is the prefix every session key
+/// shares. The session keys are derived inside the script, so they are not
+/// declared in `KEYS`: that is fine on the single Redis the Control Plane uses
+/// and would have to change before the sessions moved to a clustered Redis
+/// (where the index and the sessions hash to different slots anyway).
+const DESTROY_ALL_SCRIPT: &str = r"
+local removed = 0
+for _, digest in ipairs(redis.call('SMEMBERS', KEYS[1])) do
+	removed = removed + redis.call('DEL', ARGV[1] .. digest)
+end
+redis.call('DEL', KEYS[1])
+return removed
+";
+
 /// Redis-backed browser sessions.
 #[derive(Clone, Debug)]
 pub struct SessionService {
@@ -279,19 +295,23 @@ impl SessionService {
 
 	/// Destroy every session of `user`; returns how many were live.
 	///
+	/// The whole sweep is one script, which Redis runs without interleaving any
+	/// other command. Read-then-delete from the client would let a session that
+	/// is created between the read and the final delete of the index survive
+	/// with no index entry, out of reach of every later revocation.
+	///
 	/// # Errors
 	///
 	/// Returns an error when Redis is unreachable or refuses the write.
 	pub async fn destroy_all_for_user(&self, user: Uuid) -> Result<usize, SessionError> {
 		let mut connection = self.redis.connection().await?;
-		let user_key = self.user_key(user);
-		let digests: Vec<String> = connection.smembers(&user_key).await?;
-		let mut destroyed = 0;
-		for digest in &digests {
-			let removed: usize = connection.del(self.session_key(digest)).await?;
-			destroyed += removed;
-		}
-		let _: () = connection.del(&user_key).await?;
+		let destroyed: usize = redis::cmd("EVAL")
+			.arg(DESTROY_ALL_SCRIPT)
+			.arg(1)
+			.arg(self.user_key(user))
+			.arg(self.session_key(""))
+			.query_async(&mut connection)
+			.await?;
 		Ok(destroyed)
 	}
 }

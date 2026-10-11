@@ -176,6 +176,17 @@ is the only non-DI type allowed in a binary.
 - Use `watch {}` for reactive conditionals, `use_resource` for reads, and
   `use_action` for mutations. Use `use_callback` for event handlers.
 - Internal redirects go through the router navigation API, not `window.location`.
+- A signed-in page renders its content through `signed_in_page`
+  (`apps/accounts/client/components/shell.rs`): the shell frames it, the guard sends
+  an anonymous browser to sign-in, and the navigation lists only pages that exist.
+  Workaround for kent8192/reinhardt-web#6727 (tracked in
+  kent8192/reinhardt-cloud#958): the shell is not a `#[layout]` route, because a
+  mounted layout cannot read the current route to move the navigation's
+  current-page marker. Remove this when the upstream issue is resolved.
+  Ideal implementation: a `#[layout("/", name = "signed-in-shell")]` function
+  `signed_in_shell(outlet: Outlet)` that renders `signed_in_layout(frame, outlet)`
+  with `Link` entries that follow the reactive current route, and pages that
+  return only their content.
 - Keep shared code cfg-clean across native and `wasm32-unknown-unknown`. Use the
   generated `client` / `server` cfg aliases.
 

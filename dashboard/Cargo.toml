@@ -52,6 +52,13 @@ web-sys = { version = "0.3", features = [
 	"Navigator",
 	"Clipboard",
 	"HtmlDialogElement",
+	"HtmlElement",
+	"Node",
+	"NodeList",
+	"KeyboardEvent",
+	"KeyboardEventInit",
+	"MouseEvent",
+	"MouseEventInit",
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
@@ -132,6 +139,10 @@ path = "tests/wasm/accounts_browser.rs"
 [[test]]
 name = "accounts_navigation"
 path = "tests/wasm/accounts_navigation.rs"
+
+[[test]]
+name = "accounts_shell_navigation"
+path = "tests/wasm/accounts_shell_navigation.rs"
 
 # Native test targets are skipped by `wasm-pack test --no-default-features`,
 # which builds every test target for wasm32.

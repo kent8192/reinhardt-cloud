@@ -84,7 +84,6 @@ async fn sr_01_github_sign_in_creates_the_user_and_a_hardened_session() {
 		json!({
 			"github_login": "riley-chen",
 			"display_name": "Riley Chen",
-			"avatar_url": "https://avatars.example.test/u/5001",
 			"is_staff": false
 		})
 	);

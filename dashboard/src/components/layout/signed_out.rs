@@ -15,16 +15,8 @@ use reinhardt::pages::component::{IntoPage, Page};
 use reinhardt::pages::static_resolver::resolve_static;
 use reinhardt::pages::{page, style_def, t};
 
+use crate::components::layout::{LOGO_MARK_PATH, LOGO_MARK_SIZE, MAIN_ID};
 use crate::components::theme::theme_toggle;
-
-/// Logical path of the small logo mark under `static/`.
-pub const LOGO_MARK_PATH: &str = "img/logo-mark-small.png";
-
-/// Pixel size of [`LOGO_MARK_PATH`]; the image is never upscaled.
-const LOGO_MARK_SIZE: (u32, u32) = (142, 98);
-
-/// `id` of the main landmark, targeted by the skip link.
-pub const MAIN_ID: &str = "main";
 
 #[style_def]
 pub static SIGNED_OUT_STYLES: SignedOutStyles = style! {

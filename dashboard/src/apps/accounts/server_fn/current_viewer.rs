@@ -20,7 +20,6 @@ pub async fn current_viewer(
 	Ok(user.map(|CurrentUser(user)| Viewer {
 		github_login: user.github_login,
 		display_name: user.display_name,
-		avatar_url: user.avatar_url,
 		is_staff: user.is_staff,
 	}))
 }
