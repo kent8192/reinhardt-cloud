@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-operator@v0.1.0-alpha.2...reinhardt-cloud-operator@v0.1.0-alpha.3) - 2026-10-11
+
+### Fixed
+
+- *(rbac)* restore lifecycle namespace creation
+- *(operator)* recover concurrent namespace creation
+
+### Security
+
+- *(rbac)* prevent patch-only namespace creation
+
 ## [0.1.0-alpha.2](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-operator@v0.1.0-alpha.1...reinhardt-cloud-operator@v0.1.0-alpha.2) - 2026-06-29
 
 ### Fixed

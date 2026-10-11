@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-grpc@v0.1.0-alpha.2...reinhardt-cloud-grpc@v0.1.0-alpha.3) - 2026-10-11
+
+### Changed
+
+- *(grpc)* import task and interceptor types from their modules
+
+### Fixed
+
+- *(grpc)* record request path ahead of jwt interceptors
+- *(grpc)* reject non-agent paths in the agent interceptor
+
+### Security
+
+- *(grpc)* authenticate deployed agent service RPCs
+
+### Testing
+
+- *(grpc)* exercise jwt interceptors through a real tonic server
+- *(grpc)* wire real-server interceptor tests through intercepted
+- *(grpc)* use the real log service package path in unit tests
+- *(grpc)* cover log and build wiring without the path service
+
 ## [0.1.0-alpha.1](https://github.com/kent8192/reinhardt-cloud/releases/tag/reinhardt-cloud-grpc@v0.1.0-alpha.1) - 2026-06-21
 
 ### Added
