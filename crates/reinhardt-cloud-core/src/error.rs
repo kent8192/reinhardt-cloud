@@ -3,10 +3,19 @@
 use thiserror::Error;
 
 /// Framework-agnostic API errors for the Reinhardt Cloud platform.
+///
+/// The enum is intentionally exhaustive (not `#[non_exhaustive]`): the
+/// transport adapters that map it to gRPC statuses match every variant, so
+/// adding a variant is a compile error there instead of a silent fallback to
+/// a generic status. `Forbidden` (HTTP 403, gRPC `PermissionDenied`) was added
+/// for callers that are authenticated but not allowed to act on the target.
 #[derive(Debug, Clone, Error)]
 pub enum ApiError {
 	#[error("unauthorized: {0}")]
 	Unauthorized(String),
+
+	#[error("forbidden: {0}")]
+	Forbidden(String),
 
 	#[error("not found: {0}")]
 	NotFound(String),
@@ -23,6 +32,7 @@ impl ApiError {
 	pub fn status_code(&self) -> u16 {
 		match self {
 			Self::Unauthorized(_) => 401,
+			Self::Forbidden(_) => 403,
 			Self::NotFound(_) => 404,
 			Self::BadRequest(_) => 400,
 			Self::Internal(_) => 500,
@@ -37,6 +47,7 @@ mod tests {
 
 	#[rstest]
 	#[case(ApiError::Unauthorized("no token".to_string()), 401)]
+	#[case(ApiError::Forbidden("wrong cluster".to_string()), 403)]
 	#[case(ApiError::NotFound("resource missing".to_string()), 404)]
 	#[case(ApiError::BadRequest("invalid input".to_string()), 400)]
 	#[case(ApiError::Internal("server failure".to_string()), 500)]
@@ -52,6 +63,7 @@ mod tests {
 
 	#[rstest]
 	#[case(ApiError::Unauthorized("no token".to_string()), "unauthorized: no token")]
+	#[case(ApiError::Forbidden("wrong cluster".to_string()), "forbidden: wrong cluster")]
 	#[case(ApiError::NotFound("user 42".to_string()), "not found: user 42")]
 	#[case(ApiError::BadRequest("missing field".to_string()), "bad request: missing field")]
 	#[case(ApiError::Internal("db down".to_string()), "internal error: db down")]

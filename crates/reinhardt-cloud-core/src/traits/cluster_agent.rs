@@ -28,19 +28,39 @@ pub trait ClusterAgentService: Send + Sync + 'static {
 	/// authenticated `cluster_id` from the gRPC interceptor so the
 	/// implementation can bind the agent to its cluster in the registry.
 	///
+	/// The agent identity announced on the stream is peer-supplied.
+	/// Implementations that track agents MUST refuse an identity that is
+	/// already bound to a different cluster.
+	///
 	/// The default implementation ignores `cluster_id` and delegates to
 	/// [`Self::agent_stream`], preserving backward compatibility for
 	/// services (e.g. mocks) that do not need cluster-scoped routing.
 	async fn agent_stream_authenticated(
 		&self,
 		agent_events: Pin<Box<dyn Stream<Item = Result<AgentEvent, ApiError>> + Send>>,
-		_cluster_id: Option<Uuid>,
+		_cluster_id: Uuid,
 	) -> Result<Pin<Box<dyn Stream<Item = Result<AgentCommand, ApiError>> + Send>>, ApiError> {
 		self.agent_stream(agent_events).await
 	}
 
 	/// Report health status for an agent.
+	///
+	/// The `agent_id` inside `health` is not authenticated. Callers that
+	/// receive health over the network MUST use
+	/// [`Self::report_health_for_cluster`] instead.
 	async fn report_health(&self, health: AgentHealth) -> Result<(), ApiError>;
+
+	/// Report health status for an agent on behalf of an authenticated
+	/// cluster.
+	///
+	/// Implementations MUST reject `health` when `health.agent_id` is not
+	/// registered under `cluster_id` (returning [`ApiError::Forbidden`]),
+	/// because the agent identity in the payload is chosen by the peer.
+	async fn report_health_for_cluster(
+		&self,
+		cluster_id: Uuid,
+		health: AgentHealth,
+	) -> Result<(), ApiError>;
 
 	/// Get health status for an agent by ID.
 	async fn get_agent_health(&self, agent_id: Uuid) -> Result<AgentHealth, ApiError>;
