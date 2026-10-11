@@ -11,7 +11,9 @@
 use std::fs;
 use std::path::Path;
 
-use reinhardt::auth::get_superuser_creator;
+use reinhardt::auth::{
+	SuperuserCreatorRegistration, auto_register_superuser_creator, get_superuser_creator,
+};
 use reinhardt::db::orm::Model;
 use rstest::rstest;
 use serial_test::serial;
@@ -19,7 +21,8 @@ use serial_test::serial;
 use crate::apps::accounts::models::User;
 use crate::config::settings::test_support::{EnvGuard, required_env};
 
-/// Every `(method, path, name)` the assembled server registers.
+/// Every `(method, path, name)` the assembled server registers: the
+/// application routes and the admin site, as `routes()` assembles them.
 fn registered_routes() -> Vec<String> {
 	let _env = EnvGuard::apply(&required_env("ci"));
 	let router = crate::config::urls::routes().into_server();
@@ -64,6 +67,16 @@ fn the_route_inventory_is_not_empty_so_the_absence_checks_mean_something() {
 			.iter()
 			.any(|route| route.contains("/api/server_fn/sign_out")),
 		"{routes:?}"
+	);
+	// `routes()` assembles the request surface itself (`config::web::assemble`),
+	// so the admin site's mount is part of the inventory the absence checks scan.
+	assert!(
+		routes.iter().any(|route| route.contains("/admin/")),
+		"the admin routes are enumerated: {routes:?}"
+	);
+	assert!(
+		routes.iter().any(|route| route.contains("/static/admin/")),
+		"the admin assets are enumerated: {routes:?}"
 	);
 }
 
@@ -200,30 +213,60 @@ fn sr_21_22_23_24_the_committed_migrations_create_no_credential_or_verification_
 
 #[rstest]
 fn sr_25_no_migration_seeds_a_row() {
-	// Arrange / Act
-	let seeding: Vec<String> = migration_sources()
-		.into_iter()
-		.filter(|(_, text)| {
-			let lower = text.to_ascii_lowercase();
-			lower.contains("insert into")
-				|| lower.contains("insertrows")
-				|| lower.contains("loaddata")
-		})
-		.map(|(file, _)| file)
-		.collect();
+	// Arrange
+	// Schema operations only. `RunRust` and every variant not listed here could
+	// insert a row without any SQL text to find, so a new variant must be
+	// reviewed and added deliberately.
+	let schema_operations = [
+		"AddColumn",
+		"AlterColumn",
+		"CreateIndex",
+		"CreateTable",
+		"RunSQL",
+	];
+
+	// Act
+	let mut other_operations = Vec::new();
+	let mut seeding = Vec::new();
+	for (file, text) in migration_sources() {
+		for operation in text.split("Operation::").skip(1) {
+			let name: String = operation
+				.chars()
+				.take_while(|character| character.is_ascii_alphanumeric())
+				.collect();
+			if !schema_operations.contains(&name.as_str()) {
+				other_operations.push(format!("{file}: {name}"));
+			}
+		}
+		let lower = text.to_ascii_lowercase();
+		if lower.contains("insert into")
+			|| lower.contains("insertrows")
+			|| lower.contains("loaddata")
+		{
+			seeding.push(file);
+		}
+	}
 
 	// Assert
+	assert_eq!(other_operations, Vec::<String>::new());
 	assert_eq!(seeding, Vec::<String>::new());
 }
 
 #[rstest]
 fn sr_21_25_the_createsuperuser_command_has_no_user_model_to_create() {
-	// Arrange / Act
+	// Arrange
+	// The framework fills the global creator from the `#[user]` registrations in
+	// the binary only when asked; `createsuperuser` asks before it dispatches.
+	auto_register_superuser_creator();
+
+	// Act
+	let registrations = inventory::iter::<SuperuserCreatorRegistration>().count();
 	let creator = get_superuser_creator();
 
 	// Assert
-	assert!(
-		creator.is_none(),
-		"a registered superuser creator would make `manage createsuperuser` create a User with a password"
+	assert_eq!(
+		registrations, 0,
+		"a `#[user]` model would make `manage createsuperuser` create a User with a password"
 	);
+	assert!(creator.is_none());
 }
