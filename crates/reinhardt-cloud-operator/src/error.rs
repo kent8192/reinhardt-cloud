@@ -57,6 +57,20 @@ pub(crate) enum Error {
 	#[error("invalid probe period {seconds} for field '{field}': must be at least 1")]
 	InvalidProbePeriod { field: &'static str, seconds: i32 },
 
+	/// A static output path cannot be safely mounted beside its image source,
+	/// or a prebuilt publication root lies outside the allowed `/app/<dir>` tree.
+	#[error(
+		"invalid Pages static root '{0}': require an absolute directory without parent traversal; prebuilt roots must be a dedicated directory below /app (for example /app/static), excluding application directories such as settings, migrations, src, and target"
+	)]
+	InvalidStaticRoot(String),
+
+	/// Application environment overrides would make the app read a different
+	/// static publication than the prebuilt Pages image ships.
+	#[error(
+		"Pages prebuilt publication conflicts with env overrides {0:?}: remove them or set them to the recorded pages.static_root/static_url (REINHARDT_ENV must be production; base_dir must be '.'; settings directory overrides such as REINHARDT_CLOUD_CONFIG_DIR are not supported)"
+	)]
+	ConflictingPagesEnv(Vec<String>),
+
 	/// A workload `ServiceAccount` name resolves to an existing object owned by another controller.
 	#[error(
 		"serviceAccount '{name}' in namespace '{namespace}' is not owned by Project uid '{project_uid}'"
@@ -171,6 +185,10 @@ pub(crate) enum BackoffClass {
 	DependencyNotReady,
 	/// Permanent error (invalid spec). Do not retry until the object changes.
 	Permanent,
+	/// A resource the operator must manage is held by another owner. Resolving
+	/// it changes objects the controller may not watch (for example an
+	/// unlabelled tenant-created Secret), so retry at a fixed interval.
+	OwnershipConflict,
 }
 
 impl BackoffClass {
@@ -180,6 +198,7 @@ impl BackoffClass {
 			BackoffClass::Transient => "transient",
 			BackoffClass::DependencyNotReady => "dependency_not_ready",
 			BackoffClass::Permanent => "permanent",
+			BackoffClass::OwnershipConflict => "ownership_conflict",
 		}
 	}
 }
@@ -188,6 +207,8 @@ impl BackoffClass {
 ///
 /// Heuristics:
 /// - `MissingField`, `InvalidPort`, probe periods: permanent — user must fix the spec.
+/// - `ResourceOwnershipConflict`: retried at a fixed interval, because removing
+///   the conflicting object may produce no event the controller observes.
 /// - `Kube` with HTTP 404/409: dependency not ready (object missing or
 ///   write conflicts) — wait a bit longer before retrying.
 /// - Finalizer errors inherit the classification of an embedded reconciliation
@@ -200,6 +221,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		Error::MissingField(_)
 		| Error::InvalidPort { .. }
 		| Error::InvalidProbePeriod { .. }
+		| Error::InvalidStaticRoot(_)
+		| Error::ConflictingPagesEnv(_)
 		| Error::InvalidPluginSpec(_)
 		| Error::DatabaseProvisioning(_)
 		| Error::ServiceAccountOwnership { .. }
@@ -208,8 +231,8 @@ pub(crate) fn backoff_class(error: &Error) -> BackoffClass {
 		| Error::InvalidTenant(_)
 		| Error::InvalidBudget(_)
 		| Error::InvalidIngressHost(_)
-		| Error::ResourceOwnershipConflict { .. }
 		| Error::InvalidCredentialsSecret { .. } => BackoffClass::Permanent,
+		Error::ResourceOwnershipConflict { .. } => BackoffClass::OwnershipConflict,
 		Error::Kube(kube_err) => kube_status_class(kube_err),
 		Error::PreviewProjectsTerminating { .. } | Error::NamespaceNotProvisioned(_) => {
 			BackoffClass::DependencyNotReady
@@ -368,7 +391,7 @@ mod tests {
 	}
 
 	#[rstest]
-	fn resource_ownership_conflict_is_permanent() {
+	fn resource_ownership_conflict_is_retried_as_ownership_conflict() {
 		// Arrange
 		let err = Error::ResourceOwnershipConflict {
 			kind: "Service",
@@ -382,7 +405,7 @@ mod tests {
 		let class = backoff_class(&err);
 
 		// Assert
-		assert_eq!(class, BackoffClass::Permanent);
+		assert_eq!(class, BackoffClass::OwnershipConflict);
 	}
 
 	#[rstest]
@@ -406,6 +429,10 @@ mod tests {
 			"dependency_not_ready"
 		);
 		assert_eq!(BackoffClass::Permanent.as_metric_label(), "permanent");
+		assert_eq!(
+			BackoffClass::OwnershipConflict.as_metric_label(),
+			"ownership_conflict"
+		);
 	}
 
 	#[rstest]

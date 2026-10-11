@@ -40,7 +40,8 @@ rbac:
     # operator-managed preview namespace lifecycle. Keep disabled unless the
     # operator service account is intentionally trusted to create and delete
     # namespaces; otherwise pre-create preview namespaces and allow the operator
-    # to patch labels only. Tenant namespaces are always pre-created because a
+    # to merge-patch their labels only. Merge patches cannot create missing
+    # Namespace resources. Tenant namespaces are always pre-created because a
     # tenant Project must already live in its namespace.
     manageLifecycle: false
 

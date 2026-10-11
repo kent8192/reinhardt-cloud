@@ -386,8 +386,10 @@ Namespace lifecycle RBAC is disabled by default to keep the operator service acc
 Tenant namespaces are always pre-created by the platform, because a tenant `Project` must already
 live in its tenant namespace; the operator only applies tenant labels, quota, and network policies to
 them and never deletes them. When preview namespaces are managed by a separate platform workflow,
-leave `rbac.namespaces.manageLifecycle=false` and pre-create them. Set it to `true` only when the
-operator is intentionally trusted to create and delete parent-qualified preview namespaces.
+leave `rbac.namespaces.manageLifecycle=false` and pre-create them. In this mode, the operator uses
+merge patches to update labels on existing namespaces; those patches cannot create a missing
+namespace. Set it to `true` only when the operator is intentionally trusted to create and delete
+parent-qualified preview namespaces.
 
 ### Isolation defaults
 

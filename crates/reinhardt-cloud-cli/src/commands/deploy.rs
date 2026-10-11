@@ -1668,4 +1668,66 @@ features:
 		// Assert
 		assert_eq!(resolved, "paas.reinhardt-cloud.dev/v9");
 	}
+
+	#[rstest]
+	fn deployment_manifest_preserves_publication_root() {
+		// Arrange
+		let config: ReinhardtCloudToml = toml::from_str(
+			r#"
+[app]
+name="pages-app"
+image="pages-app:latest"
+[pages]
+static_root="/app/dist"
+"#,
+		)
+		.unwrap();
+		// Act
+		let spec = build_project_spec(
+			Some(&config),
+			"pages-app",
+			"pages-app:v1".to_owned(),
+			1,
+			None,
+		)
+		.unwrap();
+		let crd = build_project_crd(
+			"pages-app",
+			"tenant",
+			&spec,
+			"paas.reinhardt-cloud.dev/v1alpha2",
+		);
+		// Assert
+		assert_eq!(
+			crd["spec"]["pages"]["static_root"].as_str(),
+			Some("/app/dist")
+		);
+	}
+
+	#[rstest]
+	fn dashboard_config_matches_its_image_publication() {
+		// Arrange
+		let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+		let config: ReinhardtCloudToml = toml::from_str(
+			&std::fs::read_to_string(repository.join("dashboard/reinhardt-cloud.toml")).unwrap(),
+		)
+		.unwrap();
+		let dockerfile = std::fs::read_to_string(repository.join("dashboard/Dockerfile")).unwrap();
+
+		// Act
+		let pages = config.to_project_spec().pages.unwrap();
+
+		// Assert
+		let static_root = pages.static_root.unwrap();
+		assert_eq!(static_root, "/app/static");
+		assert_eq!(pages.static_url.as_deref(), Some("/static/"));
+		assert_eq!(pages.prebuilt, Some(true));
+		assert!(
+			dockerfile
+				.lines()
+				.any(|line| line
+					== format!("COPY --from=assets /app/dashboard/static {static_root}")),
+			"dashboard/Dockerfile must publish into {static_root}"
+		);
+	}
 }

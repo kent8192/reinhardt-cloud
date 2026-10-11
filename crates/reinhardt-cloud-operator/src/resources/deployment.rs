@@ -51,7 +51,8 @@ fn build_main_container_probe(app: &Project, default_port: i32) -> Result<Option
 /// Builds a `Deployment` for the given `Project`.
 ///
 /// Uses the app's own namespace as the single source of truth.
-/// When `pages_config` is provided, adds a collectstatic initContainer,
+/// When `pages_config` is provided, adds a static-seeding initContainer
+/// (`cp` from a prebuilt image publication, otherwise `collectstatic`),
 /// a static-server sidecar container, and a shared emptyDir volume.
 /// Returns an error if the owner reference cannot be computed.
 pub(crate) fn build_deployment(
@@ -95,7 +96,7 @@ pub(crate) fn build_deployment(
 	// Additional containers (sidecars)
 	let mut extra_containers: Vec<Container> = Vec::new();
 
-	// Pages: collectstatic initContainer, static-server sidecar, emptyDir volume
+	// Pages: static-seeding initContainer, static-server sidecar, emptyDir volume
 	if let Some(config) = pages_config {
 		// Add shared emptyDir volume for static files
 		volumes.push(Volume {
@@ -104,33 +105,96 @@ pub(crate) fn build_deployment(
 			..Default::default()
 		});
 
-		// collectstatic initContainer
-		let mut collectstatic_mounts = volume_mounts.clone();
-		collectstatic_mounts.push(VolumeMount {
-			name: "static-files".to_string(),
-			mount_path: config.static_root.clone(),
-			..Default::default()
-		});
+		// Container paths use POSIX syntax regardless of the operator build host.
+		let root = config.static_root.trim_end_matches('/');
+		if !root.starts_with('/')
+			|| root.is_empty()
+			|| root.split('/').any(|part| matches!(part, "." | ".."))
+			|| root.chars().any(char::is_control)
+		{
+			return Err(Error::InvalidStaticRoot(config.static_root.clone()));
+		}
 
-		let mut collectstatic_env = merged_env.clone();
-		collectstatic_env.push(EnvVar {
-			name: "REINHARDT_STATIC_ROOT".to_string(),
-			value: Some(config.static_root.clone()),
-			..Default::default()
-		});
+		if config.prebuilt {
+			// The whole root is copied into the publicly served volume, so only a
+			// dedicated directory below the `/app` application directory is
+			// allowed. Anything else (system or credential paths such as
+			// `/var/run/secrets/...`, the `/app` root itself, or known application
+			// directories) could publish files that are not static assets.
+			let segments: Vec<&str> = root.split('/').skip(1).collect();
+			let allowed = segments.len() >= 2
+				&& segments[0] == "app"
+				&& segments.iter().all(|part| !part.is_empty())
+				&& !matches!(
+					segments[1],
+					"settings" | "migrations" | "src" | "target" | ".git" | ".agents" | ".codex"
+				);
+			if !allowed {
+				return Err(Error::InvalidStaticRoot(config.static_root.clone()));
+			}
+			// Application env takes precedence over image settings, so overrides
+			// of the profile, static root/URL, or base_dir would make the app
+			// resolve a publication the sidecar does not serve.
+			let conflicts = reinhardt_cloud_types::crd::pages::conflicting_publication_env(
+				&config.static_root,
+				&config.static_url,
+				&app.spec.env,
+			);
+			if !conflicts.is_empty() {
+				return Err(Error::ConflictingPagesEnv(conflicts));
+			}
+			// Mount the volume at a sibling path so the image publication stays
+			// visible while its exact bytes seed the volume. `cp` runs directly
+			// rather than through a shell, and only for images explicitly marked
+			// as shipping a publication. Operands are explicit `args` so the
+			// image's `ENTRYPOINT`/`CMD` never contribute to the invocation.
+			let staging = format!("{root}-cloud-volume");
+			init_containers.push(Container {
+				name: "seed-static-files".to_string(),
+				image: Some(app.spec.image.clone()),
+				command: Some(vec!["cp".to_string()]),
+				args: Some(vec![
+					"-RP".to_string(),
+					"--".to_string(),
+					format!("{root}/."),
+					format!("{staging}/"),
+				]),
+				volume_mounts: Some(vec![VolumeMount {
+					name: "static-files".to_string(),
+					mount_path: staging,
+					..Default::default()
+				}]),
+				..Default::default()
+			});
+		} else {
+			// collectstatic initContainer
+			let mut collectstatic_mounts = volume_mounts.clone();
+			collectstatic_mounts.push(VolumeMount {
+				name: "static-files".to_string(),
+				mount_path: config.static_root.clone(),
+				..Default::default()
+			});
 
-		init_containers.push(Container {
-			name: "collectstatic".to_string(),
-			image: Some(app.spec.image.clone()),
-			command: Some(vec![
-				"manage".to_string(),
-				"collectstatic".to_string(),
-				"--no-input".to_string(),
-			]),
-			env: Some(collectstatic_env),
-			volume_mounts: Some(collectstatic_mounts),
-			..Default::default()
-		});
+			let mut collectstatic_env = merged_env.clone();
+			collectstatic_env.push(EnvVar {
+				name: "REINHARDT_STATIC_ROOT".to_string(),
+				value: Some(config.static_root.clone()),
+				..Default::default()
+			});
+
+			init_containers.push(Container {
+				name: "collectstatic".to_string(),
+				image: Some(app.spec.image.clone()),
+				command: Some(vec![
+					"manage".to_string(),
+					"collectstatic".to_string(),
+					"--no-input".to_string(),
+				]),
+				env: Some(collectstatic_env),
+				volume_mounts: Some(collectstatic_mounts),
+				..Default::default()
+			});
+		}
 
 		// Convert server_resources to k8s ResourceRequirements
 		let server_resources = ResourceRequirements {
@@ -279,7 +343,7 @@ pub(crate) fn build_deployment(
 					volumes: Some(volumes),
 					// Forward validated spec.imagePullSecrets so the kubelet can
 					// authenticate to private registries when pulling the main
-					// application container, the collectstatic init-container,
+					// application container, the static-seeding init-container,
 					// and the static-server sidecar — they all share this
 					// PodSpec.
 					image_pull_secrets: super::validated_image_pull_secrets(app)?,
@@ -944,12 +1008,264 @@ mod tests {
 			.iter()
 			.find(|c| c.name == "collectstatic")
 			.expect("collectstatic init container should be present");
-		let expected_command = vec![
-			"manage".to_string(),
-			"collectstatic".to_string(),
-			"--no-input".to_string(),
+		assert_eq!(
+			collectstatic.command.as_deref(),
+			Some(
+				[
+					"manage".to_owned(),
+					"collectstatic".to_owned(),
+					"--no-input".to_owned(),
+				]
+				.as_slice()
+			)
+		);
+		assert_eq!(collectstatic.args, None);
+	}
+
+	#[rstest]
+	#[case(false, &["collectstatic"])]
+	#[case(true, &["seed-static-files"])]
+	fn pages_static_seeding_follows_the_publication_marker(
+		#[case] prebuilt: bool,
+		#[case] expected: &[&str],
+	) {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.prebuilt = prebuilt;
+
+		// Act
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+
+		// Assert
+		let inits = deployment
+			.spec
+			.unwrap()
+			.template
+			.spec
+			.unwrap()
+			.init_containers
+			.unwrap();
+		let names: Vec<_> = inits.iter().map(|c| c.name.as_str()).collect();
+		assert_eq!(names, expected);
+		for container in &inits {
+			let command = container.command.as_ref().unwrap();
+			assert!(
+				!command[0].ends_with("sh"),
+				"Pages init containers must not require a shell: {command:?}"
+			);
+		}
+	}
+
+	#[rstest]
+	fn prebuilt_seed_sets_explicit_operands_independent_of_image_cmd() {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/app/static/".into();
+		pages.prebuilt = true;
+
+		// Act
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+
+		// Assert
+		let inits = deployment
+			.spec
+			.unwrap()
+			.template
+			.spec
+			.unwrap()
+			.init_containers
+			.unwrap();
+		let seed = inits
+			.iter()
+			.find(|container| container.name == "seed-static-files")
+			.unwrap();
+		assert_eq!(seed.command.as_deref(), Some(["cp".to_owned()].as_slice()));
+		assert_eq!(
+			seed.args.as_deref(),
+			Some(
+				[
+					"-RP".to_owned(),
+					"--".to_owned(),
+					"/app/static/.".to_owned(),
+					"/app/static-cloud-volume/".to_owned(),
+				]
+				.as_slice()
+			)
+		);
+	}
+
+	#[cfg(unix)]
+	#[rstest]
+	fn prebuilt_image_publication_survives_shared_volume_initialization() {
+		// Arrange
+		// The temporary directory stands in for the container filesystem root.
+		let container_root = tempfile::tempdir().unwrap();
+		let in_container = |path: &str| {
+			container_root
+				.path()
+				.join(path.strip_prefix('/').unwrap_or(path))
+		};
+		let source = in_container("/app/static");
+		std::fs::create_dir_all(source.join("builds/generation")).unwrap();
+		let files = [
+			("manifest.json", "{\"version\":\"2.0\"}"),
+			("index.html", "<script src=app.js></script>"),
+			("builds/generation/app.js", "import './app.wasm';"),
+			("builds/generation/app.wasm", "wasm fixture"),
+			(".generation", "pinned generation"),
 		];
-		assert_eq!(collectstatic.command.as_ref(), Some(&expected_command));
+		for (name, bytes) in files {
+			std::fs::write(source.join(name), bytes).unwrap();
+		}
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/app/static".into();
+		pages.prebuilt = true;
+		let app = make_test_app("app", "img:v1", None);
+
+		// Act
+		let deployment = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap();
+		let spec = deployment.spec.unwrap().template.spec.unwrap();
+		let containers = spec.init_containers.unwrap();
+		let seed = containers
+			.iter()
+			.find(|container| container.name == "seed-static-files")
+			.expect("image publication must be seeded before its root is overlaid");
+		let mount = seed
+			.volume_mounts
+			.as_ref()
+			.unwrap()
+			.iter()
+			.find(|mount| mount.name == "static-files")
+			.unwrap();
+		let target = in_container(&mount.mount_path);
+		std::fs::create_dir(&target).unwrap();
+		let command = seed.command.as_ref().unwrap();
+		let arguments = seed.args.as_deref().unwrap_or_default();
+		let status = std::process::Command::new(&command[0])
+			.args(command[1..].iter().chain(arguments).map(|arg| {
+				if arg.starts_with('/') {
+					in_container(arg).into_os_string()
+				} else {
+					arg.into()
+				}
+			}))
+			.status()
+			.unwrap();
+
+		// Assert
+		assert!(status.success());
+		assert_eq!(mount.mount_path, "/app/static-cloud-volume");
+		for (name, bytes) in files {
+			assert_eq!(std::fs::read(target.join(name)).unwrap(), bytes.as_bytes());
+			assert_eq!(std::fs::read(source.join(name)).unwrap(), bytes.as_bytes());
+		}
+	}
+
+	#[rstest]
+	#[case("/")]
+	#[case("relative/static")]
+	#[case("/app/../dist")]
+	#[case("/app/./dist")]
+	#[case("/app/dist\n")]
+	fn publication_roots_cannot_overlap_the_seed_volume(#[case] root: &str) {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = root.into();
+		pages.prebuilt = true;
+
+		// Act
+		let error = build_deployment(&app, Some(&pages), &Platform::Onpremise).unwrap_err();
+
+		// Assert
+		assert!(matches!(&error, Error::InvalidStaticRoot(value) if value == root));
+		assert_eq!(
+			crate::error::backoff_class(&error),
+			crate::error::BackoffClass::Permanent
+		);
+	}
+
+	#[rstest]
+	#[case("/app", false, false)]
+	#[case("/app/", false, false)]
+	#[case("/usr", false, false)]
+	#[case("/srv/publication", false, false)]
+	#[case("/var/run/secrets/kubernetes.io/serviceaccount", false, false)]
+	#[case("/app//static", false, false)]
+	#[case("/application/static", false, false)]
+	#[case("/app/settings", false, false)]
+	#[case("/app/migrations/static", false, false)]
+	#[case("/app/static", false, true)]
+	#[case("/app/static/", false, true)]
+	#[case("/app/dashboard/static", false, true)]
+	#[case("/srv/publication", true, true)]
+	fn prebuilt_roots_must_be_dedicated_publication_directories(
+		#[case] root: &str,
+		#[case] collected: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let app = make_test_app("app", "img:v1", None);
+		let mut pages = make_default_pages_config();
+		pages.static_root = root.into();
+		pages.prebuilt = !collected;
+
+		// Act
+		let result = build_deployment(&app, Some(&pages), &Platform::Onpremise);
+
+		// Assert
+		match result {
+			Ok(_) => assert!(accepted, "{root} must be rejected"),
+			Err(error) => {
+				assert!(!accepted, "{root} must be accepted: {error}");
+				assert!(matches!(&error, Error::InvalidStaticRoot(value) if value == root));
+			}
+		}
+	}
+
+	#[rstest]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/other", true, false)]
+	#[case("REINHARDT_STATIC_FILES__URL", "/assets/", true, false)]
+	#[case("REINHARDT_ENV", "staging", true, false)]
+	#[case("REINHARDT_CORE__BASE_DIR", "/srv", true, false)]
+	#[case("REINHARDT_BASE_DIR", ".", true, true)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", true, false)]
+	#[case("REINHARDT_CLOUD_CONFIG_DIR", "/app/alternate-settings", false, true)]
+	#[case("REINHARDT_STATIC_FILES__ROOT", "/app/static", true, true)]
+	#[case("REINHARDT_ENV", "production", true, true)]
+	#[case("REINHARDT_ENV", "staging", false, true)]
+	fn prebuilt_publications_reject_conflicting_env_overrides(
+		#[case] key: &str,
+		#[case] value: &str,
+		#[case] prebuilt: bool,
+		#[case] accepted: bool,
+	) {
+		// Arrange
+		let mut app = make_test_app("app", "img:v1", None);
+		app.spec.env = BTreeMap::from([(key.to_owned(), value.to_owned())]);
+		let mut pages = make_default_pages_config();
+		pages.static_root = "/app/static".into();
+		pages.prebuilt = prebuilt;
+
+		// Act
+		let result = build_deployment(&app, Some(&pages), &Platform::Onpremise);
+
+		// Assert
+		match result {
+			Ok(_) => assert!(accepted, "{key}={value} must be rejected"),
+			Err(error) => {
+				assert!(!accepted, "{key}={value} must be accepted: {error}");
+				assert!(
+					matches!(&error, Error::ConflictingPagesEnv(keys) if keys == &[key.to_owned()])
+				);
+				assert_eq!(
+					crate::error::backoff_class(&error),
+					crate::error::BackoffClass::Permanent
+				);
+			}
+		}
 	}
 
 	#[rstest]

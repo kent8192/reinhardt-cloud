@@ -32,3 +32,10 @@ backend = "redis"
 
 [env]
 REINHARDT_EMAIL__HOST = "secretRef:reinhardt-cloud-dashboard-secrets/email-host"
+
+# The image publishes the buildstatic generation (manifest, JS, WASM, and
+# component styles) to /app/static; see dashboard/Dockerfile.
+[pages]
+static_root = "/app/static"
+static_url = "/static/"
+prebuilt = true

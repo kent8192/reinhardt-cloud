@@ -25,7 +25,7 @@ mod tests {
 		assert_ne!(binding, swapped_browser);
 		assert_ne!(binding, swapped_session);
 		assert_ne!(binding, missing_session);
-		assert_eq!(oauth_state_binding("", None).is_err(), true);
+		assert!(oauth_state_binding("", None).is_err());
 	}
 
 	#[rstest]
@@ -72,10 +72,10 @@ mod tests {
 
 		// Assert
 		assert_eq!(matching.unwrap(), Some(user));
-		assert_eq!(swapped.is_err(), true);
-		assert_eq!(missing.is_err(), true);
-		assert_eq!(ambient_login.is_err(), true);
+		assert!(swapped.is_err());
+		assert!(missing.is_err());
+		assert!(ambient_login.is_err());
 		assert_eq!(oauth_account_link_user(b"null", None).unwrap(), None);
-		assert_eq!(oauth_account_link_user(b"invalid", None).is_err(), true);
+		assert!(oauth_account_link_user(b"invalid", None).is_err());
 	}
 }

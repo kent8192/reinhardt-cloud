@@ -251,8 +251,8 @@ mod tests {
 				outcome,
 				reinhardt::pages::MutationDispatchOutcome::UnsupportedTarget
 			);
-			assert_eq!(mutation.is_pending(), false);
-			assert_eq!(runtime.form_state().is_submitting.get(), false);
+			assert!(!mutation.is_pending());
+			assert!(!runtime.form_state().is_submitting.get());
 		});
 	}
 
