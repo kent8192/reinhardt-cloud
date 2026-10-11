@@ -212,7 +212,10 @@ pub fn menu(summary: Page, items: Vec<Page>) -> Page {
 	use_retained_effect(
 		move || {
 			let outside_click = browser::close_menus_on_outside_click(OPEN_MENU_SELECTOR);
-			Some(move || drop(outside_click))
+			Some(move || {
+				// Dropping the guard removes the document listener.
+				let _listener = outside_click;
+			})
 		},
 		deps![],
 	);
