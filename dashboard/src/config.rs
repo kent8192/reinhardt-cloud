@@ -4,6 +4,8 @@
 pub mod admin;
 pub mod apps;
 #[cfg(server)]
+pub mod commands;
+#[cfg(server)]
 pub mod middleware;
 #[cfg(server)]
 pub mod settings;

@@ -23,6 +23,10 @@ impl Handler for Reached {
 }
 
 fn request(method: Method, headers: &[(&str, &str)]) -> Request {
+	request_to("/api/server_fn/sign_out", method, headers)
+}
+
+fn request_to(path: &str, method: Method, headers: &[(&str, &str)]) -> Request {
 	let mut map = HeaderMap::new();
 	for (name, value) in headers {
 		map.insert(
@@ -32,7 +36,7 @@ fn request(method: Method, headers: &[(&str, &str)]) -> Request {
 	}
 	Request::builder()
 		.method(method)
-		.uri("/api/server_fn/sign_out")
+		.uri(path)
 		.version(Version::HTTP_11)
 		.headers(map)
 		.body(Bytes::new())
@@ -141,4 +145,46 @@ async fn sr_12_the_rejection_is_a_generic_json_error() {
 		String::from_utf8(response.body.to_vec()).unwrap(),
 		r#"{"error":"cross-site request rejected"}"#
 	);
+}
+
+const CONSUME: &str = "/api/server_fn/consume_login_link";
+
+async fn status_of_path(path: &str, method: Method, headers: &[(&str, &str)]) -> u16 {
+	let guard = CrossSiteGuard::new(vec![ALLOWED.to_owned()]);
+	guard
+		.process(request_to(path, method, headers), Arc::new(Reached))
+		.await
+		.unwrap()
+		.status
+		.as_u16()
+}
+
+#[rstest]
+#[case::no_origin(&[], 403)]
+#[case::wrong_origin(&[("Origin", "https://evil.example")], 403)]
+#[case::null_origin(&[("Origin", "null")], 403)]
+#[case::right_origin(&[("Origin", ALLOWED)], 200)]
+#[case::referer_only_right(&[("Referer", "https://reinhardt-cloud.dev/sign-in/link/")], 200)]
+#[tokio::test]
+async fn sr_12_confirming_a_login_link_proves_its_origin_even_without_a_session_cookie(
+	#[case] headers: &[(&str, &str)],
+	#[case] expected: u16,
+) {
+	// Arrange / Act
+	let status = status_of_path(CONSUME, Method::POST, headers).await;
+
+	// Assert
+	assert_eq!(status, expected);
+}
+
+#[rstest]
+#[tokio::test]
+async fn sr_12_only_state_changing_requests_to_a_session_starting_path_need_proof() {
+	// Arrange / Act
+	let get = status_of_path(CONSUME, Method::GET, &[]).await;
+	let other_path = status_of_path("/api/server_fn/take_sign_in_notice", Method::POST, &[]).await;
+
+	// Assert
+	assert_eq!(get, 200, "a GET is a safe method");
+	assert_eq!(other_path, 200, "other cookie-less requests stay unchecked");
 }

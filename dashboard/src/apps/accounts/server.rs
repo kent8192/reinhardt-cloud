@@ -7,6 +7,7 @@
 
 pub mod admin;
 pub mod base_user;
+pub mod commands;
 pub mod context;
 pub mod cookies;
 pub mod forms;

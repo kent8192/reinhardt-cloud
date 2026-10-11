@@ -32,6 +32,13 @@ mod browser_impl {
 		}
 	}
 
+	pub(super) fn location_fragment() -> Option<String> {
+		let hash = window()?.location().hash().ok()?;
+		hash.strip_prefix('#')
+			.filter(|fragment| !fragment.is_empty())
+			.map(str::to_owned)
+	}
+
 	pub(super) fn read_stored(key: &str) -> Option<String> {
 		// Storage can be blocked by the browser; treat that as "nothing stored".
 		window()?.local_storage().ok()??.get_item(key).ok()?
@@ -154,6 +161,10 @@ mod browser_impl {
 
 	pub(super) fn set_document_theme(_theme: &str) {}
 
+	pub(super) fn location_fragment() -> Option<String> {
+		None
+	}
+
 	pub(super) fn read_stored(_key: &str) -> Option<String> {
 		None
 	}
@@ -194,6 +205,14 @@ pub fn document_theme() -> Option<String> {
 /// Sets the `data-theme` attribute of the document root.
 pub fn set_document_theme(theme: &str) {
 	browser_impl::set_document_theme(theme);
+}
+
+/// The fragment of the page URL without its `#`, if there is a non-empty one.
+///
+/// The browser never sends a fragment to the server, which is why a Login Link
+/// keeps its secret there. Always `None` on the server target.
+pub fn location_fragment() -> Option<String> {
+	browser_impl::location_fragment()
 }
 
 /// Reads a value from local storage; `None` when absent or storage is blocked.

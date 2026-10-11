@@ -418,15 +418,16 @@ impl Browser {
 		self.send(request).await
 	}
 
-	/// Send a request with any method, JSON body, and headers.
-	pub(crate) async fn request(
+	/// Send a request with any method, a JSON body, and headers.
+	pub(crate) async fn request_with_body(
 		&mut self,
 		method: &str,
 		path: &str,
 		headers: &[(&str, &str)],
+		body: &Value,
 	) -> Reply {
 		let method = reqwest::Method::from_bytes(method.as_bytes()).expect("a valid method");
-		let mut request = self.http.request(method, self.url(path)).json(&json!({}));
+		let mut request = self.http.request(method, self.url(path)).json(body);
 		for (name, value) in headers {
 			request = request.header(*name, *value);
 		}

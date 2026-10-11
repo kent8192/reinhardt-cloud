@@ -8,14 +8,19 @@
 #![cfg(client)]
 
 use cloud_control_plane::apps::accounts::client::components::home::home_content;
+use cloud_control_plane::apps::accounts::client::components::login_link::{
+	login_link_content, rejected_alert,
+};
 use cloud_control_plane::apps::accounts::client::components::sign_in::{
 	notice_alert, sign_in_page,
 };
+use cloud_control_plane::apps::accounts::serializers::login_link::LoginLinkOutcome;
 use cloud_control_plane::apps::accounts::serializers::sign_in::SignInNotice;
 use cloud_control_plane::apps::accounts::serializers::viewer::Viewer;
+use cloud_control_plane::apps::accounts::server_fn::consume_login_link::consume_login_link;
 use cloud_control_plane::apps::accounts::server_fn::take_sign_in_notice::take_sign_in_notice;
 use cloud_control_plane::apps::accounts::urls::paths::{
-	AUTH_PREFIX, GITHUB_SIGN_IN_PATH, HOME_PATH, SIGN_IN_PAGE_PATH,
+	AUTH_PREFIX, GITHUB_SIGN_IN_PATH, HOME_PATH, LOGIN_LINK_PAGE_PATH, SIGN_IN_PAGE_PATH,
 };
 use cloud_control_plane::apps::accounts::urls::reverse;
 use cloud_control_plane::i18n::i18n_context;
@@ -26,6 +31,7 @@ use reinhardt::pages::{Element as DomElement, document};
 use reinhardt::test::fixtures::wasm::msw::msw_worker;
 use reinhardt::test::msw::MockServiceWorker;
 use rstest::rstest;
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -292,5 +298,135 @@ fn the_client_routes_and_the_server_redirects_agree() {
 	// Arrange / Act / Assert
 	assert_eq!(reverse("sign-in", &[]), SIGN_IN_PAGE_PATH);
 	assert_eq!(reverse("home", &[]), HOME_PATH);
+	assert_eq!(reverse("login-link", &[]), LOGIN_LINK_PAGE_PATH);
 	assert_eq!(GITHUB_SIGN_IN_PATH, format!("{AUTH_PREFIX}github/"));
+}
+
+/// The server-side answers `consume_login_link` is taught to give.
+async fn worker_confirming_with(
+	outcome: Result<LoginLinkOutcome, reinhardt::pages::server_fn::ServerFnError>,
+) -> MockServiceWorker {
+	let worker = msw_worker().await;
+	worker.handle_server_fn::<consume_login_link::marker>(move |_| outcome.clone());
+	worker
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_login_link_page_calls_the_server_only_when_the_button_is_pressed() {
+	// Arrange
+	let worker = worker_confirming_with(Ok(LoginLinkOutcome::Rejected)).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(|| login_link_content(Some("secret-from-the-fragment".to_owned())));
+	settle().await;
+
+	// Assert
+	let button = sandbox.query("button");
+	assert_eq!(button.text_content().as_deref(), Some("Sign in"));
+	worker
+		.calls_to_server_fn::<consume_login_link::marker>()
+		.assert_not_called();
+	assert!(
+		!sandbox.text().contains("secret-from-the-fragment"),
+		"the secret is never rendered"
+	);
+
+	// Act again
+	button
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert again
+	worker
+		.calls_to_server_fn::<consume_login_link::marker>()
+		.assert_count(1);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_rejected_link_reads_one_generic_alert() {
+	// Arrange
+	let _worker = worker_confirming_with(Ok(LoginLinkOutcome::Rejected)).await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(|| login_link_content(Some("secret".to_owned())));
+	settle().await;
+
+	// Act
+	sandbox
+		.query("button")
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert
+	let text = sandbox
+		.query("[role='alert']")
+		.text_content()
+		.unwrap_or_default();
+	assert!(text.contains("This sign-in link did not work"), "{text}");
+	assert!(
+		text.contains("may already have been used, may have expired, or may be incomplete"),
+		"{text}"
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_failed_call_reads_the_same_alert_as_a_rejected_link() {
+	// Arrange
+	let _worker = worker_confirming_with(Err(reinhardt::pages::server_fn::ServerFnError::server(
+		500,
+		"Internal server error",
+	)))
+	.await;
+	let sandbox = Sandbox::new();
+	sandbox.mount(|| login_link_content(Some("secret".to_owned())));
+	settle().await;
+
+	// Act
+	sandbox
+		.query("button")
+		.dyn_into::<web_sys::HtmlElement>()
+		.expect("the button is an HTML element")
+		.click();
+	settle().await;
+
+	// Assert
+	let expected = Sandbox::new();
+	expected.mount(rejected_alert);
+	// Text, not markup: the panel wraps its slot in reactive markers.
+	assert_eq!(
+		sandbox.query("[role='alert']").text_content(),
+		expected.query("[role='alert']").text_content()
+	);
+}
+
+#[rstest]
+#[test_attr(wasm_bindgen_test)]
+async fn a_login_link_page_without_a_secret_offers_no_button_and_calls_nothing() {
+	// Arrange
+	let worker = worker_confirming_with(Ok(LoginLinkOutcome::SignedIn)).await;
+	let sandbox = Sandbox::new();
+
+	// Act
+	sandbox.mount(|| login_link_content(None));
+	settle().await;
+
+	// Assert
+	assert!(sandbox.find("button").is_none());
+	assert!(
+		sandbox
+			.query("[role='alert']")
+			.text_content()
+			.unwrap_or_default()
+			.contains("did not work")
+	);
+	worker
+		.calls_to_server_fn::<consume_login_link::marker>()
+		.assert_not_called();
 }

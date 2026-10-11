@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use reinhardt::commands::{BaseCommand, CommandContext, RunServerCommand};
+use reinhardt::conf::HasCoreSettings;
 use reinhardt::db::backends::DatabaseConnection;
 use reinhardt::db::orm::init_database;
 
@@ -77,6 +78,18 @@ async fn initialize_orm_database(ctx: &CommandContext) -> Result<(), Box<dyn Err
 		.settings
 		.as_deref()
 		.ok_or("the server context carries no settings")?;
+	initialize_orm_pool(settings).await
+}
+
+/// Initialize the global ORM connection pool from `settings`.
+///
+/// Shared with the `manage` commands that touch the database: a registered
+/// custom command does not get the pool from the command driver (it is created
+/// only for the built-in commands that declare they need it).
+pub(crate) async fn initialize_orm_pool<S>(settings: &S) -> Result<(), Box<dyn Error>>
+where
+	S: HasCoreSettings + ?Sized,
+{
 	let url = DatabaseConnection::database_url_from(settings, None)?;
 	init_database(&url).await?;
 	Ok(())
@@ -89,6 +102,7 @@ async fn initialize_orm_database(ctx: &CommandContext) -> Result<(), Box<dyn Err
 /// Returns an error when settings validation fails, route registration fails,
 /// or the server itself fails.
 pub async fn run(bind_addr: &str) -> Result<(), Box<dyn Error>> {
+	crate::logging::init();
 	serve(&prepare_context(bind_addr)?).await
 }
 

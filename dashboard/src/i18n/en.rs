@@ -44,6 +44,21 @@ pub const MESSAGES: &[(&str, &str)] = &[
 		"GitHub did not complete the sign-in. Try again, and ask Staff of this Control Plane if it keeps happening.",
 		"GitHub did not complete the sign-in. Try again, and ask Staff of this Control Plane if it keeps happening.",
 	),
+	// Login Link page
+	("Sign in with a Login Link", "Sign in with a Login Link"),
+	(
+		"A host operator of this Control Plane issued this link to sign you in. It works once and expires soon. Press the button to use it now.",
+		"A host operator of this Control Plane issued this link to sign you in. It works once and expires soon. Press the button to use it now.",
+	),
+	("Sign in", "Sign in"),
+	(
+		"This sign-in link did not work",
+		"This sign-in link did not work",
+	),
+	(
+		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
+		"The link may already have been used, may have expired, or may be incomplete. Ask the operator who sent it to issue a new one.",
+	),
 	// Signed-in landing
 	("Signed in as {name}", "Signed in as {name}"),
 	("@{login}", "@{login}"),

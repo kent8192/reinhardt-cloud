@@ -76,6 +76,83 @@ Staff. State-changing cookie-authenticated requests must carry an allowed
 serves; the single-page application shell and static assets are answered by the
 framework's static layer, which cannot carry them yet (reinhardt-web#6721).
 
+### Operator access: Staff, Login Links, and moving a User
+
+Three operations are available only as `manage` commands, so each needs host
+operator access (a shell on the host or in the container, with the Control
+Plane's settings in its environment). No HTTP, WebSocket, or gRPC endpoint,
+Invitation, or CLI Session can do any of them, and each emits an audit event with
+the numeric GitHub user ID.
+
+```bash
+# Pre-provision the first Staff User of a new deployment (SR-105), or grant Staff.
+# The account need not have signed in: it is created from the ID alone and can
+# sign in with GitHub whatever the sign-up policy is. The exemption is for that
+# one ID. Add --revoke to remove Staff and end the User's sessions (a User who was
+# pre-provisioned and never signed in is removed with it). Revoking a User who is
+# not Staff changes nothing and ends no session, like a repeated grant.
+manage grant-staff --github-user-id 583231
+manage grant-staff --github-user-id 583231 --revoke
+
+# Print a single-use sign-in URL for an existing, active User (break-glass access,
+# automation, a deployment without GitHub sign-in). The URL is the only thing on
+# standard output, once; it is stored only as a hash and cannot be shown again.
+# --ttl-minutes shortens the default 10 minutes; 15 is a hard ceiling.
+url=$(manage create-login-link --github-user-id 583231 --ttl-minutes 5)
+
+# Move a User to another GitHub account. Memberships, roles, and Staff stay; the
+# old account's stored tokens and unused Login Links are removed and every session
+# ends. An ID that another User already has is refused. If Redis cannot be reached
+# after the move committed, the User is deactivated (leftover sessions are then
+# refused on their next request) and the command fails; recover as below.
+manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
+
+# Recovery, once Redis is reachable again. The admin site is not a recovery path:
+# it needs an active Staff User, and the User who needs recovering may be the only
+# one. It also cannot reactivate anyone: the User admin is read-only (activation,
+# Staff, and identity change only through these commands), because reinhardt-admin
+# has no hook that could end the sessions first. end-sessions ends every browser session of the User (non-zero exit if Redis
+# fails). reactivate-user ends every session first, and only then sets the User
+# active again, because a session left in Redis while the User was inactive would
+# otherwise become valid again; it refuses if the sessions cannot be ended and
+# changes nothing for a User who is already active. Use the User's current
+# (new) GitHub user ID.
+manage end-sessions --github-user-id 9919
+manage reactivate-user --github-user-id 9919
+
+# Deactivate a User (they can no longer sign in, and every session of theirs is
+# refused on its next request because the flag is read from the database on every
+# request). The sessions are then ended on a best-effort basis: if Redis is down
+# the command still succeeds, says so, and audits `accounts.deactivate.failed`;
+# run end-sessions later to remove them. An already-inactive User is unchanged.
+manage deactivate-user --github-user-id 9919
+```
+
+These three commands, `deactivate-user`, `reactivate-user`, and `end-sessions`,
+are the whole activation path: the User admin is read-only (including
+`is_active`), because reinhardt-admin has no hook that could end a User's sessions
+before an admin-side reactivation (kent8192/reinhardt-web#6725, tracked in
+kent8192/reinhardt-cloud#956).
+
+A Login Link looks like `<REINHARDT_CLOUD_PUBLIC_URL>/sign-in/link/#<secret>`.
+The secret is in the URL fragment, which a browser never sends, so loading the
+page puts it in no access log, proxy log, or `Referer`, and a link previewer or
+mail scanner that only fetches the URL consumes nothing. The page shows a
+"Sign in" button; pressing it sends the secret in a POST from the Dashboard's
+own origin. Consumption is one atomic conditional update, so a link works once
+even when two browsers race for it, and an unknown, used, expired, or
+deactivated-User link all get the same answer. The session it creates is the
+same one GitHub sign-in creates, and it counts as a sign-in: a pre-provisioned
+User who signed in with a Login Link keeps their row when Staff is revoked and is
+only demoted, because the row is removed only for a User who never signed in. The
+URL needs `REINHARDT_CLOUD_PUBLIC_URL` to be
+an origin; the command refuses otherwise.
+
+The audit records are written as JSON lines on standard error, filtered by
+`RUST_LOG` (default `info`), by the server and by every `manage` command
+(`logging::init`, called by `manage` itself). Nothing else installs a log
+output, so without this the audit events would be discarded.
+
 ### Audit events
 
 Security-relevant decisions are recorded through `crate::audit::AuditEvent`: a
@@ -122,6 +199,7 @@ cargo build --release -p reinhardt-cloud-dashboard
 dashboard/
 ├── src/
 │   ├── audit.rs      # Shared audit-event helper (`tracing` target `audit`)
+│   ├── logging.rs    # Process-wide `tracing` output (JSON lines on stderr)
 │   ├── main.rs       # Server binary (container entry point)
 │   ├── server.rs     # Server bootstrap used by main.rs (ORM pool, documentation switch)
 │   ├── config/       # Settings, project routes, admin site, request-surface middleware
@@ -144,7 +222,7 @@ dashboard/
 │   │       ├── services/      # Split client/server service implementations
 │   │       ├── urls/          # Split client/server route implementations
 │   │       └── server/        # Native-only models/forms/views/admin wiring
-│   └── config/       # Server configuration
+│   └── config/       # Settings, routes, admin site, middleware, `manage` command registry
 ├── migrations/       # Database migrations
 ├── settings/         # TOML profiles (base, ci, staging, production; local is ignored)
 ├── static/           # Design tokens, base styles, utilities, images (collected by `collectstatic`)
@@ -214,7 +292,18 @@ cargo run --bin manage runserver --grpc-address 127.0.0.1:50061
 
 # Export the deterministic application contract
 cargo run --bin manage contract export --format json
+
+# Operator access (see "Operator access" above)
+cargo run --bin manage grant-staff --github-user-id <id> [--revoke]
+cargo run --bin manage create-login-link --github-user-id <id> [--ttl-minutes <n>]
+cargo run --bin manage repoint-github-account --github-user-id <id> --new-github-user-id <id>
+cargo run --bin manage end-sessions --github-user-id <id>
+cargo run --bin manage reactivate-user --github-user-id <id>
+cargo run --bin manage deactivate-user --github-user-id <id>
 ```
+
+The project-specific commands are registered in `src/config/commands.rs`, one
+line per application that contributes commands.
 
 ### Rust management shell (opt-in)
 
