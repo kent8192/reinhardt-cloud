@@ -6,6 +6,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use cloud_control_plane::components::alert::{ALERT_STYLES, AlertTone, alert, alert_classes};
+use cloud_control_plane::components::avatar::{
+	AVATAR_STYLES, AvatarSize, avatar, avatar_classes, initials,
+};
 use cloud_control_plane::components::badge::{BadgeStatus, badge, badge_classes, chip};
 use cloud_control_plane::components::button::{
 	ButtonProps, ButtonSize, ButtonVariant, button, button_class, button_classes,
@@ -17,6 +20,10 @@ use cloud_control_plane::components::dialog::{
 };
 use cloud_control_plane::components::empty_state::empty_state;
 use cloud_control_plane::components::form_styles::{FORM_STYLES, form_classes};
+use cloud_control_plane::components::layout::signed_in::{
+	NavItem, SignedInFrame, menu, menu_item_class, menu_link, page_head, page_section, person,
+	signed_in_layout,
+};
 use cloud_control_plane::components::layout::signed_out::{MAIN_ID, signed_out_layout};
 use cloud_control_plane::components::theme::{Theme, theme_toggle};
 use cloud_control_plane::i18n::i18n_context;
@@ -623,5 +630,280 @@ fn signed_out_layout_renders_a_router_outlet_as_its_content() {
 			"Welcome"
 		);
 		assert!(screen.pretty().contains(&format!("<main id=\"{MAIN_ID}\"")));
+	});
+}
+
+#[rstest]
+#[case::two_words("Mina Okafor", "mokafor", "MO")]
+#[case::one_word("riley", "rchen", "R")]
+#[case::more_than_two_words("Riley Chen Park", "rpark", "RC")]
+#[case::surrounding_space("  Riley   Chen ", "rchen", "RC")]
+#[case::falls_back_to_the_login("", "octocat", "O")]
+#[case::blank_name_falls_back_to_the_login("   ", "octocat", "O")]
+#[case::accented_letters("élodie durand", "edurand", "ÉD")]
+#[case::nothing_at_all("", "", "")]
+fn initials_come_from_the_name_and_fall_back_to_the_login(
+	#[case] name: &str,
+	#[case] login: &str,
+	#[case] expected: &str,
+) {
+	// Arrange / Act
+	let result = initials(name, login);
+
+	// Assert
+	assert_eq!(result, expected);
+}
+
+#[rstest]
+#[serial(i18n)]
+fn avatar_shows_its_initials_and_hides_from_assistive_technology() {
+	within_ui(|| {
+		// Arrange
+		let large = class_value(avatar_classes(AvatarSize::Large));
+		let regular = class_value(avatar_classes(AvatarSize::Regular));
+
+		// Act
+		let html = avatar("MO".to_owned(), AvatarSize::Large).render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!("<span class=\"{large}\" aria-hidden=\"true\">MO</span>")
+		);
+		assert!(large.contains(&class_value(AVATAR_STYLES.large())));
+		assert!(!regular.contains(&class_value(AVATAR_STYLES.large())));
+	});
+}
+
+fn frame_with(switcher: Option<Page>, overview_is_current: bool, user_menu: Page) -> SignedInFrame {
+	SignedInFrame {
+		home_href: "/".to_owned(),
+		switcher,
+		nav: vec![
+			NavItem {
+				label: t!("Overview"),
+				href: "/".to_owned(),
+				current: overview_is_current,
+			},
+			NavItem {
+				label: t!("Account"),
+				href: "/account/".to_owned(),
+				current: !overview_is_current,
+			},
+		],
+		user_menu,
+	}
+}
+
+#[rstest]
+#[serial(i18n)]
+fn signed_in_layout_has_the_landmarks_the_brand_the_navigation_and_the_theme_toggle() {
+	within_ui(|| {
+		// Arrange
+		let content = page!({
+			h1 { "Overview" }
+		});
+		let user_menu: Page = page!({
+			p { "user menu slot" }
+		});
+
+		// Act
+		let screen = render(|| signed_in_layout(frame_with(None, true, user_menu), content));
+		let html = screen.pretty();
+
+		// Assert
+		assert_eq!(
+			screen
+				.get_by_role(Role::Link, "Skip to main content")
+				.text(),
+			"Skip to main content"
+		);
+		assert!(html.contains(&format!("href=\"#{MAIN_ID}\"")));
+		assert!(html.contains(&format!("<main id=\"{MAIN_ID}\"")));
+		assert_eq!(
+			screen.get_by_role(Role::Navigation, "Primary").tag_name(),
+			"nav"
+		);
+		assert!(html.contains("aria-label=\"Sidebar\""));
+		assert!(html.contains(
+			"<img src=\"/static/img/logo-mark-small.png\" alt=\"\" width=\"142\" height=\"98\">"
+		));
+		assert_eq!(
+			screen.get_by_role(Role::Heading, "Overview").text(),
+			"Overview"
+		);
+		assert_eq!(
+			screen.get_by_text("user menu slot").text(),
+			"user menu slot"
+		);
+		assert_eq!(
+			screen
+				.get_by_role(Role::Button, "Switch to dark theme")
+				.text(),
+			"Switch to dark theme"
+		);
+	});
+}
+
+#[rstest]
+#[case::overview(true, "/", "/account/")]
+#[case::account(false, "/account/", "/")]
+#[serial(i18n)]
+fn signed_in_layout_marks_exactly_the_current_page_in_the_navigation(
+	#[case] overview_is_current: bool,
+	#[case] marked_href: &str,
+	#[case] unmarked_href: &str,
+) {
+	within_ui(|| {
+		// Arrange
+		let content: Page = page!({
+			p { "content" }
+		});
+
+		// Act
+		let screen = render(|| {
+			signed_in_layout(
+				frame_with(None, overview_is_current, Page::empty()),
+				content,
+			)
+		});
+		let html = screen.pretty();
+
+		// Assert
+		let marked_lines: Vec<&str> = html
+			.lines()
+			.filter(|line| line.contains("aria-current"))
+			.collect();
+		assert_eq!(marked_lines.len(), 1, "{html}");
+		assert!(
+			marked_lines[0].contains(&format!("href=\"{marked_href}\" aria-current=\"page\"")),
+			"{html}"
+		);
+		let unmarked = html
+			.lines()
+			.find(|line| {
+				line.contains(&format!("href=\"{unmarked_href}\"")) && line.contains("nav_link")
+			})
+			.expect("the other link is in the navigation");
+		assert!(!unmarked.contains("aria-current"), "{unmarked}");
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn signed_in_layout_renders_nothing_for_an_absent_organization_switcher() {
+	within_ui(|| {
+		// Arrange
+		let content: Page = page!({
+			p { "content" }
+		});
+		let switcher: Page = page!({
+			p { "switcher slot" }
+		});
+
+		// Act
+		let without =
+			render(|| signed_in_layout(frame_with(None, true, Page::empty()), content.clone()));
+		let with =
+			render(|| signed_in_layout(frame_with(Some(switcher), true, Page::empty()), content));
+
+		// Assert
+		assert!(without.query_by_text("switcher slot").is_none());
+		assert_eq!(with.get_by_text("switcher slot").text(), "switcher slot");
+		let html = without.pretty();
+		let after_brand = &html[html.find("Reinhardt Cloud").expect("the brand is rendered")..];
+		let brand_end = after_brand.find("</a>").expect("the brand link closes") + "</a>".len();
+		let nav_start = after_brand.find("<nav").expect("the navigation opens");
+		assert_eq!(
+			after_brand[brand_end..nav_start].trim(),
+			"",
+			"nothing sits between the brand and the navigation"
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn menu_is_a_disclosure_with_its_toggle_and_entries() {
+	within_ui(|| {
+		// Arrange
+		let who = person(
+			avatar("MO".to_owned(), AvatarSize::Regular),
+			t!("User menu"),
+			"Mina Okafor".to_owned(),
+			"@mokafor".to_owned(),
+		);
+		let entries = vec![menu_link("/account/".to_owned(), t!("Account"))];
+
+		// Act
+		let screen = render(|| menu(who, entries));
+		let html = screen.pretty();
+
+		// Assert
+		assert_eq!(html.matches("<details").count(), 1);
+		assert!(html.contains("data-menu=\"true\""));
+		assert_eq!(html.matches("<summary").count(), 1);
+		assert_eq!(screen.get_by_text("Mina Okafor").text(), "Mina Okafor");
+		assert_eq!(screen.get_by_text("@mokafor").text(), "@mokafor");
+		assert_eq!(screen.get_by_text("User menu").text(), "User menu");
+		assert_eq!(screen.get_by_role(Role::Link, "Account").text(), "Account");
+		assert!(html.contains("href=\"/account/\""));
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn menu_item_class_is_the_class_menu_links_carry() {
+	within_ui(|| {
+		// Arrange
+		let link = menu_link("/account/".to_owned(), t!("Account"));
+
+		// Act
+		let html = link.render_to_string();
+
+		// Assert
+		assert_eq!(
+			html,
+			format!(
+				"<a class=\"{}\" href=\"/account/\">Account</a>",
+				menu_item_class()
+			)
+		);
+	});
+}
+
+#[rstest]
+#[serial(i18n)]
+fn page_head_and_section_label_their_content() {
+	within_ui(|| {
+		// Arrange
+		let body: Page = page!({
+			p { "facts" }
+		});
+
+		// Act
+		let screen = render(|| {
+			Page::Fragment(vec![
+				page_head(
+					t!("Account"),
+					t!("The GitHub profile this Control Plane knows you by."),
+				),
+				page_section("account-profile", t!("Profile"), body),
+			])
+		});
+		let html = screen.pretty();
+
+		// Assert
+		assert_eq!(
+			screen.get_by_role(Role::Heading, "Account").tag_name(),
+			"h1"
+		);
+		assert_eq!(
+			screen.get_by_role(Role::Heading, "Profile").tag_name(),
+			"h2"
+		);
+		assert!(html.contains("aria-labelledby=\"account-profile-title\""));
+		assert!(html.contains("id=\"account-profile-title\""));
+		assert_eq!(screen.get_by_text("facts").text(), "facts");
 	});
 }

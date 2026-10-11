@@ -39,6 +39,34 @@ mod browser_impl {
 			.map(str::to_owned)
 	}
 
+	pub(super) fn close_open_menus(selector: &str) {
+		let Some(document) = window().and_then(|window| window.document()) else {
+			return;
+		};
+		let Ok(menus) = document.query_selector_all(selector) else {
+			return;
+		};
+		for index in 0..menus.length() {
+			let Some(menu) = menus
+				.item(index)
+				.and_then(|node| node.dyn_into::<web_sys::Element>().ok())
+			else {
+				continue;
+			};
+			// Removing an attribute that is present cannot fail.
+			let _ = menu.remove_attribute("open");
+			// Hand focus back to the control that opened the menu.
+			if let Some(summary) = menu
+				.query_selector("summary")
+				.ok()
+				.flatten()
+				.and_then(|summary| summary.dyn_into::<web_sys::HtmlElement>().ok())
+			{
+				let _ = summary.focus();
+			}
+		}
+	}
+
 	pub(super) fn read_stored(key: &str) -> Option<String> {
 		// Storage can be blocked by the browser; treat that as "nothing stored".
 		window()?.local_storage().ok()??.get_item(key).ok()?
@@ -165,6 +193,8 @@ mod browser_impl {
 		None
 	}
 
+	pub(super) fn close_open_menus(_selector: &str) {}
+
 	pub(super) fn read_stored(_key: &str) -> Option<String> {
 		None
 	}
@@ -213,6 +243,15 @@ pub fn set_document_theme(theme: &str) {
 /// keeps its secret there. Always `None` on the server target.
 pub fn location_fragment() -> Option<String> {
 	browser_impl::location_fragment()
+}
+
+/// Closes every open disclosure menu matching `selector` and returns focus to
+/// its summary. Does nothing on the server target.
+///
+/// A `<details>` menu opens and closes without scripting; this is the keyboard
+/// dismissal (`Escape`) the native element does not provide.
+pub fn close_open_menus(selector: &str) {
+	browser_impl::close_open_menus(selector);
 }
 
 /// Reads a value from local storage; `None` when absent or storage is blocked.

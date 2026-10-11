@@ -97,6 +97,14 @@
 	--control-height-lg: 2.75rem;
 	/* Brand mark width in the signed-out chrome. */
 	--brand-mark-width: 2.75rem;
+	/* Brand mark width in the signed-in sidebar. */
+	--sidebar-brand-mark-width: 2.25rem;
+	/* Disclosure chevron of the sidebar menus. */
+	--chevron-size: 0.5rem;
+	--chevron-stroke: 1.5px;
+	/* Initials avatar: in the sidebar User menu, and on the account page. */
+	--avatar-size: 2rem;
+	--avatar-size-lg: 3.5rem;
 	/* Moves the skip link above the viewport until it receives focus. */
 	--skip-link-hidden-top: -4rem;
 

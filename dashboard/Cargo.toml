@@ -52,6 +52,10 @@ web-sys = { version = "0.3", features = [
 	"Navigator",
 	"Clipboard",
 	"HtmlDialogElement",
+	"HtmlElement",
+	"NodeList",
+	"KeyboardEvent",
+	"KeyboardEventInit",
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
