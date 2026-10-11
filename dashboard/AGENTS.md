@@ -179,8 +179,14 @@ is the only non-DI type allowed in a binary.
 - A signed-in page renders its content through `signed_in_page`
   (`apps/accounts/client/components/shell.rs`): the shell frames it, the guard sends
   an anonymous browser to sign-in, and the navigation lists only pages that exist.
-  A page does not use a `#[layout]` route for the shell, because a mounted layout
-  cannot move the navigation's current-page marker when a sibling route is shown.
+  Workaround for kent8192/reinhardt-web#6727 (tracked in
+  kent8192/reinhardt-cloud#958): the shell is not a `#[layout]` route, because a
+  mounted layout cannot read the current route to move the navigation's
+  current-page marker. Remove this when the upstream issue is resolved.
+  Ideal implementation: a `#[layout("/", name = "signed-in-shell")]` function
+  `signed_in_shell(outlet: Outlet)` that renders `signed_in_layout(frame, outlet)`
+  with `Link` entries that follow the reactive current route, and pages that
+  return only their content.
 - Keep shared code cfg-clean across native and `wasm32-unknown-unknown`. Use the
   generated `client` / `server` cfg aliases.
 

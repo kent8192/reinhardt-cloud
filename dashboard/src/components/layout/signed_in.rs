@@ -5,16 +5,30 @@
 //! content fills the `<main>` landmark beside it. On small screens the sidebar
 //! becomes a header block above the content.
 //!
-//! `reinhardt-pages` checked: `#[layout(path, name = ..)]` with `Outlet` keeps
-//! its shell mounted while sibling routes change, so the shell would not
-//! re-render to move the current-page marker of the navigation (nothing in
-//! `reinhardt-pages` exposes the current route to a mounted component); each
-//! page therefore renders this frame itself. `router::Link` takes a plain
-//! `String` label and no `aria-current`, so the navigation links are anchors
-//! the client's link interception routes. The menus are `<details>`
-//! disclosures: they sit in the sidebar's document flow and cover nothing, so
-//! they need no `Portal`. `ui` and `tables` have no navigation or menu
-//! primitive; the theme toggle is the shared `theme_toggle_as`.
+//! `reinhardt-pages` checked: `router::Link` takes a plain `String` label and
+//! has no active-link support, so the navigation links are anchors the client's
+//! link interception routes. The menus are `<details>` disclosures. `ui` and
+//! `tables` have no navigation or menu primitive; the theme toggle is the
+//! shared `theme_toggle_as`.
+//!
+//! Workaround for kent8192/reinhardt-web#6727 (tracked in
+//! kent8192/reinhardt-cloud#958): a `#[layout]` route keeps its shell mounted
+//! while sibling routes change, and `reinhardt-pages` 0.4.0-alpha.20 gives a
+//! mounted component no public way to read the current route (`use_router()`
+//! exposes only push, replace, and navigate; `SpaRouter::current_path` is
+//! reachable only through the `#[doc(hidden)]` `with_spa_router`), so a layout
+//! cannot move the current-page marker of the navigation. Each page therefore
+//! renders this frame itself through `signed_in_page`, which remounts the shell
+//! on every navigation. Remove this workaround when the upstream issue is
+//! resolved.
+//!
+//! Ideal implementation (without workaround):
+//!   `#[layout("/", name = "signed-in-shell")]`
+//!   `fn signed_in_shell(outlet: Outlet) -> Page`
+//!   `    { signed_in_layout(frame_for(viewer), outlet) }`
+//!   // The navigation entries are `Link`s that follow the reactive current
+//!   // route and carry `aria-current="page"`; the pages are `#[layout]`
+//!   // children that return only their content, and the shell stays mounted.
 //!
 //! The Organization switcher is `None` until Organizations exist; nothing is
 //! rendered for it, not even an empty region.
