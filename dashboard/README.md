@@ -111,12 +111,17 @@ manage repoint-github-account --github-user-id 583231 --new-github-user-id 9919
 # it needs an active Staff User, and the User who needs recovering may be the only
 # one. It also cannot reactivate anyone: the User admin is read-only (activation,
 # Staff, and identity change only through these commands), because reinhardt-admin
-# has no hook that could end the sessions first. end-sessions ends every browser session of the User (non-zero exit if Redis
-# fails). reactivate-user ends every session first, and only then sets the User
-# active again, because a session left in Redis while the User was inactive would
-# otherwise become valid again; it refuses if the sessions cannot be ended and
-# changes nothing for a User who is already active. Use the User's current
-# (new) GitHub user ID.
+# has no hook that could end the sessions first.
+#
+# end-sessions ends every browser session of the User (non-zero exit if Redis
+# fails).
+#
+# reactivate-user ends every session first, and only then sets the User active
+# again, because a session left in Redis while the User was inactive would
+# otherwise become valid again. It refuses if the sessions cannot be ended and
+# changes nothing for a User who is already active.
+#
+# Use the User's current (new) GitHub user ID with both.
 manage end-sessions --github-user-id 9919
 manage reactivate-user --github-user-id 9919
 

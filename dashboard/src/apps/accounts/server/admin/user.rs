@@ -1,10 +1,10 @@
 //! Admin configuration for the `User` model.
 //!
 //! The admin site shows Users and changes nothing about them. Every field is
-//! read-only and changing a User is not permitted at all (reinhardt-admin
-//! rejects any submitted read-only field on the server, and `allow_change =
-//! false` refuses the update and inline-edit server functions before they look
-//! at the data):
+//! read-only (reinhardt-admin rejects any submitted read-only field on the
+//! server), and changing a User is not permitted at all: the registration sets
+//! no `allow_change`, and the framework default denies the update and
+//! inline-edit server functions before they look at the data:
 //!
 //! - `is_staff` and the GitHub identity are changed only by `manage grant-staff`
 //!   and `manage repoint-github-account` (SR-20, SR-107);
