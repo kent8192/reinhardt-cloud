@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-cli@v0.1.0-alpha.2...reinhardt-cloud-cli@v0.1.0-alpha.3) - 2026-10-12
+
+### Added
+
+- *(dashboard)* publish pages through unified static assets
+
+### Changed
+
+- *(cli)* move the dockerfile backup to a path that does not exist yet
+
+### Fixed
+
+- *(assets)* publish Pages with a capable framework and configured root
+- *(assets)* preserve generated Pages publication settings end to end
+- *(pages)* preserve publication URL and validate generated build context
+- *(pages)* preserve image publication and select project dependency graph
+- *(operator)* seed pages volumes from an explicit prebuilt publication marker
+- *(cli)* reject custom runtime base images for generated pages dockerfiles
+- *(cli)* reject a root static url for generated pages
+- *(cli)* write project config only after dockerfile generation succeeds
+- *(cli)* collect build-time settings variables from the effective profile
+- *(dashboard)* record the baked pages publication in the deployment config
+- *(cli)* reject protocol-relative and unnormalized pages static urls
+- *(cli)* replace project config and dockerfile together
+- *(pages)* reject env overrides that move a prebuilt publication
+- *(pages)* allow working-directory base_dir overrides for prebuilt publications
+- *(pages)* treat settings directory overrides as publication conflicts
+- *(cli)* pass declared build args to pages asset publication
+
+### Maintenance
+
+- merge origin/main into feature/issue-6337-buildstatic
+
+### Security
+
+- *(cli)* reject pages static roots that contain workspace sources
+
 ## [0.1.0-alpha.1](https://github.com/kent8192/reinhardt-cloud/releases/tag/reinhardt-cloud-cli@v0.1.0-alpha.1) - 2026-06-21
 
 ### Added

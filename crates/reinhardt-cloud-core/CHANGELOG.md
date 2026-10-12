@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-core@v0.1.0-alpha.2...reinhardt-cloud-core@v0.1.0-alpha.3) - 2026-10-12
+
+### Added
+
+- *(core)* add forbidden variant to api error mapped to permission denied
+- *(core)* [**breaking**] document api error as exhaustive and flag forbidden variant and agent trait changes as breaking
+
+### Security
+
+- *(grpc)* bind agent-reported identities to the authenticated cluster
+
 ## [0.1.0-alpha.1](https://github.com/kent8192/reinhardt-cloud/releases/tag/reinhardt-cloud-core@v0.1.0-alpha.1) - 2026-06-21
 
 ### Added
