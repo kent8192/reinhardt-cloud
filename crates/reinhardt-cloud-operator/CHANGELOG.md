@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-operator@v0.1.0-alpha.2...reinhardt-cloud-operator@v0.1.0-alpha.3) - 2026-10-12
+
+### Fixed
+
+- *(operator)* track Redis secret provenance
+- *(operator)* protect retained Redis Secret data and status updates
+- *(operator)* validate Redis provenance before launching consumers
+- *(operator)* converge concurrent Redis credential creation on the winning Secret
+- *(operator)* periodically recheck resource ownership conflicts
+- *(operator)* guarantee a single operator Pod in the Helm chart
+- *(operator)* roll Redis consumers when the credentials Secret is regenerated
+- *(operator)* roll Redis consumers before the build and migration gates
+- *(operator)* rerun failed migration Jobs after Redis credential regeneration
+
+### Maintenance
+
+- *(operator)* merge main into preview cleanup branch
+
+### Security
+
+- *(operator)* require Project ownership for Redis credentials
+- *(operator)* recover interrupted Redis credential creation from a committed digest
+- *(operator)* re-validate Redis credentials when the Secret is replaced
+- *(operator)* restore watch labels on the approved Redis credentials Secret
+- *(operator)* stop persisting the Redis credential digest after the UID is recorded
+
+### Testing
+
+- *(operator)* keep Redis result diagnostics free of secret payloads
+- *(operator)* drop chart template text assertion from reconciler tests
+
 ## [0.1.0-alpha.2](https://github.com/kent8192/reinhardt-cloud/compare/reinhardt-cloud-operator@v0.1.0-alpha.1...reinhardt-cloud-operator@v0.1.0-alpha.2) - 2026-06-29
 
 ### Fixed
